@@ -334,10 +334,17 @@ fn launch_action(request: ActionLaunchRequest, target: gpui::AnyWindowHandle, cx
         log::warn!("actions: launch ignored — not signed in");
         return;
     };
+    let hooks = crate::steer_wiring::hook_setup(cx);
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
-            .spawn(async move { coding::prepare(&PrepareRequest::Action(request), &deps) })
+            .spawn(async move {
+                coding::prepare_with_hooks(
+                    &PrepareRequest::Action(request),
+                    &deps,
+                    hooks.as_ref(),
+                )
+            })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {

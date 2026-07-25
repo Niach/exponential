@@ -38,8 +38,10 @@ struct AgentSessionRouteView: View {
 
 /// The "Agent session" screen (EXP-32) — a chat-style view of a live coding
 /// session over the relay's scrubbed activity channel. NO terminal rendering:
-/// narration bubbles + compact tool rows, a pinned "Latest changes" diff chip
-/// above the input bar, and message-shaped steering (steal-claim + text + \r).
+/// narration bubbles, compact tool rows, collapsible subagent runs, question
+/// cards, and a pinned "Latest changes" diff chip above the input bar. Steering
+/// is message-shaped (steal-claim + text + \r) and questions answer through the
+/// semantic `answer` frame (EXP-249).
 /// Identical UX to the Android AgentSessionScreen (glass design system).
 /// Pushed onto the NavigationStack (EXP-221) — status lives in the native
 /// nav bar; back is the system chevron + swipe gesture.
@@ -55,7 +57,7 @@ struct AgentSessionView: View {
     @State private var showKillConfirm = false
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
-    /// the "Jump to latest" pill.
+    /// the "Jump to bottom" pill.
     @State private var atBottom = true
     @FocusState private var inputFocused: Bool
 
@@ -209,7 +211,7 @@ struct AgentSessionView: View {
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the
     /// top of the screen) with follow-scroll: pinned to the bottom until the
-    /// user scrolls up, then a "Jump to latest ↓" pill re-pins.
+    /// user scrolls up, then a "Jump to bottom ↓" pill re-pins.
     ///
     /// Follow state is derived from scroll GEOMETRY and the pin is an explicit
     /// scrollTo — NOT from onAppear/onDisappear of a lazy sentinel and NOT
@@ -278,7 +280,7 @@ struct AgentSessionView: View {
                                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                             }
                         } label: {
-                            Text("Jump to latest ↓")
+                            Text("Jump to bottom ↓")
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 14)
@@ -296,32 +298,90 @@ struct AgentSessionView: View {
     }
 
     @ViewBuilder
-    private func feedRow(_ row: AgentSessionModel.FeedRow, isLast: Bool) -> some View {
+    private func feedRow(_ row: AgentFeedRow, isLast: Bool) -> some View {
         switch row {
         case let .toolRun(items):
             ToolGroupRow(items: items, liveTail: isLast && model?.phase == .live)
+        case let .subagentRun(run):
+            SubagentGroupRow(run: run, liveTail: isLast && model?.phase == .live)
+        case let .ask(group):
+            askCard(group)
         case let .single(item):
             switch item {
             case let .narration(_, text):
                 NarrationBubble(text: text)
-            case let .tool(_, name, detail):
+            case let .tool(_, name, detail, _):
                 ToolRow(name: name, detail: detail)
             case let .userMessage(_, text):
                 UserMessageBubble(text: text)
-            case let .question(id, text, options, multiSelect, planMode, _, answer):
-                QuestionCard(
-                    text: text,
-                    options: options,
-                    multiSelect: multiSelect,
-                    planMode: planMode,
-                    answer: answer,
-                    active: model?.activeQuestionIds.contains(id) ?? false,
-                    canAnswer: canAnswer,
-                    onAnswer: { key, submit in model?.sendAnswer(key, submit: submit) },
-                    onSubmit: { model?.sendSubmit() }
-                )
+            case let .question(question):
+                questionCard(question)
+            case let .subagent(_, _, agentType, status, detail):
+                SubagentRow(agentType: agentType, status: status, detail: detail)
+            case let .permission(_, tool, detail):
+                PermissionRow(tool: tool, detail: detail)
             }
         }
+    }
+
+    /// A lone question card: a plan approval, a single-question ask, or a
+    /// legacy (pre-EXP-249) card with no wire id.
+    @ViewBuilder
+    private func questionCard(_ question: AgentQuestion) -> some View {
+        QuestionCard(
+            question: question,
+            active: model?.activeQuestionIds.contains(question.id) ?? false,
+            canAnswer: canAnswer,
+            locked: model?.isAnswerLocked(question.lockKey) ?? false,
+            pending: model?.isAnswerPending(question.lockKey) ?? false,
+            onAnswer: { keys in sendAnswer(question, keys: keys) },
+            onLegacyToggle: { key in model?.sendLegacyKey(key) },
+            onLegacyAnswer: { key in model?.sendLegacyKey(key, lockKey: question.lockKey) },
+            onLegacySubmit: { model?.sendLegacyAdvance(lockKey: question.lockKey) }
+        )
+        .id(question.id)
+    }
+
+    /// A multi-question ask (EXP-249) as ONE stepper card, claude-style: one
+    /// step at a time, the desktop's `answer_ack` advances it, and the ask's
+    /// final review step submits the whole thing.
+    @ViewBuilder
+    private func askCard(_ group: AgentAskGroup) -> some View {
+        let stepIndex = AgentFeed.currentStepIndex(
+            of: group, done: model?.answeredQuestionIds ?? []
+        )
+        // Every step done: keep the last one on screen with its resolution.
+        let index = stepIndex ?? (group.questions.count - 1)
+        if group.questions.indices.contains(index) {
+            let question = group.questions[index]
+            QuestionCard(
+                question: question,
+                stepLabel: stepLabel(for: question, in: group),
+                priorSteps: Array(group.questions.prefix(index)),
+                active: stepIndex != nil && (model?.activeQuestionIds.contains(question.id) ?? false),
+                canAnswer: canAnswer,
+                locked: model?.isAnswerLocked(question.lockKey) ?? false,
+                pending: model?.isAnswerPending(question.lockKey) ?? false,
+                onAnswer: { keys in sendAnswer(question, keys: keys) },
+                onLegacyToggle: { _ in },
+                onLegacyAnswer: { _ in },
+                onLegacySubmit: {}
+            )
+            // A fresh identity per step — the card's local selection state must
+            // never leak from one question into the next.
+            .id(question.id)
+        }
+    }
+
+    private func stepLabel(for question: AgentQuestion, in group: AgentAskGroup) -> String? {
+        guard let index = question.index else { return nil }
+        let total = question.total ?? group.stepCount
+        return total > 1 ? "Question \(index) of \(total)" : nil
+    }
+
+    private func sendAnswer(_ question: AgentQuestion, keys: [String]) {
+        guard let wireId = question.wireId else { return }
+        model?.sendAnswer(questionId: wireId, askId: question.askId, keys: keys)
     }
 
     /// Whether this client may answer questions at all — a question card is
@@ -556,120 +616,104 @@ private struct UserMessageBubble: View {
     }
 }
 
-/// An interactive question (EXP-78): AskUserQuestion / plan approval. Option
-/// buttons send the option's raw TUI keystroke while the question is still
-/// active (per `activeQuestionIds` — trailing run, or an unresolved plan card,
-/// EXP-174); stale/view-only cards render options as plain rows.
-/// `planMode` cards (EXP-97) get a dedicated "Plan ready" presentation with
-/// the first option as the primary approve action — labels/keys always come
-/// from the wire options, the desktop owns the TUI key mapping. Best-effort
-/// by design — the desktop TUI remains the source of truth.
+/// An interactive question (EXP-78): AskUserQuestion step or plan approval.
+///
+/// Protocol v2 (EXP-249) cards carry a wire id, so a tap sends ONE semantic
+/// `answer` frame (the desktop maps keys to its own picker and confirms with
+/// `answer_ack`) and the card locks the moment it goes out — a second tap used
+/// to land on the NEXT question. Legacy cards keep the raw-keystroke path: a
+/// digit alone for single-select (never a trailing `\r`, which cascaded), digit
+/// toggles + Tab for multi-select. `planMode` cards (EXP-97) get a dedicated
+/// "Plan ready" presentation with the first wire option as the primary approve
+/// action; prompt and plan bodies render as markdown, which is what claude
+/// writes.
 private struct QuestionCard: View {
-    let text: String
-    let options: [AgentSessionModel.QuestionOption]
-    let multiSelect: Bool
-    let planMode: Bool
-    /// The chosen answer once the question resolved (EXP-197) — replaces the
-    /// option rows.
-    let answer: String?
+    let question: AgentQuestion
+    /// "Question 2 of 3" for a step of a multi-question ask; nil for a lone card.
+    var stepLabel: String? = nil
+    /// The ask's already-answered steps, summarized above this one.
+    var priorSteps: [AgentQuestion] = []
     /// Still answerable per the feed — the session is blocked on this card.
     let active: Bool
     /// Live + steer perm — whether this client may answer at all.
     let canAnswer: Bool
-    /// (key, submit) — single-select taps submit (digit + Enter); multi-select
-    /// taps toggle with the digit alone and `onSubmit` advances (Tab).
-    let onAnswer: (String, Bool) -> Void
-    let onSubmit: () -> Void
+    /// An answer is already out (or confirmed) for this card — every control
+    /// stays dead until the desktop resolves it or the lock expires.
+    let locked: Bool
+    /// Locked but not yet confirmed by the desktop (`answer_ack`).
+    let pending: Bool
+    /// Protocol v2: one semantic frame carrying every chosen key.
+    let onAnswer: ([String]) -> Void
+    /// Legacy multi-select: the raw digit that TOGGLES an option.
+    let onLegacyToggle: (String) -> Void
+    /// Legacy single-select: the raw digit that answers (and locks).
+    let onLegacyAnswer: (String) -> Void
+    /// Legacy multi-select: submit the picker (Tab).
+    let onLegacySubmit: () -> Void
 
     @State private var expanded = false
-    @State private var picked: Set<String> = []
+    /// Tap order is the submit order of the semantic answer frame.
+    @State private var picked: [String] = []
 
-    private static let clampLines = 6
     private static let clampChars = 600
+    private static let clampLines = 6
+    private static let clampHeight: CGFloat = 220
 
     /// Plans are always fully rendered — never folded (EXP-197).
     private var clampable: Bool {
-        !planMode
-            && (text.count > Self.clampChars
-                || text.filter { $0 == "\n" }.count >= Self.clampLines)
+        !question.planMode
+            && (question.text.count > Self.clampChars
+                || question.text.filter { $0 == "\n" }.count >= Self.clampLines)
     }
 
     private var answerable: Bool { active && canAnswer }
 
+    private var headerText: String? {
+        if question.planMode { return "Plan ready" }
+        var parts: [String] = []
+        if let stepLabel {
+            parts.append(stepLabel)
+        } else if question.isSubmitStep {
+            parts.append("Review")
+        }
+        if let header = question.header { parts.append(header) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Multi-select answers batch into one submit; everything else answers on
+    /// the option tap.
+    private var needsExplicitSubmit: Bool { question.multiSelect }
+
+    private var submitTitle: String { question.isSemantic ? "Submit" : "Continue" }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: planMode ? "checklist" : "questionmark.circle")
+            Image(systemName: question.planMode ? "checklist" : "questionmark.circle")
                 .font(.caption)
-                .foregroundStyle(planMode ? DesignTokens.Semantic.blue : DesignTokens.Semantic.yellow)
+                .foregroundStyle(
+                    question.planMode ? DesignTokens.Semantic.blue : DesignTokens.Semantic.yellow
+                )
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 8) {
-                if planMode {
-                    Text("Plan ready")
+                if let headerText {
+                    Text(headerText)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(DesignTokens.Semantic.blue)
+                        .foregroundStyle(
+                            question.planMode
+                                ? DesignTokens.Semantic.blue
+                                : Color.white.opacity(TextOpacity.secondary)
+                        )
                 }
-                Text(text)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .textSelection(.enabled)
-                    .lineLimit(clampable && !expanded ? Self.clampLines : nil)
-                if clampable {
-                    Button(expanded ? "Show less" : "Show more") {
-                        expanded.toggle()
-                    }
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .buttonStyle(.plain)
-                }
-                if let answer {
-                    // Answered (EXP-197): the chosen answer replaces the options.
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "checkmark")
-                            .font(.caption2)
-                            .foregroundStyle(DesignTokens.Semantic.green)
-                            .padding(.top, 2)
-                        Text(answer)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.white)
-                            .textSelection(.enabled)
-                    }
+                priorStepSummary
+                prompt
+                if question.resolved {
+                    resolution
                 } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(options.enumerated()), id: \.element.key) { index, option in
-                            if answerable {
-                                // The wire's first option of a plan is the primary
-                                // approve action ("Approve — auto-accept edits").
-                                let primary = planMode && index == 0
-                                Button {
-                                    pick(option)
-                                } label: {
-                                    optionLabel(option, showKey: !planMode)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                }
-                                .glassButton(isActive: primary || picked.contains(option.key))
-                                .buttonStyle(.plain)
-                            } else {
-                                optionLabel(option)
-                            }
-                        }
-                    }
-                }
-                if answerable, multiSelect {
-                    // Advances to the picker's next tab / review step (Tab on
-                    // the wire — see AgentSessionModel.sendSubmit).
-                    Button("Continue") {
-                        onSubmit()
-                    }
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .glassButton(isActive: true)
-                    .buttonStyle(.plain)
+                    optionList
+                    trailingActions
                 }
                 if active, !canAnswer {
-                    Text(planMode
+                    Text(question.planMode
                         ? "Waiting for approval — you're viewing read-only."
                         : "Waiting for an answer — you're viewing read-only.")
                         .font(.caption2)
@@ -684,34 +728,207 @@ private struct QuestionCard: View {
         .padding(.vertical, 5)
     }
 
-    private func pick(_ option: AgentSessionModel.QuestionOption) {
-        onAnswer(option.key, !multiSelect)
-        if multiSelect {
-            if picked.contains(option.key) {
-                picked.remove(option.key)
-            } else {
-                picked.insert(option.key)
+    /// The answered steps of this ask, so the stepper still shows what was
+    /// already chosen.
+    @ViewBuilder
+    private var priorStepSummary: some View {
+        if !priorSteps.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(priorSteps) { step in
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "checkmark")
+                            .font(.caption2)
+                            .foregroundStyle(DesignTokens.Semantic.green)
+                            .padding(.top, 2)
+                        Text(step.answerSummary ?? "Answered")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var prompt: some View {
+        let clamped = clampable && !expanded
+        AgentMarkdownText(text: question.text)
+            .frame(maxHeight: clamped ? Self.clampHeight : nil, alignment: .top)
+            .clipped()
+        if clampable {
+            Button(expanded ? "Show less" : "Show more") {
+                expanded.toggle()
+            }
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var resolution: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: question.dismissed ? "xmark" : "checkmark")
+                .font(.caption2)
+                .foregroundStyle(
+                    question.dismissed
+                        ? Color.white.opacity(TextOpacity.tertiary)
+                        : DesignTokens.Semantic.green
+                )
+                .padding(.top, 2)
+            Text(question.answerSummary ?? (question.dismissed ? "Dismissed" : "Answered"))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder
+    private var optionList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(question.options.enumerated()), id: \.element.key) { index, option in
+                if answerable {
+                    // The wire's first option of a plan is the primary approve
+                    // action ("Approve — auto-accept edits").
+                    let primary = question.planMode && index == 0
+                    Button {
+                        pick(option)
+                    } label: {
+                        optionLabel(option, showKey: showsKeyBadge(option))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                    }
+                    .glassButton(isActive: primary || picked.contains(option.key))
+                    .buttonStyle(.plain)
+                    .disabled(locked)
+                    .opacity(locked ? 0.5 : 1)
+                } else {
+                    optionLabel(option, showKey: showsKeyBadge(option))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var trailingActions: some View {
+        if answerable, needsExplicitSubmit {
+            // Semantic multi-select submits every picked key at once; a legacy
+            // picker already toggled each digit and only needs the Tab.
+            let disabled = locked || (question.isSemantic && picked.isEmpty)
+            Button(submitTitle) {
+                submit()
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .glassButton(isActive: !disabled)
+            .buttonStyle(.plain)
+            .disabled(disabled)
+            .opacity(disabled ? 0.5 : 1)
+        }
+        if locked, !question.resolved {
+            HStack(spacing: 6) {
+                if pending {
+                    ProgressView().controlSize(.small).tint(.white)
+                } else {
+                    // Confirmed injected — the card stays locked until the
+                    // desktop retires it with `question_resolved`.
+                    Image(systemName: "checkmark")
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.green)
+                }
+                Text(pending ? "Sending…" : "Answer sent")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
+    }
+
+    /// The wire key doubles as the TUI hint badge — but only when it reads as
+    /// one: an ask's submit step carries `\r`, and a plan's approve action is
+    /// the primary button, not a keystroke.
+    private func showsKeyBadge(_ option: AgentQuestionOption) -> Bool {
+        guard !question.planMode else { return false }
+        return option.key.allSatisfy { $0.isLetter || $0.isNumber }
+    }
+
+    private func pick(_ option: AgentQuestionOption) {
+        guard !locked else { return }
+        if question.multiSelect {
+            if let index = picked.firstIndex(of: option.key) {
+                picked.remove(at: index)
+            } else {
+                picked.append(option.key)
+            }
+            // A legacy picker toggles on the raw digit; v2 batches the keys
+            // into the submit frame.
+            if !question.isSemantic { onLegacyToggle(option.key) }
+            return
+        }
+        picked = [option.key]
+        if question.isSemantic {
+            onAnswer([option.key])
         } else {
-            picked = [option.key]
+            onLegacyAnswer(option.key)
+        }
+    }
+
+    private func submit() {
+        guard !locked else { return }
+        if question.isSemantic {
+            guard !picked.isEmpty else { return }
+            onAnswer(picked)
+        } else {
+            onLegacySubmit()
         }
     }
 
     private func optionLabel(
-        _ option: AgentSessionModel.QuestionOption,
+        _ option: AgentQuestionOption,
         showKey: Bool = true
     ) -> some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .top, spacing: 6) {
             if showKey {
                 Text(option.key)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-            Text(option.label)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(option.label)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.leading)
+                if let description = option.description {
+                    Text(description)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .multilineTextAlignment(.leading)
+                }
+            }
         }
+    }
+}
+
+/// Read-only GFM render of agent-authored prose (plan bodies, question
+/// prompts) through the SAME block stack as comment bodies (EXP-249) — claude
+/// writes markdown, and a plan flattened into one Text was unreadable.
+private struct AgentMarkdownText: View {
+    let text: String
+
+    @State private var displayModel = IssueEditorModel()
+    @State private var displayedText: String?
+
+    var body: some View {
+        MarkdownEditor(model: displayModel, placeholder: "", isReadOnly: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .task(id: text) {
+                guard displayedText != text else { return }
+                displayedText = text
+                let model = IssueEditorModel()
+                model.load(markdown: text, baseURL: nil)
+                displayModel = model
+            }
     }
 }
 
@@ -756,7 +973,7 @@ private struct ToolRow: View {
 /// row of a live session, the latest call stays visible under the count so
 /// the viewer still sees live progress.
 private struct ToolGroupRow: View {
-    let items: [AgentSessionModel.FeedItem]
+    let items: [AgentFeedItem]
     let liveTail: Bool
 
     @State private var expanded = false
@@ -786,18 +1003,153 @@ private struct ToolGroupRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        if case let .tool(_, name, detail) = item {
+                        if case let .tool(_, name, detail, _) = item {
                             ToolRow(name: name, detail: detail)
                         }
                     }
                 }
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
-                      case let .tool(_, name, detail) = last {
+                      case let .tool(_, name, detail, _) = last {
                 ToolRow(name: name, detail: detail)
                     .padding(.leading, 20)
             }
         }
+    }
+}
+
+/// A subagent's run (EXP-249): its `started` marker plus every tool call the
+/// desktop tagged with it, collapsed into one expandable row so a long subagent
+/// detour never buries the main thread's activity.
+private struct SubagentGroupRow: View {
+    let run: AgentSubagentRun
+    /// The trailing row of a live session — keep the latest call visible.
+    let liveTail: Bool
+
+    @State private var expanded = false
+
+    private var title: String {
+        let count = run.toolCount
+        let work = count == 1 ? "1 tool call" : "\(count) tool calls"
+        return count == 0 ? run.agentType : "\(run.agentType) · \(work)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    Image(systemName: "person.2")
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.blue)
+                    Text(title)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if !run.done {
+                        Text("running…")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Collapse subagent" : "Expand subagent")
+            if let detail = run.detail, !expanded {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(2)
+                    .padding(.leading, 20)
+            }
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let detail = run.detail {
+                        Text(detail)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                    ForEach(run.items) { item in
+                        if case let .tool(_, name, detail, _) = item {
+                            ToolRow(name: name, detail: detail)
+                        }
+                    }
+                }
+                .padding(.leading, 20)
+            } else if liveTail, let last = run.items.last,
+                      case let .tool(_, name, detail, _) = last {
+                ToolRow(name: name, detail: detail)
+                    .padding(.leading, 20)
+            }
+        }
+    }
+}
+
+/// A stray subagent marker (EXP-249) — a `completed` whose `started` fell off
+/// the top of the feed, or a start with nothing published under it yet.
+private struct SubagentRow: View {
+    let agentType: String
+    let status: AgentSubagentStatus
+    let detail: String?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "person.2")
+                .font(.caption2)
+                .foregroundStyle(DesignTokens.Semantic.blue)
+            Text(status == .completed ? "\(agentType) finished" : "\(agentType) started")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+            if let detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// A permission prompt the agent hit (EXP-249) — INFORMATIONAL only: the
+/// approval lives in the desktop's own TUI, there is nothing to answer here.
+private struct PermissionRow: View {
+    let tool: String
+    let detail: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "lock.shield")
+                .font(.caption2)
+                .foregroundStyle(DesignTokens.Semantic.orange)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Permission requested · \(tool)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                if let detail {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(2)
+                }
+                Text("Approve it on the desktop.")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -851,7 +1203,7 @@ private struct StatusDot: View {
 /// reads onScrollGeometryChange — the supported scroll-observation API; the
 /// EXP-70 content-frame preference (still emitted by the feed's background)
 /// stopped re-evaluating during scrolls on current iOS, leaving `atBottom`
-/// stuck true so the "Jump to latest" pill never appeared and follow-scroll
+/// stuck true so the "Jump to bottom" pill never appeared and follow-scroll
 /// couldn't be escaped (EXP-212). Pre-18 keeps the preference path.
 private struct FollowPinTracker: ViewModifier {
     @Binding var atBottom: Bool
@@ -866,7 +1218,7 @@ private struct FollowPinTracker: ViewModifier {
                 // The max is clamped to the minimum resting offset
                 // (-contentInsets.top): a feed shorter than the viewport
                 // rests there, and the unclamped bottom formula reported it
-                // as "not at bottom" — sticking the "Jump to latest" pill
+                // as "not at bottom" — sticking the "Jump to bottom" pill
                 // on screen with nothing to scroll (EXP-242).
                 let minOffset = -geometry.contentInsets.top
                 let maxOffset = max(

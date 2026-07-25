@@ -1,17 +1,18 @@
-// Steer relay wire protocol (masterplan §3.2).
+// Steer relay wire protocol (masterplan §3.2; steering v2 = EXP-249).
 //
-// Two frame kinds on every socket:
-//   - TEXT frames: JSON control messages `{ t, ... }` (this file).
-//   - BINARY frames: terminal output — one opcode byte `0x01` followed by
-//     verbatim PTY bytes (publisher → relay → viewers). Never JSON, never
-//     base64 — this is the hot path.
+// TEXT frames only: JSON control messages `{ t, ... }`. The binary PTY mirror
+// (opcode `0x01` + verbatim terminal bytes, the ring buffer, `resync`, viewer
+// `resize` and the `pty` join channel) was REMOVED in EXP-249 — it had zero
+// consumers, every client joins `channel: 'activity'`. Old desktops still push
+// binary output frames and `resize`; both are accepted-then-ignored so their
+// sessions keep working (`resize` stays IN the parser deliberately: a frame
+// that parses and hits an explicit no-op case is quieter than one that fails
+// the parse and takes the unknown-frame path).
 //
 // The relay is a dumb pipe with auth + ephemeral presence: it never parses
 // terminal escape codes and never persists anything.
 
 import { z } from "zod"
-
-export const OUTPUT_OPCODE = 0x01
 
 // ── Client → relay control frames ────────────────────────────────────────────
 
@@ -34,6 +35,8 @@ export const helloFrame = z.object({
   t: z.literal(`hello`),
   sessionId: z.string().min(1).max(128),
   issueId: z.string().max(128).optional(),
+  // Geometry belonged to the removed PTY mirror — still accepted so old
+  // desktops' hello frames parse, but the hub ignores it.
   cols: z.number().int().positive().max(1000).optional(),
   rows: z.number().int().positive().max(1000).optional(),
   // EXP-90: the removed public-activity feature's `activityPublic` flag may
@@ -42,11 +45,13 @@ export const helloFrame = z.object({
 
 export const joinFrame = z.object({
   t: z.literal(`join`),
-  // Which audience a VIEWER ticket joins: the PTY mirror (absent/`pty` —
-  // legacy) or the scrubbed activity stream (`activity`).
+  // `activity` (the scrubbed member stream) is the ONLY audience. The legacy
+  // value is still parsed so a `pty`/absent join can be answered with an
+  // explicit `pty_removed` error instead of being silently dropped.
   channel: z.enum([`pty`, `activity`]).optional(),
 })
 
+// Legacy PTY geometry from old desktops — parsed, then ignored by the hub.
 export const resizeFrame = z.object({
   t: z.literal(`resize`),
   cols: z.number().int().positive().max(1000),
@@ -57,6 +62,17 @@ export const inputFrame = z.object({
   t: z.literal(`input`),
   // Keystrokes are tiny; anything big is not a keystroke.
   data: z.string().max(8 * 1024),
+})
+
+// Semantic answer to a `question` activity event (EXP-249). Replaces blind
+// digit keystrokes: the client names the question it is answering, the
+// publisher maps `keys` onto whatever the TUI currently shows. Gated exactly
+// like `input` — the steer-perm viewer holding the claim.
+export const answerFrame = z.object({
+  t: z.literal(`answer`),
+  questionId: z.string().max(128),
+  askId: z.string().max(128).optional(),
+  keys: z.array(z.string().max(8)).min(1).max(10),
 })
 
 export const claimFrame = z.object({
@@ -77,12 +93,24 @@ export const byeFrame = z.object({
 // channel). The desktop emits these from the Claude session transcript +
 // worktree diffs, ALREADY REDACTED (known-secret masking + gitleaks-style
 // patterns) — the relay stays a dumb pipe and fans them out to the activity
-// audience only, never to the PTY audience and never vice versa.
-//   narration:    assistant prose        { kind, text }
-//   tool:         tool-call headline     { kind, name, detail? }
-//   diff:         worktree unified diff  { kind, diff }  (latest replaces prior)
-//   user_message: a human turn           { kind, text }
-//   question:     interactive question   { kind, text, options[] }
+// audience, never interpreting a field.
+//   narration:         assistant prose        { kind, text }
+//   tool:              tool-call headline     { kind, name, detail?, subagentId? }
+//   diff:              worktree unified diff  { kind, diff }  (latest replaces prior)
+//   user_message:      a human turn           { kind, text }
+//   question:          interactive question   { kind, text, options[], id?, askId?, … }
+//   question_resolved: retire a question card { kind, id?, askId?, answers?, dismissed? }
+//   answer_ack:        injection confirmed    { kind, id, askId? }
+//   subagent:          subagent lifecycle     { kind, id, agentType, status }
+//   permission:        informational prompt   { kind, tool, detail? }  (NOT answerable)
+export const questionOptionSchema = z.object({
+  label: z.string().max(256),
+  // The raw keystroke a steering client sends to pick the option (also the
+  // `keys` member of the semantic answer frame).
+  key: z.string().min(1).max(8),
+  description: z.string().max(1024).optional(),
+})
+
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
     kind: z.literal(`narration`),
@@ -93,6 +121,9 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     kind: z.literal(`tool`),
     name: z.string().max(128),
     detail: z.string().max(1024).optional(),
+    // Set when the call came from a subagent's transcript (EXP-249) — clients
+    // nest it under the matching `subagent` card.
+    subagentId: z.string().max(128).optional(),
     at: z.number().optional(),
   }),
   z.object({
@@ -110,21 +141,55 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     // Question text shares the narration budget — an ExitPlanMode plan rides
     // here and can be large.
     text: z.string().max(16 * 1024),
-    // `key` is the raw keystroke a steering client sends to pick the option.
-    options: z
-      .array(
-        z.object({
-          label: z.string().max(256),
-          key: z.string().min(1).max(8),
-        }),
-      )
-      .min(1)
-      .max(10),
+    options: z.array(questionOptionSchema).min(1).max(10),
     multiSelect: z.boolean().optional(),
     // Marks an ExitPlanMode plan-approval picker (EXP-97) so clients can
     // render a dedicated "Plan ready" card. Presentation-only; absent on
     // AskUserQuestion events and on frames from older desktops.
     planMode: z.boolean().optional(),
+    // Stable identity (EXP-249), derived from the claude tool_use_id. Present
+    // ⇒ answerable via the semantic `answer` frame and re-emittable (same id
+    // ⇒ clients REPLACE the card in place). Absent ⇒ old desktop, legacy
+    // keystroke path.
+    id: z.string().max(128).optional(),
+    // Groups the steps of one multi-question ask. An askId question WITHOUT
+    // index/total is that ask's final review/submit step.
+    askId: z.string().max(128).optional(),
+    index: z.number().int().min(1).optional(),
+    total: z.number().int().min(1).optional(),
+    header: z.string().max(256).optional(),
+    at: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal(`question_resolved`),
+    // Retire the card with this id; with only askId, retire every card of
+    // that ask.
+    id: z.string().max(128).optional(),
+    askId: z.string().max(128).optional(),
+    answers: z.array(z.string().max(1024)).max(10).optional(),
+    dismissed: z.boolean().optional(),
+    at: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal(`answer_ack`),
+    // The desktop confirms it injected an answer — clients keep the card
+    // locked instead of re-enabling it on a timeout.
+    id: z.string().max(128),
+    askId: z.string().max(128).optional(),
+    at: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal(`subagent`),
+    id: z.string().max(128),
+    agentType: z.string().max(64),
+    status: z.enum([`started`, `completed`]),
+    detail: z.string().max(1024).optional(),
+    at: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal(`permission`),
+    tool: z.string().max(128),
+    detail: z.string().max(1024).optional(),
     at: z.number().optional(),
   }),
 ])
@@ -136,17 +201,26 @@ export const activityFrame = z.object({
   event: activityEventSchema,
 })
 
+// Publisher → relay: drop the replay log (EXP-249). The desktop sends this
+// before re-publishing its full history on reconnect, so the log never
+// doubles; the relay mirrors it to the audience as a "clear your feed" signal.
+export const activityResetFrame = z.object({
+  t: z.literal(`activity_reset`),
+})
+
 export const clientFrame = z.discriminatedUnion(`t`, [
   onlineFrame,
   helloFrame,
   joinFrame,
   resizeFrame,
   inputFrame,
+  answerFrame,
   claimFrame,
   releaseFrame,
   killFrame,
   byeFrame,
   activityFrame,
+  activityResetFrame,
 ])
 
 export type ClientFrame = z.infer<typeof clientFrame>
@@ -196,7 +270,6 @@ export interface StartInput {
 
 export type ServerFrame =
   | { t: `presence`; viewers: PresenceViewer[]; steererId: string | null }
-  | { t: `resize`; cols: number; rows: number }
   | ({ t: `start_session`; issueId: string } & StartSessionOptions)
   | ({
       t: `start_session`
@@ -217,11 +290,12 @@ export type ServerFrame =
       inputs?: StartInput[]
     } & StartSessionOptions)
   | { t: `input`; data: string } // steerer keystrokes, relay → publisher
-  | { t: `resync` }
+  | { t: `answer`; questionId: string; askId?: string; keys: string[] } // relay → publisher
   | { t: `kill` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
   | { t: `activity`; event: ActivityEvent } // relay → activity audience (authenticated members only)
+  | { t: `activity_reset` } // relay → activity audience: drop everything rendered so far
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 

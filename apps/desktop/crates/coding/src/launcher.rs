@@ -20,8 +20,9 @@
 //!
 //! The launcher never touches PTYs (§06 owns them) and never talks to the
 //! steer relay (§3.1: `coding` does not depend on `steer`) — the app/ui layer
-//! takes `LaunchOutcome::Spawned { session_id, .. }` and hands the same PTY
-//! tee + session id to the steer publisher (§08).
+//! takes `LaunchOutcome::Spawned { session_id, .. }` and hands the session id
+//! to the steer publisher (§08; EXP-249 removed the PTY tee with the binary
+//! mirror).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -36,7 +37,10 @@ use terminal::tab::{TabId, TabKind};
 use terminal::TerminalManager;
 
 use crate::agent::CodingAgent;
-use crate::argv::{session_args, AgentMcp, LaunchOptions, SessionTail, MCP_TOKEN_ENV, MCP_URL_ENV};
+use crate::argv::{
+    session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_PORT_ENV, HOOK_TOKEN_ENV,
+    MCP_TOKEN_ENV, MCP_URL_ENV,
+};
 use crate::action_prompt::{render_action_prompt, ActionInputValue};
 use crate::action_prompt::{create_action_prompt, fix_pr_conflicts_prompt};
 use crate::batch_launcher::{batch_branch_name, BatchLaunchRequest, RepoGroup};
@@ -434,9 +438,95 @@ pub enum LaunchOutcome {
     },
 }
 
+/// The claude hooks sidecar's per-session wiring (EXP-249), handed in by the
+/// app/ui layer: it owns the `steer::hooks::HookServer` (this crate cannot
+/// depend on `steer` — §3.1) and keeps it alive for the session's lifetime,
+/// while the launcher writes the settings file and puts the two env vars on
+/// the spawn. `port`/`token` address the loopback server; `settings_json` is
+/// the ready-made file content (`steer::hooks::hook_settings_json`).
+///
+/// Absent (or a non-claude agent) = no sidecar: the session runs exactly as
+/// it did before, on grid-only detection.
+#[derive(Clone, Debug)]
+pub struct HookSetup {
+    pub port: u16,
+    pub token: String,
+    pub settings_json: String,
+}
+
+/// Where the per-session `--settings` files live: under the app data dir,
+/// NEVER in the worktree. A `.claude/settings.json` inside the tree would be
+/// committable by the agent AND would land in claude's project-approval scan
+/// (the EXP-98 trap that made `.exp-mcp.json` non-discoverable).
+const HOOK_SETTINGS_DIR: &str = "claude-hooks";
+
+/// One settings file per session accumulates; drop the ancient ones.
+const HOOK_SETTINGS_TTL: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+
 /// The instance's `/api/mcp` endpoint from the tRPC base URL.
 fn mcp_url(base_url: &str) -> String {
     format!("{}/api/mcp", base_url.trim_end_matches('/'))
+}
+
+/// A single filesystem path segment from an untrusted server id — a crafted
+/// id can never escape the directory it is joined onto.
+fn path_segment(id: &str) -> Option<String> {
+    let segment: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    (!segment.is_empty()).then_some(segment)
+}
+
+/// Write the session's `--settings` file, or `None` when there is no sidecar
+/// to wire (no [`HookSetup`], a non-claude agent, or an unwritable data dir —
+/// all of which just mean grid-only detection, never a failed launch).
+fn write_hook_settings(
+    data_dir: &Path,
+    session_id: &str,
+    agent: CodingAgent,
+    hooks: Option<&HookSetup>,
+) -> Option<PathBuf> {
+    let hooks = hooks.filter(|_| agent == CodingAgent::Claude)?;
+    let dir = data_dir.join(HOOK_SETTINGS_DIR);
+    std::fs::create_dir_all(&dir).ok()?;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let stale = entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .map(|modified| modified.elapsed().is_ok_and(|age| age > HOOK_SETTINGS_TTL))
+                .unwrap_or(false);
+            if stale {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    let path = dir.join(format!("{}.settings.json", path_segment(session_id)?));
+    std::fs::write(&path, &hooks.settings_json).ok()?;
+    Some(path)
+}
+
+/// The spawn-env half of the sidecar wiring — applied only when the settings
+/// file actually landed, so claude never advertises a port its hooks can't
+/// reach.
+fn apply_hook_env(
+    spawn: SpawnSpec,
+    hooks: Option<&HookSetup>,
+    settings: Option<&PathBuf>,
+) -> SpawnSpec {
+    match (hooks, settings) {
+        (Some(hooks), Some(_)) => spawn
+            .env(HOOK_PORT_ENV, hooks.port.to_string())
+            .env(HOOK_TOKEN_ENV, &hooks.token),
+        _ => spawn,
+    }
 }
 
 /// Step 4's per-agent MCP wiring, shared by the issue/batch skeleton and the
@@ -534,10 +624,24 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 /// 6. `codingSessions.start` / `start_batch` — BEFORE spawn; its id keys
 ///    tab + steer room.
 pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
+    prepare_with_hooks(req, deps, None)
+}
+
+/// [`prepare`] with the EXP-249 claude hooks sidecar wired in. The caller
+/// (app/ui, which owns both crates) starts a `steer::hooks::HookServer`,
+/// passes its port/token/settings JSON as a [`HookSetup`], holds the server
+/// for the session's lifetime, and hands its event receiver to the activity
+/// emitter. `coding` never sees the server itself (§3.1: no `steer`
+/// dependency), only the three values the spawn needs.
+pub fn prepare_with_hooks(
+    req: &PrepareRequest,
+    deps: &CodingDeps,
+    hooks: Option<&HookSetup>,
+) -> Result<Prepared, CodingError> {
     // Action runs share none of the worktree/branch/PR skeleton below —
     // they get their own sequence (EXP-253).
     if let PrepareRequest::Action(action_req) = req {
-        return prepare_action(action_req, deps);
+        return prepare_action(action_req, deps, hooks);
     }
     let resume_requested = matches!(req, PrepareRequest::Issue(issue_req) if issue_req.resume);
     let mut options = match req {
@@ -801,7 +905,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         (None, Some(id)) => SessionTail::CodexResume(id),
         (None, None) => SessionTail::Continue,
     };
-    let args = session_args(options, &agent_mcp, tail);
+    let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
+    let args = session_args(options, &agent_mcp, hook_settings.as_deref(), tail);
     let tab_title = format!("{} · {tab_title_prefix}", agent.id());
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
@@ -820,6 +925,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         .env("CARGO_INCREMENTAL", "0");
     // The MCP credential env half of the wiring ([`apply_mcp_env`]).
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
+    spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
 
     let heartbeat_scope = match req {
         PrepareRequest::Issue(issue_req) => coding_sessions::HeartbeatScope {
@@ -879,7 +985,11 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
 ///    builtin literals);
 /// 5. spawn spec — the selected agent's interactive session argv
 ///    (model/effort/toggles + its MCP posture).
-fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
+fn prepare_action(
+    req: &ActionLaunchRequest,
+    deps: &CodingDeps,
+    hooks: Option<&HookSetup>,
+) -> Result<Prepared, CodingError> {
     // EXP-257: options apply AS-IS — same per-agent vocabulary as an issue
     // run (the server validates remote starts identically).
     let options = req.options.clone();
@@ -992,20 +1102,9 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
         // UUID, but server data is untrusted here by design — sanitize the
         // path segment so a crafted id can never escape `<data_dir>/actions/`.
         None => {
-            let segment: String = req
-                .action_id
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect();
-            if segment.is_empty() {
+            let Some(segment) = path_segment(&req.action_id) else {
                 return Err(CodingError::Io("empty action id".to_string()));
-            }
+            };
             let scratch = deps.data_dir.join("actions").join(segment);
             std::fs::create_dir_all(&scratch)
                 .map_err(|e| CodingError::Io(format!("create action scratch dir: {e}")))?;
@@ -1075,12 +1174,19 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
     };
 
     // Step 5 — the spawn spec: the selected agent, session argv.
-    let args = session_args(&options, &agent_mcp, SessionTail::Prompt(delivery.positional()));
+    let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
+    let args = session_args(
+        &options,
+        &agent_mcp,
+        hook_settings.as_deref(),
+        SessionTail::Prompt(delivery.positional()),
+    );
     let tab_title = format!("action · {}", req.action_name);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
         .cwd(&cwd);
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
+    spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
     if let Some(clone) = &trunk_clone {
         // Same EXP-76 shared-cache posture as a session — keyed off the
         // CLONE (the fix-conflicts cwd is a worktree); inert repo-less.
@@ -1684,6 +1790,174 @@ mod tests {
                 prepared.spawn.env
             );
         }
+    }
+
+    fn hook_setup() -> HookSetup {
+        HookSetup {
+            port: 45321,
+            token: "hook-token-1".to_string(),
+            settings_json: r#"{"hooks":{"Stop":[]}}"#.to_string(),
+        }
+    }
+
+    /// EXP-249: a claude session gets its hooks sidecar wired — the settings
+    /// file lands under the DATA DIR (never in the worktree, where the agent
+    /// could commit it and claude's project scan would see it), rides
+    /// `--settings`, and the port/token env vars its hook command expands
+    /// ride the spawn.
+    #[test]
+    fn prepare_wires_the_claude_hooks_sidecar_outside_the_worktree() {
+        let dir = temp_dir("hooks-claude");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let hooks = hook_setup();
+
+        let prepared = match prepare_with_hooks(
+            &PrepareRequest::Issue(request("EXP-42")),
+            &deps,
+            Some(&hooks),
+        )
+        .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        let args = &prepared.spawn.args;
+        let at = args.iter().position(|arg| arg == "--settings").expect("--settings");
+        let settings = PathBuf::from(&args[at + 1]);
+        assert_eq!(
+            settings,
+            dir.0.join(HOOK_SETTINGS_DIR).join("sess-1.settings.json")
+        );
+        assert!(!settings.starts_with(&worktree), "settings file inside the worktree");
+        assert_eq!(fs::read_to_string(&settings).unwrap(), hooks.settings_json);
+        assert!(!worktree.join(".claude").exists(), "never a worktree .claude dir");
+        // Between the model/effort pair and the MCP flags — the prompt keeps
+        // the tail.
+        assert!(at > 0 && args[at - 1] == "fable");
+        assert_eq!(args[at + 2], "--mcp-config");
+        for (key, value) in [
+            (HOOK_PORT_ENV, "45321".to_string()),
+            (HOOK_TOKEN_ENV, "hook-token-1".to_string()),
+        ] {
+            assert!(
+                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
+                "missing env {key}={value}: {:?}",
+                prepared.spawn.env
+            );
+        }
+    }
+
+    /// No sidecar handed in, or a non-claude agent: nothing is written and
+    /// the argv/env are exactly what they were before EXP-249.
+    #[test]
+    fn hooks_are_absent_without_a_setup_and_for_non_claude_agents() {
+        let dir = temp_dir("hooks-absent");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert!(!prepared.spawn.args.iter().any(|arg| arg == "--settings"));
+        assert!(!prepared
+            .spawn
+            .env
+            .iter()
+            .any(|(key, _)| key == HOOK_PORT_ENV || key == HOOK_TOKEN_ENV));
+        assert!(!dir.0.join(HOOK_SETTINGS_DIR).exists());
+
+        // Codex has no hooks system: the setup is ignored entirely.
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.codex_path = "git".to_string(); // runnable stub
+        let mut req = request("EXP-42");
+        req.options = LaunchOptions {
+            agent: CodingAgent::Codex,
+            model: String::new(),
+            effort: String::new(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+        let hooks = hook_setup();
+        let prepared =
+            match prepare_with_hooks(&PrepareRequest::Issue(req), &deps, Some(&hooks)).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert!(!prepared.spawn.args.iter().any(|arg| arg == "--settings"));
+        assert!(!prepared
+            .spawn
+            .env
+            .iter()
+            .any(|(key, _)| key == HOOK_PORT_ENV || key == HOOK_TOKEN_ENV));
+        assert!(!dir.0.join(HOOK_SETTINGS_DIR).exists());
+    }
+
+    /// An action run is a claude session too — same sidecar, keyed by ITS
+    /// session id.
+    #[test]
+    fn prepare_action_wires_the_hooks_sidecar() {
+        let dir = temp_dir("hooks-action");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let hooks = hook_setup();
+
+        let prepared = match prepare_with_hooks(
+            &PrepareRequest::Action(action_request()),
+            &deps,
+            Some(&hooks),
+        )
+        .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let args = &prepared.spawn.args;
+        let at = args.iter().position(|arg| arg == "--settings").expect("--settings");
+        assert_eq!(
+            PathBuf::from(&args[at + 1]),
+            dir.0.join(HOOK_SETTINGS_DIR).join("sess-a.settings.json")
+        );
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&(HOOK_TOKEN_ENV.to_string(), "hook-token-1".to_string())));
     }
 
     /// EXP-257: a missing selected agent blocks an action run with ITS copy

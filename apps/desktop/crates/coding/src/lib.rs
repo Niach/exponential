@@ -27,8 +27,10 @@
 //! ```
 //!
 //! On `LaunchOutcome::Spawned { session_id, .. }` the app/ui layer hands the
-//! session id + PTY tee to the steer publisher (§08) — `coding` deliberately
-//! does not depend on `steer` (§3.1 dependency direction).
+//! session id to the steer publisher (§08; the PTY tee was removed with the
+//! binary mirror in EXP-249 — only the scrubbed activity stream publishes) —
+//! `coding` deliberately does not depend on `steer` (§3.1 dependency
+//! direction).
 //!
 //! The eight steps, their failure surfaces (`DisabledReason` — never
 //! falsely block, always explain), and the worktree layout are specified in
@@ -59,8 +61,8 @@ pub mod worktree_agents;
 
 pub use agent::CodingAgent;
 pub use argv::{
-    permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, MCP_TOKEN_ENV,
-    MCP_URL_ENV,
+    permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_PORT_ENV,
+    HOOK_TOKEN_ENV, MCP_TOKEN_ENV, MCP_URL_ENV,
 };
 pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
@@ -85,10 +87,10 @@ pub use git_worktree::{
     branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,
 };
 pub use launcher::{
-    default_device_label, end_session_best_effort, prepare, spawn_prepared, spawn_prepared_with,
-    ActionLaunchRequest, ActionRunKind, CodingDeps, CodingError, DisabledReason, ExitNotify,
-    GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared,
-    PrepareRequest, PreparedLaunch, WorktreeProvider,
+    default_device_label, end_session_best_effort, prepare, prepare_with_hooks, spawn_prepared,
+    spawn_prepared_with, ActionLaunchRequest, ActionRunKind, CodingDeps, CodingError,
+    DisabledReason, ExitNotify, GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin,
+    LaunchOutcome, LaunchRequest, Prepared, PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,

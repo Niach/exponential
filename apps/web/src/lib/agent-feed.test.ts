@@ -1,15 +1,27 @@
 import { describe, expect, it } from "vitest"
 import {
+  ackAnswer,
   activeQuestionIds,
+  answerKey,
+  applyQuestionResolved,
+  askStepperView,
   attachQuestionAnswer,
+  beginAnswer,
+  clearAnswer,
   consumeEcho,
   dismissPendingQuestions,
+  failAnswer,
+  groupFeedRows,
+  hasSemanticQuestions,
+  isAnswerLocked,
+  pushEcho,
+  upsertQuestion,
   ECHO_CAP,
   ECHO_TTL_MS,
-  groupToolRuns,
   PLAN_RESOLVED_NARRATION,
-  pushEcho,
+  type AnswerStates,
   type EchoEntry,
+  type QuestionLike,
 } from "./agent-feed"
 
 describe(`local-echo dedupe`, () => {
@@ -43,7 +55,9 @@ describe(`local-echo dedupe`, () => {
   })
 })
 
-describe(`activeQuestionIds`, () => {
+// ── Legacy cards (no wire question id) ───────────────────────────────────────
+
+describe(`activeQuestionIds — legacy cards`, () => {
   it(`returns the trailing consecutive question run`, () => {
     const feed = [
       { id: 1, kind: `narration` },
@@ -102,13 +116,15 @@ describe(`activeQuestionIds`, () => {
     expect(activeQuestionIds(feed)).toEqual(new Set())
   })
 
-  it(`retires a plan question on a human message`, () => {
+  // EXP-249: steering mid-plan leaves the picker up — a human message is no
+  // resolution signal.
+  it(`keeps a plan question active behind a human message`, () => {
     const feed = [
       { id: 1, kind: `question`, planMode: true },
       { id: 2, kind: `tool` },
-      { id: 3, kind: `user_message`, text: `1` },
+      { id: 3, kind: `user_message`, text: `also handle the empty state` },
     ]
-    expect(activeQuestionIds(feed)).toEqual(new Set())
+    expect(activeQuestionIds(feed)).toEqual(new Set([1]))
   })
 
   it(`retires a plan question when a newer question follows`, () => {
@@ -129,17 +145,55 @@ describe(`activeQuestionIds`, () => {
   })
 })
 
-// EXP-197: `Question answered:` narrations fold into the earliest unanswered
-// card; resolved cards are never active.
-type QuestionItem = {
-  id: number
-  kind: string
-  planMode?: boolean
-  resolved?: boolean
-  answer?: string
-}
+describe(`activeQuestionIds — protocol v2 cards`, () => {
+  it(`an id-carrying card stays answerable behind any later event`, () => {
+    const feed = [
+      { id: 1, kind: `question`, questionId: `tu_1`, planMode: true },
+      { id: 2, kind: `tool` },
+      { id: 3, kind: `narration`, text: `Working on it` },
+      { id: 4, kind: `user_message`, text: `go` },
+    ]
+    expect(activeQuestionIds(feed)).toEqual(new Set([1]))
+  })
 
-describe(`question answers`, () => {
+  it(`every unresolved step of an ask is answerable at once`, () => {
+    const feed = [
+      { id: 1, kind: `question`, questionId: `tu_1#0` },
+      { id: 2, kind: `question`, questionId: `tu_1#1` },
+      { id: 3, kind: `question`, questionId: `tu_1#submit` },
+    ]
+    expect(activeQuestionIds(feed)).toEqual(new Set([1, 2, 3]))
+  })
+
+  it(`a resolved card is never answerable`, () => {
+    const feed = [
+      { id: 1, kind: `question`, questionId: `tu_1#0`, resolved: true },
+      { id: 2, kind: `question`, questionId: `tu_1#1` },
+    ]
+    expect(activeQuestionIds(feed)).toEqual(new Set([2]))
+  })
+})
+
+describe(`hasSemanticQuestions`, () => {
+  it(`is true only once a card carries a wire id`, () => {
+    expect(hasSemanticQuestions([])).toBe(false)
+    expect(
+      hasSemanticQuestions([
+        { kind: `question` },
+        { kind: `narration`, questionId: `x` },
+      ])
+    ).toBe(false)
+    expect(
+      hasSemanticQuestions([{ kind: `question`, questionId: `tu_1` }])
+    ).toBe(true)
+  })
+})
+
+// EXP-197 legacy path: `Question answered:` narrations fold into the earliest
+// unanswered card; resolved cards are never active.
+type QuestionItem = QuestionLike
+
+describe(`legacy narration resolution`, () => {
   it(`resolved question is never active and retires earlier plan cards`, () => {
     expect(
       activeQuestionIds([{ id: 1, kind: `question`, resolved: true }])
@@ -191,8 +245,279 @@ describe(`question answers`, () => {
   })
 })
 
-describe(`groupToolRuns`, () => {
-  const item = (id: number, kind: string) => ({ id, kind })
+// ── Protocol v2 question identity ────────────────────────────────────────────
+
+describe(`upsertQuestion`, () => {
+  const card = (over: Partial<QuestionItem> = {}): QuestionItem => ({
+    id: 7,
+    kind: `question`,
+    questionId: `tu_1`,
+    text: `Which color?`,
+    ...over,
+  })
+
+  it(`replaces the card in place, keeping its feed id`, () => {
+    const feed = [{ id: 3, kind: `narration` } as QuestionItem, card()]
+    const next = upsertQuestion(feed, `tu_1`, {
+      kind: `question`,
+      questionId: `tu_1`,
+      text: `Which color?`,
+      total: 2,
+    })!
+    expect(next).toHaveLength(2)
+    expect(next[1]).toMatchObject({ id: 7, total: 2 })
+  })
+
+  it(`a re-emission never clears an applied resolution`, () => {
+    const feed = [card({ resolved: true, answer: `Red` })]
+    const next = upsertQuestion(feed, `tu_1`, {
+      kind: `question`,
+      questionId: `tu_1`,
+      text: `Which color?`,
+    })!
+    expect(next[0]).toMatchObject({ resolved: true, answer: `Red` })
+  })
+
+  it(`is null for an unknown id — the caller appends`, () => {
+    expect(
+      upsertQuestion([card()], `tu_9`, { kind: `question`, questionId: `tu_9` })
+    ).toBeNull()
+  })
+})
+
+describe(`applyQuestionResolved`, () => {
+  const ask = (): QuestionItem[] => [
+    { id: 1, kind: `narration` },
+    { id: 2, kind: `question`, questionId: `a#0`, askId: `a`, index: 1 },
+    { id: 3, kind: `question`, questionId: `a#1`, askId: `a`, index: 2 },
+    { id: 4, kind: `question`, questionId: `a#submit`, askId: `a` },
+  ]
+
+  it(`retires exactly the card with the matching id`, () => {
+    const next = applyQuestionResolved(ask(), {
+      id: `a#0`,
+      answers: [`Red`],
+    })!
+    expect(next[1]).toMatchObject({ resolved: true, answer: `Red` })
+    expect(next[2].resolved).toBeUndefined()
+  })
+
+  it(`folds several answers of a multi-select into the one card`, () => {
+    const next = applyQuestionResolved(ask(), {
+      id: `a#0`,
+      answers: [`Red`, `Blue`],
+    })!
+    expect(next[1].answer).toBe(`Red, Blue`)
+  })
+
+  it(`retires a whole ask, assigning answers positionally`, () => {
+    const next = applyQuestionResolved(ask(), {
+      askId: `a`,
+      answers: [`Red`, `Tabs`],
+    })!
+    expect(next[1]).toMatchObject({ resolved: true, answer: `Red` })
+    expect(next[2]).toMatchObject({ resolved: true, answer: `Tabs` })
+    // The submit step consumes no answer of its own.
+    expect(next[3]).toMatchObject({ resolved: true })
+    expect(next[3].answer).toBeUndefined()
+  })
+
+  it(`a dismissal retires without answers`, () => {
+    const next = applyQuestionResolved(ask(), {
+      askId: `a`,
+      dismissed: true,
+    })!
+    expect(next[1]).toMatchObject({ resolved: true, dismissed: true })
+    expect(next[1].answer).toBeUndefined()
+  })
+
+  it(`with neither id nor askId retires every pending card`, () => {
+    const feed: QuestionItem[] = [
+      { id: 1, kind: `question`, planMode: true },
+      { id: 2, kind: `question`, resolved: true, answer: `Red` },
+      { id: 3, kind: `question` },
+    ]
+    const next = applyQuestionResolved(feed, {})!
+    expect(next[0].resolved).toBe(true)
+    expect(next[1].answer).toBe(`Red`)
+    expect(next[2].resolved).toBe(true)
+  })
+
+  it(`is null when nothing matched — the feed is kept as-is`, () => {
+    expect(applyQuestionResolved(ask(), { id: `other` })).toBeNull()
+    expect(applyQuestionResolved([], { askId: `a` })).toBeNull()
+  })
+})
+
+// ── Answer lock state machine ────────────────────────────────────────────────
+
+describe(`answer locks`, () => {
+  it(`keys on the wire id, falling back to the feed id`, () => {
+    expect(answerKey({ id: 4, questionId: `tu_1#0` })).toBe(`tu_1#0`)
+    expect(answerKey({ id: 4 })).toBe(`#4`)
+  })
+
+  it(`locks on send, stays locked through the ack`, () => {
+    let states: AnswerStates = {}
+    expect(isAnswerLocked(states[`q`])).toBe(false)
+    states = beginAnswer(states, `q`, [`1`], [`Red`])
+    expect(states.q).toMatchObject({ status: `sending`, labels: [`Red`] })
+    expect(isAnswerLocked(states.q)).toBe(true)
+    states = ackAnswer(states, `q`)
+    expect(states.q.status).toBe(`acked`)
+    expect(isAnswerLocked(states.q)).toBe(true)
+  })
+
+  it(`a missing ack re-enables the card, an acked one never does`, () => {
+    let states = beginAnswer({}, `q`, [`1`], [`Red`])
+    states = failAnswer(states, `q`)
+    expect(states.q.status).toBe(`error`)
+    expect(isAnswerLocked(states.q)).toBe(false)
+    // The retry's answer is kept for the label render.
+    expect(states.q.labels).toEqual([`Red`])
+
+    const acked = ackAnswer(beginAnswer({}, `q`, [`1`], [`Red`]), `q`)
+    expect(failAnswer(acked, `q`).q.status).toBe(`acked`)
+    expect(failAnswer({}, `nope`)).toEqual({})
+  })
+
+  it(`resolution clears the lock`, () => {
+    const states = beginAnswer({}, `q`, [`1`], [`Red`])
+    expect(clearAnswer(states, `q`)).toEqual({})
+    expect(clearAnswer(states, `other`)).toBe(states)
+  })
+
+  it(`acking an unknown key is a no-op`, () => {
+    const states: AnswerStates = {}
+    expect(ackAnswer(states, `q`)).toBe(states)
+  })
+})
+
+// ── Multi-question stepper ───────────────────────────────────────────────────
+
+describe(`askStepperView`, () => {
+  const step = (
+    id: number,
+    index: number,
+    over: Partial<QuestionItem> = {}
+  ): QuestionItem => ({
+    id,
+    kind: `question`,
+    questionId: `a#${index - 1}`,
+    askId: `a`,
+    index,
+    total: 2,
+    text: `Q${index}`,
+    ...over,
+  })
+  const submit = (id: number, over: Partial<QuestionItem> = {}): QuestionItem => ({
+    id,
+    kind: `question`,
+    questionId: `a#submit`,
+    askId: `a`,
+    text: `Submit?`,
+    ...over,
+  })
+
+  it(`walks one question at a time, in index order`, () => {
+    const view = askStepperView([step(2, 2), step(1, 1)], {})
+    expect(view.steps.map((s) => s.item.id)).toEqual([1, 2])
+    expect(view.steps.map((s) => s.phase)).toEqual([`current`, `pending`])
+    expect(view.position).toBe(1)
+    expect(view.total).toBe(2)
+    expect(view.submit).toBeNull()
+    expect(view.waiting).toBe(false)
+  })
+
+  it(`an in-flight answer advances the stepper immediately`, () => {
+    const items = [step(1, 1), step(2, 2)]
+    const states = beginAnswer({}, `a#0`, [`1`], [`Red`])
+    const view = askStepperView(items, states)
+    expect(view.steps[0]).toMatchObject({ phase: `answered`, answer: `Red` })
+    expect(view.steps[1].phase).toBe(`current`)
+    expect(view.position).toBe(2)
+  })
+
+  it(`an acked answer keeps the step answered`, () => {
+    const states = ackAnswer(beginAnswer({}, `a#0`, [`1`], [`Red`]), `a#0`)
+    const view = askStepperView([step(1, 1), step(2, 2)], states)
+    expect(view.steps[0].phase).toBe(`answered`)
+  })
+
+  it(`the resolved answer wins over the locally picked labels`, () => {
+    const states = beginAnswer({}, `a#0`, [`1`], [`Red`])
+    const view = askStepperView(
+      [step(1, 1, { resolved: true, answer: `Crimson` }), step(2, 2)],
+      states
+    )
+    expect(view.steps[0].answer).toBe(`Crimson`)
+  })
+
+  it(`the submit step becomes current once every question is answered`, () => {
+    const states = beginAnswer(
+      beginAnswer({}, `a#0`, [`1`], [`Red`]),
+      `a#1`,
+      [`2`],
+      [`Tabs`]
+    )
+    const view = askStepperView([step(1, 1), step(2, 2), submit(3)], states)
+    expect(view.steps.every((s) => s.phase === `answered`)).toBe(true)
+    expect(view.submit).toMatchObject({ phase: `current` })
+    expect(view.waiting).toBe(false)
+  })
+
+  it(`the submit step waits while a question is still open`, () => {
+    const view = askStepperView([step(1, 1), step(2, 2), submit(3)], {})
+    expect(view.submit?.phase).toBe(`pending`)
+  })
+
+  it(`waits for the next question when all published steps are answered`, () => {
+    const states = beginAnswer({}, `a#0`, [`1`], [`Red`])
+    const view = askStepperView([step(1, 1)], states)
+    expect(view.steps[0].phase).toBe(`answered`)
+    expect(view.waiting).toBe(true)
+  })
+
+  it(`a fully resolved ask waits for nothing`, () => {
+    const view = askStepperView(
+      [step(1, 1, { resolved: true, answer: `Red` })],
+      {}
+    )
+    expect(view.waiting).toBe(false)
+    expect(view.submit).toBeNull()
+  })
+
+  it(`a dismissed ask renders every step as answered`, () => {
+    const view = askStepperView(
+      [
+        step(1, 1, { resolved: true, dismissed: true }),
+        step(2, 2, { resolved: true, dismissed: true }),
+      ],
+      {}
+    )
+    expect(view.steps.map((s) => s.phase)).toEqual([`answered`, `answered`])
+    expect(view.steps[0].answer).toBeUndefined()
+  })
+
+  it(`falls back to the published step count when total is absent`, () => {
+    const view = askStepperView(
+      [step(1, 1, { total: undefined }), step(2, 2, { total: undefined })],
+      {}
+    )
+    expect(view.total).toBe(2)
+  })
+})
+
+// ── Render rows ──────────────────────────────────────────────────────────────
+
+describe(`groupFeedRows`, () => {
+  const item = (id: number, kind: string, over: Record<string, unknown> = {}) =>
+    ({ id, kind, ...over }) as {
+      id: number
+      kind: string
+      askId?: string
+      subagentId?: string
+    }
 
   it(`collapses runs of >=2 consecutive tools, leaves everything else single`, () => {
     const feed = [
@@ -203,7 +528,7 @@ describe(`groupToolRuns`, () => {
       item(5, `user_message`),
       item(6, `tool`),
     ]
-    expect(groupToolRuns(feed)).toEqual([
+    expect(groupFeedRows(feed)).toEqual([
       { kind: `single`, item: feed[0] },
       { kind: `toolRun`, id: 2, items: [feed[1], feed[2], feed[3]] },
       { kind: `single`, item: feed[4] },
@@ -213,7 +538,7 @@ describe(`groupToolRuns`, () => {
 
   it(`a lone tool between other kinds stays a single row`, () => {
     const feed = [item(1, `tool`), item(2, `narration`), item(3, `tool`)]
-    expect(groupToolRuns(feed)).toEqual([
+    expect(groupFeedRows(feed)).toEqual([
       { kind: `single`, item: feed[0] },
       { kind: `single`, item: feed[1] },
       { kind: `single`, item: feed[2] },
@@ -228,7 +553,7 @@ describe(`groupToolRuns`, () => {
       item(4, `tool`),
       item(5, `tool`),
     ]
-    expect(groupToolRuns(feed)).toEqual([
+    expect(groupFeedRows(feed)).toEqual([
       { kind: `toolRun`, id: 1, items: [feed[0], feed[1]] },
       { kind: `single`, item: feed[2] },
       { kind: `toolRun`, id: 4, items: [feed[3], feed[4]] },
@@ -237,14 +562,14 @@ describe(`groupToolRuns`, () => {
 
   it(`an all-tool feed is one run; an empty feed has no rows`, () => {
     const feed = [item(1, `tool`), item(2, `tool`), item(3, `tool`)]
-    expect(groupToolRuns(feed)).toEqual([{ kind: `toolRun`, id: 1, items: feed }])
-    expect(groupToolRuns([])).toEqual([])
+    expect(groupFeedRows(feed)).toEqual([{ kind: `toolRun`, id: 1, items: feed }])
+    expect(groupFeedRows([])).toEqual([])
   })
 
   it(`run id stays the FIRST tool's id as the trailing run grows`, () => {
     const feed = [item(1, `narration`), item(2, `tool`), item(3, `tool`)]
-    const before = groupToolRuns(feed)
-    const after = groupToolRuns([...feed, item(4, `tool`)])
+    const before = groupFeedRows(feed)
+    const after = groupFeedRows([...feed, item(4, `tool`)])
     expect(before[1]).toMatchObject({ kind: `toolRun`, id: 2 })
     expect(after[1]).toMatchObject({ kind: `toolRun`, id: 2 })
     expect((after[1] as { items: unknown[] }).items).toHaveLength(3)
@@ -257,10 +582,79 @@ describe(`groupToolRuns`, () => {
       item(3, `question`),
       item(4, `question`),
     ]
-    expect(groupToolRuns(feed)).toEqual([
+    expect(groupFeedRows(feed)).toEqual([
       { kind: `toolRun`, id: 1, items: [feed[0], feed[1]] },
       { kind: `single`, item: feed[2] },
       { kind: `single`, item: feed[3] },
+    ])
+  })
+
+  it(`one ask's questions collapse into a single stepper row`, () => {
+    const feed = [
+      item(1, `question`, { askId: `a` }),
+      item(2, `narration`),
+      item(3, `question`, { askId: `a` }),
+      item(4, `question`, { askId: `b` }),
+    ]
+    expect(groupFeedRows(feed)).toEqual([
+      { kind: `ask`, id: 1, askId: `a`, items: [feed[0], feed[2]] },
+      { kind: `single`, item: feed[1] },
+      { kind: `ask`, id: 4, askId: `b`, items: [feed[3]] },
+    ])
+  })
+
+  it(`a question without an askId (plan approval) stays its own row`, () => {
+    const feed = [item(1, `question`, { questionId: `tu_1` })]
+    expect(groupFeedRows(feed)).toEqual([{ kind: `single`, item: feed[0] }])
+  })
+
+  it(`a subagent's events and its tool calls group under its id`, () => {
+    const feed = [
+      item(1, `subagent`, { subagentId: `s1` }),
+      item(2, `tool`, { subagentId: `s1` }),
+      item(3, `tool`, { subagentId: `s1` }),
+      item(4, `subagent`, { subagentId: `s1` }),
+    ]
+    expect(groupFeedRows(feed)).toEqual([
+      { kind: `subagent`, id: 1, subagentId: `s1`, items: feed },
+    ])
+  })
+
+  it(`two subagents keep separate groups and never absorb main-thread tools`, () => {
+    const feed = [
+      item(1, `tool`),
+      item(2, `subagent`, { subagentId: `s1` }),
+      item(3, `tool`, { subagentId: `s1` }),
+      item(4, `subagent`, { subagentId: `s2` }),
+      item(5, `tool`, { subagentId: `s2` }),
+      item(6, `tool`),
+    ]
+    expect(groupFeedRows(feed)).toEqual([
+      { kind: `single`, item: feed[0] },
+      { kind: `subagent`, id: 2, subagentId: `s1`, items: [feed[1], feed[2]] },
+      { kind: `subagent`, id: 4, subagentId: `s2`, items: [feed[3], feed[4]] },
+      { kind: `single`, item: feed[5] },
+    ])
+  })
+
+  it(`a subagent tool breaks a main-thread run instead of joining it`, () => {
+    const feed = [
+      item(1, `tool`),
+      item(2, `tool`, { subagentId: `s1` }),
+      item(3, `tool`),
+    ]
+    expect(groupFeedRows(feed)).toEqual([
+      { kind: `single`, item: feed[0] },
+      { kind: `subagent`, id: 2, subagentId: `s1`, items: [feed[1]] },
+      { kind: `single`, item: feed[2] },
+    ])
+  })
+
+  it(`permission rows stay single`, () => {
+    const feed = [item(1, `permission`), item(2, `permission`)]
+    expect(groupFeedRows(feed)).toEqual([
+      { kind: `single`, item: feed[0] },
+      { kind: `single`, item: feed[1] },
     ])
   })
 })

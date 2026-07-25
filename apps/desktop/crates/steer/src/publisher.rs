@@ -1,14 +1,16 @@
-//! The per-coding-session publisher (masterplan-v3 §8.4–§8.7): tee the §6
-//! read-loop's raw PTY bytes out as `0x01` frames, inject remote `input`
-//! into the shared PTY writer, resize both ways, answer `resync` from the
-//! 256 KiB ring, honor claim/kill, and auto-reconnect resuming the room.
+//! The per-coding-session publisher (masterplan-v3 §8.4–§8.7, steering v2 =
+//! EXP-249): publish the scrubbed activity stream, replay the session's full
+//! journal on every (re)connect, inject remote `input` and semantic `answer`
+//! frames, honor claim/kill, and auto-reconnect resuming the room.
+//!
+//! EXP-249 removed the binary PTY mirror it used to carry (no client ever
+//! joined `channel:'pty'`): there is no read-loop tee, no ring, no `resync`
+//! and no geometry here anymore. What remains on the socket is TEXT only.
 //!
 //! **Best-effort and non-blocking** (§8.4): if the relay is disabled or
 //! unreachable the coding session runs fine locally — the publisher never
-//! gates the terminal. The hot-path rule is absolute: a slow socket must
-//! NEVER stall the read loop, so the tee is a bounded `try_send` that DROPS
-//! output on overflow ([`IN_FLIGHT_CAP`]) while control frames ride a
-//! separate unbounded channel that is never dropped or reordered.
+//! gates the terminal. Control frames and activity events ride ONE unbounded
+//! channel that is never dropped or reordered.
 //!
 //! Claim model (§8.5): the LOCAL user is never gated — their keystrokes go
 //! straight to the PTY. "Take over" simply sends `claim`; the relay's
@@ -16,90 +18,34 @@
 //! publisherTakeover(room)`) force-clears the remote steerer and
 //! re-broadcasts presence.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use api::error::ApiError;
 use api::steer::MintedTicket;
 use api::trpc::TrpcClient;
 use futures_util::{SinkExt, StreamExt};
-use terminal::RawSink;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::activity::{AnswerLink, RemoteAnswer};
 use crate::frames::{
-    output_frame, ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, CLOSE_REPLACED,
-    CLOSE_SESSION_ENDED, CLOSE_UNAUTHORIZED,
+    ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
+    CLOSE_UNAUTHORIZED,
 };
-use crate::ring::RingBuffer;
+use crate::journal::ActivityJournal;
 use crate::{dial, Backoff, DialError, SteerRuntime, WsStream, BACKOFF_RESET_AFTER};
 
-/// §8.4: the tee channel's bounded capacity — on overflow, output chunks are
-/// dropped (a laggy relay loses scrollback frames, not correctness). Mirrors
-/// the relay's own viewer-side slow-consumer guard.
-pub const IN_FLIGHT_CAP: usize = 32;
-
 /// The relay's WebSocket `maxPayloadLength` (bytes). A text frame at or past
-/// this makes the relay sever the connection — killing the members' PTY
-/// mirror along with the activity stream — so oversize activity frames are
-/// dropped client-side instead of sent.
+/// this makes the relay sever the connection — killing the whole activity
+/// stream — so oversize activity frames are dropped client-side instead.
 const RELAY_MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
-
-/// Clamp a grid dimension to the relay's zod bounds (`helloFrame`/`resizeFrame`
-/// require `positive().max(1000)` in `protocol.ts`). Sending cols/rows outside
-/// `1..=1000` makes `parseClientFrame` return `null` and the relay SILENTLY
-/// drops the frame — the exact silent-hang failure (§8.1): no room is ever
-/// created (hello) or no reflow happens (resize). A very wide/tall grid
-/// (hi-dpi + tiny font) is the realistic trigger; clamping degrades to a
-/// slightly-cropped viewer view instead of a dead room.
-fn clamp_dim(value: u16) -> u16 {
-    value.clamp(1, 1000)
-}
 
 /// §8.7: surfaced after two consecutive fresh-ticket 401s (never silently
 /// retry a skewed clock — the native failure mode this fixes).
 const CLOCK_SKEW_ERROR: &str = "Steer relay rejected the connection (ticket expired on \
      arrival) — check that this machine's clock is in sync (NTP).";
-
-// ---------------------------------------------------------------------------
-// The tee sink (terminal → publisher, §6.14 seam)
-// ---------------------------------------------------------------------------
-
-/// The [`RawSink`] the §6 read loop fans raw chunks into. `on_output` runs on
-/// the read thread while the sink registry lock is held — it MUST stay cheap
-/// and non-blocking, hence `try_send` + drop-on-overflow (output only).
-pub struct PublisherSink {
-    tx: flume::Sender<Vec<u8>>,
-    dropped: AtomicU64,
-}
-
-impl PublisherSink {
-    fn bounded() -> (Arc<Self>, flume::Receiver<Vec<u8>>) {
-        let (tx, rx) = flume::bounded(IN_FLIGHT_CAP);
-        (
-            Arc::new(Self {
-                tx,
-                dropped: AtomicU64::new(0),
-            }),
-            rx,
-        )
-    }
-
-    /// Output chunks dropped on overflow so far (observability/test surface).
-    pub fn dropped(&self) -> u64 {
-        self.dropped.load(Ordering::Relaxed)
-    }
-}
-
-impl RawSink for PublisherSink {
-    fn on_output(&self, chunk: &[u8]) {
-        // NEVER block the terminal on the relay (§8.4).
-        if self.tx.try_send(chunk.to_vec()).is_err() {
-            self.dropped.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Spec, hooks, tickets
@@ -162,12 +108,6 @@ pub struct PublisherHooks {
     /// Remote `input` frames → the ONE shared PTY writer (§6.5). Build with
     /// [`pty_writer_input_hook`] over `Terminal::writer()`.
     pub write_input: InputHook,
-    /// Steerer-origin resize (§8.4): apply via §6 `terminal.resize` — which
-    /// already no-ops on an unchanged size, killing the resize ping-pong.
-    pub resize: Arc<dyn Fn(u16, u16) + Send + Sync>,
-    /// TRUE current geometry for `hello`/re-`hello` (§8.4 #2 — never a
-    /// hardcoded 80×24). Build with [`term_geometry_hook`].
-    pub geometry: Arc<dyn Fn() -> (u16, u16) + Send + Sync>,
     /// Relay-initiated teardown: kill the `claude` child; the exit hook then
     /// ends the `coding_sessions` row (idempotent server-side).
     pub kill: Arc<dyn Fn(KillSignal) + Send + Sync>,
@@ -175,6 +115,11 @@ pub struct PublisherHooks {
     pub presence: Arc<dyn Fn(Presence) + Send + Sync>,
     /// Terminal-state errors worth surfacing (clock skew, repeated rejects).
     pub error: Arc<dyn Fn(String) + Send + Sync>,
+    /// EXP-249: semantic `answer` frames → the activity emitter, which owns
+    /// the live question state and the TUI key choreography. `None` (no
+    /// emitter) makes `answer` a no-op — steerers on such a session fall back
+    /// to the legacy keystroke path.
+    pub answers: Option<Arc<AnswerLink>>,
 }
 
 /// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, any lone
@@ -213,13 +158,6 @@ pub fn pty_writer_input_hook(
     })
 }
 
-/// [`PublisherHooks::geometry`] over the live grid (`Terminal::term()`).
-pub fn term_geometry_hook(
-    term: terminal::TermHandle,
-) -> Arc<dyn Fn() -> (u16, u16) + Send + Sync> {
-    Arc::new(move || terminal::grid_size(&term))
-}
-
 // ---------------------------------------------------------------------------
 // Handle + commands
 // ---------------------------------------------------------------------------
@@ -228,8 +166,6 @@ pub fn term_geometry_hook(
 /// channel — never dropped, never reordered against each other).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PublisherCmd {
-    /// Local window resized the grid — forward so viewers reflow.
-    LocalResize { cols: u16, rows: u16 },
     /// §8.5 "Take over": publisher-sent `claim` force-clears the remote
     /// steerer (relay `publisherTakeover`).
     TakeOver,
@@ -244,27 +180,8 @@ pub(crate) enum PublisherCmd {
 
 /// The coding-flow's handle onto a running publisher task.
 pub struct PublisherHandle {
-    sink: Arc<PublisherSink>,
     cmd_tx: flume::Sender<PublisherCmd>,
     running: Arc<AtomicBool>,
-}
-
-/// A cheap `Send + Sync` clone of the publisher's control sender, dedicated to
-/// §8.4 resize-up. The terminal session's [`terminal::ResizeObserver`] holds
-/// one and calls [`LocalResizeNotifier::notify`] on every genuine local grid
-/// change; the publisher task dedups against its last-sent geometry so a
-/// steerer-origin resize can't ping-pong. Cloning the handle itself would drag
-/// in the sink + running flag, so this exposes only the resize path.
-#[derive(Clone)]
-pub struct LocalResizeNotifier {
-    cmd_tx: flume::Sender<PublisherCmd>,
-}
-
-impl LocalResizeNotifier {
-    /// Forward a genuine local grid change so remote viewers reflow (§8.4).
-    pub fn notify(&self, cols: u16, rows: u16) {
-        let _ = self.cmd_tx.send(PublisherCmd::LocalResize { cols, rows });
-    }
 }
 
 /// A cheap `Send + Sync` clone of the publisher's control sender, dedicated to
@@ -294,33 +211,6 @@ impl ActivitySender {
 }
 
 impl PublisherHandle {
-    /// The tee sink to attach via `Terminal::attach_sink` (and detach on
-    /// teardown). The publisher never re-reads the PTY (§8.4).
-    pub fn raw_sink(&self) -> Arc<dyn RawSink> {
-        self.sink.clone()
-    }
-
-    /// Output chunks dropped by the backpressure policy so far.
-    pub fn dropped_chunks(&self) -> u64 {
-        self.sink.dropped()
-    }
-
-    /// Local grid changed (§6.10 step 3): send `resize` up so viewers
-    /// reflow. Call only on a genuine integer cell change (the §6 resize
-    /// path already debounces); the task additionally skips no-op repeats.
-    pub fn notify_local_resize(&self, cols: u16, rows: u16) {
-        let _ = self.cmd_tx.send(PublisherCmd::LocalResize { cols, rows });
-    }
-
-    /// A cheap [`LocalResizeNotifier`] for the terminal session's resize
-    /// observer (§8.4 resize-up) — routes local geometry changes here without
-    /// coupling `crates/terminal` to the whole handle.
-    pub fn resize_notifier(&self) -> LocalResizeNotifier {
-        LocalResizeNotifier {
-            cmd_tx: self.cmd_tx.clone(),
-        }
-    }
-
     /// The §8.5 "Take over" button: revoke the remote steerer.
     pub fn take_over(&self) {
         let _ = self.cmd_tx.send(PublisherCmd::TakeOver);
@@ -361,11 +251,10 @@ impl PublisherHandle {
 /// onto the steer runtime and returns the handle immediately. Wire-up
 /// contract (the coding-flow seam):
 ///
-/// 1. `terminal.attach_sink(handle.raw_sink())` — and `detach_sink` on
-///    teardown;
+/// 1. `spawn_activity_emitter` with `handle.activity_sender()` — the events
+///    this task journals and republishes;
 /// 2. exit hook → `handle.shutdown(Some(format!("exit:{code}")))`;
-/// 3. §6.10 local resize → `handle.notify_local_resize(cols, rows)`;
-/// 4. `sync::kill_watch` on_ended → `handle.session_ended()` (after killing
+/// 3. `sync::kill_watch` on_ended → `handle.session_ended()` (after killing
 ///    the child).
 pub fn publish(
     runtime: &SteerRuntime,
@@ -373,17 +262,15 @@ pub fn publish(
     tickets: Arc<dyn PublisherTickets>,
     hooks: PublisherHooks,
 ) -> PublisherHandle {
-    let (sink, out_rx) = PublisherSink::bounded();
     let (cmd_tx, cmd_rx) = flume::unbounded();
     let running = Arc::new(AtomicBool::new(true));
     let handle = PublisherHandle {
-        sink,
         cmd_tx,
         running: running.clone(),
     };
     runtime
         .handle()
-        .spawn(run_publisher_loop(spec, tickets, hooks, out_rx, cmd_rx, running));
+        .spawn(run_publisher_loop(spec, tickets, hooks, cmd_rx, running));
     handle
 }
 
@@ -405,11 +292,13 @@ async fn run_publisher_loop(
     spec: PublishSpec,
     tickets: Arc<dyn PublisherTickets>,
     hooks: PublisherHooks,
-    out_rx: flume::Receiver<Vec<u8>>,
     cmd_rx: flume::Receiver<PublisherCmd>,
     running: Arc<AtomicBool>,
 ) {
-    let mut ring = RingBuffer::default();
+    // EXP-249: the session's full published history. Every connection starts
+    // with `activity_reset` + this journal, so a viewer joining a resumed room
+    // (or after a relay restart) sees the session from its first event.
+    let mut journal = ActivityJournal::new();
     let mut backoff = Backoff::publisher();
     // §8.7: one immediate re-mint is allowed after a fresh-ticket 401; a
     // second consecutive 401 surfaces the clock-skew error and stops.
@@ -447,7 +336,7 @@ async fn run_publisher_loop(
             }
             Err(err) => {
                 log::debug!("steer publisher: mint failed: {err}");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &running).await.is_break() {
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
                     return;
                 }
                 continue 'reconnect;
@@ -469,7 +358,7 @@ async fn run_publisher_loop(
             }
             Err(DialError::Other(reason)) => {
                 log::debug!("steer publisher: connect failed: {reason}");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &running).await.is_break() {
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
                     return;
                 }
                 continue 'reconnect;
@@ -477,19 +366,11 @@ async fn run_publisher_loop(
         };
         unauthorized_once = false;
 
-        // §8.4 #2 — hello with TRUE current geometry; the relay creates the
-        // room (or resumes it on re-hello, ring intact, evicting any stale
-        // publisher with CLOSE_REPLACED). No resize comes back; no resync is
-        // sent on reconnect — resume live teeing at once (§8.6).
-        let (cols, rows) = (hooks.geometry)();
-        // Clamp to the relay's zod bound (§8.1): out-of-range geometry is
-        // silently dropped, leaving the room uncreated.
-        let (cols, rows) = (clamp_dim(cols), clamp_dim(rows));
+        // §8.4 #2 — hello creates the room (or resumes it on re-hello,
+        // evicting any stale publisher with CLOSE_REPLACED).
         let hello = ClientFrame::Hello {
             session_id: &spec.session_id,
             issue_id: spec.issue_id.as_deref(),
-            cols: Some(cols),
-            rows: Some(rows),
             // EXP-90: the anonymous public-activity audience is removed —
             // always send the explicit opt-out, because an ABSENT key means
             // "public" to legacy relays (manual, independent deploys).
@@ -498,28 +379,27 @@ async fn run_publisher_loop(
         .to_json();
         if let Err(err) = ws.send(Message::Text(hello)).await {
             log::debug!("steer publisher: hello failed: {err}");
-            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &running).await.is_break() {
+            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
                 return;
             }
             continue 'reconnect;
         }
-        log::info!(
-            "steer publisher: room {} live at {cols}x{rows}",
-            spec.session_id
-        );
+        log::info!("steer publisher: room {} live", spec.session_id);
         let established = Instant::now();
-        let mut last_sent_geometry = (cols, rows);
 
-        let end = pump_connection(
-            &mut ws,
-            &hooks,
-            &out_rx,
-            &cmd_rx,
-            &mut ring,
-            &running,
-            &mut last_sent_geometry,
-        )
-        .await;
+        // EXP-249 full-history re-publish: clear whatever the room (and its
+        // viewers) still hold, then replay the journal in order. A resumed
+        // `--continue` transcript seeds the journal from byte 0, so this is
+        // the ONE deliberate place a feed is rebuilt.
+        if !republish_history(&mut ws, &journal).await {
+            log::debug!("steer publisher: history replay failed; reconnecting");
+            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
+                return;
+            }
+            continue 'reconnect;
+        }
+
+        let end = pump_connection(&mut ws, &hooks, &cmd_rx, &mut journal, &running).await;
 
         match end {
             LoopEnd::Clean => {
@@ -562,7 +442,7 @@ async fn run_publisher_loop(
                     return;
                 }
                 log::debug!("steer publisher: dropped; reconnecting");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &running).await.is_break() {
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
                     return;
                 }
             }
@@ -574,11 +454,9 @@ async fn run_publisher_loop(
 async fn pump_connection(
     ws: &mut WsStream,
     hooks: &PublisherHooks,
-    out_rx: &flume::Receiver<Vec<u8>>,
     cmd_rx: &flume::Receiver<PublisherCmd>,
-    ring: &mut RingBuffer,
+    journal: &mut ActivityJournal,
     running: &Arc<AtomicBool>,
-    last_sent_geometry: &mut (u16, u16),
 ) -> LoopEnd {
     // EXP-72: when a steerer's Enter (a bare `\r` frame) chases their message
     // text this closely, the child can read text+`\r` as ONE chunk and the
@@ -586,61 +464,43 @@ async fn pump_connection(
     // Hold the `\r` back until the child has had a beat to drain the text.
     // Ordering is safe — this task is the only remote-input writer.
     const ENTER_SEPARATION: Duration = Duration::from_millis(150);
+    // EXP-249 belt-and-braces: a pre-v2 client answers a picker by sending the
+    // option digit and then a bare `\r`. The digit ALONE already submits (and
+    // auto-advances a multi-question ask), so the trailing Enter would answer
+    // the NEXT question with whatever it is sitting on. Swallow it while an
+    // ask is pending.
+    const ENTER_CASCADE_WINDOW: Duration = Duration::from_millis(500);
     // REV2-X: Send periodic pings so the relay can detect dead publishers.
-    // During plan mode (or any idle period), the desktop sends no output/activity,
+    // During plan mode (or any idle period), the desktop sends no activity,
     // and without pings, a dropped connection can sit undetected while UIs retry
     // endlessly against a stale `no_such_session`.
     const PING_INTERVAL: Duration = Duration::from_secs(30);
     let mut last_input_at: Option<Instant> = None;
+    let mut last_digit_at: Option<Instant> = None;
     let mut ping_interval = tokio::time::interval(PING_INTERVAL);
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
-            // 1) terminal output → binary 0x01 frame (+ replay ring).
-            chunk = out_rx.recv_async() => {
-                let Ok(chunk) = chunk else { return LoopEnd::Dropped };
-                ring.push(&chunk);
-                if ws.send(Message::Binary(output_frame(&chunk))).await.is_err() {
-                    return LoopEnd::Dropped;
-                }
-            }
-            // 2) local control commands (unbounded — never dropped).
+            // 1) local control commands (unbounded — never dropped).
             cmd = cmd_rx.recv_async() => {
                 let Ok(cmd) = cmd else { return LoopEnd::Dropped };
                 match cmd {
-                    PublisherCmd::LocalResize { cols, rows } => {
-                        // Clamp to the relay's zod bound (§8.1) so a wide grid
-                        // never silently drops the reflow, then anti-ping-pong:
-                        // only genuine changes go up (§8.4).
-                        let (cols, rows) = (clamp_dim(cols), clamp_dim(rows));
-                        if (cols, rows) != *last_sent_geometry {
-                            *last_sent_geometry = (cols, rows);
-                            let frame = ClientFrame::Resize { cols, rows }.to_json();
-                            if ws.send(Message::Text(frame)).await.is_err() {
-                                return LoopEnd::Dropped;
-                            }
-                        }
-                    }
                     PublisherCmd::TakeOver => {
                         // §8.5: publisher-sent claim = relay publisherTakeover.
                         if ws.send(Message::Text(ClientFrame::Claim.to_json())).await.is_err() {
                             return LoopEnd::Dropped;
                         }
                     }
-                    PublisherCmd::Activity(event) => {
+                    PublisherCmd::Activity(mut event) => {
                         // §P7: publish one already-redacted activity event.
                         // The relay fans it to the member activity audience.
-                        let frame = ClientFrame::Activity { event }.to_json();
-                        // The emitter caps event strings in UTF-8 bytes, but
-                        // JSON escaping can still inflate pathological content
-                        // past the relay's frame limit — dropping the event
-                        // beats letting the relay close the shared socket.
-                        if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
-                            log::warn!(
-                                "steer publisher: dropping oversize activity frame ({} bytes)",
-                                frame.len()
-                            );
-                        } else if ws.send(Message::Text(frame)).await.is_err() {
+                        // Stamp it first: the journal replays the ORIGINAL
+                        // timeline after a reconnect.
+                        if event.at_mut().is_none() {
+                            *event.at_mut() = Some(now_millis());
+                        }
+                        journal.push(event.clone());
+                        if !send_activity(ws, event).await {
                             return LoopEnd::Dropped;
                         }
                     }
@@ -652,11 +512,22 @@ async fn pump_connection(
                     }
                 }
             }
-            // 3) relay → publisher control frames.
+            // 2) relay → publisher control frames.
             msg = ws.next() => match msg {
                 Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
                     Some(ServerFrame::Input { data }) => {
+                        let ask_pending = hooks
+                            .answers
+                            .as_ref()
+                            .is_some_and(|answers| answers.ask_pending());
                         if data == "\r" {
+                            let cascade = ask_pending
+                                && last_digit_at
+                                    .is_some_and(|at| at.elapsed() < ENTER_CASCADE_WINDOW);
+                            if cascade {
+                                last_digit_at = None;
+                                continue;
+                            }
                             if let Some(at) = last_input_at {
                                 let elapsed = at.elapsed();
                                 if elapsed < ENTER_SEPARATION {
@@ -664,10 +535,20 @@ async fn pump_connection(
                                 }
                             }
                         }
+                        if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
+                            last_digit_at = Some(Instant::now());
+                        }
                         last_input_at = Some(Instant::now());
                         (hooks.write_input)(data.as_bytes())
                     }
-                    Some(ServerFrame::Resize { cols, rows }) => (hooks.resize)(cols, rows),
+                    // EXP-249: the semantic answer path — the emitter owns
+                    // question identity + the TUI key choreography, so the
+                    // publisher only routes.
+                    Some(ServerFrame::Answer { question_id, ask_id, keys }) => {
+                        if let Some(answers) = &hooks.answers {
+                            answers.submit(RemoteAnswer { question_id, ask_id, keys });
+                        }
+                    }
                     Some(ServerFrame::Kill) => {
                         // §8.4: relay kill → end the session. The kill hook
                         // kills the child (whose exit hook ends the synced
@@ -682,15 +563,6 @@ async fn pump_connection(
                     }
                     Some(ServerFrame::Presence { viewers, steerer_id }) => {
                         (hooks.presence)(Presence { viewers, steerer_id });
-                    }
-                    Some(ServerFrame::Resync) => {
-                        // Slow-consumer recovery ONLY (§8.4): resend the ring
-                        // as 0x01 frames. NOT viewer join, NOT reconnect.
-                        for chunk in ring.replay() {
-                            if ws.send(Message::Binary(output_frame(chunk))).await.is_err() {
-                                return LoopEnd::Dropped;
-                            }
-                        }
                     }
                     Some(ServerFrame::Bye { outcome }) => {
                         log::debug!("steer publisher: relay bye ({outcome:?})");
@@ -709,8 +581,8 @@ async fn pump_connection(
                     return LoopEnd::Closed(close_code(&frame));
                 }
                 Some(Ok(_binary_or_ping)) => {
-                    // Publishers PRODUCE 0x01 frames, never consume them
-                    // (§8.1); pings are answered by tungstenite internally.
+                    // The relay speaks TEXT only since EXP-249; pings are
+                    // answered by tungstenite internally.
                 }
                 Some(Err(err)) => {
                     log::debug!("steer publisher: socket error: {err}");
@@ -718,7 +590,7 @@ async fn pump_connection(
                 }
                 None => return LoopEnd::Dropped,
             },
-            // 4) periodic ping to keep the connection alive and let the relay
+            // 3) periodic ping to keep the connection alive and let the relay
             // detect dead publishers (REV2-X: plan mode can idle for minutes).
             _ = ping_interval.tick() => {
                 if ws.send(Message::Ping(vec![])).await.is_err() {
@@ -729,16 +601,60 @@ async fn pump_connection(
     }
 }
 
+/// `activity_reset` + the whole journal, in order. `false` on a socket error
+/// (the caller reconnects and tries again from the top).
+async fn republish_history(ws: &mut WsStream, journal: &ActivityJournal) -> bool {
+    if ws
+        .send(Message::Text(ClientFrame::ActivityReset.to_json()))
+        .await
+        .is_err()
+    {
+        return false;
+    }
+    for event in journal.replay() {
+        if !send_activity(ws, event.clone()).await {
+            return false;
+        }
+    }
+    true
+}
+
+/// Send one activity event. The emitter caps event strings in UTF-8 bytes, but
+/// JSON escaping can still inflate pathological content past the relay's frame
+/// limit — dropping the event beats letting the relay close the socket, so an
+/// oversize frame is a skip, not a failure.
+async fn send_activity(ws: &mut WsStream, event: ActivityEvent) -> bool {
+    let frame = ClientFrame::Activity { event }.to_json();
+    if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
+        log::warn!(
+            "steer publisher: dropping oversize activity frame ({} bytes)",
+            frame.len()
+        );
+        return true;
+    }
+    ws.send(Message::Text(frame)).await.is_ok()
+}
+
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 fn close_code(frame: &Option<CloseFrame<'_>>) -> Option<u16> {
     frame.as_ref().map(|f| u16::from(f.code))
 }
 
 /// Interruptible backoff sleep: `Break` on `Shutdown` (we're disconnected —
-/// nothing to `bye`) or when `running` flipped. Other commands during a
-/// disconnect are momentary UI state and safely superseded by the re-`hello`.
+/// nothing to `bye`) or when `running` flipped. Activity published while the
+/// socket is down still goes into the journal, so the reconnect's re-publish
+/// carries it; a take-over is momentary UI state, safely superseded by the
+/// re-`hello`.
 async fn sleep_or_shutdown(
     delay: Duration,
     cmd_rx: &flume::Receiver<PublisherCmd>,
+    journal: &mut ActivityJournal,
     running: &Arc<AtomicBool>,
 ) -> std::ops::ControlFlow<()> {
     let deadline = tokio::time::Instant::now() + delay;
@@ -753,7 +669,13 @@ async fn sleep_or_shutdown(
                     running.store(false, Ordering::SeqCst);
                     return std::ops::ControlFlow::Break(());
                 }
-                Ok(_ignored_while_disconnected) => {}
+                Ok(PublisherCmd::Activity(mut event)) => {
+                    if event.at_mut().is_none() {
+                        *event.at_mut() = Some(now_millis());
+                    }
+                    journal.push(event);
+                }
+                Ok(PublisherCmd::TakeOver) => {}
             }
         }
     }
@@ -764,49 +686,18 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    // ── Backpressure policy (§8.4): drop output, never block, never wedge ──
-
-    #[test]
-    fn sink_never_blocks_and_drops_past_the_cap() {
-        let (sink, rx) = PublisherSink::bounded();
-        let start = Instant::now();
-        for i in 0..100u8 {
-            sink.on_output(&[i]);
-        }
-        // 100 sends with no drainer return immediately (try_send).
-        assert!(start.elapsed() < Duration::from_millis(500));
-        assert_eq!(rx.len(), IN_FLIGHT_CAP, "channel holds exactly the cap");
-        assert_eq!(sink.dropped(), (100 - IN_FLIGHT_CAP) as u64);
-        // The buffered chunks are the OLDEST (drop-newest-on-overflow): the
-        // consumer resumes from a contiguous prefix, the ring covers the gap.
-        let first = rx.recv().unwrap();
-        assert_eq!(first, vec![0u8]);
-    }
-
-    #[test]
-    fn sink_recovers_after_drain() {
-        let (sink, rx) = PublisherSink::bounded();
-        for i in 0..(IN_FLIGHT_CAP as u8 + 5) {
-            sink.on_output(&[i]);
-        }
-        assert_eq!(sink.dropped(), 5);
-        while rx.try_recv().is_ok() {}
-        sink.on_output(b"after");
-        assert_eq!(sink.dropped(), 5, "no new drops once drained");
-        assert_eq!(rx.recv().unwrap(), b"after");
-    }
+    // ── Control path (§8.4): never dropped, never reordered ────────────────
 
     #[test]
     fn control_channel_is_unbounded_and_lossless() {
-        // §8.4: control frames are NEVER dropped — resize/kill/bye ride an
-        // unbounded path even when output is saturated.
+        // §8.4: control frames are NEVER dropped — activity/kill/bye ride an
+        // unbounded path however chatty the session gets.
         let (cmd_tx, cmd_rx) = flume::unbounded();
         for i in 0..10_000u16 {
             cmd_tx
-                .send(PublisherCmd::LocalResize {
-                    cols: i % 500 + 1,
-                    rows: 40,
-                })
+                .send(PublisherCmd::Activity(ActivityEvent::narration(format!(
+                    "line {i}"
+                ))))
                 .expect("unbounded send never fails");
         }
         cmd_tx
@@ -819,10 +710,8 @@ mod tests {
 
     #[test]
     fn shutdown_flips_running_and_queues_bye() {
-        let (sink, _out_rx) = PublisherSink::bounded();
         let (cmd_tx, cmd_rx) = flume::unbounded();
         let handle = PublisherHandle {
-            sink,
             cmd_tx,
             running: Arc::new(AtomicBool::new(true)),
         };
@@ -928,35 +817,37 @@ mod tests {
     #[derive(Default)]
     struct Recorded {
         inputs: Mutex<Vec<Vec<u8>>>,
-        resizes: Mutex<Vec<(u16, u16)>>,
         kills: Mutex<Vec<KillSignal>>,
         presences: Mutex<Vec<Presence>>,
         errors: Mutex<Vec<String>>,
     }
 
     fn recording_hooks(recorded: Arc<Recorded>) -> PublisherHooks {
+        recording_hooks_with(recorded, None)
+    }
+
+    fn recording_hooks_with(
+        recorded: Arc<Recorded>,
+        answers: Option<Arc<AnswerLink>>,
+    ) -> PublisherHooks {
         let r1 = recorded.clone();
         let r2 = recorded.clone();
         let r3 = recorded.clone();
-        let r4 = recorded.clone();
-        let r5 = recorded;
+        let r4 = recorded;
         PublisherHooks {
             write_input: Arc::new(move |bytes| {
                 r1.inputs.lock().unwrap().push(bytes.to_vec());
             }),
-            resize: Arc::new(move |cols, rows| {
-                r2.resizes.lock().unwrap().push((cols, rows));
-            }),
-            geometry: Arc::new(|| (100, 30)),
             kill: Arc::new(move |signal| {
-                r3.kills.lock().unwrap().push(signal);
+                r2.kills.lock().unwrap().push(signal);
             }),
             presence: Arc::new(move |presence| {
-                r4.presences.lock().unwrap().push(presence);
+                r3.presences.lock().unwrap().push(presence);
             }),
             error: Arc::new(move |message| {
-                r5.errors.lock().unwrap().push(message);
+                r4.errors.lock().unwrap().push(message);
             }),
+            answers,
         }
     }
 
@@ -969,19 +860,16 @@ mod tests {
         }
     }
 
-    #[test]
-    fn publisher_hellos_teams_inputs_resyncs_and_kills_against_a_fake_relay() {
-        let runtime = SteerRuntime::new().unwrap();
+    /// A fake relay socket: everything the publisher sends lands on `seen`,
+    /// everything the test injects goes back down the wire.
+    fn fake_relay(
+        runtime: &SteerRuntime,
+    ) -> (u16, flume::Receiver<String>, flume::Sender<Message>) {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let port = listener.local_addr().unwrap().port();
-
-        // Server-side transcript, observed from the fake relay.
         let (seen_tx, seen_rx) = flume::unbounded::<String>();
-        let (bin_tx, bin_rx) = flume::unbounded::<Vec<u8>>();
-        // Frames the test injects relay→publisher.
         let (inject_tx, inject_rx) = flume::unbounded::<Message>();
-
         runtime.handle().spawn(async move {
             let listener = tokio::net::TcpListener::from_std(listener).unwrap();
             let (stream, _addr) = listener.accept().await.unwrap();
@@ -994,15 +882,22 @@ mod tests {
                     }
                     msg = ws.next() => match msg {
                         Some(Ok(Message::Text(text))) => { let _ = seen_tx.send(text); }
-                        Some(Ok(Message::Binary(bytes))) => { let _ = bin_tx.send(bytes); }
                         Some(Ok(_)) => {}
                         _ => break,
                     }
                 }
             }
         });
+        (port, seen_rx, inject_tx)
+    }
+
+    #[test]
+    fn publisher_hellos_publishes_activity_steers_and_kills_against_a_fake_relay() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
 
         let recorded = Arc::new(Recorded::default());
+        let (link, answers_rx) = AnswerLink::new();
         let handle = publish(
             &runtime,
             PublishSpec {
@@ -1012,40 +907,55 @@ mod tests {
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
             }),
-            recording_hooks(recorded.clone()),
+            recording_hooks_with(recorded.clone(), Some(link.clone())),
         );
 
-        // 1) hello with TRUE geometry (the hook says 100×30, not 80×24).
-        // EXP-90: every hello carries the explicit activityPublic:false.
+        // 1) hello — no geometry since EXP-249. EXP-90: every hello carries
+        // the explicit activityPublic:false.
         let hello = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             hello,
-            r#"{"t":"hello","sessionId":"sess-t","issueId":"issue-t","cols":100,"rows":30,"activityPublic":false}"#
+            r#"{"t":"hello","sessionId":"sess-t","issueId":"issue-t","activityPublic":false}"#
+        );
+        // 2) …immediately followed by the (empty) history re-publish.
+        let reset = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(reset, r#"{"t":"activity_reset"}"#);
+
+        // 3) activity events go out stamped and land in the journal.
+        let sender = handle.activity_sender();
+        sender.send(ActivityEvent::narration("Session started"));
+        let narration = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            narration.starts_with(r#"{"t":"activity","event":{"kind":"narration","text":"Session started","at":"#),
+            "{narration}"
         );
 
-        // 2) teed output arrives as 0x01 binary frames (and fills the ring).
-        handle.raw_sink().on_output(b"chunk-1");
-        handle.raw_sink().on_output(b"chunk-2");
-        let first = bin_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(first, output_frame(b"chunk-1"));
-        let second = bin_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(second, output_frame(b"chunk-2"));
-
-        // 3) remote input → the PTY-writer hook, byte-identical.
+        // 4) remote input → the PTY-writer hook, byte-identical.
         inject_tx
             .send(Message::Text(r#"{"t":"input","data":"ls\r"}"#.to_string()))
             .unwrap();
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
         assert_eq!(recorded.inputs.lock().unwrap()[0], b"ls\r");
 
-        // 4) steerer resize → resize hook.
+        // 5) a semantic answer routes to the emitter's link, NOT the PTY.
         inject_tx
-            .send(Message::Text(r#"{"t":"resize","cols":90,"rows":25}"#.to_string()))
+            .send(Message::Text(
+                r#"{"t":"answer","questionId":"toolu_1#0","askId":"toolu_1","keys":["2"]}"#
+                    .to_string(),
+            ))
             .unwrap();
-        wait_for(|| !recorded.resizes.lock().unwrap().is_empty());
-        assert_eq!(recorded.resizes.lock().unwrap()[0], (90, 25));
+        let answer = answers_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            answer,
+            RemoteAnswer {
+                question_id: "toolu_1#0".to_string(),
+                ask_id: Some("toolu_1".to_string()),
+                keys: vec!["2".to_string()],
+            }
+        );
+        assert_eq!(recorded.inputs.lock().unwrap().len(), 1, "answers never keystroke");
 
-        // 5) presence → banner hook.
+        // 6) presence → banner hook.
         inject_tx
             .send(Message::Text(
                 r#"{"t":"presence","viewers":[{"userId":"v1","name":"Phone","perm":"steer"}],"steererId":"v1"}"#.to_string(),
@@ -1056,27 +966,12 @@ mod tests {
         assert_eq!(presence.steerer_id.as_deref(), Some("v1"));
         assert_eq!(presence.viewers[0].name, "Phone");
 
-        // 6) local resize forwards (deduped against the hello geometry).
-        handle.notify_local_resize(100, 30); // no-op: unchanged
-        handle.notify_local_resize(120, 40);
-        let resize = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(resize, r#"{"t":"resize","cols":120,"rows":40}"#);
-
         // 7) take over → a publisher `claim`.
         handle.take_over();
         let claim = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(claim, r#"{"t":"claim"}"#);
 
-        // 8) resync → the ring replays as 0x01 frames (slow-consumer path).
-        inject_tx
-            .send(Message::Text(r#"{"t":"resync"}"#.to_string()))
-            .unwrap();
-        let replay_1 = bin_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(replay_1, output_frame(b"chunk-1"));
-        let replay_2 = bin_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(replay_2, output_frame(b"chunk-2"));
-
-        // 9) relay kill → kill hook fires, clean bye goes out, task stops.
+        // 8) relay kill → kill hook fires, clean bye goes out, task stops.
         inject_tx
             .send(Message::Text(r#"{"t":"kill"}"#.to_string()))
             .unwrap();
@@ -1086,6 +981,125 @@ mod tests {
         assert_eq!(bye, r#"{"t":"bye","outcome":"killed"}"#);
         wait_for(|| !handle.is_active());
         assert!(recorded.errors.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_legacy_enter_cascade_is_dropped_while_an_ask_is_pending() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let (link, _answers_rx) = AnswerLink::new();
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-e".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            recording_hooks_with(recorded.clone(), Some(link.clone())),
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        // A pre-v2 client answering a picker: digit, then a bare Enter. The
+        // digit already submitted, so the Enter must not reach the PTY.
+        link.set_ask_pending(true);
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"2"}"#.to_string()))
+            .unwrap();
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
+            .unwrap();
+        wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b"2".to_vec()],
+            "the chased Enter is swallowed"
+        );
+
+        // With no ask pending, an Enter is ordinary steering input again.
+        link.set_ask_pending(false);
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
+            .unwrap();
+        wait_for(|| recorded.inputs.lock().unwrap().len() == 2);
+        assert_eq!(recorded.inputs.lock().unwrap()[1], b"\r");
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn a_reconnect_resets_and_replays_the_journal() {
+        let runtime = SteerRuntime::new().unwrap();
+        // Two sequential relay sockets on ONE port: the first is dropped after
+        // the publisher hellos, forcing the reconnect path.
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (seen_tx, seen_rx) = flume::unbounded::<(usize, String)>();
+        let (drop_tx, drop_rx) = flume::unbounded::<()>();
+        runtime.handle().spawn(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+            for connection in 0..2usize {
+                let Ok((stream, _addr)) = listener.accept().await else { return };
+                let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await else { return };
+                loop {
+                    tokio::select! {
+                        _ = drop_rx.recv_async() => break, // sever this socket
+                        msg = ws.next() => match msg {
+                            Some(Ok(Message::Text(text))) => {
+                                let _ = seen_tx.send((connection, text));
+                            }
+                            Some(Ok(_)) => {}
+                            _ => break,
+                        }
+                    }
+                }
+                drop(ws);
+            }
+        });
+
+        let recorded = Arc::new(Recorded::default());
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-j".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            recording_hooks(recorded.clone()),
+        );
+        assert!(seen_rx.recv_timeout(Duration::from_secs(5)).unwrap().1.contains("hello"));
+        assert_eq!(seen_rx.recv_timeout(Duration::from_secs(5)).unwrap().1, r#"{"t":"activity_reset"}"#);
+
+        let sender = handle.activity_sender();
+        sender.send(ActivityEvent::narration("first"));
+        sender.send(ActivityEvent::tool("Edit", Some("a.rs".into())));
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        // Sever the socket; the publisher re-mints, re-hellos, and rebuilds
+        // the whole feed on the fresh connection.
+        drop_tx.send(()).unwrap();
+        let mut second: Vec<String> = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while second.len() < 4 {
+            assert!(Instant::now() < deadline, "no replay after reconnect: {second:?}");
+            if let Ok((connection, text)) = seen_rx.recv_timeout(Duration::from_millis(250)) {
+                if connection == 1 {
+                    second.push(text);
+                }
+            }
+        }
+        assert!(second[0].contains(r#""t":"hello""#), "{:?}", second[0]);
+        assert_eq!(second[1], r#"{"t":"activity_reset"}"#);
+        assert!(second[2].contains(r#""text":"first""#), "{:?}", second[2]);
+        assert!(second[3].contains(r#""name":"Edit""#), "{:?}", second[3]);
+        handle.shutdown(None);
     }
 
     #[test]
@@ -1122,7 +1136,11 @@ mod tests {
         let hello = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             hello,
-            r#"{"t":"hello","sessionId":"sess-x","cols":100,"rows":30,"activityPublic":false}"#
+            r#"{"t":"hello","sessionId":"sess-x","activityPublic":false}"#
+        );
+        assert_eq!(
+            seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            r#"{"t":"activity_reset"}"#
         );
 
         handle.shutdown(Some("exit:0".to_string()));

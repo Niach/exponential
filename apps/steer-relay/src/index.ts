@@ -317,7 +317,7 @@ function adapt(ws: ServerWebSocket<WsData>): RelaySocket {
   let adapter = adapters.get(ws)
   if (!adapter) {
     adapter = {
-      send: (data) => void ws.send(data),
+      send: (data: string) => void ws.send(data),
       close: (code, reason) => ws.close(code, reason),
       bufferedAmount: () => ws.getBufferedAmount(),
     }
@@ -372,17 +372,18 @@ export default {
     return app.fetch(req)
   },
   websocket: {
-    // Keystrokes are tiny and output frames are chunked by the PTY; anything
-    // bigger than this is abuse.
+    // Keystrokes are tiny; the biggest legitimate frame is an activity event
+    // carrying a worktree diff (schema-capped at 512KB). Anything bigger than
+    // this is abuse.
     maxPayloadLength: 1024 * 1024,
     open(ws: ServerWebSocket<WsData>) {
       hub.onOpen(adapt(ws), ws.data.claims)
     },
+    // EXP-249 removed the binary PTY mirror; old desktops still push binary
+    // output frames, so they are handed to the hub (which counts them as
+    // publisher liveness and drops them) rather than decoded here.
     message(ws: ServerWebSocket<WsData>, message: string | Buffer) {
-      hub.onMessage(
-        adapt(ws),
-        typeof message === `string` ? message : new Uint8Array(message)
-      )
+      hub.onMessage(adapt(ws), message)
     },
     // REV2-X: Bun routes protocol-level ping frames HERE, not to `message`.
     // The desktop publisher pings every 30s during idle/plan-mode; without

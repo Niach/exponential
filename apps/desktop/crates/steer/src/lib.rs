@@ -7,10 +7,11 @@
 //!   registration, inbound `start_session` routing to the §7 launcher,
 //!   15-minute disabled recheck, exponential backoff with the >60s-lived
 //!   reset rule.
-//! - [`publisher`] — the per-coding-session PTY publisher: tee `0x01` output
-//!   frames off the §6 read-loop [`terminal::RawSink`] seam, inject remote
-//!   `input` into the shared PTY writer, resize both ways, ring replay on
-//!   `resync`, claim/take-over, kill, and auto-reconnect resuming the room.
+//! - [`publisher`] — the per-coding-session publisher: push the scrubbed
+//!   [`activity`] stream, replay the session [`journal`] on every (re)connect,
+//!   inject remote `input`/`answer` into the shared PTY writer, claim/
+//!   take-over, kill, and auto-reconnect resuming the room. EXP-249 removed
+//!   the binary PTY mirror it used to carry.
 //!
 //! Wire protocol and ticket format are FROZEN (`apps/steer-relay/src/protocol.ts`,
 //! `packages/steer-ticket`) — [`frames`] mirrors them byte-for-byte and the
@@ -25,11 +26,11 @@
 //! 1. **Publisher attach** — after `coding::spawn_prepared` returns
 //!    `LaunchOutcome::Spawned { session_id, .. }`, call
 //!    [`publisher::publish`] with a [`publisher::PublisherHooks`] built from
-//!    the tab's `Terminal` (`session.writer()` for input inject,
-//!    `terminal::grid_size(session.term())` for true geometry) — then attach
-//!    `handle.raw_sink()` via `Terminal::attach_sink` and detach it on
-//!    teardown. Call `handle.notify_local_resize` from the §6.10 resize path,
-//!    `handle.take_over()` from the "Take over" banner button, and
+//!    the tab's `Terminal` (`session.writer()` for input inject), then start
+//!    [`activity::spawn_emitter`] with `handle.activity_sender()`, the
+//!    session's [`hooks::HookServer`] receiver, and an [`activity::Steering`]
+//!    seam whose [`activity::AnswerLink`] also rides the publisher hooks. Call
+//!    `handle.take_over()` from the "Take over" banner button and
 //!    `handle.shutdown(Some("exit:<code>"))` from the exit hook.
 //! 2. **Control channel** — once per signed-in account, call
 //!    [`control_channel::spawn_control_channel`] with the persistent
@@ -45,10 +46,11 @@
 pub mod activity;
 pub mod control_channel;
 pub mod frames;
+pub mod hooks;
+pub mod journal;
 pub mod plan_picker;
 pub mod publisher;
 pub mod question_picker;
-pub mod ring;
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -60,17 +62,24 @@ pub use control_channel::{
     spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, RemoteStart,
     RemoteStartSubject, TrpcControlApi,
 };
-pub use activity::{spawn_emitter as spawn_activity_emitter, EmitterConfig, Redactor};
-pub use frames::{
-    output_frame, ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, StartInput,
-    StartRepoGroup, SteerPerm, SteerRole, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
-    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, OUTPUT_OPCODE,
+pub use activity::{
+    spawn_emitter as spawn_activity_emitter, AnswerLink, EmitterConfig, Redactor, RemoteAnswer,
+    Steering,
 };
+pub use frames::{
+    ActivityEvent, ClientFrame, PresenceViewer, QuestionOption, ServerFrame, StartInput,
+    StartRepoGroup, SteerPerm, SteerRole, SubagentStatus, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
+    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
+};
+pub use hooks::{
+    hook_settings_json, HookContext, HookEvent, HookEventKind, HookQuestion, HookQuestionOption,
+    HookServer, HOOK_PORT_ENV, HOOK_TOKEN_ENV,
+};
+pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use publisher::{
     publish, ActivitySender, KillSignal, Presence, PublishSpec, PublisherHandle, PublisherHooks,
-    PublisherTickets, TrpcPublisherTickets, IN_FLIGHT_CAP,
+    PublisherTickets, TrpcPublisherTickets,
 };
-pub use ring::{RingBuffer, RING_CAP_BYTES};
 
 // ---------------------------------------------------------------------------
 // The isolated tokio runtime (§3.5: "the only tokio in the whole desktop

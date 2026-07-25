@@ -1,0 +1,503 @@
+import XCTest
+
+@testable import ExpCore
+
+// EXP-78/EXP-174/EXP-197 + steer protocol v2 (EXP-249). Mirrors the Android
+// AgentFeedTest: the trailing-run rule for LEGACY question cards, the semantic
+// resolution path for v2 cards, the wire folds (attach/dismiss/resolve/upsert),
+// the render grouping, and the per-card answer lock.
+final class AgentFeedTests: XCTestCase {
+
+    // MARK: - activeQuestionIds (legacy heuristics)
+
+    func testReturnsTheTrailingConsecutiveQuestionRun() {
+        let feed: [AgentFeedItem] = [
+            .narration(id: 1, text: "working"),
+            .question(question(2)),
+            tool(3),
+            .question(question(4)),
+            .question(question(5)),
+        ]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [4, 5])
+    }
+
+    func testEmptyWhenTheFeedEndsWithANonQuestion() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1)),
+            .narration(id: 2, text: "moved on"),
+        ]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [])
+    }
+
+    func testHandlesAnAllQuestionFeedAndAnEmptyFeed() {
+        XCTAssertEqual(
+            AgentFeed.activeQuestionIds([.question(question(1)), .question(question(2))]),
+            [1, 2]
+        )
+        XCTAssertEqual(AgentFeed.activeQuestionIds([]), [])
+    }
+
+    func testTrailingQuestionsAreUnaffectedByToolRunsBeforeThem() {
+        let feed: [AgentFeedItem] = [tool(1), tool(2), .question(question(3))]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [3])
+    }
+
+    func testPlanQuestionStaysActiveBehindLaggedToolAndNarrationFlushes() {
+        let feed: [AgentFeedItem] = [
+            .question(plan(1)),
+            tool(2),
+            .narration(id: 3, text: "Let me finalize the plan file:"),
+        ]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [1])
+    }
+
+    func testPlanQuestionRetiresOnTheResolutionNarration() {
+        let feed: [AgentFeedItem] = [
+            .question(plan(1)),
+            tool(2),
+            .narration(id: 3, text: AgentFeed.planResolvedNarration),
+        ]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [])
+    }
+
+    func testPlanQuestionSurvivesAHumanMessage() {
+        // Steering a message mid-plan leaves the picker up (EXP-249, web
+        // parity) — only a newer question or the resolution narration retires
+        // a plan card.
+        let feed: [AgentFeedItem] = [
+            .question(plan(1)), tool(2), .userMessage(id: 3, text: "1"),
+        ]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [1])
+    }
+
+    func testPlanQuestionRetiresWhenANewerQuestionFollows() {
+        let feed: [AgentFeedItem] = [.question(plan(1)), tool(2), .question(question(3))]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [3])
+    }
+
+    func testNonPlanQuestionIsRetiredByAnyLaterEvent() {
+        XCTAssertEqual(AgentFeed.activeQuestionIds([.question(question(1)), tool(2)]), [])
+        XCTAssertEqual(
+            AgentFeed.activeQuestionIds([
+                .question(question(1)),
+                .permission(id: 2, tool: "Bash", detail: nil),
+            ]),
+            []
+        )
+    }
+
+    func testResolvedQuestionIsNeverActiveAndRetiresEarlierPlanCards() {
+        var answered = question(1)
+        answered.resolved = true
+        answered.answers = ["Red"]
+        XCTAssertEqual(AgentFeed.activeQuestionIds([.question(answered)]), [])
+
+        var resolved = question(2)
+        resolved.resolved = true
+        XCTAssertEqual(
+            AgentFeed.activeQuestionIds([.question(plan(1)), .question(resolved)]),
+            []
+        )
+    }
+
+    // MARK: - activeQuestionIds (protocol v2)
+
+    func testSemanticQuestionStaysActiveUntilItIsResolved() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1, wireId: "tu_1")),
+            tool(2),
+            .narration(id: 3, text: "still working"),
+        ]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [1])
+
+        var resolved = question(1, wireId: "tu_1")
+        resolved.resolved = true
+        XCTAssertEqual(
+            AgentFeed.activeQuestionIds([.question(resolved), tool(2)]),
+            []
+        )
+    }
+
+    func testEverySemanticStepOfAnAskIsActive() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1, wireId: "tu#0", askId: "tu", index: 1, total: 2)),
+            .question(question(2, wireId: "tu#1", askId: "tu", index: 2, total: 2)),
+        ]
+        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [1, 2])
+    }
+
+    // MARK: - Legacy narration folds
+
+    func testAnswersAttachEarliestFirstInQuestionOrder() {
+        let feed: [AgentFeedItem] = [.question(question(1)), .question(question(2))]
+        let first = AgentFeed.attachQuestionAnswer(feed, answer: "Red")
+        XCTAssertEqual(first?[0].question?.answers, ["Red"])
+        XCTAssertEqual(first?[1].question?.answers, [])
+        let second = AgentFeed.attachQuestionAnswer(first ?? [], answer: "Blue")
+        XCTAssertEqual(second?[1].question?.answers, ["Blue"])
+    }
+
+    func testAnswersNeverAttachToPlanSemanticOrAnsweredCards() {
+        XCTAssertNil(AgentFeed.attachQuestionAnswer([.question(plan(1))], answer: "Red"))
+        XCTAssertNil(
+            AgentFeed.attachQuestionAnswer(
+                [.question(question(1, wireId: "tu_1"))], answer: "Red"
+            )
+        )
+        var answered = question(1)
+        answered.resolved = true
+        XCTAssertNil(AgentFeed.attachQuestionAnswer([.question(answered)], answer: "Blue"))
+        XCTAssertNil(AgentFeed.attachQuestionAnswer([], answer: "Red"))
+    }
+
+    func testDismissalRetiresEveryPendingLegacyNonPlanCard() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1)),
+            .question(plan(2)),
+            .question(question(3, wireId: "tu_3")),
+            .question(question(4)),
+        ]
+        let out = AgentFeed.dismissPendingQuestions(feed)
+        XCTAssertEqual(out?[0].question?.resolved, true)
+        XCTAssertEqual(out?[1].question?.resolved, false)
+        XCTAssertEqual(out?[2].question?.resolved, false)
+        XCTAssertEqual(out?[3].question?.resolved, true)
+        XCTAssertNil(AgentFeed.dismissPendingQuestions(out ?? []))
+    }
+
+    func testSemanticFeedsAreDetectedSoLegacyNarrationsCanBeSwallowed() {
+        XCTAssertFalse(AgentFeed.hasSemanticQuestions([.question(question(1)), tool(2)]))
+        XCTAssertTrue(
+            AgentFeed.hasSemanticQuestions([.question(question(1, wireId: "tu_1")), tool(2)])
+        )
+    }
+
+    // MARK: - question_resolved
+
+    func testResolvesASingleCardByIdAndFoldsAllItsAnswersIn() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1, wireId: "a")),
+            .question(question(2, wireId: "b")),
+        ]
+        let out = AgentFeed.applyQuestionResolved(
+            feed, id: "b", askId: nil, answers: ["Blue", "Green"]
+        )
+        XCTAssertEqual(out?[0].question?.resolved, false)
+        XCTAssertEqual(out?[1].question?.resolved, true)
+        XCTAssertEqual(out?[1].question?.answers, ["Blue", "Green"])
+        XCTAssertEqual(out?[1].question?.answerSummary, "Blue, Green")
+        XCTAssertNil(AgentFeed.applyQuestionResolved(feed, id: "missing", askId: nil))
+    }
+
+    func testResolvesEveryCardOfAnAskAndMapsAnswersOntoTheAnsweringSteps() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1, wireId: "tu#0", askId: "tu", index: 1, total: 2)),
+            // The submit step consumes none of the ask's answers.
+            .question(question(2, wireId: "tu#submit", askId: "tu")),
+            .question(question(3, wireId: "tu#1", askId: "tu", index: 2, total: 2)),
+            .question(question(4, wireId: "other")),
+        ]
+        let out = AgentFeed.applyQuestionResolved(
+            feed, id: nil, askId: "tu", answers: ["Red", "Blue"]
+        )
+        XCTAssertEqual(out?[0].question?.answers, ["Red"])
+        XCTAssertEqual(out?[1].question?.answers, [])
+        XCTAssertEqual(out?[1].question?.resolved, true)
+        XCTAssertEqual(out?[2].question?.answers, ["Blue"])
+        XCTAssertEqual(out?[3].question?.resolved, false)
+    }
+
+    func testDismissalCarriesNoAnswersAndWithoutIdsRetiresEveryUnresolvedCard() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1, wireId: "a")),
+            .question(plan(2)),
+        ]
+        let out = AgentFeed.applyQuestionResolved(
+            feed, id: nil, askId: nil, answers: ["Red"], dismissed: true
+        )
+        XCTAssertEqual(out?[0].question?.dismissed, true)
+        XCTAssertEqual(out?[0].question?.answers, [])
+        XCTAssertEqual(out?[1].question?.dismissed, true)
+    }
+
+    // MARK: - upsertQuestion
+
+    func testUpsertReplacesTheCardCarryingTheSameWireId() {
+        let feed = AgentFeed.upsertQuestion([], question: question(1, wireId: "a"))
+        let augmented = AgentQuestion(
+            id: 7,
+            wireId: "a",
+            text: "Which color?",
+            options: [
+                AgentQuestionOption(label: "Red", key: "1"),
+                AgentQuestionOption(label: "Type something", key: "2"),
+            ]
+        )
+        let out = AgentFeed.upsertQuestion(feed, question: augmented)
+        XCTAssertEqual(out.count, 1)
+        // The render id is kept so the card is replaced, not re-created.
+        XCTAssertEqual(out[0].id, 1)
+        XCTAssertEqual(out[0].question?.options.count, 2)
+    }
+
+    func testUpsertKeepsAResolutionTheCardAlreadyHad() {
+        var resolved = question(1, wireId: "a")
+        resolved.resolved = true
+        resolved.answers = ["Red"]
+        let out = AgentFeed.upsertQuestion(
+            [.question(resolved)], question: question(2, wireId: "a")
+        )
+        XCTAssertEqual(out[0].question?.resolved, true)
+        XCTAssertEqual(out[0].question?.answers, ["Red"])
+    }
+
+    func testUpsertAppendsLegacyCardsAndUnknownWireIds() {
+        var feed = AgentFeed.upsertQuestion([], question: question(1))
+        feed = AgentFeed.upsertQuestion(feed, question: question(2))
+        feed = AgentFeed.upsertQuestion(feed, question: question(3, wireId: "a"))
+        XCTAssertEqual(feed.map(\.id), [1, 2, 3])
+    }
+
+    // MARK: - rows
+
+    func testCollapsesRunsOfTwoOrMoreConsecutiveTools() {
+        let feed: [AgentFeedItem] = [
+            .narration(id: 1, text: "working"),
+            tool(2), tool(3), tool(4),
+            .userMessage(id: 5, text: "hi"),
+            tool(6),
+        ]
+        XCTAssertEqual(
+            AgentFeed.rows(feed),
+            [
+                .single(feed[0]),
+                .toolRun([feed[1], feed[2], feed[3]]),
+                .single(feed[4]),
+                .single(feed[5]),
+            ]
+        )
+    }
+
+    func testALoneToolBetweenOtherKindsStaysASingleRow() {
+        let feed: [AgentFeedItem] = [tool(1), .narration(id: 2, text: "x"), tool(3)]
+        XCTAssertEqual(AgentFeed.rows(feed), feed.map { AgentFeedRow.single($0) })
+    }
+
+    func testTwoRunsSplitByANarrationStaySeparateRuns() {
+        let feed: [AgentFeedItem] = [
+            tool(1), tool(2), .narration(id: 3, text: "x"), tool(4), tool(5),
+        ]
+        XCTAssertEqual(
+            AgentFeed.rows(feed),
+            [
+                .toolRun([feed[0], feed[1]]),
+                .single(feed[2]),
+                .toolRun([feed[3], feed[4]]),
+            ]
+        )
+    }
+
+    func testAnAllToolFeedIsOneRunAndAnEmptyFeedHasNoRows() {
+        let feed: [AgentFeedItem] = [tool(1), tool(2), tool(3)]
+        XCTAssertEqual(AgentFeed.rows(feed), [.toolRun(feed)])
+        XCTAssertEqual(AgentFeed.rows([]), [])
+    }
+
+    func testARunIdStaysTheFirstToolsIdAsTheTrailingRunGrows() {
+        let feed: [AgentFeedItem] = [.narration(id: 1, text: "x"), tool(2), tool(3)]
+        XCTAssertEqual(AgentFeed.rows(feed)[1].id, 2)
+        XCTAssertEqual(AgentFeed.rows(feed + [tool(4)])[1].id, 2)
+    }
+
+    func testAToolTaggedWithASubagentNeverJoinsAMainThreadRun() {
+        let feed: [AgentFeedItem] = [tool(1), tool(2, subagentId: "s1")]
+        let rows = AgentFeed.rows(feed)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0], .single(feed[0]))
+        guard case let .subagentRun(run) = rows[1] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(run.toolCount, 1)
+    }
+
+    func testQuestionsAdjacentToToolsAreNeverAbsorbedIntoARun() {
+        let feed: [AgentFeedItem] = [
+            tool(1), tool(2), .question(question(3)), .question(question(4)),
+        ]
+        XCTAssertEqual(
+            AgentFeed.rows(feed),
+            [.toolRun([feed[0], feed[1]]), .single(feed[2]), .single(feed[3])]
+        )
+    }
+
+    func testGroupsASubagentRunUnderItsStartMarker() {
+        let feed: [AgentFeedItem] = [
+            .subagent(
+                id: 1, subagentId: "s1", agentType: "explorer",
+                status: .started, detail: "map the repo"
+            ),
+            tool(2, subagentId: "s1"),
+            tool(3, subagentId: "s1"),
+            .subagent(id: 4, subagentId: "s1", agentType: "explorer", status: .completed, detail: nil),
+            tool(5),
+        ]
+        let rows = AgentFeed.rows(feed)
+        XCTAssertEqual(rows.count, 2)
+        guard case let .subagentRun(run) = rows[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(run.id, 1)
+        XCTAssertEqual(run.agentType, "explorer")
+        XCTAssertEqual(run.toolCount, 2)
+        XCTAssertTrue(run.done)
+        XCTAssertEqual(rows[1], .single(feed[4]))
+    }
+
+    func testAnUnfinishedSubagentRunIsNotDoneAndAStrayMarkerStillOpensItsGroup() {
+        let running: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s1", agentType: "explorer", status: .started, detail: nil),
+            tool(2, subagentId: "s1"),
+        ]
+        guard case let .subagentRun(run) = AgentFeed.rows(running)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertFalse(run.done)
+
+        // A `completed` whose `started` fell off the top of the feed.
+        let stray: [AgentFeedItem] = [
+            .subagent(id: 9, subagentId: "s9", agentType: "explorer", status: .completed, detail: nil),
+        ]
+        guard case let .subagentRun(orphan) = AgentFeed.rows(stray)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertTrue(orphan.done)
+        XCTAssertEqual(orphan.toolCount, 0)
+        XCTAssertEqual(orphan.id, 9)
+    }
+
+    func testGroupedItemsJoinTheirRowEvenWhenSomethingElseLandsBetween() {
+        let feed: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s1", agentType: "explorer", status: .started, detail: nil),
+            .question(question(2, wireId: "tu#0", askId: "tu", index: 1, total: 2)),
+            .narration(id: 3, text: "thinking"),
+            tool(4, subagentId: "s1"),
+            .question(question(5, wireId: "tu#1", askId: "tu", index: 2, total: 2)),
+        ]
+        let rows = AgentFeed.rows(feed)
+        XCTAssertEqual(rows.count, 3)
+        guard case let .subagentRun(run) = rows[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(run.toolCount, 1)
+        guard case let .ask(group) = rows[1] else { return XCTFail("expected an ask group") }
+        XCTAssertEqual(group.questions.map(\.id), [2, 5])
+        XCTAssertEqual(rows[2], .single(feed[2]))
+    }
+
+    func testGroupsTheStepsOfOneAskWithTheSubmitStepLast() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1, wireId: "tu#0", askId: "tu", index: 1, total: 2)),
+            .question(question(2, wireId: "tu#submit", askId: "tu")),
+            .question(question(3, wireId: "tu#1", askId: "tu", index: 2, total: 2)),
+            .question(question(4, wireId: "other")),
+        ]
+        let rows = AgentFeed.rows(feed)
+        XCTAssertEqual(rows.count, 2)
+        guard case let .ask(group) = rows[0] else { return XCTFail("expected an ask group") }
+        XCTAssertEqual(group.askId, "tu")
+        XCTAssertEqual(group.questions.map(\.id), [1, 3, 2])
+        XCTAssertEqual(group.stepCount, 2)
+        XCTAssertEqual(group.id, 1)
+        XCTAssertEqual(rows[1], .single(feed[3]))
+    }
+
+    // MARK: - Stepper progression
+
+    func testTheCurrentStepAdvancesOnAcknowledgementAndEndsWhenResolved() {
+        var second = question(2, wireId: "tu#1", askId: "tu", index: 2, total: 2)
+        let group = AgentAskGroup(
+            askId: "tu",
+            questions: [question(1, wireId: "tu#0", askId: "tu", index: 1, total: 2), second]
+        )
+        XCTAssertEqual(AgentFeed.currentStepIndex(of: group, done: []), 0)
+        XCTAssertEqual(AgentFeed.currentStepIndex(of: group, done: ["tu#0"]), 1)
+        XCTAssertNil(AgentFeed.currentStepIndex(of: group, done: ["tu#0", "tu#1"]))
+
+        second.resolved = true
+        let partly = AgentAskGroup(askId: "tu", questions: [group.questions[0], second])
+        XCTAssertEqual(AgentFeed.currentStepIndex(of: partly, done: []), 0)
+        XCTAssertNil(AgentFeed.currentStepIndex(of: partly, done: ["tu#0"]))
+    }
+
+    // MARK: - Answer lock
+
+    func testALockedCardStaysLockedUntilItExpiresAndAckedCardsNever() {
+        var tracker = AgentAnswerTracker()
+        let sentAt = Date()
+        tracker.markSent("tu#0", at: sentAt)
+        XCTAssertTrue(tracker.isLocked("tu#0"))
+        XCTAssertTrue(tracker.isPending("tu#0"))
+        XCTAssertFalse(tracker.isLocked("tu#1"))
+
+        // Nothing came back — the optimistic lock frees the card again.
+        let tooEarly = tracker.expire(now: sentAt.addingTimeInterval(5), timeout: 10)
+        XCTAssertFalse(tooEarly)
+        let expired = tracker.expire(now: sentAt.addingTimeInterval(11), timeout: 10)
+        XCTAssertTrue(expired)
+        XCTAssertFalse(tracker.isLocked("tu#0"))
+
+        tracker.markSent("tu#1", at: sentAt)
+        tracker.acknowledge("tu#1")
+        XCTAssertTrue(tracker.isAcked("tu#1"))
+        XCTAssertFalse(tracker.isPending("tu#1"))
+        let ackedSurvives = tracker.expire(now: sentAt.addingTimeInterval(999), timeout: 10)
+        XCTAssertFalse(ackedSurvives)
+        XCTAssertTrue(tracker.isLocked("tu#1"))
+
+        tracker.reset()
+        XCTAssertFalse(tracker.isLocked("tu#1"))
+    }
+
+    func testResolvingDropsTheOptimisticLock() {
+        var tracker = AgentAnswerTracker()
+        tracker.markSent("plan")
+        tracker.resolve("plan")
+        XCTAssertFalse(tracker.isLocked("plan"))
+    }
+
+    // MARK: - Fixtures
+
+    private func tool(_ id: Int, subagentId: String? = nil) -> AgentFeedItem {
+        .tool(id: id, name: "Edit", detail: "src/a.ts", subagentId: subagentId)
+    }
+
+    private func question(
+        _ id: Int,
+        wireId: String? = nil,
+        askId: String? = nil,
+        index: Int? = nil,
+        total: Int? = nil
+    ) -> AgentQuestion {
+        AgentQuestion(
+            id: id,
+            wireId: wireId,
+            askId: askId,
+            index: index,
+            total: total,
+            text: "Which color?",
+            options: [
+                AgentQuestionOption(label: "Red", key: "1"),
+                AgentQuestionOption(label: "Blue", key: "2"),
+            ]
+        )
+    }
+
+    private func plan(_ id: Int) -> AgentQuestion {
+        AgentQuestion(
+            id: id,
+            text: "# Plan\n\n- step one",
+            options: [AgentQuestionOption(label: "Approve", key: "1")],
+            planMode: true
+        )
+    }
+}

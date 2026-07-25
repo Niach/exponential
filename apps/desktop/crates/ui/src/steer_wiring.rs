@@ -21,12 +21,18 @@
 //! 2. **Publisher — attaches on coding-session launch.**
 //!    [`attach_publisher`] is the single call `coding_flow::spawn_into_window`
 //!    makes right after `coding` reports `LaunchOutcome::Spawned`. It mints a
-//!    publisher ticket over tRPC (never signed locally), builds the §6.14 tee
-//!    from the live terminal's Send+Sync handles (`Terminal::writer()` for
-//!    remote input inject, `Terminal::term()` for TRUE geometry), attaches the
-//!    [`steer::PublisherSink`] to the read-loop, and registers the session for
-//!    the kill-switch. Best-effort: a disabled/unreachable relay is a no-op
-//! (the session runs fine locally with no remote mirror).
+//!    publisher ticket over tRPC (never signed locally), wires the live
+//!    terminal's Send+Sync handles (`Terminal::writer()` for remote input and
+//!    answer injection, `Terminal::term()` for the grid the emitter watches),
+//!    starts the §P7 activity emitter with this session's hook-sidecar stream,
+//!    and registers the session for the kill-switch. Best-effort: a disabled/
+//!    unreachable relay is a no-op (the session runs fine locally).
+//!
+//!    EXP-249 also puts the **claude hooks sidecar** here: [`install`] starts
+//!    ONE loopback [`steer::HookServer`] per process, [`hook_setup`] hands its
+//!    port/token/settings to `coding::prepare_with_hooks` at every launch site,
+//!    and a router thread fans each delivery to the session whose worktree it
+//!    came from.
 //!
 //! 3. **Kill-switch — the own-row Electric watch (§8.8).** Every published
 //!    session is registered with the [`sync::KillWatch`]; when its
@@ -36,29 +42,29 @@
 //!    that survives a dead relay.
 //!
 //! Cross-thread discipline: the publisher task runs on the steer tokio runtime,
-//! so its hooks must be `Send + Sync`. Two hooks operate on `Send + Sync` `Arc`
-//! handles directly (input-inject over the shared PTY writer, geometry over the
-//! `TermHandle`); the rest (resize-down, presence, error, relay-kill) marshal
-//! onto the gpui foreground through a per-session [`flume`] channel drained by a
-//! foreground task, because they touch the gpui-held `Terminal` / registry.
+//! so its hooks must be `Send + Sync`. Input-inject operates on `Send + Sync`
+//! `Arc` handles directly (the shared PTY writer + the `TermHandle`); the rest
+//! (presence, error, relay-kill) marshal onto the gpui foreground through a
+//! per-session [`flume`] channel drained by a foreground task, because they
+//! touch the gpui-held `Terminal` / registry.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use gpui::{App, AppContext as _, Entity, Global, WeakEntity};
-use terminal::{RawSink, TabId, TerminalManager};
+use terminal::{TabId, TerminalManager};
 
 use coding::{
-    prepare, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared,
+    prepare_with_hooks, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared,
     PrepareRequest, RepoGroup,
 };
-use steer::publisher::{pty_writer_input_hook, term_geometry_hook};
+use steer::publisher::pty_writer_input_hook;
 use steer::{
-    spawn_activity_emitter, spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity,
-    EmitterConfig, Presence, PublishSpec, PublisherHandle, PublisherHooks, PublisherTickets,
-    SteerRuntime, TrpcControlApi, TrpcPublisherTickets,
+    spawn_activity_emitter, spawn_control_channel, AnswerLink, ControlApi, ControlChannelHandle,
+    DeviceIdentity, EmitterConfig, HookEvent, HookServer, Presence, PublishSpec, PublisherHandle,
+    PublisherHooks, PublisherTickets, Steering, SteerRuntime, TrpcControlApi, TrpcPublisherTickets,
 };
 use sync::{KillWatch, Store};
 
@@ -114,6 +120,13 @@ pub fn install(cx: &mut App) {
     let _ = PublisherRegistry::global(cx);
     let _ = ControlChannels::global(cx);
 
+    // EXP-249: the claude hooks sidecar — one loopback server per process,
+    // its port/token handed to every launch through `hook_setup`.
+    match HookSidecar::start() {
+        Some(sidecar) => cx.set_global(HookSidecarGlobal(sidecar)),
+        None => log::warn!("steer: hooks sidecar unavailable — grid-only detection"),
+    }
+
     // §8.3 #4: relay `start_session` → foreground launcher.
     let (tx, rx) = flume::unbounded::<steer::RemoteStart>();
     cx.set_global(RemoteStartGlobal(tx));
@@ -123,6 +136,137 @@ pub fn install(cx: &mut App) {
         }
     })
     .detach();
+}
+
+// ---------------------------------------------------------------------------
+// The claude hooks sidecar (EXP-249) — one server, per-session routing
+// ---------------------------------------------------------------------------
+
+/// One session's subscription to the sidecar.
+struct HookSubscriber {
+    worktree: PathBuf,
+    tx: flume::Sender<HookEvent>,
+    /// claude session ids already routed here — the tie-breaker when two
+    /// sessions share a cwd (two action runs on the same trunk clone).
+    bound: HashSet<String>,
+}
+
+/// The process-wide hooks sidecar: the loopback server, the `HookSetup` every
+/// launch site passes to `coding::prepare_with_hooks`, and the router that
+/// fans each delivery to the session it came from (by `cwd`, then pinned by
+/// claude's own session id).
+struct HookSidecar {
+    setup: coding::HookSetup,
+    subscribers: Arc<Mutex<Vec<HookSubscriber>>>,
+    /// Alive for the process — dropping it stops the accept loop.
+    _server: HookServer,
+}
+
+struct HookSidecarGlobal(Arc<HookSidecar>);
+impl Global for HookSidecarGlobal {}
+
+impl HookSidecar {
+    fn start() -> Option<Arc<Self>> {
+        let server = match HookServer::start() {
+            Ok(server) => server,
+            Err(err) => {
+                log::warn!("steer: hooks sidecar failed to bind: {err}");
+                return None;
+            }
+        };
+        let setup = coding::HookSetup {
+            port: server.port(),
+            token: server.token().to_string(),
+            settings_json: server.settings_json(),
+        };
+        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::new(Mutex::new(Vec::new()));
+        let events = server.events().clone();
+        let routed = Arc::clone(&subscribers);
+        std::thread::Builder::new()
+            .name("exp-hook-router".to_string())
+            .spawn(move || {
+                while let Ok(event) = events.recv() {
+                    route_hook_event(&routed, event);
+                }
+            })
+            .ok()?;
+        Some(Arc::new(Self {
+            setup,
+            subscribers,
+            _server: server,
+        }))
+    }
+
+    /// Subscribe a session's worktree; the receiver goes to its emitter and
+    /// dropping it unsubscribes on the next delivery.
+    fn subscribe(&self, worktree: &Path) -> flume::Receiver<HookEvent> {
+        let (tx, rx) = flume::unbounded();
+        let mut subscribers = match self.subscribers.lock() {
+            Ok(subscribers) => subscribers,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        subscribers.retain(|subscriber| !subscriber.tx.is_disconnected());
+        subscribers.push(HookSubscriber {
+            worktree: canonical(worktree),
+            tx,
+            bound: HashSet::new(),
+        });
+        rx
+    }
+}
+
+/// `std::fs::canonicalize` or the path as given — the hook payload's `cwd` and
+/// our worktree must compare equal through symlinked temp/home dirs.
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Deliver one hook event to at most ONE session: a claude session id we have
+/// already seen wins outright, otherwise the cwd picks the session (preferring
+/// one with no bound id yet, so two runs sharing a trunk clone split instead
+/// of piling onto the first).
+fn route_hook_event(subscribers: &Arc<Mutex<Vec<HookSubscriber>>>, event: HookEvent) {
+    let mut subscribers = match subscribers.lock() {
+        Ok(subscribers) => subscribers,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    subscribers.retain(|subscriber| !subscriber.tx.is_disconnected());
+    let session_id = event.context.session_id.clone();
+    let target = session_id
+        .as_ref()
+        .and_then(|id| {
+            subscribers
+                .iter()
+                .position(|subscriber| subscriber.bound.contains(id))
+        })
+        .or_else(|| {
+            let cwd = canonical(Path::new(event.context.cwd.as_deref()?));
+            subscribers
+                .iter()
+                .position(|subscriber| subscriber.worktree == cwd && subscriber.bound.is_empty())
+                .or_else(|| {
+                    subscribers
+                        .iter()
+                        .position(|subscriber| subscriber.worktree == cwd)
+                })
+        });
+    let Some(target) = target else {
+        log::debug!("steer: hook event with no matching session, dropped");
+        return;
+    };
+    if let Some(id) = session_id {
+        subscribers[target].bound.insert(id);
+    }
+    let _ = subscribers[target].tx.send(event);
+}
+
+/// The sidecar wiring every launch site passes to
+/// `coding::prepare_with_hooks` (EXP-249). `None` = no sidecar (bind failed,
+/// or steer never installed) — the launcher then writes no `--settings` file
+/// and the session runs on grid-only detection.
+pub fn hook_setup(cx: &App) -> Option<coding::HookSetup> {
+    cx.try_global::<HookSidecarGlobal>()
+        .map(|global| global.0.setup.clone())
 }
 
 // ---------------------------------------------------------------------------
@@ -407,10 +551,13 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         return;
     };
 
+    let hooks = hook_setup(cx);
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
-            .spawn(async move { prepare(&PrepareRequest::Issue(request), &deps) })
+            .spawn(async move {
+                prepare_with_hooks(&PrepareRequest::Issue(request), &deps, hooks.as_ref())
+            })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {
@@ -527,10 +674,13 @@ fn remote_batch_start(
         return;
     };
 
+    let hooks = hook_setup(cx);
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
-            .spawn(async move { prepare(&PrepareRequest::Batch(request), &deps) })
+            .spawn(async move {
+                prepare_with_hooks(&PrepareRequest::Batch(request), &deps, hooks.as_ref())
+            })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {
@@ -558,8 +708,6 @@ fn remote_batch_start(
 
 struct PublisherEntry {
     handle: PublisherHandle,
-    /// The tee sink attached to the read-loop (kept for `detach_sink`).
-    sink: Arc<dyn RawSink>,
     /// The current remote steerer's display name, if any (§8.5 banner state).
     steerer: Option<String>,
     /// §P7: the activity emitter's run flag (members-only activity channel);
@@ -594,8 +742,6 @@ impl PublisherRegistry {
 
 /// Marshaled from the publisher task (steer runtime) to the gpui foreground.
 enum SteerUiEvent {
-    /// Steerer viewport → resize the LOCAL terminal (§8.4 resize-down).
-    Resize(u16, u16),
     /// A `presence` broadcast → update the §8.5 banner state.
     Presence(Presence),
     /// A surfaced publisher error (clock skew, repeated rejects — §8.7).
@@ -640,21 +786,22 @@ pub fn attach_publisher(
 
     // The foreground-marshal channel for the non-`Send`-handle hooks.
     let (ui_tx, ui_rx) = flume::unbounded::<SteerUiEvent>();
-    let resize_tx = ui_tx.clone();
     let presence_tx = ui_tx.clone();
     let error_tx = ui_tx.clone();
     let kill_tx = ui_tx.clone();
 
+    // Remote input → the ONE shared PTY writer (Send+Sync Arc, no gpui); the
+    // TermHandle is the EXP-72 bracketed-paste gate for text frames. The
+    // EXP-249 answer choreography injects through the SAME hook, so the child
+    // cannot tell a steerer's answer from local typing.
+    let write_input = pty_writer_input_hook(writer, term.clone());
+    // EXP-249: `answer` frames land on the publisher and are executed by the
+    // emitter, which owns question identity and the live grid.
+    let (answer_link, answers) = AnswerLink::new();
+
     let hooks = PublisherHooks {
-        // Remote input → the ONE shared PTY writer (Send+Sync Arc, no gpui);
-        // the TermHandle is the EXP-72 bracketed-paste gate for text frames.
-        write_input: pty_writer_input_hook(writer, term.clone()),
-        // TRUE geometry for `hello`/re-`hello` (Send+Sync TermHandle, no gpui).
-        geometry: term_geometry_hook(term.clone()),
+        write_input: write_input.clone(),
         // The rest marshal to the foreground (they touch the gpui-held term).
-        resize: Arc::new(move |cols, rows| {
-            let _ = resize_tx.send(SteerUiEvent::Resize(cols, rows));
-        }),
         kill: Arc::new(move |_signal| {
             let _ = kill_tx.send(SteerUiEvent::Teardown);
         }),
@@ -664,6 +811,7 @@ pub fn attach_publisher(
         error: Arc::new(move |message| {
             let _ = error_tx.send(SteerUiEvent::Error(message));
         }),
+        answers: Some(answer_link.clone()),
     };
 
     // EXP-214: the needs-input forwarder's own handle — cloned before the
@@ -685,24 +833,6 @@ pub fn attach_publisher(
         },
     };
     let handle = steer::publish(&runtime, spec, tickets, hooks);
-
-    // Attach the tee sink to the read-loop (§6.14): from now on every teed
-    // chunk fans out to the publisher's bounded channel.
-    let sink = handle.raw_sink();
-    view.read(cx).session().borrow().attach_sink(sink.clone());
-
-    // §8.4 resize-up: install the §6.10-step-3 observer so a genuine LOCAL grid
-    // change (the terminal element's resize path) forwards `resize` up and
-    // remote viewers reflow. The observer holds only a cheap resize notifier —
-    // `crates/terminal` stays gpui-/steer-free — and the publisher dedups
-    // against its last-sent geometry, so a steerer-origin resize can't loop.
-    let resize_notifier = handle.resize_notifier();
-    view.read(cx)
-        .session()
-        .borrow_mut()
-        .set_resize_observer(Box::new(move |cols, rows| {
-            resize_notifier.notify(cols, rows);
-        }));
 
     // §P7: start the activity emitter — the desktop emits scrubbed activity
     // events over the publisher socket for authenticated team members on
@@ -733,12 +863,19 @@ pub fn attach_publisher(
         })
         .into_iter()
         .collect();
+    // EXP-249: this session's slice of the hooks sidecar — the structured
+    // plan/question/subagent/permission stream. Absent when the sidecar never
+    // came up; the emitter then runs grid-only, exactly as before.
+    let hook_events = cx
+        .try_global::<HookSidecarGlobal>()
+        .map(|global| global.0.subscribe(&worktree));
     spawn_activity_emitter(
         EmitterConfig {
             worktree,
             extra_secrets,
-            // The live grid: the emitter watches it for the plan-approval
-            // picker, which the transcript can't show while PENDING (EXP-150).
+            // The live grid: the emitter watches it to confirm pickers the
+            // transcript can't show while PENDING (EXP-150) and to choreograph
+            // a remote answer's keystrokes (EXP-249).
             term: Some(term),
             on_needs_input: Some(Arc::new(move |pending| {
                 if let Err(err) = api::coding_sessions::set_needs_input(
@@ -749,6 +886,12 @@ pub fn attach_publisher(
                     log::debug!("steer: setNeedsInput({pending}) failed: {err}");
                 }
             })),
+            hooks: hook_events,
+            steering: Some(Steering {
+                answers,
+                link: answer_link,
+                write_input,
+            }),
         },
         handle.activity_sender(),
         activity_active.clone(),
@@ -761,7 +904,6 @@ pub fn attach_publisher(
             session_id.to_string(),
             PublisherEntry {
                 handle,
-                sink,
                 steerer: None,
                 activity_active,
             },
@@ -814,10 +956,6 @@ fn apply_steer_event(
     cx: &mut App,
 ) -> bool {
     match event {
-        SteerUiEvent::Resize(cols, rows) => {
-            resize_local_terminal(manager, tab, cols, rows, cx);
-            false
-        }
         SteerUiEvent::Presence(presence) => {
             let name = presence.steerer_id.as_ref().and_then(|steerer_id| {
                 presence
@@ -851,31 +989,13 @@ fn apply_steer_event(
     }
 }
 
-/// §8.4 resize-down: apply the steerer's viewport to the local terminal (the
-/// terminal no-ops on an unchanged size — kills the resize ping-pong).
-fn resize_local_terminal(
-    manager: &WeakEntity<TerminalManager>,
-    tab: TabId,
-    cols: u16,
-    rows: u16,
-    cx: &mut App,
-) {
-    let Some(manager) = manager.upgrade() else {
-        return;
-    };
-    let Some(view) = manager.read(cx).tab(tab).map(|tab| tab.view.clone()) else {
-        return;
-    };
-    let _ = view.read(cx).session().borrow_mut().resize(cols, rows);
-}
-
 /// End a published session (relay `kill` or own-row Electric kill, §8.4/§8.8):
 /// close the WHOLE terminal tab (EXP-268 — a killed session must not leave a
 /// dead tab with an exit strip behind; `close_tab` kills the child and joins
-/// the PTY threads), stop the publisher, drop the tee sink and the
-/// kill-watch, and forget the session. The tab-close path also fires the
-/// `TabClosed` watcher, which handles the `codingSessions.end` bookkeeping
-/// and closes any undocked window hosting the tab.
+/// the PTY threads), stop the publisher, drop the kill-watch, and forget the
+/// session. The tab-close path also fires the `TabClosed` watcher, which
+/// handles the `codingSessions.end` bookkeeping and closes any undocked window
+/// hosting the tab.
 fn teardown_session(
     session_id: &str,
     manager: &WeakEntity<TerminalManager>,
@@ -885,27 +1005,14 @@ fn teardown_session(
     let Some(registry) = PublisherRegistry::global_ref(cx) else {
         return;
     };
-    let sink = registry
-        .read(cx)
-        .entries
-        .get(session_id)
-        .map(|entry| entry.sink.clone());
-    let Some(sink) = sink else {
+    if !registry.read(cx).entries.contains_key(session_id) {
         return; // already torn down
-    };
+    }
 
-    // Detach the tee first (the sink must not observe the shutdown), then
-    // close the tab — kill + join ride `close_tab`'s session shutdown. The
+    // Close the tab — kill + join ride `close_tab`'s session shutdown. The
     // relay never reaches this on the dead-relay path; this is the durable
     // abort.
     if let Some(manager) = manager.upgrade() {
-        if let Some(view) = manager.read(cx).tab(tab).map(|tab| tab.view.clone()) {
-            let session = view.read(cx).session();
-            session.borrow().detach_sink(&sink);
-            // Drop the §8.4 resize observer so its notifier can't outlive the
-            // publisher (send-into-dead-channel is harmless but untidy).
-            session.borrow_mut().clear_resize_observer();
-        }
         manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
     }
 
@@ -978,14 +1085,4 @@ pub fn take_over(session_id: &str, cx: &App) {
     }
 }
 
-/// §6.10 local-resize forward: a genuine local grid change → `resize` up so
-/// viewers reflow. The terminal element calls this from its resize path; a
-/// no-op for a session we are not publishing.
-pub fn notify_local_resize(session_id: &str, cols: u16, rows: u16, cx: &App) {
-    if let Some(registry) = PublisherRegistry::global_ref(cx) {
-        if let Some(entry) = registry.read(cx).entries.get(session_id) {
-            entry.handle.notify_local_resize(cols, rows);
-        }
-    }
-}
 

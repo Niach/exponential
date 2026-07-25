@@ -5,9 +5,8 @@
 
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::TermMode;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-use terminal::{CaptureSink, RawSink, SpawnSpec, Terminal};
+use terminal::{SpawnSpec, Terminal};
 
 // Generous: these tests spawn real children (`bash`, `vim`) and a full
 // `cargo test --team` runs them alongside every other binary — under
@@ -73,38 +72,6 @@ fn shell_runs_commands_and_grid_shows_output() {
     term.write(b"exit\n");
     assert!(pump_until(&mut term, LONG, |t| t.exit().is_some()), "bash never exited");
     assert!(term.exit().expect("exit captured").success);
-}
-
-#[test]
-fn tee_sink_receives_raw_bytes_alongside_emulator() {
-    let mut term = Terminal::spawn(&bash_spec(), 80, 24).expect("spawn bash");
-    let capture = Arc::new(CaptureSink::new());
-    let sink: Arc<dyn RawSink> = capture.clone();
-    term.attach_sink(sink.clone());
-
-    term.write(b"echo tee-'m'arker\n");
-    assert!(
-        pump_until(&mut term, LONG, |t| output_line_contains(t, "tee-marker")),
-        "emulator never rendered the marker:\n{}",
-        dump(&term)
-    );
-
-    // The SAME single read fed both consumers (§6.4 / gate #8): the emulator
-    // rendered the marker above, and the raw sink saw the identical bytes —
-    // including the PTY's ONLCR-emitted \r\n (no fixup applied, §6.4).
-    let raw = String::from_utf8_lossy(&capture.bytes()).into_owned();
-    assert!(raw.contains("tee-marker\r\n"), "raw tee missing marker+CRLF: {raw:?}");
-
-    // Detach (§6.14): later output must not reach the sink.
-    term.detach_sink(&sink);
-    term.write(b"echo post-'d'etach\n");
-    assert!(
-        pump_until(&mut term, LONG, |t| output_line_contains(t, "post-detach")),
-        "grid never showed post-detach output:\n{}",
-        dump(&term)
-    );
-    let raw_after = String::from_utf8_lossy(&capture.bytes()).into_owned();
-    assert!(!raw_after.contains("post-detach"), "detached sink still fed: {raw_after:?}");
 }
 
 #[test]

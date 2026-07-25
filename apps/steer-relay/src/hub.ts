@@ -7,7 +7,6 @@ import {
   CLOSE_REPLACED,
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
-  OUTPUT_OPCODE,
   parseClientFrame,
   type ActivityEvent,
   type ClientFrame,
@@ -33,9 +32,10 @@ export type StartSubject =
     }
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
-// adapts ServerWebSocket to this.
+// adapts ServerWebSocket to this. Text-only since EXP-249 removed the binary
+// PTY mirror.
 export interface RelaySocket {
-  send(data: string | Uint8Array): void
+  send(data: string): void
   close(code?: number, reason?: string): void
   /** Bytes queued on the socket, for viewer backpressure. */
   bufferedAmount(): number
@@ -48,8 +48,6 @@ interface Conn {
   deviceId?: string
   // publisher/viewer sockets belong to a room after hello/join.
   sessionId?: string
-  // viewer lag bookkeeping (see forwardOutput).
-  laggingSince?: number
 }
 
 interface DeviceEntry {
@@ -65,16 +63,19 @@ interface DeviceEntry {
   caps: string[]
 }
 
+/** One replayable activity event, pre-serialized once: the same string feeds
+ *  the live fan-out and every later join replay. */
+interface ActivityEntry {
+  framed: string
+  bytes: number
+}
+
 interface Room {
   sessionId: string
   issueId?: string
   publisher: Conn | null
-  cols: number
-  rows: number
-  viewers: Map<Conn, PresenceViewer>
   /** userId of the single steer-claim holder (relay memory only). */
   steerer: Conn | null
-  ring: RingBuffer
   /** Publisher dropped without `bye`; room closes when the grace expires. */
   staleTimer: ReturnType<typeof setTimeout> | null
   /** REV2-X: Last time we received ANY message from the publisher (including
@@ -83,25 +84,28 @@ interface Room {
   lastPublisherActivity: number
   // ── Scrubbed activity channel (tool headlines / narration / diffs) ──────
   // activityMembers: authenticated viewer tickets that joined with
-  // channel:'activity'. Strictly separated from the PTY mirror: they receive
-  // activity + presence + bye and NEVER binary output/resize/ring, and PTY
-  // viewers never receive activity frames. (The anonymous public_viewer
-  // audience was removed in EXP-90 — activity is member-only.)
+  // channel:'activity' — the only audience there is (EXP-90 removed the
+  // anonymous one, EXP-249 the PTY mirror).
   activityMembers: Map<Conn, PresenceViewer>
-  /** Replayable scrubbed event log (narration/tool/user_message/question),
-   *  capped. */
-  activityLog: ActivityEvent[]
-  /** Latest worktree diff — replaces rather than appends (replay stays small). */
-  lastDiff: ActivityEvent | null
+  /** Replayable scrubbed event log, capped by count AND bytes. */
+  activityLog: ActivityEntry[]
+  /** Running serialized size of activityLog (the byte-budget accumulator). */
+  activityBytes: number
+  /** Latest worktree diff — replaces rather than appends (replay stays small),
+   *  and stays OUT of the byte budget: the schema already caps it at 512KB. */
+  lastDiff: ActivityEntry | null
 }
 
-const ACTIVITY_LOG_CAP = 500
+// EXP-249: full-history re-publish on reconnect means a long session's log is
+// the whole session. Bounded twice — a count cap for pathological chatter and
+// a byte budget for pathological size; eviction is oldest-first and always
+// leaves at least one event.
+const ACTIVITY_LOG_CAP = 2000
+const ACTIVITY_BYTE_CAP = 4 * 1024 * 1024
 
-const RING_CAP_BYTES = 256 * 1024
-// A viewer with more than this queued gets output frames dropped (control
-// frames still flow); saturated past the timeout it is evicted.
+// An activity socket with more than this queued is evicted: activity is
+// low-volume JSON, so saturation means the consumer is gone, not lagging.
 const VIEWER_HIGH_WATER = 512 * 1024
-const VIEWER_LAG_EVICT_MS = 10_000
 const PUBLISHER_GRACE_MS = 60_000
 // REV2-X: If we receive no frames (including pings) from a publisher for this
 // long, assume the connection is dead and close the room. Desktop pings every
@@ -110,39 +114,8 @@ const PUBLISHER_GRACE_MS = 60_000
 const PUBLISHER_IDLE_TIMEOUT_MS = 90_000
 const PUBLISHER_IDLE_CHECK_INTERVAL_MS = 30_000
 
-export class RingBuffer {
-  private chunks: Uint8Array[] = []
-  private total = 0
-
-  constructor(private readonly cap = RING_CAP_BYTES) {}
-
-  push(chunk: Uint8Array) {
-    this.chunks.push(chunk)
-    this.total += chunk.byteLength
-    while (this.total > this.cap && this.chunks.length > 1) {
-      const evicted = this.chunks.shift()!
-      this.total -= evicted.byteLength
-    }
-  }
-
-  replay(): Uint8Array[] {
-    return [...this.chunks]
-  }
-
-  get bytes() {
-    return this.total
-  }
-}
-
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
-}
-
-function outputFrame(payload: Uint8Array): Uint8Array {
-  const buf = new Uint8Array(payload.byteLength + 1)
-  buf[0] = OUTPUT_OPCODE
-  buf.set(payload, 1)
-  return buf
 }
 
 export class Hub {
@@ -174,7 +147,7 @@ export class Hub {
     this.conns.set(sock, conn)
 
     if (claims.role === `publisher` && claims.sessionId) {
-      // Room attaches on `hello` (which carries geometry) — nothing yet.
+      // Room attaches on `hello` — nothing yet.
     } else if (claims.role === `viewer` && claims.sessionId) {
       // Viewers join on `join` — nothing yet.
     }
@@ -185,8 +158,9 @@ export class Hub {
     if (!conn) return
 
     // REV2-X: Update last activity timestamp for publisher connections — ANY
-    // message (including pings) counts, so an idle-but-connected publisher
-    // (plan mode) stays alive while a truly-dead publisher times out.
+    // message (including pings and the ignored legacy binary frames) counts,
+    // so an idle-but-connected publisher (plan mode) stays alive while a truly
+    // dead publisher times out.
     if (conn.claims.role === `publisher` && conn.sessionId) {
       const room = this.rooms.get(conn.sessionId)
       if (room && room.publisher === conn) {
@@ -194,11 +168,10 @@ export class Hub {
       }
     }
 
-    if (typeof data !== `string`) {
-      // Binary = terminal output; only the room's publisher may produce it.
-      this.onOutput(conn, data)
-      return
-    }
+    // EXP-249: binary frames were the PTY mirror. Old desktops still push
+    // them — they count as liveness (above) and are otherwise dropped.
+    if (typeof data !== `string`) return
+
     const msg = parseClientFrame(data)
     if (!msg) return
     this.onControl(conn, msg)
@@ -250,12 +223,7 @@ export class Hub {
       return
     }
 
-    // One socket may sit in BOTH audiences (a viewer ticket can join the pty
-    // channel and the activity channel), so the evictions must be independent
-    // — an else-if here would leave a ghost Conn in the other map.
-    const wasViewer = room.viewers.delete(conn)
-    const wasActivityMember = room.activityMembers.delete(conn)
-    if (wasViewer || wasActivityMember) {
+    if (room.activityMembers.delete(conn)) {
       if (room.steerer === conn) room.steerer = null
       this.broadcastPresence(room)
     }
@@ -303,20 +271,19 @@ export class Hub {
             sessionId,
             issueId: msg.issueId,
             publisher: conn,
-            cols: msg.cols ?? 80,
-            rows: msg.rows ?? 24,
-            viewers: new Map(),
             steerer: null,
-            ring: new RingBuffer(),
             staleTimer: null,
             lastPublisherActivity: Date.now(), // REV2-X
             activityMembers: new Map(),
             activityLog: [],
+            activityBytes: 0,
             lastDiff: null,
           }
           this.rooms.set(sessionId, room)
         } else {
-          // Re-hello after a drop: resume the same room.
+          // Re-hello after a drop: resume the same room. The publisher clears
+          // and re-publishes its own history via `activity_reset` — the relay
+          // never guesses what survived the gap.
           if (room.staleTimer) {
             clearTimeout(room.staleTimer)
             room.staleTimer = null
@@ -326,21 +293,6 @@ export class Hub {
           }
           room.publisher = conn
           room.lastPublisherActivity = Date.now() // REV2-X: reconnect resets the timer
-          // The re-hello carries the publisher's TRUE current geometry — it
-          // may have been resized while disconnected, so already-attached
-          // viewers need a resize frame or they keep rendering the stale grid.
-          const geometryChanged =
-            (!!msg.cols && msg.cols !== room.cols) ||
-            (!!msg.rows && msg.rows !== room.rows)
-          if (msg.cols) room.cols = msg.cols
-          if (msg.rows) room.rows = msg.rows
-          if (geometryChanged) {
-            for (const viewer of room.viewers.keys()) {
-              viewer.sock.send(
-                frame({ t: `resize`, cols: room.cols, rows: room.rows })
-              )
-            }
-          }
         }
         this.broadcastPresence(room)
         return
@@ -349,54 +301,40 @@ export class Hub {
       case `join`: {
         const sessionId = conn.claims.sessionId
         if (!sessionId) return
+        if (conn.claims.role !== `viewer`) return
+
+        // EXP-249: the PTY mirror is gone. An absent channel (or the legacy
+        // `pty`) gets a typed error and joins NOTHING, so an old client shows
+        // an update prompt instead of an empty terminal.
+        if (msg.channel !== `activity`) {
+          conn.sock.send(frame({ t: `error`, code: `pty_removed` }))
+          return
+        }
+
         const room = this.rooms.get(sessionId)
         if (!room) {
-          conn.sock.send(
-            frame({ t: `error`, code: `no_such_session` })
-          )
+          conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
           conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
           return
         }
-
-        if (conn.claims.role !== `viewer`) return
         conn.sessionId = sessionId
 
-        // Authenticated activity audience (channel:'activity' on an ordinary
-        // viewer ticket): replay activityLog then lastDiff, then presence.
-        // NEVER geometry, NEVER the binary ring — the PTY stays out of reach.
-        if (msg.channel === `activity`) {
-          room.activityMembers.set(conn, {
-            userId: conn.claims.sub,
-            name: conn.claims.name ?? conn.claims.sub,
-            perm: conn.claims.perm,
-          })
-          this.replayActivity(room, conn)
-          this.broadcastPresence(room)
-          return
-        }
-
-        room.viewers.set(conn, {
+        room.activityMembers.set(conn, {
           userId: conn.claims.sub,
           name: conn.claims.name ?? conn.claims.sub,
           perm: conn.claims.perm,
         })
-        // Current geometry, then scrollback replay, then live tail.
-        conn.sock.send(frame({ t: `resize`, cols: room.cols, rows: room.rows }))
-        for (const chunk of room.ring.replay()) {
-          conn.sock.send(outputFrame(chunk))
-        }
+        // `activity_reset` first: a reconnecting client keeps rendering its
+        // old feed until the relay says otherwise, so the replay that follows
+        // is always a complete, self-contained picture.
+        conn.sock.send(frame({ t: `activity_reset` }))
+        this.replayActivity(room, conn)
         this.broadcastPresence(room)
         return
       }
 
       case `resize`: {
-        const room = this.roomFor(conn)
-        if (!room || room.publisher !== conn) return
-        room.cols = msg.cols
-        room.rows = msg.rows
-        for (const viewer of room.viewers.keys()) {
-          viewer.sock.send(frame({ t: `resize`, cols: msg.cols, rows: msg.rows }))
-        }
+        // Legacy PTY geometry from old desktops — parsed, then dropped.
         return
       }
 
@@ -409,6 +347,22 @@ export class Hub {
         return
       }
 
+      case `answer`: {
+        const room = this.roomFor(conn)
+        if (!room || !room.publisher) return
+        // Same gating as `input` — the claim implies steer perm.
+        if (room.steerer !== conn) return
+        room.publisher.sock.send(
+          frame({
+            t: `answer`,
+            questionId: msg.questionId,
+            ...(msg.askId !== undefined ? { askId: msg.askId } : {}),
+            keys: msg.keys,
+          })
+        )
+        return
+      }
+
       case `claim`: {
         const room = this.roomFor(conn)
         if (!room) return
@@ -416,9 +370,7 @@ export class Hub {
           this.publisherTakeover(room)
           return
         }
-        // Either audience may hold the claim (PTY viewers and activity
-        // members) — the single-steerer rule is audience-agnostic.
-        if (!room.viewers.has(conn) && !room.activityMembers.has(conn)) return
+        if (!room.activityMembers.has(conn)) return
         if (conn.claims.perm !== `steer`) return
         // Plain claim: first claim wins. steal:true (steer perm only — the
         // check above) overrides an existing steerer, last-writer-wins.
@@ -454,29 +406,24 @@ export class Hub {
         // Publisher-only: the desktop's scrubbed event stream.
         const room = this.roomFor(conn)
         if (!room || room.publisher !== conn) return
+        const entry = this.entryFor(msg.event)
         if (msg.event.kind === `diff`) {
-          room.lastDiff = msg.event
+          room.lastDiff = entry
         } else {
-          room.activityLog.push(msg.event)
-          if (room.activityLog.length > ACTIVITY_LOG_CAP) {
-            room.activityLog.splice(
-              0,
-              room.activityLog.length - ACTIVITY_LOG_CAP
-            )
-          }
+          this.appendActivity(room, entry)
         }
-        const framed = frame({ t: `activity`, event: msg.event })
-        // Authenticated activity members only — there is no anonymous
-        // audience (EXP-90).
-        for (const viewer of room.activityMembers.keys()) {
-          // Activity is low-volume JSON; a saturated activity socket just gets
-          // dropped rather than lag-managed like the PTY hot path.
-          if (viewer.sock.bufferedAmount() > VIEWER_HIGH_WATER) {
-            viewer.sock.close(CLOSE_SLOW_CONSUMER, `slow_consumer`)
-            continue
-          }
-          viewer.sock.send(framed)
-        }
+        this.fanoutActivity(room, entry.framed)
+        return
+      }
+
+      case `activity_reset`: {
+        // Publisher-only: the desktop is about to re-publish its full history.
+        const room = this.roomFor(conn)
+        if (!room || room.publisher !== conn) return
+        room.activityLog = []
+        room.activityBytes = 0
+        room.lastDiff = null
+        this.fanoutActivity(room, frame({ t: `activity_reset` }))
         return
       }
 
@@ -486,35 +433,6 @@ export class Hub {
         this.closeRoom(room, msg.outcome ?? `ended`)
         return
       }
-    }
-  }
-
-  // ── Output hot path ────────────────────────────────────────────────────────
-
-  private onOutput(conn: Conn, data: Uint8Array) {
-    const room = this.roomFor(conn)
-    if (!room || room.publisher !== conn) return
-    if (data.byteLength < 1 || data[0] !== OUTPUT_OPCODE) return
-    const payload = data.subarray(1)
-    room.ring.push(payload)
-
-    const framed = outputFrame(payload)
-    const now = Date.now()
-    for (const viewer of room.viewers.keys()) {
-      if (viewer.sock.bufferedAmount() > VIEWER_HIGH_WATER) {
-        // Slow consumer: drop output frames; evict after sustained saturation.
-        viewer.laggingSince ??= now
-        if (now - viewer.laggingSince > VIEWER_LAG_EVICT_MS) {
-          viewer.sock.close(CLOSE_SLOW_CONSUMER, `slow_consumer`)
-        }
-        continue
-      }
-      if (viewer.laggingSince !== undefined) {
-        // Recovered — it missed frames; ask the publisher for a full repaint.
-        viewer.laggingSince = undefined
-        room.publisher.sock.send(frame({ t: `resync` }))
-      }
-      viewer.sock.send(framed)
     }
   }
 
@@ -537,7 +455,7 @@ export class Hub {
     if (!room) return { live: false as const }
     return {
       live: room.publisher !== null,
-      viewers: room.viewers.size,
+      viewers: room.activityMembers.size,
       issueId: room.issueId ?? null,
     }
   }
@@ -616,26 +534,50 @@ export class Hub {
     this.broadcastPresence(room)
   }
 
-  /** Replay the scrubbed event log then the latest diff to one socket. */
-  private replayActivity(room: Room, conn: Conn) {
-    for (const event of room.activityLog) {
-      conn.sock.send(frame({ t: `activity`, event }))
-    }
-    if (room.lastDiff) {
-      conn.sock.send(frame({ t: `activity`, event: room.lastDiff }))
+  private entryFor(event: ActivityEvent): ActivityEntry {
+    const framed = frame({ t: `activity`, event })
+    return { framed, bytes: Buffer.byteLength(framed, `utf8`) }
+  }
+
+  private appendActivity(room: Room, entry: ActivityEntry) {
+    room.activityLog.push(entry)
+    room.activityBytes += entry.bytes
+    while (
+      room.activityLog.length > ACTIVITY_LOG_CAP ||
+      (room.activityBytes > ACTIVITY_BYTE_CAP && room.activityLog.length > 1)
+    ) {
+      room.activityBytes -= room.activityLog.shift()!.bytes
     }
   }
 
+  /** Fan one pre-serialized text frame to the activity audience. Activity is
+   *  low-volume JSON, so a saturated socket is evicted outright — there is no
+   *  drop-and-recover path. */
+  private fanoutActivity(room: Room, framed: string) {
+    for (const member of room.activityMembers.keys()) {
+      if (member.sock.bufferedAmount() > VIEWER_HIGH_WATER) {
+        member.sock.close(CLOSE_SLOW_CONSUMER, `slow_consumer`)
+        continue
+      }
+      member.sock.send(framed)
+    }
+  }
+
+  /** Replay the scrubbed event log then the latest diff to one socket. */
+  private replayActivity(room: Room, conn: Conn) {
+    for (const entry of room.activityLog) {
+      conn.sock.send(entry.framed)
+    }
+    if (room.lastDiff) conn.sock.send(room.lastDiff.framed)
+  }
+
   private broadcastPresence(room: Room) {
-    // Activity members count as viewers for presence purposes (they can hold
-    // the steer claim).
     const msg = frame({
       t: `presence`,
-      viewers: [...room.viewers.values(), ...room.activityMembers.values()],
+      viewers: [...room.activityMembers.values()],
       steererId: room.steerer?.claims.sub ?? null,
     })
     room.publisher?.sock.send(msg)
-    for (const viewer of room.viewers.keys()) viewer.sock.send(msg)
     for (const member of room.activityMembers.keys()) member.sock.send(msg)
   }
 
@@ -643,11 +585,6 @@ export class Hub {
     if (room.staleTimer) clearTimeout(room.staleTimer)
     this.rooms.delete(room.sessionId)
     const msg = frame({ t: `bye`, outcome })
-    for (const viewer of room.viewers.keys()) {
-      viewer.sock.send(msg)
-      viewer.sock.close(CLOSE_SESSION_ENDED, `session_ended`)
-    }
-    room.viewers.clear()
     for (const member of room.activityMembers.keys()) {
       member.sock.send(msg)
       member.sock.close(CLOSE_SESSION_ENDED, `session_ended`)
@@ -670,14 +607,12 @@ export class Hub {
         // Close the publisher socket first, which triggers onClose's grace
         // period logic. BUT the room is dead either way: if the publisher
         // reconnects within the grace period, re-hello resets
-        // lastPublisherActivity (line 294) so the next idle check won't
-        // re-fire; if it doesn't reconnect, the grace timer closes the room.
-        if (room.publisher) {
-          room.publisher.sock.close(
-            CLOSE_SESSION_ENDED,
-            `publisher_idle_${Math.floor(idleMs / 1000)}s`
-          )
-        }
+        // lastPublisherActivity so the next idle check won't re-fire; if it
+        // doesn't reconnect, the grace timer closes the room.
+        room.publisher.sock.close(
+          CLOSE_SESSION_ENDED,
+          `publisher_idle_${Math.floor(idleMs / 1000)}s`
+        )
       }
     }
   }

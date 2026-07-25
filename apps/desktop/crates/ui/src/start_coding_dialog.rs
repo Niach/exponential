@@ -1066,10 +1066,11 @@ impl StartCodingDialogView {
         self.error = None;
         cx.notify();
 
+        let hooks = crate::steer_wiring::hook_setup(cx);
         cx.spawn_in(window, async move |this, window| {
             let prepared = window
                 .background_executor()
-                .spawn(async move { coding::prepare(&request, &deps) })
+                .spawn(async move { coding::prepare_with_hooks(&request, &deps, hooks.as_ref()) })
                 .await;
             let _ = this.update_in(window, |this, window, cx| {
                 this.launching = false;

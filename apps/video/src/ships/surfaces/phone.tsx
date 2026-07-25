@@ -21,7 +21,7 @@ const P = {
   bubbleBorder: "rgba(255,255,255,0.09)",
   inputBg: "#37373a",
   inputBorder: "rgba(255,255,255,0.07)",
-  pillBg: "rgba(84,84,88,0.94)", // "Jump to latest" floating pill
+  pillBg: "rgba(84,84,88,0.94)", // "Jump to bottom" floating pill
   xBtnBg: "#3a3a3d",
   sendBg: "rgba(255,255,255,0.12)",
   textHi: "rgba(255,255,255,0.94)",
@@ -250,14 +250,14 @@ export type PhonePiPProps = {
   rotate: number // degrees
   feedSchedule: number[] // global reveal frame per PHONE_FEED item (missing ⇒ hidden)
   sendPulseAt?: number // soft green glow pulse on the circular send button
-  jumpPillAt?: number // optional: global frame the "Jump to latest" pill fades in (default: auto, once the feed has built up)
+  jumpPillAt?: number // optional: global frame the "Jump to bottom" pill fades in (default: auto, once the feed has built up)
   opacity?: number // whole-PiP fade (assembler exit)
 }
 
 export const PhonePiP: React.FC<PhonePiPProps> = ({ frame, x, y, rotate, feedSchedule, sendPulseAt, jumpPillAt, opacity = 1 }) => {
   const clampEase = { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE } as const
 
-  // Revealed content height (drives the "Jump to latest" pill fade-in).
+  // Revealed content height (drives the "Jump to bottom" pill fade-in).
   const viewH = DOCK_TOP - CHROME_H
   let contentH = 10
   for (let i = 0; i < FEED_LAYOUT.length; i++) {
@@ -366,7 +366,7 @@ export const PhonePiP: React.FC<PhonePiPProps> = ({ frame, x, y, rotate, feedSch
             }}
           />
 
-          {/* floating "Jump to latest" pill */}
+          {/* floating "Jump to bottom" pill */}
           <div style={{ position: "absolute", left: 0, right: 0, top: DOCK_TOP - 34, display: "flex", justifyContent: "center", zIndex: 3, opacity: pillO }}>
             <span
               style={{
@@ -382,7 +382,7 @@ export const PhonePiP: React.FC<PhonePiPProps> = ({ frame, x, y, rotate, feedSch
                 color: C.text,
               }}
             >
-              Jump to latest
+              Jump to bottom
               <ArrowDownGlyph size={10} />
             </span>
           </div>

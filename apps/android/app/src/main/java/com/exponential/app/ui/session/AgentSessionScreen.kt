@@ -33,13 +33,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -92,8 +96,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 // The "Agent session" screen (EXP-32) — a chat-style view of a live coding
 // session over the relay's scrubbed activity channel. NO terminal rendering:
-// narration bubbles + compact tool rows, a pinned "Latest changes" diff chip
-// above the input bar, and message-shaped steering (steal-claim + text + \r).
+// narration bubbles, compact tool rows, collapsible subagent groups, question
+// steppers, a pinned "Latest changes" diff chip above the input bar, and
+// message-shaped steering (steal-claim + text + \r).
 // Identical UX to the iOS AgentSessionView (glass design system).
 
 private val LiveGreen = Color(0xFF34D399)
@@ -110,12 +115,14 @@ fun AgentSessionScreen(
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
-    val feed by viewModel.feed.collectAsStateWithLifecycle()
-    val latestDiff by viewModel.latestDiff.collectAsStateWithLifecycle()
+    val activity by viewModel.activity.collectAsStateWithLifecycle()
+    val feed = activity.feed
+    val latestDiff = activity.latestDiff
     val steererId by viewModel.steererId.collectAsStateWithLifecycle()
     val perm by viewModel.perm.collectAsStateWithLifecycle()
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val killError by viewModel.killError.collectAsStateWithLifecycle()
+    val answerStates = activity.answerLocks
 
     LaunchedEffect(Unit) { viewModel.connectIfIdle() }
     // Returning from the background (EXP-243): the socket rarely survives it —
@@ -221,11 +228,28 @@ fun AgentSessionScreen(
                         feed = feed,
                         live = phase == AgentPhase.Live,
                         // Question cards are answerable while live + steerable
-                        // (EXP-78); the card itself also checks the trailing run.
+                        // (EXP-78); the card itself also checks its own state.
                         answerEnabled = perm == "steer" &&
                             phase == AgentPhase.Live &&
                             !sessionEnded,
-                        onAnswer = viewModel::sendAnswer,
+                        answerStates = answerStates,
+                        // One place decides semantic vs legacy: a card with a
+                        // wire id answers through the `answer` frame, one
+                        // without falls back to raw keystrokes (EXP-249).
+                        onAnswer = { question, keys ->
+                            val wireId = question.wireId
+                            if (wireId != null) {
+                                viewModel.sendQuestionAnswer(wireId, question.askId, keys)
+                            } else {
+                                keys.forEach {
+                                    viewModel.sendLegacyAnswer(
+                                        questionLockKey(question),
+                                        it,
+                                        lock = !question.multiSelect,
+                                    )
+                                }
+                            }
+                        },
                         onSubmit = viewModel::sendSubmit,
                     )
                 }
@@ -439,20 +463,26 @@ private fun ActivityFeed(
     feed: List<AgentFeedItem>,
     live: Boolean,
     answerEnabled: Boolean,
-    /** (key, submit) — single-select taps submit (digit + Enter); multi-select
-     *  taps toggle with the digit alone and [onSubmit] sends the Enter. */
-    onAnswer: (String, Boolean) -> Unit,
+    answerStates: Map<String, AnswerState>,
+    /** (question, keys) — the option keys chosen on that card; a multi-select
+     *  step sends all of them at once. */
+    onAnswer: (AgentFeedItem.Question, List<String>) -> Unit,
+    /** Advances a LEGACY multi-select picker (Tab) — semantic cards submit
+     *  through [onAnswer] instead. */
     onSubmit: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     var follow by remember { mutableStateOf(true) }
-    // The trailing consecutive run of questions is answerable (EXP-78), and a
-    // plan-approval card stays answerable until a real resolution signal —
-    // lagged transcript flushes don't retire a pending picker (EXP-174).
+    // A card with a wire id stays answerable until it resolves; a legacy card
+    // falls back to the trailing-run heuristic (EXP-78/EXP-174).
     val activeQuestionIds = remember(feed) { activeQuestionIds(feed) }
-    // Consecutive tool calls collapse into "N tool calls" rows (EXP-97) — a
-    // render-time boardion only, the flat feed stays the state.
-    val rows = remember(feed) { groupToolRuns(feed) }
+    // Subagent groups, askId steppers and consecutive tool runs are all
+    // render-time projections only — the flat feed stays the state.
+    val rows = remember(feed) { groupFeedRows(feed) }
+    // Any lock counts as answered for stepper advance — a Sending lock advances
+    // the stepper the moment the tap goes out (claude-TUI-snappy; web parity),
+    // and the 5s no-ack timeout dropping the lock rolls the step back.
+    val answered = remember(answerStates) { answerStates.keys }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
     LaunchedEffect(listState) {
@@ -488,15 +518,33 @@ private fun ActivityFeed(
                         items = row.items,
                         liveTail = live && row.id == rows.last().id,
                     )
+                    is AgentFeedRow.SubagentRun -> SubagentGroupRow(
+                        subagent = row.subagent,
+                        tools = row.tools,
+                        liveTail = live && row.id == rows.last().id,
+                    )
+                    is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
+                        steps = row.steps,
+                        answered = answered,
+                        activeQuestionIds = activeQuestionIds,
+                        answerEnabled = answerEnabled,
+                        answerStates = answerStates,
+                        onAnswer = onAnswer,
+                        onSubmit = onSubmit,
+                    )
                     is AgentFeedRow.Single -> when (val item = row.item) {
                         is AgentFeedItem.Narration -> NarrationBubble(item.text)
                         is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
                         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
+                        is AgentFeedItem.Permission -> PermissionRow(item.tool, item.detail)
+                        is AgentFeedItem.Subagent -> SubagentGroupRow(item, emptyList(), false)
                         is AgentFeedItem.Question -> QuestionCard(
                             item = item,
                             active = item.id in activeQuestionIds,
                             answerEnabled = answerEnabled,
-                            onAnswer = onAnswer,
+                            state = answerStates[questionLockKey(item)],
+                            stepLabel = null,
+                            onAnswer = { keys -> onAnswer(item, keys) },
                             onSubmit = onSubmit,
                         )
                     }
@@ -505,7 +553,7 @@ private fun ActivityFeed(
         }
         if (!follow) {
             Text(
-                "Jump to latest ↓",
+                "Jump to bottom ↓",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
@@ -605,15 +653,109 @@ private fun UserMessageBubble(text: String) {
     }
 }
 
-// An interactive question (EXP-78): AskUserQuestion / plan approval. Option
-// buttons send the option's raw TUI keystroke while the question is still
-// active (per activeQuestionIds — trailing run, or an unresolved plan card,
-// EXP-174); stale/view-only cards render options as plain rows.
-// planMode cards (EXP-97) get a dedicated "Plan ready" presentation with the
-// first option as the primary approve action and the plan rendered as
-// markdown on expand — labels/keys always come from the wire options, the
-// desktop owns the TUI key mapping. Best-effort by design — the desktop TUI
-// remains the source of truth.
+// One multi-question ask (EXP-249): a claude-style stepper that shows ONE step
+// at a time — "Question 2 of 3" — and advances the moment a step's answer is
+// sent (web parity; the 5s no-ack timeout rolls it back), ending on the ask's
+// final submit step. Once every step is answered the card collapses into the
+// answered summary.
+@Composable
+private fun QuestionStepperCard(
+    steps: List<AgentFeedItem.Question>,
+    /** Lock keys of the steps whose answer is out (sent or acknowledged). */
+    answered: Set<String>,
+    activeQuestionIds: Set<Long>,
+    answerEnabled: Boolean,
+    answerStates: Map<String, AnswerState>,
+    onAnswer: (AgentFeedItem.Question, List<String>) -> Unit,
+    onSubmit: () -> Unit,
+) {
+    val current = remember(steps, answered) { currentStepperStep(steps, answered) }
+    if (current == null) {
+        AnsweredAskCard(steps)
+        return
+    }
+    val total = current.total ?: steps.count { it.index != null }
+    QuestionCard(
+        item = current,
+        active = current.id in activeQuestionIds,
+        answerEnabled = answerEnabled,
+        state = answerStates[questionLockKey(current)],
+        stepLabel = when {
+            current.index != null && total > 0 -> "Question ${current.index} of $total"
+            // No index: the ask's final review step.
+            else -> "Review your answers"
+        },
+        onAnswer = { keys -> onAnswer(current, keys) },
+        onSubmit = onSubmit,
+    )
+}
+
+// Every step of a fully answered ask, each with the answer it got.
+@Composable
+private fun AnsweredAskCard(steps: List<AgentFeedItem.Question>) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.HelpOutline,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp).padding(top = 1.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .glassSection()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            steps.forEach { step ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        step.header?.takeIf { it.isNotBlank() } ?: step.text,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    AnsweredRow(step.answer)
+                }
+            }
+            // Every step is answered but the ask hasn't resolved yet — the
+            // agent is still working through it.
+            if (steps.none { it.resolved }) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "Waiting for the agent…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// An interactive question (EXP-78): AskUserQuestion step / plan approval. While
+// the card is answerable, option rows send their keys — semantically for cards
+// carrying a wire id, as raw TUI keystrokes for older desktops; stale/view-only
+// cards render options as plain rows. A tapped card locks IMMEDIATELY (EXP-249)
+// and stays locked through the desktop's answer_ack, so an answer can never be
+// double-sent. planMode cards (EXP-97) get a dedicated "Plan ready"
+// presentation with the first option as the primary approve action and the plan
+// rendered as markdown — labels/keys always come from the wire options.
 @Composable
 private fun QuestionCard(
     item: AgentFeedItem.Question,
@@ -621,13 +763,19 @@ private fun QuestionCard(
     active: Boolean,
     /** Live + steer perm — whether this client may answer at all. */
     answerEnabled: Boolean,
-    onAnswer: (String, Boolean) -> Unit,
+    /** This client's send state — non-null means the card is locked. */
+    state: AnswerState?,
+    /** "Question 2 of 3" when the card is one step of a stepper. */
+    stepLabel: String?,
+    onAnswer: (List<String>) -> Unit,
     onSubmit: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
     val folds = remember(item.text) { clampable(item.text) }
-    val answerable = active && answerEnabled
+    val locked = state != null
+    val answerable = active && answerEnabled && !locked
+    val semantic = item.wireId != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -648,6 +796,13 @@ private fun QuestionCard(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (stepLabel != null) {
+                Text(
+                    stepLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
             if (item.planMode) {
                 Text(
                     "Plan ready",
@@ -658,6 +813,13 @@ private fun QuestionCard(
                 // folded behind a Show more (EXP-197).
                 MarkdownView(item.text)
             } else {
+                item.header?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
                 SelectionContainer {
                     Text(
                         item.text,
@@ -671,75 +833,109 @@ private fun QuestionCard(
                     ShowMoreToggle(expanded) { expanded = !expanded }
                 }
             }
-            val answer = item.answer
-            if (answer != null) {
-                // Answered (EXP-197): the chosen answer replaces the options.
-                Row(
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(13.dp).padding(top = 1.dp),
-                        tint = LiveGreen,
-                    )
-                    SelectionContainer {
-                        Text(
-                            answer,
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                            color = MaterialTheme.colorScheme.onSurface,
+            if (item.resolved) {
+                // Resolved (EXP-197/EXP-249): the answer replaces the options.
+                AnsweredRow(item.answer)
+            } else {
+                item.options.forEachIndexed { index, option ->
+                    // The wire's first option of a plan is the primary approve
+                    // action ("Approve — auto-accept edits") — promote it.
+                    val primary = item.planMode && index == 0
+                    val selected = option.key in picked
+                    val interactive = answerable || locked
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (interactive) {
+                                    Modifier
+                                        .alpha(if (locked) 0.5f else 1f)
+                                        .glassButton(active = primary || selected)
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .then(
+                                if (answerable) {
+                                    Modifier.clickable {
+                                        if (item.multiSelect) {
+                                            picked = if (selected) picked - option.key
+                                            else picked + option.key
+                                            // A legacy picker toggles with the
+                                            // raw digit as you tap; a semantic
+                                            // one submits every key at once.
+                                            if (!semantic) onAnswer(listOf(option.key))
+                                        } else {
+                                            picked = setOf(option.key)
+                                            onAnswer(listOf(option.key))
+                                        }
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(
+                                horizontal = if (interactive) 10.dp else 0.dp,
+                                vertical = 6.dp,
+                            ),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        QuestionOptionLabel(
+                            option = option,
+                            showKey = !item.planMode && !semantic,
+                            checked = if (item.multiSelect) selected else null,
                         )
                     }
                 }
-            } else {
-                item.options.forEachIndexed { index, option ->
-                    if (answerable) {
-                        // The wire's first option of a plan is the primary approve
-                        // action ("Approve — auto-accept edits") — promote it.
-                        val primary = item.planMode && index == 0
-                        Row(
-                            modifier = Modifier
-                                .glassButton(active = primary || option.key in picked)
-                                .clickable {
-                                    onAnswer(option.key, !item.multiSelect)
-                                    picked = if (item.multiSelect) {
-                                        if (option.key in picked) picked - option.key
-                                        else picked + option.key
-                                    } else {
-                                        setOf(option.key)
-                                    }
-                                }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            QuestionOptionLabel(option, showKey = !item.planMode)
-                        }
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            QuestionOptionLabel(option)
-                        }
-                    }
+                if (item.multiSelect && (answerable || locked)) {
+                    // Semantic: one frame carrying every picked key. Legacy:
+                    // Tab, which advances the TUI picker to its next step.
+                    val enabled = answerable && (!semantic || picked.isNotEmpty())
+                    Text(
+                        if (semantic) "Submit" else "Continue",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .alpha(if (enabled) 1f else 0.5f)
+                            .glassButton(active = true)
+                            .clickable(enabled = enabled) {
+                                if (semantic) onAnswer(picked.toList()) else onSubmit()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
                 }
             }
-            if (answerable && item.multiSelect) {
-                // Advances to the picker's next tab / review step (Tab on the
-                // wire — see AgentSessionViewModel.sendSubmit).
-                Text(
-                    "Continue",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .glassButton(active = true)
-                        .clickable(onClick = onSubmit)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
-            }
-            if (active && !answerable) {
+            if (locked) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (state == AnswerState.Sending) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = LiveGreen,
+                        )
+                    }
+                    Text(
+                        if (state == AnswerState.Sending) {
+                            "Sending your answer…"
+                        } else {
+                            "Answer sent — waiting for the agent."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+            } else if (active && !answerEnabled) {
                 Text(
                     if (item.planMode) {
                         "Waiting for approval — you're viewing read-only."
@@ -754,20 +950,183 @@ private fun QuestionCard(
     }
 }
 
+// The chosen answer of a resolved card — a dismissed ask carries none.
 @Composable
-private fun QuestionOptionLabel(option: QuestionOption, showKey: Boolean = true) {
-    if (showKey) {
+private fun AnsweredRow(answer: String?) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            Icons.Filled.Check,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp).padding(top = 1.dp),
+            tint = LiveGreen,
+        )
+        SelectionContainer {
+            Text(
+                answer?.takeIf { it.isNotBlank() } ?: "Answered",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RowScope.QuestionOptionLabel(
+    option: QuestionOption,
+    showKey: Boolean = true,
+    /** Non-null on a multi-select option — renders its checkbox state. */
+    checked: Boolean? = null,
+) {
+    if (checked != null) {
+        Icon(
+            if (checked) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp).padding(top = 1.dp),
+            tint = if (checked) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+            },
+        )
+    } else if (showKey) {
         Text(
             option.key,
             style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
     }
-    Text(
-        option.label,
-        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-        color = MaterialTheme.colorScheme.onSurface,
-    )
+    Column(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        Text(
+            option.label,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        option.description?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
+    }
+}
+
+// A permission prompt the agent hit (EXP-249) — informational: it is answered
+// on the desktop, never from here.
+@Composable
+private fun PermissionRow(tool: String, detail: String?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            Icons.Filled.Lock,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = ConnectingYellow,
+        )
+        Text(
+            "Permission · $tool",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        if (!detail.isNullOrBlank()) {
+            Text(
+                remember(detail) { middleTruncate(detail) },
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+// A subagent and the tool calls it made (EXP-249), collapsed into one
+// expandable group. While the group is the trailing row of a live session its
+// latest call stays visible so the viewer still sees progress.
+@Composable
+private fun SubagentGroupRow(
+    subagent: AgentFeedItem.Subagent,
+    tools: List<AgentFeedItem.Tool>,
+    liveTail: Boolean,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Icon(
+                Icons.Filled.AccountTree,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Text(
+                "${subagent.agentType} subagent",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (subagent.completed) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = LiveGreen,
+                )
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(11.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            if (tools.isNotEmpty()) {
+                Text(
+                    "${tools.size} tool calls",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
+        }
+        when {
+            expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
+                if (!subagent.detail.isNullOrBlank()) {
+                    Text(
+                        subagent.detail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+                tools.forEach { ToolRow(it.name, it.detail) }
+            }
+            liveTail && tools.isNotEmpty() -> Column(modifier = Modifier.padding(start = 22.dp)) {
+                val latest = tools.last()
+                ToolRow(latest.name, latest.detail)
+            }
+        }
+    }
 }
 
 // Tool-call headline — compact single line, consecutive rows visually tight.
