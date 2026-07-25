@@ -23,11 +23,22 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-glass-polish`,
+    date: `2026-07-26`,
+    title: `Glass, second coat`,
+    summary: `Menus read clearly over busy content, actions get a screen of their own in the desktop IDE, and you can finally type in the space around an image.`,
+    body: `- **Legible menus** — dropdowns, context menus and popovers are far less see-through, so a menu opened over a dense issue list stays easy to read. Highlighted rows use the same glass wash as the rest of the app.
+- **Actions have a detail screen** — open an action in the desktop IDE to read its full prompt, see its repository and inputs, and edit or run it from one place instead of a cramped list row.
+- **Tabs moved into the titlebar** — the desktop IDE reclaims a row of vertical space, and terminal tabs scroll instead of pushing the controls off screen.
+- **Type around images** — click or arrow into the space above, below or between images in an issue description and just start typing.
+- **Small fixes** — keyboard-shortcut hints in tooltips are readable again, and the mobile editor toolbar no longer grows a scrollbar in Safari.`,
+  },
+  {
     id: `2026-07-glass-redesign`,
     date: `2026-07-25`,
     title: `A new coat of glass`,
     summary: `Web and desktop now match the mobile apps' glass look — a dark gradient backdrop, frosted panels, rounder corners, indigo accents, and the desktop draws its own window chrome.`,
-    body: `- **Glass everywhere** — menus, popovers, dialogs and sheets float as frosted translucent panels over a fixed dark gradient, on web and in the desktop IDE.
+    body: `- **Glass everywhere** — popovers, dialogs and sheets float as frosted panels over a fixed dark gradient, on web and in the desktop IDE.
 - **Rounder, calmer chrome** — corners follow the mobile radius ladder, small buttons and sidebar items are capsules, and the sidebar melts into the backdrop with an indigo-tinted active state.
 - **Denser lists, softer lines** — issue rows keep their density but get hairline dividers, a glass hover wash, and blurred sticky group headers.
 - **One indigo** — the accent color is now a shared design token across web, desktop, iOS and Android.

@@ -182,7 +182,7 @@ export function GithubRepoPicker({
       )}
 
       {!empty && (
-        <Command className="rounded-md border">
+        <Command className="rounded-md border bg-glass-card">
           <CommandInput placeholder="Search repositories…" />
           <CommandList>
             <CommandEmpty>No repositories found.</CommandEmpty>

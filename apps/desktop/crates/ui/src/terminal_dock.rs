@@ -584,21 +584,33 @@ impl TerminalDockPanel {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.collapse_dock(window, cx);
             }))
-            .children(chips)
-            // The `+` rides the slot right AFTER the last tab (JetBrains
-            // placement), not the far-right suffix.
+            // The chips scroll as a group (the center strip does the same) —
+            // the chips are `flex_none`, so without this a handful of live
+            // sessions would push the `+` and the collapse chevron out of the
+            // window and leave the overflowing tabs unclickable.
             .child(
-                Button::new("new-terminal-tab")
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::Plus)
-                    .tooltip("New shell")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.new_shell_tab(window, cx);
-                    })),
+                h_flex()
+                    .id("terminal-tab-chips")
+                    .min_w_0()
+                    .flex_1()
+                    .overflow_x_scroll()
+                    .gap_1()
+                    .items_center()
+                    .children(chips)
+                    // The `+` rides the slot right AFTER the last tab
+                    // (JetBrains placement), not the far-right suffix.
+                    .child(
+                        Button::new("new-terminal-tab")
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Plus)
+                            .tooltip("New shell")
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                this.new_shell_tab(window, cx);
+                            })),
+                    ),
             )
-            .child(div().flex_1())
             .child(
                 Button::new("collapse-terminal-dock")
                     .ghost()

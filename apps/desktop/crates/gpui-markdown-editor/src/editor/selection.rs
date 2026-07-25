@@ -466,7 +466,14 @@ impl Editor {
             let block = entity.read(cx);
             block.kind() == BlockKind::Paragraph
                 && !block.renders_as_standalone_image()
-                && block.visible_len() == 0
+                // Whitespace-only counts as empty, not just len 0: the EXP-271
+                // blank-line marker loads as a U+00A0 paragraph, so a strict
+                // emptiness test would miss it and stack ANOTHER empty
+                // paragraph beside it. That lengthens the blank run past the
+                // odd-length form `restore_blank_line_markers` round-trips,
+                // and the user's deliberate blank line is silently dropped
+                // from `issues.description` on the next save.
+                && block.display_text().chars().all(char::is_whitespace)
         }
         let involves_image = gap.prev.as_ref().is_some_and(|entity| is_image(entity, cx))
             || gap.next.as_ref().is_some_and(|entity| is_image(entity, cx));

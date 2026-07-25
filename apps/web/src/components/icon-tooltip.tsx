@@ -33,7 +33,7 @@ export function IconTooltip({
       <TooltipContent>
         {label}
         {shortcut && (
-          <span className="ml-1.5 font-mono text-background/60">
+          <span className="ml-1.5 font-mono text-popover-foreground/60">
             {shortcut}
           </span>
         )}

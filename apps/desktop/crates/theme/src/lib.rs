@@ -290,10 +290,12 @@ pub fn exponential_dark() -> ThemeColor {
     // Links are the one brand accent that is BODY TEXT, so it needs the 4.5:1
     // AA floor rather than the 3:1 non-text one. Raw indigo lands at ~4.0-4.5:1
     // over the zinc gradient; lightening it clears the floor while reading as
-    // the same accent. The non-text accents below stay on raw indigo.
+    // the same accent. That applies to the PRESSED state too — it is still body
+    // text — so `link_active` only reads darker than `link`, it never drops to
+    // raw indigo. The non-text accents below do stay on raw indigo.
     c.link = indigo.lighten(0.12);
     c.link_hover = indigo.lighten(0.22);
-    c.link_active = indigo;
+    c.link_active = indigo.lighten(0.06);
     c.progress_bar = indigo;
     // web skeleton is `bg-accent` (components/ui/skeleton.tsx)
     c.skeleton = accent;

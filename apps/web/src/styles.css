@@ -754,6 +754,12 @@ html {
     overflow-x: auto;
     scrollbar-width: none;
   }
+  /* Safari ignores scrollbar-width, and the universal ::-webkit-scrollbar
+     rules below switch WebKit from overlay to always-visible classic bars —
+     which would eat a row of the toolbar. Hide it there too. */
+  .static-toolbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Inline link editor (inside the toolbar) */
