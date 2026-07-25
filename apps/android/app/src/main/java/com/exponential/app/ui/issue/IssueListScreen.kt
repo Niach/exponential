@@ -436,6 +436,7 @@ fun IssueListScreen(
                 selectedIds = emptySet()
                 viewModel.startCoding(device, ids, options)
             },
+            onRunAction = viewModel::runAction,
             onDismiss = { showStartSheet = false },
         )
     }

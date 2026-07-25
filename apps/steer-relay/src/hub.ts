@@ -13,16 +13,24 @@ import {
   type ClientFrame,
   type PresenceViewer,
   type ServerFrame,
+  type StartInput,
   type StartRepoGroup,
   type StartSessionOptions,
 } from "./protocol"
 
 // A remote start's subject: a single issue (wire-unchanged), a batch group,
-// or an action run (EXP-253 — repo absent for repo-less actions).
+// or an action run (EXP-253 — repo absent for repo-less actions; `inputs`
+// carries the EXP-257 resolved input values).
 export type StartSubject =
   | { issueId: string }
   | { issueIds: string[]; teamId: string; repo: StartRepoGroup }
-  | { actionId: string; actionName: string; teamId: string; repo?: StartRepoGroup }
+  | {
+      actionId: string
+      actionName: string
+      teamId: string
+      repo?: StartRepoGroup
+      inputs?: StartInput[]
+    }
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
 // adapts ServerWebSocket to this.
@@ -561,6 +569,7 @@ export class Hub {
               actionName: subject.actionName,
               teamId: subject.teamId,
               ...(subject.repo ? { repo: subject.repo } : {}),
+              ...(subject.inputs ? { inputs: subject.inputs } : {}),
               ...options,
             }
           : {

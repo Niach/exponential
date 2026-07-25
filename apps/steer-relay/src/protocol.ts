@@ -182,6 +182,18 @@ export interface StartRepoGroup {
   defaultBranch: string
 }
 
+/** EXP-257: one filled action input, fully resolved server-side (display =
+ * repo fullName / board name / the text itself) so the desktop injects a
+ * readable "## Inputs" block with no lookups. Dumb-pipe strings — the relay
+ * never interprets them. */
+export interface StartInput {
+  key: string
+  label: string
+  type: string
+  value: string
+  display: string
+}
+
 export type ServerFrame =
   | { t: `presence`; viewers: PresenceViewer[]; steererId: string | null }
   | { t: `resize`; cols: number; rows: number }
@@ -194,13 +206,15 @@ export type ServerFrame =
     } & StartSessionOptions)
   // EXP-253 action run: actionName is a display snapshot (tab/trust-dialog
   // title before the desktop's own actions.get resolves); repo is absent for
-  // repo-less actions. Only model/effort of the options apply (Claude-only).
+  // repo-less actions. Since EXP-257 the full option set applies and
+  // `inputs` carries the resolved input values.
   | ({
       t: `start_session`
       actionId: string
       actionName: string
       teamId: string
       repo?: StartRepoGroup
+      inputs?: StartInput[]
     } & StartSessionOptions)
   | { t: `input`; data: string } // steerer keystrokes, relay → publisher
   | { t: `resync` }

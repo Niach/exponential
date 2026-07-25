@@ -1,5 +1,6 @@
 import ExpUI
 import ExpCore
+import GRDB
 import SwiftUI
 
 // The unified Start-coding sheet (EXP-156) — the iOS twin of the desktop IDE's
@@ -12,6 +13,15 @@ import SwiftUI
 // online. 1 checked issue launches a plain single-issue session; 2+ launch
 // ONE batch session on a shared `exp/batch-<id8>` branch ending in ONE
 // combined PR.
+//
+// EXP-257: hosts that pass `teamId` + `onRunAction` get a top segmented
+// Issues | Actions control. Actions mode is a searchable single-select action
+// list (the server-appended "Create action" builtin pinned FIRST by its
+// `builtin` flag) over the selected action's typed input fields (text /
+// repo / board) — the SAME agent/model/effort/toggle options apply, action
+// runs are no longer Claude-only. Device candidates in Actions mode need the
+// `actions` capability, plus `action-inputs` when the selected action is
+// builtin or declares inputs.
 //
 // EXP-201: the desktop runs three coding agents (claude / codex / pi). The
 // agent switcher — a brand-icon pill tab strip (EXP-208), the iOS twin of the
@@ -42,14 +52,30 @@ struct StartCodingSheet: View {
         let priority: String?
     }
 
+    /// The two launch subjects (EXP-257). Actions only exists when the host
+    /// wires `teamId` + `onRunAction`.
+    enum SubjectTab: Hashable {
+        case issues
+        case actions
+    }
+
     let devices: [SteerDevice]
     /// Eligible candidates, pre-checked ids first (the current issue on the
     /// detail card, the whole pool on the Agents tab).
     let issues: [IssueOption]
     let preselectedIds: Set<String>
     let preferredDeviceId: String?
+    /// Non-nil (together with `onRunAction`) enables the Actions tab: the team
+    /// whose actions/repositories/boards the sheet fetches.
+    let teamId: String?
+    let preselectedActionId: String?
     let onStart: (SteerDevice, [String], SteerStartOptions) -> Void
+    /// Actions-mode launch: device, action, options, resolved input values
+    /// (key → text or picked repo/board uuid; blank optionals dropped).
+    let onRunAction: ((SteerDevice, ActionDto, SteerStartOptions, [String: String]) -> Void)?
 
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
 
     /// Sentinel for the blank "CLI default" choice (omit --effort; for
@@ -70,9 +96,21 @@ struct StartCodingSheet: View {
         static let skipPermissions = "codingStart.skipPermissions"
     }
 
+    @State private var subjectTab: SubjectTab
     @State private var checked: Set<String>
     @State private var searchText = ""
     @State private var deviceId: String?
+
+    // Actions mode (EXP-257). `loadedActions == nil` = still fetching.
+    @State private var loadedActions: [ActionDto]?
+    @State private var actionsError: String?
+    @State private var repos: [TeamRepo] = []
+    @State private var boards: [BoardEntity] = []
+    @State private var selectedActionId: String?
+    @State private var actionSearchText = ""
+    /// Input values keyed by the input def's `key` (text, or a picked uuid;
+    /// `""` = unset). Reset on action switch.
+    @State private var inputValues: [String: String] = [:]
 
     // Seeded from UserDefaults in onAppear (was @AppStorage). Placeholder
     // defaults render for one frame before seed() resolves them.
@@ -96,65 +134,84 @@ struct StartCodingSheet: View {
         issues: [IssueOption],
         preselectedIds: Set<String>,
         preferredDeviceId: String? = nil,
-        onStart: @escaping (SteerDevice, [String], SteerStartOptions) -> Void
+        teamId: String? = nil,
+        initialTab: SubjectTab = .issues,
+        preselectedActionId: String? = nil,
+        onStart: @escaping (SteerDevice, [String], SteerStartOptions) -> Void,
+        onRunAction: ((SteerDevice, ActionDto, SteerStartOptions, [String: String]) -> Void)? = nil
     ) {
         self.devices = devices
         self.issues = issues
         self.preselectedIds = preselectedIds
         self.preferredDeviceId = preferredDeviceId
+        self.teamId = teamId
+        self.preselectedActionId = preselectedActionId
         self.onStart = onStart
+        self.onRunAction = onRunAction
         _checked = State(initialValue: preselectedIds)
+        _subjectTab = State(initialValue: initialTab)
+        _selectedActionId = State(initialValue: preselectedActionId)
+    }
+
+    /// Whether the host wired the Actions tab (EXP-257).
+    private var actionsEnabled: Bool {
+        teamId != nil && onRunAction != nil
+    }
+
+    /// Mode-aware device pool: Actions mode only offers capable desktops.
+    private var candidateDevices: [SteerDevice] {
+        subjectTab == .actions ? actionDeviceCandidates : devices
     }
 
     private var device: SteerDevice? {
-        if let deviceId, let match = devices.first(where: { $0.deviceId == deviceId }) {
+        if let deviceId, let match = candidateDevices.first(where: { $0.deviceId == deviceId }) {
             return match
         }
-        if let preferredDeviceId, let match = devices.first(where: { $0.deviceId == preferredDeviceId }) {
+        if let preferredDeviceId, let match = candidateDevices.first(where: { $0.deviceId == preferredDeviceId }) {
             return match
         }
-        return devices.first
+        return candidateDevices.first
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    searchField
-                    if pinnedRows.isEmpty, otherRows.isEmpty {
-                        Text(issues.isEmpty ? "No eligible issues to code." : "No matching issues.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if pinnedRows.count + otherRows.count <= 6 {
-                        ForEach(pinnedRows) { issueRow($0) }
-                        ForEach(otherRows) { issueRow($0) }
-                    } else {
-                        // Many candidates: scroll them inside a bounded box (one
-                        // section row) so the Model / Effort / toggle sections
-                        // stay near the top instead of being pushed off-screen.
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(pinnedRows) { issueRow($0) }
-                                ForEach(otherRows) { issueRow($0) }
-                            }
+                if actionsEnabled {
+                    Section {
+                        Picker("Subject", selection: $subjectTab) {
+                            Text("Issues").tag(SubjectTab.issues)
+                            Text("Actions").tag(SubjectTab.actions)
                         }
-                        .frame(maxHeight: 280)
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
-                } header: {
-                    Text("Issues")
-                } footer: {
-                    // Only attach a footer when there's a message — an empty
-                    // footer view still reserves space, inflating the gap to
-                    // the next card past listSectionSpacing (EXP-211).
-                    if multiRepo || overCap || effectiveChecked.count > Self.costWarnThreshold {
-                        issuesFooter
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+
+                if subjectTab == .issues {
+                    issuesSection
+                } else {
+                    actionsSection
+                    if let action = selectedAction, !(action.inputs ?? []).isEmpty {
+                        inputsSection(action)
                     }
                 }
 
-                if devices.count > 1 {
+                if subjectTab == .actions, candidateDevices.isEmpty {
+                    // The Actions-mode "no capable desktop" hint (EXP-257) —
+                    // distinguishes offline from an outdated desktop app.
+                    Section {
+                        Text(devices.isEmpty
+                            ? "No desktop online — open the Exponential desktop app to run here."
+                            : "No compatible desktop online — update the Exponential desktop app to run this action.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if candidateDevices.count > 1 {
                     Section {
                         Picker("Desktop", selection: deviceBinding) {
-                            ForEach(devices) { device in
+                            ForEach(candidateDevices) { device in
                                 Text(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
                                     .tag(device.deviceId)
                             }
@@ -206,19 +263,26 @@ struct StartCodingSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(startTitle) { submit() }
-                        .disabled(!canStart)
+                    Button(subjectTab == .actions ? "Run action" : startTitle) {
+                        if subjectTab == .actions {
+                            submitAction()
+                        } else {
+                            submit()
+                        }
+                    }
+                    .disabled(subjectTab == .actions ? !canRunAction : !canStart)
                 }
             }
         }
         .presentationDetents([.large])
         .onAppear { seed() }
+        .task { await loadActionsData() }
         // Crossing into/out of batch flips the mode defaults — unless the user
         // has already touched the option controls, and only for claude (the
         // toggles don't exist on codex/pi). Tracks the IN-POOL count so a stray
         // preselected id can't be mistaken for a real second issue.
         .onChange(of: effectiveChecked.count) { oldCount, newCount in
-            guard !touchedToggles, agent == "claude" else { return }
+            guard subjectTab == .issues, !touchedToggles, agent == "claude" else { return }
             if oldCount < 2, newCount >= 2 {
                 ultracode = true
                 planMode = false
@@ -227,9 +291,49 @@ struct StartCodingSheet: View {
                 planMode = storedPlanMode
             }
         }
+        // The candidate device pool changes with the tab (Actions filters to
+        // capable desktops) and with the selection (inputs-carrying/builtin
+        // actions additionally need `action-inputs`) — the resolved device may
+        // stop offering the chosen agent.
+        .onChange(of: subjectTab) { _, _ in clampAgentToDevice() }
+        .onChange(of: selectedActionId) { _, _ in clampAgentToDevice() }
     }
 
     // MARK: - Issue picker
+
+    private var issuesSection: some View {
+        Section {
+            searchField
+            if pinnedRows.isEmpty, otherRows.isEmpty {
+                Text(issues.isEmpty ? "No eligible issues to code." : "No matching issues.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if pinnedRows.count + otherRows.count <= 6 {
+                ForEach(pinnedRows) { issueRow($0) }
+                ForEach(otherRows) { issueRow($0) }
+            } else {
+                // Many candidates: scroll them inside a bounded box (one
+                // section row) so the Model / Effort / toggle sections
+                // stay near the top instead of being pushed off-screen.
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(pinnedRows) { issueRow($0) }
+                        ForEach(otherRows) { issueRow($0) }
+                    }
+                }
+                .frame(maxHeight: 280)
+            }
+        } header: {
+            Text("Issues")
+        } footer: {
+            // Only attach a footer when there's a message — an empty
+            // footer view still reserves space, inflating the gap to
+            // the next card past listSectionSpacing (EXP-211).
+            if multiRepo || overCap || effectiveChecked.count > Self.costWarnThreshold {
+                issuesFooter
+            }
+        }
+    }
 
     private var searchField: some View {
         // Inline search field. NOT system .searchable — same rationale as
@@ -387,6 +491,270 @@ struct StartCodingSheet: View {
                 _ = checked.remove(id)
             } else {
                 _ = checked.insert(id)
+            }
+        }
+    }
+
+    // MARK: - Actions mode (EXP-257)
+
+    private var actionsSection: some View {
+        Section {
+            actionSearchField
+            if loadedActions == nil, actionsError == nil {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading actions…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let actionsError {
+                Text(actionsError)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            } else if actionRows.isEmpty {
+                Text((loadedActions ?? []).isEmpty ? "No actions yet." : "No matching actions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if actionRows.count <= 6 {
+                ForEach(actionRows) { actionRow($0) }
+            } else {
+                // Bounded like the issue picker: keep the input fields and the
+                // Model / Effort sections reachable.
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(actionRows) { actionRow($0) }
+                    }
+                }
+                .frame(maxHeight: 280)
+            }
+        } header: {
+            Text("Actions")
+        }
+    }
+
+    private var actionSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Search actions", text: $actionSearchText)
+                .textFieldStyle(.plain)
+                .submitLabel(.search)
+            if !actionSearchText.isEmpty {
+                Button {
+                    actionSearchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func actionRow(_ action: ActionDto) -> some View {
+        let isSelected = action.id == selectedActionId
+        return Button {
+            selectAction(action)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.body)
+                    .foregroundStyle(isSelected ? Accent.indigo : .secondary)
+
+                // The builtin "Create action" wears the create affordance;
+                // real actions keep the bolt (the Actions surface glyph).
+                Image(systemName: action.isBuiltin ? "plus.circle" : "bolt")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(action.name)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                        if action.repositoryId != nil {
+                            // Small repo indicator: this action clones its repo.
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Runs in a repository")
+                        }
+                    }
+                    if let description = action.description, !description.isEmpty {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(
+                isSelected ? Accent.indigo.opacity(0.12) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .padding(.horizontal, -6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func inputsSection(_ action: ActionDto) -> some View {
+        Section {
+            ForEach(action.inputs ?? [], id: \.key) { def in
+                inputField(def)
+            }
+        } header: {
+            Text("Inputs")
+        }
+    }
+
+    @ViewBuilder
+    private func inputField(_ def: ActionInputDto) -> some View {
+        switch def.type {
+        case "text":
+            VStack(alignment: .leading, spacing: 4) {
+                Text(inputLabel(def))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField(def.placeholder ?? "", text: inputBinding(def.key), axis: .vertical)
+                    .lineLimit(1...4)
+            }
+        case "repo":
+            Picker(inputLabel(def), selection: inputBinding(def.key)) {
+                Text(def.isRequired ? "Select a repository" : "None").tag("")
+                ForEach(repos) { repo in
+                    Text(repo.fullName).tag(repo.id)
+                }
+            }
+        case "board":
+            Picker(inputLabel(def), selection: inputBinding(def.key)) {
+                Text(def.isRequired ? "Select a board" : "None").tag("")
+                ForEach(boards) { board in
+                    Text(board.name).tag(board.id)
+                }
+            }
+        default:
+            // Unknown future input type — block the run instead of silently
+            // degrading to text (the desktop mirrors this posture).
+            Text("\"\(def.label)\" needs a newer app version.")
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Semantic.red)
+        }
+    }
+
+    private func inputLabel(_ def: ActionInputDto) -> String {
+        def.isRequired ? def.label : "\(def.label) (optional)"
+    }
+
+    private func inputBinding(_ key: String) -> Binding<String> {
+        Binding(
+            get: { inputValues[key] ?? "" },
+            set: { inputValues[key] = $0 }
+        )
+    }
+
+    private func selectAction(_ action: ActionDto) {
+        guard action.id != selectedActionId else { return }
+        withAnimation(.snappy(duration: 0.18)) {
+            selectedActionId = action.id
+        }
+        // Values are keyed per-def — a different action's defs must start clean.
+        inputValues = [:]
+    }
+
+    private func matchesActionSearch(_ action: ActionDto) -> Bool {
+        let trimmed = actionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        return action.name.localizedCaseInsensitiveContains(trimmed)
+            || (action.description ?? "").localizedCaseInsensitiveContains(trimmed)
+    }
+
+    /// Search-filtered rows, builtins pinned FIRST by the `builtin` flag (the
+    /// contract — never by sort order).
+    private var actionRows: [ActionDto] {
+        let filtered = (loadedActions ?? []).filter { matchesActionSearch($0) }
+        return filtered.filter(\.isBuiltin) + filtered.filter { !$0.isBuiltin }
+    }
+
+    private var selectedAction: ActionDto? {
+        guard let selectedActionId else { return nil }
+        return loadedActions?.first { $0.id == selectedActionId }
+    }
+
+    private var selectedActionInputs: [ActionInputDto] {
+        selectedAction?.inputs ?? []
+    }
+
+    /// Builtin or inputs-carrying runs additionally need the `action-inputs`
+    /// capability (EXP-257) — older desktops can't render/inject them.
+    private var selectedActionNeedsInputsCap: Bool {
+        guard let action = selectedAction else { return false }
+        return action.isBuiltin || !(action.inputs ?? []).isEmpty
+    }
+
+    private var actionDeviceCandidates: [SteerDevice] {
+        devices.filter { device in
+            guard device.canRunActions else { return false }
+            return selectedActionNeedsInputsCap ? device.canRunActionInputs : true
+        }
+    }
+
+    private var hasUnknownInputType: Bool {
+        selectedActionInputs.contains { !DomainContract.actionInputTypeValues.contains($0.type) }
+    }
+
+    private var requiredInputsFilled: Bool {
+        selectedActionInputs.allSatisfy { def in
+            guard def.isRequired else { return true }
+            return !(inputValues[def.key] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+        }
+    }
+
+    private var textInputsWithinLimit: Bool {
+        selectedActionInputs.allSatisfy { def in
+            def.type != "text"
+                || (inputValues[def.key] ?? "").count <= DomainContract.actionInputTextMax
+        }
+    }
+
+    private var canRunAction: Bool {
+        device != nil
+            && selectedAction != nil
+            && !hasUnknownInputType
+            && requiredInputsFilled
+            && textInputsWithinLimit
+    }
+
+    /// One-shot fetch of the Actions-tab data: the team's actions + repo
+    /// registry over tRPC, boards from the synced GRDB store.
+    @MainActor
+    private func loadActionsData() async {
+        guard actionsEnabled, let teamId else { return }
+        do {
+            let rows = try await deps.actionsApi.list(accountId: accountId, teamId: teamId)
+            loadedActions = rows
+            actionsError = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            actionsError = error.localizedDescription
+        }
+        repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
+        if let pool = try? deps.db.pool(forAccountId: accountId) {
+            let rows = (try? await pool.read { db in
+                try BoardEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            }) ?? []
+            boards = rows.sorted { lhs, rhs in
+                (lhs.sortOrder ?? 0, lhs.name) < (rhs.sortOrder ?? 0, rhs.name)
             }
         }
     }
@@ -558,11 +926,10 @@ struct StartCodingSheet: View {
         }
     }
 
-    private func submit() {
-        guard let device, !orderedCheckedIds.isEmpty else { return }
-        let ids = orderedCheckedIds
+    /// The chosen options in wire form — shared by both launch subjects.
+    private func buildOptions() -> SteerStartOptions {
         let isClaude = agent == "claude"
-        let options = SteerStartOptions(
+        return SteerStartOptions(
             agent: agent,
             model: model == Self.cliDefault ? "" : model,
             effort: effort == Self.cliDefault ? "" : effort,
@@ -572,13 +939,17 @@ struct StartCodingSheet: View {
             planMode: isClaude ? planMode : nil,
             skipPermissions: agent == "pi" ? nil : skipPermissions
         )
+    }
+
+    private func persistOptionPrefs(persistClaudeToggles: Bool) {
         let defaults = UserDefaults.standard
         defaults.set(agent, forKey: Keys.agent)
         defaults.set(model, forKey: Keys.model)
         defaults.set(effort, forKey: Keys.effort)
-        // Only single-issue claude submits persist ultracode/plan — batch
-        // seeding must not overwrite the stored single-issue defaults.
-        if isClaude, ids.count == 1 {
+        // Only single-issue claude submits (and action runs — never batch)
+        // persist ultracode/plan: batch seeding must not overwrite the stored
+        // single-issue defaults.
+        if agent == "claude", persistClaudeToggles {
             defaults.set(ultracode, forKey: Keys.ultracode)
             defaults.set(planMode, forKey: Keys.planMode)
         }
@@ -586,8 +957,35 @@ struct StartCodingSheet: View {
         if agent != "pi" {
             defaults.set(skipPermissions, forKey: Keys.skipPermissions)
         }
+    }
+
+    private func submit() {
+        guard let device, !orderedCheckedIds.isEmpty else { return }
+        let ids = orderedCheckedIds
+        let options = buildOptions()
+        persistOptionPrefs(persistClaudeToggles: ids.count == 1)
         dismiss()
         onStart(device, ids, options)
+    }
+
+    private func submitAction() {
+        guard let device, let action = selectedAction, let onRunAction, canRunAction else { return }
+        let options = buildOptions()
+        // Values in wire form: text trimmed, blank optionals dropped (a
+        // required blank can't get here — `canRunAction` gates it).
+        var values: [String: String] = [:]
+        for def in selectedActionInputs {
+            let raw = inputValues[def.key] ?? ""
+            let value = def.type == "text"
+                ? raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                : raw
+            if !value.isEmpty {
+                values[def.key] = value
+            }
+        }
+        persistOptionPrefs(persistClaudeToggles: true)
+        dismiss()
+        onRunAction(device, action, options, values)
     }
 
     /// An unset model or a stored value from an older build outside today's

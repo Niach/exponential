@@ -78,14 +78,22 @@ struct AgentsView: View {
             viewModel?.stopObserving()
         }
         .sheet(item: $startSheetDevice) { device in
+            // EXP-257: wiring teamId + onRunAction gives the sheet its
+            // Issues | Actions segmented control — actions launch from the
+            // same unified dialog.
             StartCodingSheet(
                 devices: devices ?? [],
                 issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
                 preselectedIds: [],
-                preferredDeviceId: device.deviceId
-            ) { chosenDevice, issueIds, options in
-                start(on: chosenDevice, issueIds: issueIds, options: options)
-            }
+                preferredDeviceId: device.deviceId,
+                teamId: teamState.activeTeam?.id,
+                onStart: { chosenDevice, issueIds, options in
+                    start(on: chosenDevice, issueIds: issueIds, options: options)
+                },
+                onRunAction: { chosenDevice, action, options, inputs in
+                    runAction(on: chosenDevice, action: action, options: options, inputs: inputs)
+                }
+            )
         }
     }
 
@@ -431,6 +439,41 @@ struct AgentsView: View {
                 // spins up, which surfaces in the Running list via sync. Clear
                 // the informational caption after a grace window (errors persist
                 // until the next attempt so they can't be missed).
+                Task {
+                    try? await Task.sleep(for: .seconds(30))
+                    sentCaption = nil
+                }
+            } catch {
+                startError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Actions-mode launch from the unified sheet (EXP-257): full option set,
+    /// typed input values, `teamId` only for the builtin "Create action" (its
+    /// virtual row has no server-resolvable id). The run surfaces in the
+    /// Running list via sync like any other session.
+    private func runAction(
+        on device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: [String: String]
+    ) {
+        // A fresh attempt supersedes the previous outcome (success or error).
+        sentCaption = nil
+        startError = nil
+        let label = device.deviceLabel
+        Task {
+            do {
+                try await deps.steerApi.startSession(
+                    accountId: accountId,
+                    actionId: action.id,
+                    deviceId: device.deviceId,
+                    teamId: action.isBuiltin ? action.teamId : nil,
+                    options: options,
+                    inputs: inputs.isEmpty ? nil : inputs
+                )
+                sentCaption = "Run sent to \(label) — it'll appear here when it spins up."
                 Task {
                     try? await Task.sleep(for: .seconds(30))
                     sentCaption = nil

@@ -424,6 +424,61 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
   })
 })
 
+describe(`codingSessions — builtin create-action (EXP-257)`, () => {
+  const BUILTIN_ID = `builtin:create-action`
+
+  it(`start requires teamId alongside the builtin literal`, async () => {
+    const error = await rejectionOf(caller.start({ actionId: BUILTIN_ID }))
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`start inserts batch-shaped with actionId NULL + the constant name (no DB action load)`, async () => {
+    const result = await caller.start({
+      actionId: BUILTIN_ID,
+      teamId: TEAM_ID,
+      deviceLabel: `MacBook`,
+    })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.table).toBe(codingSessions)
+    expect(inserts[0]!.values).toMatchObject({
+      teamId: TEAM_ID,
+      actionId: null,
+      actionName: `Create action`,
+      userId: `actor`,
+      deviceLabel: `MacBook`,
+      status: `running`,
+    })
+    expect(`issueId` in inserts[0]!.values).toBe(false)
+    expect(result.session).toMatchObject({ actionName: `Create action` })
+  })
+
+  it(`heartbeat resurrects a builtin row actionId-NULL with the server-constant name`, async () => {
+    // Row gone (swept) — only the session select runs: the builtin literal
+    // must NEVER be compared against the uuid actions PK (22P02).
+    selectResults.push([])
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: BUILTIN_ID,
+      actionName: `client-sent junk`,
+    })
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: null,
+      actionName: `Create action`,
+      status: `running`,
+    })
+    // No action-row pre-check select was consumed beyond the session read.
+    expect(selectResults).toHaveLength(0)
+  })
+})
+
 describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
   it(`writes exactly needs_input on a live owned row`, async () => {
     selectResults.push([{ userId: `actor`, status: `running` }])

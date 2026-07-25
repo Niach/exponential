@@ -50,19 +50,29 @@ struct ActionsListView: View {
         .onDisappear {
             viewModel?.stopWatching()
         }
+        // EXP-257: the unified Start-coding sheet, opened in Actions mode
+        // preselected on the tapped row (it filters device candidates by
+        // capability itself). No issue candidates on this surface — the
+        // Issues tab simply shows its empty state.
         .sheet(item: $runTarget) { action in
-            RunActionSheet(
-                action: action,
-                devices: (devices ?? []).filter(\.canRunActions)
-            ) { device, model, effort in
-                viewModel?.run(
-                    action: action,
-                    device: device,
-                    model: model,
-                    effort: effort,
-                    userId: deps.auth.userId
-                )
-            }
+            StartCodingSheet(
+                devices: devices ?? [],
+                issues: [],
+                preselectedIds: [],
+                teamId: teamState.activeTeam?.id,
+                initialTab: .actions,
+                preselectedActionId: action.id,
+                onStart: { _, _, _ in },
+                onRunAction: { device, chosen, options, inputs in
+                    viewModel?.run(
+                        action: chosen,
+                        device: device,
+                        options: options,
+                        inputs: inputs,
+                        userId: deps.auth.userId
+                    )
+                }
+            )
         }
         // The desktop picked the start up — jump into the live steer screen
         // ONCE (the same destination the .agentSession route arm builds).
@@ -167,7 +177,9 @@ struct ActionsListView: View {
 
     private func actionRow(_ action: ActionDto) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "bolt")
+            // The builtin "Create action" row (EXP-257) wears the create
+            // affordance; real actions keep the bolt.
+            Image(systemName: action.isBuiltin ? "plus.circle" : "bolt")
                 .font(.body)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
@@ -211,131 +223,5 @@ struct ActionsListView: View {
         .padding(.vertical, 12)
         .glassRow()
         .accessibilityIdentifier("action-row")
-    }
-}
-
-// MARK: - Run sheet
-
-/// The run sheet: an actions-capable desktop picker plus optional Claude
-/// Model/Effort pickers (the StartCodingSheet's claude contract lists; the
-/// "Desktop default" entry omits the field so the desktop's per-agent
-/// settings default applies). Action runs are Claude-only v1 — no agent
-/// strip, no ultracode/plan/skip toggles.
-private struct RunActionSheet: View {
-    let action: ActionDto
-    /// Already filtered to devices advertising the `actions` capability.
-    let devices: [SteerDevice]
-    let onStart: (SteerDevice, String?, String?) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    /// Sentinel for the omit-the-field "Desktop default" choice.
-    private static let desktopDefault = "desktop-default"
-
-    @State private var deviceId: String?
-    @State private var model = Self.desktopDefault
-    @State private var effort = Self.desktopDefault
-
-    private var device: SteerDevice? {
-        if let deviceId, let match = devices.first(where: { $0.deviceId == deviceId }) {
-            return match
-        }
-        return devices.first
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(action.name)
-                            .font(.subheadline.weight(.medium))
-                        if let description = action.description, !description.isEmpty {
-                            Text(description)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("Action")
-                }
-
-                Section {
-                    if devices.isEmpty {
-                        Text("No actions-capable desktop online — open or update the Exponential desktop app.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if devices.count > 1 {
-                        Picker("Desktop", selection: deviceBinding) {
-                            ForEach(devices) { device in
-                                Text(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
-                                    .tag(device.deviceId)
-                            }
-                        }
-                    } else if let device {
-                        HStack(spacing: 8) {
-                            Image(systemName: "display")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
-                                .font(.subheadline)
-                        }
-                    }
-                } header: {
-                    Text("Desktop")
-                }
-
-                Section {
-                    Picker("Model", selection: $model) {
-                        Text("Desktop default").tag(Self.desktopDefault)
-                        ForEach(DomainContract.codingModelValues, id: \.self) { value in
-                            Text(Self.modelLabel(value)).tag(value)
-                        }
-                    }
-                    Picker("Effort", selection: $effort) {
-                        Text("Desktop default").tag(Self.desktopDefault)
-                        ForEach(DomainContract.codingEffortValues, id: \.self) { value in
-                            Text(Self.effortLabel(value)).tag(value)
-                        }
-                    }
-                }
-            }
-            .listSectionSpacing(12)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Run action") { submit() }
-                        .disabled(device == nil)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private var deviceBinding: Binding<String> {
-        Binding(
-            get: { device?.deviceId ?? "" },
-            set: { deviceId = $0 }
-        )
-    }
-
-    private func submit() {
-        guard let device else { return }
-        dismiss()
-        onStart(
-            device,
-            model == Self.desktopDefault ? nil : model,
-            effort == Self.desktopDefault ? nil : effort
-        )
-    }
-
-    private static func modelLabel(_ value: String) -> String {
-        value.prefix(1).uppercased() + value.dropFirst()
-    }
-
-    private static func effortLabel(_ value: String) -> String {
-        value == "xhigh" ? "XHigh" : value.prefix(1).uppercased() + value.dropFirst()
     }
 }

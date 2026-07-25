@@ -1,9 +1,15 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
+import {
+  MAX_ACTION_INPUTS,
+  MAX_ACTION_INPUT_KEY,
+  MAX_ACTION_INPUT_TEXT,
+  type ActionInputDef,
+} from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { actions, codingSessions, repositories } from "@/db/schema"
+import { actions, boards, codingSessions, repositories } from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -18,6 +24,13 @@ import {
   type SteerDevice,
   type SteerStartRepo,
 } from "@/lib/steer"
+import { resolveActionInputs } from "@/lib/action-inputs"
+import {
+  BUILTIN_CREATE_ACTION_ID,
+  BUILTIN_CREATE_ACTION_NAME,
+  builtinCreateAction,
+  isBuiltinActionId,
+} from "@/lib/builtin-actions"
 
 // Remote start + live terminal steer (masterplan §3.5). The web app is the
 // only place that holds STEER_RELAY_SECRET: it mints short-lived HS256 relay
@@ -153,15 +166,36 @@ export const steerRouter = router({
   // desktop syncs no repositories, and the relay stays a dumb pipe. The
   // optional launch options are the client's Start-coding dialog choices
   // (EXP-149) — validated against the domain-contract value sets here; absent
-  // fields mean desktop settings defaults with plan mode OFF. Action runs are
-  // Claude-only v1 and take model/effort only.
+  // fields mean desktop settings defaults with plan mode OFF. Since EXP-257
+  // action runs take the FULL option set (any installed agent + toggles) and
+  // may carry `inputs` — the filled values for the action's input schema,
+  // resolved + validated here before the frame rides the relay.
   startSession: authedProcedure
     .input(
       z
         .object({
           issueId: z.string().uuid().optional(),
           issueIds: z.array(z.string().uuid()).min(1).max(30).optional(),
-          actionId: z.string().uuid().optional(),
+          actionId: z
+            .string()
+            .uuid()
+            .or(z.literal(BUILTIN_CREATE_ACTION_ID))
+            .optional(),
+          // Required iff actionId is the builtin (there is no DB row to
+          // derive the team from); forbidden otherwise.
+          teamId: z.string().uuid().optional(),
+          // Raw filled input values, keyed by the schema's input keys
+          // (repo/board values are picked ids). Validated against the
+          // action's schema in the mutation.
+          inputs: z
+            .record(
+              z.string().max(MAX_ACTION_INPUT_KEY),
+              z.string().max(MAX_ACTION_INPUT_TEXT)
+            )
+            .refine((v) => Object.keys(v).length <= MAX_ACTION_INPUTS, {
+              message: `Too many inputs`,
+            })
+            .optional(),
           deviceId: z.string().min(1).max(128),
           agent: z.enum(codingAgentValues).optional(),
           model: z.string().max(64).optional(),
@@ -180,22 +214,28 @@ export const steerRouter = router({
           { message: `Exactly one of issueId/issueIds/actionId is required` }
         )
         .superRefine((value, ctx) => {
-          if (value.actionId) {
-            // Actions are Claude-only v1: model/effort ride, the other
-            // toggles don't (the desktop clamps the same way).
-            if ((value.agent ?? `claude`) !== `claude`) {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: [`agent`],
-                message: `Actions run on Claude only`,
-              })
-            }
-            if (value.ultracode || value.planMode || value.skipPermissions) {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: `Action runs support model/effort options only`,
-              })
-            }
+          const builtin =
+            value.actionId !== undefined && isBuiltinActionId(value.actionId)
+          if (builtin && !value.teamId) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`teamId`],
+              message: `teamId is required for built-in actions`,
+            })
+          }
+          if (!builtin && value.teamId) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`teamId`],
+              message: `teamId rides built-in action starts only`,
+            })
+          }
+          if (value.inputs && !value.actionId) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`inputs`],
+              message: `inputs ride action starts only`,
+            })
           }
           // Per-agent vocabulary (EXP-201): model/effort must come from the
           // (agent ?? claude) contract lists, and the claude-only toggles may
@@ -259,29 +299,94 @@ export const steerRouter = router({
         }
       }
 
-      // Action run (EXP-253): resolve the action → team + optional repo group,
-      // then require the target device to advertise the `actions` capability —
-      // STRICT, unlike the lenient agents fallback below: an old desktop can
-      // run claude but has no action launch path at all.
+      // Action run (EXP-253/EXP-257): resolve the action (a DB row, or the
+      // virtual builtin composed from constants) → team + optional repo
+      // group + resolved input values, then require the target device to
+      // advertise the `actions` capability — STRICT, unlike the lenient
+      // agents fallback below: an old desktop can run claude but has no
+      // action launch path at all. Builtin or inputs-carrying starts
+      // additionally require `action-inputs` (an old desktop would silently
+      // drop the inputs field and run a valueless prompt).
       if (input.actionId) {
         const { db } = await import(`@/db/connection`)
-        const [action] = await db
-          .select({
-            id: actions.id,
-            teamId: actions.teamId,
-            repositoryId: actions.repositoryId,
-            name: actions.name,
-          })
-          .from(actions)
-          .where(eq(actions.id, input.actionId))
-          .limit(1)
-        if (!action) {
+
+        let action: {
+          id: string
+          teamId: string
+          repositoryId: string | null
+          name: string
+        }
+        let inputDefs: ActionInputDef[]
+        const builtin = isBuiltinActionId(input.actionId)
+        if (builtin) {
+          await assertTeamMember(userId, input.teamId!)
+          const virtual = builtinCreateAction(input.teamId!)
+          action = {
+            id: virtual.id,
+            teamId: virtual.teamId,
+            repositoryId: null,
+            name: BUILTIN_CREATE_ACTION_NAME,
+          }
+          inputDefs = virtual.inputs
+        } else {
+          const [row] = await db
+            .select({
+              id: actions.id,
+              teamId: actions.teamId,
+              repositoryId: actions.repositoryId,
+              name: actions.name,
+              inputs: actions.inputs,
+            })
+            .from(actions)
+            .where(eq(actions.id, input.actionId))
+            .limit(1)
+          if (!row) {
+            throw new TRPCError({
+              code: `NOT_FOUND`,
+              message: `Action not found`,
+            })
+          }
+          await assertTeamMember(userId, row.teamId)
+          action = row
+          inputDefs = row.inputs
+        }
+
+        // Validate + resolve the filled input values against the schema —
+        // display names ride the frame so the desktop needs no lookups.
+        const resolved = await resolveActionInputs(
+          inputDefs,
+          input.inputs ?? {},
+          action.teamId,
+          {
+            repo: async (id, teamId) => {
+              const [row] = await db
+                .select({
+                  teamId: repositories.teamId,
+                  fullName: repositories.fullName,
+                })
+                .from(repositories)
+                .where(eq(repositories.id, id))
+                .limit(1)
+              return row && row.teamId === teamId
+                ? { fullName: row.fullName }
+                : null
+            },
+            board: async (id, teamId) => {
+              const [row] = await db
+                .select({ teamId: boards.teamId, name: boards.name })
+                .from(boards)
+                .where(and(eq(boards.id, id), isNull(boards.deletedAt)))
+                .limit(1)
+              return row && row.teamId === teamId ? { name: row.name } : null
+            },
+          }
+        )
+        if (!resolved.ok) {
           throw new TRPCError({
-            code: `NOT_FOUND`,
-            message: `Action not found`,
+            code: `BAD_REQUEST`,
+            message: resolved.message,
           })
         }
-        await assertTeamMember(userId, action.teamId)
 
         // Strip to the relay-safe repo group (never installationId). A row
         // gone can't happen (FK SET NULL nulls repositoryId); an archived or
@@ -308,10 +413,33 @@ export const steerRouter = router({
 
         const devices = await fetchDevices()
         const device = devices.find((d) => d.deviceId === input.deviceId)
-        if (!device || !(device.caps ?? []).includes(`actions`)) {
+        const caps = device?.caps ?? []
+        if (!device || !caps.includes(`actions`)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `That desktop app can't run actions yet — update it`,
+          })
+        }
+        if (
+          (builtin || resolved.inputs.length > 0) &&
+          !caps.includes(`action-inputs`)
+        ) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That desktop app can't run action inputs yet — update it`,
+          })
+        }
+        // EXP-257: actions run on any agent the device advertised, same
+        // lenient fallback as the issue branch (nothing advertised ⇒ claude).
+        const actionAgent = input.agent ?? `claude`
+        const actionDeviceAgents =
+          device.agents && device.agents.length > 0
+            ? device.agents
+            : [`claude`]
+        if (!actionDeviceAgents.includes(actionAgent)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `${actionAgent} is not installed on that device`,
           })
         }
 
@@ -322,8 +450,13 @@ export const steerRouter = router({
           actionName: action.name,
           teamId: action.teamId,
           ...(repo ? { repo } : {}),
+          ...(resolved.inputs.length > 0 ? { inputs: resolved.inputs } : {}),
+          agent: input.agent,
           model: input.model,
           effort: input.effort,
+          ultracode: input.ultracode,
+          planMode: input.planMode,
+          skipPermissions: input.skipPermissions,
         })
         if (!result.ok) {
           if (result.status === 404) {

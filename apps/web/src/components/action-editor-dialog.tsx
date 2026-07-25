@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react"
 import { TRPCClientError } from "@trpc/client"
 import { trpc } from "@/lib/trpc-client"
-import { ACTION_TEMPLATES } from "@/lib/action-templates"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -21,9 +20,11 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-// Create/edit dialog for team actions (EXP-253) — owner-only (the server
-// enforces it). Creating offers the starter templates; the body is the GFM
-// prompt an interactive claude session executes on a member's desktop.
+// Edit dialog for team actions (EXP-253) — owner-only (the server enforces
+// it), EDIT-ONLY since EXP-257: new actions are authored by the builtin
+// "Create action" run, so the manual create path (and its templates) is gone.
+// The body is the GFM prompt an interactive agent session executes on a
+// member's desktop.
 
 /** One action as the actions router returns it. */
 export type TeamAction = Awaited<
@@ -35,29 +36,25 @@ export interface ActionRepoOption {
   fullName: string
 }
 
-// Radix Select forbids empty-string item values — sentinels for the
-// "no repository" choice and the blank template.
+// Radix Select forbids empty-string item values — sentinel for the
+// "no repository" choice.
 const NO_REPO = `none`
-const BLANK_TEMPLATE = `blank`
 
 export function ActionEditorDialog({
   open,
   onOpenChange,
-  teamId,
   repos,
   action,
   onSaved,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  teamId: string
   /** The team's connected repos, for the optional clone-target select. */
   repos: ActionRepoOption[]
-  /** Action being edited; null = create a new one. */
-  action: TeamAction | null
+  /** The action being edited (never the builtin — it has no editable body). */
+  action: TeamAction
   onSaved: () => void
 }) {
-  const [templateId, setTemplateId] = useState(BLANK_TEMPLATE)
   const [name, setName] = useState(``)
   const [description, setDescription] = useState(``)
   const [repoValue, setRepoValue] = useState(NO_REPO)
@@ -68,40 +65,18 @@ export function ActionEditorDialog({
   const [nameError, setNameError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Seed on OPEN: the edited action's fields, or a blank create form.
+  // Seed the edited action's fields on OPEN.
   useEffect(() => {
     if (!open) return
-    setTemplateId(BLANK_TEMPLATE)
-    setName(action?.name ?? ``)
-    setDescription(action?.description ?? ``)
-    setRepoValue(action?.repositoryId ?? NO_REPO)
-    setBody(action?.body ?? ``)
+    setName(action.name)
+    setDescription(action.description ?? ``)
+    setRepoValue(action.repositoryId ?? NO_REPO)
+    setBody(action.body)
     setSubmitting(false)
     setNameError(null)
     setError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
-
-  const applyTemplate = (id: string) => {
-    setTemplateId(id)
-    setNameError(null)
-    const template = ACTION_TEMPLATES.find((t) => t.id === id)
-    if (!template) {
-      setName(``)
-      setDescription(``)
-      setBody(``)
-      setRepoValue(NO_REPO)
-      return
-    }
-    setName(template.name)
-    setDescription(template.description)
-    setBody(template.body)
-    // A repo-wanting template preselects the team's only repo; with several
-    // (or none) the owner picks explicitly.
-    setRepoValue(
-      template.wantsRepo && repos.length === 1 ? repos[0].id : NO_REPO
-    )
-  }
 
   const canSubmit = Boolean(name.trim()) && Boolean(body.trim())
 
@@ -111,24 +86,17 @@ export function ActionEditorDialog({
     setSubmitting(true)
     setNameError(null)
     setError(null)
-    const payload = {
-      name: name.trim(),
-      description: description.trim() === `` ? null : description.trim(),
-      repositoryId: repoValue === NO_REPO ? null : repoValue,
-      body,
-    }
     try {
-      if (action) {
-        await trpc.actions.update.mutate(
-          { id: action.id, ...payload },
-          { context: { skipErrorToast: true } }
-        )
-      } else {
-        await trpc.actions.create.mutate(
-          { teamId, ...payload },
-          { context: { skipErrorToast: true } }
-        )
-      }
+      await trpc.actions.update.mutate(
+        {
+          id: action.id,
+          name: name.trim(),
+          description: description.trim() === `` ? null : description.trim(),
+          repositoryId: repoValue === NO_REPO ? null : repoValue,
+          body,
+        },
+        { context: { skipErrorToast: true } }
+      )
       onSaved()
       onOpenChange(false)
     } catch (err) {
@@ -150,29 +118,10 @@ export function ActionEditorDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{action ? `Edit action` : `New action`}</DialogTitle>
+          <DialogTitle>Edit action</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {!action && (
-            <div className="space-y-2">
-              <Label htmlFor="action-template">Template</Label>
-              <Select value={templateId} onValueChange={applyTemplate}>
-                <SelectTrigger id="action-template" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={BLANK_TEMPLATE}>Blank</SelectItem>
-                  {ACTION_TEMPLATES.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           <div className="space-y-2">
             <Label htmlFor="action-name">Name</Label>
             <Input
@@ -249,13 +198,7 @@ export function ActionEditorDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={!canSubmit || submitting}>
-              {submitting
-                ? action
-                  ? `Saving…`
-                  : `Creating…`
-                : action
-                  ? `Save changes`
-                  : `Create action`}
+              {submitting ? `Saving…` : `Save changes`}
             </Button>
           </DialogFooter>
         </form>

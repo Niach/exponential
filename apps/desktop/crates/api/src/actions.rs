@@ -20,6 +20,31 @@ use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 use crate::trust_store::{hex, sha256};
 
+/// The server-defined virtual "Create action" row's id (EXP-257) — the ONE
+/// non-UUID id `actions.list` may carry. `actions.get/update/delete` reject
+/// it; clients construct the row locally and skip the trust gate (its content
+/// is server-shipped, never owner-authored).
+pub const BUILTIN_CREATE_ACTION_ID: &str = domain::contract::BUILTIN_CREATE_ACTION_ID;
+
+/// One typed run-time input definition on an action (EXP-257 — filled in the
+/// unified launch dialog, resolved server-side for remote starts).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ActionInput {
+    pub key: String,
+    pub label: String,
+    /// `text` | `repo` | `board` (contract `actionInputType`). An UNKNOWN
+    /// value must block the run with "needs a newer app version" — never a
+    /// silent text fallback.
+    #[serde(rename = "type")]
+    pub input_type: String,
+    /// Absent on the wire = optional (the contract's `required` default).
+    #[serde(default)]
+    pub required: bool,
+    /// Text-field placeholder, when the owner set one.
+    #[serde(default)]
+    pub placeholder: Option<String>,
+}
+
 /// One `actions` row as the wire carries it.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +61,15 @@ pub struct Action {
     /// The markdown prompt the run executes. Trust-hash THIS, freshly
     /// fetched — see the module docs.
     pub body: String,
+    /// The server-appended virtual "Create action" row (EXP-257). Clients
+    /// pin it FIRST by this flag (never by sort order) and hide the owner
+    /// edit/delete affordances on it.
+    #[serde(default)]
+    pub builtin: bool,
+    /// The typed run-time inputs schema (EXP-257; empty on input-less
+    /// actions and on rows from a pre-inputs server).
+    #[serde(default)]
+    pub inputs: Vec<ActionInput>,
     #[serde(default)]
     pub sort_order: f64,
     #[serde(default)]
@@ -174,6 +208,38 @@ pub fn body_hash(body: &str) -> String {
     hex(&sha256(body.as_bytes()))
 }
 
+/// The trust-gate hash for a FULL action (EXP-257): identical to
+/// [`body_hash`] while the inputs schema is empty (existing trust records
+/// stay valid), else SHA-256 over the body plus a canonical JSON of the
+/// schema (key/label/type/required in definition order, NUL-separated from
+/// the body). Input labels are owner-authored text injected into the run's
+/// prompt, so any schema change must re-prompt the trust dialog.
+pub fn trust_hash(action: &Action) -> String {
+    if action.inputs.is_empty() {
+        return body_hash(&action.body);
+    }
+    // Hand-built canonical form: a fixed field order regardless of serde_json
+    // map ordering, string fields JSON-escaped.
+    let mut canonical = String::from("[");
+    for (ix, input) in action.inputs.iter().enumerate() {
+        if ix > 0 {
+            canonical.push(',');
+        }
+        canonical.push_str(&format!(
+            r#"{{"key":{},"label":{},"type":{},"required":{}}}"#,
+            serde_json::to_string(&input.key).unwrap_or_default(),
+            serde_json::to_string(&input.label).unwrap_or_default(),
+            serde_json::to_string(&input.input_type).unwrap_or_default(),
+            input.required,
+        ));
+    }
+    canonical.push(']');
+    let mut bytes = action.body.as_bytes().to_vec();
+    bytes.push(0); // unambiguous body/schema boundary
+    bytes.extend_from_slice(canonical.as_bytes());
+    hex(&sha256(&bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +342,122 @@ mod tests {
         );
         // Whitespace-only edits still change the hash — the gate re-fires.
         assert_ne!(body_hash("a b"), body_hash("a  b"));
+    }
+
+    fn action_with_inputs(inputs: Vec<ActionInput>) -> Action {
+        Action {
+            id: "act-1".to_string(),
+            team_id: "team-1".to_string(),
+            repository_id: None,
+            name: "Groom".to_string(),
+            description: None,
+            body: "do it".to_string(),
+            builtin: false,
+            inputs,
+            sort_order: 0.0,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn list_decodes_inputs_and_builtin() {
+        // EXP-257: the server appends the virtual builtin row and real rows
+        // may carry a typed inputs schema (`type` on the wire, `required`
+        // absent = optional).
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"actions":[
+                {"id":"act-1","teamId":"team-1","repositoryId":null,
+                 "name":"Groom","description":null,"body":"do it","sortOrder":0,
+                 "inputs":[{"key":"scope","label":"Scope","type":"text","required":true,
+                            "placeholder":"e.g. backlog"},
+                           {"key":"repo","label":"Repository","type":"repo"}]},
+                {"id":"builtin:create-action","teamId":"team-1","repositoryId":null,
+                 "name":"Create action","description":"Describe a new action","body":"",
+                 "builtin":true,"sortOrder":1000000000,
+                 "inputs":[{"key":"description","label":"Description","type":"text","required":true},
+                           {"key":"repo","label":"Repository","type":"repo"}]}]}}}"#,
+        );
+        let actions = list(&client(&base), "team-1").unwrap();
+        assert_eq!(actions.len(), 2);
+        assert!(!actions[0].builtin);
+        assert_eq!(
+            actions[0].inputs,
+            vec![
+                ActionInput {
+                    key: "scope".to_string(),
+                    label: "Scope".to_string(),
+                    input_type: "text".to_string(),
+                    required: true,
+                    placeholder: Some("e.g. backlog".to_string()),
+                },
+                ActionInput {
+                    key: "repo".to_string(),
+                    label: "Repository".to_string(),
+                    input_type: "repo".to_string(),
+                    // Absent on the wire = optional.
+                    required: false,
+                    placeholder: None,
+                },
+            ]
+        );
+        assert!(actions[1].builtin);
+        assert_eq!(actions[1].id, BUILTIN_CREATE_ACTION_ID);
+        assert!(actions[1].inputs[0].required);
+    }
+
+    #[test]
+    fn pre_inputs_rows_decode_with_defaults() {
+        // A row from a pre-EXP-257 server (or an input-less action) carries
+        // neither field — both default.
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"actions":[
+                {"id":"act-1","teamId":"team-1","repositoryId":null,
+                 "name":"Groom","description":null,"body":"do it","sortOrder":0}]}}}"#,
+        );
+        let actions = list(&client(&base), "team-1").unwrap();
+        assert!(!actions[0].builtin);
+        assert!(actions[0].inputs.is_empty());
+    }
+
+    #[test]
+    fn trust_hash_matches_body_hash_while_inputs_are_empty() {
+        // Existing per-device trust records predate the inputs schema and
+        // MUST stay valid for input-less actions.
+        let action = action_with_inputs(Vec::new());
+        assert_eq!(trust_hash(&action), body_hash("do it"));
+    }
+
+    #[test]
+    fn trust_hash_covers_the_inputs_schema() {
+        let input = ActionInput {
+            key: "scope".to_string(),
+            label: "Scope".to_string(),
+            input_type: "text".to_string(),
+            required: false,
+            placeholder: None,
+        };
+        let with_inputs = action_with_inputs(vec![input.clone()]);
+        // A schema diverges from the bare body hash…
+        assert_ne!(trust_hash(&with_inputs), body_hash("do it"));
+        // …and every schema field re-fires the gate: label (prompt-injected
+        // owner text), type, required, and definition order.
+        let mut relabeled = with_inputs.clone();
+        relabeled.inputs[0].label = "Scope!".to_string();
+        assert_ne!(trust_hash(&with_inputs), trust_hash(&relabeled));
+        let mut retyped = with_inputs.clone();
+        retyped.inputs[0].input_type = "repo".to_string();
+        assert_ne!(trust_hash(&with_inputs), trust_hash(&retyped));
+        let mut required = with_inputs.clone();
+        required.inputs[0].required = true;
+        assert_ne!(trust_hash(&with_inputs), trust_hash(&required));
+        // The placeholder is presentation-only — it never re-prompts.
+        let mut placeholder = with_inputs.clone();
+        placeholder.inputs[0].placeholder = Some("hint".to_string());
+        assert_eq!(trust_hash(&with_inputs), trust_hash(&placeholder));
+        // Same inputs, same body → stable.
+        assert_eq!(trust_hash(&with_inputs), trust_hash(&with_inputs.clone()));
     }
 }

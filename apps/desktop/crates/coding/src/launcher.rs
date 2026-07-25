@@ -37,7 +37,8 @@ use terminal::TerminalManager;
 
 use crate::agent::CodingAgent;
 use crate::argv::{session_args, AgentMcp, LaunchOptions, SessionTail, MCP_TOKEN_ENV, MCP_URL_ENV};
-use crate::action_prompt::render_action_prompt;
+use crate::action_prompt::{render_action_prompt, ActionInputValue};
+use crate::claude_task::create_action_prompt;
 use crate::batch_launcher::{batch_branch_name, BatchLaunchRequest, RepoGroup};
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
@@ -123,26 +124,39 @@ pub struct LaunchRequest {
 }
 
 /// An action run's launch input (EXP-253): no worktree, no branch, no PR —
-/// an interactive claude session on the repo's trunk clone (autopulled) or,
+/// an interactive agent session on the repo's trunk clone (autopulled) or,
 /// for a repo-less action, a scratch dir holding only the MCP config.
 #[derive(Clone, Debug)]
 pub struct ActionLaunchRequest {
     pub action_id: String,
     /// Display snapshot (tab title + heartbeat scope).
     pub action_name: String,
+    /// The action's team (EXP-257): the builtin creator prompt targets it,
+    /// and builtin session rows must send it (`codingSessions.start` can't
+    /// resolve a team from the builtin literal).
+    pub team_id: String,
     /// The FRESH body — the caller fetched it via `actions.get` and passed
     /// the per-device trust gate on ITS hash; a cached/listed body must
-    /// never reach here.
+    /// never reach here. Empty for the builtin (its prompt is generated).
     pub body: String,
     /// `Some` = run in this repo's trunk clone on the default branch;
     /// `None` = repo-less (scratch dir). Local starts resolve it from the
     /// window resolver; relay starts carry it in the frame (batch precedent
-    /// — the desktop syncs no repositories).
+    /// — the desktop syncs no repositories). Ignored for the builtin (its
+    /// repo INPUT only pins the authored action's `repositoryId`).
     pub repo: Option<RepoGroup>,
+    /// The resolved run-time input values (EXP-257), definition-ordered:
+    /// real actions inject them as the prompt's `## Inputs` section; the
+    /// builtin reads its `description`/`repo` inputs to build the creator
+    /// prompt.
+    pub inputs: Vec<ActionInputValue>,
+    /// The server-defined virtual "Create action" run (EXP-257): scratch
+    /// cwd, generated creator prompt, session row keyed by team.
+    pub builtin: bool,
     pub device_label: String,
     pub origin: LaunchOrigin,
-    /// Claude-only v1: `agent` is clamped to Claude and `plan_mode` off in
-    /// [`prepare`] regardless of what rides in; model/effort are honored.
+    /// The FULL option set (EXP-257 — same per-agent vocabulary as issue
+    /// runs; the old Claude-only clamp is gone).
     pub options: LaunchOptions,
 }
 
@@ -382,6 +396,66 @@ pub enum LaunchOutcome {
     },
 }
 
+/// The instance's `/api/mcp` endpoint from the tRPC base URL.
+fn mcp_url(base_url: &str) -> String {
+    format!("{}/api/mcp", base_url.trim_end_matches('/'))
+}
+
+/// Step 4's per-agent MCP wiring, shared by the issue/batch skeleton and the
+/// action sequence (EXP-257 — action runs stopped being Claude-only). It
+/// authenticates the spawned agent as the real user against `/api/mcp`:
+///
+/// - claude: the cwd `.exp-mcp.json` (any subagents it spawns inherit the
+///   session's MCP servers; NOT named .mcp.json — EXP-98, see
+///   [`crate::mcp_json`]) — the ONLY on-disk consumer of the raw key.
+/// - codex: `-c mcp_servers.*` argv overrides; the raw key rides ONLY the
+///   spawn env (EXP_MCP_TOKEN) — never disk, never argv.
+/// - pi: the launcher-written `.exp-pi-mcp.ts` bridge extension (pi has no
+///   native MCP); url + key ride the spawn env like codex.
+fn wire_agent_mcp(
+    agent: CodingAgent,
+    cwd: &Path,
+    base_url: &str,
+    personal_key: &str,
+) -> Result<AgentMcp, CodingError> {
+    match agent {
+        CodingAgent::Claude => {
+            write_mcp_json(cwd, base_url, personal_key)
+                .map_err(|e| CodingError::Io(format!("write .exp-mcp.json: {e}")))?;
+            Ok(AgentMcp::ClaudeFile)
+        }
+        CodingAgent::Codex => Ok(AgentMcp::CodexOverrides {
+            url: mcp_url(base_url),
+        }),
+        CodingAgent::Pi => {
+            write_pi_bridge(cwd)
+                .map_err(|e| CodingError::Io(format!("write .exp-pi-mcp.ts: {e}")))?;
+            Ok(AgentMcp::PiExtension)
+        }
+    }
+}
+
+/// The spawn-env half of [`wire_agent_mcp`]: the MCP credential for codex/pi
+/// rides the ENV (claude's rides `.exp-mcp.json`) — codex reads it through
+/// `bearer_token_env_var`, the pi bridge reads url + token directly.
+fn apply_mcp_env(
+    spawn: SpawnSpec,
+    agent: CodingAgent,
+    base_url: &str,
+    personal_key: &str,
+) -> SpawnSpec {
+    match agent {
+        CodingAgent::Claude => spawn,
+        CodingAgent::Codex => spawn.env(MCP_TOKEN_ENV, personal_key),
+        CodingAgent::Pi => spawn
+            .env(MCP_URL_ENV, mcp_url(base_url))
+            .env(MCP_TOKEN_ENV, personal_key)
+            // Embedded sessions must not block on pi's startup
+            // update/network checks.
+            .env("PI_SKIP_VERSION_CHECK", "1"),
+    }
+}
+
 /// The shared 412/401/403 mapping for `repositories.installationToken`.
 fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingError> {
     match err {
@@ -515,35 +589,12 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // The clone path the worktree hangs off — the P9 token refresher's target.
     let clone = clone_path(&repos_root, url.full_name());
 
-    // Step 4 — per-agent MCP wiring (authenticates the spawned agent as the
-    // real user against /api/mcp):
-    // - claude: the worktree `.exp-mcp.json` (any subagents it spawns
-    //   inherit the session's MCP servers; NOT named .mcp.json — EXP-98,
-    //   see `crate::mcp_json`) — the ONLY on-disk consumer of the raw key.
-    // - codex: `-c mcp_servers.*` argv overrides; the raw key rides ONLY the
-    //   spawn env (EXP_MCP_TOKEN) — never disk, never argv.
-    // - pi: the launcher-written `.exp-pi-mcp.ts` bridge extension (pi has
-    //   no native MCP); url + key ride the spawn env like codex.
+    // Step 4 — per-agent MCP wiring ([`wire_agent_mcp`], shared with the
+    // action path since EXP-257).
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    let mcp_url = format!(
-        "{}/api/mcp",
-        deps.trpc.base_url().trim_end_matches('/')
-    );
-    let agent_mcp = match agent {
-        CodingAgent::Claude => {
-            write_mcp_json(&worktree, deps.trpc.base_url(), &personal_key)
-                .map_err(|e| CodingError::Io(format!("write .exp-mcp.json: {e}")))?;
-            AgentMcp::ClaudeFile
-        }
-        CodingAgent::Codex => AgentMcp::CodexOverrides { url: mcp_url.clone() },
-        CodingAgent::Pi => {
-            write_pi_bridge(&worktree)
-                .map_err(|e| CodingError::Io(format!("write .exp-pi-mcp.ts: {e}")))?;
-            AgentMcp::PiExtension
-        }
-    };
+    let agent_mcp = wire_agent_mcp(agent, &worktree, deps.trpc.base_url(), &personal_key)?;
 
     // Step 5 — the seed prompt (both shapes: direct argv delivery when
     // small, PROMPT.md + seed line otherwise). A NATIVE resume (EXP-202)
@@ -729,23 +780,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             shared_cargo_target_dir(&clone).to_string_lossy().into_owned(),
         )
         .env("CARGO_INCREMENTAL", "0");
-    // The MCP credential for codex/pi rides the ENV (claude's rides
-    // `.exp-mcp.json`): codex reads it through `bearer_token_env_var`, the
-    // pi bridge reads url + token directly.
-    match agent {
-        CodingAgent::Claude => {}
-        CodingAgent::Codex => {
-            spawn = spawn.env(MCP_TOKEN_ENV, personal_key.as_str());
-        }
-        CodingAgent::Pi => {
-            spawn = spawn
-                .env(MCP_URL_ENV, mcp_url.as_str())
-                .env(MCP_TOKEN_ENV, personal_key.as_str())
-                // Embedded sessions must not block on pi's startup
-                // update/network checks.
-                .env("PI_SKIP_VERSION_CHECK", "1");
-        }
-    }
+    // The MCP credential env half of the wiring ([`apply_mcp_env`]).
+    spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
 
     let heartbeat_scope = match req {
         PrepareRequest::Issue(issue_req) => coding_sessions::HeartbeatScope {
@@ -784,36 +820,44 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
 /// deliberately SHORT sibling of the issue/batch skeleton above: no
 /// worktree, no branch, no PR contract, no status flips.
 ///
-/// 0. doctor — claude always (Claude-only v1); `git` only when repo-backed
-///    (a repo-less action needs no git at all);
+/// 0. doctor — the SELECTED agent always (EXP-257: action runs take the
+///    full option set, no Claude clamp); `git` only when repo-backed (a
+///    repo-less action needs no git at all);
 /// 1. cwd — repo-backed: mint the JIT token (cache-seeded like a session),
 ///    ensure the trunk clone + ambient auth, then a BEST-EFFORT autopull
 ///    (`clone_manager::auto_sync` — a dirty/diverged trunk still launches;
 ///    the trunk-sync engine surfaces that state); repo-less:
 ///    `<data_dir>/actions/<action id>/`, created on demand;
-/// 2. `.exp-mcp.json` in the cwd (repo-backed also excludes it from git);
-/// 3. prompt — [`render_action_prompt`] preamble + the fresh body;
-/// 4. `codingSessions.start({actionId})` — BEFORE spawn; its id keys the tab
-///    + steer room like any session;
-/// 5. spawn spec — interactive claude with the session argv
-///    (`--mcp-config .exp-mcp.json --strict-mcp-config`, model/effort).
+/// 2. per-agent MCP wiring in the cwd ([`wire_agent_mcp`] — shared with the
+///    issue path; repo-backed also git-excludes the seed files);
+/// 3. prompt — [`render_action_prompt`] preamble [+ `## Inputs`] + the fresh
+///    body; the BUILTIN instead renders [`create_action_prompt`] from its
+///    `description`/`repo` input values (EXP-257);
+/// 4. `codingSessions.start({actionId[, teamId]})` — BEFORE spawn; its id
+///    keys the tab + steer room like any session (teamId rides only for the
+///    builtin literal);
+/// 5. spawn spec — the selected agent's interactive session argv
+///    (model/effort/toggles + its MCP posture).
 fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    // Claude-only v1: clamp regardless of what rode in (the server validates
-    // remote starts the same way; this covers every local caller too).
-    let mut options = req.options.clone();
-    options.agent = CodingAgent::Claude;
-    options.plan_mode = false;
+    // EXP-257: options apply AS-IS — same per-agent vocabulary as an issue
+    // run (the server validates remote starts identically).
+    let options = req.options.clone();
+    let agent = options.agent;
+    // The builtin always runs in its scratch dir — a repo INPUT only pins
+    // the authored action's repositoryId, never this run's cwd.
+    let repo = if req.builtin { &None } else { &req.repo };
 
-    // Step 0 — doctor: claude always; git only when a clone is involved.
+    // Step 0 — doctor: the selected agent always; git only when a clone is
+    // involved.
     let report = run_doctor(&deps.settings);
-    let claude_check = report.check_for(CodingAgent::Claude);
-    if !claude_check.ok {
+    let agent_check = report.check_for(agent);
+    if !agent_check.ok {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
-            claude_check.clone(),
+            agent_check.clone(),
         )));
     }
-    if req.repo.is_some() {
-        if let Some(failed) = report.first_failure_for(CodingAgent::Claude) {
+    if repo.is_some() {
+        if let Some(failed) = report.first_failure_for(agent) {
             return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
                 failed.clone(),
             )));
@@ -829,7 +873,7 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
     };
 
     // Step 1 — resolve the cwd.
-    let (cwd, repository_id) = match &req.repo {
+    let (cwd, repository_id) = match repo {
         Some(repo) => {
             // Repo-backed: JIT token via the cache (same refresher-lead
             // margin as a session — the run may outlive one token TTL).
@@ -850,9 +894,12 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
             // launch; the action runs on whatever state the trunk is in and
             // the trunk-sync engine keeps surfacing it.
             let _ = crate::clone_manager::auto_sync(&clone, &url);
+            // Same seed-file exclude coverage as a session worktree (the
+            // action's agent may be codex/pi since EXP-257, so the pi bridge
+            // needs excluding too; AGENTS_FILE never exists on a trunk run).
             let _ = crate::git_worktree::ensure_local_excludes(
                 &clone,
-                &[crate::mcp_json::MCP_JSON_FILE],
+                &[crate::mcp_json::MCP_JSON_FILE, crate::pi_bridge::PI_BRIDGE_FILE],
             );
             (clone, Some(repo.repository_id.clone()))
         }
@@ -882,23 +929,52 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
         }
     };
 
-    // Step 2 — the MCP config (claude authenticates as the real user).
+    // Step 2 — the per-agent MCP wiring (the agent authenticates as the
+    // real user; shared helper with the issue path — EXP-257).
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    write_mcp_json(&cwd, deps.trpc.base_url(), &personal_key)
-        .map_err(|e| CodingError::Io(format!("write .exp-mcp.json: {e}")))?;
+    let agent_mcp = wire_agent_mcp(agent, &cwd, deps.trpc.base_url(), &personal_key)?;
 
     // Step 3 — the prompt (size-gated like a session's; the PROMPT.md
-    // exclude write no-ops without a `.git`).
-    let rendered = render_action_prompt(&req.action_name, &req.body);
+    // exclude write no-ops without a `.git`). The builtin renders the
+    // creator prompt from its input VALUES; real actions get the preamble
+    // [+ inputs section] + the fresh body.
+    let rendered = if req.builtin {
+        let Some(description) = req
+            .inputs
+            .iter()
+            .find(|input| input.key == "description")
+            .map(|input| input.value.trim())
+            .filter(|value| !value.is_empty())
+        else {
+            return Err(CodingError::Io(
+                "the builtin Create-action run is missing its description input".to_string(),
+            ));
+        };
+        let repo_input = req
+            .inputs
+            .iter()
+            .find(|input| input.key == "repo" && !input.value.trim().is_empty())
+            .map(|input| {
+                (
+                    input.value.as_str(),
+                    input.display.as_deref().unwrap_or(input.value.as_str()),
+                )
+            });
+        create_action_prompt(&req.team_id, description, repo_input)
+    } else {
+        render_action_prompt(&req.action_name, &req.body, &req.inputs)
+    };
     let delivery = deliver_prompt(&cwd, &cwd, &rendered)
         .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?;
 
-    // Step 4 — the session row, BEFORE spawn.
+    // Step 4 — the session row, BEFORE spawn. Only the builtin literal
+    // carries teamId (the server forbids it on real action ids).
     let session = match coding_sessions::start_action(
         &deps.trpc,
         &req.action_id,
+        req.builtin.then_some(req.team_id.as_str()),
         Some(&req.device_label),
     ) {
         Ok(session) => session,
@@ -908,17 +984,14 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
         Err(err) => return Err(err.into()),
     };
 
-    // Step 5 — the spawn spec: interactive claude, session argv.
-    let args = session_args(
-        &options,
-        &AgentMcp::ClaudeFile,
-        SessionTail::Prompt(delivery.positional()),
-    );
+    // Step 5 — the spawn spec: the selected agent, session argv.
+    let args = session_args(&options, &agent_mcp, SessionTail::Prompt(delivery.positional()));
     let tab_title = format!("action · {}", req.action_name);
-    let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(CodingAgent::Claude))
+    let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
         .cwd(&cwd);
-    if req.repo.is_some() {
+    spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
+    if repo.is_some() {
         // Same EXP-76 shared-cache posture as a session — inert repo-less.
         spawn = spawn
             .env(
@@ -1264,6 +1337,30 @@ mod tests {
         }
     }
 
+    /// A base repo-less action request — tests override the fields they
+    /// exercise (EXP-257: team_id/inputs/builtin ride every request).
+    fn action_request() -> ActionLaunchRequest {
+        ActionLaunchRequest {
+            action_id: "act-1".to_string(),
+            action_name: "Code review".to_string(),
+            team_id: "ws-1".to_string(),
+            body: "# Review\nScan the backlog.".to_string(),
+            repo: None,
+            inputs: Vec::new(),
+            builtin: false,
+            device_label: "box".to_string(),
+            origin: LaunchOrigin::Local,
+            options: LaunchOptions {
+                agent: CodingAgent::Claude,
+                model: "fable".to_string(),
+                effort: String::new(),
+                ultracode: false,
+                plan_mode: false,
+                skip_permissions: false,
+            },
+        }
+    }
+
     // ---- the issue happy path through steps 0–6 ----
 
     #[test]
@@ -1278,23 +1375,7 @@ mod tests {
         });
         let deps = make_deps(&base, &dir.0, worktrees);
 
-        let req = ActionLaunchRequest {
-            action_id: "act-1".to_string(),
-            action_name: "Code review".to_string(),
-            body: "# Review\nScan the backlog.".to_string(),
-            repo: None,
-            device_label: "box".to_string(),
-            origin: LaunchOrigin::Local,
-            options: LaunchOptions {
-                agent: CodingAgent::Claude,
-                model: "fable".to_string(),
-                effort: String::new(),
-                ultracode: false,
-                // Deliberately ON to prove the Claude-only clamp turns it off.
-                plan_mode: true,
-                skip_permissions: false,
-            },
-        };
+        let req = action_request();
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
@@ -1312,8 +1393,8 @@ mod tests {
         assert_eq!(prepared.tab_kind, TabKind::Action("act-1".to_string()));
 
         // Claude session argv: explicit model + strict MCP config; plan mode
-        // CLAMPED OFF (Claude-only v1 takes model/effort only); the prompt is
-        // the preamble + body positional.
+        // off (the request's choice — EXP-257 honors the options as-is); the
+        // prompt is the preamble + body positional.
         assert!(prepared
             .spawn
             .args
@@ -1353,22 +1434,10 @@ mod tests {
             seen: Default::default(),
         });
         let deps = make_deps(&base, &dir.0, worktrees);
-        let req = ActionLaunchRequest {
-            action_id: "../../escape".to_string(),
-            action_name: "Evil".to_string(),
-            body: "x".to_string(),
-            repo: None,
-            device_label: "box".to_string(),
-            origin: LaunchOrigin::Local,
-            options: LaunchOptions {
-                agent: CodingAgent::Claude,
-                model: "fable".to_string(),
-                effort: String::new(),
-                ultracode: false,
-                plan_mode: false,
-                skip_permissions: false,
-            },
-        };
+        let mut req = action_request();
+        req.action_id = "../../escape".to_string();
+        req.action_name = "Evil".to_string();
+        req.body = "x".to_string();
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
@@ -1389,27 +1458,290 @@ mod tests {
             seen: Default::default(),
         });
         let deps = make_deps(&base, &dir.0, worktrees);
-        let req = ActionLaunchRequest {
-            action_id: "act-1".to_string(),
-            action_name: "Groom".to_string(),
-            body: "do it".to_string(),
-            repo: None,
-            device_label: "box".to_string(),
-            origin: LaunchOrigin::Local,
-            options: LaunchOptions {
-                agent: CodingAgent::Claude,
-                model: "fable".to_string(),
-                effort: String::new(),
-                ultracode: false,
-                plan_mode: false,
-                skip_permissions: false,
-            },
-        };
+        let mut req = action_request();
+        req.action_name = "Groom".to_string();
+        req.body = "do it".to_string();
         match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
             Prepared::Disabled(DisabledReason::SessionLimit { message }) => {
                 assert!(message.contains("limit"));
             }
             other => panic!("expected SessionLimit, got {other:?}"),
+        }
+    }
+
+    /// EXP-257: action runs honor the full claude option set — plan mode ON
+    /// composes the plan permission args exactly like an issue session (the
+    /// old Claude-only clamp forced it off).
+    #[test]
+    fn prepare_action_honors_claude_plan_mode() {
+        let dir = temp_dir("action-plan");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = action_request();
+        req.options.plan_mode = true;
+        req.options.effort = "high".to_string();
+
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let args = &prepared.spawn.args;
+        assert!(args
+            .windows(2)
+            .any(|w| w == ["--permission-mode", "plan"]));
+        assert!(args.windows(2).any(|w| w == ["--effort", "high"]));
+    }
+
+    /// EXP-257: a CODEX action run — codex argv + env-token MCP posture, no
+    /// on-disk `.exp-mcp.json`, tab titled `action · …` with the codex
+    /// program.
+    #[test]
+    fn prepare_action_codex_uses_overrides_and_env_token() {
+        let dir = temp_dir("action-codex");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.codex_path = "git".to_string(); // runnable stub
+        let mut req = action_request();
+        req.options = LaunchOptions {
+            agent: CodingAgent::Codex,
+            model: "gpt-5.6-sol".to_string(),
+            effort: "high".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // NO on-disk MCP config for codex — the key must not land in the
+        // scratch dir.
+        let scratch = dir.0.join("actions").join("act-1");
+        assert!(!scratch.join(".exp-mcp.json").exists());
+        assert!(!scratch.join(".exp-pi-mcp.ts").exists());
+        let args = &prepared.spawn.args;
+        assert_eq!(args[..2], ["-m".to_string(), "gpt-5.6-sol".to_string()]);
+        assert!(args.contains(&format!("mcp_servers.exponential.url=\"{base}/api/mcp\"")));
+        assert!(args
+            .contains(&"mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"".to_string()));
+        assert!(!args.iter().any(|arg| arg.contains("expu_")));
+        // Auto preset (skip OFF) + the key in the spawn env only.
+        assert!(args.contains(&"workspace-write".to_string()));
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&("EXP_MCP_TOKEN".to_string(), "expu_seeded".to_string())));
+        // The prompt still rides positional-last.
+        assert!(args.last().unwrap().contains("Scan the backlog."));
+    }
+
+    /// EXP-257: a PI action run — the bridge extension lands in the scratch
+    /// dir, `-e` loads it, url/token/skip-version ride the env.
+    #[test]
+    fn prepare_action_pi_writes_the_bridge() {
+        let dir = temp_dir("action-pi");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.pi_path = "git".to_string(); // runnable stub
+        let mut req = action_request();
+        req.options = LaunchOptions {
+            agent: CodingAgent::Pi,
+            model: "grok-4.5".to_string(),
+            effort: String::new(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let scratch = dir.0.join("actions").join("act-1");
+        let bridge = fs::read_to_string(scratch.join(".exp-pi-mcp.ts")).unwrap();
+        assert!(!bridge.contains("expu_"));
+        assert!(!scratch.join(".exp-mcp.json").exists());
+        let args = &prepared.spawn.args;
+        assert!(args.windows(2).any(|w| w == ["-e", "./.exp-pi-mcp.ts"]));
+        for (key, value) in [
+            ("EXP_MCP_URL", format!("{base}/api/mcp")),
+            ("EXP_MCP_TOKEN", "expu_seeded".to_string()),
+            ("PI_SKIP_VERSION_CHECK", "1".to_string()),
+        ] {
+            assert!(
+                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
+                "missing env {key}={value}: {:?}",
+                prepared.spawn.env
+            );
+        }
+    }
+
+    /// EXP-257: a missing selected agent blocks an action run with ITS copy
+    /// (no Claude clamp — the codex doctor row gates a codex action).
+    #[test]
+    fn prepare_action_missing_selected_agent_blocks() {
+        let dir = temp_dir("action-agent-missing");
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        // Unroutable base: any network call would error — the doctor gate
+        // must fire first.
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
+        deps.settings.codex_path = "definitely-not-a-real-binary-exp".to_string();
+        let mut req = action_request();
+        req.options.agent = CodingAgent::Codex;
+
+        match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::DoctorFailed(check)) => {
+                assert_eq!(check.tool, crate::doctor::Tool::Codex);
+            }
+            other => panic!("expected DoctorFailed, got {other:?}"),
+        }
+    }
+
+    /// EXP-257: resolved input values land in the delivered prompt as the
+    /// `## Inputs` section, between the preamble and the body.
+    #[test]
+    fn prepare_action_inputs_land_in_the_prompt() {
+        let dir = temp_dir("action-inputs");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = action_request();
+        req.inputs = vec![
+            ActionInputValue {
+                key: "scope".to_string(),
+                label: "Scope".to_string(),
+                input_type: "text".to_string(),
+                value: "only urgent issues".to_string(),
+                display: None,
+            },
+            ActionInputValue {
+                key: "board".to_string(),
+                label: "Board".to_string(),
+                input_type: "board".to_string(),
+                value: "board-uuid-1".to_string(),
+                display: Some("Web".to_string()),
+            },
+        ];
+
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let prompt = prepared.spawn.args.last().unwrap();
+        assert!(prompt.contains("## Inputs"));
+        assert!(prompt.contains("- Scope (text): only urgent issues"));
+        assert!(prompt.contains("- Board (board): Web (`board-uuid-1`)"));
+        // Body still verbatim after the divider.
+        assert!(prompt.ends_with("---\n\n# Review\nScan the backlog."));
+    }
+
+    /// EXP-257: the BUILTIN "Create action" run — creator prompt from the
+    /// description/repo input values, sanitized scratch cwd, repo IGNORED
+    /// (never a clone/token call), and the session start carries teamId.
+    #[test]
+    fn prepare_action_builtin_renders_the_creator_prompt_in_scratch() {
+        let dir = temp_dir("action-builtin");
+        let (base, captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-c","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Create action","status":"running"}}}}"#
+                .to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut req = action_request();
+        req.action_id = "builtin:create-action".to_string();
+        req.action_name = "Create action".to_string();
+        req.body = String::new();
+        req.builtin = true;
+        // A repo group riding in must be IGNORED — the builtin always runs
+        // in its scratch dir (the repo INPUT below is what Claude binds).
+        req.repo = Some(RepoGroup {
+            repository_id: "repo-1".to_string(),
+            full_name: "acme/web".to_string(),
+            default_branch: "main".to_string(),
+        });
+        req.inputs = vec![
+            ActionInputValue {
+                key: "description".to_string(),
+                label: "Description".to_string(),
+                input_type: "text".to_string(),
+                value: "triage new widget feedback weekly".to_string(),
+                display: None,
+            },
+            ActionInputValue {
+                key: "repo".to_string(),
+                label: "Repository".to_string(),
+                input_type: "repo".to_string(),
+                value: "repo-1".to_string(),
+                display: Some("acme/web".to_string()),
+            },
+        ];
+
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // Scratch cwd under actions/, colon sanitized; repo fully ignored
+        // (no git call, no token, no repository to refresh).
+        assert!(prepared.worktree.starts_with(dir.0.join("actions")));
+        assert!(!prepared.worktree.to_string_lossy().contains(':'));
+        assert_eq!(prepared.repository_id, None);
+        assert!(worktrees.seen.lock().unwrap().is_empty(), "no git for the builtin");
+        // The creator prompt, seeded from the input VALUES.
+        let prompt = prepared.spawn.args.last().unwrap();
+        assert!(prompt.contains("create ONE new action"));
+        assert!(prompt.contains("ws-1"));
+        assert!(prompt.contains("triage new widget feedback weekly"));
+        assert!(prompt.contains("Set `repositoryId` to `repo-1` (acme/web)"));
+        // Exactly one request — the session start with the builtin literal +
+        // teamId (the server inserts actionId NULL + the constant name).
+        let requests = captured.lock().unwrap();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        assert!(requests[0].contains(r#""actionId":"builtin:create-action""#));
+        assert!(requests[0].contains(r#""teamId":"ws-1""#));
+        assert_eq!(prepared.session_id, "sess-c");
+    }
+
+    /// EXP-257: a builtin run without its required description input is a
+    /// hard error (the dialog/relay validated upstream — this is the guard).
+    #[test]
+    fn prepare_action_builtin_requires_the_description_input() {
+        let dir = temp_dir("action-builtin-missing");
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
+        let mut req = action_request();
+        req.action_id = "builtin:create-action".to_string();
+        req.builtin = true;
+        req.inputs = Vec::new();
+
+        match prepare(&PrepareRequest::Action(req), &deps) {
+            Err(CodingError::Io(message)) => assert!(message.contains("description")),
+            other => panic!("expected the missing-description error, got {other:?}"),
         }
     }
 

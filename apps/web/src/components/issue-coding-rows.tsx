@@ -25,8 +25,8 @@ import { Button } from "@/components/ui/button"
 import { PropertyGroup } from "@/components/issue-properties-panel"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
-import { useRemoteCodingStart } from "@/hooks/use-remote-coding-start"
-import { StartCodingDialog } from "@/components/start-coding-dialog"
+import { useRemoteStart } from "@/hooks/use-remote-start"
+import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
 // / remote-start control that FOCUSES the global dock (never mounts the live
@@ -193,6 +193,7 @@ export function IssueCodingControl({
       issue={issue}
       board={board}
       teamId={teamId}
+      currentUserId={currentUserId}
       users={users}
       isMember={isMember}
       steerEnabled={config?.enabled ?? null}
@@ -233,6 +234,7 @@ function AgentRow({
   issue,
   board,
   teamId,
+  currentUserId,
   users,
   isMember,
   steerEnabled,
@@ -241,6 +243,7 @@ function AgentRow({
   issue: Issue
   board: Board
   teamId: string
+  currentUserId: string
   users: User[]
   isMember: boolean
   /** null while steer.config is still loading. */
@@ -344,11 +347,18 @@ function AgentRow({
 
   // Not running: only members can remote-start, and only on a repo-backed
   // board with the relay enabled. Gate the desktop-presence fetch behind that
-  // — RemoteStartRow (which owns useRemoteCodingStart) mounts ONLY here, so a
+  // — RemoteStartRow (which owns useRemoteStart) mounts ONLY here, so a
   // non-member / steer-off / repo-less / already-running issue view never fires
   // an ungated steer.myDevices round-trip.
   if (!isMember || !steerEnabled || !board.repositoryId) return null
-  return <RemoteStartRow issue={issue} teamId={teamId} variant={variant} />
+  return (
+    <RemoteStartRow
+      issue={issue}
+      teamId={teamId}
+      currentUserId={currentUserId}
+      variant={variant}
+    />
+  )
 }
 
 // The remote-start affordance — split out so its steer.myDevices fetch only
@@ -356,13 +366,15 @@ function AgentRow({
 function RemoteStartRow({
   issue,
   teamId,
+  currentUserId,
   variant,
 }: {
   issue: Issue
   teamId: string
+  currentUserId: string
   variant: CodingControlVariant
 }) {
-  const remote = useRemoteCodingStart()
+  const remote = useRemoteStart({ currentUserId })
   const [dialogOpen, setDialogOpen] = useState(false)
 
   // Presence lookup still in flight — keep the section quiet.
@@ -404,16 +416,22 @@ function RemoteStartRow({
     </Button>
   )
   const dialog = (
-    <StartCodingDialog
+    <LaunchDialog
       open={dialogOpen}
       onOpenChange={setDialogOpen}
       devices={remote.devices}
       starting={remote.starting}
       teamId={teamId}
       initialIssueIds={[issue.id]}
-      onStart={(device, options, issueIds) => {
+      onStartIssues={(device, options, issueIds) => {
         remote
-          .start(device, options, issueIds)
+          .startIssues(device, options, issueIds)
+          .then(() => setDialogOpen(false))
+          .catch(() => {})
+      }}
+      onRunAction={(device, action, options, inputs) => {
+        remote
+          .runAction(device, action, options, inputs)
           .then(() => setDialogOpen(false))
           .catch(() => {})
       }}

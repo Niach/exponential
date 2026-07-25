@@ -7,12 +7,15 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.ActionsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.issue.StartIssueOption
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -36,9 +39,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 // team's action prompts over tRPC (`actions.list` — deliberately NOT an
 // Electric shape) plus the remote-run flow. After the server accepts a start,
 // the model watches the synced coding_sessions DAO flow for the row the
-// desktop inserts (this action's id + the caller's own userId + a recent
-// startedAt) and surfaces its id exactly once so the screen can jump into the
-// existing agent session viewer.
+// desktop inserts (this action's NAME + the caller's own userId + a recent
+// startedAt — never the action id: the builtin "Create action" run's row
+// carries action_id NULL, EXP-257) and surfaces its id exactly once so the
+// screen can jump into the existing agent session viewer.
 
 data class ActionsState(
     val actions: List<ActionDto> = emptyList(),
@@ -61,7 +65,7 @@ class ActionsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val actionsApi: ActionsApi,
     private val steerApi: SteerApi,
-    selection: TeamSelection,
+    private val selection: TeamSelection,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
@@ -108,6 +112,46 @@ class ActionsViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActionsState())
 
+    // Issues the unified sheet's Issues tab can queue (AgentsViewModel's
+    // candidate rules): the selected team's repo-backed, non-archived boards;
+    // open issues, `updatedAt` desc.
+    val startCandidates: StateFlow<List<StartIssueOption>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+        selection.selectedId,
+    ) { issues, boards, teamId ->
+        if (teamId == null) {
+            emptyList()
+        } else {
+            val eligibleBoards = boards
+                .filter {
+                    it.teamId == teamId &&
+                        it.repositoryId != null &&
+                        it.archivedAt == null &&
+                        it.deletedAt == null
+                }
+                .associateBy { it.id }
+            issues
+                .filter {
+                    it.boardId in eligibleBoards.keys &&
+                        it.archivedAt == null &&
+                        it.status !in TERMINAL_ISSUE_STATUSES &&
+                        it.prState != DomainContract.prStateMerged
+                }
+                .sortedByDescending { it.updatedAt }
+                .map { issue ->
+                    StartIssueOption(
+                        id = issue.id,
+                        identifier = issue.identifier,
+                        title = issue.title,
+                        repositoryId = eligibleBoards[issue.boardId]?.repositoryId,
+                        status = issue.status,
+                        priority = issue.priority,
+                    )
+                }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     init {
         // Steer availability + device presence, re-fetched on account switch
         // (the AgentsViewModel pattern).
@@ -148,19 +192,35 @@ class ActionsViewModel @Inject constructor(
     }
 
     /**
-     * Remote-run [action] on [device] (Claude-only v1 — model/effort are the
-     * only options; null = desktop settings default), then watch the synced
-     * coding_sessions flow for the desktop's row. Sent state re-enables after
-     * a grace window in case the desktop never picks up.
+     * Remote-run [action] on [device] with the unified sheet's full [options]
+     * + filled [inputs] (EXP-257 — same per-agent vocabulary as issue runs),
+     * then watch the synced coding_sessions flow for the desktop's row. The
+     * builtin "Create action" id additionally rides its teamId (the server
+     * requires it there and forbids it otherwise). Sent state re-enables
+     * after a grace window in case the desktop never picks up.
      */
-    fun runAction(action: ActionDto, device: SteerDevice, model: String?, effort: String?) {
+    fun runAction(
+        device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: Map<String, String>,
+    ) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _runState.value = ActionRunState.Sending
             try {
-                steerApi.startActionSession(accountId, action.id, device.deviceId, model, effort)
+                steerApi.startActionSession(
+                    accountId,
+                    actionId = action.id,
+                    deviceId = device.deviceId,
+                    options = options,
+                    teamId = action.teamId.takeIf {
+                        action.id == DomainContract.builtinCreateActionId
+                    },
+                    inputs = inputs.takeIf { it.isNotEmpty() },
+                )
                 _runState.value = ActionRunState.Sent(device.deviceLabel.ifBlank { device.deviceId })
-                watchForStartedRun(action.id, auth.userId.value)
+                watchForStartedRun(action.name, auth.userId.value)
                 // Keep the Sent caption for the whole watch deadline (iOS
                 // parity) — a slow desktop pickup can still navigate late,
                 // and a captionless late jump reads as a glitch.
@@ -177,11 +237,43 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Remote-start issues from the unified sheet's Issues tab (the
+     * AgentsViewModel.startCoding twin, surfaced through the run captions):
+     * 1 id launches a plain single session, 2+ a batch.
+     */
+    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
+        if (issueIds.isEmpty()) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _runState.value = ActionRunState.Sending
+            try {
+                if (issueIds.size >= 2) {
+                    steerApi.startSession(accountId, issueIds, device.deviceId, options)
+                } else {
+                    steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
+                }
+                _runState.value = ActionRunState.Sent(device.deviceLabel.ifBlank { device.deviceId })
+                delay(30_000)
+                if (_runState.value is ActionRunState.Sent) {
+                    _runState.value = ActionRunState.Idle
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _runState.value = ActionRunState.Failed(
+                    trpcErrorMessage(t, "The start command could not be delivered"),
+                )
+            }
+        }
+    }
+
     // Wait for the desktop-inserted session row of THIS start: matching
-    // action, the caller's own userId, and a startedAt after the send (with
-    // clock-skew slack) — an old run of the same action must never re-trigger
-    // navigation. Gives up silently after a deadline.
-    private fun watchForStartedRun(actionId: String, userId: String?) {
+    // action_name (builtin rows carry action_id NULL, so the name snapshot is
+    // the only stable key — EXP-257), the caller's own userId, and a
+    // startedAt after the send (with clock-skew slack) — an old run of the
+    // same action must never re-trigger navigation. Gives up silently after a
+    // deadline.
+    private fun watchForStartedRun(actionName: String, userId: String?) {
         watchJob?.cancel()
         if (userId == null) return
         val cutoffMs = System.currentTimeMillis() - 120_000
@@ -191,7 +283,7 @@ class ActionsViewModel @Inject constructor(
                     it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
                 }.mapNotNull { sessions ->
                     sessions.firstOrNull { session ->
-                        session.actionId == actionId &&
+                        session.actionName == actionName &&
                             session.userId == userId &&
                             (CodingSessionLiveness.parseEpochMs(session.startedAt) ?: 0L) >= cutoffMs
                     }
@@ -204,3 +296,6 @@ class ActionsViewModel @Inject constructor(
         }
     }
 }
+
+// Terminal issue statuses ineligible to start a new coding run.
+private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")

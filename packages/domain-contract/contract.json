@@ -101,5 +101,15 @@
   },
   "piThinking": {
     "values": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+  },
+  "actionInputType": {
+    "values": ["text", "repo", "board"]
+  },
+  "builtinAction": {
+    "createActionId": "builtin:create-action"
+  },
+  "actionInputs": {
+    "max": 10,
+    "maxTextLength": 4096
   }
 }

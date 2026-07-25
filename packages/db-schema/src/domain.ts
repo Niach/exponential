@@ -194,6 +194,52 @@ export const prStateSchema = z.enum(prStateValues)
 export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
+
+// ── Action inputs (EXP-257) ──────────────────────────────────────────────────
+// Typed inputs an action may declare: members fill them in the run dialog and
+// the resolved values are injected into the prompt at launch. `repo`/`board`
+// values are the picked ids (resolved to display names server-side).
+
+export const actionInputTypeValues = [`text`, `repo`, `board`] as const
+export type ActionInputType = (typeof actionInputTypeValues)[number]
+
+export const MAX_ACTION_INPUTS = 10
+export const MAX_ACTION_INPUT_KEY = 32
+export const MAX_ACTION_INPUT_LABEL = 100
+export const MAX_ACTION_INPUT_PLACEHOLDER = 200
+/** Max chars a filled `text` input value may carry (injected into the prompt). */
+export const MAX_ACTION_INPUT_TEXT = 4096
+
+// snake_case identifier — the stable key prompt injection and run values use.
+const actionInputKeySchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_]{0,31}$/, `keys are snake_case, ≤32 chars`)
+
+export const actionInputDefSchema = z.object({
+  key: actionInputKeySchema,
+  label: z.string().trim().min(1).max(MAX_ACTION_INPUT_LABEL),
+  type: z.enum(actionInputTypeValues),
+  required: z.boolean().default(false),
+  placeholder: z.string().trim().max(MAX_ACTION_INPUT_PLACEHOLDER).optional(),
+})
+export type ActionInputDef = z.infer<typeof actionInputDefSchema>
+
+export const actionInputsSchema = z
+  .array(actionInputDefSchema)
+  .max(MAX_ACTION_INPUTS)
+  .superRefine((defs, ctx) => {
+    const seen = new Set<string>()
+    for (const def of defs) {
+      if (seen.has(def.key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate input key "${def.key}"`,
+        })
+      }
+      seen.add(def.key)
+    }
+  })
+
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 export const timeOnlySchema = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/)
 

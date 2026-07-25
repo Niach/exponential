@@ -3,6 +3,7 @@ package com.exponential.app.ui.session
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
@@ -183,6 +184,46 @@ class AgentsViewModel @Inject constructor(
                     steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
                 }
                 _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch)
+                delay(30_000)
+                if (_startState.value is SteerStartState.Sent) {
+                    _startState.value = SteerStartState.Idle
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _startState.value = SteerStartState.Failed(
+                    trpcErrorMessage(t, "The start command could not be delivered"),
+                )
+            }
+        }
+    }
+
+    /**
+     * Remote-run a team action from the unified sheet's Actions tab (EXP-257)
+     * with the full option set + filled inputs; the builtin "Create action"
+     * id additionally rides its teamId (server-required there, forbidden
+     * otherwise). Same Sent/grace-window handling as [startCoding].
+     */
+    fun runAction(
+        device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: Map<String, String>,
+    ) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _startState.value = SteerStartState.Sending
+            try {
+                steerApi.startActionSession(
+                    accountId,
+                    actionId = action.id,
+                    deviceId = device.deviceId,
+                    options = options,
+                    teamId = action.teamId.takeIf {
+                        action.id == DomainContract.builtinCreateActionId
+                    },
+                    inputs = inputs.takeIf { it.isNotEmpty() },
+                )
+                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch = false)
                 delay(30_000)
                 if (_startState.value is SteerStartState.Sent) {
                     _startState.value = SteerStartState.Idle

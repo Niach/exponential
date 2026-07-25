@@ -21,8 +21,12 @@ pub const CODEX_MODEL_VALUES: &[&str] = &["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5
 pub const CODEX_EFFORT_VALUES: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
 pub const PI_MODEL_VALUES: &[&str] = &["fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5"];
 pub const PI_THINKING_VALUES: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+pub const ACTION_INPUT_TYPE_VALUES: &[&str] = &["text", "repo", "board"];
 
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;
+pub const BUILTIN_CREATE_ACTION_ID: &str = "builtin:create-action";
+pub const ACTION_INPUTS_MAX: usize = 10;
+pub const ACTION_INPUT_TEXT_MAX: usize = 4096;
 
 pub const ISSUE_SOURCE_USER: &str = "user";
 pub const ISSUE_SOURCE_WIDGET: &str = "widget";

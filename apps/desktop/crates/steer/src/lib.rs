@@ -62,9 +62,9 @@ pub use control_channel::{
 };
 pub use activity::{spawn_emitter as spawn_activity_emitter, EmitterConfig, Redactor};
 pub use frames::{
-    output_frame, ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, StartRepoGroup,
-    SteerPerm, SteerRole, CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
-    CLOSE_UNAUTHORIZED, OUTPUT_OPCODE,
+    output_frame, ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, StartInput,
+    StartRepoGroup, SteerPerm, SteerRole, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
+    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, OUTPUT_OPCODE,
 };
 pub use publisher::{
     publish, ActivitySender, KillSignal, Presence, PublishSpec, PublisherHandle, PublisherHooks,

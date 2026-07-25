@@ -41,6 +41,9 @@ interface Contract {
   codexEffort: Section
   piModel: Section
   piThinking: Section
+  actionInputType: Section
+  builtinAction: { createActionId: string }
+  actionInputs: { max: number; maxTextLength: number }
 }
 
 const contract: Contract = JSON.parse(
@@ -149,8 +152,12 @@ ${swiftStringArray("codexModelValues", contract.codexModel.values)}
 ${swiftStringArray("codexEffortValues", contract.codexEffort.values)}
 ${swiftStringArray("piModelValues", contract.piModel.values)}
 ${swiftStringArray("piThinkingValues", contract.piThinking.values)}
+${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
+    public static let builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
+    public static let actionInputsMax: Int = ${contract.actionInputs.max}
+    public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
 
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
 ${swiftNamedValues("teamRole", contract.teamRole.values)}
@@ -186,8 +193,12 @@ ${kotlinStringArray("codexModelValues", contract.codexModel.values)}
 ${kotlinStringArray("codexEffortValues", contract.codexEffort.values)}
 ${kotlinStringArray("piModelValues", contract.piModel.values)}
 ${kotlinStringArray("piThinkingValues", contract.piThinking.values)}
+${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
+    const val builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
+    const val actionInputsMax: Int = ${contract.actionInputs.max}
+    const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
 
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
 ${kotlinNamedValues("teamRole", contract.teamRole.values)}
@@ -225,8 +236,12 @@ ${rustStrSlice("codexModelValues", contract.codexModel.values)}
 ${rustStrSlice("codexEffortValues", contract.codexEffort.values)}
 ${rustStrSlice("piModelValues", contract.piModel.values)}
 ${rustStrSlice("piThinkingValues", contract.piThinking.values)}
+${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
+pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";
+pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
+pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 
 ${rustNamedValues("issueSource", contract.issueSource.values)}
 ${rustNamedValues("teamRole", contract.teamRole.values)}

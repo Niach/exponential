@@ -69,8 +69,9 @@ pub enum ClientFrame<'a> {
         /// `["claude"]`.
         #[serde(skip_serializing_if = "Option::is_none")]
         agents: Option<&'a [String]>,
-        /// EXP-253: feature capabilities (`actions`) — remote Run-action
-        /// pickers strictly gate on it (absent = no action launch path).
+        /// EXP-253/EXP-257: feature capabilities (`actions`,
+        /// `action-inputs`) — remote Run-action pickers strictly gate on
+        /// them (absent = no action launch path).
         #[serde(skip_serializing_if = "Option::is_none")]
         caps: Option<&'a [String]>,
     },
@@ -197,6 +198,25 @@ pub struct StartRepoGroup {
     pub default_branch: String,
 }
 
+/// protocol.ts `StartInput` (EXP-257) — one SERVER-RESOLVED action input
+/// value riding an action `start_session` frame: `display` = repo fullName /
+/// board name / the text itself, so the desktop injects a readable
+/// `## Inputs` block with zero lookups. `label`/`type` are optional on the
+/// wire (a future relay may thin them) — consumers fall back to the key and
+/// `text`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StartInput {
+    pub key: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(rename = "type", default)]
+    pub input_type: Option<String>,
+    pub value: String,
+    #[serde(default)]
+    pub display: Option<String>,
+}
+
 /// Every frame the relay may send. Deserialize-only.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -231,6 +251,10 @@ pub enum ServerFrame {
         team_id: Option<String>,
         #[serde(default)]
         repo: Option<StartRepoGroup>,
+        /// EXP-257: an action start's server-resolved input values (absent
+        /// on issue/batch frames and on input-less action runs).
+        #[serde(default)]
+        inputs: Option<Vec<StartInput>>,
         /// Launch options (EXP-149) — absent on frames from clients that
         /// don't send them yet; absent = desktop settings default.
         /// `agent`/`skip_permissions` are the EXP-201 additions (absent
@@ -609,6 +633,7 @@ mod tests {
                 action_name: None,
                 team_id: None,
                 repo: None,
+                inputs: None,
                 agent: None,
                 model: None,
                 effort: None,
@@ -635,6 +660,7 @@ mod tests {
                 action_name: None,
                 team_id: None,
                 repo: None,
+                inputs: None,
                 agent: Some("codex".into()),
                 model: Some("opus".into()),
                 effort: Some(String::new()),
@@ -664,6 +690,7 @@ mod tests {
                     full_name: "acme/api".into(),
                     default_branch: "main".into(),
                 }),
+                inputs: None,
                 agent: None,
                 model: Some("opus".into()),
                 effort: Some("high".into()),
@@ -694,12 +721,57 @@ mod tests {
                     full_name: "acme/api".into(),
                     default_branch: "main".into(),
                 }),
+                inputs: None,
                 agent: None,
                 model: Some("opus".into()),
                 effort: Some("high".into()),
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
+            }
+        );
+    }
+
+    #[test]
+    fn start_session_deserializes_action_frame_with_inputs() {
+        // EXP-257: an inputs-carrying action start — server-resolved values
+        // ride `inputs` (camelCase fields, `type` literal), full options.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"start_session","actionId":"act-1","actionName":"Groom","teamId":"ws-7","inputs":[{"key":"scope","label":"Scope","type":"text","value":"urgent only","display":"urgent only"},{"key":"repo","type":"repo","value":"repo-1","display":"acme/api"}],"agent":"codex","model":"gpt-5.6-sol","skipPermissions":true}"#
+            )
+            .unwrap(),
+            ServerFrame::StartSession {
+                issue_id: None,
+                issue_ids: None,
+                action_id: Some("act-1".into()),
+                action_name: Some("Groom".into()),
+                team_id: Some("ws-7".into()),
+                repo: None,
+                inputs: Some(vec![
+                    StartInput {
+                        key: "scope".into(),
+                        label: Some("Scope".into()),
+                        input_type: Some("text".into()),
+                        value: "urgent only".into(),
+                        display: Some("urgent only".into()),
+                    },
+                    StartInput {
+                        key: "repo".into(),
+                        // A thinned entry: label absent, type present —
+                        // consumers fall back per-field.
+                        label: None,
+                        input_type: Some("repo".into()),
+                        value: "repo-1".into(),
+                        display: Some("acme/api".into()),
+                    },
+                ]),
+                agent: Some("codex".into()),
+                model: Some("gpt-5.6-sol".into()),
+                effort: None,
+                ultracode: None,
+                plan_mode: None,
+                skip_permissions: Some(true),
             }
         );
     }
@@ -724,6 +796,7 @@ mod tests {
                     full_name: "acme/api".into(),
                     default_branch: "main".into(),
                 }),
+                inputs: None,
                 agent: None,
                 model: None,
                 effort: None,

@@ -18,6 +18,7 @@ import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
 import { Hub, type RelaySocket, type StartSubject } from "./hub"
 import {
   CLOSE_UNAUTHORIZED,
+  type StartInput,
   type StartRepoGroup,
   type StartSessionOptions,
 } from "./protocol"
@@ -182,7 +183,19 @@ app.post(`/start`, async (c) => {
       repo = asStartRepo(body.repo)
       if (!repo) return c.json({ error: `Bad request` }, 400)
     }
-    subject = { actionId, actionName, teamId, ...(repo ? { repo } : {}) }
+    // inputs are OPTIONAL (EXP-257) — same stance: a present key must parse.
+    let inputs: StartInput[] | undefined
+    if (body && `inputs` in body) {
+      inputs = asStartInputs(body.inputs)
+      if (!inputs) return c.json({ error: `Bad request` }, 400)
+    }
+    subject = {
+      actionId,
+      actionName,
+      teamId,
+      ...(repo ? { repo } : {}),
+      ...(inputs ? { inputs } : {}),
+    }
   } else {
     const issueIds = asStringArray(body?.issueIds)
     const teamId = asString(body?.teamId)
@@ -249,6 +262,40 @@ function asStartRepo(value: unknown): StartRepoGroup | undefined {
     return undefined
   }
   return { repositoryId, fullName, defaultBranch }
+}
+
+// The resolved action-input values (EXP-257). REBUILDS each entry so unknown
+// keys can't leak through. Bounds: ≤10 entries; key ≤64, label ≤255, type
+// ≤16, value/display ≤16KB (a 4096-char text value is ≤16KB in UTF-8). Any
+// deviation ⇒ undefined (⇒ 400 upstream).
+function asStartInputs(value: unknown): StartInput[] | undefined {
+  if (!Array.isArray(value) || value.length > 10) return undefined
+  const out: StartInput[] = []
+  for (const entry of value) {
+    if (typeof entry !== `object` || entry === null) return undefined
+    const obj = entry as Record<string, unknown>
+    const key = asString(obj.key)
+    const label = asString(obj.label)
+    const type = asString(obj.type)
+    const val = asString(obj.value)
+    const display = asString(obj.display)
+    if (
+      !key ||
+      key.length > 64 ||
+      !label ||
+      label.length > 255 ||
+      !type ||
+      type.length > 16 ||
+      val === undefined ||
+      val.length > 16 * 1024 ||
+      display === undefined ||
+      display.length > 16 * 1024
+    ) {
+      return undefined
+    }
+    out.push({ key, label, type, value: val, display })
+  }
+  return out
 }
 
 // Server-side kill-switch fallback (steer.killSession also flips the DB row).

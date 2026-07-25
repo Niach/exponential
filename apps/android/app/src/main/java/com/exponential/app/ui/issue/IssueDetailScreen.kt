@@ -785,6 +785,7 @@ fun IssueDetailScreen(
             issues = startCandidates,
             preselectedIds = setOf(issue.id),
             onStart = viewModel::startOnDesktop,
+            onRunAction = viewModel::runAction,
             onDismiss = { activeSheet = null },
         )
     }

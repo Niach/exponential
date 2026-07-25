@@ -6,9 +6,10 @@ import GRDB
 /// team's action prompts over tRPC (`actions.list` — deliberately NOT an
 /// Electric shape) plus the remote-run flow. After the server accepts a start,
 /// the model watches the synced `coding_sessions` table for the row the
-/// desktop inserts (this action's id + the caller's own userId + a recent
-/// startedAt) and surfaces it exactly once as `startedSession` so the view can
-/// jump into the existing live steer screen.
+/// desktop inserts (this action's NAME snapshot + the caller's own userId + a
+/// recent startedAt — never the action id: the builtin "Create action" run's
+/// row carries `action_id` NULL, EXP-257) and surfaces it exactly once as
+/// `startedSession` so the view can jump into the existing live steer screen.
 @MainActor @Observable
 final class ActionsViewModel {
     /// The freshly-started run's session — consumed once by the view's
@@ -56,7 +57,9 @@ final class ActionsViewModel {
         do {
             let rows = try await actionsApi.list(accountId: accountId, teamId: teamId)
             guard loadedTeamId == teamId else { return }
-            actions = rows
+            // Builtins pinned FIRST by the `builtin` flag (the EXP-257
+            // contract — never by sort order); server order within each group.
+            actions = rows.filter(\.isBuiltin) + rows.filter { !$0.isBuiltin }
             loadError = nil
         } catch is CancellationError {
             // Expected when the hosting .task is torn down mid-flight.
@@ -66,14 +69,17 @@ final class ActionsViewModel {
         }
     }
 
-    /// Remote-run `action` on `device` (Claude-only v1 — model/effort are the
-    /// only options; nil = desktop settings default). `userId` is the caller's
-    /// server user id, used to recognize the desktop-inserted session row.
+    /// Remote-run `action` on `device` (EXP-257: the full option set with the
+    /// same per-agent vocabulary as issue runs, plus typed `inputs` — key →
+    /// text or picked repo/board uuid). `teamId` rides only for the builtin
+    /// "Create action" (the server requires it there, forbids it otherwise).
+    /// `userId` is the caller's server user id, used to recognize the
+    /// desktop-inserted session row.
     func run(
         action: ActionDto,
         device: SteerDevice,
-        model: String?,
-        effort: String?,
+        options: SteerStartOptions,
+        inputs: [String: String],
         userId: String?
     ) {
         // A fresh attempt supersedes the previous outcome (success or error).
@@ -86,11 +92,12 @@ final class ActionsViewModel {
                     accountId: accountId,
                     actionId: action.id,
                     deviceId: device.deviceId,
-                    model: model,
-                    effort: effort
+                    teamId: action.isBuiltin ? action.teamId : nil,
+                    options: options,
+                    inputs: inputs.isEmpty ? nil : inputs
                 )
                 sentCaption = "Start sent to \(label) — waiting for the desktop…"
-                watchForStartedRun(actionId: action.id, userId: userId)
+                watchForStartedRun(actionName: action.name, userId: userId)
             } catch {
                 startError = error.localizedDescription
             }
@@ -106,19 +113,21 @@ final class ActionsViewModel {
 
     /// Observe the synced coding_sessions table (the AgentsViewModel
     /// mechanism) until the desktop's row for THIS start appears: matching
-    /// action, the caller's own userId, and a startedAt after the send (with
+    /// action NAME (the `action_name` display snapshot — the builtin "Create
+    /// action" row carries `action_id` NULL, so the id can never match,
+    /// EXP-257), the caller's own userId, and a startedAt after the send (with
     /// clock-skew slack) — an old run of the same action must never re-trigger
     /// navigation. A wall-clock deadline task gives up INDEPENDENTLY of DB
     /// emissions (with no coding_sessions writes the observation never fires,
     /// so an emission-gated check alone would show the caption forever) and
     /// clears the caption so the send doesn't read as still-pending.
-    private func watchForStartedRun(actionId: String, userId: String?) {
+    private func watchForStartedRun(actionName: String, userId: String?) {
         stopWatching()
         guard let userId, let pool = try? db.pool(forAccountId: accountId) else { return }
         let cutoff = Date().addingTimeInterval(-120)
         let observation = ValueObservation.tracking { db in
             try CodingSessionEntity
-                .filter(Column("action_id") == actionId)
+                .filter(Column("action_name") == actionName)
                 .fetchAll(db)
         }
         watchTask = Task { [weak self] in

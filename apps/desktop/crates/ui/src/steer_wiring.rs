@@ -187,13 +187,15 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                     .collect()
             })
             .await;
-        // EXP-253: the actions capability — advertised only when claude is
-        // usable (actions are Claude-only v1). The web strictly gates action
-        // starts on this, so an incapable desktop is never targeted.
-        let caps: Vec<String> = if agents.iter().any(|agent| agent == "claude") {
-            vec!["actions".to_string()]
-        } else {
+        // EXP-253/EXP-257: the actions capabilities — advertised when ANY
+        // agent is usable (action runs stopped being Claude-only), plus
+        // `action-inputs` (this build understands builtin + inputs-carrying
+        // starts). Remote clients strictly gate action starts on these, so
+        // an incapable desktop is never targeted.
+        let caps: Vec<String> = if agents.is_empty() {
             Vec::new()
+        } else {
+            vec!["actions".to_string(), "action-inputs".to_string()]
         };
         let _ = cx.update(|cx| {
             // The probe raced a sign-out/switch: starting a socket for a
@@ -253,20 +255,27 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
             repo,
         } => remote_batch_start(issue_ids, team_id, repo, &start, cx),
         steer::RemoteStartSubject::Action {
-            action_id, repo, ..
-        } => remote_action_start(action_id, repo, &start, cx),
+            action_id,
+            team_id,
+            repo,
+            inputs,
+            ..
+        } => remote_action_start(action_id, team_id, repo, inputs, &start, cx),
     }
 }
 
 /// Relay ACTION start (§08 / EXP-253): the trust-gated runner with the
 /// dialog FOREGROUNDED — an unattended desktop must surface the approval,
 /// never auto-run an untrusted body. The frame's server-resolved repo group
-/// rides through (the desktop syncs no repositories); the fresh body + hash
-/// come from the runner's own `actions.get`. Claude-only v1: model/effort
-/// are honored, everything else is clamped (the server already validated).
+/// + input values ride through (the desktop syncs no repositories); the
+/// fresh body + hash come from the runner's own `actions.get`. EXP-257: the
+/// FULL option set is honored with the same per-agent normalization as an
+/// issue start (the server already validated the vocabulary).
 fn remote_action_start(
     action_id: String,
+    team_id: String,
     repo: Option<steer::StartRepoGroup>,
+    inputs: Vec<steer::StartInput>,
     start: &steer::RemoteStart,
     cx: &mut App,
 ) {
@@ -275,25 +284,42 @@ fn remote_action_start(
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
     let options = LaunchOptions::remote(
         &settings,
-        Some("claude"),
+        start.agent.as_deref(),
         start.model.as_deref(),
         start.effort.as_deref(),
-        None,
-        None,
-        None,
+        start.ultracode,
+        start.plan_mode,
+        start.skip_permissions,
     );
     let repo_group = repo.map(|repo| RepoGroup {
         repository_id: repo.repository_id,
         full_name: repo.full_name,
         default_branch: repo.default_branch,
     });
-    crate::actions_panel::start_action_run(
-        action_id,
-        crate::actions_panel::ActionRepo::Provided(repo_group),
-        options,
-        relay_origin(cx),
-        None,
-        true,
+    // Frame inputs → prompt values. A thinned entry degrades per-field:
+    // label falls back to the key, type to `text` (both presentation-only —
+    // the VALUE the server resolved is what the run consumes).
+    let inputs: Vec<coding::ActionInputValue> = inputs
+        .into_iter()
+        .map(|input| coding::ActionInputValue {
+            label: input.label.unwrap_or_else(|| input.key.clone()),
+            input_type: input.input_type.unwrap_or_else(|| "text".to_string()),
+            key: input.key,
+            value: input.value,
+            display: input.display,
+        })
+        .collect();
+    crate::action_run::start_action_run(
+        crate::action_run::StartActionArgs {
+            action_id,
+            team_id,
+            repo: crate::action_run::ActionRepo::Provided(repo_group),
+            options,
+            origin: relay_origin(cx),
+            inputs,
+            target: None,
+            activate_app: true,
+        },
         cx,
     );
 }

@@ -22,6 +22,8 @@ import { sql, type InferSelectModel } from "drizzle-orm"
 import { createSchemaFactory } from "drizzle-zod"
 import { z } from "zod"
 import {
+  type ActionInputDef,
+  actionInputsSchema,
   codingSessionStatusSchema,
   codingSessionStatusValues,
   commentBodySchema,
@@ -898,6 +900,12 @@ export const actions = pgTable(
     description: text(),
     // The markdown prompt; ≤64KB enforced by the router zod.
     body: text().notNull(),
+    // EXP-257: typed input schema — members fill the values in the run dialog
+    // and the launcher injects them into the prompt. '[]' = no inputs.
+    inputs: jsonb()
+      .$type<ActionInputDef[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
@@ -1285,7 +1293,9 @@ export const selectCodingSessionSchema = createSelectSchema(codingSessions, {
 
 export const selectRepositorySchema = createSelectSchema(repositories)
 
-export const selectActionSchema = createSelectSchema(actions)
+export const selectActionSchema = createSelectSchema(actions, {
+  inputs: actionInputsSchema,
+})
 
 export const selectWidgetConfigSchema = createSelectSchema(widgetConfigs, {
   allowedDomains: z.array(z.string()),

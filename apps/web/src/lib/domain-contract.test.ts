@@ -14,7 +14,11 @@ import {
   issueEventTypeValues,
   issueStatusOrder,
   CODING_SESSION_STALE_HOURS,
+  actionInputTypeValues,
+  MAX_ACTION_INPUTS,
+  MAX_ACTION_INPUT_TEXT,
 } from "@exp/db-schema/domain"
+import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
 
 // Guards that the hand-maintained TS enums in @exp/db-schema/domain stay in
 // lockstep with the canonical packages/domain-contract/contract.json. If they
@@ -80,5 +84,14 @@ describe(`domain-contract parity`, () => {
     expect([...issueEventTypeValues]).toEqual([
       ...contract.issueEventType.values,
     ])
+  })
+
+  it(`action input types + limits + builtin id match the contract (EXP-257)`, () => {
+    expect([...actionInputTypeValues]).toEqual([
+      ...contract.actionInputType.values,
+    ])
+    expect(MAX_ACTION_INPUTS).toBe(contract.actionInputs.max)
+    expect(MAX_ACTION_INPUT_TEXT).toBe(contract.actionInputs.maxTextLength)
+    expect(BUILTIN_CREATE_ACTION_ID).toBe(contract.builtinAction.createActionId)
   })
 })

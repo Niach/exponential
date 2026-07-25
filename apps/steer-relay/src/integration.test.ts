@@ -534,6 +534,56 @@ describe(`steer relay end-to-end`, () => {
       teamId: `team-1`,
     })
 
+    // EXP-257: resolved input values + full options pass through verbatim.
+    const inputs = [
+      {
+        key: `description`,
+        label: `Description`,
+        type: `text`,
+        value: `Review PRs`,
+        display: `Review PRs`,
+      },
+      {
+        key: `repo`,
+        label: `Repository`,
+        type: `repo`,
+        value: `repo-1`,
+        display: `acme/api`,
+      },
+    ]
+    const withInputs = await postStart({
+      userId: `owner-3`,
+      deviceId: `dev-action`,
+      actionId: `builtin:create-action`,
+      actionName: `Create action`,
+      teamId: `team-1`,
+      inputs,
+      agent: `codex`,
+      skipPermissions: true,
+    })
+    expect(withInputs.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      actionId: `builtin:create-action`,
+      actionName: `Create action`,
+      teamId: `team-1`,
+      inputs,
+      agent: `codex`,
+      skipPermissions: true,
+    })
+
+    // A PRESENT but malformed inputs key must 400 (same stance as repo) —
+    // and unknown entry keys are stripped by the rebuild, never forwarded.
+    const badInputs = await postStart({
+      userId: `owner-3`,
+      deviceId: `dev-action`,
+      actionId: `action-1`,
+      actionName: `Code review`,
+      teamId: `team-1`,
+      inputs: [{ key: `x` }],
+    })
+    expect(badInputs.status).toBe(400)
+
     // 400 cases.
     const noTeam = await postStart({
       userId: `owner-3`,
