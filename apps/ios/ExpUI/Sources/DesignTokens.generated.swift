@@ -38,14 +38,33 @@ public enum DesignTokens {
         public static let red: Color = Color(red: 0.9373, green: 0.2667, blue: 0.2667, opacity: 1.0000)
         public static let orange: Color = Color(red: 0.9765, green: 0.4510, blue: 0.0863, opacity: 1.0000)
         public static let blue: Color = Color(red: 0.2314, green: 0.5098, blue: 0.9647, opacity: 1.0000)
+        public static let brand: Color = Color(red: 0.3882, green: 0.4000, blue: 0.9451, opacity: 1.0000)
+    }
+
+    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
+    // GlassTheme.swift; do not migrate.
+    public enum Glass {
+        public static let backgroundTop: Color = Color(red: 0.0353, green: 0.0353, blue: 0.0431, opacity: 1.0000)
+        public static let backgroundBottom: Color = Color(red: 0.0941, green: 0.0941, blue: 0.1059, opacity: 1.0000)
+        public static let fillSection: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0392)
+        public static let fillRow: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0510)
+        public static let fillCard: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0588)
+        public static let fillActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1490)
+        public static let strokeRow: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0588)
+        public static let strokeSection: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0784)
+        public static let strokeCard: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1020)
+        public static let strokeStrong: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1216)
+        public static let strokeActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.2000)
     }
 
     // Corner radii (px ≡ pt), matching the web rounded-* scale.
     public enum Radius {
-        public static let sm: CGFloat = 6
-        public static let md: CGFloat = 8
-        public static let lg: CGFloat = 10
-        public static let xl: CGFloat = 14
+        public static let sm: CGFloat = 8
+        public static let md: CGFloat = 10
+        public static let lg: CGFloat = 12
+        public static let xl: CGFloat = 16
+        public static let xl2: CGFloat = 20
+        public static let xl3: CGFloat = 24
     }
 
     // Control geometry, matching the web control heights.

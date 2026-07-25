@@ -42,14 +42,33 @@ object DesignTokens {
         val Red: Color = Color(0xFFEF4444)
         val Orange: Color = Color(0xFFF97316)
         val Blue: Color = Color(0xFF3B82F6)
+        val Brand: Color = Color(0xFF6366F1)
+    }
+
+    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
+    // GlassTokens (ui/theme/Glass.kt); do not migrate.
+    object Glass {
+        val BackgroundTop: Color = Color(0xFF09090B)
+        val BackgroundBottom: Color = Color(0xFF18181B)
+        val FillSection: Color = Color(0x0AFFFFFF)
+        val FillRow: Color = Color(0x0DFFFFFF)
+        val FillCard: Color = Color(0x0FFFFFFF)
+        val FillActive: Color = Color(0x26FFFFFF)
+        val StrokeRow: Color = Color(0x0FFFFFFF)
+        val StrokeSection: Color = Color(0x14FFFFFF)
+        val StrokeCard: Color = Color(0x1AFFFFFF)
+        val StrokeStrong: Color = Color(0x1FFFFFFF)
+        val StrokeActive: Color = Color(0x33FFFFFF)
     }
 
     // Corner radii (px ≡ dp), matching the web rounded-* scale.
     object Radius {
-        val Sm: Dp = 6.dp
-        val Md: Dp = 8.dp
-        val Lg: Dp = 10.dp
-        val Xl: Dp = 14.dp
+        val Sm: Dp = 8.dp
+        val Md: Dp = 10.dp
+        val Lg: Dp = 12.dp
+        val Xl: Dp = 16.dp
+        val Xl2: Dp = 20.dp
+        val Xl3: Dp = 24.dp
     }
 
     // Control geometry, matching the web control heights.
