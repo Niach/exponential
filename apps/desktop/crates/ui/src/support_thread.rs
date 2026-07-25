@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, relative, App, AppContext as _, ClickEvent, Entity,
+    div, prelude::FluentBuilder as _, px, relative, App, AppContext as _, ClickEvent, Entity,
     FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
 };
@@ -526,11 +526,8 @@ impl Render for SupportThreadView {
         let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
-        let muted_bg = theme.muted;
-        let accent = theme.accent;
         let warning = theme.warning;
         let danger = theme.danger;
-        let border = theme.border;
 
         // ---- header ---------------------------------------------------------
         let status_button = {
@@ -584,9 +581,10 @@ impl Render for SupportThreadView {
                 let view = cx.entity().clone();
                 let menu_boards = boards.clone();
                 let picked_id = picked.as_ref().map(|(id, _)| id.clone());
-                h_flex()
+                // EXP-277: stacked for the 240px sidebar.
+                v_flex()
                     .gap_2()
-                    .items_center()
+                    .items_start()
                     .child(
                         Button::new("support-escalate-board")
                             .xsmall()
@@ -628,62 +626,70 @@ impl Render for SupportThreadView {
             }
         };
 
-        let header = v_flex()
+        // EXP-277: the header shrinks to the title alone (no hairline); the
+        // status/reporter/escalation controls live in the right sidebar,
+        // analogous to the issue detail's properties panel.
+        let header = div()
             .w_full()
             .flex_shrink_0()
             .px_4()
             .pt_4()
-            .pb_3()
-            .gap_2()
-            .border_b_1()
-            .border_color(border)
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
+            .pb_2()
+            .text_lg()
+            .font_weight(FontWeight::SEMIBOLD)
+            .truncate()
+            .child(SharedString::from(detail.thread.title.clone()));
+
+        let status_pill = div()
+            .flex_shrink_0()
+            .px_1p5()
+            .py_0p5()
+            .rounded(radius)
+            .text_xs()
+            .when(resolved, |this| {
+                this.bg(theme::tokens::glass::FILL_CARD.to_hsla())
+                    .text_color(muted)
+                    .child("Resolved")
+            })
+            .when(!resolved, |this| {
+                this.bg(theme::tokens::GREEN.to_hsla().opacity(0.15))
+                    .text_color(theme::tokens::GREEN.to_hsla())
+                    .child("Open")
+            });
+
+        let sidebar = v_flex()
+            .w(px(240.))
+            .flex_shrink_0()
+            .h_full()
+            .px_3()
+            .py_3()
+            .gap_3()
+            .text_sm()
+            .child(crate::properties_panel::property_group(
+                "Status",
+                v_flex()
                     .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .truncate()
-                            .child(SharedString::from(detail.thread.title.clone())),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .px_1p5()
-                            .rounded(radius)
-                            .text_xs()
-                            .when(resolved, |this| {
-                                this.bg(muted_bg).text_color(muted).child("Resolved")
-                            })
-                            .when(!resolved, |this| {
-                                this.bg(theme::tokens::GREEN.to_hsla().opacity(0.15))
-                                    .text_color(theme::tokens::GREEN.to_hsla())
-                                    .child("Open")
-                            }),
-                    )
+                    .items_start()
+                    .child(status_pill)
                     .child(status_button),
-            )
-            .child(
-                h_flex()
+                cx,
+            ))
+            .child(crate::properties_panel::property_group(
+                "Reporter",
+                div()
                     .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(SharedString::from(reporter.clone())),
-                    )
-                    .child(div().flex_1())
-                    .child(escalate_area),
-            )
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(reporter.clone())),
+                cx,
+            ))
+            .child(crate::properties_panel::property_group(
+                "Escalation",
+                escalate_area,
+                cx,
+            ))
             .when_some(self.error.clone(), |this, message| {
                 this.child(
                     div()
@@ -697,12 +703,14 @@ impl Render for SupportThreadView {
         let bubbles: Vec<gpui::AnyElement> = rows
             .iter()
             .map(|row| {
+                // EXP-277: bubbles on the glass fills (inbound card wash,
+                // outbound active wash); internal keeps the warning tint.
                 let (bubble_bg, bubble_border) = if row.internal {
                     (warning.opacity(0.12), Some(warning.opacity(0.4)))
                 } else if row.inbound {
-                    (muted_bg, None)
+                    (theme::tokens::glass::FILL_CARD.to_hsla(), None)
                 } else {
-                    (accent.opacity(0.5), None)
+                    (theme::tokens::glass::FILL_ACTIVE.to_hsla(), None)
                 };
                 let mut bubble = v_flex()
                     .max_w(relative(0.78))
@@ -779,6 +787,8 @@ impl Render for SupportThreadView {
 
         // ---- composer -------------------------------------------------------
         let has_draft = !self.composer.read(cx).value().trim().is_empty();
+        // EXP-277: the composer keeps ONE faint separator (the note-mode tint
+        // needs an edge) — the glass row stroke, not the chrome border.
         let composer = v_flex()
             .w_full()
             .flex_shrink_0()
@@ -786,7 +796,7 @@ impl Render for SupportThreadView {
             .py_3()
             .gap_2()
             .border_t_1()
-            .border_color(border)
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .when(self.note_mode, |this| this.bg(warning.opacity(0.06)))
             .child(
                 h_flex()
@@ -832,12 +842,24 @@ impl Render for SupportThreadView {
                     ),
             );
 
-        v_flex()
-            .size_full()
+        // EXP-277: issue-detail-analogous two-pane body — left column =
+        // header + messages + composer, right = the properties-style sidebar.
+        let left = v_flex()
+            .flex_1()
+            .min_w_0()
+            .h_full()
             .min_h_0()
             .child(header)
             .child(messages)
-            .child(composer)
+            .child(composer);
+
+        h_flex()
+            .size_full()
+            .min_h_0()
+            .items_start()
+            .overflow_hidden()
+            .child(left)
+            .child(sidebar)
             .into_any_element()
     }
 }

@@ -146,6 +146,7 @@ impl Shell {
                 navigation::remove_window(window_id, cx);
                 crate::repo_resolver::remove_window(window_id, cx);
                 crate::sidebar::remove_window(window_id, cx);
+                crate::screens::remove_window(window_id, cx);
                 shared.update(cx, |state, cx| {
                     state.windows_open = state.windows_open.saturating_sub(1);
                     cx.notify();

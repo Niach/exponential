@@ -302,6 +302,19 @@ impl Block {
             return;
         }
 
+        // EXP-277 vendoring: Enter on a rendered standalone image inserts an
+        // empty paragraph below and focuses it — the discoverable way to type
+        // under an image (the rendered block otherwise has no caret). This
+        // also closes the old fall-through into `split_title`, which could
+        // split the `![alt](src)` source at a stale offset.
+        if self.showing_rendered_image() {
+            cx.emit(BlockEvent::RequestNewline {
+                trailing: InlineTextTree::plain(String::new()),
+                source_already_mutated: false,
+            });
+            return;
+        }
+
         if self.is_source_raw_mode() {
             if !self.selected_range.is_empty() {
                 self.replace_text_in_range(None, "", window, cx);

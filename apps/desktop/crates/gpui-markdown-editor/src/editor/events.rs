@@ -742,6 +742,39 @@ impl Editor {
             .insert_blocks_at(location.parent, location.index + 1, vec![trailing], cx);
     }
 
+    /// EXP-277 vendoring: the leading twin of
+    /// [`Self::ensure_trailing_paragraph_after_structural`] — inserts an empty
+    /// paragraph BEFORE `block` when it is a stranding structure sitting at
+    /// the very start of its container (ArrowUp above a leading image has
+    /// nowhere to land otherwise). Returns whether a paragraph was inserted.
+    pub(super) fn ensure_leading_paragraph_before_structural(
+        &mut self,
+        block: &Entity<super::Block>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let strands = {
+            let block = block.read(cx);
+            let kind = block.kind();
+            kind.is_atomic_structural()
+                || kind.is_quote_container()
+                || kind.is_footnote_definition()
+                || block.renders_as_standalone_image()
+        };
+        if !strands {
+            return false;
+        }
+        let Some(location) = self.document.find_block_location(block.entity_id()) else {
+            return false;
+        };
+        if location.index != 0 {
+            return false;
+        }
+        let leading = Self::new_block(cx, BlockRecord::paragraph(String::new()));
+        self.document
+            .insert_blocks_at(location.parent, 0, vec![leading], cx);
+        true
+    }
+
     fn apply_paragraph_shortcuts(
         kind: BlockKind,
         mut title: InlineTextTree,
@@ -796,13 +829,19 @@ impl Editor {
 
     pub(crate) fn on_editor_mouse_down(
         &mut self,
-        _event: &MouseDownEvent,
+        event: &MouseDownEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.dismiss_contextual_overlays(cx);
         self.clear_table_axis_preview(cx);
         self.clear_table_axis_selection(cx);
+        // EXP-277 vendoring: rendered-mode clicks in the gaps around a
+        // standalone image place a caret (insert/focus an empty paragraph) —
+        // the mouse path for typing above/below/between images.
+        if event.button == MouseButton::Left && self.view_mode == super::ViewMode::Rendered {
+            self.handle_image_gap_click(event.position, cx);
+        }
     }
 
     pub(crate) fn on_editor_scroll_wheel(
@@ -2003,6 +2042,20 @@ impl Editor {
             | BlockEvent::RequestTableCellMoveVertical { .. } => {}
             BlockEvent::RequestFocusPrev { preferred_x } => {
                 if current_visible_index == 0 {
+                    // EXP-277 vendoring: ArrowUp above a leading standalone
+                    // image inserts a paragraph at the top to land on — the
+                    // mirror of the trailing strand below. Same no-dirty
+                    // precedent: an untyped paragraph never phantom-saves.
+                    if block.read(cx).renders_as_standalone_image()
+                        && self.ensure_leading_paragraph_before_structural(&block, cx)
+                    {
+                        let visible = self.document.flatten_visible_blocks();
+                        if let Some(landing) = visible.first().map(|v| v.entity.clone()) {
+                            self.focus_block(landing.entity_id());
+                            landing.update(cx, |landing, cx| landing.move_to(0, cx));
+                            cx.notify();
+                        }
+                    }
                     return;
                 }
 
@@ -2029,7 +2082,12 @@ impl Editor {
                     // A trailing multi-line block (code, math, ...) has nowhere
                     // below to move to, so give it a paragraph to land on and
                     // focus that, matching how a trailing table behaves.
-                    if block.read(cx).kind().is_multiline_text_block() {
+                    // EXP-277 vendoring: a trailing standalone image strands
+                    // the same way — ArrowDown off it lands on a fresh
+                    // paragraph instead of dead-ending.
+                    if block.read(cx).kind().is_multiline_text_block()
+                        || block.read(cx).renders_as_standalone_image()
+                    {
                         self.ensure_trailing_paragraph_after_structural(&block, cx);
                         let visible = self.document.flatten_visible_blocks();
                         if let Some(landing) = visible
@@ -2196,6 +2254,75 @@ mod tests {
             assert_eq!(visible[1].entity.read(cx).quote_depth, 1);
             assert_eq!(editor.document.markdown_text(cx), "> first\n\n> ");
             assert_eq!(editor.pending_focus, Some(visible[1].entity.entity_id()));
+        });
+    }
+
+    // EXP-277 vendoring: typing past standalone images.
+    #[gpui::test]
+    async fn request_newline_on_a_standalone_image_inserts_an_empty_paragraph_below(
+        cx: &mut TestAppContext,
+    ) {
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+        editor.update(cx, |editor, cx| {
+            let image = editor.document.first_root().expect("image block").clone();
+            assert!(image.read(cx).renders_as_standalone_image());
+            editor.on_block_event(
+                image.clone(),
+                &BlockEvent::RequestNewline {
+                    trailing: InlineTextTree::plain(String::new()),
+                    source_already_mutated: false,
+                },
+                cx,
+            );
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let landing = visible[1].entity.clone();
+            assert_eq!(landing.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(landing.read(cx).display_text(), "");
+            assert_eq!(editor.pending_focus, Some(landing.entity_id()));
+            // The image block's source is untouched.
+            assert_eq!(visible[0].entity.read(cx).display_text(), "![a](p.png)");
+        });
+    }
+
+    #[gpui::test]
+    async fn arrow_down_past_a_trailing_standalone_image_lands_on_a_new_paragraph(
+        cx: &mut TestAppContext,
+    ) {
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+        editor.update(cx, |editor, cx| {
+            let image = editor.document.first_root().expect("image block").clone();
+            editor.on_block_event(
+                image.clone(),
+                &BlockEvent::RequestFocusNext { preferred_x: None },
+                cx,
+            );
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let landing = visible[1].entity.clone();
+            assert_eq!(landing.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(editor.pending_focus, Some(landing.entity_id()));
+        });
+    }
+
+    #[gpui::test]
+    async fn arrow_up_above_a_leading_standalone_image_inserts_a_paragraph(
+        cx: &mut TestAppContext,
+    ) {
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+        editor.update(cx, |editor, cx| {
+            let image = editor.document.first_root().expect("image block").clone();
+            editor.on_block_event(
+                image.clone(),
+                &BlockEvent::RequestFocusPrev { preferred_x: None },
+                cx,
+            );
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let landing = visible[0].entity.clone();
+            assert_eq!(landing.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(editor.pending_focus, Some(landing.entity_id()));
+            assert_eq!(visible[1].entity.entity_id(), image.entity_id());
         });
     }
 

@@ -62,6 +62,9 @@ struct RenderedRowSpacingInfo {
     is_callout_header: bool,
     footnote_anchor: Option<uuid::Uuid>,
     is_footnote_header: bool,
+    /// EXP-277 vendoring: image-adjacent rows widen the gap (see
+    /// [`rendered_row_top_gap`]).
+    is_standalone_image: bool,
 }
 
 impl RenderedRowSpacingInfo {
@@ -74,6 +77,7 @@ impl RenderedRowSpacingInfo {
             is_callout_header: block.kind().is_callout(),
             footnote_anchor: block.footnote_anchor,
             is_footnote_header: block.kind().is_footnote_definition(),
+            is_standalone_image: block.renders_as_standalone_image(),
         }
     }
 }
@@ -91,6 +95,10 @@ fn rendered_row_top_gap(
         && previous.quote_group_anchor == current.quote_group_anchor
     {
         0.0
+    } else if previous.is_standalone_image || current.is_standalone_image {
+        // EXP-277 vendoring: the default 6px gap is a needle-thin target for
+        // the image gap-click affordance — double it around images.
+        default_gap * 2.0
     } else {
         default_gap
     }
@@ -680,11 +688,29 @@ impl Render for Editor {
             );
         }
 
+        // EXP-277 vendoring: embedded mode has no editor padding, so a
+        // document starting/ending on a standalone image would leave nowhere
+        // to click above/below it — give those edges a real (hit-testable)
+        // margin the gap-click handler resolves.
+        let (image_edge_top, image_edge_bottom) = if self.embedded {
+            let visible = self.document.flatten_visible_blocks();
+            let edge_is_image = |slot: Option<&crate::editor::tree::VisibleBlock>| {
+                slot.is_some_and(|visible| {
+                    visible.entity.read(cx).renders_as_standalone_image()
+                })
+            };
+            (edge_is_image(visible.first()), edge_is_image(visible.last()))
+        } else {
+            (false, false)
+        };
+
         let scroll_content = div()
             .id("editor-scroll-inner")
             .flex()
             .flex_col()
             .bg(theme.colors.editor_background)
+            .when(image_edge_top, |this| this.pt(px(12.0)))
+            .when(image_edge_bottom, |this| this.pb(px(12.0)))
             .when(!self.embedded, |this| {
                 // Standalone rows are a fixed-width column centred in the
                 // viewport.

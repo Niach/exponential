@@ -29,7 +29,7 @@ use gpui::{
 use sync::Store;
 
 use crate::actions::{
-    GoBack, OpenAccount, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
+    GoBack, OpenAccount, OpenAction, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
     OpenSourceControl, SwitchTeam, SyncNow,
 };
 
@@ -60,6 +60,11 @@ pub enum Screen {
     /// tool window rows open this instead of the issue detail; data via
     /// `issues.prFiles`, rendered by the shared side-by-side `DiffView`).
     PrDiff { issue_id: String },
+    /// One action's full-page detail (EXP-277 — prompt body center + a
+    /// properties-style sidebar; opened from the Actions tool window's
+    /// rows). Real synced actions only — the two virtual builtins have no
+    /// stable body and open the start dialog instead.
+    ActionDetail { action_id: String },
 }
 
 impl Screen {
@@ -73,6 +78,7 @@ impl Screen {
                 | Screen::FileViewer { .. }
                 | Screen::SourceControl
                 | Screen::PrDiff { .. }
+                | Screen::ActionDetail { .. }
         )
     }
 }
@@ -109,6 +115,16 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .get(issue_id)
             .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue.identifier)))
             .unwrap_or_else(|| "Diff".into()),
+        // Actions ARE synced (body-less rows carry the name) — no process
+        // global needed, unlike support threads.
+        Screen::ActionDetail { action_id } => Store::global(cx)
+            .collections()
+            .actions
+            .read(cx)
+            .get(action_id)
+            .and_then(|action| action.name.clone())
+            .map(gpui::SharedString::from)
+            .unwrap_or_else(|| "Action".into()),
     }
 }
 
@@ -163,14 +179,21 @@ impl Navigation {
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `issue:<uuid>`
-/// (anything else = no pre-route).
+/// | `action:<uuid>` (anything else = no pre-route).
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     match spec {
         "settings" => Some(Screen::Settings),
         "account" => Some(Screen::Account),
-        _ => spec.strip_prefix("issue:").map(|id| Screen::IssueDetail {
-            issue_id: id.to_string(),
-        }),
+        _ => spec
+            .strip_prefix("issue:")
+            .map(|id| Screen::IssueDetail {
+                issue_id: id.to_string(),
+            })
+            .or_else(|| {
+                spec.strip_prefix("action:").map(|id| Screen::ActionDetail {
+                    action_id: id.to_string(),
+                })
+            }),
     }
 }
 
@@ -590,6 +613,10 @@ pub fn init(cx: &mut App) {
     cx.on_action(|action: &OpenIssue, cx| {
         let issue_id = action.issue_id.clone();
         navigate_active(cx, Screen::IssueDetail { issue_id });
+    });
+    cx.on_action(|action: &OpenAction, cx| {
+        let action_id = action.action_id.clone();
+        navigate_active(cx, Screen::ActionDetail { action_id });
     });
     cx.on_action(|action: &SwitchTeam, cx| {
         let team_id = action.team_id.clone();

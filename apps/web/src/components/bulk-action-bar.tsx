@@ -155,7 +155,7 @@ export function BulkActionBar({
 
   return (
     <div
-      className="flex items-center gap-1 rounded-lg border border-border/60 bg-popover/95 px-2 py-1.5"
+      className="glass-panel flex items-center gap-1 rounded-lg px-2 py-1.5"
       data-testid="bulk-action-bar"
     >
       <span className="px-1.5 text-xs font-medium whitespace-nowrap">

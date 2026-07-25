@@ -651,11 +651,10 @@ impl Render for RailView {
             .items_center()
             .py_2()
             .gap_1()
-            // EXP-269: no fill — the rail floats on the page gradient,
-            // separated by the hairline border alone.
+            // EXP-269: no fill — the rail floats on the page gradient.
+            // EXP-277: no hairline either — the tool column's section wash
+            // provides the soft boundary (blended chrome).
             .text_color(cx.theme().sidebar_foreground)
-            .border_r_1()
-            .border_color(cx.theme().sidebar_border)
             // Search — opens the ⌘K sheet. Call the opener directly via
             // cx.listener (like the rail tool icons below) rather than
             // dispatching OpenSearch: a rail button that dispatches to the
@@ -945,6 +944,8 @@ impl SidebarPanel {
         title: &'static str,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
+        // EXP-277: no bottom hairline — typography + the strip's height
+        // separate the header from the list (fewer chrome lines).
         h_flex()
             .flex_shrink_0()
             .w_full()
@@ -952,8 +953,6 @@ impl SidebarPanel {
             .px_3()
             .gap_1p5()
             .items_center()
-            .border_b_1()
-            .border_color(cx.theme().sidebar_border)
             .text_color(cx.theme().sidebar_foreground.opacity(0.7))
             .child(icon.xsmall())
             .child(
@@ -1133,8 +1132,8 @@ impl SidebarPanel {
             .px_2()
             .py_1p5()
             .rounded(theme_radius)
-            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .when(selected, |this| this.bg(theme.list_active))
+            .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, window, cx| {
                 // Web `markGroupRead`: clear the group's unreads
@@ -1278,7 +1277,7 @@ impl SidebarPanel {
             .px_2()
             .py_1p5()
             .rounded(theme_radius)
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, window, cx| {
                 // Web `markGroupRead`, then open the ticket team's Support
@@ -1627,8 +1626,10 @@ impl SidebarPanel {
         let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
-        let accent = theme.accent;
         let danger = theme.danger;
+        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
+        let row_hover = theme.list_hover;
+        let row_active = theme.list_active;
         // Open-PR green (the token the status/priority accents use).
         let pr_green = theme::tokens::GREEN.to_hsla();
 
@@ -1730,8 +1731,8 @@ impl SidebarPanel {
             .py_1()
             .gap_0p5()
             .rounded(radius)
-            .when(selected, |this| this.bg(accent.opacity(0.6)))
-            .hover(|this| this.bg(accent.opacity(0.3)))
+            .when(selected, |this| this.bg(row_active))
+            .hover(|this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, window, cx| {
                 // Any click outside the armed button disarms the confirm.
@@ -2057,8 +2058,9 @@ impl SidebarPanel {
         let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
-        let accent = theme.accent;
         let danger = theme.danger;
+        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
+        let row_hover = theme.list_hover;
         let pr_green = theme::tokens::GREEN.to_hsla();
 
         let key = pull_merge_key(repository_id, pull.number);
@@ -2101,7 +2103,7 @@ impl SidebarPanel {
             .py_1()
             .gap_0p5()
             .rounded(radius)
-            .hover(|this| this.bg(accent.opacity(0.3)))
+            .hover(|this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| {
                 // Any click outside the armed button disarms the confirm.
@@ -2337,7 +2339,9 @@ impl SidebarPanel {
         let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
-        let accent = theme.accent;
+        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
+        let row_hover = theme.list_hover;
+        let row_active = theme.list_active;
         // The unread dot's indigo — the blue accent token (token-locked, not
         // loose hex).
         let unread_dot = theme::tokens::BLUE.to_hsla();
@@ -2380,8 +2384,8 @@ impl SidebarPanel {
             .py_1p5()
             .gap_0p5()
             .rounded(radius)
-            .when(selected, |this| this.bg(accent.opacity(0.6)))
-            .hover(|this| this.bg(accent.opacity(0.3)))
+            .when(selected, |this| this.bg(row_active))
+            .hover(|this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, window, cx| {
                 // Seed the tab label — thread titles are tRPC-only.
@@ -2657,10 +2661,9 @@ impl Render for SidebarPanel {
             .overflow_hidden()
             // EXP-269: glass section wash — differentiates the tool column
             // from the center while letting the gradient show through.
+            // EXP-277: the wash edge IS the boundary — no hairline.
             .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
             .text_color(cx.theme().sidebar_foreground)
-            .border_r_1()
-            .border_color(cx.theme().sidebar_border)
             .child(match tool {
                 ToolWindow::Inbox => self.render_inbox_tool(cx),
                 ToolWindow::BoardIssues => self.render_board_issues_tool(cx),

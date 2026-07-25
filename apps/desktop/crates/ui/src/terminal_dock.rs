@@ -37,9 +37,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     dock::{register_panel, DockArea, Panel, PanelControl, PanelEvent, PanelInfo, PanelState},
-    h_flex,
-    tab::{Tab, TabBar},
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _, Size,
+    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -505,26 +503,25 @@ impl TerminalDockPanel {
         selected_ix: usize,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        // Strip position → manager index (the strip skips undocked tabs).
-        let activate_map: Vec<usize> = metas.iter().map(|meta| meta.manager_ix).collect();
-        let tab_bar = TabBar::new("terminal-tabs")
-            .with_size(Size::Small) // compact density
-            .selected_index(selected_ix)
-            .on_click(cx.listener(move |this, ix: &usize, window, cx| {
-                cx.stop_propagation();
-                let Some(manager_ix) = activate_map.get(*ix).copied() else {
-                    return;
-                };
-                this.manager
-                    .update(cx, |manager, cx| manager.activate(manager_ix, cx));
-                this.focus_active_terminal(window, cx);
-            }))
-            .children(metas.iter().enumerate().map(|(ix, meta)| {
-                let id = meta.id;
-                Tab::new().group(TAB_GROUP).label(meta.title.clone()).suffix(
+        // EXP-277: hand-rolled rounded chips (crate::surface::tab_chip), same
+        // treatment as the center tab strip — gpui-component's TabBar is
+        // square with a strip-wide bottom border.
+        let chips = metas.iter().enumerate().map(|(ix, meta)| {
+            let id = meta.id;
+            let manager_ix = meta.manager_ix;
+            crate::surface::tab_chip(ix == selected_ix, cx)
+                .id(("terminal-tab", ix))
+                .group(TAB_GROUP)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.manager
+                        .update(cx, |manager, cx| manager.activate(manager_ix, cx));
+                    this.focus_active_terminal(window, cx);
+                }))
+                .child(div().max_w(px(180.)).truncate().child(meta.title.clone()))
+                .child(
                     h_flex()
-                        .gap_1()
-                        .pr_1()
+                        .gap_0p5()
                         .items_center()
                         .when_some(meta.exit_code, |this, code| {
                             let color = if code == 0 {
@@ -574,42 +571,45 @@ impl TerminalDockPanel {
                                 })),
                         ),
                 )
-            }))
-            // The `+` rides the slot right AFTER the last tab (JetBrains
-            // placement), not the far-right suffix.
-            .last_empty_space(
-                h_flex().px_0p5().child(
-                    Button::new("new-terminal-tab")
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Plus)
-                        .tooltip("New shell")
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.new_shell_tab(window, cx);
-                        })),
-                ),
-            )
-            .suffix(
-                h_flex().px_1().child(
-                    Button::new("collapse-terminal-dock")
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::ChevronDown)
-                        .tooltip("Hide terminal")
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.collapse_dock(window, cx);
-                        })),
-                ),
-            );
-        div()
+        });
+        // Clicking the strip's empty space collapses the dock — the whole
+        // strip is the toggle (chip/button handlers stop propagation).
+        h_flex()
             .id("terminal-tab-strip")
             .w_full()
+            .px_1()
+            .py_0p5()
+            .gap_1()
+            .items_center()
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.collapse_dock(window, cx);
             }))
-            .child(tab_bar)
+            .children(chips)
+            // The `+` rides the slot right AFTER the last tab (JetBrains
+            // placement), not the far-right suffix.
+            .child(
+                Button::new("new-terminal-tab")
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Plus)
+                    .tooltip("New shell")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.new_shell_tab(window, cx);
+                    })),
+            )
+            .child(div().flex_1())
+            .child(
+                Button::new("collapse-terminal-dock")
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::ChevronDown)
+                    .tooltip("Hide terminal")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.collapse_dock(window, cx);
+                    })),
+            )
     }
 
     /// The collapsed-dock strip: the bottom dock keeps a 29px band

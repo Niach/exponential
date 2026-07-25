@@ -653,7 +653,8 @@ impl SourceControlView {
             .unwrap_or(0);
         // Copied out (Hsla is Copy) so the theme borrow doesn't overlap the
         // mutable cx borrows of the render calls below.
-        let border = theme.border;
+        // EXP-277: faint glass row stroke for the content header line.
+        let border = theme::tokens::glass::STROKE_ROW.to_hsla();
         let muted = theme.muted_foreground;
 
         gpui_component::v_flex()
