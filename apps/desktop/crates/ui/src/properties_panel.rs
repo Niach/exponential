@@ -1079,7 +1079,13 @@ use gpui::prelude::FluentBuilder as _;
 /// Web `PropertyGroup`: UPPERCASE micro-label over the control
 /// (`text-[11px] font-medium uppercase tracking-wide text-muted-foreground`
 /// — the CSS `uppercase` transform is baked into the string here).
-fn property_group(label: &'static str, control: impl IntoElement, cx: &App) -> impl IntoElement {
+/// `pub(crate)` — the support-thread and action-detail sidebars reuse it
+/// (EXP-277).
+pub(crate) fn property_group(
+    label: &'static str,
+    control: impl IntoElement,
+    cx: &App,
+) -> impl IntoElement {
     v_flex()
         .gap_1()
         .items_start()

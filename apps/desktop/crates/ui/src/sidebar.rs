@@ -1132,8 +1132,8 @@ impl SidebarPanel {
             .px_2()
             .py_1p5()
             .rounded(theme_radius)
-            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .when(selected, |this| this.bg(theme.list_active))
+            .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, window, cx| {
                 // Web `markGroupRead`: clear the group's unreads
@@ -1277,7 +1277,7 @@ impl SidebarPanel {
             .px_2()
             .py_1p5()
             .rounded(theme_radius)
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, window, cx| {
                 // Web `markGroupRead`, then open the ticket team's Support
@@ -1626,8 +1626,10 @@ impl SidebarPanel {
         let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
-        let accent = theme.accent;
         let danger = theme.danger;
+        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
+        let row_hover = theme.list_hover;
+        let row_active = theme.list_active;
         // Open-PR green (the token the status/priority accents use).
         let pr_green = theme::tokens::GREEN.to_hsla();
 
@@ -1729,8 +1731,8 @@ impl SidebarPanel {
             .py_1()
             .gap_0p5()
             .rounded(radius)
-            .when(selected, |this| this.bg(accent.opacity(0.6)))
-            .hover(|this| this.bg(accent.opacity(0.3)))
+            .when(selected, |this| this.bg(row_active))
+            .hover(|this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, window, cx| {
                 // Any click outside the armed button disarms the confirm.
@@ -2056,8 +2058,9 @@ impl SidebarPanel {
         let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
-        let accent = theme.accent;
         let danger = theme.danger;
+        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
+        let row_hover = theme.list_hover;
         let pr_green = theme::tokens::GREEN.to_hsla();
 
         let key = pull_merge_key(repository_id, pull.number);
@@ -2100,7 +2103,7 @@ impl SidebarPanel {
             .py_1()
             .gap_0p5()
             .rounded(radius)
-            .hover(|this| this.bg(accent.opacity(0.3)))
+            .hover(|this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| {
                 // Any click outside the armed button disarms the confirm.
@@ -2336,7 +2339,9 @@ impl SidebarPanel {
         let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
-        let accent = theme.accent;
+        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
+        let row_hover = theme.list_hover;
+        let row_active = theme.list_active;
         // The unread dot's indigo — the blue accent token (token-locked, not
         // loose hex).
         let unread_dot = theme::tokens::BLUE.to_hsla();
@@ -2379,8 +2384,8 @@ impl SidebarPanel {
             .py_1p5()
             .gap_0p5()
             .rounded(radius)
-            .when(selected, |this| this.bg(accent.opacity(0.6)))
-            .hover(|this| this.bg(accent.opacity(0.3)))
+            .when(selected, |this| this.bg(row_active))
+            .hover(|this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, window, cx| {
                 // Seed the tab label — thread titles are tRPC-only.
