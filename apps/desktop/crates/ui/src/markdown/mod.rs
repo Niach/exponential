@@ -36,6 +36,7 @@ pub(crate) mod image_url;
 pub mod parse;
 pub mod serialize;
 mod toolbar;
+mod wysiwyg_input;
 #[cfg(test)]
 mod wysiwyg_parity;
 
@@ -52,6 +53,7 @@ pub use editor::{ImageCache, MarkdownEditor, MarkdownView, RefResolver};
 pub use image_paste::{AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage};
 pub use parse::markdown_to_blocks;
 pub use serialize::blocks_to_markdown;
+pub(crate) use wysiwyg_input::{normalize_for_wysiwyg, restore_blank_line_markers};
 
 /// Normalize arbitrary GFM to the canonical cross-client form
 /// (`serialize(parse(md))`). Canonical input is untouched (the fixture
