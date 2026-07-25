@@ -18,10 +18,7 @@ import { Button } from "@/components/ui/button"
 
 export function SectionLabel({ label, count }: { label: string; count: number }) {
   return (
-    <div
-      className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 px-3 py-1.5"
-      style={{ backgroundColor: `rgba(113, 113, 122, 0.08)` }}
-    >
+    <div className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5">
       <span className="text-sm font-medium">{label}</span>
       <span className="text-xs text-muted-foreground">{count}</span>
     </div>

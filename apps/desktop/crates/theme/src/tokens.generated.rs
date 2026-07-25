@@ -33,13 +33,33 @@ pub const GREEN: Srgb8 = Srgb8 { r: 34, g: 197, b: 94, a: 255 };
 pub const RED: Srgb8 = Srgb8 { r: 239, g: 68, b: 68, a: 255 };
 pub const ORANGE: Srgb8 = Srgb8 { r: 249, g: 115, b: 22, a: 255 };
 pub const BLUE: Srgb8 = Srgb8 { r: 59, g: 130, b: 246, a: 255 };
+pub const BRAND: Srgb8 = Srgb8 { r: 99, g: 102, b: 241, a: 255 };
+
+// Glass surfaces (EXP-269) — the mobile GlassTheme transcription. The nested
+// module keeps the short fill/stroke keys from colliding with palette names.
+pub mod glass {
+    use crate::Srgb8;
+    pub const BACKGROUND_TOP: Srgb8 = Srgb8 { r: 9, g: 9, b: 11, a: 255 };
+    pub const BACKGROUND_BOTTOM: Srgb8 = Srgb8 { r: 24, g: 24, b: 27, a: 255 };
+    pub const FILL_SECTION: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 10 };
+    pub const FILL_ROW: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 13 };
+    pub const FILL_CARD: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 15 };
+    pub const FILL_ACTIVE: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 38 };
+    pub const STROKE_ROW: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 15 };
+    pub const STROKE_SECTION: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 20 };
+    pub const STROKE_CARD: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 26 };
+    pub const STROKE_STRONG: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 31 };
+    pub const STROKE_ACTIVE: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 51 };
+}
 
 // Corner radii in px, matching the web rounded-* scale.
 pub mod radius {
-    pub const SM: f32 = 6.0;
-    pub const MD: f32 = 8.0;
-    pub const LG: f32 = 10.0;
-    pub const XL: f32 = 14.0;
+    pub const SM: f32 = 8.0;
+    pub const MD: f32 = 10.0;
+    pub const LG: f32 = 12.0;
+    pub const XL: f32 = 16.0;
+    pub const XL2: f32 = 20.0;
+    pub const XL3: f32 = 24.0;
 }
 
 // Control geometry in px, matching the web control heights.

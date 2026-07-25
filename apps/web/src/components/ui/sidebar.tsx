@@ -173,7 +173,7 @@ function Sidebar({
       <div
         data-slot="sidebar"
         className={cn(
-          `flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground`,
+          `flex h-full w-(--sidebar-width) flex-col bg-transparent text-sidebar-foreground`,
           className
         )}
         {...props}
@@ -190,7 +190,7 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          className="w-(--sidebar-width) p-0 text-sidebar-foreground [&>button]:hidden"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -247,7 +247,9 @@ function Sidebar({
         <div
           data-sidebar="sidebar"
           data-slot="sidebar-inner"
-          className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm"
+          // bg-transparent (EXP-269): the sidebar melts into the page
+          // gradient; the container's border-r hairline stays the divider.
+          className="flex h-full w-full flex-col bg-transparent group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm"
         >
           {children}
         </div>
@@ -408,7 +410,7 @@ function SidebarGroupLabel({
       data-slot="sidebar-group-label"
       data-sidebar="group-label"
       className={cn(
-        `flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0`,
+        `flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium tracking-wide text-sidebar-foreground/50 ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0`,
         `group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0`,
         className
       )}
@@ -476,12 +478,15 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<`li`>) {
   )
 }
 
+// Glass capsules (EXP-269): white-alpha hover/press washes and a brand-tinted
+// active state. data-[status=active] is TanStack Router's Link active flag —
+// nav links get the highlight without callers wiring isActive.
 const sidebarMenuButtonVariants = cva(
-  `peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0`,
+  `peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-full p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-glass-row hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-glass-active active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-brand/15 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[status=active]:bg-brand/15 data-[status=active]:font-medium data-[status=active]:text-sidebar-accent-foreground data-[state=open]:hover:bg-glass-row data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0`,
   {
     variants: {
       variant: {
-        default: `hover:bg-sidebar-accent hover:text-sidebar-accent-foreground`,
+        default: `hover:bg-glass-row hover:text-sidebar-accent-foreground`,
         outline: `bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]`,
       },
       size: {
@@ -588,7 +593,7 @@ function SidebarMenuBadge({
       data-slot="sidebar-menu-badge"
       data-sidebar="menu-badge"
       className={cn(
-        `pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-xs font-medium text-sidebar-foreground tabular-nums select-none`,
+        `pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-glass-row px-1.5 text-xs font-medium text-sidebar-foreground tabular-nums select-none`,
         `peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[active=true]/menu-button:text-sidebar-accent-foreground`,
         `peer-data-[size=sm]/menu-button:top-1`,
         `peer-data-[size=default]/menu-button:top-1.5`,

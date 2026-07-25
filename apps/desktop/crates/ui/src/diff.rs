@@ -615,9 +615,9 @@ impl Render for DiffView {
                     .into_any_element()
             }
         };
+        // EXP-269: no opaque fill — the diff floats on the page gradient.
         v_flex()
             .size_full()
-            .bg(cx.theme().background)
             .child(body)
     }
 }

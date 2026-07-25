@@ -41,7 +41,8 @@ export function IssueFilterBar({
           {canCreate && (
             <Button
               size="xs"
-              className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white ml-1"
+              variant="brand"
+              className="hidden md:inline-flex ml-1"
               onClick={onNewIssue}
             >
               <Plus className="size-3" />

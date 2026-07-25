@@ -57,7 +57,7 @@ export function IssueEditorAttachmentRail({
                   <div
                     key={`${image.occurrenceIndex}-${image.url}-${image.start}`}
                     className={cn(
-                      `group flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] py-1 pr-1.5 pl-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:border-white/16 hover:bg-white/[0.06]`,
+                      `group flex shrink-0 items-center gap-1 rounded-md border border-glass-stroke-card bg-glass-section py-1 pr-1.5 pl-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:border-glass-stroke-active hover:bg-glass-card`,
                       removable ? `cursor-default` : `opacity-90`
                     )}
                     data-testid={`issue-attachment-chip-${image.occurrenceIndex}`}
@@ -65,7 +65,7 @@ export function IssueEditorAttachmentRail({
                     <img
                       src={image.url}
                       alt=""
-                      className="h-7 w-7 shrink-0 rounded-[6px] border border-white/10 object-cover"
+                      className="h-7 w-7 shrink-0 rounded-[6px] border border-glass-stroke-card object-cover"
                     />
                     <span className="max-w-24 truncate text-xs text-foreground/88">
                       {label}
@@ -73,7 +73,7 @@ export function IssueEditorAttachmentRail({
                     {removable ? (
                       <button
                         type="button"
-                        className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-white/10 hover:text-foreground"
+                        className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-glass-active hover:text-foreground"
                         aria-label={`Remove attachment ${label}`}
                         onClick={() => onRemove?.(image.occurrenceIndex)}
                       >

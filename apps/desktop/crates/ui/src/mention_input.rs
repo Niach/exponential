@@ -225,7 +225,7 @@ impl MentionInput {
             .text_color(theme.popover_foreground)
             .border_1()
             .border_color(theme.border)
-            .rounded(px(6.))
+            .rounded(theme.radius)
             .shadow_md()
             .children(items.iter().enumerate().map(|(index, item)| {
                 let is_selected = index == selected;

@@ -124,13 +124,17 @@ pub fn exponential_dark() -> ThemeColor {
     let red = t::RED.to_hsla();
     let blue = t::BLUE.to_hsla();
     let yellow = t::YELLOW.to_hsla();
+    // EXP-269: the unified product accent (mobile Accent.indigo / web --brand).
+    let indigo = t::BRAND.to_hsla();
 
     // ---- Core surfaces (direct 1:1 token fields) ----------------------------
     c.background = bg;
     c.foreground = fg;
     c.border = border;
     c.input = input;
-    c.ring = t::RING.to_hsla();
+    // EXP-269: focus rings carry the brand accent (mobile-style interaction
+    // color); the neutral RING token still drives the scrollbar thumb below.
+    c.ring = indigo;
     c.muted = t::MUTED.to_hsla();
     c.muted_foreground = muted_foreground;
     c.accent = accent;
@@ -213,18 +217,17 @@ pub fn exponential_dark() -> ThemeColor {
     c.button_warning_hover = yellow.mix_oklab(transparent, 0.3);
     c.button_warning_active = yellow.mix_oklab(transparent, 0.4);
 
-    // ---- Lists — web issue-list parity (the list background must be
-    //      the REAL surfaces, not a wrong card color). tokens.json has no
-    //      list/list_head — mapped from apps/web/src/components/issue-list.tsx:
-    //      rows sit on the page background; group header = `bg-accent/20`;
-    //      row hover = `hover:bg-accent/30`; selection (command/select lists) =
-    //      solid accent like web `data-[selected]:bg-accent`. -----------------
-    c.list = bg;
-    c.list_head = accent.opacity(0.2);
-    c.list_hover = accent.opacity(0.3);
-    c.list_even = bg; // web has no row striping
-    c.list_active = accent;
-    c.list_active_border = t::RING.to_hsla();
+    // ---- Lists — glass surfaces (EXP-269, GlassTheme parity). Transparent
+    //      rows sit directly on the page gradient (the opaque
+    //      `.bg(colors.list)` panel paints become no-ops); header = section
+    //      fill, hover = row fill, selection = active fill + active stroke —
+    //      the exact mobile row/section/active alphas. ------------------------
+    c.list = transparent;
+    c.list_head = t::glass::FILL_SECTION.to_hsla();
+    c.list_hover = t::glass::FILL_ROW.to_hsla();
+    c.list_even = transparent; // web has no row striping
+    c.list_active = t::glass::FILL_ACTIVE.to_hsla();
+    c.list_active_border = t::glass::STROKE_ACTIVE.to_hsla();
 
     // ---- Tables mirror the list surfaces (component's own fallback rule) ----
     c.table = c.list;
@@ -245,26 +248,28 @@ pub fn exponential_dark() -> ThemeColor {
     //      segmented = web `bg-muted`. ------------------------------------------
     c.tab = transparent;
     c.tab_foreground = muted_foreground;
-    c.tab_active = accent;
+    c.tab_active = t::glass::FILL_ACTIVE.to_hsla();
     c.tab_active_foreground = fg;
-    c.tab_bar = card;
-    c.tab_bar_segmented = t::MUTED.to_hsla();
+    c.tab_bar = transparent; // glass: tab strips float on the gradient
+    c.tab_bar_segmented = t::glass::FILL_CARD.to_hsla();
 
-    // ---- Window chrome (desktop-only; web card surface, stock-dark parity) --
-    c.title_bar = card;
-    c.title_bar_border = t::SIDEBAR_BORDER.to_hsla();
-    c.status_bar = card;
-    c.status_bar_border = t::SIDEBAR_BORDER.to_hsla();
+    // ---- Window chrome — glass (EXP-269): the titlebar/status bar are
+    //      transparent strips over the page gradient, separated by hairline
+    //      strokes; the Linux CSD frame uses the strong active stroke. --------
+    c.title_bar = transparent;
+    c.title_bar_border = t::glass::STROKE_SECTION.to_hsla();
+    c.status_bar = transparent;
+    c.status_bar_border = t::glass::STROKE_SECTION.to_hsla();
     c.tiles = card;
-    c.window_border = border; // Linux CSD only
+    c.window_border = t::glass::STROKE_ACTIVE.to_hsla(); // Linux CSD only
 
     // ---- Overlay / selection / caret ----------------------------------------
-    // web dialog overlay is `bg-black/50` (components/ui/dialog.tsx)
-    c.overlay = gpui::black().opacity(0.5);
-    // text selection: token-locked semantic BLUE at the component's 0.3 alpha
-    // clamp (stock dark uses blue-700; a near-white primary selection is
-    // illegible over dark surfaces)
-    c.selection = blue.opacity(0.3);
+    // web dialog overlay is `bg-black/60` (components/ui/dialog.tsx)
+    c.overlay = gpui::black().opacity(0.6);
+    // text selection: brand indigo at the component's 0.3 alpha clamp
+    // (EXP-269 — the mobile selection accent; a near-white primary selection
+    // is illegible over dark surfaces)
+    c.selection = indigo.opacity(0.3);
     // web caret is currentColor → foreground (component fallback uses primary;
     // same near-white family, foreground is the web-true pick)
     c.caret = fg;
@@ -276,12 +281,14 @@ pub fn exponential_dark() -> ThemeColor {
     c.group_box_foreground = fg;
     c.description_list_label = bg.blend(border.opacity(0.2));
     c.description_list_label_foreground = muted_foreground;
-    c.drag_border = primary.opacity(0.65);
-    c.drop_target = primary.opacity(0.2);
-    c.link = primary;
-    c.link_hover = primary;
-    c.link_active = primary;
-    c.progress_bar = primary;
+    // EXP-269: interaction accents go brand indigo (links/progress/drag/slider
+    // match the mobile accent usage; primary stays near-white for buttons).
+    c.drag_border = indigo.opacity(0.65);
+    c.drop_target = indigo.opacity(0.2);
+    c.link = indigo;
+    c.link_hover = indigo.lighten(0.1);
+    c.link_active = indigo.darken(0.1);
+    c.progress_bar = indigo;
     // web skeleton is `bg-accent` (components/ui/skeleton.tsx)
     c.skeleton = accent;
     // scrollbar: transparent track (stock-dark behavior — a solid track would
@@ -290,9 +297,9 @@ pub fn exponential_dark() -> ThemeColor {
     c.scrollbar = transparent;
     c.scrollbar_thumb = t::RING.to_hsla().opacity(0.7);
     c.scrollbar_thumb_hover = t::RING.to_hsla();
-    // slider: filled bar = primary, thumb = background (web thumb is
-    // `bg-background border-primary`; also readable on the near-white bar)
-    c.slider_bar = primary;
+    // slider: filled bar = brand indigo (EXP-269), thumb = background
+    // (readable on the indigo bar)
+    c.slider_bar = indigo;
     c.slider_thumb = bg;
     // switch: single thumb token serves checked (primary, near-white) AND
     // unchecked tracks, so the thumb must be dark → background (stock-dark
@@ -352,14 +359,30 @@ pub fn apply_exponential_dark(cx: &mut App) {
     // bundled JetBrains Mono family (`terminal::FONT_FAMILY`, §6.9).
     theme.font_family = "Inter".into();
     // Compact density (§4.4): base font one notch under web's 14px text-sm;
-    // radius from the generated token scale — theme.radius drives the general
-    // controls (web `rounded-md`-ish chrome at compact density → the SM step),
-    // radius_lg the Dialog/Notification chrome (proportionally small → MD).
+    // radius from the generated token scale — EXP-269 glass ladder: general
+    // controls take the mobile row radius (MD = 10), Dialog/Notification
+    // chrome the section radius (LG = 12).
     theme.font_size = px(FONT_SIZE_PX);
-    theme.radius = px(t::radius::SM);
-    theme.radius_lg = px(t::radius::MD);
+    theme.radius = px(t::radius::MD);
+    theme.radius_lg = px(t::radius::LG);
+    // Inline code/mono runs match the terminal's bundled JetBrains Mono
+    // (EXP-269 — beats the platform-default mono for glass-dark contrast; the
+    // TTFs are embedded by the app shell alongside Inter).
+    theme.mono_font_family = terminal::FONT_FAMILY.into();
     // window.refresh() on the next frame / first window open picks up the new
     // palette — no live window exists at bootstrap time.
+}
+
+/// The glass page background (EXP-269): the mobile `AppBackground` gradient —
+/// zinc-950 → zinc-900, top to bottom. Paint it on every window's root content
+/// element (Shell + undocked windows); panel surfaces above it are transparent
+/// or white-alpha glass fills so the ramp shows through.
+pub fn background_gradient() -> gpui::Background {
+    gpui::linear_gradient(
+        180.,
+        gpui::linear_color_stop(t::glass::BACKGROUND_TOP.to_hsla(), 0.),
+        gpui::linear_color_stop(t::glass::BACKGROUND_BOTTOM.to_hsla(), 1.),
+    )
 }
 
 /// One-call bootstrap entry (§3.6): force dark mode, then apply the
@@ -442,14 +465,42 @@ mod tests {
     }
 
     #[test]
-    fn list_surfaces_mirror_web_issue_list() {
-        // Rows on page background, header accent/20, hover accent/30.
+    fn list_surfaces_are_glass_fills() {
+        // EXP-269: transparent rows on the gradient, section-fill header,
+        // row-fill hover, active-fill selection — the mobile glass alphas.
         let c = exponential_dark();
-        assert_hsla_eq(c.list, tokens::BACKGROUND.to_hsla(), "list");
-        assert_hsla_eq(c.list_head, tokens::ACCENT.to_hsla().opacity(0.2), "list_head");
-        assert_hsla_eq(c.list_hover, tokens::ACCENT.to_hsla().opacity(0.3), "list_hover");
+        assert!(approx(c.list.a, 0.0), "list rows are transparent: {:?}", c.list);
+        assert_hsla_eq(c.list_head, tokens::glass::FILL_SECTION.to_hsla(), "list_head");
+        assert_hsla_eq(c.list_hover, tokens::glass::FILL_ROW.to_hsla(), "list_hover");
+        assert_hsla_eq(c.list_active, tokens::glass::FILL_ACTIVE.to_hsla(), "list_active");
         assert_hsla_eq(c.table, c.list, "table mirrors list");
         assert_hsla_eq(c.table_hover, c.list_hover, "table_hover mirrors list_hover");
+    }
+
+    #[test]
+    fn glass_chrome_and_brand_accent() {
+        // EXP-269: transparent titlebar strips (the gradient shows through the
+        // gpui-component TitleBar via theme.tokens), hairline chrome borders,
+        // and the indigo brand accent on interaction colors.
+        let c = exponential_dark();
+        assert!(approx(c.title_bar.a, 0.0), "title_bar is transparent: {:?}", c.title_bar);
+        assert!(approx(c.tab_bar.a, 0.0), "tab_bar is transparent: {:?}", c.tab_bar);
+        assert_hsla_eq(c.title_bar_border, tokens::glass::STROKE_SECTION.to_hsla(), "title_bar_border");
+        assert_hsla_eq(c.window_border, tokens::glass::STROKE_ACTIVE.to_hsla(), "window_border");
+        assert_hsla_eq(c.ring, tokens::BRAND.to_hsla(), "ring");
+        assert_hsla_eq(c.link, tokens::BRAND.to_hsla(), "link");
+        assert_hsla_eq(c.selection, tokens::BRAND.to_hsla().opacity(0.3), "selection");
+        // primary deliberately stays near-white (web/mobile primary button).
+        assert_hsla_eq(c.primary, tokens::PRIMARY.to_hsla(), "primary");
+    }
+
+    #[test]
+    fn background_gradient_is_a_linear_gradient() {
+        // Smoke test: the helper builds a gradient background (not a solid).
+        // Background's tag field is private at the pinned gpui rev, so probe
+        // the Debug representation.
+        let bg = format!("{:?}", background_gradient());
+        assert!(bg.contains("LinearGradient"), "{bg}");
     }
 
     #[test]

@@ -442,17 +442,9 @@ pub(crate) fn screen_header(title: &'static str, cx: &App) -> impl IntoElement {
         )
 }
 
-/// Web `Card`: bordered rounded section (§4.3 — the `list_head` surface; no
-/// `card` token exists).
-pub(crate) fn card(cx: &App) -> gpui::Div {
-    v_flex()
-        .w_full()
-        .gap_3()
-        .p_4()
-        .border_1()
-        .border_color(cx.theme().border)
-        .rounded(cx.theme().radius_lg)
-        .bg(cx.theme().colors.list_head)
+/// Web `Card`: the shared glass card surface (EXP-269).
+pub(crate) fn card(_cx: &App) -> gpui::Div {
+    crate::surface::glass_card().w_full().gap_3().p_4()
 }
 
 /// Web `CardTitle` + `CardDescription`.

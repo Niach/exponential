@@ -231,7 +231,8 @@ export function LabelPicker({
             </div>
             <Button
               size="xs"
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+              variant="brand"
+              className="w-full"
               disabled={!newName.trim() || creating || newNameIsDuplicate}
               onClick={handleCreate}
             >

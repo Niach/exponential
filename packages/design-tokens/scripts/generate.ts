@@ -19,6 +19,7 @@ const repoRoot = join(__dirname, "..", "..", "..")
 interface Tokens {
   palette: Record<string, string>
   semantic: Record<string, string>
+  glass: Record<string, string>
   radius: Record<string, number>
   size: Record<string, number>
   type: { fontFamily: string; baseSize: number }
@@ -157,6 +158,10 @@ function emitKotlin(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        val ${pascalCase(k)}: Color = ${kotlinColor(v)}`)
     .join(`\n`)
+  const glass = Object.entries(tokens.glass)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `        val ${pascalCase(k)}: Color = ${kotlinColor(v)}`)
+    .join(`\n`)
   const radius = Object.entries(tokens.radius)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        val ${pascalCase(k)}: Dp = ${v}.dp`)
@@ -182,6 +187,12 @@ ${palette}
     // Fixed brand accents (status / priority / due-date).
     object Semantic {
 ${semantic}
+    }
+
+    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
+    // GlassTokens (ui/theme/Glass.kt); do not migrate.
+    object Glass {
+${glass}
     }
 
     // Corner radii (px ≡ dp), matching the web rounded-* scale.
@@ -212,6 +223,10 @@ function emitSwift(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: Color = ${swiftColor(v)}`)
     .join(`\n`)
+  const glass = Object.entries(tokens.glass)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `        public static let ${k}: Color = ${swiftColor(v)}`)
+    .join(`\n`)
   const radius = Object.entries(tokens.radius)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: CGFloat = ${v}`)
@@ -233,6 +248,12 @@ ${palette}
     // Fixed brand accents (status / priority / due-date).
     public enum Semantic {
 ${semantic}
+    }
+
+    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
+    // GlassTheme.swift; do not migrate.
+    public enum Glass {
+${glass}
     }
 
     // Corner radii (px ≡ pt), matching the web rounded-* scale.
@@ -265,6 +286,10 @@ function emitRust(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => rustSrgb8(k, v))
     .join(`\n`)
+  const glass = Object.entries(tokens.glass)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `    ${rustSrgb8(k, v)}`)
+    .join(`\n`)
   const radius = Object.entries(tokens.radius)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustF32(k, v)}`)
@@ -281,6 +306,13 @@ ${palette}
 
 // Fixed brand accents (status / priority / due-date).
 ${semantic}
+
+// Glass surfaces (EXP-269) — the mobile GlassTheme transcription. The nested
+// module keeps the short fill/stroke keys from colliding with palette names.
+pub mod glass {
+    use crate::Srgb8;
+${glass}
+}
 
 // Corner radii in px, matching the web rounded-* scale.
 pub mod radius {

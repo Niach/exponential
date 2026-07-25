@@ -157,8 +157,7 @@ function ReviewsPage() {
           {groups.map((group) => (
             <div key={group.board.id} className="mb-4">
               <div
-                className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 px-3 py-1.5"
-                style={{ backgroundColor: `rgba(113, 113, 122, 0.08)` }}
+                className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5"
               >
                 <div
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -240,8 +239,7 @@ function ReviewsPage() {
           {externalGroups.map((group) => (
             <div key={group.repositoryId} className="mb-4">
               <div
-                className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 px-3 py-1.5"
-                style={{ backgroundColor: `rgba(113, 113, 122, 0.08)` }}
+                className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5"
               >
                 <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
                 <span className="text-sm font-medium">{group.fullName}</span>

@@ -14,7 +14,9 @@ function Command({
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        `flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground`,
+        // Transparent (EXP-269): the hosts — filter popovers, the search
+        // sheet — provide the glass surface; an opaque fill would break it.
+        `flex h-full w-full flex-col overflow-hidden rounded-md bg-transparent text-popover-foreground`,
         className
       )}
       {...props}

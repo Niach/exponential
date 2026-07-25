@@ -17,9 +17,10 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
+use gpui::AnyElement;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _, TitleBar,
 };
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
@@ -180,28 +181,42 @@ impl Render for UndockedTerminalWindow {
 
         let steer_banner = crate::steer_wiring::remote_steerer_for_tab(self.tab_id, cx);
 
-        let header = h_flex()
-            .h(px(34.))
-            .w_full()
-            .flex_shrink_0()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().title_bar)
-            .child(
-                Button::new("reattach-terminal-tab")
-                    .ghost()
-                    .xsmall()
-                    .icon(crate::icons::ExpIcon::ExternalLinkIn)
-                    .tooltip("Move back into the terminal dock")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.reattach(window, cx);
-                    })),
-            )
-            .child(div().text_sm().child(title))
-            .child(div().flex_1());
+        let reattach = Button::new("reattach-terminal-tab")
+            .ghost()
+            .xsmall()
+            .icon(crate::icons::ExpIcon::ExternalLinkIn)
+            .tooltip("Move back into the terminal dock")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.reattach(window, cx);
+            }));
+        // EXP-269: real TitleBar under client chrome; plain strip under the
+        // Linux server-decoration fallback (see undock.rs for rationale).
+        let header: AnyElement = if crate::app_title_bar::client_chrome(window) {
+            TitleBar::new()
+                .child(crate::app_title_bar::interactive(
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(reattach)
+                        .child(div().text_sm().child(title)),
+                ))
+                .into_any_element()
+        } else {
+            h_flex()
+                .h(px(34.))
+                .w_full()
+                .flex_shrink_0()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().title_bar)
+                .child(reattach)
+                .child(div().text_sm().child(title))
+                .child(div().flex_1())
+                .into_any_element()
+        };
 
         // Root layers for parity with every other window (notifications).
         let sheet_layer = Root::render_sheet_layer(window, cx);
@@ -221,14 +236,16 @@ impl Render for UndockedTerminalWindow {
             body = body.child(crate::terminal_dock::exit_strip(code, cx));
         }
 
-        div()
-            .size_full()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .track_focus(&self.focus_handle)
-            .child(body)
-            .children(sheet_layer)
-            .children(dialog_layer)
-            .children(notification_layer)
+        crate::window_frame::window_frame().child(
+            div()
+                .size_full()
+                .bg(theme::background_gradient())
+                .text_color(cx.theme().foreground)
+                .track_focus(&self.focus_handle)
+                .child(body)
+                .children(sheet_layer)
+                .children(dialog_layer)
+                .children(notification_layer),
+        )
     }
 }

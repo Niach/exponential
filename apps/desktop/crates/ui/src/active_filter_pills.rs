@@ -104,20 +104,20 @@ impl RenderOnce for ActiveFilterPills {
 /// The web pill skeleton: outline rounded-full h-6 gap-1 text-xs with the
 /// trailing ✕ — a stateful div (Button's icon/label slots cannot express the
 /// icon + text + suffix-✕ order).
-fn pill_base(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .h(px(PILL_HEIGHT))
-        .gap_1()
-        .px_2()
-        .rounded_full()
-        .border_1()
-        .border_color(cx.theme().border)
-        .text_xs()
-        .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().accent))
+fn pill_base(id: impl Into<ElementId>, _cx: &App) -> gpui::Stateful<gpui::Div> {
+    crate::surface::glass_pill(
+        div()
+            .id(id)
+            .flex()
+            .items_center()
+            .h(px(PILL_HEIGHT))
+            .gap_1()
+            .px_2()
+            .text_xs()
+            .cursor_pointer(),
+        false,
+    )
+    .hover(|style| style.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
 }
 
 fn pill_close_icon(cx: &App) -> impl IntoElement {

@@ -55,12 +55,24 @@ pub fn open_shell_window(cx: &mut App) {
             // `desktop_integration` installs, whose `Icon=` carries the
             // taskbar icon). No-op on macOS/Windows (gpui ignores it there).
             app_id: Some(crate::channel::APP_ID.to_string()),
-            // Linux: let the compositor draw the native (server-side) titlebar
-            // and window controls — parity with the macOS native titlebar. SSD
-            // wants an opaque window (no CSD shadow/border to composite), so we
-            // keep the default background rather than the transparent CSD one.
+            // EXP-269: the app draws its own chrome on every platform — the
+            // in-app titlebar (`ui`'s AppTitleBar). macOS: transparent native
+            // titlebar with the traffic lights floating over the 34px bar at
+            // (9,9); Windows: `appears_transparent` suppresses the native
+            // caption and the bar's WindowControlArea hitboxes drive
+            // min/max/close + Snap Layouts.
+            titlebar: Some(gpui_component::TitleBar::title_bar_options()),
+            // Linux: client-side decorations — gpui-component's window-border
+            // plumbing draws the frame/shadow/resize zones (our rounded
+            // `ui::window_frame` variant), and the in-app titlebar provides
+            // drag + controls. The window background must be transparent so
+            // the CSD shadow margins and rounded corners can composite; X11
+            // without a compositor falls back to Server decorations, where
+            // the bar hides itself (`app_title_bar::client_chrome`).
             #[cfg(target_os = "linux")]
-            window_decorations: Some(gpui::WindowDecorations::Server),
+            window_background: gpui::WindowBackgroundAppearance::Transparent,
+            #[cfg(target_os = "linux")]
+            window_decorations: Some(gpui::WindowDecorations::Client),
             ..Default::default()
         };
 
@@ -68,7 +80,19 @@ pub fn open_shell_window(cx: &mut App) {
             let shell = cx.new(|cx| ui::Shell::new(ordinal, window, cx));
             // Root MUST be the first view of every window (§3.3) — it hosts
             // the Dialog/Sheet/Popover/Notification overlay layers.
-            cx.new(|cx| Root::new(shell, window, cx))
+            cx.new(|cx| {
+                let root = Root::new(shell, window, cx);
+                // EXP-269 Linux CSD: the stock Root frame is square-cornered —
+                // disable it (ui's rounded window_frame renders inside the
+                // Shell instead) and clear Root's opaque background so the
+                // shadow margins around the frame stay transparent.
+                #[cfg(target_os = "linux")]
+                let root = {
+                    use gpui::Styled as _;
+                    root.bordered(false).bg(gpui::transparent_black())
+                };
+                root
+            })
         })?;
 
         window.update(cx, |_, window, cx| {

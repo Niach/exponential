@@ -722,20 +722,16 @@ impl Render for LoginView {
             .flex()
             .items_center()
             .justify_center()
-            .bg(cx.theme().background)
+            // EXP-269: no opaque fill — LoginView renders inside the Shell,
+            // whose page gradient already sits behind it; the form floats as a
+            // glass card on it.
             .text_color(cx.theme().foreground)
             .child(
                 v_flex()
                     .gap_6()
                     .items_center()
                     .child(brand)
-                    .child(
-                        form.p_6()
-                            .rounded(cx.theme().radius_lg)
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .bg(cx.theme().popover),
-                    ),
+                    .child(crate::surface::glass_card().p_6().child(form)),
             )
     }
 }

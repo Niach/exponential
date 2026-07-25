@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-glass-redesign`,
+    date: `2026-07-25`,
+    title: `A new coat of glass`,
+    summary: `Web and desktop now match the mobile apps' glass look — a dark gradient backdrop, frosted panels, rounder corners, indigo accents, and the desktop draws its own window chrome.`,
+    body: `- **Glass everywhere** — menus, popovers, dialogs and sheets float as frosted translucent panels over a fixed dark gradient, on web and in the desktop IDE.
+- **Rounder, calmer chrome** — corners follow the mobile radius ladder, small buttons and sidebar items are capsules, and the sidebar melts into the backdrop with an indigo-tinted active state.
+- **Denser lists, softer lines** — issue rows keep their density but get hairline dividers, a glass hover wash, and blurred sticky group headers.
+- **One indigo** — the accent color is now a shared design token across web, desktop, iOS and Android.
+- **Desktop window chrome** — the IDE draws its own titlebar with embedded window controls on macOS, Windows and Linux, with rounded corners and a proper shadow on Linux.`,
+  },
+  {
     id: `2026-07-steering-v2`,
     date: `2026-07-25`,
     title: `Answering the agent, properly`,

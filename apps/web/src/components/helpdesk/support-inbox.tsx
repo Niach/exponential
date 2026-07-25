@@ -158,7 +158,7 @@ export function SupportInbox({
                   </span>
                   {thread.unread && (
                     <span
-                      className="h-2 w-2 shrink-0 rounded-full bg-indigo-500"
+                      className="h-2 w-2 shrink-0 rounded-full bg-brand"
                       aria-label="Awaiting reply"
                     />
                   )}
@@ -354,7 +354,7 @@ function ConversationPane({
                       ? `self-start rounded-bl-sm bg-muted`
                       : isInternal
                         ? `self-end rounded-br-sm border border-amber-500/40 bg-amber-500/10`
-                        : `self-end rounded-br-sm bg-indigo-600 text-white`
+                        : `self-end rounded-br-sm bg-brand text-brand-foreground`
                   }`}
                 >
                   {isInternal && (
