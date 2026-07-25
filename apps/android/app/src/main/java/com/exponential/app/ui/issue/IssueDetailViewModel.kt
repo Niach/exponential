@@ -538,9 +538,10 @@ class IssueDetailViewModel @Inject constructor(
      * Make the issue exist locally, one way or another: kick sync (the row is
      * usually mid-flight), and if it hasn't landed shortly, read it straight
      * from the server and write it into Room. The Room insert — rather than a
-     * screen-local copy — is deliberate: it's idempotent with sync (same PK,
-     * REPLACE), it survives navigation, and it lights up every derived flow
-     * (labels, timeline, share URL) with no parallel code path.
+     * screen-local copy — is deliberate: it only ever fills a hole (guarded
+     * below — sync rows always win), it survives navigation, and it lights up
+     * every derived flow (labels, timeline, share URL) with no parallel code
+     * path.
      */
     private suspend fun fetchIfAbsent() {
         if (issueId.isEmpty()) {
@@ -560,6 +561,15 @@ class IssueDetailViewModel @Inject constructor(
             val result = issuesApi.get(accountId, issueId)
             val db = holder.database(forAccountId = accountId)
             db.withTransaction {
+                // Never clobber a synced row: sync may have delivered a NEWER
+                // version while issues.get was in flight, and Electric won't
+                // re-send it (its offset already advanced) — a REPLACE here
+                // would leave the row stale until the next server-side change.
+                // Skip the label joins too: an existing issue's joins arrive
+                // via sync, and re-inserting the point read's could resurrect
+                // a just-removed label. iOS parity: fetchIssueFallback's
+                // fetchOne-nil guard inside the same pool.write.
+                if (db.issueDao().exists(result.issue.id)) return@withTransaction
                 db.issueDao().upsert(result.issue)
                 for (labelId in result.labelIds) {
                     db.issueLabelDao().upsert(

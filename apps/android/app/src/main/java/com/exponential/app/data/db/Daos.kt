@@ -69,6 +69,11 @@ interface IssueDao {
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
+    // Existence probe for the push-tap fallback's fill-a-hole guard (EXP-264);
+    // suspend so it can run inside the same withTransaction as the insert.
+    @Query("SELECT EXISTS(SELECT 1 FROM issues WHERE id = :id)")
+    suspend fun exists(id: String): Boolean
+
     // Reviews (EXP-131): every issue in one team with an OPEN pull request.
     // Joins boards to scope by team and drop trashed/archived boards;
     // a batch PR links several issues to the SAME pr_url, so the client groups
