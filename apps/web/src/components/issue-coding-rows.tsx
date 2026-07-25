@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router"
 import {
   ChevronRight,
   GitBranch,
+  GitMerge,
   GitPullRequest,
   Loader2,
   MonitorOff,
@@ -22,6 +23,14 @@ import { displayUserName } from "@/lib/user-display"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { PropertyGroup } from "@/components/issue-properties-panel"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
@@ -153,6 +162,79 @@ export function SessionStatusBadge({
 }
 
 export type CodingControlVariant = `row` | `sidebar`
+
+// Sidebar merge affordance (EXP-268): full-width Merge button + confirm
+// dialog for an issue whose linked PR is open. Mirrors the reviews pages'
+// semantics — `issues.mergePr`, spinner held until the Electric echo flips
+// `prState` away from `open` (the server also ends the issue's live coding
+// session on merge, so the desktop terminal tears down on its own).
+function IssueMergeButton({ issue }: { issue: Issue }) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [merging, setMerging] = useState(false)
+
+  // The live issue prop flips via Electric once the merge lands — release the
+  // held spinner (and any stale confirm) then.
+  useEffect(() => {
+    if (issue.prState !== `open`) {
+      setMerging(false)
+      setConfirmOpen(false)
+    }
+  }, [issue.prState])
+
+  const merge = async () => {
+    setMerging(true)
+    try {
+      // Failures surface via the global mutation-error toast.
+      await trpc.issues.mergePr.mutate({ issueId: issue.id })
+      setConfirmOpen(false) // keep `merging` until the echo flips prState
+    } catch {
+      setMerging(false)
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => setConfirmOpen(true)}
+        disabled={merging}
+      >
+        {merging ? <Loader2 className="animate-spin" /> : <GitMerge />}
+        {merging ? `Merging…` : `Merge PR`}
+      </Button>
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(next) => {
+          if (!merging) setConfirmOpen(next)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Merge pull request?</DialogTitle>
+            <DialogDescription>
+              {`Merge PR #${issue.prNumber ?? ``} into the default branch? Every issue linked to it completes, and its live coding session ends.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmOpen(false)}
+              disabled={merging}
+            >
+              Cancel
+            </Button>
+            <Button onClick={merge} disabled={merging}>
+              {merging ? <Loader2 className="animate-spin" /> : <GitMerge />}
+              Merge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
 
 // Membership gate shared by both exported pieces (the server enforces it
 // regardless; this only decides what renders).
@@ -317,6 +399,9 @@ function AgentRow({
                 Live steering is unavailable on this instance.
               </p>
             ) : null}
+            {isMember && issue.prState === `open` && (
+              <IssueMergeButton issue={issue} />
+            )}
           </div>
         </PropertyGroup>
       )
@@ -350,7 +435,20 @@ function AgentRow({
   // — RemoteStartRow (which owns useRemoteStart) mounts ONLY here, so a
   // non-member / steer-off / repo-less / already-running issue view never fires
   // an ungated steer.myDevices round-trip.
-  if (!isMember || !steerEnabled || !board.repositoryId) return null
+  if (!isMember || !steerEnabled || !board.repositoryId) {
+    // An open PR still deserves its sidebar Merge button (EXP-268) even when
+    // remote start can't render (steer off / repo-less board).
+    if (isMember && variant === `sidebar` && issue.prState === `open`) {
+      return (
+        <PropertyGroup label="Agent">
+          <div className="w-full space-y-2">
+            <IssueMergeButton issue={issue} />
+          </div>
+        </PropertyGroup>
+      )
+    }
+    return null
+  }
   return (
     <RemoteStartRow
       issue={issue}
@@ -383,12 +481,15 @@ function RemoteStartRow({
     if (variant === `sidebar`) {
       return (
         <PropertyGroup label="Agent">
-          <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-            <MonitorOff className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              No desktop online — open the Exponential desktop app to run this
-              issue there.
-            </span>
+          <div className="w-full space-y-2">
+            <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <MonitorOff className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                No desktop online — open the Exponential desktop app to run
+                this issue there.
+              </span>
+            </div>
+            {issue.prState === `open` && <IssueMergeButton issue={issue} />}
           </div>
         </PropertyGroup>
       )
@@ -443,6 +544,7 @@ function RemoteStartRow({
       <PropertyGroup label="Agent">
         <div className="w-full space-y-2">
           {startButton}
+          {issue.prState === `open` && <IssueMergeButton issue={issue} />}
           {dialog}
           {remote.sentTo && (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

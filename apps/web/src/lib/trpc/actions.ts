@@ -12,13 +12,12 @@ import {
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 
-// Team action prompts (EXP-253). tRPC-only — NOT an Electric shape: the
-// desktops fetch on demand and gate every run behind the per-device
-// body-hash trust prompt (a DB-stored prompt run locally reverses the
-// never-execute-synced-values invariant, so the trust prompt is
-// non-negotiable and re-fires whenever the freshly fetched body changes).
-// Reads are member-gated (running is a member affordance); writes are
-// team-owner-only.
+// Team action prompts (EXP-253). Listing is Electric-synced since EXP-268
+// (the `actions` shape — body EXCLUDED by the server-pinned allowlist), but
+// this router stays load-bearing: `list` serves pre-shape native builds + MCP,
+// `get` is the ONLY body path (editors on open, the desktop right before a
+// run), and all writes are tRPC. Reads are member-gated (running is a member
+// affordance); writes are team-owner-only.
 
 export const MAX_ACTION_NAME = 255
 export const MAX_ACTION_DESCRIPTION = 2048
@@ -169,13 +168,13 @@ export const actionsRouter = router({
       }
     }),
 
-  // Member-gated single fetch — the desktop re-fetches the body right before
-  // a run and hashes THAT (never a listed/cached copy) for the trust gate.
+  // Member-gated single fetch — the ONLY body path: synced rows exclude the
+  // body, so editors fetch it on open and the desktop right before a run.
   get: authedProcedure
     .input(z.object({ id: actionIdSchema }))
     .query(async ({ ctx, input }) => {
       // The builtin has no server body — desktops compose its prompt from
-      // their own shipped constants and never trust-gate it.
+      // their own shipped constants.
       rejectBuiltin(input.id, `fetched`)
       const action = await loadAction(input.id)
       await assertTeamMember(ctx.session.user.id, action.teamId)

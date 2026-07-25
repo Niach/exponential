@@ -212,6 +212,28 @@ pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
     out
 }
 
+/// A team's actions from the synced `actions` shape (EXP-268): the local
+/// builtin "Create action" prepended, real rows sorted `sortOrder` then
+/// `name` (collections hydrate unordered — the old server ordering must be
+/// re-applied client-side). Second value = the shape reached readiness (for
+/// the loading-vs-empty split).
+pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool) {
+    let collections = Store::global(cx).collections();
+    let collection = collections.actions.read(cx);
+    let mut out: Vec<api::actions::Action> = collection
+        .iter()
+        .filter(|row| row.team_id.as_deref() == Some(team_id))
+        .map(api::actions::from_row)
+        .collect();
+    out.sort_by(|a, b| {
+        a.sort_order
+            .total_cmp(&b.sort_order)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    out.insert(0, api::actions::builtin_create_action(team_id));
+    (out, collection.is_ready())
+}
+
 /// The label-picker read (`label-picker.tsx`): a team's labels,
 /// sort-order sorted.
 pub fn team_labels(cx: &App, team_id: &str) -> Vec<Label> {

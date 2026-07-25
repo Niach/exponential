@@ -9,7 +9,6 @@ import {
   ChevronRight,
   CircleHelp,
   ClipboardList,
-  Eye,
   Loader2,
   Maximize2,
   Minimize2,
@@ -261,7 +260,6 @@ export function AgentSessionView({
   const [attempt, setAttempt] = useState(1)
   const [phase, setPhase] = useState<ViewerPhase>({ kind: `idle` })
   const [perm, setPerm] = useState<`view` | `steer`>(`view`)
-  const [viewers, setViewers] = useState<PresenceViewer[]>([])
   const [steererId, setSteererId] = useState<string | null>(null)
   const [feed, setFeed] = useState<FeedItem[]>([])
   /** The most recent worktree diff — each one replaces the previous. */
@@ -388,7 +386,6 @@ export function AgentSessionView({
       // Hold the `starting` phase steady across auto-retry redials — flipping
       // to `connecting` per attempt makes the header flicker on every redial.
       if (!retrying) setPhase({ kind: `connecting` })
-      setViewers([])
       setSteererId(null)
 
       // `bye` / no_such_session must win over the generic close handler.
@@ -438,7 +435,6 @@ export function AgentSessionView({
           switch (frame.t) {
             case `presence`: {
               const f = frame as Extract<ServerFrame, { t: `presence` }>
-              setViewers(f.viewers)
               setSteererId(f.steererId)
               markLive()
               return
@@ -482,7 +478,6 @@ export function AgentSessionView({
           if (disposed) return
           wsRef.current = null
           clearIdleRelease()
-          setViewers([])
           setSteererId(null)
           if (sawEnd) {
             setPhase({ kind: `ended`, detail: detail ?? undefined })
@@ -661,10 +656,6 @@ export function AgentSessionView({
     [diffFiles]
   )
 
-  const otherSteerer =
-    steererId && steererId !== currentUserId
-      ? (viewers.find((v) => v.userId === steererId)?.name ?? `Someone`)
-      : null
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
   const composerVisible = live && perm === `steer` && !sessionEnded
@@ -681,15 +672,10 @@ export function AgentSessionView({
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && questionIds.size > 0
 
-  /** Presence tooltip — every current viewer, the steerer marked. */
-  const presenceTitle = viewers
-    .map((v) => (v.userId === steererId ? `${v.name} (steering)` : v.name))
-    .join(`, `)
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Compact header line — the dock owns the panel frame, so this is just
-          identity + presence + controls. */}
+          identity + controls. */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <PhaseIndicator
           phase={phase}
@@ -697,15 +683,6 @@ export function AgentSessionView({
           awaitingInput={awaitingInput}
         />
         <div className="min-w-0 flex-1 truncate text-sm">{title}</div>
-        {live && viewers.length > 0 && (
-          <span
-            className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
-            title={presenceTitle}
-          >
-            <Eye className="size-3.5" />
-            {viewers.length}
-          </span>
-        )}
         {phase.kind === `closed` && (
           <Button
             variant="outline"
@@ -722,12 +699,13 @@ export function AgentSessionView({
         {live && (perm === `steer` || session.userId === currentUserId) && (
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             className="shrink-0 text-destructive hover:text-destructive"
+            aria-label="Kill session"
+            title="Kill session"
             onClick={() => setConfirmKill(true)}
           >
             <OctagonX />
-            <span className="hidden md:inline">Kill session</span>
           </Button>
         )}
         {onToggleFullscreen && (
@@ -891,29 +869,18 @@ export function AgentSessionView({
             </Collapsible>
           )}
 
-          {/* Steering composer (perm-gated; sending steals the claim) */}
-          {composerVisible ? (
+          {/* Steering composer (perm-gated; sending steals the claim). No
+              steering captions — steering is seamless (EXP-268); the composer
+              tint is the only signal. */}
+          {composerVisible && (
             <div className="border-t border-border p-2">
-              {steering ? (
-                <div className="px-1 pb-1 text-[0.6875rem] text-muted-foreground">
-                  You&rsquo;re steering
-                </div>
-              ) : otherSteerer ? (
-                <div className="px-1 pb-1 text-[0.6875rem] text-muted-foreground">
-                  {otherSteerer} is steering — sending takes over
-                </div>
-              ) : null}
               <MessageComposer
                 steering={steering}
                 onSend={sendMessage}
                 onEscape={sendEscape}
               />
             </div>
-          ) : live && perm === `view` ? (
-            <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-              Watching — only team owners or the session owner can steer.
-            </div>
-          ) : null}
+          )}
       </div>
 
       <Dialog open={confirmKill} onOpenChange={setConfirmKill}>

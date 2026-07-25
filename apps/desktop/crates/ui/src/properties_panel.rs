@@ -30,7 +30,7 @@ use gpui_component::{
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
-    v_flex, ActiveTheme as _, Icon, Sizable as _, Side,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Side,
 };
 use sync::Store;
 
@@ -57,6 +57,14 @@ pub struct PropertiesPanel {
     /// group (EXP-256, web parity — the entity stays owned by the detail
     /// view, which also reads its `resolved_repo` for the actions menu).
     start_coding: Entity<StartCodingControl>,
+    /// Merge button state (EXP-268 — the reviews-rail two-click arm pattern):
+    /// the armed issue id, its auto-disarm sequence, the in-flight issue id
+    /// (spinner held until the Electric echo flips `pr_state`), the last
+    /// failure caption.
+    merge_arm: Option<String>,
+    merge_arm_seq: u64,
+    merging: Option<String>,
+    merge_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -111,6 +119,10 @@ impl PropertiesPanel {
             issue_id: None,
             due_calendar,
             start_coding,
+            merge_arm: None,
+            merge_arm_seq: 0,
+            merging: None,
+            merge_error: None,
             _subscriptions: subscriptions,
         }
     }
@@ -495,10 +507,16 @@ impl PropertiesPanel {
 
     /// The "Agent" group body (EXP-256, web `issue-coding-rows.tsx` sidebar
     /// variant): the synced coding-now pill above the full-width
-    /// Start-coding/Stop control. The pill is skipped while a LOCAL session
-    /// runs — the control already shows the live indicator, and the synced
-    /// pill would double it as soon as the Electric echo lands.
-    fn agent_control(&self, issue: &Issue, cx: &App) -> impl IntoElement {
+    /// Start-coding/Stop control, plus a Merge button while the linked PR is
+    /// open (EXP-268 — sidebar merge, web parity). The pill is skipped while
+    /// a LOCAL session runs — the control already shows the live indicator,
+    /// and the synced pill would double it as soon as the Electric echo
+    /// lands.
+    fn agent_control(
+        &self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
         let local_running = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
             .unwrap_or(false);
@@ -508,7 +526,115 @@ impl PropertiesPanel {
                 column = column.child(pill);
             }
         }
-        column.child(self.start_coding.clone())
+        column = column.child(self.start_coding.clone());
+        if issue.pr_state.as_deref() == Some("open") {
+            column = column.child(self.merge_button(issue, cx));
+            if let Some(error) = self.merge_error.clone() {
+                column = column.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().danger)
+                        .child(error),
+                );
+            }
+        }
+        column
+    }
+
+    /// The sidebar Merge button (EXP-268): two-click arm ("Merge" →
+    /// "Confirm merge", auto-disarm ~5s — the reviews-rail pattern), then
+    /// `issues.mergePr` on the background executor. The spinner is held
+    /// until the Electric echo flips `pr_state` away from `open` (which
+    /// also drops the whole button); the server ends the issue's live
+    /// coding session on merge, so the terminal tears down on its own.
+    fn merge_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let armed = self.merge_arm.as_deref() == Some(issue.id.as_str());
+        let merging = self.merging.as_deref() == Some(issue.id.as_str());
+        let issue_id = issue.id.clone();
+        let mut button = Button::new("sidebar-merge-pr")
+            .outline()
+            .small()
+            .w_full()
+            .icon(Icon::from(ExpIcon::GitMerge).text_color(if armed {
+                cx.theme().danger
+            } else {
+                cx.theme().muted_foreground
+            }))
+            .label(if merging {
+                "Merging…"
+            } else if armed {
+                "Confirm merge"
+            } else {
+                "Merge PR"
+            })
+            .tooltip("Merge the pull request — completes every linked issue and ends its coding session")
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.on_merge_click(issue_id.clone(), cx);
+            }));
+        if merging {
+            button = button.disabled(true);
+        }
+        button
+    }
+
+    fn on_merge_click(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        if self.merging.is_some() {
+            return;
+        }
+        if self.merge_arm.as_deref() != Some(issue_id.as_str()) {
+            // First click arms; auto-disarm after ~5s (seq-guarded).
+            self.merge_arm = Some(issue_id);
+            self.merge_arm_seq += 1;
+            let seq = self.merge_arm_seq;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(5))
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    if this.merge_arm_seq == seq && this.merge_arm.is_some() {
+                        this.merge_arm = None;
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+            cx.notify();
+            return;
+        }
+
+        // Confirmed — fire the server-side squash merge.
+        self.merge_arm = None;
+        self.merge_arm_seq += 1;
+        self.merge_error = None;
+        let Some(trpc) = queries::trpc_client(cx) else {
+            log::warn!("[ui] issues.mergePr skipped: no active account");
+            cx.notify();
+            return;
+        };
+        self.merging = Some(issue_id.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let call_id = issue_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::issues::merge_pr(&trpc, &call_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(err) = result {
+                    log::warn!("[ui] issues.mergePr({issue_id}) failed: {err}");
+                    let message = match err {
+                        api::ApiError::Http { message, .. } => message,
+                        other => other.to_string(),
+                    };
+                    this.merging = None;
+                    this.merge_error = Some(SharedString::from(message));
+                    cx.notify();
+                }
+                // Success: the Electric echo flips `pr_state` and the whole
+                // button leaves the panel (the issues observer re-renders).
+            });
+        })
+        .detach();
     }
 
     fn board_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {

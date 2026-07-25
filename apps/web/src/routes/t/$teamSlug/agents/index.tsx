@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import type { CodingSession } from "@/db/schema"
-import { codingSessionCollection } from "@/lib/collections"
-import { BUILTIN_CREATE_ACTION_NAME } from "@/lib/builtin-actions"
+import { eq, useLiveQuery } from "@tanstack/react-db"
+import { actionCollection } from "@/lib/collections"
+import { builtinCreateAction } from "@/lib/builtin-actions"
 import {
   Bot,
   Github,
@@ -253,73 +252,28 @@ function AgentsPage() {
   const remote = useRemoteStart({ enabled: steerEnabled, currentUserId })
   const runBusy = remote.starting || remote.sentTo !== null
 
-  // tRPC-fetched state (no react-query in this codebase — the team-settings
-  // sections' useState/useEffect + refetch-callback convention).
-  const [actions, setActions] = useState<TeamAction[] | null>(null)
-  const [listError, setListError] = useState<string | null>(null)
-  const refetch = useCallback(async () => {
-    if (!teamId || !isMember) return
-    try {
-      const res = await trpc.actions.list.query({ teamId })
-      setActions(res.actions)
-      setListError(null)
-    } catch (err) {
-      setListError(err instanceof Error ? err.message : String(err))
-    }
-  }, [teamId, isMember])
-
-  useEffect(() => {
-    setActions(null)
-    void refetch()
-  }, [refetch])
-
-  // Refetch after a builtin "Create action" run finishes (EXP-257): the
-  // creator authors the new action via MCP during the run, and `actions` is
-  // tRPC-fetched (never synced) — so watch the SYNCED session rows for the
-  // team's "Create action" runs and refetch on the running→ended edge.
-  // Builtin rows carry actionId NULL, so the name snapshot is the key.
-  const { data: createRunRows } = useLiveQuery(
+  // Actions ride the Electric `actions` shape since EXP-268 (body excluded —
+  // editors fetch it via tRPC on open), so a builtin "Create action" run's
+  // MCP-authored action just appears; no refetch machinery.
+  const { data: actionRows } = useLiveQuery(
     (query) =>
       teamId
         ? query
-            .from({ s: codingSessionCollection })
-            .where(({ s }) =>
-              and(
-                eq(s.teamId, teamId),
-                eq(s.actionName, BUILTIN_CREATE_ACTION_NAME)
-              )
-            )
+            .from({ a: actionCollection })
+            .where(({ a }) => eq(a.teamId, teamId))
         : undefined,
     [teamId]
   )
-  const endedCreateRuns = useMemo(
-    () =>
-      ((createRunRows ?? []) as CodingSession[]).filter(
-        (s) => s.status === `ended`
-      ).length,
-    [createRunRows]
-  )
-  // First observation per team only baselines (historic ended rows must not
-  // trigger a duplicate fetch right after mount).
-  const endedBaselineRef = useRef<number | null>(null)
-  useEffect(() => {
-    endedBaselineRef.current = null
-  }, [teamId])
-  useEffect(() => {
-    const baseline = endedBaselineRef.current
-    endedBaselineRef.current = endedCreateRuns
-    if (baseline !== null && endedCreateRuns > baseline) void refetch()
-  }, [endedCreateRuns, refetch])
 
-  // Builtin pinned FIRST by its flag (never by sort order); the rest keep
-  // the server's ordering.
-  const sortedActions = useMemo(
-    () =>
-      actions
-        ? [...actions].sort((a, b) => Number(b.builtin) - Number(a.builtin))
-        : null,
-    [actions]
-  )
+  // Builtin pinned FIRST by its flag; the synced rows re-apply the server's
+  // ordering (sortOrder asc, then name — collections hydrate unordered).
+  const sortedActions = useMemo<TeamAction[] | null>(() => {
+    if (!teamId || !isMember || actionRows === undefined) return null
+    const rows = [...actionRows]
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+      .map((row) => ({ ...row, builtin: false as const }))
+    return [builtinCreateAction(teamId), ...rows]
+  }, [teamId, isMember, actionRows])
 
   // Repo names for the badges + the editor's repository select.
   const [repos, setRepos] = useState<ActionRepoOption[]>([])
@@ -360,10 +314,10 @@ function AgentsPage() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      // Failures surface via the global mutation-error toast.
+      // Failures surface via the global mutation-error toast; the synced
+      // collection drops the row.
       await trpc.actions.delete.mutate({ id: deleteTarget.id })
       setDeleteTarget(null)
-      await refetch()
     } catch {
       // Toast already shown; keep the confirm open for a retry.
     } finally {
@@ -477,21 +431,14 @@ function AgentsPage() {
 
         {isMember && (
           <div className="mb-4">
-            {listError && (
-              <div className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {listError}
-              </div>
-            )}
             <SectionLabel
               label="Actions"
               count={sortedActions?.length ?? 0}
             />
             {sortedActions === null ? (
-              !listError && (
-                <div className="px-3 py-3 text-sm text-muted-foreground">
-                  Loading…
-                </div>
-              )
+              <div className="px-3 py-3 text-sm text-muted-foreground">
+                Loading…
+              </div>
             ) : isMobile ? (
               sortedActions.map((action) => (
                 <ActionRow key={action.id} {...actionItemProps(action)} />
@@ -538,7 +485,6 @@ function AgentsPage() {
           onOpenChange={setEditorOpen}
           repos={repos}
           action={editing}
-          onSaved={() => void refetch()}
         />
       )}
 

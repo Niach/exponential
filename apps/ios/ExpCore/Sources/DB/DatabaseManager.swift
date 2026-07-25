@@ -644,6 +644,31 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v9 (EXP-268 actions shape): team action prompts became the 15th
+        // Electric shape, so they get a local table. The server-side columns
+        // allowlist deliberately EXCLUDES `body` (the ≤64KB markdown prompt
+        // never rides sync — tRPC `actions.get` stays the only body path).
+        // Additive new table for stores created before it existed; ifNotExists
+        // keeps re-runs converging. Never bump the `-v5` file suffix for an
+        // additive table (that would wipe every local snapshot). No offset
+        // reset needed — a brand-new shape has no offset row and snapshots
+        // from scratch.
+        migrator.registerMigration("v9_actions") { db in
+            try db.create(table: "actions", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("team_id", .text).notNull().indexed()
+                // Nil for repo-less actions (scratch-dir runs).
+                t.column("repository_id", .text)
+                t.column("name", .text).notNull()
+                t.column("description", .text)
+                // Typed inputs schema (jsonb) stored as stringified JSON.
+                t.column("inputs", .text)
+                t.column("sort_order", .double).notNull().defaults(to: 0)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+        }
+
         return migrator
     }
 
@@ -651,6 +676,7 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
+            try db.execute(sql: "DELETE FROM actions")
             try db.execute(sql: "DELETE FROM coding_sessions")
             try db.execute(sql: "DELETE FROM notifications")
             try db.execute(sql: "DELETE FROM issue_events")

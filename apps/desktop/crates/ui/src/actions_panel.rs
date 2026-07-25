@@ -1,12 +1,15 @@
 //! The Actions tool window (EXP-253): the team's reusable markdown prompts —
 //! list + ▶ Run and owner-only Edit/Delete. EXP-257: creation moved into the
-//! server-defined virtual **"Create action"** builtin (pinned first in this
-//! list; its run IS the creator — an MCP-wired agent session authoring the
-//! action), so the old "Describe with Claude"/"Write manually" headers and
-//! the local templates are gone. Run opens the unified Start-coding dialog's
-//! Actions tab ([`crate::start_coding_dialog::open_for_action`]), which owns
-//! agent/model/effort choices and the typed input fields; the trust-gated
-//! runner itself lives in [`crate::action_run`].
+//! virtual **"Create action"** builtin (pinned first in this list; its run IS
+//! the creator — an MCP-wired agent session authoring the action), so the old
+//! "Describe with Claude"/"Write manually" headers and the local templates
+//! are gone. EXP-268: the list is LIVE — it reads the synced `actions` shape
+//! (body-less rows; the editor fetches the body via `actions.get` on open),
+//! so an MCP-created action appears without any refetch machinery. Run opens
+//! the unified Start-coding dialog's Actions tab
+//! ([`crate::start_coding_dialog::open_for_action`]), which owns
+//! agent/model/effort choices and the typed input fields; the runner itself
+//! lives in [`crate::action_run`].
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -30,22 +33,8 @@ use crate::queries;
 // ActionsPanel — the tool-window list
 // ---------------------------------------------------------------------------
 
-/// Fetch lifecycle (the settings/run-bar load-gate pattern).
-enum Load {
-    Idle,
-    Loading,
-    Ready,
-}
-
 pub struct ActionsPanel {
     nav: Entity<Navigation>,
-    /// The team the loaded list belongs to (scope-change reset key).
-    team_id: Option<String>,
-    load: Load,
-    actions: Vec<api::actions::Action>,
-    error: Option<SharedString>,
-    /// Bumped per fetch — a stale response checks it before landing.
-    generation: u64,
     scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -53,103 +42,38 @@ pub struct ActionsPanel {
 impl ActionsPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
-        // The builtin "Create action" run authors the new action via MCP
-        // during its session — refetch the rail when any run of it ends
-        // (EXP-257: replaces the deleted describe-task exit hook; the exit
-        // announcement covers child exit, tab close, and window teardown).
-        let local_sessions = crate::coding_flow::LocalSessions::global(cx);
-        let subscriptions = vec![
-            cx.observe(&nav, |_, _, cx| cx.notify()),
-            cx.subscribe(
-                &local_sessions,
-                |this, _, event: &crate::coding_flow::ActionRunEnded, cx| {
-                    if event.action_id == api::actions::BUILTIN_CREATE_ACTION_ID {
-                        this.refetch(cx);
-                    }
-                },
-            ),
-        ];
+        // Live list: re-render on any synced actions change (EXP-268) and on
+        // navigation (team switch re-scopes the read).
+        let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        let actions_collection =
+            sync::Store::try_global(cx).map(|store| store.collections().actions.clone());
+        if let Some(collection) = actions_collection {
+            subscriptions.push(cx.observe(&collection, |_, _, cx| cx.notify()));
+        }
         Self {
             nav,
-            team_id: None,
-            load: Load::Idle,
-            actions: Vec::new(),
-            error: None,
-            generation: 0,
             scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
     }
 
-    /// Render-time load gate: reset on team change, fetch once while Idle.
-    fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
-        let team = active_team_id(&self.nav, cx);
-        if team != self.team_id {
-            self.team_id = team;
-            self.actions.clear();
-            self.error = None;
-            self.load = Load::Idle;
-            self.generation += 1;
-        }
-        if !matches!(self.load, Load::Idle) {
-            return;
-        }
-        self.refetch(cx);
-    }
-
-    /// (Re)fetch the active team's actions. The builtin is pinned FIRST by
-    /// its flag (EXP-257 — never by sort order).
-    pub(crate) fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(team_id) = self.team_id.clone() else {
-            return;
-        };
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        self.load = Load::Loading;
-        self.generation += 1;
-        let generation = self.generation;
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::actions::list(&trpc, &team_id) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.load = Load::Ready;
-                match result {
-                    Ok(mut actions) => {
-                        // Stable: keeps the server order within each half.
-                        actions.sort_by_key(|action| !action.builtin);
-                        this.actions = actions;
-                        this.error = None;
-                    }
-                    Err(err) => {
-                        this.error = Some(SharedString::from(format!(
-                            "Could not load actions: {err}"
-                        )));
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+    fn team_id(&self, cx: &App) -> Option<String> {
+        active_team_id(&self.nav, cx)
     }
 
     /// ▶ Run — open the unified Start-coding dialog's Actions tab with this
     /// action preselected (EXP-257: the dialog owns agent/model/effort and
-    /// the typed input fields; the trust gate rides its launch).
+    /// the typed input fields).
     fn run(&mut self, action_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(team_id) = self.team_id.clone() else {
+        let Some(team_id) = self.team_id(cx) else {
             return;
         };
         crate::start_coding_dialog::open_for_action(window, cx, team_id, action_id);
     }
 
     /// Owner Delete, behind a confirm (destructive native actions confirm
-    /// first — the client contract).
+    /// first — the client contract). The synced collection drops the row —
+    /// no refetch needed.
     fn prompt_delete(
         &mut self,
         action_id: String,
@@ -157,9 +81,7 @@ impl ActionsPanel {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let panel = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _window, _cx| {
-            let panel = panel.clone();
             let action_id = action_id.clone();
             alert
                 .confirm()
@@ -176,19 +98,15 @@ impl ActionsPanel {
                     let Some(trpc) = queries::trpc_client(cx) else {
                         return true;
                     };
-                    let panel = panel.clone();
                     let action_id = action_id.clone();
                     cx.spawn(async move |cx| {
                         let result = cx
                             .background_executor()
                             .spawn(async move { api::actions::delete(&trpc, &action_id) })
                             .await;
-                        let _ = cx.update(|cx| {
+                        let _ = cx.update(|_| {
                             if let Err(err) = result {
                                 log::warn!("actions: delete failed: {err}");
-                            }
-                            if let Some(panel) = panel.upgrade() {
-                                panel.update(cx, |panel, cx| panel.refetch(cx));
                             }
                         });
                     })
@@ -205,11 +123,13 @@ impl ActionsPanel {
         index: usize,
         action: &api::actions::Action,
         owner: bool,
+        team_id: &str,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let run_id = action.id.clone();
         let edit_action = action.clone();
+        let edit_team_id = team_id.to_string();
         let repo_backed = action.repository_id.is_some();
         let builtin = action.builtin;
 
@@ -268,28 +188,17 @@ impl ActionsPanel {
                                     // pattern) — never App-global dispatch
                                     // from an overlay into an unfocused view.
                                     let edit = edit_action.clone();
-                                    let edit_panel = panel.clone();
+                                    let edit_team_id = edit_team_id.clone();
                                     let delete = edit_action.clone();
                                     let delete_panel = panel.clone();
                                     menu.item(
                                         PopupMenuItem::new("Edit…").on_click(
                                             move |_, window, cx| {
-                                                let Some(panel) = edit_panel.upgrade() else {
-                                                    return;
-                                                };
-                                                let Some(team_id) = panel
-                                                    .read(cx)
-                                                    .team_id
-                                                    .clone()
-                                                else {
-                                                    return;
-                                                };
                                                 open_action_editor(
                                                     window,
                                                     cx,
-                                                    team_id,
+                                                    edit_team_id.clone(),
                                                     edit.clone(),
-                                                    edit_panel.clone(),
                                                 );
                                             },
                                         ),
@@ -338,38 +247,29 @@ impl ActionsPanel {
 
 impl Render for ActionsPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        self.ensure_loaded(cx);
         // Copied out (Hsla is Copy) — the theme borrow must not overlap the
         // row-render closures' mutable cx borrow.
         let muted = cx.theme().muted_foreground;
-        let danger = cx.theme().danger;
-        let owner = self
-            .team_id
+        let team_id = self.team_id(cx);
+        let owner = team_id
             .as_deref()
             .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
-        let loading = matches!(self.load, Load::Loading) && self.actions.is_empty();
+        let (actions, ready) = match team_id.as_deref() {
+            Some(team_id) => queries::team_actions(cx, team_id),
+            None => (Vec::new(), true),
+        };
+        let loading = !ready;
+        let team_id = team_id.unwrap_or_default();
 
-        let rows: Vec<gpui::AnyElement> = self
-            .actions
-            .clone()
+        let rows: Vec<gpui::AnyElement> = actions
             .iter()
             .enumerate()
-            .map(|(index, action)| self.render_row(index, action, owner, cx))
+            .map(|(index, action)| self.render_row(index, action, owner, &team_id, cx))
             .collect();
 
         gpui_component::v_flex()
             .size_full()
             .min_h_0()
-            .when_some(self.error.clone(), |this, error| {
-                this.child(
-                    div()
-                        .px_2()
-                        .py_1()
-                        .text_xs()
-                        .text_color(danger)
-                        .child(error),
-                )
-            })
             .child(crate::scroll_pane::v_scroll_pane(
                 "actions-scroll",
                 &self.scroll,
@@ -385,22 +285,7 @@ impl Render for ActionsPanel {
                                 .text_color(muted)
                                 .child("Loading actions…"),
                         )
-                    })
-                    .when(
-                        !loading && self.actions.is_empty() && self.error.is_none(),
-                        |this| {
-                            // Practically unreachable (the server always
-                            // appends the builtin) — kept for a degraded
-                            // fetch against an older server.
-                            this.child(
-                                div()
-                                    .p_2()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .child("No actions yet."),
-                            )
-                        },
-                    ),
+                    }),
             ))
     }
 }
@@ -425,14 +310,21 @@ struct ActionEditorView {
     /// The picker rows landed (fetch succeeded) — the gate for trusting the
     /// picker state on save.
     repos_loaded: bool,
+    /// The body landed from `actions.get` (EXP-268: synced rows carry no
+    /// body) — save is refused until then so it can never blank the prompt.
+    body_loaded: bool,
     submitting: bool,
     error: Option<SharedString>,
-    panel: gpui::WeakEntity<ActionsPanel>,
 }
 
 impl ActionEditorView {
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.submitting {
+            return;
+        }
+        if !self.body_loaded {
+            self.error = Some("Still loading the prompt — try again in a moment.".into());
+            cx.notify();
             return;
         }
         let name = self.name.read(cx).value().trim().to_string();
@@ -463,7 +355,6 @@ impl ActionEditorView {
         } else {
             api::Patch::set_or_null(repository_id.clone())
         };
-        let panel = self.panel.clone();
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
@@ -479,12 +370,8 @@ impl ActionEditorView {
             let _ = this.update_in(window, |this, window, cx| {
                 this.submitting = false;
                 match result {
-                    Ok(()) => {
-                        if let Some(panel) = panel.upgrade() {
-                            panel.update(cx, |panel, cx| panel.refetch(cx));
-                        }
-                        window.close_dialog(cx);
-                    }
+                    // The synced collection picks the change up — no refetch.
+                    Ok(()) => window.close_dialog(cx),
                     Err(err) => {
                         this.error = Some(SharedString::from(format!("{err}")));
                         cx.notify();
@@ -569,7 +456,6 @@ fn open_action_editor(
     cx: &mut App,
     team_id: String,
     existing: api::actions::Action,
-    panel: gpui::WeakEntity<ActionsPanel>,
 ) {
     let existing_repo = existing.repository_id.clone();
     let view = cx.new(|cx| ActionEditorView {
@@ -588,21 +474,54 @@ fn open_action_editor(
             state
         }),
         body: cx.new(|cx| {
-            let mut state = InputState::new(window, cx)
+            InputState::new(window, cx)
                 .multi_line(true)
                 .rows(12)
-                .placeholder("# What to do\n\nStep-by-step markdown instructions…");
-            state.set_value(existing.body.clone(), window, cx);
-            state
+                .placeholder("Loading prompt…")
         }),
         repository: None,
         initial_repository_id: existing_repo.clone(),
         repos: Vec::new(),
         repos_loaded: false,
+        body_loaded: false,
         submitting: false,
         error: None,
-        panel,
     });
+
+    // The synced row carries no body (EXP-268) — fetch the fresh one and
+    // seed the prompt field once it lands.
+    if let Some(trpc) = queries::trpc_client(cx) {
+        let view_for_body = view.downgrade();
+        let action_id = existing.id.clone();
+        let window_handle = window.window_handle();
+        cx.spawn(async move |cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::actions::get(&trpc, &action_id) })
+                .await;
+            let _ = window_handle.update(cx, |_, window, cx| {
+                let Some(view) = view_for_body.upgrade() else {
+                    return;
+                };
+                view.update(cx, |view, cx| match result {
+                    Ok(action) => {
+                        view.body.update(cx, |state, cx| {
+                            state.set_value(action.body.clone(), window, cx);
+                        });
+                        view.body_loaded = true;
+                        cx.notify();
+                    }
+                    Err(err) => {
+                        view.error = Some(SharedString::from(format!(
+                            "Could not load the prompt: {err}"
+                        )));
+                        cx.notify();
+                    }
+                });
+            });
+        })
+        .detach();
+    }
 
     // Fetch the repo picker's rows off the foreground; pre-select the
     // edited action's repo once they land.

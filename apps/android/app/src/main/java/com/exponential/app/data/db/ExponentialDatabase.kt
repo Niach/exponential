@@ -19,6 +19,7 @@ import androidx.room.RoomDatabase
         IssueSubscriberEntity::class,
         IssueEventEntity::class,
         CodingSessionEntity::class,
+        ActionEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -111,9 +112,13 @@ import androidx.room.RoomDatabase
     //      swap (stale rows stay visible until the refetch batch replaces
     //      them). Local bookkeeping only, no shape change; destructive fallback
     //      wipes + resyncs.
+    // v28 (EXP-268): actions table — team action prompts became the 15th
+    //      Electric shape (columns WITHOUT the ≤64KB `body`, which stays
+    //      tRPC-only). Consumers list actions from the local flow now instead
+    //      of `actions.list`. Destructive fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 27,
+    version = 28,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -131,5 +136,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun issueSubscriberDao(): IssueSubscriberDao
     abstract fun issueEventDao(): IssueEventDao
     abstract fun codingSessionDao(): CodingSessionDao
+    abstract fun actionDao(): ActionDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

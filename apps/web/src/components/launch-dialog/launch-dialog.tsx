@@ -5,7 +5,12 @@ import { contract } from "@exp/domain-contract"
 import type { CodingSession, Issue } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
-import { codingSessionCollection, issueCollection } from "@/lib/collections"
+import {
+  actionCollection,
+  codingSessionCollection,
+  issueCollection,
+} from "@/lib/collections"
+import { builtinCreateAction } from "@/lib/builtin-actions"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
@@ -135,19 +140,12 @@ export function LaunchDialog({
   const [actionSearch, setActionSearch] = useState(``)
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
-  const [actionRows, setActionRows] = useState<TeamAction[] | null>(null)
   const [repos, setRepos] = useState<ActionRepoOption[]>([])
 
-  // Fetch the team's actions + repos on OPEN (tRPC-only surfaces — neither is
-  // an Electric shape).
+  // Repos on OPEN (tRPC-only surface); actions ride the Electric shape.
   useEffect(() => {
     if (!open) return
     let active = true
-    setActionRows(null)
-    trpc.actions.list
-      .query({ teamId })
-      .then((res) => active && setActionRows(res.actions))
-      .catch(() => active && setActionRows([]))
     trpc.repositories.list
       .query({ teamId })
       .then(
@@ -161,15 +159,24 @@ export function LaunchDialog({
     }
   }, [open, teamId])
 
-  // Builtin pinned FIRST by its flag (never by sort order); the rest keep the
-  // server's ordering.
-  const actions = useMemo(
-    () =>
-      actionRows
-        ? [...actionRows].sort((a, b) => Number(b.builtin) - Number(a.builtin))
-        : null,
-    [actionRows]
+  // Live synced actions (EXP-268 — the body-less list projection); builtin
+  // pinned FIRST, the rest re-apply the server's ordering (sortOrder, name).
+  const { data: syncedActionRows } = useLiveQuery(
+    (query) =>
+      open
+        ? query
+            .from({ a: actionCollection })
+            .where(({ a }) => eq(a.teamId, teamId))
+        : undefined,
+    [open, teamId]
   )
+  const actions = useMemo<TeamAction[] | null>(() => {
+    if (!open || syncedActionRows === undefined) return null
+    const rows = [...syncedActionRows]
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+      .map((row) => ({ ...row, builtin: false as const }))
+    return [builtinCreateAction(teamId), ...rows]
+  }, [open, teamId, syncedActionRows])
   const selectedAction =
     (actions ?? []).find((action) => action.id === selectedActionId) ?? null
   const inputDefs = selectedAction?.inputs ?? []

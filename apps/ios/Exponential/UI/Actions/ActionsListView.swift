@@ -95,7 +95,6 @@ struct ActionsListView: View {
             viewModel = ActionsViewModel(
                 accountId: accountId,
                 db: deps.db,
-                actionsApi: deps.actionsApi,
                 steerApi: deps.steerApi
             )
         }

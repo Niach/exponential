@@ -40,6 +40,8 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,6 +51,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
@@ -109,10 +112,10 @@ fun AgentSessionScreen(
     val phase by viewModel.phase.collectAsStateWithLifecycle()
     val feed by viewModel.feed.collectAsStateWithLifecycle()
     val latestDiff by viewModel.latestDiff.collectAsStateWithLifecycle()
-    val viewers by viewModel.viewers.collectAsStateWithLifecycle()
     val steererId by viewModel.steererId.collectAsStateWithLifecycle()
     val perm by viewModel.perm.collectAsStateWithLifecycle()
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    val killError by viewModel.killError.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.connectIfIdle() }
     // Returning from the background (EXP-243): the socket rarely survives it —
@@ -128,7 +131,6 @@ fun AgentSessionScreen(
     }
 
     val steering = steererId != null && steererId == currentUserId
-    val otherSteerer = viewers.firstOrNull { it.userId == steererId && it.userId != currentUserId }
     val sessionEnded = session?.status == DomainContract.codingSessionStatusEnded
     // A trailing question/plan means the session is blocked on a human — the
     // header flips to "Needs your input" so it never looks silently stuck.
@@ -136,6 +138,7 @@ fun AgentSessionScreen(
         remember(feed) { activeQuestionIds(feed) }.isNotEmpty()
 
     var diffSheetOpen by remember { mutableStateOf(false) }
+    var killDialogOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -151,6 +154,23 @@ fun AgentSessionScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    // Kill switch (EXP-268): only while the synced row is still
+                    // live, for the session owner or a steer-perm viewer (team
+                    // owners — mirrors the server's owner-or-team-owner gate).
+                    val row = session
+                    if (row != null && !sessionEnded &&
+                        (perm == "steer" || row.userId == currentUserId)
+                    ) {
+                        IconButton(onClick = { killDialogOpen = true }) {
+                            Icon(
+                                Icons.Filled.StopCircle,
+                                contentDescription = "Kill session",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
@@ -253,6 +273,19 @@ fun AgentSessionScreen(
                 else -> Unit
             }
 
+            // A failed kill call (EXP-268) — success needs no banner: the
+            // synced row flips to ended and the screen reacts on its own.
+            val killFailure = killError
+            if (killFailure != null) {
+                BannerRow {
+                    Text(
+                        killFailure,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
             // ── Pinned "Latest changes" chip (directly above the input bar) ──
             val diff = latestDiff
             if (diff != null) {
@@ -301,21 +334,14 @@ fun AgentSessionScreen(
             }
 
             // ── Steering input (perm-gated; sending steals the claim) ────────
+            // No steering captions at all — steering should feel seamless
+            // (EXP-197/EXP-268); the composer tint is the only claim signal.
             val inputVisible = perm == "steer" && phase == AgentPhase.Live && !sessionEnded
             if (inputVisible) {
-                // No own-steering notice — steering should feel seamless
-                // (EXP-197); only another person's claim is worth a caption.
-                if (otherSteerer != null) {
-                    SteerCaption(
-                        "${otherSteerer.name.ifBlank { "Someone" }} is steering",
-                    )
-                }
                 MessageInputRow(
                     active = steering,
                     onSend = viewModel::sendMessage,
                 )
-            } else if (perm == "view" && phase == AgentPhase.Live) {
-                SteerCaption("Watching — only team owners or the session owner can steer.")
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -325,6 +351,30 @@ fun AgentSessionScreen(
         UnifiedDiffPanel(
             diff = latestDiff!!,
             onDismiss = { diffSheetOpen = false },
+        )
+    }
+
+    if (killDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { killDialogOpen = false },
+            title = { Text("Kill this coding session?") },
+            text = {
+                Text(
+                    "This force-terminates the agent's terminal on the desktop " +
+                        "and ends the session. It cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    killDialogOpen = false
+                    viewModel.killSession()
+                }) {
+                    Text("Kill session", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { killDialogOpen = false }) { Text("Cancel") }
+            },
         )
     }
 }
@@ -810,16 +860,6 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 }
 
 // ── Steering input ───────────────────────────────────────────────────────────
-
-@Composable
-private fun SteerCaption(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
-    )
-}
 
 @Composable
 private fun MessageInputRow(active: Boolean, onSend: (String) -> Unit) {

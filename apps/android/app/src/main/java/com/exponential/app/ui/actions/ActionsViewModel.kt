@@ -4,10 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.ActionsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
+import com.exponential.app.data.api.builtinCreateAction
+import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -29,15 +30,19 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
 
 // The Actions surface (EXP-253, mobile = view + run only): the selected
-// team's action prompts over tRPC (`actions.list` — deliberately NOT an
-// Electric shape) plus the remote-run flow. After the server accepts a start,
+// team's action prompts LIVE from the synced actions shape (EXP-268 — the
+// local Room flow, body-less by design; the virtual builtin "Create action"
+// row is prepended client-side) plus the remote-run flow. After the server
+// accepts a start,
 // the model watches the synced coding_sessions DAO flow for the row the
 // desktop inserts (this action's NAME + the caller's own userId + a recent
 // startedAt — never the action id: the builtin "Create action" run's row
@@ -63,9 +68,9 @@ sealed interface ActionRunState {
 class ActionsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
-    private val actionsApi: ActionsApi,
     private val steerApi: SteerApi,
     private val selection: TeamSelection,
+    private val json: Json,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
@@ -87,28 +92,23 @@ class ActionsViewModel @Inject constructor(
 
     private var watchJob: Job? = null
 
+    // Live from the synced actions shape (EXP-268): the DAO orders by
+    // sort_order then name; the virtual builtin "Create action" row is
+    // prepended (the screens pin it first by its flag).
     val state: StateFlow<ActionsState> =
-        combine(auth.activeAccountId, selection.selectedId) { accountId, teamId ->
-            accountId to teamId
-        }.flatMapLatest { (accountId, teamId) ->
-            flow {
-                if (accountId == null || teamId == null) {
-                    emit(ActionsState(loading = false))
-                    return@flow
+        combine(dbFlow, selection.selectedId) { db, teamId ->
+            db to teamId
+        }.flatMapLatest { (db, teamId) ->
+            if (db == null || teamId == null) {
+                flowOf(ActionsState(loading = false))
+            } else {
+                db.actionDao().observeByTeam(teamId).map { rows ->
+                    ActionsState(
+                        actions = listOf(builtinCreateAction(teamId)) +
+                            rows.map { it.toActionDto(json) },
+                        loading = false,
+                    )
                 }
-                emit(ActionsState(loading = true))
-                emit(
-                    runCatching { actionsApi.list(accountId, teamId) }.fold(
-                        onSuccess = { ActionsState(actions = it, loading = false) },
-                        onFailure = {
-                            if (it is CancellationException) throw it
-                            ActionsState(
-                                loading = false,
-                                error = trpcErrorMessage(it, "Couldn't load actions"),
-                            )
-                        },
-                    ),
-                )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActionsState())
 

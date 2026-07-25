@@ -308,6 +308,10 @@ class AgentSessionViewModel @Inject constructor(
     private val _latestDiff = MutableStateFlow<String?>(null)
     val latestDiff: StateFlow<String?> = _latestDiff
 
+    /** A failed [killSession] call's message (EXP-268) — rendered as a banner. */
+    private val _killError = MutableStateFlow<String?>(null)
+    val killError: StateFlow<String?> = _killError
+
     private var nextEventId = 0L
 
     /** Locally-echoed sent messages awaiting their transcript-derived
@@ -726,6 +730,26 @@ class AgentSessionViewModel @Inject constructor(
                 }
             }
             scheduleIdleRelease()
+        }
+    }
+
+    /**
+     * Kill the session (EXP-268): tRPC `steer.killSession` flips the synced
+     * row to `ended` (which this screen already reacts to) and best-effort
+     * kills the live terminal through the relay — so no local state change on
+     * success; a failure surfaces via [killError].
+     */
+    fun killSession() {
+        viewModelScope.launch {
+            _killError.value = null
+            try {
+                val accountId = auth.activeAccountId.value
+                    ?: throw IllegalStateException("No active account")
+                steerApi.killSession(accountId, codingSessionId)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _killError.value = trpcErrorMessage(t, "Couldn't kill the session")
+            }
         }
     }
 

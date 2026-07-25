@@ -135,9 +135,9 @@ pub struct ActionLaunchRequest {
     /// and builtin session rows must send it (`codingSessions.start` can't
     /// resolve a team from the builtin literal).
     pub team_id: String,
-    /// The FRESH body — the caller fetched it via `actions.get` and passed
-    /// the per-device trust gate on ITS hash; a cached/listed body must
-    /// never reach here. Empty for the builtin (its prompt is generated).
+    /// The FRESH body — the caller fetched it via `actions.get` right before
+    /// the run (synced rows carry no body). Empty for the builtin (its
+    /// prompt is generated).
     pub body: String,
     /// `Some` = run in this repo's trunk clone on the default branch;
     /// `None` = repo-less (scratch dir). Local starts resolve it from the

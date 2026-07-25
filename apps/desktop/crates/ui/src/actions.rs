@@ -48,12 +48,6 @@ actions!(
         /// trunk (fetch + ff-only catch-up) — the compact bar has no standing
         /// "Up to date" button.
         SyncNow,
-        /// Issue detail (EXP-48): swap to the NEXT issue in the active
-        /// list's filtered ordering (`j`, scoped to the detail's key
-        /// context).
-        NextIssue,
-        /// Issue detail (EXP-48): swap to the PREVIOUS issue (`k`).
-        PrevIssue,
     ]
 );
 

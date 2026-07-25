@@ -156,6 +156,65 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertTrue(sub.unsubscribed)
     }
 
+    // MARK: - Action (inputs jsonb rides the actions shape, EXP-268)
+
+    func testActionDecodesObjectArrayInputsToStoredString() throws {
+        // jsonb arrives as a real JSON array off the wire — it must re-encode
+        // to a stored string TYPE-FAITHFULLY (`required` stays a boolean) so
+        // the later ActionInputDto parse round-trips.
+        let action = try decode(ActionEntity.self, #"""
+        {
+          "id": "a1", "team_id": "w1", "repository_id": "r1",
+          "name": "Deploy", "description": "Ship it", "sort_order": "2.5",
+          "inputs": [
+            {"key": "env", "label": "Environment", "type": "text",
+             "required": true, "placeholder": "prod"},
+            {"key": "repo", "label": "Repository", "type": "repo"}
+          ],
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(action.sortOrder, 2.5)
+        XCTAssertEqual(action.repositoryId, "r1")
+        let stored = try XCTUnwrap(action.inputs)
+        let parsed = try JSONDecoder().decode([ActionInputDto].self, from: Data(stored.utf8))
+        XCTAssertEqual(parsed, [
+            ActionInputDto(
+                key: "env", label: "Environment", type: "text",
+                required: true, placeholder: "prod"
+            ),
+            ActionInputDto(key: "repo", label: "Repository", type: "repo"),
+        ])
+    }
+
+    func testActionDecodesStringInputsVerbatimAndNullAsNil() throws {
+        // A string-typed jsonb wire form stores verbatim; null / absent → nil.
+        let stringForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a1", "team_id": "w1", "name": "Deploy",
+          "inputs": "[{\"key\":\"env\",\"label\":\"Env\",\"type\":\"text\"}]",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(stringForm.inputs, #"[{"key":"env","label":"Env","type":"text"}]"#)
+
+        let nullForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a2", "team_id": "w1", "name": "Sweep", "inputs": null,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(nullForm.inputs)
+
+        let absentForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a3", "team_id": "w1", "name": "Report",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(absentForm.inputs)
+    }
+
     // MARK: - Helper edges
 
     func testWireIntThrowsOnUnparseableString() {

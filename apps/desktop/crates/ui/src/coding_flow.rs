@@ -42,12 +42,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use gpui::{
-    div, App, AppContext as _, Entity, EventEmitter, IntoElement, ParentElement, Render,
+    div, px, App, AppContext as _, Entity, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
+    dialog::DialogButtonProps,
     h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    WindowExt as _,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
@@ -201,22 +203,9 @@ pub struct LocalCodingSession {
     pub branch: String,
     pub tab: TabId,
     pub manager: WeakEntity<TerminalManager>,
-    /// The team action this run executes (`None` for issue/batch sessions) —
-    /// lets the exit funnel announce ended action runs (EXP-257: the actions
-    /// rail refetches after the builtin creator finishes).
+    /// The team action this run executes (`None` for issue/batch sessions).
     pub action_id: Option<String>,
 }
-
-/// Emitted by [`LocalSessions`] when an ACTION run's session leaves the
-/// registry (child exit, tab close, or window teardown — every path funnels
-/// through `remove`). The builtin "Create action" run writes a new action via
-/// MCP during its session, so the actions rail refetches on this edge —
-/// replacing the deleted describe-task exit hook (EXP-257).
-pub struct ActionRunEnded {
-    pub action_id: String,
-}
-
-impl EventEmitter<ActionRunEnded> for LocalSessions {}
 
 /// Subject-keyed registry of local sessions. An entity (not a bare global) so
 /// the header affordances can `cx.observe` it for the play↔stop flip.
@@ -309,9 +298,6 @@ impl LocalSessions {
             };
             if let Some(entry) = &entry {
                 this.watchers.remove(&entry.session_id);
-                if let Some(action_id) = &entry.action_id {
-                    cx.emit(ActionRunEnded { action_id: action_id.clone() });
-                }
             }
             cx.notify();
             entry
@@ -1019,26 +1005,42 @@ impl StartCodingControl {
         crate::start_coding_dialog::open_for_issue(window, cx, issue_id);
     }
 
-    /// The stop affordance (§7.5): kill this issue's local child; the exit
-    /// hook then fires the idempotent `codingSessions.end` and clears the
-    /// registry — stop is a kill, the bookkeeping rides the exit edge.
-    fn stop(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(issue_id) = self.issue_id.as_deref() else {
+    /// The stop affordance (§7.5), behind a confirm (EXP-268 — destructive
+    /// native actions confirm first): close this issue's terminal tab
+    /// entirely. `close_tab` kills the child and joins the PTY threads; the
+    /// `TabClosed` watcher then fires the idempotent `codingSessions.end`
+    /// and clears the registry.
+    fn stop(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(issue_id) = self.issue_id.clone() else {
             return;
         };
-        let sessions = LocalSessions::global(cx);
-        let handle = sessions.read(cx).get(issue_id).and_then(|session| {
-            session
-                .manager
-                .upgrade()
-                .map(|manager| (manager, session.tab))
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let issue_id = issue_id.clone();
+            alert
+                .confirm()
+                .overlay_closable(true)
+                .close_button(true)
+                .width(px(416.))
+                .title("Stop this coding session?")
+                .description(
+                    "The agent stops immediately and the terminal tab closes. \
+                     Uncommitted work in the worktree is kept.",
+                )
+                .button_props(DialogButtonProps::default().ok_text("Stop session"))
+                .on_ok(move |_, _, cx| {
+                    let sessions = LocalSessions::global(cx);
+                    let handle = sessions.read(cx).get(&issue_id).and_then(|session| {
+                        session
+                            .manager
+                            .upgrade()
+                            .map(|manager| (manager, session.tab))
+                    });
+                    if let Some((manager, tab)) = handle {
+                        manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+                    }
+                    true
+                })
         });
-        let Some((manager, tab)) = handle else {
-            return;
-        };
-        if let Some(tab) = manager.read(cx).tab(tab) {
-            tab.view.read(cx).session().borrow().kill();
-        }
     }
 
     /// Whether the control renders anything at all: an issue is set AND its
@@ -1179,8 +1181,8 @@ impl Render for StartCodingControl {
                         .w_full()
                         .icon(Icon::new(IconName::CircleX).text_color(cx.theme().danger))
                         .label("Stop")
-                        .tooltip("Stop the coding session (ends it for every client)")
-                        .on_click(cx.listener(|this, _, _, cx| this.stop(cx))),
+                        .tooltip("Stop the coding session and close its terminal")
+                        .on_click(cx.listener(|this, _, window, cx| this.stop(window, cx))),
                 )
                 .into_any_element();
         }
@@ -1227,7 +1229,7 @@ impl Render for StartCodingControl {
                         "Couldn't check the linked repository ({err}) — starting will retry."
                     )
                     .into(),
-                    _ => "Clone the linked repository and start Claude on this issue".into(),
+                    _ => "Clone the linked repository and start an agent on this issue".into(),
                 };
                 row = row.child(
                     button

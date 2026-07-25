@@ -863,8 +863,12 @@ fn resize_local_terminal(
 }
 
 /// End a published session (relay `kill` or own-row Electric kill, §8.4/§8.8):
-/// kill the `claude` child (no-op if already exited), stop the publisher, drop
-/// the tee sink and the kill-watch, and forget the session.
+/// close the WHOLE terminal tab (EXP-268 — a killed session must not leave a
+/// dead tab with an exit strip behind; `close_tab` kills the child and joins
+/// the PTY threads), stop the publisher, drop the tee sink and the
+/// kill-watch, and forget the session. The tab-close path also fires the
+/// `TabClosed` watcher, which handles the `codingSessions.end` bookkeeping
+/// and closes any undocked window hosting the tab.
 fn teardown_session(
     session_id: &str,
     manager: &WeakEntity<TerminalManager>,
@@ -883,17 +887,19 @@ fn teardown_session(
         return; // already torn down
     };
 
-    // Kill the child + detach the tee on the foreground (the relay never
-    // reaches this on the dead-relay path — this is the durable abort).
+    // Detach the tee first (the sink must not observe the shutdown), then
+    // close the tab — kill + join ride `close_tab`'s session shutdown. The
+    // relay never reaches this on the dead-relay path; this is the durable
+    // abort.
     if let Some(manager) = manager.upgrade() {
         if let Some(view) = manager.read(cx).tab(tab).map(|tab| tab.view.clone()) {
             let session = view.read(cx).session();
-            session.borrow().kill();
             session.borrow().detach_sink(&sink);
             // Drop the §8.4 resize observer so its notifier can't outlive the
             // publisher (send-into-dead-channel is harmless but untidy).
             session.borrow_mut().clear_resize_observer();
         }
+        manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
     }
 
     // Stop the publisher (idempotent) and forget the entry. Notify so any

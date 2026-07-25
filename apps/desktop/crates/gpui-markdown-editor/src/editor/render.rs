@@ -288,6 +288,24 @@ impl Render for Editor {
 
         let d = &theme.dimensions;
         let visible_blocks = self.document.visible_blocks().to_vec();
+
+        // EXP-268: the empty-editing placeholder is a DOCUMENT affordance —
+        // only the FIRST block of a fully empty document may show it (web
+        // tiptap parity: `p.is-editor-empty:first-child`). Sync the per-block
+        // flag here, change-gated so a steady state never re-notifies.
+        let document_empty = visible_blocks
+            .iter()
+            .all(|visible| visible.entity.read(cx).display_text().is_empty());
+        for (ix, visible) in visible_blocks.iter().enumerate() {
+            let show = document_empty && ix == 0;
+            if visible.entity.read(cx).show_empty_placeholder != show {
+                visible.entity.update(cx, |block, cx| {
+                    block.show_empty_placeholder = show;
+                    cx.notify();
+                });
+            }
+        }
+
         let editor = cx.entity().downgrade();
         let scroll_trigger_padding = (d.block_min_height * 0.75).max(16.0);
         let max_scroll_y = f32::from(self.scroll_handle.max_offset().y.max(px(0.0)));

@@ -1,7 +1,7 @@
 // REV2-7: short-TTL caches for the two membership id-set resolvers every
-// Electric shape long-poll renewal re-runs (getUserTeamIds feeds 12 of the 14
+// Electric shape long-poll renewal re-runs (getUserTeamIds feeds 13 of the 15
 // shape where clauses, getReadableUserIdsInTeams feeds the users shape). A
-// synced client renews all 14 shapes per ~60s cycle — and instantly on every
+// synced client renews all 15 shapes per ~60s cycle — and instantly on every
 // data change — so without this cache membership load scales with sync
 // traffic instead of with actual membership churn.
 //

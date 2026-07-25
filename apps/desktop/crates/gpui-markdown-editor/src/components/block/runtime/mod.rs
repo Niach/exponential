@@ -202,6 +202,12 @@ pub struct Block {
     pub(crate) list_group_separator_candidate: bool,
     numbered_list_restart_requested: bool,
     quote_reparse_requested: bool,
+    /// EXP-268: whether this block may render the empty-editing placeholder.
+    /// The EDITOR maintains it per render — true only for the document's
+    /// FIRST block while the WHOLE document is empty (web tiptap parity:
+    /// `p.is-editor-empty:first-child`). Without the gate every empty line
+    /// the caret visits showed "Add description…" mid-document.
+    pub(crate) show_empty_placeholder: bool,
 }
 
 /// Cached standalone image presentation state for a block.
@@ -313,6 +319,7 @@ impl Block {
             list_group_separator_candidate: false,
             numbered_list_restart_requested: false,
             quote_reparse_requested: false,
+            show_empty_placeholder: true,
         };
         block.sync_code_highlight();
         block.refresh_cached_display_text();

@@ -142,8 +142,11 @@ fn open(
     window.open_dialog(cx, move |dialog, window, cx| {
         let busy = view.read(cx).launching;
         let max_height = window.viewport_size().height * 0.85;
+        // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
+        // picker left, options right). Must stay `.w()`: the dialog centers
+        // off `props.width`, `max_w` alone would left-anchor it.
         dialog
-            .w(px(560.))
+            .w(px(760.))
             .max_h(max_height)
             .title("Start coding")
             .overlay_closable(!busy)
@@ -159,12 +162,11 @@ enum SubjectTab {
     Actions,
 }
 
-/// `actions.list` fetch lifecycle for the Actions tab (prefetched at open,
-/// generation-guarded).
+/// Actions-tab list state (EXP-268: a LIVE read of the synced `actions`
+/// shape — Loading only until the shape reaches readiness).
 enum ActionsLoad {
     Loading,
     Ready,
-    Error(String),
 }
 
 /// One checklist row, snapshotted from the sync store at open (titles and
@@ -213,11 +215,10 @@ pub struct StartCodingDialogView {
     /// EXP-257: which subject half is showing — Issues (the checklist) or
     /// Actions (the single-select action list + input fields).
     subject_tab: SubjectTab,
-    /// The team's actions (builtin pinned first by flag), prefetched at open.
+    /// The team's actions (builtin pinned first by flag) — refreshed live
+    /// from the synced `actions` collection (EXP-268).
     actions: Vec<api::actions::Action>,
     actions_load: ActionsLoad,
-    /// Stale-fetch guard for the actions/repos prefetches.
-    actions_generation: u64,
     /// The single-selected action (the Actions tab has no multi-run).
     selected_action_id: Option<String>,
     /// `open_for_action`'s preselect, applied once the list lands.
@@ -364,7 +365,14 @@ impl StartCodingDialogView {
             cx.new(|cx| InputState::new(window, cx).placeholder("Search actions…"));
         let local_sessions = coding_flow::LocalSessions::global(cx);
         let synced_sessions = Store::global(cx).collections().coding_sessions.clone();
+        let synced_actions = Store::global(cx).collections().actions.clone();
         let subscriptions = vec![
+            // EXP-268: the Actions tab is a live read of the synced shape —
+            // an MCP-authored action appears while the dialog is open.
+            cx.observe_in(&synced_actions, window, |this: &mut Self, _, window, cx| {
+                this.refresh_actions(window, cx);
+                cx.notify();
+            }),
             // Doctor lands / re-runs → the footer gate moves AND the agent
             // tab strip re-filters to the installed agents (EXP-206), so a
             // selection whose tab just vanished hops to an installed one.
@@ -401,7 +409,6 @@ impl StartCodingDialogView {
             },
             actions: Vec::new(),
             actions_load: ActionsLoad::Loading,
-            actions_generation: 0,
             selected_action_id: None,
             pending_action_preselect: preselect_action,
             action_search,
@@ -445,9 +452,9 @@ impl StartCodingDialogView {
         for issue_id in ids {
             this.ensure_probe(issue_id, cx);
         }
-        // EXP-257: prefetch the Actions tab's data at open (generation-
-        // guarded) — the tab must not be a spinner the moment it's clicked.
-        this.fetch_actions(window, cx);
+        // EXP-268: the Actions tab reads the synced shape — seed it now (and
+        // the observer above keeps it live); repos stay a tRPC prefetch.
+        this.refresh_actions(window, cx);
         this.fetch_team_repos(cx);
         // The doctor usually ran long before the dialog opens — if the
         // settings default agent isn't installed, preselect one that is
@@ -458,46 +465,22 @@ impl StartCodingDialogView {
 
     // -- Actions tab (EXP-257) ------------------------------------------------
 
-    /// Prefetch `actions.list` for the Actions tab. Builtin pinned FIRST by
-    /// its flag (never by sort order); an `open_for_action` preselect is
-    /// applied once the list lands.
-    fn fetch_actions(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(trpc) = queries::trpc_client(cx) else {
-            self.actions_load = ActionsLoad::Error("Not signed in.".to_string());
-            return;
+    /// Refresh the Actions tab from the synced `actions` collection
+    /// (EXP-268). Builtin pinned FIRST; an `open_for_action` preselect is
+    /// applied once the shape is ready.
+    fn refresh_actions(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let (actions, ready) = queries::team_actions(cx, &self.team_id);
+        self.actions = actions;
+        self.actions_load = if ready {
+            ActionsLoad::Ready
+        } else {
+            ActionsLoad::Loading
         };
-        let team_id = self.team_id.clone();
-        self.actions_load = ActionsLoad::Loading;
-        self.actions_generation += 1;
-        let generation = self.actions_generation;
-        cx.spawn_in(window, async move |this, window| {
-            let result = window
-                .background_executor()
-                .spawn(async move { api::actions::list(&trpc, &team_id) })
-                .await;
-            let _ = this.update_in(window, |this, window, cx| {
-                if this.actions_generation != generation {
-                    return; // superseded
-                }
-                match result {
-                    Ok(mut actions) => {
-                        // Stable: keeps the server order within each half.
-                        actions.sort_by_key(|action| !action.builtin);
-                        this.actions = actions;
-                        this.actions_load = ActionsLoad::Ready;
-                        if let Some(pending) = this.pending_action_preselect.take() {
-                            this.select_action(pending, window, cx);
-                        }
-                    }
-                    Err(err) => {
-                        this.actions_load =
-                            ActionsLoad::Error(format!("Could not load actions: {err}"));
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        if ready {
+            if let Some(pending) = self.pending_action_preselect.take() {
+                self.select_action(pending, window, cx);
+            }
+        }
     }
 
     /// Prefetch `repositories.list` for the repo input pickers. Best-effort:
@@ -508,23 +491,17 @@ impl StartCodingDialogView {
             return;
         };
         let team_id = self.team_id.clone();
-        let generation = self.actions_generation;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move { action_run::fetch_repositories(&trpc, &team_id) })
                 .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.actions_generation != generation {
-                    return;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(rows) => {
+                    this.team_repos = rows;
+                    cx.notify();
                 }
-                match result {
-                    Ok(rows) => {
-                        this.team_repos = rows;
-                        cx.notify();
-                    }
-                    Err(err) => log::warn!("[ui] repositories.list failed: {err}"),
-                }
+                Err(err) => log::warn!("[ui] repositories.list failed: {err}"),
             });
         })
         .detach();
@@ -844,7 +821,6 @@ impl StartCodingDialogView {
         if self.subject_tab == SubjectTab::Actions {
             match &self.actions_load {
                 ActionsLoad::Loading => return Some("Loading actions…".into()),
-                ActionsLoad::Error(err) => return Some(err.clone().into()),
                 ActionsLoad::Ready => {}
             }
             let Some(action) = self.selected_action() else {
@@ -1753,10 +1729,13 @@ impl Render for StartCodingDialogView {
         };
 
         let blocker = self.launch_blocker(cx);
-        let mut body = v_flex().gap_3().child(self.subject_tabs(cx));
+        // EXP-268: two-column widescreen layout (web `launch-dialog.tsx`
+        // parity) — subject tabs full-width on top, then picker LEFT /
+        // options RIGHT, error + footer full-width below.
+        let mut left = v_flex().flex_1().min_w_0().gap_3();
         match self.subject_tab {
             SubjectTab::Issues => {
-                body = body
+                left = left
                     .child(div().text_xs().text_color(theme_muted).child(intro))
                     .child(Input::new(&self.search).small())
                     // Bounded, actually-scrollable checklist (EXP-119):
@@ -1769,7 +1748,7 @@ impl Render for StartCodingDialogView {
                     .child(self.bounded_pane(
                         "sc-issues-scroll",
                         &self.list_scroll.clone(),
-                        320.,
+                        360.,
                         checklist.into_any_element(),
                         cx,
                     ));
@@ -1803,15 +1782,6 @@ impl Render for StartCodingDialogView {
                                 .child("Loading actions…"),
                         );
                     }
-                    ActionsLoad::Error(err) => {
-                        list = list.child(
-                            div()
-                                .p_2()
-                                .text_xs()
-                                .text_color(danger)
-                                .child(SharedString::from(err.clone())),
-                        );
-                    }
                     ActionsLoad::Ready => {
                         if visible.is_empty() {
                             list = list.child(
@@ -1828,7 +1798,7 @@ impl Render for StartCodingDialogView {
                         }
                     }
                 }
-                body = body
+                left = left
                     .child(
                         div()
                             .text_xs()
@@ -1850,7 +1820,7 @@ fill in its inputs. \"Create action\" authors a new one from your description.")
                         for (ix, input) in action.inputs.iter().enumerate() {
                             fields = fields.child(self.action_input_field(ix, input, cx));
                         }
-                        body = body.child(self.bounded_pane(
+                        left = left.child(self.bounded_pane(
                             "sc-action-inputs-scroll",
                             &self.action_inputs_scroll.clone(),
                             220.,
@@ -1861,25 +1831,16 @@ fill in its inputs. \"Create action\" authors a new one from your description.")
                 }
             }
         }
-        body = body.child(self.agent_tabs(cx)).child(main_row);
-        if let Some(resume_row) = resume_row {
-            body = body.child(resume_row);
-        }
-        // pi has no option rows — an empty toggles child would still eat a
-        // gap_3 slot and double the space above the footer.
-        if has_toggles {
-            body = body.child(toggles);
-        }
-
+        // Web parity: the selection-size notes ride the picker column.
         if self.subject_tab == SubjectTab::Issues {
             if checked_count > MAX_ISSUES_PER_RUN {
-                body = body.child(div().text_xs().text_color(warning).child(
+                left = left.child(div().text_xs().text_color(warning).child(
                     SharedString::from(format!(
                         "At most {MAX_ISSUES_PER_RUN} issues per run — split the batch."
                     )),
                 ));
             } else if checked_count > COST_NOTE_THRESHOLD {
-                body = body.child(
+                left = left.child(
                     div()
                         .text_xs()
                         .text_color(warning)
@@ -1887,6 +1848,32 @@ fill in its inputs. \"Create action\" authors a new one from your description.")
                 );
             }
         }
+
+        // Right column: the shared options cluster (agent tabs, model/effort,
+        // resume, toggles) — the web `LaunchOptionsPane` twin.
+        let mut right = v_flex()
+            .flex_1()
+            .min_w_0()
+            .gap_3()
+            .child(self.agent_tabs(cx))
+            .child(main_row);
+        if let Some(resume_row) = resume_row {
+            right = right.child(resume_row);
+        }
+        // pi has no option rows — an empty toggles child would still eat a
+        // gap_3 slot.
+        if has_toggles {
+            right = right.child(toggles);
+        }
+
+        let mut body = v_flex().gap_3().child(self.subject_tabs(cx)).child(
+            h_flex()
+                .w_full()
+                .gap_5()
+                .items_start()
+                .child(left)
+                .child(right),
+        );
         if let Some(error) = &self.error {
             body = body.child(div().text_sm().text_color(danger).child(error.clone()));
         }

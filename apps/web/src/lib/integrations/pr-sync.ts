@@ -10,6 +10,7 @@ import {
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
+import { getSteerRelayConfig, relayPostKill } from "@/lib/steer"
 
 // Parse a team issue identifier ("MET-12") out of a PR head-branch name.
 // Matches the launcher's `exp/<IDENTIFIER>` convention and any custom prefix
@@ -116,11 +117,11 @@ export async function applyPrLifecycleStatusInTx(
     // can show "ready for review" instead of "coding now" (EXP-194). Placed
     // BEFORE the eligibility gate: the session must flip even when a human
     // already parked the issue in `in_review`. running-conditioned so an
-    // `ended` row is never resurrected, and the server never writes `ended`
-    // itself (that flip is the desktop kill-switch). updatedAt stamped
-    // explicitly (no $onUpdate on this table) so the review badge starts
-    // with a full staleness window. Merge (`done`) deliberately leaves
-    // sessions alone — the terminal exit ends them.
+    // `ended` row is never resurrected. updatedAt stamped explicitly (no
+    // $onUpdate on this table) so the review badge starts with a full
+    // staleness window. Merge (`done`) ends the session — see
+    // applyPrMergeState (EXP-268): the ended flip is the desktop
+    // kill-switch, which on merge is exactly the wanted teardown.
     await tx
       .update(codingSessions)
       .set({ status: `in_review`, updatedAt: new Date() })
@@ -267,66 +268,101 @@ export async function applyPrMergeState(opts: {
   mergedAt?: Date | null
   actorUserId?: string | null
 }): Promise<void> {
-  const applied = await db.transaction(async (tx) => {
-    const txId = await generateTxId(tx)
-    void txId
+  const result = await db.transaction(
+    async (tx): Promise<{ applied: boolean; endedSessionIds: string[] }> => {
+      const txId = await generateTxId(tx)
+      void txId
 
-    const [current] = await tx
-      .select({
-        prState: issues.prState,
-        prUrl: issues.prUrl,
-        status: issues.status,
-        teamId: boards.teamId,
+      const [current] = await tx
+        .select({
+          prState: issues.prState,
+          prUrl: issues.prUrl,
+          status: issues.status,
+          teamId: boards.teamId,
+        })
+        .from(issues)
+        .innerJoin(boards, eq(boards.id, issues.boardId))
+        .where(eq(issues.id, opts.issueId))
+        .limit(1)
+
+      // Unknown issue, already merged, or a different (unlinked) PR → nothing
+      // to do (idempotent; see prStateTransitionAllowed).
+      if (!current) return { applied: false, endedSessionIds: [] }
+      if (
+        !prStateTransitionAllowed(current, { to: `merged`, prUrl: opts.prUrl })
+      ) {
+        return { applied: false, endedSessionIds: [] }
+      }
+
+      await tx
+        .update(issues)
+        .set({
+          prState: `merged`,
+          prMergedAt: opts.mergedAt ?? new Date(),
+        })
+        .where(eq(issues.id, opts.issueId))
+
+      await recordIssueEvent(tx, {
+        issueId: opts.issueId,
+        teamId: current.teamId,
+        actorUserId: opts.actorUserId ?? null,
+        type: `pr_merged`,
+        payload: { prUrl: opts.prUrl ?? current.prUrl ?? null },
       })
-      .from(issues)
-      .innerJoin(boards, eq(boards.id, issues.boardId))
-      .where(eq(issues.id, opts.issueId))
-      .limit(1)
 
-    // Unknown issue, already merged, or a different (unlinked) PR → nothing
-    // to do (idempotent; see prStateTransitionAllowed).
-    if (!current) return false
-    if (!prStateTransitionAllowed(current, { to: `merged`, prUrl: opts.prUrl })) {
-      return false
+      // The merged PR completes the issue (EXP-120: in_review → done).
+      await applyPrLifecycleStatusInTx(tx, {
+        issueId: opts.issueId,
+        teamId: current.teamId,
+        actorUserId: opts.actorUserId ?? null,
+        currentStatus: current.status,
+        to: `done`,
+      })
+
+      // EXP-268: the merge ends the issue's live coding session. The ended
+      // flip IS the desktop kill-switch (the desktop kills the agent and
+      // closes the terminal tab on its own row's →ended edge — on merge
+      // that teardown is exactly what we want), and the post-commit relay
+      // kill below tears live mirrors down immediately. Independent of the
+      // issue-status eligibility gate above. Batch (issue-less) session rows
+      // can't be matched by issue_id and are left to their terminal exit.
+      const endedSessions = await tx
+        .update(codingSessions)
+        .set({ status: `ended`, endedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(codingSessions.issueId, opts.issueId),
+            inArray(codingSessions.status, [`running`, `in_review`])
+          )
+        )
+        .returning({ id: codingSessions.id })
+
+      return { applied: true, endedSessionIds: endedSessions.map((s) => s.id) }
     }
-
-    await tx
-      .update(issues)
-      .set({
-        prState: `merged`,
-        prMergedAt: opts.mergedAt ?? new Date(),
-      })
-      .where(eq(issues.id, opts.issueId))
-
-    await recordIssueEvent(tx, {
-      issueId: opts.issueId,
-      teamId: current.teamId,
-      actorUserId: opts.actorUserId ?? null,
-      type: `pr_merged`,
-      payload: { prUrl: opts.prUrl ?? current.prUrl ?? null },
-    })
-
-    // The merged PR completes the issue (EXP-120: in_review → done).
-    await applyPrLifecycleStatusInTx(tx, {
-      issueId: opts.issueId,
-      teamId: current.teamId,
-      actorUserId: opts.actorUserId ?? null,
-      currentStatus: current.status,
-      to: `done`,
-    })
-    return true
-  })
+  )
 
   // Inside the open→merged idempotent guard: the webhook and the self-hosted
   // outbound cron can both call this, but only the transition that actually
   // flipped the state fans out — so an away phone gets exactly one
   // "it's merged" notification on in-app + push + email.
-  if (applied) {
+  if (result.applied) {
     fireAndForgetPrNotify({
       issueId: opts.issueId,
       type: `pr_merged`,
       actorUserId: opts.actorUserId ?? null,
     })
+  }
+
+  // Best-effort relay kills for the sessions the merge just ended — the
+  // durable signal is the synced row flip above; this only makes the live
+  // terminal/mirror teardown immediate (relayPostKill never throws).
+  if (result.endedSessionIds.length > 0) {
+    const config = getSteerRelayConfig()
+    if (config) {
+      await Promise.all(
+        result.endedSessionIds.map((id) => relayPostKill(config, id))
+      )
+    }
   }
 }
 

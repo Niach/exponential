@@ -1951,8 +1951,13 @@ impl Render for Block {
         }
 
         let block_id = ElementId::Name(format!("block-{}", self.record.id).into());
-        let is_placeholder =
-            focused && self.display_text().is_empty() && self.marked_range.is_none();
+        // EXP-268: `show_empty_placeholder` gates the empty-editing
+        // placeholder to the first block of an EMPTY document (the editor
+        // maintains the flag) — a mid-document empty line must never show it.
+        let is_placeholder = focused
+            && self.show_empty_placeholder
+            && self.display_text().is_empty()
+            && self.marked_range.is_none();
 
         let theme = self.environment.theme.clone();
         let strings = self.environment.strings.clone();

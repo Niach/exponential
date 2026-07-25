@@ -1,4 +1,4 @@
-//! The 14 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 15 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 14 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 15 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `due_time`/`end_time` on `issues`, no
-/// `email` on `issue_subscribers`, and web-only billing fields dropped from
-/// `users`).
-pub const SHAPES: [ShapeSpec; 14] = [
+/// `email` on `issue_subscribers`, web-only billing fields dropped from
+/// `users`, and no `body` on `actions`).
+pub const SHAPES: [ShapeSpec; 15] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -348,6 +348,26 @@ pub const SHAPES: [ShapeSpec; 14] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "actions",
+        path: "/api/shapes/actions",
+        // MUST NOT declare a `body` column (EXP-268): the proxy's columns
+        // allowlist excludes the ≤64KB prompt from sync — runs and editors
+        // fetch it fresh via tRPC `actions.get`. `inputs` is the typed
+        // input-schema JSON array (stored as TEXT like issue_events.payload).
+        columns: &[
+            "id",
+            "team_id",
+            "repository_id",
+            "name",
+            "description",
+            "inputs",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -360,8 +380,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_14_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 14);
+    fn registry_has_15_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 15);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -386,6 +406,14 @@ mod tests {
     fn issue_subscribers_never_models_email() {
         let spec = shape_by_name("issue_subscribers").unwrap();
         assert!(!spec.columns.contains(&"email"));
+    }
+
+    #[test]
+    fn actions_never_models_body() {
+        // EXP-268: the ≤64KB prompt is excluded from sync server-side; no
+        // local column may exist to hold a stale copy — runs fetch fresh.
+        let spec = shape_by_name("actions").unwrap();
+        assert!(!spec.columns.contains(&"body"));
     }
 
     #[test]

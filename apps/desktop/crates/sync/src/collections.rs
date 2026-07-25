@@ -37,8 +37,8 @@ use crate::shapes::{shape_by_name, ShapeSpec};
 use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
-    Attachment, Board, CodingSession, Comment, Issue, IssueEvent, IssueLabel, IssueSubscriber,
-    Label, Notification, Team, TeamInvite, TeamMember, User,
+    ActionRow, Attachment, Board, CodingSession, Comment, Issue, IssueEvent, IssueLabel,
+    IssueSubscriber, Label, Notification, Team, TeamInvite, TeamMember, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -150,6 +150,7 @@ id_shape_row!(Notification, "notifications");
 id_shape_row!(IssueEvent, "issue_events");
 id_shape_row!(IssueSubscriber, "issue_subscribers");
 id_shape_row!(CodingSession, "coding_sessions");
+id_shape_row!(ActionRow, "actions");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -288,6 +289,7 @@ pub struct Collections {
     pub issue_events: Entity<Collection<IssueEvent>>,
     pub issue_subscribers: Entity<Collection<IssueSubscriber>>,
     pub coding_sessions: Entity<Collection<CodingSession>>,
+    pub actions: Entity<Collection<ActionRow>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
@@ -323,6 +325,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.coding_sessions;
         $body;
+        let $entity = &$collections.actions;
+        $body;
     }};
 }
 
@@ -343,6 +347,7 @@ impl Collections {
             issue_events: cx.new(|_| Collection::new()),
             issue_subscribers: cx.new(|_| Collection::new()),
             coding_sessions: cx.new(|_| Collection::new()),
+            actions: cx.new(|_| Collection::new()),
         }
     }
 
@@ -373,6 +378,7 @@ impl Collections {
                 apply_to(&self.issue_subscribers, keys, full_replace, sqlite, cx)
             }
             "coding_sessions" => apply_to(&self.coding_sessions, keys, full_replace, sqlite, cx),
+            "actions" => apply_to(&self.actions, keys, full_replace, sqlite, cx),
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
@@ -827,6 +833,7 @@ mod tests {
             IssueEvent::spec().name,
             IssueSubscriber::spec().name,
             CodingSession::spec().name,
+            ActionRow::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

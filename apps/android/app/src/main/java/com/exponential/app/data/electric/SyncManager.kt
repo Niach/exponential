@@ -7,6 +7,7 @@ import android.os.SystemClock
 import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.CommentEntity
@@ -45,7 +46,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
-/// Multi-account sync orchestrator. Maintains one set of 14 shape jobs per
+/// Multi-account sync orchestrator. Maintains one set of 15 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
 /// instance (`exponential-<accountId>-v2.db`). Sign-out on one account cancels
 /// just that pipeline; other accounts keep syncing.
@@ -61,7 +62,7 @@ class SyncManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
 
-    /** One account's 14 shape loops, plus the clients a [kick] has to reach. */
+    /** One account's 15 shape loops, plus the clients a [kick] has to reach. */
     private class Pipeline(val jobs: List<Job>, val clients: List<ShapeClient<*>>)
 
     private val pipelines = mutableMapOf<String, Pipeline>()
@@ -72,7 +73,7 @@ class SyncManager @Inject constructor(
     val lastKickAt: StateFlow<Long> = _lastKickAt.asStateFlow()
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 14 shapes each
+    // several pushes can land within the same second, and 15 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -221,7 +222,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (14 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (15 shapes) for $accountId")
             }
         }
     }
@@ -273,6 +274,7 @@ class SyncManager @Inject constructor(
         val issueSubscriberDao = db.issueSubscriberDao()
         val issueEventDao = db.issueEventDao()
         val codingSessionDao = db.codingSessionDao()
+        val actionDao = db.actionDao()
 
         val shapes = listOf(
             launchShape(
@@ -415,6 +417,16 @@ class SyncManager @Inject constructor(
                 onDelete = { codingSessionDao.deleteById(it.id) },
                 onRefetch = { codingSessionDao.clear() },
             ),
+            launchShape(
+                shape = "actions", path = "/api/shapes/actions", tableName = "actions",
+                serializer = ActionEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("actions"),
+                onInsert = { actionDao.upsert(it) },
+                onUpdate = { actionDao.upsert(it) },
+                onDelete = { actionDao.deleteById(it.id) },
+                onRefetch = { actionDao.clear() },
+            ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })
     }
@@ -496,7 +508,7 @@ class SyncManager @Inject constructor(
 }
 
 // One unforced kick per second at most: app-foreground, network-available and a
-// burst of pushes routinely coincide, and each kick drops 14 live long-polls.
+// burst of pushes routinely coincide, and each kick drops 15 live long-polls.
 private const val KICK_DEBOUNCE_MS = 1_000L
 
 /** Per-shape diagnostics callbacks passed from [SyncManager] into [ShapeClient]. */

@@ -87,23 +87,23 @@ describe(`snapshot proxy concurrency gate`, () => {
     const { mock, calls } = deferredFetch()
     vi.stubGlobal(`fetch`, mock)
 
-    const pending = Array.from({ length: 18 }, (_, i) =>
+    const pending = Array.from({ length: 19 }, (_, i) =>
       proxyElectricRequest(snapshotUrl(i))
     )
     await settle()
 
-    // Only 16 snapshots may buffer concurrently; the other 2 queue. The bound
-    // is one client's full shape count (14) plus headroom (EXP-264) — a single
+    // Only 17 snapshots may buffer concurrently; the other 2 queue. The bound
+    // is one client's full shape count (15) plus headroom (EXP-264) — a single
     // cold start must never queue behind itself.
-    expect(mock).toHaveBeenCalledTimes(16)
+    expect(mock).toHaveBeenCalledTimes(17)
 
     calls[0].resolve(new Response(`snapshot-0`))
     await settle()
-    expect(mock).toHaveBeenCalledTimes(17)
+    expect(mock).toHaveBeenCalledTimes(18)
 
     calls[1].resolve(new Response(`snapshot-1`))
     await settle()
-    expect(mock).toHaveBeenCalledTimes(18)
+    expect(mock).toHaveBeenCalledTimes(19)
 
     for (const call of calls.slice(2)) call.resolve(new Response(`ok`))
     const responses = await Promise.all(pending)
@@ -114,23 +114,23 @@ describe(`snapshot proxy concurrency gate`, () => {
     const { mock, calls } = deferredFetch()
     vi.stubGlobal(`fetch`, mock)
 
-    const snapshots = Array.from({ length: 17 }, (_, i) =>
+    const snapshots = Array.from({ length: 18 }, (_, i) =>
       proxyElectricRequest(snapshotUrl(i))
     )
     await settle()
-    expect(mock).toHaveBeenCalledTimes(16)
+    expect(mock).toHaveBeenCalledTimes(17)
 
     // A live poll must not queue behind the saturated snapshot gate — its
     // body is tiny and gating it would starve every synced client.
     const livePoll = proxyElectricRequest(livePollUrl())
     await settle()
-    expect(mock).toHaveBeenCalledTimes(17)
+    expect(mock).toHaveBeenCalledTimes(18)
 
     for (const call of calls) call.resolve(new Response(`ok`))
     await settle()
-    // The 17th snapshot got its slot after a release.
-    expect(mock).toHaveBeenCalledTimes(18)
-    calls[17].resolve(new Response(`ok`))
+    // The 18th snapshot got its slot after a release.
+    expect(mock).toHaveBeenCalledTimes(19)
+    calls[18].resolve(new Response(`ok`))
 
     const responses = await Promise.all([...snapshots, livePoll])
     for (const response of responses) expect(response.status).toBe(200)
@@ -140,11 +140,11 @@ describe(`snapshot proxy concurrency gate`, () => {
     const { mock, calls } = deferredFetch()
     vi.stubGlobal(`fetch`, mock)
 
-    const holders = Array.from({ length: 16 }, (_, i) =>
+    const holders = Array.from({ length: 17 }, (_, i) =>
       proxyElectricRequest(snapshotUrl(i))
     )
     await settle()
-    expect(mock).toHaveBeenCalledTimes(16)
+    expect(mock).toHaveBeenCalledTimes(17)
 
     const controller = new AbortController()
     const queued = proxyElectricRequest(snapshotUrl(99), controller.signal)
@@ -153,7 +153,7 @@ describe(`snapshot proxy concurrency gate`, () => {
 
     const response = await queued
     expect(response.status).toBe(499)
-    expect(mock).toHaveBeenCalledTimes(16)
+    expect(mock).toHaveBeenCalledTimes(17)
 
     // Draining the holders must not over-release the slot the aborted
     // request never held.
@@ -165,17 +165,17 @@ describe(`snapshot proxy concurrency gate`, () => {
     const { mock, calls } = deferredFetch()
     vi.stubGlobal(`fetch`, mock)
 
-    const holders = Array.from({ length: 16 }, (_, i) =>
+    const holders = Array.from({ length: 17 }, (_, i) =>
       proxyElectricRequest(snapshotUrl(i))
     )
     const queued = proxyElectricRequest(snapshotUrl(99))
     await settle()
-    expect(mock).toHaveBeenCalledTimes(16)
+    expect(mock).toHaveBeenCalledTimes(17)
 
     calls[0].reject(new Error(`upstream down`))
     await settle()
     // The failed snapshot's slot went to the queued request.
-    expect(mock).toHaveBeenCalledTimes(17)
+    expect(mock).toHaveBeenCalledTimes(18)
 
     for (const call of calls.slice(1)) call.resolve(new Response(`ok`))
     const [failed, ...rest] = await Promise.all([

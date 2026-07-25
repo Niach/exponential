@@ -449,6 +449,98 @@ extension CodingSessionEntity: Codable {
     }
 }
 
+// MARK: - Action
+
+// Team action prompts (EXP-268 — the 15th Electric shape). The server-side
+// columns allowlist deliberately EXCLUDES `body`: the ≤64KB markdown prompt
+// never rides sync, tRPC `actions.get` stays the only body path. Mirrors
+// packages/db-schema actions minus body.
+public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "actions"
+
+    public let id: String
+    public let teamId: String
+    // Nil for repo-less actions (the desktop runs those in a scratch dir).
+    public let repositoryId: String?
+    public let name: String
+    public let description: String?
+    /// Typed inputs schema (jsonb array of {key,label,type,required,
+    /// placeholder}) — Electric delivers it as a JSON value; stored as the
+    /// stringified JSON, decoded lazily by the UI. Null when the action
+    /// declares no inputs.
+    public let inputs: String?
+    public let sortOrder: Double?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        repositoryId: String?,
+        name: String,
+        description: String?,
+        inputs: String?,
+        sortOrder: Double?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.repositoryId = repositoryId
+        self.name = name
+        self.description = description
+        self.inputs = inputs
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, inputs
+        case teamId = "team_id"
+        case repositoryId = "repository_id"
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: sort_order goes through the type-aware wire helper
+// (Postgres text off the Electric wire, native scalar from fixtures), and
+// `inputs` follows the IssueEventEntity permissive jsonb pattern — string,
+// object/array, or null — re-encoded to a stored string. Unlike the payload
+// path it re-encodes through the type-FAITHFUL JSONWireValue: the stored
+// string is later parsed as typed data (ActionInputDto's `required` Bool),
+// which AnyCodableValue's stringified nested scalars would break.
+extension ActionEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+
+        // Handle JSONB inputs: string, null, or object/array.
+        if c.contains(.inputs) {
+            if let stringValue = try? c.decode(String.self, forKey: .inputs) {
+                inputs = stringValue
+            } else if (try? c.decodeNil(forKey: .inputs)) == true {
+                inputs = nil
+            } else {
+                let rawJSON = try c.decode(JSONWireValue.self, forKey: .inputs)
+                let data = try JSONEncoder().encode(rawJSON)
+                inputs = String(data: data, encoding: .utf8)
+            }
+        } else {
+            inputs = nil
+        }
+    }
+}
+
 // MARK: - Label
 
 public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
@@ -1050,6 +1142,56 @@ public func getIssueDescriptionText(_ description: String?) -> String {
 
 public func getCommentBodyText(_ body: String?) -> String {
     body ?? ""
+}
+
+// MARK: - JSONWireValue (type-faithful JSONB re-encoding)
+
+/// A faithful JSON tree for jsonb columns whose stored string is later parsed
+/// back into TYPED data (actions.inputs → ActionInputDto). Unlike
+/// AnyCodableValue below — which stringifies every nested scalar, fine for the
+/// display-only issue_events payload — re-encoding this preserves
+/// bools/numbers/null exactly, so a wire `"required": true` survives the
+/// store-as-string round trip as a real boolean.
+public indirect enum JSONWireValue: Codable, Sendable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+    case array([JSONWireValue])
+    case object([String: JSONWireValue])
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() {
+            self = .null
+        } else if let bool = try? c.decode(Bool.self) {
+            self = .bool(bool)
+        } else if let string = try? c.decode(String.self) {
+            self = .string(string)
+        } else if let number = try? c.decode(Double.self) {
+            self = .number(number)
+        } else if let array = try? c.decode([JSONWireValue].self) {
+            self = .array(array)
+        } else if let object = try? c.decode([String: JSONWireValue].self) {
+            self = .object(object)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: c, debugDescription: "Unsupported JSON value"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case let .string(value): try c.encode(value)
+        case let .number(value): try c.encode(value)
+        case let .bool(value): try c.encode(value)
+        case .null: try c.encodeNil()
+        case let .array(value): try c.encode(value)
+        case let .object(value): try c.encode(value)
+        }
+    }
 }
 
 // MARK: - AnyCodableValue (for issue_events.payload JSONB handling)

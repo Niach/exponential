@@ -3,8 +3,9 @@ import Foundation
 import GRDB
 
 /// Backs the Actions surface (EXP-253, mobile = view + run only): the active
-/// team's action prompts over tRPC (`actions.list` — deliberately NOT an
-/// Electric shape) plus the remote-run flow. After the server accepts a start,
+/// team's action prompts LIVE from the synced local store (EXP-268 — actions
+/// became the 15th Electric shape, minus `body`, which nothing here needs)
+/// plus the remote-run flow. After the server accepts a start,
 /// the model watches the synced `coding_sessions` table for the row the
 /// desktop inserts (this action's NAME snapshot + the caller's own userId + a
 /// recent startedAt — never the action id: the builtin "Create action" run's
@@ -37,20 +38,24 @@ final class ActionsViewModel {
 
     private let accountId: String
     private let db: DatabaseManager
-    private let actionsApi: ActionsApi
     private let steerApi: SteerApi
 
     private var loadedTeamId: String?
+    private var actionsObservationTask: Task<Void, Never>?
     private var watchTask: Task<Void, Never>?
     private var watchDeadlineTask: Task<Void, Never>?
 
-    init(accountId: String, db: DatabaseManager, actionsApi: ActionsApi, steerApi: SteerApi) {
+    init(accountId: String, db: DatabaseManager, steerApi: SteerApi) {
         self.accountId = accountId
         self.db = db
-        self.actionsApi = actionsApi
         self.steerApi = steerApi
     }
 
+    /// Observe the team's synced actions (EXP-268: the local GRDB store, not
+    /// tRPC — the list stays live as sync lands rows). The builtin "Create
+    /// action" is PREPENDED locally — pinned FIRST by the `builtin` flag (the
+    /// EXP-257 contract — never by sort order); real rows sort
+    /// sortOrder-then-name like the server list did.
     func load(teamId: String) async {
         if loadedTeamId != teamId {
             // New team context — drop the previous team's rows.
@@ -59,19 +64,32 @@ final class ActionsViewModel {
         }
         loadedTeamId = teamId
         if actions.isEmpty { isLoading = true }
-        defer { isLoading = false }
-        do {
-            let rows = try await actionsApi.list(accountId: accountId, teamId: teamId)
-            guard loadedTeamId == teamId else { return }
-            // Builtins pinned FIRST by the `builtin` flag (the EXP-257
-            // contract — never by sort order); server order within each group.
-            actions = rows.filter(\.isBuiltin) + rows.filter { !$0.isBuiltin }
-            loadError = nil
-        } catch is CancellationError {
-            // Expected when the hosting .task is torn down mid-flight.
-        } catch {
-            guard loadedTeamId == teamId else { return }
-            loadError = error.localizedDescription
+        actionsObservationTask?.cancel()
+        guard let pool = try? db.pool(forAccountId: accountId) else {
+            isLoading = false
+            loadError = "The local database is unavailable."
+            return
+        }
+        let observation = ValueObservation.tracking { db in
+            try ActionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        }
+        actionsObservationTask = Task { [weak self] in
+            do {
+                for try await rows in observation.values(in: pool) {
+                    guard let self, !Task.isCancelled else { return }
+                    guard self.loadedTeamId == teamId else { return }
+                    let dtos = rows
+                        .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
+                        .map { ActionDto(entity: $0) }
+                    self.actions = [ActionDto.builtinCreateAction(teamId: teamId)] + dtos
+                    self.isLoading = false
+                    self.loadError = nil
+                }
+            } catch {
+                guard let self, !Task.isCancelled, self.loadedTeamId == teamId else { return }
+                self.isLoading = false
+                self.loadError = error.localizedDescription
+            }
         }
     }
 
