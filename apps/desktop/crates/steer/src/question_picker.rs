@@ -31,6 +31,14 @@
 //! screens are explicitly excluded ([`plan_picker`] owns those).
 //! [`QuestionPickerWatcher`] debounces detections and re-fires when the
 //! visible question changes (the multi-question tab flow advances in place).
+//!
+//! EXP-249 also reads the tab bar itself: which tab is CURRENT (claude marks
+//! answered tabs `☒`/`☑` and advances left to right, so the first unanswered
+//! tab is the visible one) and whether the picker is sitting on the final
+//! `✔ Submit` review step. Remote answering needs both — an answer is only
+//! injectable while its own tab is up, and the submit step is a question of
+//! its own. Colour is what the TUI actually highlights with, and
+//! [`terminal::screen_lines`] is plain text, so the glyphs are the signal.
 
 use crate::frames::QuestionOption;
 use crate::plan_picker;
@@ -42,9 +50,24 @@ const SELECTION_MARKER: char = '❯';
 /// per-question `☐`/`☒` markers or the `✔ Submit` tab).
 const TAB_GLYPHS: &[char] = &['☐', '☒', '☑', '✔'];
 
+/// Tab-bar glyphs meaning "this tab already has an answer".
+const ANSWERED_TAB_GLYPHS: &[char] = &['☒', '☑', '✔'];
+
+/// Trailing decoration on the tab bar's last entry (`←  ☐ A  ✔ Submit  →`).
+const TAB_BAR_ARROWS: &[char] = &['→', '←'];
+
 /// The footer phrase below the options — both observed variants carry it
 /// ("Enter to select · ↑/↓ to navigate" / "Enter to select · Tab/Arrow keys").
 const FOOTER_ANCHOR: &str = "Enter to select";
+
+/// One entry of the picker's tab bar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuestionTab {
+    /// The tab's header text (`Toppings`, `Submit`, …).
+    pub label: String,
+    /// Rendered with an answered glyph (`☒`/`☑`/`✔`).
+    pub answered: bool,
+}
 
 /// A detected AskUserQuestion picker.
 #[derive(Clone, Debug, PartialEq)]
@@ -54,10 +77,23 @@ pub struct QuestionSnapshot {
     pub options: Vec<QuestionOption>,
     /// Any option row carried a `[ ]`/`[✔]` checkbox.
     pub multi_select: bool,
+    /// Per-option checkbox state, parallel to `options` (all `false` on a
+    /// single-select picker) — the starting point a remote multiSelect answer
+    /// toggles from.
+    pub checked: Vec<bool>,
+    /// The tab bar above the options, left to right. A single-question ask
+    /// renders one tab and no `Submit`.
+    pub tabs: Vec<QuestionTab>,
+    /// Index into `tabs` of the tab being shown: the first unanswered one,
+    /// else the last (the review step). `None` when the bar is unparseable.
+    pub current_tab: Option<usize>,
+    /// The picker is on the final `✔ Submit` review step.
+    pub review: bool,
 }
 
-/// One parsed option row: number, label (checkbox stripped), had-checkbox.
-fn parse_option_row(row: &str) -> Option<(u32, &str, bool)> {
+/// One parsed option row: number, label (checkbox stripped), and the checkbox
+/// state — `None` on a single-select row, `Some(ticked)` on a multiSelect one.
+fn parse_option_row(row: &str) -> Option<(u32, &str, Option<bool>)> {
     let row = row.strip_prefix(SELECTION_MARKER).unwrap_or(row).trim_start();
     let dot = row.find('.')?;
     let number: u32 = row[..dot].parse().ok()?;
@@ -65,14 +101,15 @@ fn parse_option_row(row: &str) -> Option<(u32, &str, bool)> {
         return None;
     }
     let mut label = row[dot + 1..].trim_start();
-    let mut checkbox = false;
+    let mut checkbox = None;
     if let Some(rest) = label.strip_prefix('[') {
         // A checkbox is a short bracket group (`[ ]` / `[✔]`), never a long
         // bracketed label — measure in chars, the check glyph is multi-byte.
         if let Some(close) = rest.find(']') {
-            if rest[..close].chars().count() <= 2 {
+            let inner = &rest[..close];
+            if inner.chars().count() <= 2 {
+                checkbox = Some(!inner.trim().is_empty());
                 label = rest[close + 1..].trim_start();
-                checkbox = true;
             }
         }
     }
@@ -92,6 +129,63 @@ fn is_tab_line(t: &str) -> bool {
 /// A line that terminates option/question scanning in either direction.
 fn is_boundary(t: &str) -> bool {
     t.is_empty() || is_rule(t) || is_tab_line(t)
+}
+
+/// Split a tab-bar line into its entries: each starts at a tab glyph and runs
+/// to the next glyph (trailing arrows/whitespace trimmed off).
+fn parse_tab_bar(line: &str) -> Vec<QuestionTab> {
+    let mut tabs: Vec<QuestionTab> = Vec::new();
+    let mut current: Option<QuestionTab> = None;
+    for ch in line.chars() {
+        if TAB_GLYPHS.contains(&ch) {
+            if let Some(tab) = current.take() {
+                tabs.push(tab);
+            }
+            current = Some(QuestionTab {
+                label: String::new(),
+                answered: ANSWERED_TAB_GLYPHS.contains(&ch),
+            });
+            continue;
+        }
+        if let Some(tab) = &mut current {
+            tab.label.push(ch);
+        }
+    }
+    tabs.extend(current);
+    for tab in &mut tabs {
+        tab.label = tab
+            .label
+            .trim_matches(|c: char| c.is_whitespace() || TAB_BAR_ARROWS.contains(&c))
+            .to_string();
+    }
+    tabs.retain(|tab| !tab.label.is_empty());
+    tabs
+}
+
+/// The tab being shown: claude answers left to right, so the first unanswered
+/// tab is the live one; with everything answered the picker sits on the last
+/// tab (`✔ Submit`).
+fn current_tab_index(tabs: &[QuestionTab]) -> Option<usize> {
+    if tabs.is_empty() {
+        return None;
+    }
+    Some(
+        tabs.iter()
+            .position(|tab| !tab.answered)
+            .unwrap_or(tabs.len() - 1),
+    )
+}
+
+/// Whether the visible step is the ask's review/submit tab: the current tab is
+/// the `Submit` one AND the options offer submitting.
+fn is_review(tabs: &[QuestionTab], current: Option<usize>, options: &[QuestionOption]) -> bool {
+    let submits = options
+        .iter()
+        .any(|option| option.label.to_ascii_lowercase().starts_with("submit"));
+    let on_submit_tab = current
+        .and_then(|index| tabs.get(index))
+        .is_some_and(|tab| tab.label.eq_ignore_ascii_case("submit"));
+    submits && on_submit_tab
 }
 
 /// Detect an AskUserQuestion picker on a visible-screen snapshot.
@@ -129,6 +223,7 @@ pub fn detect(lines: &[String]) -> Option<QuestionSnapshot> {
     // Collect downward from option 1, skipping description lines, stopping at
     // any boundary (the rule keeps the synthetic "Chat about this" out).
     let mut options = Vec::new();
+    let mut checked = Vec::new();
     let mut multi_select = false;
     let mut next = 1u32;
     let mut last_option_idx = first_idx;
@@ -136,11 +231,9 @@ pub fn detect(lines: &[String]) -> Option<QuestionSnapshot> {
         let t = line.trim();
         match parse_option_row(t) {
             Some((n, label, checkbox)) if n == next => {
-                options.push(QuestionOption {
-                    label: label.to_string(),
-                    key: n.to_string(),
-                });
-                multi_select |= checkbox;
+                options.push(QuestionOption::new(label, n.to_string()));
+                checked.push(checkbox == Some(true));
+                multi_select |= checkbox.is_some();
                 last_option_idx = i;
                 next += 1;
             }
@@ -178,10 +271,17 @@ pub fn detect(lines: &[String]) -> Option<QuestionSnapshot> {
         return None;
     }
 
+    let tabs = parse_tab_bar(&lines[tab_idx]);
+    let current_tab = current_tab_index(&tabs);
+    let review = is_review(&tabs, current_tab, &options);
     Some(QuestionSnapshot {
         text,
         options,
         multi_select,
+        checked,
+        tabs,
+        current_tab,
+        review,
     })
 }
 
@@ -362,6 +462,46 @@ mod tests {
                 ("4", "Type something"),
             ]
         );
+        // EXP-249: the ticked set a remote multiSelect answer toggles from.
+        assert_eq!(snap.checked, vec![true, false, true, false]);
+    }
+
+    #[test]
+    fn reads_the_tab_bar_and_the_current_tab() {
+        // EXP-249: `☐` = unanswered, `☒`/`☑`/`✔` = answered, and claude
+        // advances left to right — so the first unanswered tab is the one on
+        // screen.
+        let snap = detect(&toppings_screen()).expect("picker detected");
+        assert_eq!(
+            snap.tabs,
+            vec![
+                QuestionTab { label: "Toppings".into(), answered: false },
+                QuestionTab { label: "Size".into(), answered: false },
+                QuestionTab { label: "Submit".into(), answered: true },
+            ]
+        );
+        assert_eq!(snap.current_tab, Some(0));
+        assert!(!snap.review);
+
+        // A single-question ask renders one tab and no Submit.
+        let snap = detect(&color_screen()).expect("picker detected");
+        assert_eq!(
+            snap.tabs,
+            vec![QuestionTab { label: "Color".into(), answered: false }]
+        );
+        assert_eq!(snap.current_tab, Some(0));
+        assert!(!snap.review);
+    }
+
+    #[test]
+    fn the_second_tab_is_current_once_the_first_is_answered() {
+        let mut lines = toppings_screen();
+        lines[1] = "←  ☒ Toppings  ☐ Size  ✔ Submit  →".into();
+        lines[3] = "Which size?".into();
+        let snap = detect(&lines).expect("picker detected");
+        assert_eq!(snap.current_tab, Some(1));
+        assert!(snap.tabs[0].answered);
+        assert!(!snap.review);
     }
 
     #[test]
@@ -460,6 +600,29 @@ mod tests {
         let snap = detect(&lines).expect("picker detected");
         assert_eq!(snap.text, "Ready to submit your answers?");
         assert_eq!(snap.options.len(), 2);
+        // EXP-249: every question tab is answered and the picker offers
+        // submitting ⇒ this is the ask's final step.
+        assert!(snap.review);
+        assert_eq!(snap.current_tab, Some(2));
+    }
+
+    #[test]
+    fn an_ordinary_tab_is_never_mistaken_for_the_review_step() {
+        // "Submit the form?" as a QUESTION, on its own unanswered tab: the
+        // option wording alone must not flip `review`.
+        let lines = screen(&[
+            "←  ☐ Deploy  ✔ Submit  →",
+            "",
+            "Submit the form?",
+            "",
+            "❯ 1. Submit now",
+            "  2. Wait",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]);
+        let snap = detect(&lines).expect("picker detected");
+        assert_eq!(snap.current_tab, Some(0));
+        assert!(!snap.review);
     }
 
     #[test]

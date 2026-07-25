@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-steering-v2`,
+    date: `2026-07-25`,
+    title: `Answering the agent, properly`,
+    summary: `Questions from a coding session now arrive as a real stepper — one at a time, with descriptions, multi-select and a submit step — and answering locks the card instead of guessing keystrokes.`,
+    body: `- **A real question stepper** — a run that asks you several things now shows one question at a time with "2 of 3" progress, per-option explanations, multi-select toggles, and a final review step with a "Submit answers" button. Answered questions collapse behind what you picked.
+- **Answers land where you meant them** — an answer is sent as an answer, not as raw keypresses, and the agent confirms it. Tapping an option locks the card instantly, so one tap can never spill over into the next question.
+- **Plans always read as plans** — a plan waiting for approval is rendered as formatted text every time, and it stays waiting until you actually answer it — sending a message mid-plan no longer makes the approval buttons disappear.
+- **See what the subagents did** — work an agent hands to a subagent groups under its own expandable row, and permission prompts show up as their own line in the feed.
+- **A feed that survives reconnects** — reconnecting no longer blanks the session view; the desktop republishes the full history and the feed only clears when it is genuinely replaced.`,
+  },
+  {
     id: `2026-07-fix-conflicts-and-widget-fields`,
     date: `2026-07-25`,
     title: `Merge conflicts fixed for you, widgets that ask for less`,

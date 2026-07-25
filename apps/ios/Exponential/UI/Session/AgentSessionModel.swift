@@ -14,11 +14,12 @@ struct AgentPresenceViewer: Identifiable, Equatable {
 /// "Agent session" screen; apps/steer-relay/src/protocol.ts). Mints a viewer
 /// ticket over tRPC, dials the returned ws(s) URL with URLSessionWebSocketTask,
 /// joins with {"t":"join","channel":"activity"}, and receives scrubbed
-/// {t:'activity', event} frames (narration / tool headlines / worktree diffs)
-/// instead of raw PTY bytes. TEXT frames are JSON control messages; stray
-/// BINARY frames (0x01 PTY output, a relay/desktop misroute) are ignored.
-/// Steering is message-shaped: a steal-claim + chunked input + a separate \r.
-/// Mirrors the Android AgentSessionViewModel.
+/// {t:'activity', event} frames (narration / tool headlines / questions /
+/// subagents / permissions / worktree diffs). EXP-249 removed the PTY mirror
+/// from the protocol, so every frame is JSON now — a stray BINARY frame (an old
+/// desktop's 0x01 output) is ignored. Steering is message-shaped: a steal-claim
+/// + chunked input + a separate \r for prose, and ONE semantic `answer` frame
+/// per question card. Mirrors the Android AgentSessionViewModel.
 @MainActor @Observable
 final class AgentSessionModel {
     enum Phase: Equatable {
@@ -38,73 +39,17 @@ final class AgentSessionModel {
         case closed(detail: String?, reconnecting: Bool)
     }
 
-    /// One answer choice of a `question` event — `key` is the raw keystroke
-    /// that selects it in the desktop TUI picker (mapped desktop-side).
-    struct QuestionOption: Equatable {
-        let label: String
-        let key: String
-    }
-
-    /// One rendered feed entry. Diffs never enter the feed — see `latestDiff`.
-    enum FeedItem: Identifiable, Equatable {
-        case narration(id: Int, text: String)
-        case tool(id: Int, name: String, detail: String?)
-        /// A human turn (EXP-78): the initial prompt or a steered message.
-        case userMessage(id: Int, text: String)
-        /// An interactive question (AskUserQuestion / plan approval, EXP-78).
-        /// `planMode` marks an ExitPlanMode plan-approval picker (EXP-97) —
-        /// presentation-only, absent on events from older desktops/relays.
-        /// `resolved`/`answer` are set client-side when the desktop's
-        /// `Question answered:` / `Question dismissed.` narration folds into
-        /// the card (EXP-197) — a resolved card renders its answer and is
-        /// never answerable again.
-        case question(
-            id: Int, text: String, options: [QuestionOption], multiSelect: Bool,
-            planMode: Bool, resolved: Bool, answer: String?
-        )
-
-        var id: Int {
-            switch self {
-            case let .narration(id, _): id
-            case let .tool(id, _, _): id
-            case let .userMessage(id, _): id
-            case let .question(id, _, _, _, _, _, _): id
-            }
-        }
-
-        var isQuestion: Bool {
-            if case .question = self { return true }
-            return false
-        }
-
-        var isTool: Bool {
-            if case .tool = self { return true }
-            return false
-        }
-    }
-
-    /// One render row over the flat feed (EXP-97): a single item, or a run of
-    /// ≥2 CONSECUTIVE tool calls collapsed into one "N tool calls" row. A
-    /// run's id is the FIRST tool's id, so the row identity (and its expanded
-    /// state) stays stable while the trailing run keeps growing.
-    enum FeedRow: Identifiable, Equatable {
-        case single(FeedItem)
-        case toolRun([FeedItem])
-
-        var id: Int {
-            switch self {
-            case let .single(item): item.id
-            case let .toolRun(items): items.first?.id ?? -1
-            }
-        }
-    }
-
     private(set) var phase: Phase = .idle
-    /// The feed stays visible while disconnected (closed/ended states) but is
-    /// cleared right before each rejoin — the relay replays the room's whole
-    /// activity log to every joining socket, so keeping it would duplicate
-    /// the entire history on reconnect.
-    private(set) var feed: [FeedItem] = []
+    /// The feed stays visible while disconnected (closed/ended states) and is
+    /// cleared ONLY by the relay's `activity_reset` frame (EXP-249) — the relay
+    /// sends one to every activity viewer immediately before its join replay,
+    /// so the client never has to guess when to wipe. Item shapes and the pure
+    /// grouping/resolution rules live in ExpCore's AgentFeed.
+    private(set) var feed: [AgentFeedItem] = []
+    /// Per-card answer lock (EXP-249): a tap locks its card immediately, the
+    /// desktop's `answer_ack` makes that permanent (and advances a stepper),
+    /// and an unanswered optimistic lock expires so the card stays retryable.
+    private(set) var answerTracker = AgentAnswerTracker()
     /// The most recent worktree diff — each one replaces the previous.
     private(set) var latestDiff: String?
     private(set) var viewers: [AgentPresenceViewer] = []
@@ -147,81 +92,28 @@ final class AgentSessionModel {
         return session?.userId == currentUserId
     }
 
-    /// The desktop's plan-picker resolution narration (steer/src/activity.rs)
-    /// — the no-protocol-change signal that a pending plan approval was
-    /// answered.
-    static let planResolvedNarration = "Plan approval answered."
+    /// Ids of the question items still answerable — the pure rule lives in
+    /// ExpCore (`AgentFeed.activeQuestionIds`), mirroring the Android
+    /// `activeQuestionIds`.
+    var activeQuestionIds: Set<Int> { AgentFeed.activeQuestionIds(feed) }
 
-    /// The desktop's answered-question narration prefix (EXP-197): one
-    /// `Question answered: <answer>` narration per question flushes with the
-    /// transcript once an AskUserQuestion resolves — folded into the earliest
-    /// unanswered question card instead of rendering as a narration row.
-    static let questionAnsweredPrefix = "Question answered: "
+    /// Render rows: subagent runs, multi-question ask steppers, and runs of ≥2
+    /// consecutive tool calls collapse (EXP-97/EXP-249) — a projection only,
+    /// the flat feed stays the state.
+    var rows: [AgentFeedRow] { AgentFeed.rows(feed) }
 
-    /// The desktop's dismissed-question narration (EXP-197) — the ask
-    /// resolved WITHOUT answers (Esc / rejected); retires every pending
-    /// question card.
-    static let questionDismissedNarration = "Question dismissed."
+    /// Questions whose answer is out — sent (optimistic lock) or confirmed
+    /// (`answer_ack`). What a stepper card advances on (web parity: advance on
+    /// send; the 5s no-ack expiry rolls the step back).
+    var answeredQuestionIds: Set<String> { answerTracker.lockedKeys }
 
-    /// Ids of the question items still answerable (EXP-174): the TRAILING
-    /// consecutive question run (any later event means the desktop TUI moved
-    /// on), PLUS any plan-approval question with no resolution signal after
-    /// it. Plan questions are published from the live terminal grid the
-    /// moment the picker appears, while the transcript tail lags — so tool
-    /// rows and narration can flush in BEHIND a plan card whose picker is
-    /// still on screen. Only a newer question, a human message, or the
-    /// desktop's explicit `planResolvedNarration` proves a plan picker
-    /// actually resolved. Mirrors the Android `activeQuestionIds`.
-    var activeQuestionIds: Set<Int> {
-        var ids = Set<Int>()
-        // Still inside the trailing consecutive question run.
-        var trailing = true
-        // A resolution signal lies after the current position.
-        var retired = false
-        for item in feed.reversed() {
-            switch item {
-            case let .question(id, _, _, _, planMode, resolved, _):
-                if resolved {
-                    // An answered/dismissed card is itself a resolution
-                    // signal (it proves the TUI moved past it) and is never
-                    // active (EXP-197).
-                    trailing = false
-                    retired = true
-                } else {
-                    if trailing || (planMode && !retired) { ids.insert(id) }
-                    retired = true
-                }
-            case .userMessage:
-                trailing = false
-                retired = true
-            case let .narration(_, text):
-                trailing = false
-                if text.trimmingCharacters(in: .whitespacesAndNewlines) == Self.planResolvedNarration {
-                    retired = true
-                }
-            case .tool:
-                trailing = false
-            }
-            if retired, !trailing { break }
-        }
-        return ids
-    }
+    /// Whether a card is locked against further taps (sent-and-unconfirmed, or
+    /// confirmed by the desktop).
+    func isAnswerLocked(_ lockKey: String) -> Bool { answerTracker.isLocked(lockKey) }
 
-    /// Render rows: consecutive tool calls collapse into "N tool calls" runs
-    /// (EXP-97) — a projection only, the flat feed stays the state (and
-    /// `activeQuestionIds` keeps operating on it).
-    var rows: [FeedRow] {
-        let ranges = AgentFeedGrouping.toolRunRanges(isTool: feed.map(\.isTool))
-        var rows: [FeedRow] = []
-        var next = 0
-        for range in ranges {
-            for i in next..<range.lowerBound { rows.append(.single(feed[i])) }
-            rows.append(.toolRun(Array(feed[range])))
-            next = range.upperBound
-        }
-        for i in next..<feed.count { rows.append(.single(feed[i])) }
-        return rows
-    }
+    /// An answer went out for this card but the desktop hasn't confirmed
+    /// injecting it yet.
+    func isAnswerPending(_ lockKey: String) -> Bool { answerTracker.isPending(lockKey) }
 
     /// Live but blocked on a trailing question/plan — the session is waiting
     /// for a human answer, not stuck (EXP-97).
@@ -254,11 +146,15 @@ final class AgentSessionModel {
     private var dialGeneration = 0
     private var idleReleaseTask: Task<Void, Never>?
     private var sessionObservationTask: Task<Void, Never>?
+    private var answerExpiryTask: Task<Void, Never>?
 
     // Relay rejects input frames > 8 KiB; chunk pastes well under that.
     private static let inputChunkChars = 4096
-    /// Client-side feed cap — old events fall off the top.
-    private static let feedCap = 500
+    /// How long an optimistic answer lock holds without an `answer_ack` or a
+    /// `question_resolved` — long enough to cover a slow desktop injection,
+    /// short enough that a lost frame doesn't strand the card. Web/Android
+    /// parity (ANSWER_ACK_TIMEOUT_MS, EXP-249).
+    private static let answerLockSeconds: Double = 5
     /// Auto-release the steer claim after this long with no sends.
     private static let idleReleaseSeconds: Double = 60
     /// Redial cadence while the desktop's publisher socket is still starting.
@@ -350,6 +246,7 @@ final class AgentSessionModel {
         releaseNow()
         retryTask?.cancel()
         idleReleaseTask?.cancel()
+        answerExpiryTask?.cancel()
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
         connected = false
@@ -414,33 +311,64 @@ final class AgentSessionModel {
         append(.userMessage(id: takeEventId(), text: text))
     }
 
-    /// Answer an interactive question: steal-claim + raw keystrokes — the
-    /// desktop passes single-byte frames to the PTY unwrapped, so the TUI
-    /// sees keypresses, not a paste. Verified against the real picker: a
-    /// digit SELECTS but does not submit, so single-select answers pass
-    /// `submit: true` to follow up with a separate `\r` (multi-select taps
-    /// toggle with the digit alone; `sendSubmit` sends the Enter).
-    func sendAnswer(_ key: String, submit: Bool = false) {
+    /// Answer a protocol-v2 question card (EXP-249): steal-claim first (same
+    /// per-CONNECTION reason as sendMessage), then ONE semantic `answer` frame
+    /// carrying every chosen key — the desktop owns the keystroke mapping and
+    /// confirms the injection with `answer_ack`. The card locks the moment the
+    /// frame goes out, so a double tap can never answer twice.
+    func sendAnswer(questionId: String, askId: String?, keys: [String]) {
+        guard !questionId.isEmpty, !keys.isEmpty, canSteer, connected else { return }
+        guard !answerTracker.isLocked(questionId) else { return }
+        sendText(#"{"t":"claim","steal":true}"#)
+        var frame: [String: Any] = ["t": "answer", "questionId": questionId, "keys": keys]
+        if let askId, !askId.isEmpty { frame["askId"] = askId }
+        if let data = try? JSONSerialization.data(withJSONObject: frame),
+           let json = String(data: data, encoding: .utf8) {
+            sendText(json)
+        }
+        lockAnswer(questionId)
+        scheduleIdleRelease()
+    }
+
+    /// Answer a LEGACY question card (a desktop that publishes no question ids,
+    /// so there is nothing to address a semantic `answer` frame to): steal-claim
+    /// + the raw TUI keystroke, which the desktop passes to the PTY unwrapped.
+    /// NOTHING follows the digit — the old trailing `\r` submitted the picker a
+    /// second time and cascaded into the NEXT question (EXP-249). `lockKey`
+    /// locks the card; multi-select toggles pass nil (each digit only toggles,
+    /// `sendLegacyAdvance` submits).
+    func sendLegacyKey(_ key: String, lockKey: String? = nil) {
         guard !key.isEmpty, canSteer, connected else { return }
+        if let lockKey, answerTracker.isLocked(lockKey) { return }
         sendText(#"{"t":"claim","steal":true}"#)
         let frame: [String: Any] = ["t": "input", "data": key]
         if let data = try? JSONSerialization.data(withJSONObject: frame),
            let json = String(data: data, encoding: .utf8) {
             sendText(json)
         }
-        if submit, key != "\r" {
-            sendText(#"{"t":"input","data":"\r"}"#)
-        }
+        if let lockKey { lockAnswer(lockKey) }
         scheduleIdleRelease()
     }
 
-    /// Advance a multi-select question. Tab, NOT Enter: with the cursor on an
-    /// option row Enter TOGGLES it (verified against claude v2.1.215 —
+    /// Advance a legacy multi-select picker. Tab, NOT Enter: with the cursor on
+    /// an option row Enter TOGGLES it (verified against claude v2.1.215 —
     /// silently corrupting the selection), while Tab moves to the next
-    /// tab/review step, whose picker the grid watcher publishes as its own
-    /// card (EXP-197).
-    func sendSubmit() {
-        sendAnswer("\t")
+    /// tab/review step, whose picker the grid watcher publishes as its own card
+    /// (EXP-197).
+    func sendLegacyAdvance(lockKey: String?) {
+        sendLegacyKey("\t", lockKey: lockKey)
+    }
+
+    /// Lock a card and arm the expiry that frees it again if neither an
+    /// `answer_ack` nor a `question_resolved` ever lands.
+    private func lockAnswer(_ lockKey: String) {
+        answerTracker.markSent(lockKey)
+        answerExpiryTask?.cancel()
+        answerExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.answerLockSeconds))
+            guard let self, !Task.isCancelled else { return }
+            self.answerTracker.expire(timeout: Self.answerLockSeconds)
+        }
     }
 
     /// Best-effort claim release — closing the socket also releases it
@@ -537,12 +465,11 @@ final class AgentSessionModel {
         task = t
         connected = true
         t.resume()
-        // The relay replays the full activity log (+ latest diff) on join —
-        // clear the kept feed now so the replay rebuilds it instead of
-        // appending a duplicate copy of the whole history.
-        feed = []
-        nextEventId = 0
-        latestDiff = nil
+        // The feed is NOT wiped here (EXP-249): the relay sends an explicit
+        // `activity_reset` to every activity viewer right before its join
+        // replay, so the clear happens when the replay actually starts —
+        // wiping on dial blanked the screen for the whole ticket+socket
+        // round-trip, and left a failed dial showing nothing at all.
         // After a reconnect the replayed transcript event is the ONLY copy of
         // a sent message — it must render, so no stale echo may swallow it.
         recentEchoes = []
@@ -565,8 +492,9 @@ final class AgentSessionModel {
                     self?.rearm()
                 }
             case .success:
-                // Stray BINARY frame (0x01 PTY output, a relay/desktop
-                // misroute) — never render on the activity channel.
+                // Stray BINARY frame — the PTY mirror is gone from the
+                // protocol (EXP-249), so an old desktop's 0x01 output is the
+                // only source left and it is never renderable here.
                 Task { @MainActor in self?.rearm() }
             case .failure:
                 Task { @MainActor in self?.onSocketClosed() }
@@ -611,6 +539,12 @@ final class AgentSessionModel {
         case "activity":
             markLive()
             handleActivityEvent(obj["event"] as? [String: Any])
+        case "activity_reset":
+            // The ONLY feed wipe (EXP-249): the relay sends one immediately
+            // before every join replay, and again whenever a publisher restarts
+            // its stream — so a replay rebuilds the feed instead of appending a
+            // duplicate copy of the whole history.
+            resetFeed()
         case "bye":
             let outcome = obj["outcome"] as? String
             if outcome == "publisher_lost" {
@@ -635,8 +569,20 @@ final class AgentSessionModel {
                 endDetail = (obj["message"] as? String) ?? code
             }
         default:
-            break // input/resize/resync/kill — not activity-viewer-relevant
+            break // input/claim/kill — not activity-viewer-relevant
         }
+    }
+
+    /// Drop everything the room's activity log owns. Local echoes go too: the
+    /// replay that follows carries its own copy of every sent message.
+    private func resetFeed() {
+        feed = []
+        latestDiff = nil
+        recentEchoes = []
+        answerTracker.reset()
+        answerExpiryTask?.cancel()
+        // nextEventId keeps counting — reused render ids across a reset would
+        // hand SwiftUI a "same row, new content" identity.
     }
 
     private func handleActivityEvent(_ event: [String: Any]?) {
@@ -646,22 +592,39 @@ final class AgentSessionModel {
             guard let text = event["text"] as? String else { return }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
-            // Question-resolution signals fold into the pending card instead
-            // of rendering as narration rows (EXP-197).
-            if trimmed.hasPrefix(Self.questionAnsweredPrefix) {
-                let answer = String(trimmed.dropFirst(Self.questionAnsweredPrefix.count))
-                if attachQuestionAnswer(answer) { return }
-                // No card waiting — fall through so the answer still shows.
-            } else if trimmed == Self.questionDismissedNarration {
-                dismissPendingQuestions()
+            // LEGACY resolution signals (EXP-197): a protocol-v2 desktop emits
+            // them BESIDE `question_resolved` purely for old clients, so they
+            // are dropped entirely once the feed carries question ids. On a
+            // legacy feed they fold into the pending card instead of rendering
+            // as a narration row — with no card waiting the answer still
+            // renders, so it is never lost.
+            let semantic = AgentFeed.hasSemanticQuestions(feed)
+            if trimmed.hasPrefix(AgentFeed.questionAnsweredPrefix) {
+                guard !semantic else { return }
+                let answer = String(trimmed.dropFirst(AgentFeed.questionAnsweredPrefix.count))
+                if let out = AgentFeed.attachQuestionAnswer(feed, answer: answer) {
+                    feed = out
+                    return
+                }
+                // No legacy card waiting — fall through so the answer still shows.
+            } else if trimmed == AgentFeed.questionDismissedNarration {
+                guard !semantic else { return }
+                if let out = AgentFeed.dismissPendingQuestions(feed) { feed = out }
+                return
+            } else if trimmed == AgentFeed.planResolvedNarration, semantic {
+                // Legacy feeds need it IN the feed — `activeQuestionIds` reads
+                // it as the plan card's only retirement signal.
                 return
             }
             append(.narration(id: takeEventId(), text: text))
         case "tool":
             guard let name = event["name"] as? String else { return }
-            let detail = (event["detail"] as? String)
-                .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-            append(.tool(id: takeEventId(), name: name, detail: detail))
+            append(.tool(
+                id: takeEventId(),
+                name: name,
+                detail: Self.trimmedField(event["detail"]),
+                subagentId: Self.trimmedField(event["subagentId"])
+            ))
         case "diff":
             // Diffs never enter the feed — the latest replaces the previous
             // one behind the pinned "Latest changes" chip.
@@ -675,55 +638,96 @@ final class AgentSessionModel {
             if consumeEcho(text) { return }
             append(.userMessage(id: takeEventId(), text: text))
         case "question":
-            guard let text = event["text"] as? String, !text.isEmpty,
-                  let rawOptions = event["options"] as? [[String: Any]] else { return }
-            let options: [QuestionOption] = rawOptions.compactMap { o in
-                guard let label = o["label"] as? String, let key = o["key"] as? String else { return nil }
-                return QuestionOption(label: label, key: key)
+            guard let question = decodeQuestion(event) else { return }
+            // A re-emitted wire id REPLACES its card in place (the desktop
+            // augments options it discovers later); anything else appends.
+            feed = AgentFeed.upsertQuestion(feed, question: question)
+            trimFeed()
+        case "question_resolved":
+            let id = Self.trimmedField(event["id"])
+            let askId = Self.trimmedField(event["askId"])
+            let answers = (event["answers"] as? [String]) ?? []
+            let dismissed = (event["dismissed"] as? Bool) ?? false
+            // Collect the retiring cards' lock keys BEFORE they resolve —
+            // a retired card has nothing left for the optimistic lock to guard.
+            let retiredKeys: [String] = feed.compactMap { item -> String? in
+                guard let question = item.question, !question.resolved else { return nil }
+                if let id { return question.wireId == id ? question.lockKey : nil }
+                if let askId { return question.askId == askId ? question.lockKey : nil }
+                return question.lockKey
             }
-            guard !options.isEmpty else { return }
-            let multiSelect = (event["multiSelect"] as? Bool) ?? false
-            let planMode = (event["planMode"] as? Bool) ?? false
-            append(.question(
-                id: takeEventId(), text: text, options: options,
-                multiSelect: multiSelect, planMode: planMode,
-                resolved: false, answer: nil
+            if let out = AgentFeed.applyQuestionResolved(
+                feed, id: id, askId: askId, answers: answers, dismissed: dismissed
+            ) {
+                feed = out
+            }
+            for key in retiredKeys { answerTracker.resolve(key) }
+        case "answer_ack":
+            // The desktop injected the answer — the card stays locked for good
+            // and a stepper advances to its next step.
+            guard let id = Self.trimmedField(event["id"]) else { return }
+            answerTracker.acknowledge(id)
+        case "subagent":
+            guard let subagentId = Self.trimmedField(event["id"]),
+                  let raw = event["status"] as? String,
+                  let status = AgentSubagentStatus(rawValue: raw) else { return }
+            append(.subagent(
+                id: takeEventId(),
+                subagentId: subagentId,
+                agentType: Self.trimmedField(event["agentType"]) ?? "agent",
+                status: status,
+                detail: Self.trimmedField(event["detail"])
+            ))
+        case "permission":
+            guard let tool = Self.trimmedField(event["tool"]) else { return }
+            append(.permission(
+                id: takeEventId(),
+                tool: tool,
+                detail: Self.trimmedField(event["detail"])
             ))
         default:
+            // Unknown kinds are skipped, never fatal — a newer desktop may
+            // publish events this build has no renderer for.
             break
         }
     }
 
-    /// Fold an answer into the EARLIEST unanswered non-plan question card
-    /// (answers arrive in question order, so earliest-first keeps
-    /// multi-question asks aligned, EXP-197). False when no card is waiting —
-    /// the caller renders the narration so the answer is never lost.
-    private func attachQuestionAnswer(_ answer: String) -> Bool {
-        guard let index = feed.firstIndex(where: { item in
-            // (id, text, options, multiSelect, planMode, resolved, answer)
-            if case .question(_, _, _, _, false, false, _) = item { return true }
-            return false
-        }) else { return false }
-        guard case let .question(id, text, options, multiSelect, _, _, _) = feed[index]
-        else { return false }
-        feed[index] = .question(
-            id: id, text: text, options: options, multiSelect: multiSelect,
-            planMode: false, resolved: true, answer: answer
+    private func decodeQuestion(_ event: [String: Any]) -> AgentQuestion? {
+        guard let text = event["text"] as? String, !text.isEmpty,
+              let rawOptions = event["options"] as? [[String: Any]] else { return nil }
+        let options: [AgentQuestionOption] = rawOptions.compactMap { o in
+            guard let label = o["label"] as? String, let key = o["key"] as? String,
+                  !key.isEmpty else { return nil }
+            return AgentQuestionOption(
+                label: label, key: key, description: Self.trimmedField(o["description"])
+            )
+        }
+        guard !options.isEmpty else { return nil }
+        return AgentQuestion(
+            id: takeEventId(),
+            wireId: Self.trimmedField(event["id"]),
+            askId: Self.trimmedField(event["askId"]),
+            index: Self.positiveInt(event["index"]),
+            total: Self.positiveInt(event["total"]),
+            header: Self.trimmedField(event["header"]),
+            text: text,
+            options: options,
+            multiSelect: (event["multiSelect"] as? Bool) ?? false,
+            planMode: (event["planMode"] as? Bool) ?? false
         )
-        return true
     }
 
-    /// Retire every pending non-plan question card (the ask was dismissed).
-    private func dismissPendingQuestions() {
-        feed = feed.map { item in
-            if case let .question(id, text, options, multiSelect, false, false, answer) = item {
-                return .question(
-                    id: id, text: text, options: options, multiSelect: multiSelect,
-                    planMode: false, resolved: true, answer: answer
-                )
-            }
-            return item
-        }
+    /// A wire string field, nil unless it carries something.
+    private static func trimmedField(_ value: Any?) -> String? {
+        guard let text = value as? String,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
+    }
+
+    private static func positiveInt(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber else { return nil }
+        let int = number.intValue
+        return int >= 1 ? int : nil
     }
 
     /// Whether an incoming `user_message` matches a recent local echo —
@@ -742,10 +746,16 @@ final class AgentSessionModel {
         return nextEventId
     }
 
-    private func append(_ item: FeedItem) {
+    private func append(_ item: AgentFeedItem) {
         feed.append(item)
-        if feed.count > Self.feedCap {
-            feed.removeFirst(feed.count - Self.feedCap)
+        trimFeed()
+    }
+
+    /// Old events fall off the top at the relay's own log cap, so a full replay
+    /// is never truncated client-side (EXP-249).
+    private func trimFeed() {
+        if feed.count > AgentFeed.feedCap {
+            feed.removeFirst(feed.count - AgentFeed.feedCap)
         }
     }
 

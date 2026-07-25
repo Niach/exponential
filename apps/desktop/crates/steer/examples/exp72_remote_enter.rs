@@ -25,8 +25,7 @@ use tokio_tungstenite::tungstenite::Message;
 use api::error::ApiError;
 use api::steer::MintedTicket;
 use steer::publisher::{
-    publish, pty_writer_input_hook, term_geometry_hook, PublishSpec, PublisherHooks,
-    PublisherTickets,
+    publish, pty_writer_input_hook, PublishSpec, PublisherHooks, PublisherTickets,
 };
 use steer::SteerRuntime;
 use terminal::{screen_lines, SpawnSpec, Terminal};
@@ -144,11 +143,10 @@ fn main() {
     let runtime = SteerRuntime::new().expect("steer runtime");
     let hooks = PublisherHooks {
         write_input: pty_writer_input_hook(terminal.writer(), terminal.term()),
-        resize: Arc::new(|_, _| {}),
-        geometry: term_geometry_hook(terminal.term()),
         kill: Arc::new(|_| {}),
         presence: Arc::new(|_| {}),
         error: Arc::new(|message| println!("[publisher error] {message}")),
+        answers: None,
     };
     let handle = publish(
         &runtime,
@@ -159,7 +157,6 @@ fn main() {
         Arc::new(HarnessTickets { relay_port: port }),
         hooks,
     );
-    terminal.attach_sink(handle.raw_sink());
 
     // Give the child time to enable mode 2004 and the publisher to hello.
     if mode_2004 {
@@ -184,7 +181,9 @@ fn main() {
     let url = format!("ws://127.0.0.1:{port}/ws?ticket={viewer_ticket}");
     let _viewer = viewer_rt.spawn(async move {
         let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("viewer connect");
-        ws.send(Message::Text(r#"{"t":"join"}"#.into())).await.unwrap();
+        ws.send(Message::Text(r#"{"t":"join","channel":"activity"}"#.into()))
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await; // joined; now "Send" is tapped
         ws.send(Message::Text(r#"{"t":"claim","steal":true}"#.into())).await.unwrap();
         ws.send(Message::Text(r#"{"t":"input","data":"fix the login bug"}"#.into()))

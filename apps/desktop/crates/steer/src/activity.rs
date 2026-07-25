@@ -1,4 +1,5 @@
-//! The live-coding activity emitter (masterplan §P7 + EXP-78).
+//! The live-coding activity emitter (masterplan §P7 + EXP-78, steering v2 =
+//! EXP-249).
 //!
 //! The app publishes a **stripped, redacted** activity stream over the
 //! EXISTING steer publisher socket — never the raw PTY. Event kinds (relay
@@ -8,15 +9,31 @@
 //!   session transcript);
 //! * **tool** — a tool-call headline: the tool name plus a single primary
 //!   argument (a file path / pattern, or a Bash `description` — NEVER the raw
-//!   command string, NEVER a tool result);
+//!   command string, NEVER a tool result), attributed with a `subagentId` when
+//!   it came from a subagent's sidechain transcript;
 //! * **diff** — a debounced `git diff` snapshot of the worktree;
 //! * **user_message** — a HUMAN turn (the initial prompt or a steered
 //!   message; `origin.kind == "human"` entries only) — MEMBER-ONLY: the relay
 //!   never fans it to anonymous public viewers (EXP-78);
-//! * **question** — an interactive prompt the session is blocked on (an
-//!   `AskUserQuestion` question or the `ExitPlanMode` plan-approval picker),
-//!   with the raw TUI keystroke per option so steering clients can answer —
-//!   MEMBER-ONLY like `user_message`.
+//! * **question** / **question_resolved** / **answer_ack** — the interactive
+//!   prompts the session is blocked on (an `AskUserQuestion` step or the
+//!   `ExitPlanMode` plan approval) plus their lifecycle — MEMBER-ONLY like
+//!   `user_message`;
+//! * **subagent** / **permission** — subagent lifecycle and the informational
+//!   "claude is asking for permission" marker.
+//!
+//! ## Where the truth comes from (EXP-249)
+//!
+//! Structured facts come from the claude **hooks sidecar** ([`crate::hooks`]):
+//! the plan markdown verbatim, every question of an ask with its options and
+//! `tool_use_id`, subagent lifecycle, permission/idle notifications. The
+//! terminal grid ([`plan_picker`] / [`question_picker`]) is no longer the
+//! source of WHAT is being asked — it confirms that the picker is really on
+//! screen, supplies the REAL keystroke rows (including synthetic options like
+//! "Type something" that only the TUI knows), tells us which tab is current,
+//! and is where a remote answer's keystrokes are choreographed and verified.
+//! A session without hooks (an old claude, an unwritable settings file) keeps
+//! the pre-v2 grid-only behavior, minus question identity.
 //!
 //! Everything published passes through [`Redactor`] first: exact-match masking
 //! of the launcher-created secrets — the JIT GitHub installation token from
@@ -37,6 +54,7 @@
 //! [`TRANSCRIPT_WAIT`], it logs and continues with diffs only, never blocking
 //! the session.
 
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -47,10 +65,11 @@ use regex::Regex;
 use serde_json::Value;
 use terminal::{display_offset, screen_lines, TermHandle};
 
-use crate::frames::{ActivityEvent, QuestionOption};
-use crate::plan_picker::{PlanPickerWatcher, Transition};
-use crate::publisher::ActivitySender;
-use crate::question_picker::{self, normalize_question_text, QuestionPickerWatcher};
+use crate::frames::{ActivityEvent, QuestionOption, SubagentStatus};
+use crate::hooks::{HookEvent, HookEventKind, HookQuestion};
+use crate::plan_picker::{self, PlanPickerWatcher, Transition};
+use crate::publisher::{ActivitySender, InputHook};
+use crate::question_picker::{self, normalize_question_text, QuestionPickerWatcher, QuestionSnapshot};
 
 /// The mask token substituted for every redacted secret.
 const REDACTED: &str = "[redacted]";
@@ -68,13 +87,42 @@ pub const DIFF_MAX: usize = 512 * 1024;
 /// Question text shares the narration budget (an ExitPlanMode plan rides it).
 pub const QUESTION_TEXT_MAX: usize = NARRATION_MAX;
 pub const OPTION_LABEL_MAX: usize = 256;
+pub const OPTION_DESCRIPTION_MAX: usize = 1024;
+pub const QUESTION_HEADER_MAX: usize = 256;
+/// `question_resolved.answers` — ≤10 entries of ≤1024 (relay schema).
+pub const ANSWER_MAX: usize = 1024;
+pub const ANSWERS_MAX: usize = 10;
+/// `subagent.id` / `answer_ack.id` / `question.id` / `permission.tool`.
+pub const ID_MAX: usize = 128;
+pub const AGENT_TYPE_MAX: usize = 64;
 /// Relay-enforced option-count cap; also the range of digit keys we can map.
 const QUESTION_OPTIONS_MAX: usize = 9;
 
 /// Minimum gap between worktree diff snapshots (only emitted when changed).
 const DIFF_INTERVAL: Duration = Duration::from_secs(3);
-/// Transcript tail poll cadence.
+/// Transcript tail poll cadence (also the answer-intake timeout).
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// How long an `ExitPlanMode` hook waits for the grid to confirm the approval
+/// picker before the plan is published as a plain narration instead. The
+/// picker normally paints within a frame; this only fires when detection
+/// missed it (a re-worded picker) or claude auto-approved.
+const PLAN_GRID_CONFIRM: Duration = Duration::from_secs(10);
+/// Bounded wait for the TUI to move on after injected answer keystrokes. No
+/// transition inside this window = no `answer_ack` (the steerer's card stays
+/// answerable rather than silently locking).
+const ANSWER_SETTLE: Duration = Duration::from_secs(2);
+/// Poll step while waiting for that transition.
+const ANSWER_SETTLE_STEP: Duration = Duration::from_millis(100);
+/// Gap between injected keystrokes — the TUI processes one key per render.
+const KEYSTROKE_GAP: Duration = Duration::from_millis(60);
+/// Newest subagent sidechain transcripts tailed at once (a Task fan-out can
+/// open many; only the freshest are worth streaming).
+const SIDECHAIN_TAIL_MAX: usize = 4;
+/// Directories walked looking for sidechain transcripts (claude nests them
+/// under `<session>/subagents/**` since v2.1.220; older builds wrote them flat).
+const SIDECHAIN_WALK_MAX: usize = 64;
+/// How often that walk re-runs (the tails themselves run every poll).
+const SIDECHAIN_SCAN_INTERVAL: Duration = Duration::from_secs(3);
 /// How long to wait for the session transcript to appear before giving up and
 /// running diffs-only.
 const TRANSCRIPT_WAIT: Duration = Duration::from_secs(20);
@@ -295,6 +343,9 @@ pub struct TranscriptState {
     /// `AskUserQuestion` tool_use id → its question texts, in order — awaiting
     /// the tool_result entry that carries `toolUseResult.answers`.
     pub pending_asks: Vec<(String, Vec<String>)>,
+    /// EXP-249: ask ids the HOOK already published (identity, not text) —
+    /// their post-answer transcript twins are swallowed outright.
+    pub hook_published_asks: HashSet<String>,
 }
 
 /// Grid-question memory cap — a session never has this many live pickers.
@@ -313,16 +364,12 @@ impl TranscriptState {
     }
 
     /// Whether `text` matches a remembered grid question — consumes the match.
-    /// Substring containment (either way, with a length floor) covers screen
-    /// wrapping and a question whose head scrolled off the grid.
     fn consume_grid_question(&mut self, text: &str) -> bool {
         let norm = normalize_question_text(text);
-        let matched = self.recent_grid_questions.iter().position(|g| {
-            const MIN: usize = 12;
-            g == &norm
-                || (g.len() >= MIN && norm.contains(g.as_str()))
-                || (norm.len() >= MIN && g.contains(norm.as_str()))
-        });
+        let matched = self
+            .recent_grid_questions
+            .iter()
+            .position(|g| normalized_texts_match(g, &norm));
         match matched {
             Some(pos) => {
                 self.recent_grid_questions.remove(pos);
@@ -331,6 +378,14 @@ impl TranscriptState {
             None => false,
         }
     }
+}
+
+/// Whether two ALREADY-normalized question texts are the same question.
+/// Substring containment (either way, with a length floor) covers screen
+/// wrapping and a question whose head scrolled off the grid.
+fn normalized_texts_match(a: &str, b: &str) -> bool {
+    const MIN: usize = 12;
+    a == b || (a.len() >= MIN && b.contains(a)) || (b.len() >= MIN && a.contains(b))
 }
 
 /// Parse one Claude Code transcript JSONL line into activity events.
@@ -357,12 +412,17 @@ pub fn process_transcript_line(
     };
     match entry.get("type").and_then(Value::as_str) {
         Some("assistant") => {
-            record_pending_asks(&entry, state);
+            let ask_ids = record_pending_asks(&entry, state);
+            // EXP-249: the hook published this ask by identity — its twin is
+            // swallowed whole, no text matching involved.
+            let hook_published = ask_ids
+                .iter()
+                .any(|id| state.hook_published_asks.contains(id));
             parse_assistant_entry(&entry, redactor)
                 .into_iter()
                 .filter(|event| match event {
-                    // The late twin of a plan the grid watcher already
-                    // published at pending time (EXP-150).
+                    // The late twin of a plan already published at pending
+                    // time (EXP-150 grid watcher / the EXP-249 plan hook).
                     ActivityEvent::Question {
                         plan_mode: Some(true),
                         ..
@@ -370,13 +430,14 @@ pub fn process_transcript_line(
                         state.suppress_plan_questions -= 1;
                         false
                     }
-                    // The late twin of a grid-published AskUserQuestion —
-                    // matched by text, since it flushes only post-answer.
+                    // The late twin of an already-published AskUserQuestion —
+                    // matched by ask id (hooks) or by text (grid-only), since
+                    // it flushes only post-answer.
                     ActivityEvent::Question {
                         text,
                         plan_mode: None,
                         ..
-                    } => !state.consume_grid_question(text),
+                    } => !hook_published && !state.consume_grid_question(text),
                     _ => true,
                 })
                 .collect()
@@ -398,14 +459,16 @@ pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEve
 }
 
 /// Record every `AskUserQuestion` tool_use (id + question texts, in order) so
-/// the answers on its later tool_result entry can be published.
-fn record_pending_asks(entry: &Value, state: &mut TranscriptState) {
+/// the answers on its later tool_result entry can be published. Returns the
+/// ask ids seen on this entry (the EXP-249 twin-suppression key).
+fn record_pending_asks(entry: &Value, state: &mut TranscriptState) -> Vec<String> {
+    let mut ids = Vec::new();
     let Some(content) = entry
         .get("message")
         .and_then(|m| m.get("content"))
         .and_then(Value::as_array)
     else {
-        return;
+        return ids;
     };
     for block in content {
         if block.get("type").and_then(Value::as_str) != Some("tool_use")
@@ -431,12 +494,14 @@ fn record_pending_asks(entry: &Value, state: &mut TranscriptState) {
         if texts.is_empty() {
             continue;
         }
+        ids.push(id.to_string());
         state.pending_asks.push((id.to_string(), texts));
         if state.pending_asks.len() > PENDING_ASKS_CAP {
             let excess = state.pending_asks.len() - PENDING_ASKS_CAP;
             state.pending_asks.drain(..excess);
         }
     }
+    ids
 }
 
 /// An `AskUserQuestion` tool_result → its collected answers, published as one
@@ -447,6 +512,11 @@ fn record_pending_asks(entry: &Value, state: &mut TranscriptState) {
 /// was recorded as an AskUserQuestion are ever read — generic tool results
 /// stay unpublished (the EXP-78 privacy stance); the answers themselves are
 /// human-chosen input.
+///
+/// EXP-249: each resolution ALSO emits a semantic `question_resolved` keyed by
+/// the ask's `tool_use_id` (= the `askId` the question events carried), which
+/// retires every card of that ask. The narrations stay for pre-v2 clients that
+/// only string-match.
 fn take_ask_answers(
     entry: &Value,
     redactor: &Redactor,
@@ -470,33 +540,40 @@ fn take_ask_answers(
         let Some(pos) = state.pending_asks.iter().position(|(id, _)| id == tid) else {
             continue;
         };
-        let (_, questions) = state.pending_asks.remove(pos);
+        let (ask_id, questions) = state.pending_asks.remove(pos);
+        state.hook_published_asks.remove(&ask_id);
         let answers = entry
             .get("toolUseResult")
             .and_then(|v| v.get("answers"))
             .and_then(Value::as_object);
-        let mut emitted = false;
+        let mut collected: Vec<String> = Vec::new();
         if let Some(map) = answers {
             for question in &questions {
                 if let Some(answer) = map.get(question).and_then(Value::as_str) {
                     if answer.trim().is_empty() {
                         continue;
                     }
-                    events.push(ActivityEvent::Narration {
-                        text: truncate(
-                            &format!("{QUESTION_ANSWERED_PREFIX}{}", redactor.redact(answer)),
-                            NARRATION_MAX,
-                        ),
-                    });
-                    emitted = true;
+                    let answer = redactor.redact(answer);
+                    events.push(ActivityEvent::narration(truncate(
+                        &format!("{QUESTION_ANSWERED_PREFIX}{answer}"),
+                        NARRATION_MAX,
+                    )));
+                    collected.push(truncate(&answer, ANSWER_MAX));
                 }
             }
         }
-        if !emitted {
-            events.push(ActivityEvent::Narration {
-                text: QUESTION_DISMISSED_NARRATION.to_string(),
-            });
+        if collected.is_empty() {
+            events.push(ActivityEvent::narration(QUESTION_DISMISSED_NARRATION));
         }
+        let dismissed = collected.is_empty();
+        collected.truncate(ANSWERS_MAX);
+        events.push(ActivityEvent::QuestionResolved {
+            id: None,
+            ask_id: Some(truncate(&ask_id, ID_MAX)),
+            answers: (!dismissed).then_some(collected),
+            dismissed: dismissed.then_some(true),
+            at: None,
+        });
     }
     events
 }
@@ -517,7 +594,7 @@ fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEven
                 if let Some(text) = block.get("text").and_then(Value::as_str) {
                     let redacted = truncate(&redactor.redact(text), NARRATION_MAX);
                     if !redacted.trim().is_empty() {
-                        events.push(ActivityEvent::Narration { text: redacted });
+                        events.push(ActivityEvent::narration(redacted));
                     }
                 }
             }
@@ -540,10 +617,7 @@ fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEven
                 }
                 let detail = tool_detail(name, block.get("input"))
                     .map(|d| truncate(&redactor.redact(&d), TOOL_DETAIL_MAX));
-                events.push(ActivityEvent::Tool {
-                    name: truncate(name, TOOL_NAME_MAX),
-                    detail,
-                });
+                events.push(ActivityEvent::tool(truncate(name, TOOL_NAME_MAX), detail));
             }
             // tool_result / thinking / anything else → never published.
             _ => {}
@@ -591,7 +665,7 @@ fn parse_user_entry(entry: &Value, redactor: &Redactor) -> Option<ActivityEvent>
     if redacted.trim().is_empty() {
         return None;
     }
-    Some(ActivityEvent::UserMessage { text: redacted })
+    Some(ActivityEvent::user_message(redacted))
 }
 
 /// `AskUserQuestion` input → one `question` event per entry of
@@ -613,9 +687,11 @@ fn parse_ask_user_question(
             .filter_map(|o| o.get("label").and_then(Value::as_str))
             .take(QUESTION_OPTIONS_MAX)
             .enumerate()
-            .map(|(i, label)| QuestionOption {
-                label: truncate(&redactor.redact(label), OPTION_LABEL_MAX),
-                key: (i + 1).to_string(),
+            .map(|(i, label)| {
+                QuestionOption::new(
+                    truncate(&redactor.redact(label), OPTION_LABEL_MAX),
+                    (i + 1).to_string(),
+                )
             })
             .collect();
         if options.is_empty() {
@@ -628,6 +704,12 @@ fn parse_ask_user_question(
             options,
             multi_select,
             plan_mode: None,
+            id: None,
+            ask_id: None,
+            index: None,
+            total: None,
+            header: None,
+            at: None,
         });
     }
     (!events.is_empty()).then_some(events)
@@ -650,19 +732,19 @@ fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityE
     ActivityEvent::Question {
         text: plan.unwrap_or_else(|| "Plan ready for approval.".to_string()),
         options: vec![
-            QuestionOption {
-                label: "Approve — auto-accept edits".to_string(),
-                key: "1".to_string(),
-            },
-            QuestionOption {
-                label: "Approve — manually approve edits".to_string(),
-                key: "2".to_string(),
-            },
+            QuestionOption::new("Approve — auto-accept edits", "1"),
+            QuestionOption::new("Approve — manually approve edits", "2"),
         ],
         multi_select: None,
         // Marks the question as a plan-approval picker so clients can render
         // a dedicated "Plan ready" card (EXP-97).
         plan_mode: Some(true),
+        id: None,
+        ask_id: None,
+        index: None,
+        total: None,
+        header: None,
+        at: None,
     }
 }
 
@@ -716,60 +798,11 @@ pub fn munge_claude_project_dir(path: &Path) -> String {
         .collect()
 }
 
-/// The pending plan's markdown body, read from `~/.claude/plans` (EXP-150).
-/// `claude` writes the plan file BEFORE showing the approval picker, so this
-/// is the only full-body source available at pending time (the transcript's
-/// `input.plan` twin lands only after approval). Best-effort: `None` falls
-/// back to a fixed headline.
-fn plan_body(after: SystemTime, must_contain: Option<&str>) -> Option<String> {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    let dir = PathBuf::from(home).join(".claude").join("plans");
-    plan_body_in(&dir, after, must_contain)
-}
-
-/// [`plan_body`] on an explicit dir (unit-testable). Candidates are `*.md`
-/// files modified at/after the session spawn; when the picker rendered the
-/// plan's first line on screen, a candidate containing it wins (disambiguates
-/// concurrent sessions — the dir is global, not per-board). Without a
-/// needle (the bare "Exit plan mode?" variant) — or when the needle matches
-/// no candidate — a body is attached ONLY when there is exactly one
-/// candidate: with two concurrent sessions the newest file may belong to the
-/// OTHER session's team, and a missing body is strictly better than a
-/// cross-team plan leak.
-fn plan_body_in(dir: &Path, after: SystemTime, must_contain: Option<&str>) -> Option<String> {
-    let mut candidates: Vec<(SystemTime, PathBuf)> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .filter(|entry| {
-            entry.path().extension().and_then(|e| e.to_str()) == Some("md")
-        })
-        .filter_map(|entry| {
-            let modified = entry.metadata().and_then(|m| m.modified()).ok()?;
-            (modified >= after).then_some((modified, entry.path()))
-        })
-        .collect();
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
-    let needle = must_contain.map(str::trim).filter(|n| !n.is_empty());
-    if let Some(needle) = needle {
-        for (_, path) in &candidates {
-            if let Ok(body) = std::fs::read_to_string(path) {
-                if body.contains(needle) {
-                    return Some(body);
-                }
-            }
-        }
-    }
-    match &candidates[..] {
-        [(_, only)] => std::fs::read_to_string(only).ok(),
-        _ => None,
-    }
-}
-
 /// The newest non-sidechain session transcript in `dir` modified at/after
 /// `after` (the spawn time — so a previous session's stale transcript in a
 /// reused worktree is never picked). Sub-agent files (`agent-*.jsonl`) are
 /// excluded so tailing never flip-flops between the main session and a
-/// sidechain.
+/// sidechain; [`sidechain_transcripts`] streams those separately.
 fn newest_transcript(dir: &Path, after: SystemTime) -> Option<PathBuf> {
     let mut best: Option<(SystemTime, PathBuf)> = None;
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
@@ -792,6 +825,87 @@ fn newest_transcript(dir: &Path, after: SystemTime) -> Option<PathBuf> {
         }
     }
     best.map(|(_, path)| path)
+}
+
+/// The freshest subagent sidechain transcripts under the session's project dir
+/// (EXP-249), newest first, capped at [`SIDECHAIN_TAIL_MAX`]. claude wrote
+/// these flat as `agent-<id>.jsonl` through v2.1.21x and nests them under
+/// `<session>/subagents/**` since v2.1.220 — both layouts are walked, with a
+/// hard visit budget so a huge tree can never stall the poll loop.
+fn sidechain_transcripts(dir: &Path, after: SystemTime) -> Vec<PathBuf> {
+    let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();
+    let mut queue: VecDeque<PathBuf> = VecDeque::from([dir.to_path_buf()]);
+    let mut visited = 0usize;
+    while let Some(current) = queue.pop_front() {
+        visited += 1;
+        if visited > SIDECHAIN_WALK_MAX {
+            break;
+        }
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() {
+                queue.push_back(path);
+                continue;
+            }
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !name.starts_with("agent-") || !name.ends_with(".jsonl") {
+                continue;
+            }
+            let Ok(modified) = meta.modified() else { continue };
+            if modified >= after {
+                found.push((modified, path));
+            }
+        }
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.truncate(SIDECHAIN_TAIL_MAX);
+    found.into_iter().map(|(_, path)| path).collect()
+}
+
+/// The subagent id a sidechain file belongs to: `agent-<id>.jsonl` → `<id>`,
+/// which is exactly the `agent_id` the `SubagentStart` hook reports (verified
+/// against claude v2.1.220, whose entries repeat it as `agentId`).
+fn sidechain_agent_id(path: &Path) -> Option<String> {
+    let name = path.file_name().and_then(|n| n.to_str())?;
+    let id = name.strip_prefix("agent-")?.strip_suffix(".jsonl")?;
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+/// One sidechain line → the subagent's tool headlines only (EXP-249). A
+/// subagent's prose is not published: the parent narrates what it delegated,
+/// and a fan-out of five agents would otherwise bury the feed.
+fn parse_sidechain_line(
+    line: &str,
+    fallback_agent_id: &str,
+    redactor: &Redactor,
+) -> Vec<ActivityEvent> {
+    let Ok(entry) = serde_json::from_str::<Value>(line.trim()) else {
+        return Vec::new();
+    };
+    if entry.get("type").and_then(Value::as_str) != Some("assistant") {
+        return Vec::new();
+    }
+    let agent_id = entry
+        .get("agentId")
+        .and_then(Value::as_str)
+        .unwrap_or(fallback_agent_id)
+        .to_string();
+    parse_assistant_entry(&entry, redactor)
+        .into_iter()
+        .filter_map(|event| match event {
+            ActivityEvent::Tool { name, detail, .. } => Some(ActivityEvent::Tool {
+                name,
+                detail,
+                subagent_id: Some(truncate(&agent_id, ID_MAX)),
+                at: None,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -827,6 +941,682 @@ fn git_diff(worktree: &Path, cached: bool) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// The publisher ↔ emitter answer seam (EXP-249)
+// ---------------------------------------------------------------------------
+
+/// A steerer's semantic answer, relayed verbatim by the publisher: the
+/// question's own id plus the option `key`s of THAT question. The emitter maps
+/// them onto whatever the TUI is showing right now — clients never guess
+/// keystrokes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteAnswer {
+    pub question_id: String,
+    pub ask_id: Option<String>,
+    pub keys: Vec<String>,
+}
+
+/// The one-way seam between the publisher task (tokio) and the emitter thread
+/// (blocking grid/PTY work): answers go down the channel, and the emitter
+/// publishes back the "an ask is pending" bit the publisher needs to swallow a
+/// legacy client's Enter cascade.
+pub struct AnswerLink {
+    tx: flume::Sender<RemoteAnswer>,
+    ask_pending: AtomicBool,
+}
+
+impl AnswerLink {
+    /// The link plus the emitter's receiving end.
+    pub fn new() -> (Arc<Self>, flume::Receiver<RemoteAnswer>) {
+        let (tx, rx) = flume::unbounded();
+        (
+            Arc::new(Self {
+                tx,
+                ask_pending: AtomicBool::new(false),
+            }),
+            rx,
+        )
+    }
+
+    /// Publisher side: hand one answer to the emitter (fire-and-forget — a
+    /// dead emitter just means the card stays unanswered).
+    pub fn submit(&self, answer: RemoteAnswer) {
+        let _ = self.tx.send(answer);
+    }
+
+    /// Whether the session is parked on an interactive question right now.
+    pub fn ask_pending(&self) -> bool {
+        self.ask_pending.load(Ordering::Relaxed)
+    }
+
+    /// Emitter side (and tests): publish the pending bit.
+    pub fn set_ask_pending(&self, pending: bool) {
+        self.ask_pending.store(pending, Ordering::Relaxed);
+    }
+}
+
+/// Everything the emitter needs to ACT on a remote answer: the inbox, the flag
+/// channel back to the publisher, and the PTY writer the keystrokes go into
+/// (the same `Terminal::writer()` local typing uses — the child cannot tell
+/// them apart).
+pub struct Steering {
+    pub answers: flume::Receiver<RemoteAnswer>,
+    pub link: Arc<AnswerLink>,
+    pub write_input: InputHook,
+}
+
+// ---------------------------------------------------------------------------
+// Hook-driven question state (EXP-249)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuestionKind {
+    /// `ExitPlanMode` approval.
+    Plan,
+    /// One step of an `AskUserQuestion`.
+    Ask,
+    /// The review/submit step that closes a multi-question ask.
+    Submit,
+}
+
+/// A question that is published and still answerable.
+#[derive(Clone, Debug)]
+struct LiveQuestion {
+    kind: QuestionKind,
+    ask_id: Option<String>,
+    text_norm: String,
+    options: Vec<QuestionOption>,
+    multi_select: bool,
+}
+
+/// The `ExitPlanMode` hook, waiting for the grid to confirm its picker.
+struct PendingPlan {
+    id: String,
+    text: String,
+    seen: Instant,
+    published: bool,
+    degraded: bool,
+}
+
+/// The `AskUserQuestion` hook — every question published up front; the grid
+/// only augments them as their tabs come up.
+struct PendingAsk {
+    ask_id: String,
+    questions: Vec<HookQuestion>,
+    /// Options published per question so far — a grid tab showing MORE than
+    /// this is a synthetic row ("Type something") worth re-emitting for.
+    published_options: Vec<usize>,
+    submit_published: bool,
+}
+
+/// Why the session is waiting on a human outside of a picker.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Attention {
+    /// A `Notification` classified as a permission prompt — informational,
+    /// answered at the local TUI only.
+    Permission,
+    /// Any other notification (claude's idle nudge).
+    Idle,
+}
+
+/// Subagent identity bookkeeping: `PreToolUse:Task` gives a `tool_use_id` and
+/// the description, `SubagentStart`/`Stop` give an `agent_id`, and the
+/// sidechain transcripts are keyed by the latter. The dispatch publishes the
+/// card (that is when the user sees the delegation); the start binds the two
+/// ids so tool headlines and the completion edge land on the SAME card.
+#[derive(Default)]
+struct Subagents {
+    /// Dispatched `tool_use_id`s awaiting a `SubagentStart` to bind to.
+    unbound: VecDeque<String>,
+    /// `agent_id` → the id the card was published under.
+    alias: HashMap<String, String>,
+}
+
+/// Live subagent cap — a wide fan-out must not grow these maps without bound.
+const SUBAGENTS_CAP: usize = 32;
+
+impl Subagents {
+    fn dispatch(&mut self, tool_use_id: String) {
+        self.unbound.push_back(tool_use_id);
+        while self.unbound.len() > SUBAGENTS_CAP {
+            self.unbound.pop_front();
+        }
+    }
+
+    /// Bind a starting agent to the oldest unbound dispatch; the published id
+    /// wins so the card stays the one the dispatch created.
+    fn started(&mut self, agent_id: &str) -> Option<String> {
+        let dispatched = self.unbound.pop_front()?;
+        self.alias.insert(agent_id.to_string(), dispatched.clone());
+        while self.alias.len() > SUBAGENTS_CAP {
+            let Some(stale) = self.alias.keys().next().cloned() else { break };
+            self.alias.remove(&stale);
+        }
+        Some(dispatched)
+    }
+
+    /// The card id for an `agent_id` (its dispatch's, or the raw id when the
+    /// Task hook never fired).
+    fn card_id(&self, agent_id: &str) -> String {
+        self.alias
+            .get(agent_id)
+            .cloned()
+            .unwrap_or_else(|| agent_id.to_string())
+    }
+}
+
+/// The emitter's steering brain: what the hooks said, what is published, what
+/// is still answerable.
+#[derive(Default)]
+struct SteerState {
+    plan: Option<PendingPlan>,
+    ask: Option<PendingAsk>,
+    subagents: Subagents,
+    attention: Option<Attention>,
+    live: HashMap<String, LiveQuestion>,
+    answered: HashSet<String>,
+    /// Fallback plan identity when a hook payload carries no `tool_use_id`.
+    plan_seq: u32,
+}
+
+/// One question about to go on the wire.
+struct Publishable {
+    id: String,
+    kind: QuestionKind,
+    ask_id: Option<String>,
+    index: Option<u32>,
+    total: Option<u32>,
+    header: Option<String>,
+    text: String,
+    options: Vec<QuestionOption>,
+    multi_select: bool,
+}
+
+impl SteerState {
+    /// Whether a hook says the session is parked on a picker right now.
+    fn has_pending_question(&self) -> bool {
+        self.plan.is_some() || self.ask.is_some()
+    }
+
+    fn publish_question(&mut self, question: Publishable, sender: &ActivitySender) {
+        let plan_mode = (question.kind == QuestionKind::Plan).then_some(true);
+        self.live.insert(
+            question.id.clone(),
+            LiveQuestion {
+                kind: question.kind,
+                ask_id: question.ask_id.clone(),
+                text_norm: normalize_question_text(&question.text),
+                options: question.options.clone(),
+                multi_select: question.multi_select,
+            },
+        );
+        sender.send(ActivityEvent::Question {
+            text: question.text,
+            options: question.options,
+            multi_select: question.multi_select.then_some(true),
+            plan_mode,
+            id: Some(question.id),
+            ask_id: question.ask_id,
+            index: question.index,
+            total: question.total,
+            header: question.header,
+            at: None,
+        });
+    }
+
+    /// A hook delivery → published events + state.
+    fn apply_hook(
+        &mut self,
+        event: HookEvent,
+        sender: &ActivitySender,
+        redactor: &Redactor,
+        transcript: &mut TranscriptState,
+    ) {
+        match event.kind {
+            HookEventKind::PlanProposed { tool_use_id, plan } => {
+                self.plan_seq += 1;
+                let id = tool_use_id.unwrap_or_else(|| format!("plan-{}", self.plan_seq));
+                let text = truncate(&redactor.redact(&plan), QUESTION_TEXT_MAX);
+                // claude flushes the ExitPlanMode transcript entry only once
+                // the picker is answered — the twin it will produce is this
+                // same plan, already published here.
+                transcript.suppress_plan_questions += 1;
+                self.plan = Some(PendingPlan {
+                    id: truncate(&id, ID_MAX),
+                    text: if text.trim().is_empty() {
+                        "Plan ready for approval.".to_string()
+                    } else {
+                        text
+                    },
+                    seen: Instant::now(),
+                    published: false,
+                    degraded: false,
+                });
+            }
+            HookEventKind::QuestionsAsked {
+                tool_use_id,
+                questions,
+            } => {
+                let Some(ask_id) = tool_use_id else {
+                    // Without an id there is nothing to answer against — the
+                    // grid path publishes it the legacy way.
+                    return;
+                };
+                let ask_id = truncate(&ask_id, ID_MAX);
+                transcript.hook_published_asks.insert(ask_id.clone());
+                let total = questions.len() as u32;
+                let mut published_options = Vec::with_capacity(questions.len());
+                for (index, question) in questions.iter().enumerate() {
+                    let options = hook_options(question, redactor);
+                    published_options.push(options.len());
+                    self.publish_question(
+                        Publishable {
+                            id: format!("{ask_id}#{index}"),
+                            kind: QuestionKind::Ask,
+                            ask_id: Some(ask_id.clone()),
+                            index: Some(index as u32 + 1),
+                            total: Some(total),
+                            header: question
+                                .header
+                                .as_ref()
+                                .map(|h| truncate(&redactor.redact(h), QUESTION_HEADER_MAX)),
+                            text: truncate(
+                                &redactor.redact(&question.question),
+                                QUESTION_TEXT_MAX,
+                            ),
+                            options,
+                            multi_select: question.multi_select,
+                        },
+                        sender,
+                    );
+                }
+                self.ask = Some(PendingAsk {
+                    ask_id,
+                    questions,
+                    published_options,
+                    submit_published: false,
+                });
+            }
+            HookEventKind::SubagentDispatched {
+                tool_use_id,
+                description,
+                subagent_type,
+            } => {
+                let Some(id) = tool_use_id else { return };
+                let id = truncate(&id, ID_MAX);
+                let agent_type = truncate(
+                    subagent_type.as_deref().unwrap_or("agent"),
+                    AGENT_TYPE_MAX,
+                );
+                let detail = description
+                    .map(|detail| truncate(&redactor.redact(&detail), TOOL_DETAIL_MAX));
+                self.subagents.dispatch(id.clone());
+                sender.send(ActivityEvent::Subagent {
+                    id,
+                    agent_type,
+                    status: SubagentStatus::Started,
+                    detail,
+                    at: None,
+                });
+            }
+            HookEventKind::SubagentStarted {
+                agent_id,
+                agent_type,
+            } => {
+                let Some(agent_id) = agent_id else { return };
+                let agent_id = truncate(&agent_id, ID_MAX);
+                // Bound to a dispatch we already carded ⇒ nothing new to show.
+                if self.subagents.started(&agent_id).is_some() {
+                    return;
+                }
+                sender.send(ActivityEvent::Subagent {
+                    id: agent_id,
+                    agent_type: truncate(
+                        agent_type.as_deref().unwrap_or("agent"),
+                        AGENT_TYPE_MAX,
+                    ),
+                    status: SubagentStatus::Started,
+                    detail: None,
+                    at: None,
+                });
+            }
+            HookEventKind::SubagentStopped {
+                agent_id,
+                agent_type,
+            } => {
+                let Some(agent_id) = agent_id else { return };
+                let agent_id = truncate(&agent_id, ID_MAX);
+                sender.send(ActivityEvent::Subagent {
+                    id: self.subagents.card_id(&agent_id),
+                    agent_type: truncate(
+                        agent_type.as_deref().unwrap_or("agent"),
+                        AGENT_TYPE_MAX,
+                    ),
+                    status: SubagentStatus::Completed,
+                    detail: None,
+                    at: None,
+                });
+            }
+            HookEventKind::PermissionPrompt { message, tool } => {
+                self.attention = Some(Attention::Permission);
+                sender.send(ActivityEvent::Permission {
+                    tool: truncate(tool.as_deref().unwrap_or("Tool"), ID_MAX),
+                    detail: Some(truncate(&redactor.redact(&message), TOOL_DETAIL_MAX)),
+                    at: None,
+                });
+            }
+            HookEventKind::Idle { .. } => self.attention = Some(Attention::Idle),
+            // The turn ended: whatever the session was waiting on is over.
+            HookEventKind::Stop | HookEventKind::SessionEnd { .. } => self.attention = None,
+        }
+    }
+
+    /// The plan hook's degraded path: the picker never confirmed on the grid,
+    /// so publish the plan as prose rather than sitting on it silently.
+    fn plan_timeout(&mut self, sender: &ActivitySender) {
+        let Some(plan) = &mut self.plan else { return };
+        if plan.published || plan.degraded || plan.seen.elapsed() < PLAN_GRID_CONFIRM {
+            return;
+        }
+        plan.degraded = true;
+        sender.send(ActivityEvent::narration(plan.text.clone()));
+    }
+
+    /// The plan picker settled on screen: publish the hook's real plan body
+    /// with the picker's real option rows. `false` when no hook knows about
+    /// this plan (the caller falls back to the legacy grid-only question).
+    fn confirm_plan_from_grid(
+        &mut self,
+        options: Vec<QuestionOption>,
+        sender: &ActivitySender,
+    ) -> bool {
+        let Some(plan) = &mut self.plan else {
+            return false;
+        };
+        if plan.published {
+            return true;
+        }
+        plan.published = true;
+        let (id, text) = (plan.id.clone(), plan.text.clone());
+        self.publish_question(
+            Publishable {
+                id,
+                kind: QuestionKind::Plan,
+                ask_id: None,
+                index: None,
+                total: None,
+                header: None,
+                text,
+                options,
+                multi_select: false,
+            },
+            sender,
+        );
+        true
+    }
+
+    /// The plan picker left the screen — answered, dismissed, or superseded.
+    fn resolve_plan(&mut self, sender: &ActivitySender) {
+        // Legacy signal FIRST: pre-v2 clients retire the card on this exact
+        // narration and nothing else (EXP-150/EXP-174).
+        sender.send(ActivityEvent::narration(PLAN_RESOLVED_NARRATION));
+        let Some(plan) = self.plan.take() else { return };
+        self.live.remove(&plan.id);
+        if plan.published {
+            sender.send(ActivityEvent::QuestionResolved {
+                id: Some(plan.id),
+                ask_id: None,
+                answers: None,
+                dismissed: None,
+                at: None,
+            });
+        }
+    }
+
+    /// The question picker settled on screen. Returns `false` when no hook
+    /// knows this ask, so the caller publishes the legacy id-less question.
+    fn confirm_question_from_grid(
+        &mut self,
+        snapshot: &QuestionSnapshot,
+        sender: &ActivitySender,
+        redactor: &Redactor,
+    ) -> bool {
+        let Some(ask) = &mut self.ask else {
+            return false;
+        };
+        let ask_id = ask.ask_id.clone();
+        if snapshot.review {
+            if ask.submit_published {
+                return true;
+            }
+            ask.submit_published = true;
+            let options = grid_options(snapshot, redactor);
+            self.publish_question(
+                Publishable {
+                    id: format!("{ask_id}#submit"),
+                    kind: QuestionKind::Submit,
+                    ask_id: Some(ask_id),
+                    index: None,
+                    total: None,
+                    header: None,
+                    text: truncate(&redactor.redact(&snapshot.text), QUESTION_TEXT_MAX),
+                    options,
+                    multi_select: false,
+                },
+                sender,
+            );
+            return true;
+        }
+        let visible = normalize_question_text(&snapshot.text);
+        let Some(index) = ask.questions.iter().position(|question| {
+            normalized_texts_match(&normalize_question_text(&question.question), &visible)
+        }) else {
+            return false;
+        };
+        if snapshot.options.len() <= ask.published_options[index] {
+            return true; // the hook already knew every row
+        }
+        ask.published_options[index] = snapshot.options.len();
+        let question = ask.questions[index].clone();
+        let total = ask.questions.len() as u32;
+        // The grid is authoritative on ROWS (it knows the synthetic "Type
+        // something"); the hook is authoritative on descriptions.
+        let mut options = grid_options(snapshot, redactor);
+        for option in &mut options {
+            if let Some(hook_option) = question
+                .options
+                .iter()
+                .find(|hook_option| hook_option.label == option.label)
+            {
+                option.description = hook_option
+                    .description
+                    .as_ref()
+                    .map(|d| truncate(&redactor.redact(d), OPTION_DESCRIPTION_MAX));
+            }
+        }
+        self.publish_question(
+            Publishable {
+                id: format!("{ask_id}#{index}"),
+                kind: QuestionKind::Ask,
+                ask_id: Some(ask_id),
+                index: Some(index as u32 + 1),
+                total: Some(total),
+                header: question
+                    .header
+                    .as_ref()
+                    .map(|h| truncate(&redactor.redact(h), QUESTION_HEADER_MAX)),
+                text: truncate(&redactor.redact(&question.question), QUESTION_TEXT_MAX),
+                options,
+                multi_select: question.multi_select,
+            },
+            sender,
+        );
+        true
+    }
+
+    /// Watch what the transcript published: an ask resolution retires its
+    /// cards, and any progress at all clears a stale attention flag.
+    fn observe_published(&mut self, event: &ActivityEvent) {
+        if let ActivityEvent::QuestionResolved { ask_id, .. } = event {
+            if let Some(ask_id) = ask_id {
+                self.live
+                    .retain(|_, live| live.ask_id.as_deref() != Some(ask_id.as_str()));
+                if self.ask.as_ref().is_some_and(|ask| &ask.ask_id == ask_id) {
+                    self.ask = None;
+                }
+            }
+        }
+        self.attention = None;
+        // A plan whose picker never appeared (auto-approved, or detection
+        // missed it) must not pin "needs input" for the rest of the session.
+        if self.plan.as_ref().is_some_and(|plan| plan.degraded) {
+            self.plan = None;
+        }
+    }
+
+    /// Inject a steerer's answer into the TUI and, once the grid confirms the
+    /// move, acknowledge it. Silent on every refusal (stale id, already
+    /// answered, wrong tab, no transition): a card that never gets an ack
+    /// stays answerable, which is the safe direction.
+    fn handle_answer(
+        &mut self,
+        answer: RemoteAnswer,
+        term: &TermHandle,
+        write_input: &InputHook,
+        sender: &ActivitySender,
+    ) {
+        if self.answered.contains(&answer.question_id) {
+            return;
+        }
+        let Some(live) = self.live.get(&answer.question_id).cloned() else {
+            return;
+        };
+        if display_offset(term) > 0 {
+            return; // scrolled into history — the visible grid is not the picker
+        }
+        let lines = screen_lines(term);
+        match live.kind {
+            QuestionKind::Plan => {
+                if plan_picker::detect(&lines).is_none() {
+                    return;
+                }
+                let Some(key) = answer.keys.first() else { return };
+                if !live.options.iter().any(|option| &option.key == key) {
+                    return;
+                }
+                write_input(key.as_bytes());
+                if !settle(|| plan_picker::detect(&screen_lines(term)).is_none()) {
+                    return;
+                }
+            }
+            QuestionKind::Ask | QuestionKind::Submit => {
+                let Some(snapshot) = question_picker::detect(&lines) else {
+                    return;
+                };
+                let visible = normalize_question_text(&snapshot.text);
+                match live.kind {
+                    // The submit step is only answerable ON the review tab.
+                    QuestionKind::Submit if !snapshot.review => return,
+                    QuestionKind::Ask
+                        if snapshot.review
+                            || !normalized_texts_match(&live.text_norm, &visible) =>
+                    {
+                        return
+                    }
+                    _ => {}
+                }
+                if live.multi_select && live.kind == QuestionKind::Ask {
+                    // Digits TOGGLE in a multiSelect picker, so drive the
+                    // checkboxes to the requested set, then Tab to advance
+                    // (Enter would only toggle — see the picker semantics).
+                    for (index, option) in snapshot.options.iter().enumerate() {
+                        let wanted = answer.keys.iter().any(|key| key == &option.key);
+                        let checked = snapshot.checked.get(index).copied().unwrap_or(false);
+                        if wanted != checked {
+                            write_input(option.key.as_bytes());
+                            std::thread::sleep(KEYSTROKE_GAP);
+                        }
+                    }
+                    write_input(b"\t");
+                } else {
+                    let Some(key) = answer.keys.first() else { return };
+                    if !snapshot.options.iter().any(|option| &option.key == key) {
+                        return;
+                    }
+                    write_input(key.as_bytes());
+                }
+                let moved = settle(|| match question_picker::detect(&screen_lines(term)) {
+                    None => true,
+                    Some(next) => {
+                        !normalized_texts_match(
+                            &live.text_norm,
+                            &normalize_question_text(&next.text),
+                        ) || next.review != snapshot.review
+                    }
+                });
+                if !moved {
+                    return;
+                }
+            }
+        }
+        self.answered.insert(answer.question_id.clone());
+        self.live.remove(&answer.question_id);
+        sender.send(ActivityEvent::AnswerAck {
+            id: answer.question_id,
+            ask_id: live.ask_id,
+            at: None,
+        });
+    }
+}
+
+/// Poll `done` until it holds or [`ANSWER_SETTLE`] elapses.
+fn settle(mut done: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + ANSWER_SETTLE;
+    loop {
+        if done() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(ANSWER_SETTLE_STEP);
+    }
+}
+
+/// A hook question's options → wire options, keyed by the TUI's digit
+/// positions (the picker numbers its rows in the order the tool declared).
+fn hook_options(question: &HookQuestion, redactor: &Redactor) -> Vec<QuestionOption> {
+    question
+        .options
+        .iter()
+        .take(QUESTION_OPTIONS_MAX)
+        .enumerate()
+        .map(|(index, option)| QuestionOption {
+            label: truncate(&redactor.redact(&option.label), OPTION_LABEL_MAX),
+            key: (index + 1).to_string(),
+            description: option
+                .description
+                .as_ref()
+                .map(|d| truncate(&redactor.redact(d), OPTION_DESCRIPTION_MAX)),
+        })
+        .collect()
+}
+
+/// The picker's REAL rows, with their real keys.
+fn grid_options(snapshot: &QuestionSnapshot, redactor: &Redactor) -> Vec<QuestionOption> {
+    snapshot
+        .options
+        .iter()
+        .take(QUESTION_OPTIONS_MAX)
+        .map(|option| {
+            QuestionOption::new(
+                truncate(&redactor.redact(&option.label), OPTION_LABEL_MAX),
+                option.key.clone(),
+            )
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // The emitter thread
 // ---------------------------------------------------------------------------
 
@@ -844,11 +1634,20 @@ pub struct EmitterConfig {
     pub extra_secrets: Vec<String>,
     /// EXP-214: fired (on the emitter thread) whenever the combined
     /// "agent is parked on a picker" flag flips — `true` while a
-    /// plan-approval or AskUserQuestion picker is pending on the grid,
-    /// `false` once it resolves. The wiring layer forwards it to the synced
+    /// plan-approval or AskUserQuestion picker is pending, a permission
+    /// prompt is unresolved, or claude is idling on human input; `false` once
+    /// it resolves. The wiring layer forwards it to the synced
     /// `coding_sessions.needs_input` column. Blocking work is fine here (the
     /// emitter thread already shells out for diffs).
     pub on_needs_input: Option<Arc<dyn Fn(bool) + Send + Sync>>,
+    /// EXP-249: the claude hooks sidecar's event stream ([`crate::hooks`]).
+    /// `None` = grid-only detection (a non-claude agent, an old claude, or an
+    /// unwritable settings file) — the session still publishes, just without
+    /// question identity.
+    pub hooks: Option<flume::Receiver<HookEvent>>,
+    /// EXP-249: the semantic-answer seam. `None` = no remote answering (the
+    /// publisher then never forwards `answer` frames either).
+    pub steering: Option<Steering>,
 }
 
 /// Start the public activity emitter on a dedicated OS thread. `active` is the
@@ -870,9 +1669,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
     // Announce the session (the viewer shows this immediately, before any
     // transcript line lands).
-    sender.send(ActivityEvent::Narration {
-        text: "Session started".to_string(),
-    });
+    sender.send(ActivityEvent::narration("Session started"));
 
     let spawn_time = SystemTime::now();
     let transcript_dir =
@@ -880,17 +1677,31 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
     let mut current: Option<PathBuf> = None;
     let mut offset: u64 = 0;
+    let mut sidechains: Vec<PathBuf> = Vec::new();
+    let mut sidechain_offsets: HashMap<PathBuf, u64> = HashMap::new();
+    let mut sidechain_scan_at: Option<Instant> = None;
     let mut last_diff = String::new();
     let mut last_diff_at: Option<Instant> = None;
     let mut transcript_deadline = Some(Instant::now() + TRANSCRIPT_WAIT);
     let mut picker_watcher = PlanPickerWatcher::new();
     let mut question_watcher = QuestionPickerWatcher::new();
     let mut transcript_state = TranscriptState::default();
+    let mut steer = SteerState::default();
     // EXP-214: last "needs input" flag forwarded — fire only on flips.
     let mut needs_input = false;
 
     while active.load(Ordering::SeqCst) {
-        // 0) Picker watch on the live grid: the transcript cannot show a
+        // 0) The hooks sidecar (EXP-249): the structured half. Drained before
+        //    the grid so a picker that paints in the same tick is already
+        //    known by identity when the watcher confirms it.
+        if let Some(hooks) = &config.hooks {
+            while let Ok(event) = hooks.try_recv() {
+                steer.apply_hook(event, &sender, &redactor, &mut transcript_state);
+            }
+        }
+        steer.plan_timeout(&sender);
+
+        // 1) Picker watch on the live grid: the transcript cannot show a
         //    PENDING plan approval or AskUserQuestion (claude flushes their
         //    entries only once the picker is answered — EXP-150/EXP-197), but
         //    the picker is on screen exactly while it is pending. Runs before
@@ -901,10 +1712,6 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             let grid_offset = display_offset(term);
             match picker_watcher.tick(&lines, grid_offset) {
                 Some(Transition::Show(snapshot)) => {
-                    let text = plan_body(spawn_time, snapshot.plan_box_first_line.as_deref())
-                        .map(|raw| truncate(&redactor.redact(&raw), QUESTION_TEXT_MAX))
-                        .filter(|t| !t.trim().is_empty())
-                        .unwrap_or_else(|| "Plan ready for approval.".to_string());
                     // Drop the "refine with Ultraplan on Claude Code on the
                     // web" option (key "3" on claude v2.1.211+): it bounces
                     // planning to claude.ai and is not something we want a
@@ -912,75 +1719,92 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     // fallback (`parse_exit_plan_mode`) already takes. The
                     // remaining options keep their real key numbers, so the
                     // keystroke sent to the PTY still lands on the right row.
-                    let options = snapshot
+                    let options: Vec<QuestionOption> = snapshot
                         .options
                         .into_iter()
                         .filter(|o| !o.label.contains(ULTRAPLAN_WEB_OPTION))
                         .take(QUESTION_OPTIONS_MAX)
-                        .map(|o| QuestionOption {
-                            label: truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX),
-                            key: o.key,
+                        .map(|o| {
+                            QuestionOption::new(
+                                truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX),
+                                o.key,
+                            )
                         })
                         .collect();
-                    sender.send(ActivityEvent::Question {
-                        text,
-                        options,
-                        multi_select: None,
-                        plan_mode: Some(true),
-                    });
-                    transcript_state.suppress_plan_questions += 1;
+                    if !steer.confirm_plan_from_grid(options.clone(), &sender) {
+                        // No hook knows this plan (an old claude, or a sidecar
+                        // that never came up): an id-less card with a headline
+                        // instead of the body. EXP-249 dropped the
+                        // `~/.claude/plans` mtime guessing that used to fill it
+                        // in — it mixed up concurrent sessions, and the hook
+                        // carries the exact plan.
+                        sender.send(ActivityEvent::Question {
+                            text: "Plan ready for approval.".to_string(),
+                            options,
+                            multi_select: None,
+                            plan_mode: Some(true),
+                            id: None,
+                            ask_id: None,
+                            index: None,
+                            total: None,
+                            header: None,
+                            at: None,
+                        });
+                        transcript_state.suppress_plan_questions += 1;
+                    }
                 }
-                Some(Transition::Resolved) => {
-                    // Retires the pending plan card on every client the
-                    // moment the picker is answered — no protocol change,
-                    // clients match the exact text (EXP-174).
-                    sender.send(ActivityEvent::Narration {
-                        text: PLAN_RESOLVED_NARRATION.to_string(),
-                    });
-                }
+                Some(Transition::Resolved) => steer.resolve_plan(&sender),
                 None => {}
             }
-            // AskUserQuestion pickers (EXP-197) — published the moment they
-            // settle on screen, so steering clients can answer while the
-            // question is actually pending. `question_picker::detect`
-            // excludes plan screens itself; the transcript twin (flushed
-            // post-answer) is swallowed by text identity, and the answers
-            // arrive via the tool_result → `Question answered:` narrations.
+            // AskUserQuestion pickers (EXP-197) — the hook already published
+            // every question of the ask; the grid confirms which tab is up and
+            // augments it with rows only the TUI has (the synthetic "Type
+            // something"), then publishes the review/submit step. Without a
+            // hook this stays the pre-v2 grid-only publication.
             if let Some(snapshot) =
                 question_watcher.tick(question_picker::detect(&lines), grid_offset)
             {
-                let text = truncate(&redactor.redact(&snapshot.text), QUESTION_TEXT_MAX);
-                transcript_state.remember_grid_question(&text);
-                let options = snapshot
-                    .options
-                    .into_iter()
-                    .take(QUESTION_OPTIONS_MAX)
-                    .map(|o| QuestionOption {
-                        label: truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX),
-                        key: o.key,
-                    })
-                    .collect();
-                sender.send(ActivityEvent::Question {
-                    text,
-                    options,
-                    multi_select: snapshot.multi_select.then_some(true),
-                    plan_mode: None,
-                });
-            }
-
-            // EXP-214: the combined attention flag — the agent is parked on
-            // EITHER picker and waits for a human. Forwarded only on flips
-            // (the watchers already debounce mid-render flicker).
-            let pending = picker_watcher.is_pending() || question_watcher.is_pending();
-            if pending != needs_input {
-                needs_input = pending;
-                if let Some(on_needs_input) = &config.on_needs_input {
-                    on_needs_input(pending);
+                if !steer.confirm_question_from_grid(&snapshot, &sender, &redactor) {
+                    let text = truncate(&redactor.redact(&snapshot.text), QUESTION_TEXT_MAX);
+                    transcript_state.remember_grid_question(&text);
+                    sender.send(ActivityEvent::Question {
+                        text,
+                        options: grid_options(&snapshot, &redactor),
+                        multi_select: snapshot.multi_select.then_some(true),
+                        plan_mode: None,
+                        id: None,
+                        ask_id: None,
+                        index: None,
+                        total: None,
+                        header: None,
+                        at: None,
+                    });
                 }
             }
         }
 
-        // 1) Resolve / re-resolve the transcript file (a newer session file in
+        // 2) EXP-214: the combined attention flag — the agent is parked and
+        //    waits for a human (a picker on the grid, a picker the hooks know
+        //    about, or an unresolved permission/idle notification). Forwarded
+        //    only on flips; the watchers already debounce mid-render flicker.
+        let picker_pending = picker_watcher.is_pending()
+            || question_watcher.is_pending()
+            || steer.has_pending_question();
+        let pending = picker_pending || steer.attention.is_some();
+        if pending != needs_input {
+            needs_input = pending;
+            if let Some(on_needs_input) = &config.on_needs_input {
+                on_needs_input(pending);
+            }
+        }
+        if let Some(steering) = &config.steering {
+            // The publisher's Enter-cascade guard keys on a PICKER, not on
+            // attention at large: a steerer's one-character message plus Enter
+            // must still submit while the agent merely idles.
+            steering.link.set_ask_pending(picker_pending);
+        }
+
+        // 3) Resolve / re-resolve the transcript file (a newer session file in
         //    the same dir supersedes; reset the read offset when it changes).
         if let Some(dir) = &transcript_dir {
             if let Some(newest) = newest_transcript(dir, spawn_time) {
@@ -1001,12 +1825,43 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
 
-        // 2) Tail any new complete lines from the current transcript.
+        // 4) Tail any new complete lines from the current transcript.
         if let Some(path) = current.clone() {
-            offset = tail_transcript(&path, offset, &redactor, &sender, &mut transcript_state);
+            offset = tail_transcript(
+                &path,
+                offset,
+                &mut |line| process_transcript_line(line, &redactor, &mut transcript_state),
+                &mut |event| {
+                    steer.observe_published(&event);
+                    sender.send(event);
+                },
+            );
         }
 
-        // 3) Debounced worktree diff snapshot (only when changed).
+        // 5) …and from the freshest subagent sidechains, whose tool headlines
+        //    are attributed to their agent (EXP-249). Discovery walks a tree,
+        //    so it runs on its own slower cadence; the tails themselves are
+        //    plain seeks and run every tick.
+        if let Some(dir) = &transcript_dir {
+            if sidechain_scan_at.is_none_or(|at| at.elapsed() >= SIDECHAIN_SCAN_INTERVAL) {
+                sidechain_scan_at = Some(Instant::now());
+                sidechains = sidechain_transcripts(dir, spawn_time);
+                sidechain_offsets.retain(|path, _| sidechains.contains(path));
+            }
+            for path in &sidechains {
+                let Some(agent_id) = sidechain_agent_id(path) else { continue };
+                let start = sidechain_offsets.get(path).copied().unwrap_or(0);
+                let next = tail_transcript(
+                    path,
+                    start,
+                    &mut |line| parse_sidechain_line(line, &agent_id, &redactor),
+                    &mut |event| sender.send(event),
+                );
+                sidechain_offsets.insert(path.clone(), next);
+            }
+        }
+
+        // 6) Debounced worktree diff snapshot (only when changed).
         let due = last_diff_at.is_none_or(|at| at.elapsed() >= DIFF_INTERVAL);
         if due {
             last_diff_at = Some(Instant::now());
@@ -1014,14 +1869,31 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             if diff != last_diff {
                 last_diff = diff.clone();
                 if !diff.is_empty() {
-                    sender.send(ActivityEvent::Diff {
-                        diff: truncate(&redactor.redact(&diff), DIFF_MAX),
-                    });
+                    sender.send(ActivityEvent::diff(truncate(
+                        &redactor.redact(&diff),
+                        DIFF_MAX,
+                    )));
                 }
             }
         }
 
-        std::thread::sleep(POLL_INTERVAL);
+        // 7) Wait out the poll interval — interrupted by a remote answer, so
+        //    steering never sits a full second behind the steerer's tap.
+        match &config.steering {
+            Some(steering) => {
+                if let Ok(answer) = steering.answers.recv_timeout(POLL_INTERVAL) {
+                    match &config.term {
+                        Some(term) => {
+                            steer.handle_answer(answer, term, &steering.write_input, &sender)
+                        }
+                        // No grid to choreograph against ⇒ no injection and no
+                        // ack: the card stays answerable at the steerer.
+                        None => log::debug!("activity: answer dropped — no terminal grid"),
+                    }
+                }
+            }
+            None => std::thread::sleep(POLL_INTERVAL),
+        }
     }
 
     // Teardown tidiness: never leave the synced attention flag stuck on a
@@ -1032,18 +1904,21 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             on_needs_input(false);
         }
     }
+    if let Some(steering) = &config.steering {
+        steering.link.set_ask_pending(false);
+    }
 }
 
 /// Read complete newline-terminated lines from `path` starting at byte
-/// `offset`, publish their events, and return the new offset (a trailing
-/// partial line is left for the next poll). `state` carries the cross-line
-/// twin-suppression + pending-ask bookkeeping (EXP-150/EXP-197).
+/// `offset`, run each through `parse`, hand the events to `emit`, and return
+/// the new offset (a trailing partial line is left for the next poll). The two
+/// closures are what separates a main transcript (stateful parse, observed
+/// publication) from a subagent sidechain (tool headlines only).
 fn tail_transcript(
     path: &Path,
     offset: u64,
-    redactor: &Redactor,
-    sender: &ActivitySender,
-    state: &mut TranscriptState,
+    parse: &mut dyn FnMut(&str) -> Vec<ActivityEvent>,
+    emit: &mut dyn FnMut(ActivityEvent),
 ) -> u64 {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -1066,8 +1941,8 @@ fn tail_transcript(
     while let Some(pos) = buf[line_start..].iter().position(|&b| b == b'\n') {
         let end = line_start + pos;
         let line = String::from_utf8_lossy(&buf[line_start..end]);
-        for event in process_transcript_line(&line, redactor, state) {
-            sender.send(event);
+        for event in parse(&line) {
+            emit(event);
         }
         line_start = end + 1;
         consumed = line_start;
@@ -1258,8 +2133,8 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                ActivityEvent::Narration { text: "Let me read the file.".into() },
-                ActivityEvent::Tool { name: "Edit".into(), detail: Some("src/main.rs".into()) },
+                ActivityEvent::narration("Let me read the file."),
+                ActivityEvent::tool("Edit", Some("src/main.rs".into())),
             ]
         );
     }
@@ -1278,10 +2153,7 @@ mod tests {
         let events = parse_transcript_line(&line, &redactor);
         assert_eq!(
             events,
-            vec![ActivityEvent::Tool {
-                name: "Bash".into(),
-                detail: Some("Fetch the data".into())
-            }]
+            vec![ActivityEvent::tool("Bash", Some("Fetch the data".into()))]
         );
         // The command string (with its secret) is nowhere in the output.
         let joined = format!("{events:?}");
@@ -1320,9 +2192,7 @@ mod tests {
         .to_string();
         assert_eq!(
             parse_transcript_line(&line, &redactor),
-            vec![ActivityEvent::UserMessage {
-                text: "Fix the login bug in EXP-42.".into()
-            }]
+            vec![ActivityEvent::user_message("Fix the login bug in EXP-42.")]
         );
     }
 
@@ -1342,9 +2212,7 @@ mod tests {
         .to_string();
         assert_eq!(
             parse_transcript_line(&line, &redactor),
-            vec![ActivityEvent::UserMessage {
-                text: "please add tests\n\nand update the docs".into()
-            }]
+            vec![ActivityEvent::user_message("please add tests\n\nand update the docs")]
         );
     }
 
@@ -1393,7 +2261,7 @@ mod tests {
         })
         .to_string();
         match &parse_transcript_line(&line, &redactor)[..] {
-            [ActivityEvent::UserMessage { text }] => {
+            [ActivityEvent::UserMessage { text, .. }] => {
                 assert!(!text.contains("expu_abcdef"), "expu key leaked: {text}");
                 assert!(text.len() <= NARRATION_MAX);
             }
@@ -1429,21 +2297,33 @@ mod tests {
                 ActivityEvent::Question {
                     text: "Which auth method?".into(),
                     options: vec![
-                        QuestionOption { label: "OAuth".into(), key: "1".into() },
-                        QuestionOption { label: "JWT".into(), key: "2".into() },
-                        QuestionOption { label: "Session".into(), key: "3".into() },
+                        QuestionOption::new("OAuth", "1"),
+                        QuestionOption::new("JWT", "2"),
+                        QuestionOption::new("Session", "3"),
                     ],
                     multi_select: None,
                     plan_mode: None,
+                    id: None,
+                    ask_id: None,
+                    index: None,
+                    total: None,
+                    header: None,
+                    at: None,
                 },
                 ActivityEvent::Question {
                     text: "Which features?".into(),
                     options: vec![
-                        QuestionOption { label: "Push".into(), key: "1".into() },
-                        QuestionOption { label: "Email".into(), key: "2".into() },
+                        QuestionOption::new("Push", "1"),
+                        QuestionOption::new("Email", "2"),
                     ],
                     multi_select: Some(true),
                     plan_mode: None,
+                    id: None,
+                    ask_id: None,
+                    index: None,
+                    total: None,
+                    header: None,
+                    at: None,
                 },
             ]
         );
@@ -1461,7 +2341,7 @@ mod tests {
         })
         .to_string();
         match &parse_transcript_line(&line, &redactor)[..] {
-            [ActivityEvent::Question { text, options, multi_select, plan_mode }] => {
+            [ActivityEvent::Question { text, options, multi_select, plan_mode, .. }] => {
                 assert_eq!(text, "## Plan\n1. Do the thing");
                 // Degraded-path fallback: approve keys only — "3" is no
                 // longer "keep planning" on current claude pickers.
@@ -1522,10 +2402,7 @@ mod tests {
         .to_string();
         assert_eq!(
             parse_transcript_line(&line, &redactor),
-            vec![ActivityEvent::Tool {
-                name: "AskUserQuestion".into(),
-                detail: None
-            }]
+            vec![ActivityEvent::tool("AskUserQuestion", None)]
         );
 
         // A question with an empty options list is malformed too.
@@ -1539,10 +2416,7 @@ mod tests {
         .to_string();
         assert_eq!(
             parse_transcript_line(&empty_options, &redactor),
-            vec![ActivityEvent::Tool {
-                name: "AskUserQuestion".into(),
-                detail: None
-            }]
+            vec![ActivityEvent::tool("AskUserQuestion", None)]
         );
     }
 
@@ -1557,7 +2431,7 @@ mod tests {
         })
         .to_string();
         let events = parse_transcript_line(&line, &redactor);
-        assert_eq!(events, vec![ActivityEvent::Tool { name: "WebFetch".into(), detail: None }]);
+        assert_eq!(events, vec![ActivityEvent::tool("WebFetch", None)]);
     }
 
     #[test]
@@ -1571,7 +2445,7 @@ mod tests {
         .to_string();
         let events = parse_transcript_line(&line, &redactor);
         match &events[0] {
-            ActivityEvent::Narration { text } => assert_eq!(text.len(), NARRATION_MAX),
+            ActivityEvent::Narration { text, .. } => assert_eq!(text.len(), NARRATION_MAX),
             other => panic!("expected narration, got {other:?}"),
         }
     }
@@ -1600,7 +2474,7 @@ mod tests {
         .to_string();
         let events = parse_transcript_line(&line, &redactor);
         match &events[0] {
-            ActivityEvent::Narration { text } => {
+            ActivityEvent::Narration { text, .. } => {
                 assert!(text.len() <= NARRATION_MAX, "byte cap exceeded: {}", text.len());
                 assert!(!text.is_empty());
             }
@@ -1610,10 +2484,7 @@ mod tests {
 
     #[test]
     fn grid_emitted_plan_suppresses_the_transcript_twin_once() {
-        use crate::publisher::PublisherCmd;
-
         let redactor = Redactor::new(vec![]);
-        let (sender, rx) = ActivitySender::test_pair();
         let dir = std::env::temp_dir().join(format!("exp150-suppress-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("transcript.jsonl");
@@ -1639,17 +2510,16 @@ mod tests {
             suppress_plan_questions: 1,
             ..Default::default()
         };
-        tail_transcript(&path, 0, &redactor, &sender, &mut state);
+        let mut events: Vec<ActivityEvent> = Vec::new();
+        tail_transcript(
+            &path,
+            0,
+            &mut |line| process_transcript_line(line, &redactor, &mut state),
+            &mut |event| events.push(event),
+        );
         assert_eq!(state.suppress_plan_questions, 0);
-        let events: Vec<ActivityEvent> = rx
-            .drain()
-            .map(|cmd| match cmd {
-                PublisherCmd::Activity(event) => event,
-                _ => panic!("unexpected publisher command"),
-            })
-            .collect();
         match &events[..] {
-            [ActivityEvent::Narration { text }, ActivityEvent::Question { plan_mode, .. }] => {
+            [ActivityEvent::Narration { text, .. }, ActivityEvent::Question { plan_mode, .. }] => {
                 assert_eq!(text, "On it.");
                 assert_eq!(*plan_mode, Some(true));
             }
@@ -1709,11 +2579,16 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                ActivityEvent::Narration {
-                    text: format!("{QUESTION_ANSWERED_PREFIX}Mushrooms, Cheese")
-                },
-                ActivityEvent::Narration {
-                    text: format!("{QUESTION_ANSWERED_PREFIX}Large")
+                // Legacy narrations (pre-v2 clients string-match these)…
+                ActivityEvent::narration(format!("{QUESTION_ANSWERED_PREFIX}Mushrooms, Cheese")),
+                ActivityEvent::narration(format!("{QUESTION_ANSWERED_PREFIX}Large")),
+                // …plus the EXP-249 semantic retirement of the whole ask.
+                ActivityEvent::QuestionResolved {
+                    id: None,
+                    ask_id: Some("toolu_ask1".into()),
+                    answers: Some(vec!["Mushrooms, Cheese".into(), "Large".into()]),
+                    dismissed: None,
+                    at: None,
                 },
             ]
         );
@@ -1735,9 +2610,29 @@ mod tests {
         assert_eq!(events, vec![], "post-answer twins must be swallowed");
         assert!(state.recent_grid_questions.is_empty(), "matches are consumed");
 
-        // The answers still flow.
+        // The answers still flow (2 narrations + the semantic resolution).
         let events = process_transcript_line(&tool_result, &redactor, &mut state);
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 3);
+    }
+
+    #[test]
+    fn a_hook_published_ask_swallows_its_twin_by_id() {
+        // EXP-249: identity beats text — the hook published this ask, so its
+        // post-answer transcript twin is dropped whatever the wording.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        state.hook_published_asks.insert("toolu_ask1".to_string());
+        let (tool_use, tool_result) = answered_ask_lines();
+        assert_eq!(process_transcript_line(&tool_use, &redactor, &mut state), vec![]);
+        // …and the resolution retires the hook-published cards by askId.
+        match &process_transcript_line(&tool_result, &redactor, &mut state)[..] {
+            [_, _, ActivityEvent::QuestionResolved { ask_id, answers, .. }] => {
+                assert_eq!(ask_id.as_deref(), Some("toolu_ask1"));
+                assert_eq!(answers.as_ref().unwrap().len(), 2);
+            }
+            other => panic!("expected two narrations + a resolution, got {other:?}"),
+        }
+        assert!(state.hook_published_asks.is_empty(), "the ask is over");
     }
 
     #[test]
@@ -1784,9 +2679,16 @@ mod tests {
         .to_string();
         assert_eq!(
             process_transcript_line(&rejected, &redactor, &mut state),
-            vec![ActivityEvent::Narration {
-                text: QUESTION_DISMISSED_NARRATION.to_string()
-            }]
+            vec![
+                ActivityEvent::narration(QUESTION_DISMISSED_NARRATION),
+                ActivityEvent::QuestionResolved {
+                    id: None,
+                    ask_id: Some("toolu_ask1".into()),
+                    answers: None,
+                    dismissed: Some(true),
+                    at: None,
+                },
+            ]
         );
     }
 
@@ -1832,68 +2734,608 @@ mod tests {
         })
         .to_string();
         match &process_transcript_line(&result, &redactor, &mut state)[..] {
-            [ActivityEvent::Narration { text }] => {
+            [ActivityEvent::Narration { text, .. }, ActivityEvent::QuestionResolved {
+                answers,
+                ..
+            }] => {
                 assert!(text.starts_with(QUESTION_ANSWERED_PREFIX));
                 assert!(!text.contains("expu_abcdef"), "typed answer leaked a key: {text}");
+                let answers = answers.as_ref().expect("answers");
+                assert!(
+                    !answers[0].contains("expu_abcdef"),
+                    "typed answer leaked a key: {answers:?}"
+                );
             }
-            other => panic!("expected one answer narration, got {other:?}"),
+            other => panic!("expected an answer narration + resolution, got {other:?}"),
         }
     }
 
-    /// A fresh temp plans dir with the given `(name, body)` files, plus an
-    /// `after` timestamp that predates all of them.
-    fn plan_dir(tag: &str, files: &[(&str, &str)]) -> (PathBuf, SystemTime) {
-        let dir = std::env::temp_dir().join(format!("exp-plans-{tag}-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).unwrap();
-        for (name, body) in files {
-            std::fs::write(dir.join(name), body).unwrap();
+    // ── EXP-249: the hook-driven question pipeline ─────────────────────────
+
+    use crate::hooks::HookQuestionOption;
+    use crate::publisher::PublisherCmd;
+    use std::sync::Mutex;
+
+    /// Drain everything the state machine published.
+    fn drained(rx: &flume::Receiver<PublisherCmd>) -> Vec<ActivityEvent> {
+        rx.drain()
+            .map(|cmd| match cmd {
+                PublisherCmd::Activity(event) => event,
+                other => panic!("the emitter only ever sends activity: {other:?}"),
+            })
+            .collect()
+    }
+
+    fn hook(kind: HookEventKind) -> HookEvent {
+        HookEvent {
+            context: crate::hooks::HookContext::default(),
+            kind,
         }
-        (dir, SystemTime::now() - Duration::from_secs(60))
+    }
+
+    fn ask_hook() -> HookEvent {
+        hook(HookEventKind::QuestionsAsked {
+            tool_use_id: Some("toolu_01".to_string()),
+            questions: vec![
+                HookQuestion {
+                    question: "Which toppings do you want?".to_string(),
+                    header: Some("Toppings".to_string()),
+                    options: vec![
+                        HookQuestionOption {
+                            label: "Cheese".to_string(),
+                            description: Some("classic".to_string()),
+                        },
+                        HookQuestionOption {
+                            label: "Ham".to_string(),
+                            description: None,
+                        },
+                        HookQuestionOption {
+                            label: "Mushrooms".to_string(),
+                            description: None,
+                        },
+                    ],
+                    multi_select: true,
+                },
+                HookQuestion {
+                    question: "Which size?".to_string(),
+                    header: Some("Size".to_string()),
+                    options: vec![
+                        HookQuestionOption {
+                            label: "Small".to_string(),
+                            description: None,
+                        },
+                        HookQuestionOption {
+                            label: "Large".to_string(),
+                            description: None,
+                        },
+                    ],
+                    multi_select: false,
+                },
+            ],
+        })
+    }
+
+    /// The live toppings tab as claude paints it — the grid knows one row the
+    /// hook never mentioned ("Type something").
+    fn toppings_rows() -> Vec<String> {
+        [
+            "──────────────────────────────────────────",
+            "←  ☐ Toppings  ☐ Size  ✔ Submit  →",
+            "",
+            "Which toppings do you want?",
+            "",
+            "❯ 1. [✔] Cheese",
+            "  2. [ ] Ham",
+            "  3. [✔] Mushrooms",
+            "  4. [ ] Type something",
+            "──────────────────────────────────────────",
+            "  5. Chat about this",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect()
+    }
+
+    fn review_rows() -> Vec<String> {
+        [
+            "←  ☒ Toppings  ☒ Size  ✔ Submit  →",
+            "",
+            "Ready to submit your answers?",
+            "",
+            "❯ 1. Submit answers",
+            "  2. Cancel",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect()
+    }
+
+    /// Paint a screen into a live emulator (the grid the watchers read).
+    fn paint(term: &TermHandle, rows: &[String]) {
+        let mut processor = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
+        let mut bytes = b"\x1b[2J\x1b[H".to_vec();
+        for row in rows {
+            bytes.extend_from_slice(row.as_bytes());
+            bytes.extend_from_slice(b"\r\n");
+        }
+        processor.advance(&mut *term.lock(), &bytes);
     }
 
     #[test]
-    fn needle_less_plan_body_attaches_only_when_unambiguous() {
-        // Single candidate ⇒ no ambiguity possible ⇒ body attaches.
-        let (dir, after) = plan_dir("single", &[("a.md", "## Plan A")]);
+    fn the_ask_hook_publishes_every_question_up_front() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &Redactor::new(vec![]), &mut transcript);
+
+        let events = drained(&rx);
+        assert_eq!(events.len(), 2, "one question event per entry, immediately");
+        match &events[0] {
+            ActivityEvent::Question {
+                text,
+                options,
+                multi_select,
+                id,
+                ask_id,
+                index,
+                total,
+                header,
+                ..
+            } => {
+                assert_eq!(text, "Which toppings do you want?");
+                assert_eq!(id.as_deref(), Some("toolu_01#0"));
+                assert_eq!(ask_id.as_deref(), Some("toolu_01"));
+                assert_eq!((*index, *total), (Some(1), Some(2)));
+                assert_eq!(header.as_deref(), Some("Toppings"));
+                assert_eq!(*multi_select, Some(true));
+                assert_eq!(
+                    options
+                        .iter()
+                        .map(|o| (o.key.as_str(), o.label.as_str()))
+                        .collect::<Vec<_>>(),
+                    vec![("1", "Cheese"), ("2", "Ham"), ("3", "Mushrooms")]
+                );
+                assert_eq!(options[0].description.as_deref(), Some("classic"));
+            }
+            other => panic!("expected a question, got {other:?}"),
+        }
+        match &events[1] {
+            ActivityEvent::Question { id, index, .. } => {
+                assert_eq!(id.as_deref(), Some("toolu_01#1"));
+                assert_eq!(*index, Some(2));
+            }
+            other => panic!("expected a question, got {other:?}"),
+        }
+        // The transcript twin of this ask is now swallowed by identity.
+        assert!(transcript.hook_published_asks.contains("toolu_01"));
+    }
+
+    #[test]
+    fn the_grid_augments_a_hook_question_with_the_row_only_the_tui_knows() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        let snapshot = question_picker::detect(&toppings_rows()).expect("picker");
+        assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { id, options, .. }] => {
+                assert_eq!(id.as_deref(), Some("toolu_01#0"), "the SAME card, replaced");
+                assert_eq!(
+                    options.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(),
+                    vec!["Cheese", "Ham", "Mushrooms", "Type something"]
+                );
+                // The hook's descriptions survive the re-emission.
+                assert_eq!(options[0].description.as_deref(), Some("classic"));
+            }
+            other => panic!("expected one re-emitted question, got {other:?}"),
+        }
+
+        // A second sighting of the same rows changes nothing.
+        assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
+        assert!(drained(&rx).is_empty());
+
+        // The review tab publishes the ask's submit step.
+        let review = question_picker::detect(&review_rows()).expect("review picker");
+        assert!(steer.confirm_question_from_grid(&review, &sender, &redactor));
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { id, ask_id, index, total, options, .. }] => {
+                assert_eq!(id.as_deref(), Some("toolu_01#submit"));
+                assert_eq!(ask_id.as_deref(), Some("toolu_01"));
+                assert_eq!((*index, *total), (None, None), "the submit step has no index");
+                assert_eq!(options[0].label, "Submit answers");
+            }
+            other => panic!("expected the submit step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_plan_hook_supplies_the_body_the_grid_supplies_the_options() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PlanProposed {
+                tool_use_id: Some("toolu_plan".to_string()),
+                plan: "## Plan\n1. Do the thing".to_string(),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        // Nothing is published until the picker confirms on screen.
+        assert!(drained(&rx).is_empty());
+        assert_eq!(transcript.suppress_plan_questions, 1, "the twin is pre-paid");
+
+        let published = steer.confirm_plan_from_grid(
+            vec![
+                QuestionOption::new("Yes, auto-accept edits", "1"),
+                QuestionOption::new("Yes, manually approve edits", "2"),
+            ],
+            &sender,
+        );
+        assert!(published);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { text, id, plan_mode, options, .. }] => {
+                assert_eq!(text, "## Plan\n1. Do the thing");
+                assert_eq!(id.as_deref(), Some("toolu_plan"));
+                assert_eq!(*plan_mode, Some(true));
+                assert_eq!(options.len(), 2);
+            }
+            other => panic!("expected the plan question, got {other:?}"),
+        }
+
+        // Resolution keeps the legacy narration AND retires the card by id.
+        steer.resolve_plan(&sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Narration { text, .. }, ActivityEvent::QuestionResolved { id, .. }] => {
+                assert_eq!(text, PLAN_RESOLVED_NARRATION);
+                assert_eq!(id.as_deref(), Some("toolu_plan"));
+            }
+            other => panic!("expected narration + resolution, got {other:?}"),
+        }
+        assert!(!steer.has_pending_question());
+    }
+
+    #[test]
+    fn a_plan_the_grid_never_confirms_is_published_as_narration() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PlanProposed {
+                tool_use_id: None,
+                plan: "## Plan\nship it".to_string(),
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        // Not yet due.
+        steer.plan_timeout(&sender);
+        assert!(drained(&rx).is_empty());
+
+        steer.plan.as_mut().unwrap().seen = Instant::now() - PLAN_GRID_CONFIRM;
+        steer.plan_timeout(&sender);
+        assert_eq!(drained(&rx), vec![ActivityEvent::narration("## Plan\nship it")]);
+        // …and only once.
+        steer.plan_timeout(&sender);
+        assert!(drained(&rx).is_empty());
+        // Transcript progress clears the degraded plan so "needs input"
+        // cannot stick for the rest of the session.
+        steer.observe_published(&ActivityEvent::narration("moving on"));
+        assert!(!steer.has_pending_question());
+    }
+
+    #[test]
+    fn subagent_edges_share_one_card_across_the_two_hook_ids() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::SubagentDispatched {
+                tool_use_id: Some("toolu_task".to_string()),
+                description: Some("Map the steer crate".to_string()),
+                subagent_type: Some("explore".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStarted {
+                agent_id: Some("agent_01".to_string()),
+                agent_type: Some("explore".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("agent_01".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        match &drained(&rx)[..] {
+            [ActivityEvent::Subagent { id, agent_type, status, detail, .. }, ActivityEvent::Subagent { id: done_id, status: done, .. }] =>
+            {
+                assert_eq!(id, "toolu_task");
+                assert_eq!(agent_type, "explore");
+                assert_eq!(*status, SubagentStatus::Started);
+                assert_eq!(detail.as_deref(), Some("Map the steer crate"));
+                // The start bound agent_01 to the dispatch — no second card.
+                assert_eq!(done_id, "toolu_task");
+                assert_eq!(*done, SubagentStatus::Completed);
+            }
+            other => panic!("expected started + completed on one card, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_permission_notification_publishes_and_holds_attention() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Claude needs your permission to use Bash".to_string(),
+                tool: Some("Bash".to_string()),
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        match &drained(&rx)[..] {
+            [ActivityEvent::Permission { tool, detail, .. }] => {
+                assert_eq!(tool, "Bash");
+                assert!(detail.as_ref().unwrap().contains("permission"));
+            }
+            other => panic!("expected a permission event, got {other:?}"),
+        }
+        assert!(steer.attention.is_some(), "the session is blocked");
+        steer.observe_published(&ActivityEvent::tool("Bash", None));
+        assert!(steer.attention.is_none(), "progress clears it");
+    }
+
+    /// A `write_input` that records keystrokes and repaints the grid when the
+    /// TUI would move on.
+    fn recording_input(
+        term: TermHandle,
+        next_screen: Option<Vec<String>>,
+        repaint_on: &'static str,
+    ) -> (InputHook, Arc<Mutex<Vec<String>>>) {
+        let keys = Arc::new(Mutex::new(Vec::new()));
+        let recorded = keys.clone();
+        let hook: InputHook = Arc::new(move |bytes| {
+            let key = String::from_utf8_lossy(bytes).to_string();
+            let repaint = key == repaint_on;
+            recorded.lock().unwrap().push(key);
+            if repaint {
+                paint(&term, next_screen.as_deref().unwrap_or(&[]));
+            }
+        });
+        (hook, keys)
+    }
+
+    #[test]
+    fn a_remote_answer_is_injected_once_and_acked_when_the_grid_moves() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &toppings_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        let snapshot = question_picker::detect(&screen_lines(&term)).expect("picker");
+        steer.confirm_question_from_grid(&snapshot, &sender, &redactor);
+        drained(&rx);
+
+        // multiSelect: digits TOGGLE, so only the differences are injected —
+        // Cheese off, Ham on, Mushrooms already on — then Tab advances.
+        let (write_input, keys) = recording_input(term.clone(), Some(review_rows()), "\t");
+        steer.handle_answer(
+            RemoteAnswer {
+                question_id: "toolu_01#0".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["2".to_string(), "3".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(*keys.lock().unwrap(), vec!["1", "2", "\t"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, ask_id, .. }] => {
+                assert_eq!(id, "toolu_01#0");
+                assert_eq!(ask_id.as_deref(), Some("toolu_01"));
+            }
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+
+        // A duplicate (two taps / a re-delivered frame) is silently ignored.
+        steer.handle_answer(
+            RemoteAnswer {
+                question_id: "toolu_01#0".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["2".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(keys.lock().unwrap().len(), 3, "no second injection");
+        assert!(drained(&rx).is_empty(), "no second ack");
+    }
+
+    #[test]
+    fn an_answer_for_a_tab_that_is_not_up_is_refused() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &toppings_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        // Question 2 is published, but the grid is showing question 1.
+        let (write_input, keys) = recording_input(term.clone(), None, "\r");
+        steer.handle_answer(
+            RemoteAnswer {
+                question_id: "toolu_01#1".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["2".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert!(keys.lock().unwrap().is_empty(), "nothing may be injected");
+        assert!(drained(&rx).is_empty(), "and nothing is acked");
+
+        // An unknown id is refused the same way.
+        steer.handle_answer(
+            RemoteAnswer {
+                question_id: "toolu_99#0".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert!(keys.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_single_select_answer_sends_exactly_one_digit() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        let size_rows: Vec<String> = [
+            "←  ☒ Toppings  ☐ Size  ✔ Submit  →",
+            "",
+            "Which size?",
+            "",
+            "❯ 1. Small",
+            "  2. Large",
+            "  3. Type something",
+            "──────────────────────────────────────────",
+            "  4. Chat about this",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect();
+        paint(&term, &size_rows);
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        // The digit both selects AND submits a single-select question, so the
+        // TUI auto-advances — no Tab, no Enter.
+        let (write_input, keys) = recording_input(term.clone(), Some(review_rows()), "2");
+        steer.handle_answer(
+            RemoteAnswer {
+                question_id: "toolu_01#1".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["2".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(*keys.lock().unwrap(), vec!["2"]);
+        assert!(matches!(drained(&rx)[..], [ActivityEvent::AnswerAck { .. }]));
+    }
+
+    #[test]
+    fn sidechain_lines_publish_attributed_tool_headlines_only() {
+        let redactor = Redactor::new(vec![]);
+        let line = serde_json::json!({
+            "type": "assistant",
+            "isSidechain": true,
+            "agentId": "agent_01",
+            "message": { "content": [
+                { "type": "text", "text": "Looking around." },
+                { "type": "tool_use", "name": "Grep", "input": { "pattern": "fn main" } },
+            ]}
+        })
+        .to_string();
         assert_eq!(
-            plan_body_in(&dir, after, None).as_deref(),
-            Some("## Plan A")
+            parse_sidechain_line(&line, "fallback", &redactor),
+            vec![ActivityEvent::Tool {
+                name: "Grep".into(),
+                detail: Some("fn main".into()),
+                subagent_id: Some("agent_01".into()),
+                at: None,
+            }]
         );
-        std::fs::remove_dir_all(&dir).ok();
-
-        // Two concurrent-session candidates and no on-screen needle ⇒ the
-        // newest file may belong to the OTHER session — no body (the
-        // question falls back to the fixed headline).
-        let (dir, after) = plan_dir("multi", &[("a.md", "## Plan A"), ("b.md", "## Plan B")]);
-        assert_eq!(plan_body_in(&dir, after, None), None);
-        // A blank needle (trimmed empty) is the same as no needle.
-        assert_eq!(plan_body_in(&dir, after, Some("  ")), None);
-        std::fs::remove_dir_all(&dir).ok();
+        // Without the entry-level agentId, the file name carries the identity.
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "Read", "input": { "file_path": "a.rs" } },
+            ]}
+        })
+        .to_string();
+        match &parse_sidechain_line(&line, "agent_from_file", &redactor)[..] {
+            [ActivityEvent::Tool { subagent_id, .. }] => {
+                assert_eq!(subagent_id.as_deref(), Some("agent_from_file"));
+            }
+            other => panic!("expected one attributed tool, got {other:?}"),
+        }
     }
 
     #[test]
-    fn plan_body_needle_disambiguates_concurrent_candidates() {
-        let (dir, after) = plan_dir(
-            "needle",
-            &[("a.md", "## Plan A\nsteps"), ("b.md", "## Plan B\nsteps")],
-        );
+    fn sidechain_discovery_finds_both_claude_layouts() {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-sidechains-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested = dir.join("sess-1").join("subagents").join("workflows");
+        std::fs::create_dir_all(&nested).unwrap();
+        // The main transcript is never a sidechain.
+        std::fs::write(dir.join("sess-1.jsonl"), "{}\n").unwrap();
+        std::fs::write(dir.join("agent-flat.jsonl"), "{}\n").unwrap();
+        std::fs::write(nested.join("agent-nested.jsonl"), "{}\n").unwrap();
+
+        let after = SystemTime::now() - Duration::from_secs(60);
+        let found = sidechain_transcripts(&dir, after);
+        let names: HashSet<String> = found
+            .iter()
+            .filter_map(|path| sidechain_agent_id(path))
+            .collect();
         assert_eq!(
-            plan_body_in(&dir, after, Some("## Plan B")).as_deref(),
-            Some("## Plan B\nsteps")
+            names,
+            HashSet::from(["flat".to_string(), "nested".to_string()])
         );
-        // A needle matching NO candidate must not fall back to "newest"
-        // while multiple candidates exist — same cross-session ambiguity.
-        assert_eq!(plan_body_in(&dir, after, Some("## Plan C")), None);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn plan_body_ignores_files_older_than_spawn() {
-        let (dir, _) = plan_dir("stale", &[("old.md", "## Stale plan")]);
-        // Spawn time after the file's mtime ⇒ no candidates ⇒ no body.
-        let after = SystemTime::now() + Duration::from_secs(60);
-        assert_eq!(plan_body_in(&dir, after, None), None);
+        assert_eq!(newest_transcript(&dir, after), Some(dir.join("sess-1.jsonl")));
         std::fs::remove_dir_all(&dir).ok();
     }
 

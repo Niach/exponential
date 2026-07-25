@@ -10,16 +10,19 @@
 //!
 //! * control `online` → device shows in the admin `GET /devices/:userId` →
 //!   `POST /start` routes `start_session` down our socket (§8.3);
-//! * publisher `hello` (true geometry) → viewer `join` gets resize + ring
-//!   REPLAY (relay-side, transparent to the publisher) → live `0x01` tail;
-//! * viewer `claim` → `input` reaches the publisher's PTY-writer hook;
+//! * publisher `hello` → the EXP-249 history re-publish (`activity_reset` +
+//!   the journal) → a viewer joining `channel:'activity'` gets its own reset +
+//!   the relay-side replay, then the live tail;
+//! * viewer `claim` → `input` reaches the publisher's PTY-writer hook, and an
+//!   `answer` frame reaches the emitter seam instead (never the PTY);
+//! * a `pty`/channel-less join is refused with `pty_removed` (EXP-249);
 //! * publisher take-over (`claim` on the publisher socket) force-clears the
 //!   steerer (`publisherTakeover`) and a de-claimed viewer's input no longer
 //!   flows (§8.5);
 //! * viewer `kill` → publisher kill hook + clean `bye` → the relay closes the
 //!   room (`CLOSE_SESSION_ENDED` at the viewer);
 //! * a severed publisher socket (TCP proxy dropped) → re-mint → re-`hello`
-//!   resumes the SAME room; the joined viewer keeps streaming (§8.6).
+//!   resumes the SAME room and REBUILDS the joined viewer's feed (§8.6).
 //!
 //! Skips (passes) when `bun` is unavailable so plain `cargo test` stays green
 //! on machines without the JS toolchain. The relay child is killed on drop.
@@ -39,7 +42,7 @@ use api::error::ApiError;
 use api::steer::MintedTicket;
 use steer::control_channel::{spawn_control_channel, ControlApi, DeviceIdentity};
 use steer::publisher::{publish, KillSignal, Presence, PublishSpec, PublisherHooks, PublisherTickets};
-use steer::{SteerRuntime, OUTPUT_OPCODE};
+use steer::{ActivityEvent, AnswerLink, RemoteAnswer, SteerRuntime};
 
 const SECRET: &str = "test-secret";
 const SESSION_ID: &str = "11111111-2222-3333-4444-555555555555";
@@ -232,17 +235,23 @@ struct Recorded {
 }
 
 fn recording_hooks(recorded: Arc<Recorded>) -> PublisherHooks {
+    recording_hooks_with(recorded, None)
+}
+
+fn recording_hooks_with(
+    recorded: Arc<Recorded>,
+    answers: Option<Arc<AnswerLink>>,
+) -> PublisherHooks {
     let r1 = recorded.clone();
     let r2 = recorded.clone();
     let r3 = recorded.clone();
     let r4 = recorded;
     PublisherHooks {
         write_input: Arc::new(move |bytes| r1.inputs.lock().unwrap().push(bytes.to_vec())),
-        resize: Arc::new(|_cols, _rows| {}),
-        geometry: Arc::new(|| (100, 30)),
         kill: Arc::new(move |signal| r2.kills.lock().unwrap().push(signal)),
         presence: Arc::new(move |presence| r3.presences.lock().unwrap().push(presence)),
         error: Arc::new(move |message| r4.errors.lock().unwrap().push(message)),
+        answers,
     }
 }
 
@@ -318,7 +327,6 @@ type ViewerWs = tokio_tungstenite::WebSocketStream<
 #[derive(Default)]
 struct ViewerLog {
     texts: Mutex<Vec<String>>,
-    binaries: Mutex<Vec<Vec<u8>>>,
     close: Mutex<Option<Option<u16>>>,
 }
 
@@ -344,21 +352,25 @@ impl Viewer {
             })
     }
 
-    fn binary_payloads(&self) -> Vec<Vec<u8>> {
-        self.log
-            .binaries
-            .lock()
-            .unwrap()
+    /// Every text frame seen so far.
+    fn texts(&self) -> Vec<String> {
+        self.log.texts.lock().unwrap().clone()
+    }
+
+    /// Whether an `activity` frame containing `needle` has arrived.
+    fn saw_activity(&self, needle: &str) -> bool {
+        self.texts()
             .iter()
-            .map(|frame| {
-                assert_eq!(frame[0], OUTPUT_OPCODE, "binary frames carry 0x01");
-                frame[1..].to_vec()
-            })
-            .collect()
+            .any(|text| text.contains(r#""t":"activity""#) && text.contains(needle))
     }
 }
 
 fn connect_viewer(runtime: &SteerRuntime, port: u16) -> Viewer {
+    connect_viewer_on(runtime, port, r#"{"t":"join","channel":"activity"}"#)
+}
+
+fn connect_viewer_on(runtime: &SteerRuntime, port: u16, join: &str) -> Viewer {
+    let join = join.to_string();
     let ticket = mint_ticket(&viewer_claims());
     let url = ws_url(port, &ticket);
     let (tx, rx) = flume::unbounded::<Message>();
@@ -369,9 +381,7 @@ fn connect_viewer(runtime: &SteerRuntime, port: u16) -> Viewer {
         let (mut ws, _): (ViewerWs, _) = tokio_tungstenite::connect_async(&url)
             .await
             .expect("viewer connect");
-        ws.send(Message::Text(r#"{"t":"join"}"#.to_string()))
-            .await
-            .expect("viewer join");
+        ws.send(Message::Text(join)).await.expect("viewer join");
         let _ = ready_tx.send(());
         loop {
             tokio::select! {
@@ -381,9 +391,6 @@ fn connect_viewer(runtime: &SteerRuntime, port: u16) -> Viewer {
                 }
                 msg = ws.next() => match msg {
                     Some(Ok(Message::Text(text))) => log_task.texts.lock().unwrap().push(text),
-                    Some(Ok(Message::Binary(bytes))) => {
-                        log_task.binaries.lock().unwrap().push(bytes);
-                    }
                     Some(Ok(Message::Close(frame))) => {
                         *log_task.close.lock().unwrap() =
                             Some(frame.map(|f| u16::from(f.code)));
@@ -541,6 +548,7 @@ fn full_protocol_flow_against_the_real_relay() {
 
     // ── Publisher: hello with true geometry, room goes live (§8.4) ────────
     let recorded = Arc::new(Recorded::default());
+    let (answer_link, answers_rx) = AnswerLink::new();
     let handle = publish(
         &runtime,
         PublishSpec {
@@ -551,34 +559,37 @@ fn full_protocol_flow_against_the_real_relay() {
             relay_port: relay.port,
             proxy_port_once: Mutex::new(None),
         }),
-        recording_hooks(recorded.clone()),
+        recording_hooks_with(recorded.clone(), Some(answer_link)),
     );
     wait_for("room live", || {
         http_request(relay.port, "GET", &format!("/sessions/{SESSION_ID}"), &[("x-relay-secret", SECRET)], None)
             .is_some_and(|body| body.contains("\"live\":true"))
     });
 
-    // Output BEFORE any viewer joins → lands in the relay's ring.
-    handle.raw_sink().on_output(b"early-scrollback\r\n");
+    // Activity published BEFORE any viewer joins → the relay's replay log.
+    let activity = handle.activity_sender();
+    activity.send(ActivityEvent::narration("early-scrollback"));
     std::thread::sleep(Duration::from_millis(300)); // let the relay ingest
 
-    // ── Viewer join: resize + relay-side ring replay, NO publisher resync ─
+    // ── A legacy join (no channel) is refused outright since EXP-249 ──────
+    let legacy = connect_viewer_on(&runtime, relay.port, r#"{"t":"join"}"#);
+    wait_for("pty_removed error", || {
+        legacy
+            .texts()
+            .iter()
+            .any(|text| text.contains(r#""code":"pty_removed""#))
+    });
+    assert!(
+        !legacy.texts().iter().any(|text| text.contains(r#""t":"activity""#)),
+        "a refused join must receive nothing"
+    );
+
+    // ── Viewer join: the relay's own reset + replay of the log ────────────
     let viewer = connect_viewer(&runtime, relay.port);
-    wait_for("viewer resize frame", || {
-        viewer
-            .log
-            .texts
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|t| t == r#"{"t":"resize","cols":100,"rows":30}"#)
+    wait_for("viewer activity_reset", || {
+        viewer.texts().iter().any(|t| t == r#"{"t":"activity_reset"}"#)
     });
-    wait_for("ring replay at the viewer", || {
-        viewer
-            .binary_payloads()
-            .iter()
-            .any(|payload| payload == b"early-scrollback\r\n")
-    });
+    wait_for("replay at the viewer", || viewer.saw_activity("early-scrollback"));
     // The publisher saw a presence broadcast for the join.
     wait_for("publisher presence", || {
         recorded
@@ -599,14 +610,29 @@ fn full_protocol_flow_against_the_real_relay() {
         recorded.inputs.lock().unwrap().iter().any(|bytes| bytes == b"echo hi\r")
     });
 
-    // ── Live tail: teed output reaches the viewer as 0x01 frames ──────────
-    handle.raw_sink().on_output(b"live-tail-bytes");
-    wait_for("live tail at the viewer", || {
-        viewer
-            .binary_payloads()
-            .iter()
-            .any(|payload| payload == b"live-tail-bytes")
-    });
+    // ── EXP-249: a semantic `answer` rides the same claim gate, and reaches
+    // the emitter seam instead of the PTY writer ─────────────────────────
+    viewer.send_text(r#"{"t":"answer","questionId":"toolu_1#0","askId":"toolu_1","keys":["2"]}"#);
+    let answer = answers_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("answer forwarded to the emitter");
+    assert_eq!(
+        answer,
+        RemoteAnswer {
+            question_id: "toolu_1#0".to_string(),
+            ask_id: Some("toolu_1".to_string()),
+            keys: vec!["2".to_string()],
+        }
+    );
+    assert_eq!(
+        recorded.inputs.lock().unwrap().len(),
+        1,
+        "an answer is never replayed as keystrokes"
+    );
+
+    // ── Live tail: a fresh activity event reaches the joined viewer ───────
+    activity.send(ActivityEvent::tool("Edit", Some("src/main.rs".to_string())));
+    wait_for("live tail at the viewer", || viewer.saw_activity("src/main.rs"));
 
     // ── Take over: publisher claim force-clears the remote steerer ────────
     handle.take_over();
@@ -683,12 +709,11 @@ fn publisher_reconnects_and_resumes_the_room_after_a_socket_drop() {
             .is_some_and(|body| body.contains("\"live\":true"))
     });
 
-    // A viewer joins and sees the pre-drop output.
+    // A viewer joins and sees the pre-drop activity.
     let viewer = connect_viewer(&runtime, relay.port);
-    handle.raw_sink().on_output(b"before-drop");
-    wait_for("pre-drop tail", || {
-        viewer.binary_payloads().iter().any(|payload| payload == b"before-drop")
-    });
+    let activity = handle.activity_sender();
+    activity.send(ActivityEvent::narration("before-drop"));
+    wait_for("pre-drop tail", || viewer.saw_activity("before-drop"));
 
     // Sever the proxied publisher socket — an unexpected drop, no bye.
     proxy.severed.store(true, Ordering::SeqCst);
@@ -699,12 +724,27 @@ fn publisher_reconnects_and_resumes_the_room_after_a_socket_drop() {
         http_request(relay.port, "GET", &format!("/sessions/{SESSION_ID}"), &[("x-relay-secret", SECRET)], None)
             .is_some_and(|body| body.contains("\"live\":true") && body.contains("\"viewers\":1"))
     });
-    // Live teeing resumes into the SAME room, reaching the same viewer —
-    // and no resync was needed (§8.6: reconnect does not wait for one).
+    // EXP-249: the reconnect REBUILDS the feed — the joined viewer sees a
+    // second `activity_reset` followed by the whole journal again.
+    wait_for("history re-published after reconnect", || {
+        viewer
+            .texts()
+            .iter()
+            .filter(|text| *text == r#"{"t":"activity_reset"}"#)
+            .count()
+            >= 2
+            && viewer
+                .texts()
+                .iter()
+                .filter(|text| text.contains("before-drop"))
+                .count()
+                >= 2
+    });
+    // …and live publishing resumes into the SAME room.
     wait_for("post-reconnect tail at the same viewer", || {
-        handle.raw_sink().on_output(b"after-reconnect");
+        activity.send(ActivityEvent::narration("after-reconnect"));
         std::thread::sleep(Duration::from_millis(50));
-        viewer.binary_payloads().iter().any(|payload| payload == b"after-reconnect")
+        viewer.saw_activity("after-reconnect")
     });
     assert!(handle.is_active(), "publisher still active after resume");
     assert!(recorded.errors.lock().unwrap().is_empty());

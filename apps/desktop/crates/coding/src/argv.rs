@@ -17,6 +17,8 @@
 //!   when skipping. `--full-auto` is deprecated and never used.
 //! - **pi** — no permission system exists; no flags either way.
 
+use std::path::Path;
+
 use crate::agent::CodingAgent;
 use crate::mcp_json::MCP_JSON_FILE;
 use crate::pi_bridge::PI_BRIDGE_FILE;
@@ -30,6 +32,13 @@ pub const MCP_TOKEN_ENV: &str = "EXP_MCP_TOKEN";
 
 /// The env var carrying the `/api/mcp` URL for the pi bridge.
 pub const MCP_URL_ENV: &str = "EXP_MCP_URL";
+
+/// EXP-249 — the hooks sidecar's spawn env (mirrors `steer::hooks`'
+/// `HOOK_PORT_ENV`/`HOOK_TOKEN_ENV`; the two crates cannot depend on each
+/// other, §3.1). The `--settings` file's hook commands expand these at hook
+/// time, so the file itself stays constant and secret-free.
+pub const HOOK_PORT_ENV: &str = "EXP_HOOK_PORT";
+pub const HOOK_TOKEN_ENV: &str = "EXP_HOOK_TOKEN";
 
 /// The MCP wiring of every CLAUDE coding argv: the launcher-written worktree
 /// [`MCP_JSON_FILE`] (`.exp-mcp.json`) rides `--mcp-config` (resolved against
@@ -232,12 +241,23 @@ pub enum SessionTail<'a> {
 /// positional, or `--continue` on a claude/pi resume; a codex resume instead
 /// PREPENDS `resume <SESSION_ID>` as the subcommand):
 ///
-/// - claude: `--model <m> [--effort ultracode|<e>] <mcp_config_args>
-///   <permission_args> <tail>`
+/// - claude: `--model <m> [--effort ultracode|<e>] [--settings <file>]
+///   <mcp_config_args> <permission_args> <tail>`
 /// - codex: `[resume <session-id>] [-m <m>] [-c model_reasoning_effort=<e>]
 ///   <mcp -c overrides> <sandbox/approval flags> [<positional>]`
 /// - pi: `[--model <m>] [--thinking <t>] -e ./<bridge> <tail>`
-pub fn session_args(opts: &LaunchOptions, mcp: &AgentMcp, tail: SessionTail<'_>) -> Vec<String> {
+///
+/// `claude_settings` is the EXP-249 hooks-sidecar settings file (an absolute
+/// path OUTSIDE the worktree — see `launcher::HookSetup`). `None` = no
+/// sidecar for this run: claude then uses its own settings chain and the
+/// session degrades to grid-only detection. Ignored for codex/pi, which have
+/// no hooks system.
+pub fn session_args(
+    opts: &LaunchOptions,
+    mcp: &AgentMcp,
+    claude_settings: Option<&Path>,
+    tail: SessionTail<'_>,
+) -> Vec<String> {
     let trimmed_model = opts.model.trim();
     let trimmed_effort = opts.effort.trim();
     let mut args: Vec<String> = Vec::new();
@@ -259,6 +279,10 @@ pub fn session_args(opts: &LaunchOptions, mcp: &AgentMcp, tail: SessionTail<'_>)
             if let Some(effort) = effort {
                 args.push("--effort".into());
                 args.push(effort);
+            }
+            if let Some(settings) = claude_settings {
+                args.push("--settings".into());
+                args.push(settings.to_string_lossy().into_owned());
             }
             args.extend(mcp_config_args());
             args.extend(permission_args(opts.plan_mode, opts.skip_permissions));
@@ -406,7 +430,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, SessionTail::Prompt("do the thing")),
+            session_args(&opts, &AgentMcp::ClaudeFile, None, SessionTail::Prompt("do the thing")),
             vec![
                 "--model",
                 "fable",
@@ -429,7 +453,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, SessionTail::Prompt("prompt")),
+            session_args(&opts, &AgentMcp::ClaudeFile, None, SessionTail::Prompt("prompt")),
             vec![
                 "--model",
                 "opus",
@@ -444,7 +468,7 @@ mod tests {
         );
 
         // Plan OFF + skip OFF (EXP-201 default): guarded auto mode.
-        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, SessionTail::Prompt("p"));
+        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::Prompt("p"));
         assert_eq!(
             args[args.len() - 4..],
             [
@@ -463,7 +487,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, SessionTail::Prompt("seed"))[..4],
+            session_args(&opts, &AgentMcp::ClaudeFile, None, SessionTail::Prompt("seed"))[..4],
             [
                 "--model".to_string(),
                 "fable".to_string(),
@@ -479,10 +503,71 @@ mod tests {
             effort: "  ".to_string(),
             ..claude_opts()
         };
-        let args = session_args(&opts, &AgentMcp::ClaudeFile, SessionTail::Prompt("p"));
+        let args = session_args(&opts, &AgentMcp::ClaudeFile, None, SessionTail::Prompt("p"));
         assert!(!args.iter().any(|arg| arg == "--effort"));
         assert!(!args.iter().any(|arg| arg == "--agents"));
         assert_eq!(args.last().map(String::as_str), Some("p"));
+    }
+
+    /// EXP-249: the hooks-sidecar settings file rides `--settings` between
+    /// the model/effort pair and the MCP flags — never near the tail, which
+    /// stays the prompt positional.
+    #[test]
+    fn claude_session_args_carry_the_hook_settings_file() {
+        let settings = Path::new("/home/u/.local/share/exponential/claude-hooks/sess-1.settings.json");
+        let opts = LaunchOptions {
+            effort: "high".to_string(),
+            ..claude_opts()
+        };
+        assert_eq!(
+            session_args(
+                &opts,
+                &AgentMcp::ClaudeFile,
+                Some(settings),
+                SessionTail::Prompt("prompt")
+            ),
+            vec![
+                "--model",
+                "fable",
+                "--effort",
+                "high",
+                "--settings",
+                "/home/u/.local/share/exponential/claude-hooks/sess-1.settings.json",
+                "--mcp-config",
+                ".exp-mcp.json",
+                "--strict-mcp-config",
+                "--permission-mode",
+                "auto",
+                "--allow-dangerously-skip-permissions",
+                "prompt",
+            ]
+        );
+        // A resume keeps it too (the sidecar is per-RUN, not per-prompt).
+        let args = session_args(
+            &claude_opts(),
+            &AgentMcp::ClaudeFile,
+            Some(settings),
+            SessionTail::Continue,
+        );
+        assert!(args.contains(&"--settings".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("--continue"));
+
+        // codex and pi have no hooks system — the file never reaches them.
+        let codex = LaunchOptions {
+            agent: CodingAgent::Codex,
+            ..claude_opts()
+        };
+        let mcp = AgentMcp::CodexOverrides {
+            url: "https://app.exponential.at/api/mcp".to_string(),
+        };
+        let args = session_args(&codex, &mcp, Some(settings), SessionTail::Prompt("p"));
+        assert!(!args.iter().any(|arg| arg == "--settings"));
+        let pi = LaunchOptions {
+            agent: CodingAgent::Pi,
+            ..claude_opts()
+        };
+        let args = session_args(&pi, &AgentMcp::PiExtension, Some(settings), SessionTail::Prompt("p"));
+        assert!(!args.iter().any(|arg| arg == "--settings"));
     }
 
     #[test]
@@ -501,7 +586,7 @@ mod tests {
             skip_permissions: false,
         };
         assert_eq!(
-            session_args(&opts, &mcp, SessionTail::Prompt("prompt")),
+            session_args(&opts, &mcp, None, SessionTail::Prompt("prompt")),
             vec![
                 "-m",
                 "gpt-5.6-sol",
@@ -533,7 +618,7 @@ mod tests {
             plan_mode: false,
             skip_permissions: true,
         };
-        let args = session_args(&opts, &mcp, SessionTail::Prompt("prompt"));
+        let args = session_args(&opts, &mcp, None, SessionTail::Prompt("prompt"));
         assert_eq!(
             args,
             vec![
@@ -565,7 +650,7 @@ mod tests {
             skip_permissions: false,
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::PiExtension, SessionTail::Prompt("prompt")),
+            session_args(&opts, &AgentMcp::PiExtension, None, SessionTail::Prompt("prompt")),
             vec![
                 "--model",
                 "grok-4.5",
@@ -587,7 +672,7 @@ mod tests {
             plan_mode: false,
             skip_permissions: true, // inert for pi
         };
-        let args = session_args(&opts, &AgentMcp::PiExtension, SessionTail::Prompt("p"));
+        let args = session_args(&opts, &AgentMcp::PiExtension, None, SessionTail::Prompt("p"));
         assert_eq!(args, vec!["-e", "./.exp-pi-mcp.ts", "p"]);
         assert!(!args.iter().any(|arg| arg == "-a" || arg == "--approve"));
     }
@@ -600,7 +685,7 @@ mod tests {
     #[test]
     fn resume_tail_matrix() {
         // Claude: full flag set preserved, `--continue` last, no prompt.
-        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, SessionTail::Continue);
+        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::Continue);
         assert_eq!(args.last().map(String::as_str), Some("--continue"));
         assert!(args.contains(&"--mcp-config".to_string()));
         assert!(args.contains(&"--permission-mode".to_string()));
@@ -616,7 +701,7 @@ mod tests {
             skip_permissions: false,
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::PiExtension, SessionTail::Continue),
+            session_args(&opts, &AgentMcp::PiExtension, None, SessionTail::Continue),
             vec!["--model", "fable", "-e", "./.exp-pi-mcp.ts", "--continue"]
         );
 
@@ -633,7 +718,7 @@ mod tests {
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
         };
-        let args = session_args(&opts, &mcp, SessionTail::CodexResume("019f-abc"));
+        let args = session_args(&opts, &mcp, None, SessionTail::CodexResume("019f-abc"));
         assert_eq!(args[..2], ["resume".to_string(), "019f-abc".to_string()]);
         assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
         assert!(args
@@ -641,14 +726,14 @@ mod tests {
 
         // Cross-agent tails are caller bugs and must DEGRADE, never panic or
         // pass an unknown flag: Continue on codex, CodexResume on claude.
-        let args = session_args(&opts, &mcp, SessionTail::Continue);
+        let args = session_args(&opts, &mcp, None, SessionTail::Continue);
         assert!(!args.iter().any(|arg| arg == "--continue"));
         assert_eq!(
             args.last().map(String::as_str),
             Some("--dangerously-bypass-approvals-and-sandbox")
         );
         let args =
-            session_args(&claude_opts(), &AgentMcp::ClaudeFile, SessionTail::CodexResume("x"));
+            session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::CodexResume("x"));
         assert!(!args.iter().any(|arg| arg == "resume" || arg == "x"));
     }
 

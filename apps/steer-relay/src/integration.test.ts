@@ -1,6 +1,6 @@
 // End-to-end smoke through the real Bun server: ticket auth on upgrade,
-// hello/join, binary output fan-out with ring replay, claim + input, and the
-// secret-authed admin endpoints.
+// hello/join, the scrubbed activity channel (reset + replay + live fan-out),
+// claim + input + semantic answers, and the secret-authed admin endpoints.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { signSteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
@@ -118,70 +118,11 @@ describe(`steer relay end-to-end`, () => {
     expect(await authed.json()).toEqual({ devices: [] })
   })
 
-  test(`publisher → viewer: replay, live output, claim, input, kill, bye`, async () => {
+  test(`activity channel: reset + replay, live fan-out, claim, input, answer, kill, bye`, async () => {
     const sessionId = `sess-e2e`
 
-    const pub = await connect(
-      ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
-    )
-    const pubIn = collector(pub)
-    pub.send(JSON.stringify({ t: `hello`, sessionId, issueId: `i1`, cols: 100, rows: 30 }))
-    // hello triggers a presence broadcast to the publisher.
-    expect(await pubIn.nextJson()).toMatchObject({ t: `presence` })
-
-    // Emit output BEFORE the viewer joins (ring replay coverage).
-    pub.send(new Uint8Array([0x01, ...new TextEncoder().encode(`early `)]))
-
-    const viewer = await connect(
-      ticket({ role: `viewer`, sub: `phone-user`, name: `Phone`, perm: `steer`, sessionId })
-    )
-    const viewerIn = collector(viewer)
-    viewer.send(JSON.stringify({ t: `join` }))
-
-    expect(await viewerIn.nextJson()).toMatchObject({ t: `resize`, cols: 100, rows: 30 })
-    const replay = await viewerIn.next()
-    expect(typeof replay).not.toBe(`string`)
-    expect(new TextDecoder().decode((replay as Uint8Array).subarray(1))).toBe(`early `)
-    expect(await viewerIn.nextJson()).toMatchObject({ t: `presence` })
-
-    // Live output flows.
-    pub.send(new Uint8Array([0x01, ...new TextEncoder().encode(`live!`)]))
-    const live = await viewerIn.next()
-    expect(new TextDecoder().decode((live as Uint8Array).subarray(1))).toBe(`live!`)
-
-    // Presence reached the publisher too.
-    expect(await pubIn.nextJson()).toMatchObject({
-      t: `presence`,
-      viewers: [{ userId: `phone-user`, name: `Phone`, perm: `steer` }],
-    })
-
-    // Claim + input forwarding.
-    viewer.send(JSON.stringify({ t: `claim` }))
-    expect(await viewerIn.nextJson()).toMatchObject({ t: `presence`, steererId: `phone-user` })
-    expect(await pubIn.nextJson()).toMatchObject({ t: `presence`, steererId: `phone-user` })
-    viewer.send(JSON.stringify({ t: `input`, data: `yes\n` }))
-    expect(await pubIn.nextJson()).toMatchObject({ t: `input`, data: `yes\n` })
-
-    // Kill from a steer-perm viewer reaches the publisher.
-    viewer.send(JSON.stringify({ t: `kill` }))
-    expect(await pubIn.nextJson()).toMatchObject({ t: `kill` })
-
-    // Publisher ends the session; viewer gets bye + close.
-    const closed = new Promise<number>((resolve) => {
-      viewer.onclose = (e) => resolve(e.code)
-    })
-    pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
-    expect(await viewerIn.nextJson()).toMatchObject({ t: `bye`, outcome: `done` })
-    expect(await closed).toBe(4001)
-
-    pub.close()
-  })
-
-  test(`activity channel: replays + steers for members; legacy activityPublic flag is ignored`, async () => {
-    const sessionId = `sess-activity-e2e`
-
-    // Older desktops still send the removed activityPublic flag in hello —
-    // non-strict parsing must ignore it (EXP-90).
+    // Older desktops still send the removed activityPublic flag and PTY
+    // geometry in hello — non-strict parsing must ignore both.
     const pub = await connect(
       ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
     )
@@ -190,15 +131,16 @@ describe(`steer relay end-to-end`, () => {
       JSON.stringify({
         t: `hello`,
         sessionId,
-        issueId: `i2`,
-        cols: 80,
-        rows: 24,
+        issueId: `i1`,
+        cols: 100,
+        rows: 30,
         activityPublic: false,
       })
     )
+    // hello triggers a presence broadcast to the publisher.
     expect(await pubIn.nextJson()).toMatchObject({ t: `presence`, viewers: [] })
 
-    // Activity emitted before anyone joins → the replayable log + lastDiff.
+    // Activity emitted BEFORE anyone joins → the replayable log + lastDiff.
     pub.send(
       JSON.stringify({
         t: `activity`,
@@ -209,9 +151,6 @@ describe(`steer relay end-to-end`, () => {
       JSON.stringify({ t: `activity`, event: { kind: `diff`, diff: `+ line` } })
     )
 
-    // A team member joins the activity channel on an ordinary viewer
-    // ticket: replay (log, then latest diff), then presence — no resize, no
-    // binary ring.
     const member = await connect(
       ticket({
         role: `viewer`,
@@ -224,6 +163,9 @@ describe(`steer relay end-to-end`, () => {
     const memberIn = collector(member)
     member.send(JSON.stringify({ t: `join`, channel: `activity` }))
 
+    // The relay owns the "clear your feed" moment — it arrives BEFORE the
+    // replay, so clients never wipe on dial/open themselves.
+    expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
     expect(await memberIn.nextJson()).toMatchObject({
       t: `activity`,
       event: { kind: `narration`, text: `thinking` },
@@ -238,26 +180,30 @@ describe(`steer relay end-to-end`, () => {
       steererId: null,
     })
 
-    // Live activity reaches the member.
-    pub.send(
-      JSON.stringify({
-        t: `activity`,
-        event: { kind: `tool`, name: `Edit`, detail: `a.ts` },
-      })
-    )
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `activity`,
-      event: { kind: `tool`, name: `Edit` },
-    })
+    // Live activity — including the v2 kinds — reaches the member intact.
+    const question = {
+      kind: `question`,
+      text: `Which color?`,
+      options: [
+        { label: `Red`, key: `1`, description: `warm` },
+        { label: `Blue`, key: `2` },
+      ],
+      id: `toolu_1#0`,
+      askId: `toolu_1`,
+      index: 1,
+      total: 2,
+      header: `Palette`,
+    }
+    pub.send(JSON.stringify({ t: `activity`, event: question }))
+    expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: question })
 
-    // claim{steal:true} → the member holds the claim; input reaches the
-    // publisher.
-    member.send(JSON.stringify({ t: `claim`, steal: true }))
+    // claim → the member holds it; input and answers reach the publisher.
+    member.send(JSON.stringify({ t: `claim` }))
     expect(await memberIn.nextJson()).toMatchObject({
       t: `presence`,
       steererId: `member-user`,
     })
-    // The publisher heard the member join, then the claim, then the input.
+    // The publisher heard the member join, then the claim.
     expect(await pubIn.nextJson()).toMatchObject({
       t: `presence`,
       viewers: [{ userId: `member-user` }],
@@ -267,12 +213,144 @@ describe(`steer relay end-to-end`, () => {
       t: `presence`,
       steererId: `member-user`,
     })
-    member.send(JSON.stringify({ t: `input`, data: `y\n` }))
-    expect(await pubIn.nextJson()).toMatchObject({ t: `input`, data: `y\n` })
 
+    member.send(JSON.stringify({ t: `input`, data: `yes\n` }))
+    expect(await pubIn.nextJson()).toMatchObject({ t: `input`, data: `yes\n` })
+
+    member.send(
+      JSON.stringify({
+        t: `answer`,
+        questionId: `toolu_1#0`,
+        askId: `toolu_1`,
+        keys: [`2`],
+      })
+    )
+    expect(await pubIn.nextJson()).toEqual({
+      t: `answer`,
+      questionId: `toolu_1#0`,
+      askId: `toolu_1`,
+      keys: [`2`],
+    })
+
+    // The publisher acks + resolves the card; both are ordinary activity.
+    pub.send(
+      JSON.stringify({
+        t: `activity`,
+        event: { kind: `answer_ack`, id: `toolu_1#0`, askId: `toolu_1` },
+      })
+    )
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `activity`,
+      event: { kind: `answer_ack`, id: `toolu_1#0` },
+    })
+    pub.send(
+      JSON.stringify({
+        t: `activity`,
+        event: {
+          kind: `question_resolved`,
+          id: `toolu_1#0`,
+          answers: [`Blue`],
+        },
+      })
+    )
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `activity`,
+      event: { kind: `question_resolved`, answers: [`Blue`] },
+    })
+
+    // activity_reset from the publisher clears the log and tells the audience.
+    pub.send(JSON.stringify({ t: `activity_reset` }))
+    expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
+    pub.send(
+      JSON.stringify({
+        t: `activity`,
+        event: { kind: `narration`, text: `republished` },
+      })
+    )
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `activity`,
+      event: { kind: `narration`, text: `republished` },
+    })
+
+    // Kill from the steer-perm member reaches the publisher.
+    member.send(JSON.stringify({ t: `kill` }))
+    expect(await pubIn.nextJson()).toMatchObject({ t: `kill` })
+
+    // Publisher ends the session; the member gets bye + close.
+    const closed = new Promise<number>((resolve) => {
+      member.onclose = (e) => resolve(e.code)
+    })
     pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
     expect(await memberIn.nextJson()).toMatchObject({ t: `bye`, outcome: `done` })
+    expect(await closed).toBe(4001)
+
     pub.close()
+  })
+
+  test(`old clients: pty joins are refused, binary output + resize are ignored`, async () => {
+    const sessionId = `sess-legacy`
+    const pub = await connect(
+      ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
+    )
+    const pubIn = collector(pub)
+    pub.send(JSON.stringify({ t: `hello`, sessionId, cols: 80, rows: 24 }))
+    expect(await pubIn.nextJson()).toMatchObject({ t: `presence` })
+
+    // An old viewer joining the removed PTY mirror gets a typed error and
+    // enters no audience.
+    const legacy = await connect(
+      ticket({ role: `viewer`, sub: `old-client`, perm: `steer`, sessionId })
+    )
+    const legacyIn = collector(legacy)
+    legacy.send(JSON.stringify({ t: `join` }))
+    expect(await legacyIn.nextJson()).toEqual({
+      t: `error`,
+      code: `pty_removed`,
+    })
+    legacy.send(JSON.stringify({ t: `join`, channel: `pty` }))
+    expect(await legacyIn.nextJson()).toEqual({
+      t: `error`,
+      code: `pty_removed`,
+    })
+
+    // An old desktop's binary output frame and resize are swallowed; the room
+    // stays live and activity still flows to a real member.
+    const member = await connect(
+      ticket({ role: `viewer`, sub: `member-user`, perm: `view`, sessionId })
+    )
+    const memberIn = collector(member)
+    member.send(JSON.stringify({ t: `join`, channel: `activity` }))
+    expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
+    expect(await memberIn.nextJson()).toMatchObject({ t: `presence` })
+    // The refused pty joiner never shows up in presence.
+    expect(await pubIn.nextJson()).toMatchObject({
+      t: `presence`,
+      viewers: [{ userId: `member-user` }],
+    })
+
+    pub.send(new Uint8Array([0x01, ...new TextEncoder().encode(`pty bytes`)]))
+    pub.send(JSON.stringify({ t: `resize`, cols: 200, rows: 50 }))
+    pub.send(
+      JSON.stringify({
+        t: `activity`,
+        event: { kind: `narration`, text: `after legacy frames` },
+      })
+    )
+    // The very next frame is the activity event — nothing was relayed for the
+    // binary or resize frames.
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `activity`,
+      event: { kind: `narration`, text: `after legacy frames` },
+    })
+
+    const info = await fetch(`${base}/sessions/${sessionId}`, {
+      headers: { "x-relay-secret": `integration-secret` },
+    })
+    expect(await info.json()).toMatchObject({ live: true, viewers: 1 })
+
+    pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
+    pub.close()
+    legacy.close()
   })
 
   test(`remote start routes through the control socket`, async () => {

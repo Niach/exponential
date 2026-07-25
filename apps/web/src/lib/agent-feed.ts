@@ -1,6 +1,7 @@
-// Pure helpers for the agent-session activity feed (EXP-78) — kept out of the
-// component so the local-echo dedupe and the answerable-question rule are unit
-// testable.
+// Pure helpers for the agent-session activity feed (EXP-78; steer protocol v2
+// in EXP-249) — kept out of the component so the local-echo dedupe, the
+// answerable-question rule, the multi-question stepper and the answer lock
+// state machine are unit testable.
 
 /** A locally-echoed steered message awaiting its transcript-derived twin. */
 export interface EchoEntry {
@@ -14,6 +15,10 @@ export const ECHO_CAP = 8
  *  a while to hit the transcript, but an unmatched echo must not swallow an
  *  identical message sent much later from another device. */
 export const ECHO_TTL_MS = 5 * 60_000
+
+/** Client-side feed cap — old events fall off the top. Matches the relay's
+ *  ACTIVITY_LOG_CAP so a full-history replay renders in full. */
+export const FEED_CAP = 2000
 
 /** Record a just-sent message so its transcript-derived `user_message` event
  *  is not appended a second time. Mutates `echoes` in place. */
@@ -41,7 +46,8 @@ export function consumeEcho(
 }
 
 /** The desktop's plan-picker resolution narration (steer/src/activity.rs) —
- *  the no-protocol-change signal that a pending plan approval was answered. */
+ *  the legacy no-protocol-change signal that a pending plan approval was
+ *  answered. Protocol v2 desktops still emit it beside `question_resolved`. */
 export const PLAN_RESOLVED_NARRATION = `Plan approval answered.`
 
 /** The desktop's answered-question narration prefix (steer/src/activity.rs,
@@ -54,7 +60,11 @@ export const QUESTION_ANSWERED_PREFIX = `Question answered: `
  *  WITHOUT answers (Esc / rejected); retires every pending question card. */
 export const QUESTION_DISMISSED_NARRATION = `Question dismissed.`
 
-interface QuestionLike {
+/** The feed `question` item the helpers reason over. `questionId` is the wire
+ *  id (protocol v2): present ⇒ resolution arrives as explicit events and the
+ *  card is answerable through the semantic `answer` frame; absent ⇒ a legacy
+ *  card, answerable by raw keystroke and retired by narration matching. */
+export interface QuestionLike {
   id: number
   kind: string
   planMode?: boolean
@@ -62,12 +72,27 @@ interface QuestionLike {
   resolved?: boolean
   /** The chosen answer, when the resolution carried one. */
   answer?: string
+  /** The resolution carried no answer (Esc / rejected). */
+  dismissed?: boolean
+  questionId?: string
+  askId?: string
+  index?: number
+  total?: number
+  text?: string
+}
+
+/** Whether the desktop publishes question identities — new clients then prefer
+ *  the semantic resolution events and ignore the legacy magic narrations. */
+export function hasSemanticQuestions(
+  feed: readonly { kind: string; questionId?: string }[]
+): boolean {
+  return feed.some((i) => i.kind === `question` && i.questionId !== undefined)
 }
 
 /** Fold an answer into the EARLIEST unanswered non-plan question card
  *  (answers arrive in question order, so earliest-first keeps multi-question
- *  asks aligned). Null when no card is waiting — the caller falls back to
- *  rendering the narration so the answer is never lost. */
+ *  asks aligned). Legacy path only. Null when no card is waiting — the caller
+ *  falls back to rendering the narration so the answer is never lost. */
 export function attachQuestionAnswer<T extends QuestionLike>(
   feed: readonly T[],
   answer: string
@@ -82,7 +107,7 @@ export function attachQuestionAnswer<T extends QuestionLike>(
 }
 
 /** Retire every pending non-plan question card (the ask was dismissed).
- *  Null when nothing was pending. */
+ *  Legacy path only. Null when nothing was pending. */
 export function dismissPendingQuestions<T extends QuestionLike>(
   feed: readonly T[]
 ): T[] | null {
@@ -92,25 +117,116 @@ export function dismissPendingQuestions<T extends QuestionLike>(
   return feed.map((i) => (pending(i) ? { ...i, resolved: true } : i))
 }
 
-/** Ids of the `question` items still answerable (EXP-174): the TRAILING
- *  consecutive question run (a multi-question batch lands back-to-back and
- *  the TUI auto-advances in order; any later event means the session moved
- *  on), PLUS any plan-approval question with no resolution signal after it.
- *  Plan questions are published from the live terminal grid the moment the
- *  picker appears, while the transcript tail lags — so tool rows and
- *  narration can flush in BEHIND a plan card whose picker is still on
- *  screen. Only a newer question, a human message, or the desktop's explicit
- *  `PLAN_RESOLVED_NARRATION` proves a plan picker actually resolved. */
+/** Replace the card carrying `questionId` in place — protocol v2 re-emits a
+ *  question as the desktop learns more about it (augmented options, a header),
+ *  and the card must keep its feed position, its local identity and any
+ *  resolution already applied. Null when the id is unknown (append instead). */
+export function upsertQuestion<T extends QuestionLike>(
+  feed: readonly T[],
+  questionId: string,
+  next: Omit<T, `id`>
+): T[] | null {
+  const index = feed.findIndex(
+    (i) => i.kind === `question` && i.questionId === questionId
+  )
+  if (index < 0) return null
+  const prev = feed[index]
+  const merged = [...feed]
+  merged[index] = {
+    ...prev,
+    ...next,
+    id: prev.id,
+    resolved: prev.resolved,
+    answer: prev.answer,
+    dismissed: prev.dismissed,
+  }
+  return merged
+}
+
+/** A `question_resolved` event (protocol v2). */
+export interface QuestionResolution {
+  id?: string
+  askId?: string
+  answers?: string[]
+  dismissed?: boolean
+}
+
+/** Apply a `question_resolved` event: retire the card with the matching wire
+ *  id, else EVERY card of `askId`, else every pending card. Answers land
+ *  positionally on the answer-consuming cards (the ask's submit step consumes
+ *  none); a by-id resolution folds all its answers into that one card. Null
+ *  when nothing matched. */
+export function applyQuestionResolved<T extends QuestionLike>(
+  feed: readonly T[],
+  resolution: QuestionResolution
+): T[] | null {
+  const answers = resolution.answers ?? []
+  const matches = (item: T) => {
+    if (item.kind !== `question`) return false
+    if (resolution.id !== undefined) return item.questionId === resolution.id
+    if (resolution.askId !== undefined) return item.askId === resolution.askId
+    return item.resolved !== true
+  }
+  // The submit step of an ask (askId, no index) is a confirmation, not a
+  // question — it never consumes one of the ask's answers.
+  const consumesAnswer = (item: T) =>
+    item.askId === undefined || item.index !== undefined
+  let matched = false
+  let cursor = 0
+  const next = feed.map((item) => {
+    if (!matches(item)) return item
+    matched = true
+    let answer: string | undefined
+    if (resolution.dismissed !== true && consumesAnswer(item)) {
+      answer =
+        resolution.id !== undefined
+          ? answers.join(`, `) || undefined
+          : answers[cursor++]
+    }
+    return {
+      ...item,
+      resolved: true,
+      dismissed: resolution.dismissed === true ? true : item.dismissed,
+      answer: answer ?? item.answer,
+    }
+  })
+  return matched ? next : null
+}
+
+/** Ids of the `question` items still answerable.
+ *
+ *  Protocol v2 cards (a wire `questionId`) are identity-scoped: they stay
+ *  answerable until an explicit `question_resolved` retires them, no matter
+ *  what flushes in behind them.
+ *
+ *  Legacy cards keep the EXP-174 heuristic: the TRAILING consecutive question
+ *  run (a multi-question batch lands back-to-back and the TUI auto-advances in
+ *  order), PLUS any plan-approval card with no resolution signal after it —
+ *  plan questions are published from the live terminal grid the moment the
+ *  picker appears while the transcript tail lags, so tool rows and narration
+ *  flush in BEHIND a picker that is still on screen. Only a newer question or
+ *  the desktop's explicit `PLAN_RESOLVED_NARRATION` proves a plan picker
+ *  resolved — a human message does NOT (steering mid-plan leaves the picker
+ *  up). */
 export function activeQuestionIds(
   feed: readonly {
     id: number
     kind: string
     planMode?: boolean
     resolved?: boolean
+    questionId?: string
     text?: string
   }[]
 ): Set<number> {
   const ids = new Set<number>()
+  for (const item of feed) {
+    if (
+      item.kind === `question` &&
+      item.questionId !== undefined &&
+      item.resolved !== true
+    )
+      ids.add(item.id)
+  }
   // Still inside the trailing consecutive question run.
   let trailing = true
   // A resolution signal lies after the current position.
@@ -118,9 +234,9 @@ export function activeQuestionIds(
   for (let i = feed.length - 1; i >= 0; i--) {
     const item = feed[i]
     if (item.kind === `question`) {
-      if (item.resolved === true) {
-        // An answered/dismissed card is itself a resolution signal (it
-        // proves the TUI moved past it) and is never active (EXP-197).
+      if (item.resolved === true || item.questionId !== undefined) {
+        // An answered/dismissed card is itself a resolution signal (it proves
+        // the TUI moved past it), as is any newer question (EXP-197).
         trailing = false
         retired = true
       } else {
@@ -129,8 +245,7 @@ export function activeQuestionIds(
       }
     } else {
       trailing = false
-      if (item.kind === `user_message`) retired = true
-      else if (
+      if (
         item.kind === `narration` &&
         item.text?.trim() === PLAN_RESOLVED_NARRATION
       )
@@ -141,30 +256,231 @@ export function activeQuestionIds(
   return ids
 }
 
-/** A render row over the flat feed (EXP-97): either one feed item, or a run
- *  of ≥2 CONSECUTIVE `tool` items collapsed into a single "N tool calls" row.
- *  `id` of a run is the FIRST tool's id, so the row key (and its expanded
- *  state) stays stable while the trailing run keeps growing. */
+// ── Answer lock state machine (protocol v2) ──────────────────────────────────
+
+export type AnswerStatus = `sending` | `acked` | `error`
+
+export interface AnswerState {
+  /** What was sent — option keys for a semantic answer, keystrokes legacy. */
+  keys: string[]
+  /** Option labels, rendered while the card is locked. */
+  labels: string[]
+  status: AnswerStatus
+}
+
+export type AnswerStates = Record<string, AnswerState>
+
+/** No `answer_ack` within this long re-enables the card with an inline note —
+ *  the desktop may be an older build, or the injection was lost. */
+export const ANSWER_ACK_TIMEOUT_MS = 5_000
+
+/** The key a card's answer state is tracked under: the wire question id when
+ *  the desktop publishes one, else the local feed id. */
+export function answerKey(item: { id: number; questionId?: string }): string {
+  return item.questionId ?? `#${item.id}`
+}
+
+/** True while a card must stay locked — an answer awaiting its ack, or one
+ *  already confirmed. */
+export function isAnswerLocked(state: AnswerState | undefined): boolean {
+  return state?.status === `sending` || state?.status === `acked`
+}
+
+/** Lock a card the instant its answer goes out — no button may fire twice. */
+export function beginAnswer(
+  states: AnswerStates,
+  key: string,
+  keys: string[],
+  labels: string[]
+): AnswerStates {
+  return { ...states, [key]: { keys, labels, status: `sending` } }
+}
+
+/** `answer_ack`: the desktop injected the answer — stay locked, confirmed. */
+export function ackAnswer(states: AnswerStates, key: string): AnswerStates {
+  const state = states[key]
+  if (!state || state.status === `acked`) return states
+  return { ...states, [key]: { ...state, status: `acked` } }
+}
+
+/** The ack never came — re-enable the card. An acked card stays locked. */
+export function failAnswer(states: AnswerStates, key: string): AnswerStates {
+  const state = states[key]
+  if (state?.status !== `sending`) return states
+  return { ...states, [key]: { ...state, status: `error` } }
+}
+
+/** Resolution finalizes a card — the feed item carries the answer from here. */
+export function clearAnswer(states: AnswerStates, key: string): AnswerStates {
+  if (!(key in states)) return states
+  const next = { ...states }
+  delete next[key]
+  return next
+}
+
+// ── Multi-question stepper (protocol v2 `askId` groups) ───────────────────────
+
+export type StepPhase = `answered` | `current` | `pending`
+
+export interface AskStep<T> {
+  item: T
+  phase: StepPhase
+  /** What to show on an answered step — the resolved answer when it arrived,
+   *  else the locally picked labels. */
+  answer?: string
+}
+
+export interface AskView<T> {
+  /** The ask's numbered questions, in `index` order. */
+  steps: AskStep<T>[]
+  /** The final review/submit step, once the desktop published it. */
+  submit: AskStep<T> | null
+  /** Every published step is answered, no submit step arrived yet — the
+   *  desktop is still walking the picker. */
+  waiting: boolean
+  /** 1-based position of the current step, and the ask's question count. */
+  position: number
+  total: number
+}
+
+/** Project one ask's question cards into a claude-style stepper: answered
+ *  steps collapse with their answer, exactly one step is `current`, the rest
+ *  wait. A step counts as answered once it resolved OR its answer is locked
+ *  in flight — the lock is what makes the stepper advance the moment an
+ *  `answer_ack` lands. */
+export function askStepperView<T extends QuestionLike>(
+  items: readonly T[],
+  states: AnswerStates
+): AskView<T> {
+  const numbered = items
+    .filter((i) => i.index !== undefined)
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0) || a.id - b.id)
+  const submitItem =
+    [...items].reverse().find((i) => i.index === undefined) ?? null
+
+  const done = (item: T) =>
+    item.resolved === true || isAnswerLocked(states[answerKey(item)])
+  const answerOf = (item: T) => {
+    if (item.answer !== undefined) return item.answer
+    const labels = states[answerKey(item)]?.labels
+    return labels?.length ? labels.join(`, `) : undefined
+  }
+
+  let currentTaken = false
+  const steps: AskStep<T>[] = numbered.map((item) => {
+    if (done(item))
+      return { item, phase: `answered`, answer: answerOf(item) }
+    if (!currentTaken) {
+      currentTaken = true
+      return { item, phase: `current` }
+    }
+    return { item, phase: `pending` }
+  })
+
+  let submit: AskStep<T> | null = null
+  if (submitItem) {
+    submit = done(submitItem)
+      ? { item: submitItem, phase: `answered`, answer: answerOf(submitItem) }
+      : { item: submitItem, phase: currentTaken ? `pending` : `current` }
+  }
+
+  const currentStep = steps.find((s) => s.phase === `current`)
+  const total = numbered[0]?.total ?? numbered.length
+  return {
+    steps,
+    submit,
+    waiting:
+      numbered.length > 0 &&
+      !currentTaken &&
+      submitItem === null &&
+      !numbered.every((i) => i.resolved === true),
+    position: currentStep?.item.index ?? total,
+    total,
+  }
+}
+
+// ── Render rows ──────────────────────────────────────────────────────────────
+
+/** A render row over the flat feed: one feed item, a run of ≥2 CONSECUTIVE
+ *  plain `tool` items collapsed into a "N tool calls" row (EXP-97), one ask's
+ *  question cards collapsed into a stepper, or a subagent's events plus the
+ *  tool calls it made. `id` of a group is its FIRST item's id, so the row key
+ *  (and its expanded state) stays stable while the group keeps growing. */
 export type FeedRow<T extends { id: number; kind: string }> =
   | { kind: `single`; item: T }
   | { kind: `toolRun`; id: number; items: T[] }
+  | { kind: `ask`; id: number; askId: string; items: T[] }
+  | { kind: `subagent`; id: number; subagentId: string; items: T[] }
 
-/** Group consecutive runs of ≥2 `tool` items into `toolRun` rows — a pure
- *  render-time projection: the flat feed (and `activeQuestionIds` over it)
- *  is never restructured, so answerability logic is unaffected. */
-export function groupToolRuns<T extends { id: number; kind: string }>(
-  feed: readonly T[]
-): FeedRow<T>[] {
+/** Group the flat feed into render rows — a pure projection: the feed (and
+ *  `activeQuestionIds` over it) is never restructured, so answerability logic
+ *  is unaffected. Grouped items are pulled out of their in-place position into
+ *  the row their group opened. */
+export function groupFeedRows<
+  T extends {
+    id: number
+    kind: string
+    askId?: string
+    subagentId?: string
+  },
+>(feed: readonly T[]): FeedRow<T>[] {
   const rows: FeedRow<T>[] = []
+  const askRows = new Map<string, Extract<FeedRow<T>, { kind: `ask` }>>()
+  const subagentRows = new Map<
+    string,
+    Extract<FeedRow<T>, { kind: `subagent` }>
+  >()
   for (let i = 0; i < feed.length; i++) {
-    if (feed[i].kind !== `tool`) {
-      rows.push({ kind: `single`, item: feed[i] })
+    const item = feed[i]
+    if (item.kind === `question` && item.askId !== undefined) {
+      const open = askRows.get(item.askId)
+      if (open) {
+        open.items.push(item)
+        continue
+      }
+      const row = {
+        kind: `ask` as const,
+        id: item.id,
+        askId: item.askId,
+        items: [item],
+      }
+      askRows.set(item.askId, row)
+      rows.push(row)
+      continue
+    }
+    if (
+      (item.kind === `subagent` || item.kind === `tool`) &&
+      item.subagentId !== undefined
+    ) {
+      const open = subagentRows.get(item.subagentId)
+      if (open) {
+        open.items.push(item)
+        continue
+      }
+      const row = {
+        kind: `subagent` as const,
+        id: item.id,
+        subagentId: item.subagentId,
+        items: [item],
+      }
+      subagentRows.set(item.subagentId, row)
+      rows.push(row)
+      continue
+    }
+    if (item.kind !== `tool`) {
+      rows.push({ kind: `single`, item })
       continue
     }
     let end = i
-    while (end + 1 < feed.length && feed[end + 1].kind === `tool`) end++
-    if (end === i) rows.push({ kind: `single`, item: feed[i] })
-    else rows.push({ kind: `toolRun`, id: feed[i].id, items: feed.slice(i, end + 1) })
+    while (
+      end + 1 < feed.length &&
+      feed[end + 1].kind === `tool` &&
+      feed[end + 1].subagentId === undefined
+    )
+      end++
+    if (end === i) rows.push({ kind: `single`, item })
+    else
+      rows.push({ kind: `toolRun`, id: item.id, items: feed.slice(i, end + 1) })
     i = end
   }
   return rows

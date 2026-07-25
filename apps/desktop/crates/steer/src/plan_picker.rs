@@ -99,10 +99,7 @@ pub fn detect(lines: &[String]) -> Option<PickerSnapshot> {
     for line in &lines[first_idx..] {
         match parse_option_row(line.trim_start()) {
             Some((n, label)) if n == next => {
-                options.push(QuestionOption {
-                    label: label.to_string(),
-                    key: n.to_string(),
-                });
+                options.push(QuestionOption::new(label, n.to_string()));
                 next += 1;
             }
             _ => break,

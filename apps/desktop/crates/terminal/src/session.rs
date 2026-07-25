@@ -10,52 +10,39 @@
 
 use crate::emulator::{Emulator, EmulatorSignal, TermHandle};
 use crate::pty::{self, ChildExit, ExitSlot, Pty, SpawnSpec};
-use crate::read_loop::{spawn_read_loop, RawSink, SinkSet, Wake};
+use crate::read_loop::{spawn_read_loop, Wake};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-/// Notified with the new `(cols, rows)` whenever a genuine integer cell change
-/// is applied (§6.10 step 3 / §8.4 resize-up). The steer layer installs one so
-/// remote viewers reflow when the LOCAL window resizes the grid; `crates/terminal`
-/// stays gpui-free and steer-free — it only invokes the callback (no ui dep).
-pub type ResizeObserver = Box<dyn Fn(u16, u16) + Send + Sync>;
-
 pub struct Terminal {
     pty: Pty,
     emulator: Emulator,
-    sinks: SinkSet,
     wake_rx: flume::Receiver<Wake>,
     exit_slot: ExitSlot,
     title: Option<String>,
     read_thread: Option<JoinHandle<()>>,
     wait_thread: Option<JoinHandle<()>>,
-    /// §6.10 step 3 seam — set by the steer wiring on a published session.
-    resize_observer: Option<ResizeObserver>,
 }
 
 impl Terminal {
     /// Spawn `spec` into a fresh PTY at `cols`×`rows`, wire the emulator, the
-    /// single read loop (§6.4, with the steer tee), and the wait thread
-    /// (§6.7).
+    /// single read loop (§6.4), and the wait thread (§6.7).
     pub fn spawn(spec: &SpawnSpec, cols: u16, rows: u16) -> anyhow::Result<Self> {
         let emulator = Emulator::new(cols, rows);
         let mut pty = pty::open(spec, cols.max(1), rows.max(1))?;
         let (wake_tx, wake_rx) = flume::unbounded();
-        let sinks = SinkSet::new();
         let reader = pty.take_reader();
-        let read_thread = spawn_read_loop(reader, emulator.term(), sinks.clone(), wake_tx.clone());
+        let read_thread = spawn_read_loop(reader, emulator.term(), wake_tx.clone());
         let (exit_slot, wait_thread) = pty.spawn_wait_thread(wake_tx)?;
         Ok(Self {
             pty,
             emulator,
-            sinks,
             wake_rx,
             exit_slot,
             title: None,
             read_thread: Some(read_thread),
             wait_thread: Some(wait_thread),
-            resize_observer: None,
         })
     }
 
@@ -97,28 +84,7 @@ impl Terminal {
         // stale would warn-log every frame forever.
         let pty_result = self.pty.resize(cols, rows);
         self.emulator.resize(cols, rows);
-        // §6.10 step 3 — forward the genuine local geometry change to the steer
-        // publisher (if one is attached) so remote viewers reflow (§8.4). We are
-        // past the no-op guard above, so this only fires on a real cell change;
-        // the publisher additionally clamps against its last-sent geometry, so a
-        // resize that came DOWN from a steerer can't ping-pong back up.
-        if let Some(observer) = &self.resize_observer {
-            observer(cols, rows);
-        }
         pty_result
-    }
-
-    /// Install the §6.10-step-3 resize observer (steer wiring, on a published
-    /// session). Replaces any prior observer; cleared with [`Terminal::
-    /// clear_resize_observer`] on teardown.
-    pub fn set_resize_observer(&mut self, observer: ResizeObserver) {
-        self.resize_observer = Some(observer);
-    }
-
-    /// Drop the resize observer (publisher teardown) so a stale notifier can't
-    /// keep forwarding into a dead channel.
-    pub fn clear_resize_observer(&mut self) {
-        self.resize_observer = None;
     }
 
     /// Drain pending emulator events (§6.6): reply-required answers are
@@ -171,15 +137,6 @@ impl Terminal {
 
     pub fn process_id(&self) -> Option<u32> {
         self.pty.process_id()
-    }
-
-    /// Attach a raw-output sink (§6.14) — the steer publisher's tap point.
-    pub fn attach_sink(&self, sink: Arc<dyn RawSink>) {
-        self.sinks.attach(sink);
-    }
-
-    pub fn detach_sink(&self, sink: &Arc<dyn RawSink>) {
-        self.sinks.detach(sink);
     }
 
     /// The ONE shared PTY writer (§6.3/§6.14) as a `Send + Sync` handle — the
