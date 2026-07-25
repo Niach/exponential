@@ -14,7 +14,8 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, ClickEvent, Entity, InteractiveElement, IntoElement,
-    ParentElement, Render, ScrollHandle, SharedString, Styled, Subscription, Window,
+    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -81,39 +82,7 @@ impl ActionsPanel {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        window.open_alert_dialog(cx, move |alert, _window, _cx| {
-            let action_id = action_id.clone();
-            alert
-                .confirm()
-                .overlay_closable(true)
-                .close_button(true)
-                .width(px(416.))
-                .title(SharedString::from(format!("Delete \"{name}\"?")))
-                .description(
-                    "Team members will no longer be able to run this action. \
-                     A live run keeps going and keeps its label.",
-                )
-                .button_props(DialogButtonProps::default().ok_text("Delete action"))
-                .on_ok(move |_, _, cx| {
-                    let Some(trpc) = queries::trpc_client(cx) else {
-                        return true;
-                    };
-                    let action_id = action_id.clone();
-                    cx.spawn(async move |cx| {
-                        let result = cx
-                            .background_executor()
-                            .spawn(async move { api::actions::delete(&trpc, &action_id) })
-                            .await;
-                        let _ = cx.update(|_| {
-                            if let Err(err) = result {
-                                log::warn!("actions: delete failed: {err}");
-                            }
-                        });
-                    })
-                    .detach();
-                    true
-                })
-        });
+        prompt_delete_action(window, cx, action_id, name);
     }
 
     // -- render -------------------------------------------------------------
@@ -132,6 +101,9 @@ impl ActionsPanel {
         let edit_team_id = team_id.to_string();
         let repo_backed = action.repository_id.is_some();
         let builtin = action.builtin;
+        // EXP-277: the row itself navigates — real actions open the detail
+        // screen; builtins (no stable body) open the start dialog directly.
+        let click_id = action.id.clone();
 
         gpui_component::v_flex()
             .id(SharedString::from(format!("action-{}", action.id)))
@@ -140,7 +112,21 @@ impl ActionsPanel {
             .px_2()
             .py_1p5()
             .rounded(theme.radius)
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .hover(|this| this.bg(theme.list_hover))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                if builtin {
+                    this.run(click_id.clone(), window, cx);
+                } else {
+                    crate::navigation::navigate(
+                        window,
+                        cx,
+                        crate::navigation::Screen::ActionDetail {
+                            action_id: click_id.clone(),
+                        },
+                    );
+                }
+            }))
             .child(
                 gpui_component::h_flex()
                     .items_center()
@@ -179,7 +165,15 @@ impl ActionsPanel {
                     .when(owner && !builtin, |this| {
                         let panel = cx.entity().downgrade();
                         this.child(
-                            Button::new(("action-menu", index))
+                            // Swallow the press so opening the menu never
+                            // also fires the row navigation (EXP-277).
+                            div()
+                                .on_mouse_down(
+                                    gpui::MouseButton::Left,
+                                    |_, _, cx: &mut App| cx.stop_propagation(),
+                                )
+                                .child(
+                                    Button::new(("action-menu", index))
                                 .ghost()
                                 .xsmall()
                                 .icon(IconName::Ellipsis)
@@ -220,6 +214,7 @@ impl ActionsPanel {
                                         ),
                                     )
                                 }),
+                                ),
                         )
                     })
                     .child(
@@ -229,6 +224,7 @@ impl ActionsPanel {
                             .icon(Icon::from(ExpIcon::Play))
                             .tooltip("Run on this device")
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
                                 this.run(run_id.clone(), window, cx);
                             })),
                     ),
@@ -444,6 +440,49 @@ impl Render for ActionEditorView {
     }
 }
 
+/// The owner delete confirm + `actions.delete` (shared by the tool-window
+/// menu and the action-detail sidebar — EXP-277).
+pub(crate) fn prompt_delete_action(
+    window: &mut Window,
+    cx: &mut App,
+    action_id: String,
+    name: String,
+) {
+    window.open_alert_dialog(cx, move |alert, _window, _cx| {
+        let action_id = action_id.clone();
+        alert
+            .confirm()
+            .overlay_closable(true)
+            .close_button(true)
+            .width(px(416.))
+            .title(SharedString::from(format!("Delete \"{name}\"?")))
+            .description(
+                "Team members will no longer be able to run this action. \
+                 A live run keeps going and keeps its label.",
+            )
+            .button_props(DialogButtonProps::default().ok_text("Delete action"))
+            .on_ok(move |_, _, cx| {
+                let Some(trpc) = queries::trpc_client(cx) else {
+                    return true;
+                };
+                let action_id = action_id.clone();
+                cx.spawn(async move |cx| {
+                    let result = cx
+                        .background_executor()
+                        .spawn(async move { api::actions::delete(&trpc, &action_id) })
+                        .await;
+                    let _ = cx.update(|_| {
+                        if let Err(err) = result {
+                            log::warn!("actions: delete failed: {err}");
+                        }
+                    });
+                })
+                .detach();
+                true
+            })
+    });
+}
+
 fn field_label(text: &'static str, cx: &App) -> gpui::Div {
     div()
         .text_xs()
@@ -451,7 +490,9 @@ fn field_label(text: &'static str, cx: &App) -> gpui::Div {
         .child(text)
 }
 
-fn open_action_editor(
+/// The owner edit dialog (`pub(crate)` — the action-detail sidebar reuses
+/// it, EXP-277).
+pub(crate) fn open_action_editor(
     window: &mut Window,
     cx: &mut App,
     team_id: String,

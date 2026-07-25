@@ -108,6 +108,12 @@ pub(crate) fn build_screen_content(
             view.update(cx, |diff, cx| diff.set_issue(issue_id, cx));
             view.into()
         }
+        Screen::ActionDetail { action_id } => {
+            let view = cx.new(|cx| crate::action_detail::ActionDetailView::new(window, cx));
+            let action_id = action_id.clone();
+            view.update(cx, |detail, cx| detail.set_action(action_id, cx));
+            view.into()
+        }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
         Screen::Account => cx.new(|cx| crate::settings::AccountView::new(window, cx)).into(),
     }
@@ -127,6 +133,9 @@ pub struct ScreensPanel {
     /// One shared PR diff view, re-pointed on tab switch (EXP-181 — the
     /// Reviews rows' target).
     pr_diff: Entity<crate::pr_diff::PrDiffView>,
+    /// One shared action detail view, re-pointed on tab switch (EXP-277 —
+    /// the Actions tool-window rows' target).
+    action_detail: Entity<crate::action_detail::ActionDetailView>,
     /// Open tabs in strip order — every [`Screen`] value is one tab identity
     /// (several issues / files at once; SC/settings/account dedupe).
     tabs: Vec<Screen>,
@@ -147,6 +156,7 @@ impl ScreensPanel {
         let support_thread =
             cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
         let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
+        let action_detail = cx.new(|cx| crate::action_detail::ActionDetailView::new(window, cx));
         let nav = nav_for_window(window, cx);
 
         let mut subscriptions = Vec::new();
@@ -194,6 +204,7 @@ impl ScreensPanel {
             file_viewer,
             support_thread,
             pr_diff,
+            action_detail,
             tabs: Vec::new(),
             tabs_team: None,
             _subscriptions: subscriptions,
@@ -248,6 +259,10 @@ impl ScreensPanel {
             Screen::PrDiff { issue_id } => {
                 self.pr_diff
                     .update(cx, |diff, cx| diff.set_issue(issue_id, cx));
+            }
+            Screen::ActionDetail { action_id } => {
+                self.action_detail
+                    .update(cx, |detail, cx| detail.set_action(action_id, cx));
             }
             _ => {}
         }
@@ -656,6 +671,9 @@ impl Render for ScreensPanel {
                 self.support_thread.clone().into_any_element()
             }
             Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
+            Some(Screen::ActionDetail { .. }) => {
+                self.action_detail.clone().into_any_element()
+            }
         };
 
         // EXP-277: the tab strip lives in the titlebar (AppTitleBar) whenever
