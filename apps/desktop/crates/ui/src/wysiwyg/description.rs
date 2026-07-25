@@ -25,8 +25,8 @@ use super::images::{self, SharedImageState, WysiwygImageResolver, WysiwygPasteHa
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{markdown_for_save, DRAFT_SCHEME};
 use crate::markdown::{
-    detect_trigger, download_image, store_completion_source, CompletionItem, CompletionSource,
-    ImageCache, ImageSlot, StagedImage,
+    detect_trigger, download_image, split_inline_images_into_blocks, store_completion_source,
+    CompletionItem, CompletionSource, ImageCache, ImageSlot, StagedImage,
 };
 use crate::queries;
 
@@ -134,7 +134,7 @@ impl WysiwygDescription {
                 }));
             }
             VendoredEditor::new(
-                initial_markdown,
+                split_inline_images_into_blocks(initial_markdown),
                 MarkdownEditorOptions {
                     mode: MarkdownEditorMode::Rendered,
                     environment,
@@ -270,7 +270,7 @@ impl WysiwygDescription {
     /// Replace the whole buffer (remote echo / dialog reset). Resets undo
     /// history, matching the vendored `replace_markdown` semantics.
     pub fn set_markdown(&mut self, markdown: &str, _window: &mut Window, cx: &mut Context<Self>) {
-        let markdown = markdown.to_string();
+        let markdown = split_inline_images_into_blocks(markdown);
         self.editor
             .update(cx, |editor, cx| editor.replace_markdown(markdown, cx));
         // A full buffer replace discards any staged (unsubmitted) images.
@@ -1017,6 +1017,90 @@ mod tests {
         });
     }
 
+    // EXP-271: descriptions saved by the web carried the image WELDED onto
+    // the next paragraph (`![](/api/attachments/x)text` — see
+    // `markdown::image_blocks`). The vendored engine renders an image only
+    // when its block holds nothing else, so the whole line showed up as
+    // literal markdown text. Both load paths lift the image into its own
+    // block, and doing so must not dirty the editor.
+    #[gpui::test]
+    async fn glued_web_images_load_as_image_blocks(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(
+                None,
+                None,
+                "Add description...",
+                "![](/api/attachments/abc)on mobile steering the plan.",
+                None,
+                window,
+                cx,
+            )
+        });
+        view.read_with(cx, |view, cx| {
+            assert_eq!(
+                view.markdown(cx),
+                "![](/api/attachments/abc)\n\non mobile steering the plan."
+            );
+            assert!(!view.is_dirty(cx));
+        });
+
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.set_markdown("before ![alt](/api/attachments/xyz) after", window, cx);
+            });
+        });
+        view.read_with(cx, |view, cx| {
+            assert_eq!(
+                view.markdown(cx),
+                "before\n\n![alt](/api/attachments/xyz)\n\nafter"
+            );
+            assert!(!view.is_dirty(cx));
+        });
+    }
+
+    // EXP-271, the engine-level counterfactual behind the fix above: the
+    // vendored engine builds an image runtime (its one render path for a
+    // picture) ONLY for a block that holds nothing but the image, so it
+    // consults the host resolver for the lifted form and not for the glued
+    // one. Without the lift there is no runtime, hence no picture.
+    #[gpui::test]
+    async fn the_engine_only_resolves_images_that_own_their_block(cx: &mut TestAppContext) {
+        #[derive(Default)]
+        struct Recorder(std::sync::Mutex<Vec<String>>);
+        impl gpui_markdown_editor::ImageSourceResolver for Recorder {
+            fn resolve(&self, src: &str) -> Option<ImageSourceResolution> {
+                self.0.lock().unwrap().push(src.to_string());
+                Some(ImageSourceResolution::Pending)
+            }
+        }
+
+        let glued = "![](/api/attachments/abc)on mobile steering the plan.";
+        let resolved_srcs = |markdown: String, cx: &mut TestAppContext| {
+            let recorder = Arc::new(Recorder::default());
+            let environment = gpui_markdown_editor::MarkdownEditorEnvironment {
+                image_source_resolver: Some(recorder.clone()),
+                ..Default::default()
+            };
+            cx.new(|cx| VendoredEditor::with_environment(markdown, environment, cx));
+            // The engine may rebuild a runtime more than once per load; only
+            // the distinct set of consulted sources is meaningful.
+            let mut srcs = recorder.0.lock().unwrap().clone();
+            srcs.sort();
+            srcs.dedup();
+            srcs
+        };
+
+        assert!(resolved_srcs(glued.to_string(), cx).is_empty());
+        assert_eq!(
+            resolved_srcs(split_inline_images_into_blocks(glued), cx),
+            ["/api/attachments/abc"]
+        );
+    }
+
     // EXP-261: merely OPENING an issue must never dirty the editor, even
     // when the vendored serializer normalizes the loaded markdown into
     // different bytes (`_i_`→`*i*`, `1)`→`1.`, CRLF→LF, …) — the byte diff
@@ -1129,8 +1213,18 @@ mod tests {
             )
         });
         // The vendored engine round-trips all of this (tables included) —
-        // the raw buffer still holds every draft.
-        view.read_with(cx, |view, cx| assert_eq!(view.markdown(cx), loaded));
+        // the raw buffer still holds every draft. The one difference from
+        // `loaded` is EXP-271: the two images sharing the mixed line load as
+        // their own blocks (the list item's inline image is left alone).
+        view.read_with(cx, |view, cx| {
+            assert_eq!(
+                view.markdown(cx),
+                loaded.replace(
+                    "![keep](/api/attachments/xyz) ![lose](draft://mix-1)",
+                    "![keep](/api/attachments/xyz)\n\n![lose](draft://mix-1)",
+                )
+            )
+        });
 
         cx.update(|window, cx| {
             view.update(cx, |view, cx| view.save_now(window, cx));

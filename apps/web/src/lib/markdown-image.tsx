@@ -1,5 +1,7 @@
 import { useRef, useState } from "react"
 import Image from "@tiptap/extension-image"
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import type { MarkdownSerializerState } from "prosemirror-markdown"
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -351,6 +353,33 @@ export const MarkdownImage = Image.extend({
       },
       title: {
         default: null,
+      },
+    }
+  },
+  // tiptap-markdown ships prosemirror-markdown's INLINE image serializer for
+  // this node, but `@tiptap/extension-image` is block-level (`inline: false`)
+  // — so the written `![alt](src)` never closed its block and the following
+  // paragraph was glued straight onto it (`![](/api/attachments/x)after`).
+  // Every save silently welded the image into the next paragraph; the desktop
+  // IDE then rendered the whole line as literal text (EXP-271). Mirror
+  // prosemirror-markdown's own `horizontal_rule` (write + closeBlock) so a
+  // block image serializes as its own block.
+  addStorage() {
+    return {
+      ...this.parent?.(),
+      markdown: {
+        serialize(state: MarkdownSerializerState, node: ProseMirrorNode) {
+          const alt = state.esc(String(node.attrs.alt ?? ``))
+          const src = String(node.attrs.src ?? ``).replace(/[()]/g, `\\$&`)
+          const title = node.attrs.title
+            ? ` "${String(node.attrs.title).replace(/"/g, `\\"`)}"`
+            : ``
+          state.write(`![${alt}](${src}${title})`)
+          state.closeBlock(node)
+        },
+        parse: {
+          // handled by markdown-it
+        },
       },
     }
   },

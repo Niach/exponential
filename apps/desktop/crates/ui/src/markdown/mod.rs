@@ -31,6 +31,7 @@
 pub mod autocomplete;
 pub mod blocks;
 mod editor;
+mod image_blocks;
 pub mod image_paste;
 pub(crate) mod image_url;
 pub mod parse;
@@ -49,6 +50,7 @@ pub(crate) use editor::{
     scan_issue_refs, scan_mentions, sniff_format, ImageSlot,
 };
 pub use editor::{ImageCache, MarkdownEditor, MarkdownView, RefResolver};
+pub(crate) use image_blocks::split_inline_images_into_blocks;
 pub use image_paste::{AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage};
 pub use parse::markdown_to_blocks;
 pub use serialize::blocks_to_markdown;
