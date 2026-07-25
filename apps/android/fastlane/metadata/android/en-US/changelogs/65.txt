@@ -1,0 +1,1 @@
+Coding-session questions now arrive as a proper step-by-step form with one-tap answers, and "Fix merge conflicts" can be started from every issue screen.
