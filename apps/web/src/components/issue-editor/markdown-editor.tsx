@@ -737,7 +737,7 @@ export const MarkdownEditor = forwardRef<
                 // attribute lets dialog hosts whitelist interactions here in
                 // their onInteractOutside guards.
                 data-editor-autocomplete=""
-                className="pointer-events-auto fixed w-72 overflow-y-auto rounded-md border bg-popover shadow-md"
+                className="pointer-events-auto fixed w-72 overflow-y-auto rounded-xl glass-panel"
                 style={menuStyle}
               >
                 {autocomplete.kind === `mention` &&

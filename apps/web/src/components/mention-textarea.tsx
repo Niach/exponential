@@ -157,7 +157,7 @@ export function MentionTextarea({
         onKeyDown={handleKeyDown}
       />
       {menu && candidateCount > 0 && (
-        <div className="absolute bottom-full z-20 mb-1 w-72 overflow-hidden rounded-md border bg-popover shadow-md">
+        <div className="absolute bottom-full z-20 mb-1 w-72 overflow-hidden rounded-xl glass-panel">
           {menu.kind === `mention` &&
             mentionCandidates.map((u, i) => (
               <UserCandidateRow
