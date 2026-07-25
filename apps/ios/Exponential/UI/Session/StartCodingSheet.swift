@@ -106,6 +106,9 @@ struct StartCodingSheet: View {
     @State private var actionsError: String?
     @State private var repos: [TeamRepo] = []
     @State private var boards: [BoardEntity] = []
+    /// Open issue-linked pull requests of the team — the options a `pr` input
+    /// picks from (EXP-259/EXP-270).
+    @State private var pullRequests: [StartPullRequestOption] = []
     @State private var selectedActionId: String?
     @State private var actionSearchText = ""
     /// Input values keyed by the input def's `key` (text, or a picked uuid;
@@ -640,6 +643,27 @@ struct StartCodingSheet: View {
                     Text(board.name).tag(board.id)
                 }
             }
+        case "pr":
+            // EXP-259: the value is the REPRESENTATIVE issue id of an open
+            // issue-linked PR (batch PRs dedupe by prUrl, so one row can list
+            // several identifiers).
+            if pullRequests.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(inputLabel(def))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("No open pull requests.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Picker(inputLabel(def), selection: inputBinding(def.key)) {
+                    Text(def.isRequired ? "Select a pull request" : "None").tag("")
+                    ForEach(pullRequests) { pull in
+                        Text(pull.label).tag(pull.issueId)
+                    }
+                }
+            }
         default:
             // Unknown future input type — block the run instead of silently
             // degrading to text (the desktop mirrors this posture).
@@ -749,7 +773,7 @@ struct StartCodingSheet: View {
             let dtos = rows
                 .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
                 .map { ActionDto(entity: $0) }
-            loadedActions = [ActionDto.builtinCreateAction(teamId: teamId)] + dtos
+            loadedActions = ActionDto.builtinActions(teamId: teamId) + dtos
             actionsError = nil
         } else {
             actionsError = "The local database is unavailable."
@@ -762,6 +786,16 @@ struct StartCodingSheet: View {
             boards = rows.sorted { lhs, rhs in
                 (lhs.sortOrder ?? 0, lhs.name) < (rhs.sortOrder ?? 0, rhs.name)
             }
+            // Issues don't sync team_id, so the team scope comes from the
+            // synced boards — same derivation the web picker uses.
+            let boardIds = Set(boards.map(\.id))
+            let openPrIssues = (try? await pool.read { db in
+                try IssueEntity.filter(Column("pr_state") == "open").fetchAll(db)
+            }) ?? []
+            pullRequests = StartPullRequestOption.build(
+                from: openPrIssues,
+                teamBoardIds: boardIds
+            )
         }
     }
 

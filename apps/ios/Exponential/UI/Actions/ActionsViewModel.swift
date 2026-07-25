@@ -52,10 +52,10 @@ final class ActionsViewModel {
     }
 
     /// Observe the team's synced actions (EXP-268: the local GRDB store, not
-    /// tRPC — the list stays live as sync lands rows). The builtin "Create
-    /// action" is PREPENDED locally — pinned FIRST by the `builtin` flag (the
-    /// EXP-257 contract — never by sort order); real rows sort
-    /// sortOrder-then-name like the server list did.
+    /// tRPC — the list stays live as sync lands rows). Both builtins ("Create
+    /// action" and "Fix merge conflicts") are PREPENDED locally — pinned FIRST
+    /// by the `builtin` flag (the EXP-257 contract — never by sort order);
+    /// real rows sort sortOrder-then-name like the server list did.
     func load(teamId: String) async {
         if loadedTeamId != teamId {
             // New team context — drop the previous team's rows.
@@ -81,7 +81,7 @@ final class ActionsViewModel {
                     let dtos = rows
                         .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
                         .map { ActionDto(entity: $0) }
-                    self.actions = [ActionDto.builtinCreateAction(teamId: teamId)] + dtos
+                    self.actions = ActionDto.builtinActions(teamId: teamId) + dtos
                     self.isLoading = false
                     self.loadError = nil
                 }

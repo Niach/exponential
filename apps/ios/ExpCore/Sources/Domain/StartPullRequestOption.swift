@@ -1,0 +1,72 @@
+import Foundation
+
+// Options for a `pr`-typed action input (EXP-259, mobile parity EXP-270): the
+// team's OPEN issue-linked pull requests, deduped by prUrl. A batch coding run
+// links several issues to ONE pull request, so a row lists every linked
+// identifier and carries the REPRESENTATIVE issue's id as its value — exactly
+// what `steer.startSession` resolves server-side (team-scoped, open-state
+// checked). Mirrors the web picker in
+// apps/web/src/components/launch-dialog/action-input-fields.tsx.
+
+public struct StartPullRequestOption: Identifiable, Sendable, Equatable {
+    /// The representative issue's id — the value the `pr` input submits.
+    public let issueId: String
+    public let prNumber: Int?
+    /// Every issue identifier linked to this pull request, sorted.
+    public let identifiers: [String]
+
+    public var id: String { issueId }
+
+    public init(issueId: String, prNumber: Int?, identifiers: [String]) {
+        self.issueId = issueId
+        self.prNumber = prNumber
+        self.identifiers = identifiers
+    }
+
+    /// `#42 · EXP-1, EXP-2` — the PR number when known, then the linked issues.
+    public var label: String {
+        let joined = identifiers.joined(separator: ", ")
+        guard let prNumber else { return joined }
+        return joined.isEmpty ? "#\(prNumber)" : "#\(prNumber) · \(joined)"
+    }
+
+    /// Collapse open-PR issue rows into one option per pull request.
+    ///
+    /// Issues don't sync `team_id`, so callers pass the team's synced board ids
+    /// as the scope. Rows without a `prUrl` are skipped (an issue can carry
+    /// `pr_state` without a URL only in malformed data, and the id would not
+    /// resolve server-side anyway). Ordering is stable: by label, so the list
+    /// doesn't reshuffle as sync lands rows.
+    public static func build(
+        from issues: [IssueEntity],
+        teamBoardIds: Set<String>
+    ) -> [StartPullRequestOption] {
+        var byPrUrl: [String: (issueId: String, prNumber: Int?, identifiers: [String])] = [:]
+        // Deterministic representative + identifier order regardless of the
+        // fetch order GRDB happened to return.
+        for issue in issues.sorted(by: { $0.id < $1.id }) {
+            guard teamBoardIds.contains(issue.boardId), let prUrl = issue.prUrl, !prUrl.isEmpty
+            else { continue }
+            let identifier = issue.identifier ?? ""
+            if var entry = byPrUrl[prUrl] {
+                if !identifier.isEmpty { entry.identifiers.append(identifier) }
+                byPrUrl[prUrl] = entry
+            } else {
+                byPrUrl[prUrl] = (
+                    issueId: issue.id,
+                    prNumber: issue.prNumber,
+                    identifiers: identifier.isEmpty ? [] : [identifier]
+                )
+            }
+        }
+        return byPrUrl.values
+            .map {
+                StartPullRequestOption(
+                    issueId: $0.issueId,
+                    prNumber: $0.prNumber,
+                    identifiers: $0.identifiers.sorted()
+                )
+            }
+            .sorted { ($0.label, $0.issueId) < ($1.label, $1.issueId) }
+    }
+}

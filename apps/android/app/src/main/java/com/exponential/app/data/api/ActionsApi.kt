@@ -85,6 +85,38 @@ fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
 )
 
 /**
+ * The virtual builtin "Fix merge conflicts" row (EXP-259, mobile parity
+ * EXP-270): pick a conflicted open pull request and let the desktop rebase,
+ * resolve, push and merge it. The `pr` input's value is the REPRESENTATIVE
+ * issue id of an issue-linked open PR (batch PRs dedupe by prUrl). Mirrors
+ * apps/web/src/lib/builtin-actions.ts field-for-field.
+ */
+fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
+    id = DomainContract.builtinFixConflictsId,
+    teamId = teamId,
+    name = "Fix merge conflicts",
+    description = "Pick a conflicted pull request and let Claude rebase, resolve, and merge it",
+    inputs = listOf(
+        ActionInputDto(
+            key = "pr",
+            label = "Pull request",
+            type = "pr",
+            required = true,
+        ),
+    ),
+    sortOrder = 1e9 + 1,
+    builtin = true,
+)
+
+/**
+ * Both builtins in the order every client pins them. EXP-270: mobile used to
+ * construct only "Create action", so "Fix merge conflicts" silently vanished
+ * from Android when EXP-268 moved the list onto the synced shape.
+ */
+fun builtinActions(teamId: String): List<ActionDto> =
+    listOf(builtinCreateAction(teamId), builtinFixConflictsAction(teamId))
+
+/**
  * Map a synced [ActionEntity] row to the UI's [ActionDto], parsing the stored
  * `inputs` JSON string with the shared lenient [json] (ignoreUnknownKeys — a
  * malformed/unknown defs array degrades to no inputs, never a crash).

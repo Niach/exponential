@@ -119,6 +119,38 @@ public extension ActionDto {
         )
     }
 
+    /// The virtual "Fix merge conflicts" builtin (EXP-259/EXP-270): pick a
+    /// conflicted open PR and let the desktop rebase, resolve, push and merge
+    /// it. Its `pr` input value is the REPRESENTATIVE issue id of an
+    /// issue-linked open pull request (a batch PR links several issues to one
+    /// PR — the picker dedupes by prUrl). Mirrors
+    /// apps/web/src/lib/builtin-actions.ts field-for-field.
+    static func builtinFixConflictsAction(teamId: String) -> ActionDto {
+        ActionDto(
+            id: DomainContract.builtinFixConflictsId,
+            teamId: teamId,
+            repositoryId: nil,
+            name: "Fix merge conflicts",
+            description: "Pick a conflicted pull request and let Claude rebase, resolve, and merge it",
+            body: "",
+            sortOrder: 1e9 + 1,
+            createdAt: "1970-01-01T00:00:00.000Z",
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            inputs: [
+                ActionInputDto(key: "pr", label: "Pull request", type: "pr", required: true),
+            ],
+            builtin: true
+        )
+    }
+
+    /// Both builtins, in the order every client pins them (EXP-270 — mobile
+    /// used to construct only "Create action", so "Fix merge conflicts"
+    /// silently disappeared from iOS when EXP-268 moved the list onto the
+    /// synced shape).
+    static func builtinActions(teamId: String) -> [ActionDto] {
+        [builtinCreateAction(teamId: teamId), builtinFixConflictsAction(teamId: teamId)]
+    }
+
     /// Build a list-surface DTO from the synced local row (EXP-268). `body`
     /// is deliberately empty — the actions shape excludes it (tRPC
     /// `actions.get` stays the only body path) and nothing on the mobile

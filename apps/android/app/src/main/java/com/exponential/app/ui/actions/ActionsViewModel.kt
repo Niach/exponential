@@ -7,7 +7,7 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
-import com.exponential.app.data.api.builtinCreateAction
+import com.exponential.app.data.api.builtinActions
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -40,8 +40,9 @@ import kotlinx.serialization.json.Json
 
 // The Actions surface (EXP-253, mobile = view + run only): the selected
 // team's action prompts LIVE from the synced actions shape (EXP-268 — the
-// local Room flow, body-less by design; the virtual builtin "Create action"
-// row is prepended client-side) plus the remote-run flow. After the server
+// local Room flow, body-less by design; the virtual builtins "Create action"
+// and "Fix merge conflicts" are prepended client-side) plus the remote-run
+// flow. After the server
 // accepts a start,
 // the model watches the synced coding_sessions DAO flow for the row the
 // desktop inserts (this action's NAME + the caller's own userId + a recent
@@ -93,8 +94,8 @@ class ActionsViewModel @Inject constructor(
     private var watchJob: Job? = null
 
     // Live from the synced actions shape (EXP-268): the DAO orders by
-    // sort_order then name; the virtual builtin "Create action" row is
-    // prepended (the screens pin it first by its flag).
+    // sort_order then name; both virtual builtin rows are prepended (the
+    // screens pin them first by the flag, never by sort order).
     val state: StateFlow<ActionsState> =
         combine(dbFlow, selection.selectedId) { db, teamId ->
             db to teamId
@@ -104,7 +105,7 @@ class ActionsViewModel @Inject constructor(
             } else {
                 db.actionDao().observeByTeam(teamId).map { rows ->
                     ActionsState(
-                        actions = listOf(builtinCreateAction(teamId)) +
+                        actions = builtinActions(teamId) +
                             rows.map { it.toActionDto(json) },
                         loading = false,
                     )
@@ -214,9 +215,10 @@ class ActionsViewModel @Inject constructor(
                     actionId = action.id,
                     deviceId = device.deviceId,
                     options = options,
-                    teamId = action.teamId.takeIf {
-                        action.id == DomainContract.builtinCreateActionId
-                    },
+                    // Required for EVERY builtin (there is no DB row to derive
+                    // the team from), forbidden otherwise — the server rejects
+                    // both mistakes.
+                    teamId = action.teamId.takeIf { action.isBuiltin },
                     inputs = inputs.takeIf { it.isNotEmpty() },
                 )
                 _runState.value = ActionRunState.Sent(device.deviceLabel.ifBlank { device.deviceId })

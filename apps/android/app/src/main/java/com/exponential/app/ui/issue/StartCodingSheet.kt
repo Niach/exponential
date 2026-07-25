@@ -161,6 +161,7 @@ fun StartCodingSheet(
     val actionsState by dataViewModel.actionsState.collectAsStateWithLifecycle()
     val teamRepos by dataViewModel.repos.collectAsStateWithLifecycle()
     val boardOptions by dataViewModel.boardOptions.collectAsStateWithLifecycle()
+    val pullRequestOptions by dataViewModel.pullRequestOptions.collectAsStateWithLifecycle()
 
     // Stored per-mode defaults, read once on composition. ultracode/planMode are
     // the single-issue defaults; a 2+ batch overrides them (see below) without
@@ -718,6 +719,7 @@ fun StartCodingSheet(
                                     value = inputValues[def.key] ?: "",
                                     repos = teamRepos,
                                     boards = boardOptions,
+                                    pullRequests = pullRequestOptions,
                                     onValueChange = { next ->
                                         inputValues = inputValues + (def.key to next)
                                     },
@@ -1018,15 +1020,17 @@ private fun ActionSelectRow(
 }
 
 // One typed input field (EXP-257): text → outlined field with the def's
-// placeholder; repo/board → a grouped picker row over the team registry /
-// synced boards. The stored value is the raw text or the picked id; a cleared
-// optional picker stores "" which the submit path drops.
+// placeholder; repo/board/pr → a grouped picker row over the team registry /
+// synced boards / the team's open pull requests. The stored value is the raw
+// text or the picked id; a cleared optional picker stores "" which the submit
+// path drops.
 @Composable
 private fun ActionInputField(
     def: ActionInputDto,
     value: String,
     repos: List<TeamRepo>,
     boards: List<StartBoardOption>,
+    pullRequests: List<StartPullRequestOption>,
     onValueChange: (String) -> Unit,
 ) {
     val label = if (def.required) def.label else "${def.label} (optional)"
@@ -1062,6 +1066,41 @@ private fun ActionInputField(
                 },
                 onSelect = onValueChange,
             )
+        }
+        // EXP-259: the value is the REPRESENTATIVE issue id of an open
+        // issue-linked PR (batch PRs dedupe by prUrl, so one row can list
+        // several identifiers).
+        "pr" -> OptionGroup {
+            if (pullRequests.isEmpty()) {
+                PickerRow(
+                    label = label,
+                    value = "No open pull requests",
+                    options = emptyList(),
+                    selected = null,
+                    optionLabel = { it },
+                    onSelect = {},
+                )
+            } else {
+                PickerRow(
+                    label = label,
+                    value = when {
+                        value.isEmpty() && def.required -> "Select"
+                        value.isEmpty() -> "None"
+                        else -> pullRequests.firstOrNull { it.issueId == value }?.label ?: value
+                    },
+                    options = (if (def.required) emptyList() else listOf("")) +
+                        pullRequests.map { it.issueId },
+                    selected = value.takeIf { it.isNotEmpty() || !def.required },
+                    optionLabel = { id ->
+                        if (id.isEmpty()) {
+                            "None"
+                        } else {
+                            pullRequests.firstOrNull { it.issueId == id }?.label ?: id
+                        }
+                    },
+                    onSelect = onValueChange,
+                )
+            }
         }
         // Only text remains — unknown types never render (the pane blocks the
         // run and shows the needs-a-newer-app caption instead).
