@@ -198,9 +198,11 @@ export const issueEventTypeSchema = z.enum(issueEventTypeValues)
 // ── Action inputs (EXP-257) ──────────────────────────────────────────────────
 // Typed inputs an action may declare: members fill them in the run dialog and
 // the resolved values are injected into the prompt at launch. `repo`/`board`
-// values are the picked ids (resolved to display names server-side).
+// values are the picked ids (resolved to display names server-side); `pr`
+// (EXP-259) values are the representative ISSUE id of an issue-linked open
+// pull request (a batch PR's picker rows dedupe by prUrl).
 
-export const actionInputTypeValues = [`text`, `repo`, `board`] as const
+export const actionInputTypeValues = [`text`, `repo`, `board`, `pr`] as const
 export type ActionInputType = (typeof actionInputTypeValues)[number]
 
 export const MAX_ACTION_INPUTS = 10

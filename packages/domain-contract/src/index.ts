@@ -39,10 +39,10 @@ export interface DomainContract {
   piModel: { values: readonly string[] }
   /** pi `--thinking` levels; blank is per-client. */
   piThinking: { values: readonly string[] }
-  /** Typed action-input kinds (EXP-257): text | repo | board. */
+  /** Typed action-input kinds (EXP-257; EXP-259 adds `pr`): text | repo | board | pr. */
   actionInputType: { values: readonly string[] }
-  /** Server-defined virtual actions injected into actions.list (EXP-257). */
-  builtinAction: { createActionId: string }
+  /** Server-defined virtual actions injected into actions.list (EXP-257/EXP-259). */
+  builtinAction: { createActionId: string; fixConflictsId: string }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
   actionInputs: { max: number; maxTextLength: number }
 }

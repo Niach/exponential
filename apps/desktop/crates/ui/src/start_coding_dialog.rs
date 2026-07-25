@@ -235,6 +235,9 @@ pub struct StartCodingDialogView {
     action_repo_picks: HashMap<String, ActionRepoRow>,
     /// Picked `(board id, board name)` per `board` input key.
     action_board_picks: HashMap<String, (String, String)>,
+    /// Picked `(representative issue id, display label)` per `pr` input key
+    /// (EXP-259 — the fix-conflicts builtin's open-PR target).
+    action_pr_picks: HashMap<String, (String, String)>,
     /// `repositories.list` rows for the repo input pickers.
     team_repos: Vec<ActionRepoRow>,
     /// Every non-archived team issue, board→number ordered.
@@ -411,6 +414,7 @@ impl StartCodingDialogView {
             action_input_subscriptions: Vec::new(),
             action_repo_picks: HashMap::new(),
             action_board_picks: HashMap::new(),
+            action_pr_picks: HashMap::new(),
             team_repos: Vec::new(),
             rows,
             repos: HashMap::new(),
@@ -552,6 +556,7 @@ impl StartCodingDialogView {
         self.action_input_subscriptions.clear();
         self.action_repo_picks.clear();
         self.action_board_picks.clear();
+        self.action_pr_picks.clear();
         if let Some(action) = self.actions.iter().find(|action| action.id == action_id) {
             for input in &action.inputs {
                 if input.input_type != "text" {
@@ -590,6 +595,7 @@ impl StartCodingDialogView {
                 .is_some_and(|state| !state.read(cx).value().trim().is_empty()),
             "repo" => self.action_repo_picks.contains_key(&input.key),
             "board" => self.action_board_picks.contains_key(&input.key),
+            "pr" => self.action_pr_picks.contains_key(&input.key),
             _ => false,
         }
     }
@@ -646,6 +652,18 @@ impl StartCodingDialogView {
                         input_type: input.input_type.clone(),
                         value: board_id.clone(),
                         display: Some(name.clone()),
+                    });
+                }
+                "pr" => {
+                    let Some((issue_id, label)) = self.action_pr_picks.get(&input.key) else {
+                        continue;
+                    };
+                    values.push(ActionInputValue {
+                        key: input.key.clone(),
+                        label: input.label.clone(),
+                        input_type: input.input_type.clone(),
+                        value: issue_id.clone(),
+                        display: Some(label.clone()),
                     });
                 }
                 // Unknown types never reach here — the launch blocker gates.
@@ -853,7 +871,7 @@ impl StartCodingDialogView {
             for input in &action.inputs {
                 // Unknown input type = a schema this build predates — block
                 // hard, never silently degrade to a text field.
-                if !matches!(input.input_type.as_str(), "text" | "repo" | "board") {
+                if !matches!(input.input_type.as_str(), "text" | "repo" | "board" | "pr") {
                     return Some("This action needs a newer app version.".into());
                 }
             }
@@ -1497,6 +1515,86 @@ impl StartCodingDialogView {
                                                 view.action_board_picks.insert(
                                                     key.clone(),
                                                     (board_id.clone(), name.clone()),
+                                                );
+                                                cx.notify();
+                                            });
+                                        }
+                                    },
+                                ),
+                            );
+                        }
+                        menu
+                    })
+                    .into_any_element()
+            }
+            "pr" => {
+                // EXP-259: the team's OPEN issue-linked pull requests,
+                // deduped by prUrl (a batch PR shows once; its value is the
+                // representative issue's id).
+                let pick_label: SharedString = match self.action_pr_picks.get(&input.key) {
+                    Some((_, label)) => label.clone().into(),
+                    None => "Select pull request…".into(),
+                };
+                let pulls: Vec<(String, String)> = crate::queries::review_groups(cx, &self.team_id)
+                    .iter()
+                    .flat_map(|group| group.entries.iter())
+                    .map(|entry| {
+                        let issue = entry.representative();
+                        let idents = entry
+                            .issues
+                            .iter()
+                            .map(|issue| issue.identifier.clone())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let label = match (issue.pr_number, entry.is_batch()) {
+                            (Some(number), true) => format!("#{number} · {idents}"),
+                            (Some(number), false) => {
+                                format!("#{number} · {idents} {}", issue.title)
+                            }
+                            (None, _) => idents,
+                        };
+                        (issue.id.clone(), label)
+                    })
+                    .collect();
+                let key = input.key.clone();
+                let optional = !input.required;
+                let view = cx.entity().downgrade();
+                Button::new(("sc-input-pr", ix))
+                    .outline()
+                    .small()
+                    .label(pick_label)
+                    .dropdown_menu(move |mut menu, _window, _cx| {
+                        if optional {
+                            let view = view.clone();
+                            let key = key.clone();
+                            menu = menu.item(PopupMenuItem::new("None").on_click(
+                                move |_, _, cx| {
+                                    if let Some(view) = view.upgrade() {
+                                        view.update(cx, |view, cx| {
+                                            view.action_pr_picks.remove(&key);
+                                            cx.notify();
+                                        });
+                                    }
+                                },
+                            ));
+                        }
+                        if pulls.is_empty() {
+                            menu = menu
+                                .item(PopupMenuItem::new("No open pull requests").disabled(true));
+                        }
+                        for (issue_id, label) in &pulls {
+                            let view = view.clone();
+                            let key = key.clone();
+                            let issue_id = issue_id.clone();
+                            let label = label.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(SharedString::from(label.clone())).on_click(
+                                    move |_, _, cx| {
+                                        if let Some(view) = view.upgrade() {
+                                            view.update(cx, |view, cx| {
+                                                view.action_pr_picks.insert(
+                                                    key.clone(),
+                                                    (issue_id.clone(), label.clone()),
                                                 );
                                                 cx.notify();
                                             });

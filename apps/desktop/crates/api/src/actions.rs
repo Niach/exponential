@@ -20,11 +20,22 @@ use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 use crate::trust_store::{hex, sha256};
 
-/// The server-defined virtual "Create action" row's id (EXP-257) — the ONE
-/// non-UUID id `actions.list` may carry. `actions.get/update/delete` reject
-/// it; clients construct the row locally and skip the trust gate (its content
-/// is server-shipped, never owner-authored).
+/// The server-defined virtual "Create action" row's id (EXP-257) — one of
+/// the two non-UUID ids `actions.list` may carry. `actions.get/update/delete`
+/// reject both; clients construct the rows locally and skip the trust gate
+/// (their content is server-shipped, never owner-authored).
 pub const BUILTIN_CREATE_ACTION_ID: &str = domain::contract::BUILTIN_CREATE_ACTION_ID;
+
+/// The server-defined virtual "Fix merge conflicts" row's id (EXP-259) — the
+/// second builtin: takes a `pr` input (an issue-linked open PR), rebases its
+/// branch onto the default branch in a worktree, resolves the conflicts,
+/// pushes, and merges via the `exponential_pr_merge` MCP tool.
+pub const BUILTIN_FIX_CONFLICTS_ID: &str = domain::contract::BUILTIN_FIX_CONFLICTS_ID;
+
+/// Whether `id` is a server-defined virtual builtin action id.
+pub fn is_builtin_action_id(id: &str) -> bool {
+    id == BUILTIN_CREATE_ACTION_ID || id == BUILTIN_FIX_CONFLICTS_ID
+}
 
 /// One typed run-time input definition on an action (EXP-257 — filled in the
 /// unified launch dialog, resolved server-side for remote starts).

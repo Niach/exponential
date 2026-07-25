@@ -1139,6 +1139,93 @@ export function registerExponentialTools(
     }
   )
 
+  server.registerTool(
+    `exponential_pr_merge`,
+    {
+      title: `Squash-merge open pull requests`,
+      description: `Squash-merge linked open pull requests via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (one PR) or 'issueIds' (merge MANY at once — one PR per distinct prUrl: issues sharing a batch PR are merged once). Merging completes EVERY issue linked to each PR: prState='merged' and status 'done'. Use this after conflict-resolution work (e.g. the "Fix merge conflicts" run: rebase, resolve, push --force-with-lease, then merge). Merges run sequentially and report a per-PR result — one unmergeable PR (GitHub's own message is returned for it) never blocks the rest. Idempotent when a PR is already merged. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
+      inputSchema: {
+        issueId: z.string().min(1).optional(),
+        issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
+      },
+    },
+    async ({ issueId, issueIds }) => {
+      try {
+        if (Boolean(issueId) === Boolean(issueIds?.length)) {
+          throw new Error(`Provide exactly one of issueId or issueIds`)
+        }
+
+        // Resolve + authorize every issue up front — a scope/membership
+        // violation fails the WHOLE call (never a per-item "result").
+        const rawIds = issueIds ?? [issueId!]
+        const ids: string[] = []
+        for (const raw of rawIds) {
+          const id = await resolveIssueId(raw, user.id, access)
+          if (!ids.includes(id)) ids.push(id)
+        }
+        for (const id of ids) {
+          const issueCtx = await getIssueTeamContext(id)
+          assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
+          await resolveTeamAccess(user.id, issueCtx.teamId)
+        }
+
+        // One merge per distinct PR: issues sharing a batch prUrl collapse
+        // onto the first listed issue (merging it completes the siblings).
+        const rows = await db
+          .select({
+            id: issues.id,
+            identifier: issues.identifier,
+            prUrl: issues.prUrl,
+          })
+          .from(issues)
+          .where(inArray(issues.id, ids))
+        const rowById = new Map(rows.map((row) => [row.id, row]))
+        const seenPrUrls = new Set<string>()
+        const targets: { id: string; identifier: string }[] = []
+        for (const id of ids) {
+          const row = rowById.get(id)
+          // Unknown row / no linked PR: keep it as a target so the tRPC
+          // mutation's own guard produces the precise per-item message.
+          if (row?.prUrl) {
+            if (seenPrUrls.has(row.prUrl)) continue
+            seenPrUrls.add(row.prUrl)
+          }
+          targets.push({ id, identifier: row?.identifier ?? id })
+        }
+
+        // The tRPC mutation owns the guards (open-state, repo-from-prUrl,
+        // installation link-gate) and the shared applyPrMergeState writer.
+        const trpcCaller = caller(user, request)
+        const results: {
+          issueId: string
+          identifier: string
+          merged: boolean
+          error?: string
+        }[] = []
+        for (const target of targets) {
+          try {
+            await trpcCaller.issues.mergePr({ issueId: target.id })
+            results.push({
+              issueId: target.id,
+              identifier: target.identifier,
+              merged: true,
+            })
+          } catch (e) {
+            results.push({
+              issueId: target.id,
+              identifier: target.identifier,
+              merged: false,
+              error: e instanceof Error ? e.message : String(e),
+            })
+          }
+        }
+        return ok({ results })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // -----------------------------------------------------------------------
   // Comments (edit / delete)
   // -----------------------------------------------------------------------

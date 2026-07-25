@@ -1645,6 +1645,30 @@ impl SidebarPanel {
             .as_ref()
             .filter(|(id, _)| *id == issue.id)
             .map(|(_, message)| message.clone());
+        // EXP-259: a failed merge (typically "not mergeable" — conflicts)
+        // offers the builtin "Fix merge conflicts" action run right on the
+        // row. Needs the PR's recorded branch (the run rebases it); while a
+        // local run is already working that branch the button parks.
+        let fixing = issue.branch.as_deref().is_some_and(|branch| {
+            crate::coding_flow::LocalSessions::global_ref(cx)
+                .is_some_and(|sessions| sessions.read(cx).is_branch_live(branch))
+        });
+        let fix_button = error.as_ref().filter(|_| issue.branch.is_some()).map(|_| {
+            let mut button =
+                Button::new(SharedString::from(format!("review-fix-{}", issue.id)))
+                    .xsmall()
+                    .outline();
+            if fixing {
+                button = button.label("Fixing…").disabled(true);
+            } else {
+                button = button.label("Fix conflicts");
+            }
+            let click_id = issue.id.clone();
+            button.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                this.on_fix_conflicts_click(click_id.clone(), window, cx);
+            }))
+        });
 
         let sub: String = match (issue.pr_number, issue.branch.as_deref()) {
             (Some(number), Some(branch)) => format!("#{number} \u{00B7} {branch}"),
@@ -1776,15 +1800,68 @@ impl SidebarPanel {
             )
             .when_some(error, |this, message| {
                 this.child(
-                    div()
+                    h_flex()
                         .pl_5()
-                        .text_xs()
-                        .truncate()
-                        .text_color(danger)
-                        .child(SharedString::from(message)),
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_xs()
+                                .truncate()
+                                .text_color(danger)
+                                .child(SharedString::from(message)),
+                        )
+                        .children(fix_button),
                 )
             })
             .into_any_element()
+    }
+
+    /// The review row's "Fix conflicts" button (EXP-259): start the builtin
+    /// "Fix merge conflicts" action run targeting this PR — rebase onto the
+    /// default branch in the PR's worktree, resolve, force-push, then merge
+    /// via `exponential_pr_merge`. The runner resolves the `pr` input
+    /// against the synced store and surfaces failures as notifications.
+    fn on_fix_conflicts_click(
+        &mut self,
+        issue_id: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(team_id) = active_team_id(&self.nav, cx) else {
+            return;
+        };
+        let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
+        // The stale merge error would linger under the running fix.
+        if self
+            .review_error
+            .as_ref()
+            .is_some_and(|(id, _)| *id == issue_id)
+        {
+            self.review_error = None;
+            cx.notify();
+        }
+        crate::action_run::start_action_run(
+            crate::action_run::StartActionArgs {
+                action_id: api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string(),
+                team_id,
+                repo: crate::action_run::ActionRepo::Resolve,
+                options: coding::LaunchOptions::defaults(&settings),
+                origin: coding::LaunchOrigin::Local,
+                inputs: vec![coding::ActionInputValue {
+                    key: "pr".to_string(),
+                    label: "Pull request".to_string(),
+                    input_type: "pr".to_string(),
+                    value: issue_id,
+                    display: None,
+                }],
+                target: Some(window.window_handle()),
+                activate_app: false,
+            },
+            cx,
+        );
     }
 
     /// The Merge button's two-click flow: first click arms (auto-disarm after

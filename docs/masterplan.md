@@ -655,9 +655,14 @@ byte-parity, widget users, model explicitness, deploy realities) **plus**:
    action's body is a prompt for an interactive agent session run as the signed-in user on
    their own device; every run is gated by the per-device body-hash trust prompt, fail-closed
    (L23). The server never stores or injects secrets.
-6. **Claude tasks stay visible**: the action creator's scoped `.exp-mcp.json` (L24) is the
-   ONLY MCP-enabled task; conflict-fix tasks stay MCP-less; no task ever creates
-   `coding_sessions` rows.
+6. **(superseded by EXP-259)** The one-shot claude-task primitive is DELETED — "Fix
+   conflicts with Claude" (trunk) and "Update from main / Resolve PR conflicts" are gone.
+   PR merge conflicts are fixed by the builtin **"Fix merge conflicts" ACTION run**
+   (`builtin:fix-conflicts`): a `pr` input (representative issue of an open PR), spawned in
+   the PR branch's worktree with the normal action MCP wiring, rebases onto
+   origin/&lt;default&gt;, resolves, force-pushes, then merges via the `exponential_pr_merge`
+   MCP tool. Like every action run it carries a `coding_sessions` row; as server-shipped
+   content it skips the trust gate (create-action precedent).
 7. **Markdown newline fix must not break byte-parity** — Android's parity suite is the lock;
    any serialization change lands with cross-client fixtures.
 

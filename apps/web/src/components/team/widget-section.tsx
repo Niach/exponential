@@ -503,7 +503,11 @@ export function TeamWidgetSection({ team }: { team: Team }) {
         </CardContent>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent>
+          {/* Wide on desktop (EXP-267): this is the longest form dialog in
+              the app — split into config (left) / appearance (right) columns
+              so it stays 16:9-ish instead of scrolling a tall tower. On
+              mobile the base dialog is full-screen and the grid stacks. */}
+          <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>
                 {editTarget ? `Edit widget` : `New widget`}
@@ -514,286 +518,298 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                 in the snippet is public; restrict it to your domains.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="widget-name">Name</Label>
-                <Input
-                  id="widget-name"
-                  placeholder="Acme App"
-                  value={formName}
-                  onChange={(event) => setFormName(event.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Modes</Label>
-                <Select
-                  value={formMode}
-                  onValueChange={(value) =>
-                    setFormMode(value as WidgetModeChoice)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="feedback">Feedback</SelectItem>
-                    <SelectItem value="support">Support</SelectItem>
-                    <SelectItem value="both">Feedback + support</SelectItem>
-                  </SelectContent>
-                </Select>
-                {formMode !== `feedback` && (
-                  <p className="text-xs text-muted-foreground">
-                    Support files helpdesk tickets — visitors get a
-                    reply-by-email conversation. Requires the helpdesk to be
-                    enabled for this team (below).
-                  </p>
-                )}
-              </div>
-              {needsBoard && (
+            <div className="grid gap-4 sm:grid-cols-2 sm:gap-x-6">
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Feedback board</Label>
-                  <Select value={formBoardId} onValueChange={setFormBoardId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a board" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {boards.map((board) => (
-                        <SelectItem key={board.id} value={board.id}>
-                          {board.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Feedback submissions land on this board as issues.
-                  </p>
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="widget-domains">Allowed domains</Label>
-                <Textarea
-                  id="widget-domains"
-                  placeholder={`app.example.com\n*.example.com\nlocalhost:5173`}
-                  value={formDomains}
-                  onChange={(event) => setFormDomains(event.target.value)}
-                  className="min-h-20 font-mono text-xs"
-                />
-                <p className="text-xs text-muted-foreground">
-                  One per line. `*.example.com` matches subdomains only. At
-                  least one domain is required.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="widget-button-label">Button label</Label>
+                  <Label htmlFor="widget-name">Name</Label>
                   <Input
-                    id="widget-button-label"
-                    placeholder="Feedback"
-                    maxLength={40}
-                    value={formButtonLabel}
-                    onChange={(event) => setFormButtonLabel(event.target.value)}
+                    id="widget-name"
+                    placeholder="Acme App"
+                    value={formName}
+                    onChange={(event) => setFormName(event.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="widget-accent">Accent color</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="widget-accent"
-                      type="color"
-                      value={formAccent || DEFAULT_ACCENT}
-                      onChange={(event) => setFormAccent(event.target.value)}
-                      className="h-9 w-14 cursor-pointer p-1"
-                    />
-                    {formAccent ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setFormAccent(``)}
-                      >
-                        Reset
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        Default
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Position</Label>
+                  <Label>Modes</Label>
                   <Select
-                    value={formPosition}
+                    value={formMode}
                     onValueChange={(value) =>
-                      setFormPosition(value as WidgetPosition)
+                      setFormMode(value as WidgetModeChoice)
                     }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="bottom-left">Bottom left</SelectItem>
-                      <SelectItem value="bottom-right">Bottom right</SelectItem>
+                      <SelectItem value="feedback">Feedback</SelectItem>
+                      <SelectItem value="support">Support</SelectItem>
+                      <SelectItem value="both">Feedback + support</SelectItem>
                     </SelectContent>
                   </Select>
+                  {formMode !== `feedback` && (
+                    <p className="text-xs text-muted-foreground">
+                      Support files helpdesk tickets — visitors get a
+                      reply-by-email conversation. Requires the helpdesk to be
+                      enabled for this team (below).
+                    </p>
+                  )}
+                </div>
+                {needsBoard && (
+                  <div className="space-y-2">
+                    <Label>Feedback board</Label>
+                    <Select value={formBoardId} onValueChange={setFormBoardId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a board" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {boards.map((board) => (
+                          <SelectItem key={board.id} value={board.id}>
+                            {board.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Feedback submissions land on this board as issues.
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="widget-domains">Allowed domains</Label>
+                  <Textarea
+                    id="widget-domains"
+                    placeholder={`app.example.com\n*.example.com\nlocalhost:5173`}
+                    value={formDomains}
+                    onChange={(event) => setFormDomains(event.target.value)}
+                    className="min-h-20 font-mono text-xs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    One per line. `*.example.com` matches subdomains only. At
+                    least one domain is required.
+                  </p>
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Form fields</Label>
-                <div className="space-y-3 rounded-md border px-3 py-3">
-                  {needsBoard && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="widget-button-label">Button label</Label>
+                    <Input
+                      id="widget-button-label"
+                      placeholder="Feedback"
+                      maxLength={40}
+                      value={formButtonLabel}
+                      onChange={(event) =>
+                        setFormButtonLabel(event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="widget-accent">Accent color</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="widget-accent"
+                        type="color"
+                        value={formAccent || DEFAULT_ACCENT}
+                        onChange={(event) => setFormAccent(event.target.value)}
+                        className="h-9 w-14 cursor-pointer p-1"
+                      />
+                      {formAccent ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setFormAccent(``)}
+                        >
+                          Reset
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Position</Label>
+                    <Select
+                      value={formPosition}
+                      onValueChange={(value) =>
+                        setFormPosition(value as WidgetPosition)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bottom-left">Bottom left</SelectItem>
+                        <SelectItem value="bottom-right">
+                          Bottom right
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {/* EXP-244 replaced EXP-267's single "Require email" cell with
+                    per-field Show/Required switches. */}
+                <div className="space-y-2">
+                  <Label>Form fields</Label>
+                  <div className="space-y-3 rounded-md border px-3 py-3">
+                    {needsBoard && (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm">Email</span>
+                        <div className="flex items-center gap-4">
+                          <Label
+                            htmlFor="widget-collect-email"
+                            className="gap-1.5 text-xs font-normal text-muted-foreground"
+                          >
+                            Show
+                            <Switch
+                              id="widget-collect-email"
+                              checked={formCollectEmail}
+                              onCheckedChange={setFormCollectEmail}
+                            />
+                          </Label>
+                          <Label
+                            htmlFor="widget-email-required"
+                            className="gap-1.5 text-xs font-normal text-muted-foreground"
+                          >
+                            Required
+                            <Switch
+                              id="widget-email-required"
+                              checked={formCollectEmail && formEmailRequired}
+                              disabled={!formCollectEmail}
+                              onCheckedChange={setFormEmailRequired}
+                            />
+                          </Label>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm">Email</span>
+                      <span className="text-sm">Name</span>
                       <div className="flex items-center gap-4">
                         <Label
-                          htmlFor="widget-collect-email"
+                          htmlFor="widget-collect-name"
                           className="gap-1.5 text-xs font-normal text-muted-foreground"
                         >
                           Show
                           <Switch
-                            id="widget-collect-email"
-                            checked={formCollectEmail}
-                            onCheckedChange={setFormCollectEmail}
+                            id="widget-collect-name"
+                            checked={formCollectName}
+                            onCheckedChange={setFormCollectName}
                           />
                         </Label>
                         <Label
-                          htmlFor="widget-email-required"
+                          htmlFor="widget-name-required"
                           className="gap-1.5 text-xs font-normal text-muted-foreground"
                         >
                           Required
                           <Switch
-                            id="widget-email-required"
-                            checked={formCollectEmail && formEmailRequired}
-                            disabled={!formCollectEmail}
-                            onCheckedChange={setFormEmailRequired}
+                            id="widget-name-required"
+                            checked={formCollectName && formNameRequired}
+                            disabled={!formCollectName}
+                            onCheckedChange={setFormNameRequired}
                           />
                         </Label>
                       </div>
                     </div>
-                  )}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm">Name</span>
-                    <div className="flex items-center gap-4">
-                      <Label
-                        htmlFor="widget-collect-name"
-                        className="gap-1.5 text-xs font-normal text-muted-foreground"
-                      >
-                        Show
-                        <Switch
-                          id="widget-collect-name"
-                          checked={formCollectName}
-                          onCheckedChange={setFormCollectName}
-                        />
-                      </Label>
-                      <Label
-                        htmlFor="widget-name-required"
-                        className="gap-1.5 text-xs font-normal text-muted-foreground"
-                      >
-                        Required
-                        <Switch
-                          id="widget-name-required"
-                          checked={formCollectName && formNameRequired}
-                          disabled={!formCollectName}
-                          onCheckedChange={setFormNameRequired}
-                        />
-                      </Label>
-                    </div>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    {needsBoard
+                      ? `Hide the email field for teams that follow up in person — a name is often all you need. Support mode always asks for an email (it's the reply channel).`
+                      : `Support mode always asks for an email (it's the reply channel); the name field is optional.`}
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {needsBoard
-                    ? `Hide the email field for teams that follow up in person — a name is often all you need. Support mode always asks for an email (it's the reply channel).`
-                    : `Support mode always asks for an email (it's the reply channel); the name field is optional.`}
-                </p>
-              </div>
-              {needsBoard && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Custom fields</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={formCustomFields.length >= 8}
-                      onClick={() =>
-                        setFormCustomFields((rows) => [
-                          ...rows,
-                          { key: null, label: ``, required: false },
-                        ])
-                      }
-                    >
-                      Add field
-                    </Button>
-                  </div>
-                  {formCustomFields.length > 0 && (
-                    <div className="space-y-2">
-                      {formCustomFields.map((row, index) => (
-                        <div
-                          // eslint-disable-next-line react/no-array-index-key
-                          key={index}
-                          className="flex items-center gap-2"
-                        >
-                          <Input
-                            placeholder="Field label"
-                            maxLength={40}
-                            value={row.label}
-                            onChange={(event) =>
-                              setFormCustomFields((rows) =>
-                                rows.map((current, i) =>
-                                  i === index
-                                    ? { ...current, label: event.target.value }
-                                    : current
-                                )
-                              )
-                            }
-                          />
-                          <Label className="gap-1.5 text-xs font-normal text-muted-foreground">
-                            Required
-                            <Switch
-                              checked={row.required}
-                              onCheckedChange={(next) =>
+                {needsBoard && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Custom fields</Label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={formCustomFields.length >= 8}
+                        onClick={() =>
+                          setFormCustomFields((rows) => [
+                            ...rows,
+                            { key: null, label: ``, required: false },
+                          ])
+                        }
+                      >
+                        Add field
+                      </Button>
+                    </div>
+                    {formCustomFields.length > 0 && (
+                      <div className="space-y-2">
+                        {formCustomFields.map((row, index) => (
+                          <div
+                            // eslint-disable-next-line react/no-array-index-key
+                            key={index}
+                            className="flex items-center gap-2"
+                          >
+                            <Input
+                              placeholder="Field label"
+                              maxLength={40}
+                              value={row.label}
+                              onChange={(event) =>
                                 setFormCustomFields((rows) =>
                                   rows.map((current, i) =>
                                     i === index
-                                      ? { ...current, required: next }
+                                      ? { ...current, label: event.target.value }
                                       : current
                                   )
                                 )
                               }
                             />
-                          </Label>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Remove field"
-                            onClick={() =>
-                              setFormCustomFields((rows) =>
-                                rows.filter((_, i) => i !== index)
-                              )
-                            }
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Extra text inputs on the feedback form (up to 8). Responses
-                    show under “Custom data” on the issue and override matching
-                    setCustomData keys.
-                  </p>
+                            <Label className="gap-1.5 text-xs font-normal text-muted-foreground">
+                              Required
+                              <Switch
+                                checked={row.required}
+                                onCheckedChange={(next) =>
+                                  setFormCustomFields((rows) =>
+                                    rows.map((current, i) =>
+                                      i === index
+                                        ? { ...current, required: next }
+                                        : current
+                                    )
+                                  )
+                                }
+                              />
+                            </Label>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Remove field"
+                              onClick={() =>
+                                setFormCustomFields((rows) =>
+                                  rows.filter((_, i) => i !== index)
+                                )
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Extra text inputs on the feedback form (up to 8). Responses
+                      show under “Custom data” on the issue and override matching
+                      setCustomData keys.
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-3">
+                  <span className="text-xs text-muted-foreground">
+                    Launcher preview
+                  </span>
+                  <WidgetLauncherPreview
+                    accentColor={formAccent || undefined}
+                    label={formButtonLabel.trim() || undefined}
+                  />
                 </div>
-              )}
-              <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-3">
-                <span className="text-xs text-muted-foreground">
-                  Launcher preview
-                </span>
-                <WidgetLauncherPreview
-                  accentColor={formAccent || undefined}
-                  label={formButtonLabel.trim() || undefined}
-                />
               </div>
               {formError && (
-                <p className="text-sm text-destructive">{formError}</p>
+                <p className="text-sm text-destructive sm:col-span-2">
+                  {formError}
+                </p>
               )}
             </div>
             <DialogFooter>

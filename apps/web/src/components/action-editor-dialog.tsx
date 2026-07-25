@@ -116,61 +116,70 @@ export function ActionEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      {/* Wide on desktop (EXP-267): metadata left, prompt right — the prompt
+          is the tall field, so splitting columns keeps the dialog 16:9-ish
+          instead of a narrow tower. On mobile the base dialog is a
+          full-screen page and the grid stacks to one column. */}
+      <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Edit action</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="action-name">Name</Label>
-            <Input
-              id="action-name"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value)
-                setNameError(null)
-              }}
-              placeholder="Code review sweep"
-              autoFocus
-            />
-            {nameError && (
-              <p className="text-xs text-destructive">{nameError}</p>
-            )}
+        <form
+          onSubmit={handleSubmit}
+          className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-x-6"
+        >
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="action-name">Name</Label>
+              <Input
+                id="action-name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  setNameError(null)
+                }}
+                placeholder="Code review sweep"
+                autoFocus
+              />
+              {nameError && (
+                <p className="text-xs text-destructive">{nameError}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="action-description">Description (optional)</Label>
+              <Input
+                id="action-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="What this action does, for the list"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="action-repository">Repository (optional)</Label>
+              <Select value={repoValue} onValueChange={setRepoValue}>
+                <SelectTrigger id="action-repository" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_REPO}>None</SelectItem>
+                  {repos.map((repo) => (
+                    <SelectItem key={repo.id} value={repo.id}>
+                      {repo.fullName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                With a repository the run clones it first; without one the agent
+                works in a scratch directory.
+              </p>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="action-description">Description (optional)</Label>
-            <Input
-              id="action-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What this action does, for the list"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="action-repository">Repository (optional)</Label>
-            <Select value={repoValue} onValueChange={setRepoValue}>
-              <SelectTrigger id="action-repository" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_REPO}>None</SelectItem>
-                {repos.map((repo) => (
-                  <SelectItem key={repo.id} value={repo.id}>
-                    {repo.fullName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              With a repository the run clones it first; without one the agent
-              works in a scratch directory.
-            </p>
-          </div>
-
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="action-body">Prompt</Label>
             <Textarea
               id="action-body"
@@ -178,17 +187,17 @@ export function ActionEditorDialog({
               onChange={(e) => setBody(e.target.value)}
               placeholder="The markdown prompt the agent runs with…"
               rows={12}
-              className="min-h-48 font-mono text-xs"
+              className="min-h-48 flex-1 font-mono text-xs"
             />
           </div>
 
           {error && (
-            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:col-span-2">
               {error}
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="sm:col-span-2">
             <Button
               type="button"
               variant="ghost"

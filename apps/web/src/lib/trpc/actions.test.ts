@@ -57,6 +57,7 @@ const { selectResults, inserts, fakeDb } = h
 const TEAM_ID = `11111111-1111-4111-8111-111111111111`
 const ACTION_ID = `22222222-2222-4222-8222-222222222222`
 const BUILTIN_ID = `builtin:create-action`
+const FIX_CONFLICTS_ID = `builtin:fix-conflicts`
 
 const caller = actionsRouter.createCaller({
   session: { user: { id: `actor` } },
@@ -79,12 +80,12 @@ beforeEach(() => {
 })
 
 describe(`actions.list — builtin injection (EXP-257)`, () => {
-  it(`appends the virtual Create action and flags real rows builtin: false`, async () => {
+  it(`appends the virtual builtins and flags real rows builtin: false`, async () => {
     selectResults.push([
       { id: ACTION_ID, teamId: TEAM_ID, name: `Code review`, inputs: [] },
     ])
     const { actions } = await caller.list({ teamId: TEAM_ID })
-    expect(actions).toHaveLength(2)
+    expect(actions).toHaveLength(3)
     expect(actions[0]).toMatchObject({ id: ACTION_ID, builtin: false })
     expect(actions[1]).toMatchObject({
       id: BUILTIN_ID,
@@ -95,6 +96,15 @@ describe(`actions.list — builtin injection (EXP-257)`, () => {
         { key: `description`, type: `text`, required: true },
         { key: `repo`, type: `repo`, required: false },
       ],
+    })
+    // EXP-259: the second builtin — "Fix merge conflicts" with its required
+    // pr input (the representative issue id of an open PR).
+    expect(actions[2]).toMatchObject({
+      id: FIX_CONFLICTS_ID,
+      teamId: TEAM_ID,
+      name: `Fix merge conflicts`,
+      builtin: true,
+      inputs: [{ key: `pr`, type: `pr`, required: true }],
     })
   })
 })
@@ -119,6 +129,18 @@ describe(`actions — builtin is read/write-protected`, () => {
     const error = await rejectionOf(caller.delete({ id: BUILTIN_ID }))
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(`can't be deleted`)
+  })
+
+  it(`get/update/delete refuse the fix-conflicts builtin id too (EXP-259)`, async () => {
+    for (const call of [
+      caller.get({ id: FIX_CONFLICTS_ID }),
+      caller.update({ id: FIX_CONFLICTS_ID, name: `Hijack` }),
+      caller.delete({ id: FIX_CONFLICTS_ID }),
+    ]) {
+      const error = await rejectionOf(call)
+      expect(error).toBeInstanceOf(TRPCError)
+      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    }
   })
 })
 
