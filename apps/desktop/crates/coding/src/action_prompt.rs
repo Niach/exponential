@@ -110,7 +110,11 @@ MCP tools."
 pub fn fix_pr_conflicts_prompt(identifier: &str, branch: &str, default_branch: &str) -> String {
     format!(
         "The pull request for `{identifier}` (branch `{branch}`) has merge conflicts and \
-cannot be merged. You are in a worktree checked out to `{branch}`. Rebase it onto \
+cannot be merged. You are in a worktree checked out to `{branch}`. First run \
+`git fetch origin` and confirm `git rev-parse HEAD` equals \
+`git rev-parse origin/{branch}` — if HEAD is missing commits that exist on \
+`origin/{branch}`, stop and summarize the mismatch instead (force-pushing from a \
+stale checkout would discard remote commits). Then rebase onto \
 `origin/{default_branch}`, resolve every conflict preserving both sides' intent, and \
 verify the build still passes. Then push the branch with `--force-with-lease` and \
 merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
@@ -232,7 +236,11 @@ board, label, and comment operations. When you finish, summarize what you did \
         assert_eq!(
             prompt,
             "The pull request for `EXP-42` (branch `exp/EXP-42`) has merge conflicts and \
-cannot be merged. You are in a worktree checked out to `exp/EXP-42`. Rebase it onto \
+cannot be merged. You are in a worktree checked out to `exp/EXP-42`. First run \
+`git fetch origin` and confirm `git rev-parse HEAD` equals \
+`git rev-parse origin/exp/EXP-42` — if HEAD is missing commits that exist on \
+`origin/exp/EXP-42`, stop and summarize the mismatch instead (force-pushing from a \
+stale checkout would discard remote commits). Then rebase onto \
 `origin/main`, resolve every conflict preserving both sides' intent, and \
 verify the build still passes. Then push the branch with `--force-with-lease` and \
 merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
@@ -245,5 +253,8 @@ rebase instead."
         assert!(prompt.contains("--force-with-lease"));
         assert!(prompt.contains("exponential_pr_merge"));
         assert!(!prompt.contains("gh "));
+        // Belt-and-braces alongside the launcher's ensure_branch_at_origin:
+        // the agent re-verifies the checkout matches origin before pushing.
+        assert!(prompt.contains("git rev-parse origin/exp/EXP-42"));
     }
 }

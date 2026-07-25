@@ -308,6 +308,72 @@ pub fn create_worktree(
     Ok(worktree)
 }
 
+/// Bring an existing local `branch` (checked out in `worktree`) up to the
+/// just-fetched `origin/<branch>` tip — the fix-conflicts pre-spawn guard.
+/// [`create_worktree`] deliberately reuses a stale local branch AS-IS (an
+/// ordinary coding session's unpushed local work must survive a relaunch),
+/// but the fix-conflicts run ends in a `--force-with-lease` push whose
+/// implicit lease is the remote-tracking ref the launcher JUST refreshed —
+/// so from a stale local branch it would happily force-push away commits
+/// that exist only on the remote (review-suggestion commits, work pushed
+/// from another device). Least-destructive policy:
+/// * local == origin → nothing to do;
+/// * local strictly BEHIND origin → fast-forward via `merge --ff-only` in
+///   the worktree (git refuses when uncommitted changes overlap, so a dirty
+///   tree surfaces an error instead of being clobbered);
+/// * local carries commits origin lacks (ahead or diverged) → hard error:
+///   silently resetting would destroy them, and proceeding would let the
+///   run force-push over the remote — the user must push or delete the
+///   local branch first, and the error says so.
+pub fn ensure_branch_at_origin(
+    clone: &Path,
+    worktree: &Path,
+    branch: &str,
+    url: &TokenUrl,
+) -> Result<(), GitError> {
+    let local_ref = format!("refs/heads/{branch}");
+    let remote_ref = format!("refs/remotes/origin/{branch}");
+    let local = run_git(
+        Some(clone),
+        &["rev-parse", "--verify", &local_ref],
+        Some(url),
+        &format!("git rev-parse {branch}"),
+    )?;
+    let remote = run_git(
+        Some(clone),
+        &["rev-parse", "--verify", &remote_ref],
+        Some(url),
+        &format!("git rev-parse origin/{branch}"),
+    )?;
+    if local.trim() == remote.trim() {
+        return Ok(());
+    }
+    let is_fast_forward = run_git(
+        Some(clone),
+        &["merge-base", "--is-ancestor", &local_ref, &remote_ref],
+        Some(url),
+        &format!("git merge-base --is-ancestor ({branch})"),
+    )
+    .is_ok();
+    if !is_fast_forward {
+        return Err(GitError {
+            op: format!("sync {branch} to origin/{branch}"),
+            detail: format!(
+                "the local branch {branch} has commits that origin/{branch} does not — \
+push or delete the local branch (or its worktree) and retry; running fix-conflicts \
+from it would force-push those away"
+            ),
+        });
+    }
+    run_git(
+        Some(worktree),
+        &["merge", "--ff-only", &remote_ref],
+        Some(url),
+        &format!("git merge --ff-only origin/{branch}"),
+    )?;
+    Ok(())
+}
+
 /// Append `entries` to the repo-local ignore file (`.git/info/exclude`) if
 /// missing. The common git dir is shared by every worktree, so one write
 /// covers them all — and unlike `.gitignore` it is never committed.
@@ -749,6 +815,85 @@ mod tests {
         // Relaunch: same issue → same worktree, no error (idempotent reuse).
         let again = create_worktree(&clone, &branch, "origin/main", &url).unwrap();
         assert_eq!(again, worktree);
+    }
+
+    /// Head of `ref` in `cwd` (short helper for tip comparisons).
+    fn rev(cwd: &Path, reference: &str) -> String {
+        let output = Command::new("git")
+            .args(["rev-parse", reference])
+            .current_dir(cwd)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "rev-parse {reference} failed");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    /// A clone with the PR branch `exp/EXP-9` checked out in its worktree,
+    /// plus the non-bare origin repo (committing there simulates remote-only
+    /// commits — review suggestions, another device's push).
+    fn seed_pr_branch_fixture(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
+        let origin = seed_origin(dir);
+        let clone = dir.join("clone");
+        git(dir, &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+        let worktree = create_worktree(&clone, "exp/EXP-9", "origin/main", &url).unwrap();
+        // Publish the branch so origin/exp/EXP-9 exists (like a coded PR).
+        git(&worktree, &["push", "--quiet", "origin", "exp/EXP-9"]);
+        (origin, clone, worktree)
+    }
+
+    #[test]
+    fn ensure_branch_at_origin_fast_forwards_a_stale_local_branch() {
+        let dir = temp_dir("ff");
+        let (origin, clone, worktree) = seed_pr_branch_fixture(&dir.0);
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+
+        // Equal tips: a no-op (the fresh-cut-from-origin case).
+        ensure_branch_at_origin(&clone, &worktree, "exp/EXP-9", &url).unwrap();
+
+        // Remote-only commit (a review suggestion committed on GitHub) —
+        // the exact shape the force-with-lease push used to discard.
+        git(&origin, &["checkout", "--quiet", "exp/EXP-9"]);
+        fs::write(origin.join("review.txt"), "suggested change\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "review suggestion"]);
+        fetch_base(&clone, "exp/EXP-9", &url).unwrap();
+        assert_ne!(rev(&clone, "exp/EXP-9"), rev(&clone, "origin/exp/EXP-9"));
+
+        // The guard fast-forwards the worktree's branch to the remote tip.
+        ensure_branch_at_origin(&clone, &worktree, "exp/EXP-9", &url).unwrap();
+        assert_eq!(rev(&clone, "exp/EXP-9"), rev(&clone, "origin/exp/EXP-9"));
+        assert!(worktree.join("review.txt").exists());
+    }
+
+    #[test]
+    fn ensure_branch_at_origin_refuses_local_only_commits() {
+        let dir = temp_dir("refuse");
+        let (origin, clone, worktree) = seed_pr_branch_fixture(&dir.0);
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+
+        // A local-only commit (leftover unpushed work) …
+        fs::write(worktree.join("wip.txt"), "unpushed\n").unwrap();
+        git(&worktree, &["add", "."]);
+        git(&worktree, &["commit", "--quiet", "-m", "local wip"]);
+        let local_tip = rev(&clone, "exp/EXP-9");
+
+        // … must refuse, whether the branch is strictly ahead …
+        let err =
+            ensure_branch_at_origin(&clone, &worktree, "exp/EXP-9", &url).unwrap_err();
+        assert!(err.detail.contains("push or delete"), "{err}");
+        assert_eq!(rev(&clone, "exp/EXP-9"), local_tip, "local commit must survive");
+
+        // … or fully diverged (remote grew a commit too).
+        git(&origin, &["checkout", "--quiet", "exp/EXP-9"]);
+        fs::write(origin.join("remote.txt"), "remote work\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "remote work"]);
+        fetch_base(&clone, "exp/EXP-9", &url).unwrap();
+        let err =
+            ensure_branch_at_origin(&clone, &worktree, "exp/EXP-9", &url).unwrap_err();
+        assert!(err.detail.contains("force-push"), "{err}");
+        assert_eq!(rev(&clone, "exp/EXP-9"), local_tip, "local commit must survive");
     }
 
     #[test]

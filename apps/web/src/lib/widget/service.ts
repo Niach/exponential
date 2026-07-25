@@ -174,6 +174,33 @@ export function sanitizeWidgetCustomFields(
   return out
 }
 
+// The ONE normalized view of the EXP-244 email/name toggle bag — served by
+// the config route AND enforced by the submit paths, so the form a visitor
+// sees can never disagree with the policy the server enforces (a raw
+// `{nameRequired: true}` row without collectName — writable via a direct
+// tRPC call — used to serve no name field while 400ing every submit).
+// Required always implies collect for email; a hidden name field is never
+// required. Support mode's email stays outside this: it is the reply channel
+// and is unconditionally required by supportFieldsSchema.
+export function normalizedWidgetFormToggles(
+  formConfig: Record<string, unknown> | null | undefined
+): {
+  emailRequired: boolean
+  collectEmail: boolean
+  collectName: boolean
+  nameRequired: boolean
+} {
+  const form = formConfig ?? {}
+  const collectName = form.collectName === true
+  return {
+    emailRequired: form.emailRequired === true,
+    collectEmail:
+      form.emailRequired === true ? true : form.collectEmail !== false,
+    collectName,
+    nameRequired: collectName && form.nameRequired === true,
+  }
+}
+
 // Support mode is served (and accepted) only while the TEAM helpdesk is
 // on AND the plan still covers it — the owner-side write gate can go stale
 // (helpdesk toggled off, plan lapsed), so both the config response and raw
@@ -314,15 +341,17 @@ export async function createWidgetSubmission(args: {
   // The panel's required-email gate is advisory only — it vanishes when the
   // config fetch loses the race with the first open (or fails), and raw POSTs
   // never see it. Enforce the board owner's policy here so every report on a
-  // required-email board stays contactable via the resolution email.
-  if (config.formConfig?.emailRequired === true && !fields.data.email) {
+  // required-email board stays contactable via the resolution email. Always
+  // the NORMALIZED toggle view the config route serves, never the raw bag.
+  const toggles = normalizedWidgetFormToggles(config.formConfig)
+  if (toggles.emailRequired && !fields.data.email) {
     throw new WidgetRequestError(400, `Email is required`, `email_required`)
   }
 
   // Same advisory-gate rule for the name toggle (EXP-244): the panel's
   // required marker can lag the config (5-min cache) or be absent on cached
   // pre-name bundles, so the owner's policy is enforced here.
-  if (config.formConfig?.nameRequired === true && !fields.data.name) {
+  if (toggles.nameRequired && !fields.data.name) {
     throw new WidgetRequestError(400, `Name is required`, `name_required`)
   }
 
@@ -337,7 +366,13 @@ export async function createWidgetSubmission(args: {
   // value satisfies the field just like a typed one.
   for (const field of sanitizeWidgetCustomFields(config.formConfig)) {
     if (!field.required) continue
-    const value = customData?.[field.key]
+    // Own-property read only: the key pattern admits prototype names like
+    // `constructor`, and an inherited function must never leak into the
+    // presence check.
+    const value =
+      customData && Object.hasOwn(customData, field.key)
+        ? customData[field.key]
+        : undefined
     const present =
       typeof value === `number` ||
       typeof value === `boolean` ||
@@ -577,8 +612,12 @@ export async function createWidgetSupportSubmission(args: {
   }
 
   // Name toggle applies to the support form too (EXP-244) — the thread's
-  // reporter_name is what the inbox shows.
-  if (config.formConfig?.nameRequired === true && !fields.data.name) {
+  // reporter_name is what the inbox shows. Same normalized view the config
+  // route serves: a hidden name field is never required. (The email needs no
+  // toggle here — support's reply channel is unconditionally required by the
+  // schema above.)
+  const toggles = normalizedWidgetFormToggles(config.formConfig)
+  if (toggles.nameRequired && !fields.data.name) {
     throw new WidgetRequestError(400, `Name is required`, `name_required`)
   }
 
@@ -698,7 +737,10 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
   }
 
   const form = config.formConfig ?? {}
-  const collectName = form.collectName === true
+  // EXP-244 toggles — the same normalized view the submit paths enforce
+  // (required always implies collect, a hidden name is never required), so
+  // the served form and the enforced form can never disagree.
+  const toggles = normalizedWidgetFormToggles(config.formConfig)
   return jsonResponse(
     200,
     {
@@ -715,13 +757,11 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
         // launcher doesn't jump sides when the config fetch resolves.
         position:
           form.position === `bottom-right` ? `bottom-right` : `bottom-left`,
-        emailRequired: form.emailRequired === true,
-        // EXP-244 toggles — ADDITIVE, cached pre-fields bundles ignore them.
-        // Required always implies collect, whatever the jsonb bag says.
-        collectEmail:
-          form.emailRequired === true ? true : form.collectEmail !== false,
-        collectName,
-        nameRequired: collectName && form.nameRequired === true,
+        emailRequired: toggles.emailRequired,
+        // ADDITIVE toggles — cached pre-fields bundles ignore them.
+        collectEmail: toggles.collectEmail,
+        collectName: toggles.collectName,
+        nameRequired: toggles.nameRequired,
         customFields: sanitizeWidgetCustomFields(config.formConfig),
       },
       limits: { maxScreenshotBytes: maxImageUploadBytes },

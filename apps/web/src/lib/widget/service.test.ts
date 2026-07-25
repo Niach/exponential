@@ -123,6 +123,7 @@ import {
   createWidgetSubmission,
   createWidgetSupportSubmission,
   effectiveWidgetModes,
+  normalizedWidgetFormToggles,
   requestedWidgetModes,
   sanitizeWidgetCustomFields,
   WidgetRequestError,
@@ -662,6 +663,99 @@ describe(`nameRequired enforcement`, () => {
   })
 })
 
+// The submit paths must enforce the SAME normalized toggle view the config
+// route serves — a raw `{nameRequired: true}` row without collectName
+// (writable via a direct tRPC call; the settings UI can't produce it) used to
+// serve a form with no name field while 400ing every submit: a permanently
+// broken widget.
+describe(`served/enforced toggle agreement`, () => {
+  beforeEach(() => {
+    h.inserts.length = 0
+    h.assertCanUseHelpdesk.mockClear()
+    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
+    h.createSupportThreadInTx.mockClear()
+    h.fireAndForgetNewIssueNotify.mockClear()
+  })
+
+  it(`ignores nameRequired without collectName on the feedback path`, async () => {
+    await createWidgetSubmission({
+      config: {
+        ...config,
+        formConfig: { nameRequired: true },
+      } as unknown as WidgetConfigWithBoard,
+      formData: submitForm(),
+      userAgent: null,
+    })
+    expect(h.inserts.some((i) => i.table === issues)).toBe(true)
+  })
+
+  it(`ignores nameRequired without collectName on the support path`, async () => {
+    const form = new FormData()
+    form.set(`mode`, `support`)
+    form.set(`message`, `Please help me`)
+    form.set(`email`, `reporter@example.com`)
+    await createWidgetSupportSubmission({
+      config: {
+        ...supportConfig,
+        formConfig: { modes: [`feedback`, `support`], nameRequired: true },
+      } as unknown as WidgetConfigWithBoard,
+      formData: form,
+      userAgent: null,
+    })
+    expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
+  })
+
+  it(`emailRequired still enforces when collectEmail is written false`, async () => {
+    // Required implies collect: the served form always shows the email field
+    // for this bag, so enforcing the requirement stays consistent.
+    await expect(
+      createWidgetSubmission({
+        config: {
+          ...config,
+          formConfig: { emailRequired: true, collectEmail: false },
+        } as unknown as WidgetConfigWithBoard,
+        formData: submitForm(),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 400, code: `email_required` })
+    expect(h.inserts.length).toBe(0)
+  })
+})
+
+// The ONE normalizer both the config route and the submit paths read —
+// locked here so the rules can't drift apart again.
+describe(`normalizedWidgetFormToggles`, () => {
+  it(`defaults: email shown optional, name hidden`, () => {
+    expect(normalizedWidgetFormToggles(null)).toEqual({
+      emailRequired: false,
+      collectEmail: true,
+      collectName: false,
+      nameRequired: false,
+    })
+  })
+
+  it(`required implies collect for email`, () => {
+    expect(
+      normalizedWidgetFormToggles({ emailRequired: true, collectEmail: false })
+    ).toEqual({
+      emailRequired: true,
+      collectEmail: true,
+      collectName: false,
+      nameRequired: false,
+    })
+  })
+
+  it(`a hidden name field is never required`, () => {
+    expect(normalizedWidgetFormToggles({ nameRequired: true })).toMatchObject({
+      collectName: false,
+      nameRequired: false,
+    })
+    expect(
+      normalizedWidgetFormToggles({ collectName: true, nameRequired: true })
+    ).toMatchObject({ collectName: true, nameRequired: true })
+  })
+})
+
 // EXP-244: custom field values ride the merged customData blob, so
 // requiredness is checked against it — a host setCustomData value satisfies
 // a required field just like a panel-typed one.
@@ -724,6 +818,42 @@ describe(`required custom fields enforcement`, () => {
     form.set(`customData`, JSON.stringify({ desk: 42 }))
     await createWidgetSubmission({
       config: fieldsConfig,
+      formData: form,
+      userAgent: null,
+    })
+    expect(h.inserts.some((i) => i.table === issues)).toBe(true)
+  })
+
+  // The key pattern admits prototype names ("Constructor" slugifies to
+  // `constructor`) — the presence check must read OWN properties only, never
+  // the inherited Object constructor.
+  it(`reads own properties only for prototype-named keys`, async () => {
+    const protoConfig = {
+      ...config,
+      formConfig: {
+        customFields: [
+          { key: `constructor`, label: `Constructor`, required: true },
+        ],
+      },
+    } as unknown as WidgetConfigWithBoard
+
+    const empty = submitForm()
+    empty.set(`customData`, JSON.stringify({}))
+    await expect(
+      createWidgetSubmission({
+        config: protoConfig,
+        formData: empty,
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      message: `Please fill in "Constructor"`,
+    })
+
+    const form = submitForm()
+    form.set(`customData`, JSON.stringify({ constructor: `MyWidget` }))
+    await createWidgetSubmission({
+      config: protoConfig,
       formData: form,
       userAgent: null,
     })

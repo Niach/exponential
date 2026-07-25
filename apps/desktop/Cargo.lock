@@ -222,7 +222,6 @@ dependencies = [
  "domain",
  "flume",
  "open",
- "rusqlite",
  "serde",
  "serde_json",
  "sha2",

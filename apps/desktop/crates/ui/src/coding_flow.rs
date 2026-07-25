@@ -250,7 +250,9 @@ impl LocalSessions {
     /// — the EXP-102 guard: sweeping/deleting that lane's worktree would
     /// pull the running claude PTY's cwd out from under it.
     pub fn is_branch_live(&self, branch: &str) -> bool {
-        // Action runs carry an empty branch — never match one.
+        // Trunk/scratch action runs carry an empty branch — never match one.
+        // Fix-conflicts action runs (EXP-259) deliberately carry their PR
+        // branch so this guard keeps their worktree alive too.
         if branch.is_empty() {
             return false;
         }

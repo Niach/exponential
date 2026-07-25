@@ -428,7 +428,11 @@ describe(`relay admin HTTP`, () => {
     ).resolves.toEqual({ delivered: true })
     expect(okFetch).toHaveBeenCalledWith(
       `https://steer.example.com/sessions/session-1/kill`,
-      { method: `POST`, headers: { "x-relay-secret": `test-secret` } }
+      {
+        method: `POST`,
+        headers: { "x-relay-secret": `test-secret` },
+        signal: expect.any(AbortSignal),
+      }
     )
 
     const downFetch = vi
@@ -437,5 +441,25 @@ describe(`relay admin HTTP`, () => {
     await expect(
       relayPostKill(CONFIG, `session-1`, downFetch)
     ).resolves.toEqual({ delivered: false })
+  })
+
+  // The PR-merge path awaits this fan-out inside the GitHub webhook handler,
+  // which GitHub abandons after ~10s — a wedged relay must abort rather than
+  // hold the response open. Assert the armed timeout signal reaches fetch, and
+  // that the abort it eventually raises lands in the never-throws catch.
+  it(`kill bounds a hung relay with an armed timeout signal`, async () => {
+    const hungFetch = vi.fn<RelayFetch>().mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(`abort`, () =>
+            reject(new DOMException(`The operation timed out.`, `TimeoutError`))
+          )
+        })
+    )
+    const call = relayPostKill(CONFIG, `session-1`, hungFetch)
+    const signal = hungFetch.mock.calls[0]?.[1]?.signal
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(false)
+    await expect(call).resolves.toEqual({ delivered: false })
   })
 })

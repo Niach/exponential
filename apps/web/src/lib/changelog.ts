@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-fix-conflicts-and-widget-fields`,
+    date: `2026-07-25`,
+    title: `Merge conflicts fixed for you, widgets that ask for less`,
+    summary: `A one-click action rebases and merges a conflicted pull request, actions sync live everywhere, and the feedback widget can collect a name and your own custom fields.`,
+    body: `- **"Fix merge conflicts"** — a built-in action that takes a conflicted pull request, rebases it onto your default branch, resolves the conflicts, pushes, and merges it — completing every issue on that PR. Start it from the desktop Reviews list or from any client's launch dialog.
+- **Merge from the sidebar** — an open pull request can now be merged straight from the issue sidebar on web and desktop. Merging ends the issue's live coding session instead of leaving a terminal running.
+- **Actions sync live** — your team's actions now arrive on every client the moment they change, and running one no longer asks each device to trust it first.
+- **Widgets can ask for a name** — the feedback widget can collect a reporter's name without demanding an email, define up to eight custom fields of your own, and be driven entirely from your own UI with the new \`submit()\` API.
+- **Roomier dialogs** — the action editor, widget settings, launch and issue dialogs use the width of your screen instead of stretching into tall towers.`,
+  },
+  {
     id: `2026-07-actions-launch-dialog`,
     date: `2026-07-25`,
     title: `One dialog for starting anything`,

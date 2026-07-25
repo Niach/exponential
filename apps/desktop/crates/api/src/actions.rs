@@ -35,9 +35,9 @@ pub fn is_builtin_action_id(id: &str) -> bool {
 pub struct ActionInput {
     pub key: String,
     pub label: String,
-    /// `text` | `repo` | `board` (contract `actionInputType`). An UNKNOWN
-    /// value must block the run with "needs a newer app version" — never a
-    /// silent text fallback.
+    /// `text` | `repo` | `board` | `pr` (contract `actionInputType`). An
+    /// UNKNOWN value must block the run with "needs a newer app version" —
+    /// never a silent text fallback.
     #[serde(rename = "type")]
     pub input_type: String,
     /// Absent on the wire = optional (the contract's `required` default).

@@ -171,6 +171,7 @@ export type RelayFetch = (
     method?: string
     headers?: Record<string, string>
     body?: string
+    signal?: AbortSignal
   }
 ) => Promise<RelayResponse>
 
@@ -285,6 +286,15 @@ export async function relayPostStart(
 }
 
 /**
+ * How long a kill fan-out may hang before we give up on it. The PR-merge path
+ * (`applyPrMergeState`) awaits this fan-out post-commit inside the GitHub
+ * webhook handler, and GitHub drops a delivery that takes longer than ~10s —
+ * so an accepting-but-wedged relay must not hold the response open. Giving up
+ * costs nothing: the durable abort path is the already-committed `ended` row.
+ */
+const RELAY_KILL_TIMEOUT_MS = 3_000
+
+/**
  * POST /sessions/:id/kill — best-effort kill-switch fan-out. Never throws: the
  * relay is additive, never load-bearing; the DB row flip (which the desktop
  * watches over Electric) is the durable abort path.
@@ -297,7 +307,11 @@ export async function relayPostKill(
   try {
     const res = await fetchImpl(
       `${steerHttpBase(config.url)}/sessions/${encodeURIComponent(sessionId)}/kill`,
-      { method: `POST`, headers: { "x-relay-secret": config.secret } }
+      {
+        method: `POST`,
+        headers: { "x-relay-secret": config.secret },
+        signal: AbortSignal.timeout(RELAY_KILL_TIMEOUT_MS),
+      }
     )
     if (!res.ok) return { delivered: false }
     const json = (await res.json().catch(() => null)) as {

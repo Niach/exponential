@@ -34,7 +34,7 @@
 //!   typed procs (§7.1): `repositories.forIssue` + `installationToken` (JIT
 //!   GitHub-App token, Debug-redacted, never persisted/logged),
 //!   `codingSessions.start`/`end` (idempotent), and the EXP-253 team action
-//!   prompts (`actions.*` CRUD + the trust-gate `body_hash`).
+//!   prompts (`actions.*` CRUD — EXP-268 removed the trust-gate hash).
 //!
 //! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
 //! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 `prFiles`

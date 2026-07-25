@@ -124,9 +124,10 @@ pub struct LaunchRequest {
 }
 
 /// Which program an action run executes (EXP-257/EXP-259). `Team` is a
-/// user-authored action (fresh trust-gated body); the other two are the
-/// server-defined virtual BUILTINS whose prompts are composed from shipped
-/// constants (`body` stays empty, the trust gate is skipped).
+/// user-authored action (fresh body fetched via `actions.get` right before
+/// the run — EXP-268 removed the per-device trust gate); the other two are
+/// the server-defined virtual BUILTINS whose prompts are composed from
+/// shipped constants (`body` stays empty).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActionRunKind {
     /// A team action row: preamble [+ inputs] + the fresh body.
@@ -963,12 +964,23 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
                 ActionRunKind::FixConflicts { branch, .. } => {
                     crate::git_worktree::validate_branch_arg(branch, "fix conflicts")?;
                     crate::git_worktree::fetch_base(&clone, branch, &url)?;
-                    crate::git_worktree::create_worktree(
+                    let worktree = crate::git_worktree::create_worktree(
                         &clone,
                         branch,
                         &format!("origin/{branch}"),
                         &url,
-                    )?
+                    )?;
+                    // `create_worktree` reuses a stale local branch as-is
+                    // (right for ordinary sessions — their unpushed work must
+                    // survive a relaunch), but THIS run ends in a force-push
+                    // whose lease is the remote ref fetched just above: from
+                    // a stale branch it would push away remote-only commits.
+                    // Fast-forward to origin (or refuse on local-only
+                    // commits) before spawning.
+                    crate::git_worktree::ensure_branch_at_origin(
+                        &clone, &worktree, branch, &url,
+                    )?;
+                    worktree
                 }
                 _ => clone.clone(),
             };

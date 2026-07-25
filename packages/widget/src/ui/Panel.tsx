@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks"
 import type { WidgetCustomField } from "../types"
+import { ownCustomValue } from "./custom-values"
 import type { Screenshot } from "./App"
 
 const closeIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>`
@@ -160,7 +161,7 @@ export function Panel(props: {
       return
     }
     for (const field of props.customFields) {
-      if (field.required && !(customValues[field.key] ?? ``).trim()) {
+      if (field.required && !ownCustomValue(customValues, field.key).trim()) {
         setError(`Please fill in "${field.label}".`)
         return
       }
@@ -465,7 +466,7 @@ export function Panel(props: {
                 className="exp-input"
                 type="text"
                 maxLength={255}
-                value={customValues[field.key] ?? ``}
+                value={ownCustomValue(customValues, field.key)}
                 onInput={(event) => {
                   const value = (event.target as HTMLInputElement).value
                   setCustomValues((previous) => ({

@@ -271,11 +271,11 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
     }
 }
 
-/// Relay ACTION start (§08 / EXP-253): the trust-gated runner with the
-/// dialog FOREGROUNDED — an unattended desktop must surface the approval,
-/// never auto-run an untrusted body. The frame's server-resolved repo group
+/// Relay ACTION start (§08 / EXP-253): runs directly — EXP-268 removed the
+/// per-device trust gate (actions are team-owner-authored content), so an
+/// unattended desktop just launches. The frame's server-resolved repo group
 /// + input values ride through (the desktop syncs no repositories); the
-/// fresh body + hash come from the runner's own `actions.get`. EXP-257: the
+/// fresh body comes from the runner's own `actions.get`. EXP-257: the
 /// FULL option set is honored with the same per-agent normalization as an
 /// issue start (the server already validated the vocabulary).
 fn remote_action_start(

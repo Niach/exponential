@@ -1,9 +1,10 @@
 // Built-in virtual actions (EXP-257/EXP-259). The server injects these into
 // `actions.list` so every client renders them like team actions — but they
 // are non-editable and non-deletable, and their prompt is composed by the
-// DESKTOP from its own shipped constants (the `body` here stays empty and the
-// trust gate is skipped: this is product-shipped content, not a team-owner
-// prompt). Two builtins exist today: "Create action", which runs the
+// DESKTOP from its own shipped constants, so the `body` here stays empty and
+// is never fetched (EXP-268 removed the per-device trust gate entirely; these
+// are product-shipped prompts, not team-owner ones). Two builtins exist
+// today: "Create action", which runs the
 // MCP-enabled Claude action-creator prompt as a normal, steer-visible action
 // run (it replaced every manual action-creation UI), and "Fix merge
 // conflicts" (EXP-259), which takes a `pr` input (an issue-linked open PR),

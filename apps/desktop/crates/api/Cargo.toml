@@ -19,12 +19,8 @@ ureq = { workspace = true }
 flume = { workspace = true }
 open = { workspace = true }
 dirs = { workspace = true }
-# §7.3.5 per-device Trust & Run store ((device_id, project_id) → trusted_hash
-# + the last-selected run config per project) — a tiny sqlite in the
-# per-account dir (trust_store.rs).
-rusqlite = { workspace = true }
-# §7.7 stable per-install deviceId (a UUID in the local config; shared by the
-# trust store and steer presence).
+# §7.7 stable per-install deviceId (a UUID in the local config — steer
+# presence) + the PKCE verifier's random halves (login.rs).
 uuid = { workspace = true }
 # PKCE S256 challenge for the OAuth deep-link code exchange (REV-13).
 sha2 = { workspace = true }

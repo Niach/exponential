@@ -12,6 +12,7 @@ import { collectEnvMeta } from "../env-meta"
 import { submitFeedback, submitSupportRequest } from "../api-client"
 import { megaphoneIconSvg, pickForeground, theme } from "../theme"
 import { Annotator } from "./Annotator"
+import { ownCustomValue } from "./custom-values"
 import { Panel } from "./Panel"
 import type { PanelView } from "./Panel"
 
@@ -319,7 +320,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     (customValues: Record<string, string>) => {
       const merged = { ...state.customData }
       for (const field of customFields) {
-        const value = (customValues[field.key] ?? ``).trim()
+        const value = ownCustomValue(customValues, field.key).trim()
         if (value) merged[field.key] = value
       }
       return merged

@@ -252,6 +252,39 @@ describe(`EXP-244 form fields`, () => {
     )
   })
 
+  it(`a custom field keyed like a prototype member stays prototype-safe`, async () => {
+    // "Constructor" slugifies to the key `constructor`, which the server key
+    // pattern accepts — a plain-object lookup resolves it to the INHERITED
+    // Object constructor: garbage pre-fill and a `.trim()` throw on submit.
+    await mount({
+      enabled: true,
+      form: {
+        ...nameConfig.form!,
+        collectName: false,
+        customFields: [
+          { key: `constructor`, label: `Constructor`, required: true },
+        ],
+      },
+    })
+    const input = container.querySelector<HTMLInputElement>(
+      `#exp-custom-constructor`
+    )!
+    expect(input.value).toBe(``)
+
+    await setInput(`#exp-title`, `Broken button`)
+    // Empty required value: the advisory gate must fire, not throw.
+    await submitForm()
+    expect(submitFeedback).not.toHaveBeenCalled()
+    expect(container.textContent).toContain(`Please fill in "Constructor".`)
+
+    await setInput(`#exp-custom-constructor`, `MyWidget`)
+    await submitForm()
+    expect(submitFeedback).toHaveBeenCalledTimes(1)
+    expect(submitFeedback.mock.calls[0][0]).toMatchObject({
+      customData: { constructor: `MyWidget` },
+    })
+  })
+
   it(`drops malformed custom field entries instead of crashing`, async () => {
     await mount({
       enabled: true,
