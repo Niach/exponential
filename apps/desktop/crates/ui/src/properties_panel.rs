@@ -1015,12 +1015,12 @@ impl PropertiesPanel {
 
 impl Render for PropertiesPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-277: no left hairline — whitespace separates the sidebar from
+        // the centered detail column (blended chrome).
         let base = v_flex()
             .w(px(PANEL_WIDTH))
             .flex_shrink_0()
             .h_full()
-            .border_l_1()
-            .border_color(cx.theme().border)
             .px_3()
             .py_3()
             .gap_3()

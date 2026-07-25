@@ -14,7 +14,6 @@ use gpui::{
 use gpui_component::{v_flex, ActiveTheme as _};
 
 use super::notifications_prefs::NotificationsPrefsPane;
-use super::screen_header;
 
 /// The account screen (`Screen::Account`) — now Notifications only.
 pub struct AccountView {
@@ -34,9 +33,9 @@ impl Render for AccountView {
              and push notifications are always on."
             .into();
 
+        // EXP-277: no screen header — the center tab carries the title.
         v_flex()
             .size_full()
-            .child(screen_header("Notifications", cx))
             .child(
                 div()
                     .id("account-scroll")

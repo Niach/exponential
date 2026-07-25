@@ -228,8 +228,6 @@ impl Render for SettingsView {
                 .map(|ws| !show_team_chrome(cx, ws))
                 .unwrap_or(true)
         };
-        let title: &'static str = if solo { "Settings" } else { "Team Settings" };
-
         // Web settings layout route (EXP-146): grouped left nav + one
         // selected section pane in the detail column.
         let effective = effective_selection(self.selected, owner, solo);
@@ -266,8 +264,8 @@ impl Render for SettingsView {
                         .rounded(cx.theme().radius)
                         .text_sm()
                         .cursor_pointer()
-                        .when(is_selected, |this| this.bg(cx.theme().accent.opacity(0.6)))
-                        .hover(|this| this.bg(cx.theme().accent.opacity(0.3)))
+                        .when(is_selected, |this| this.bg(cx.theme().list_active))
+                        .hover(|this| this.bg(cx.theme().list_hover))
                         .child(item.label)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.selected = section;
@@ -287,9 +285,10 @@ impl Render for SettingsView {
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
         };
 
+        // EXP-277: no screen header (the center tab already carries the
+        // title) and no nav divider — the columns separate by whitespace.
         v_flex()
             .size_full()
-            .child(screen_header(title, cx))
             .child(
                 h_flex()
                     .flex_1()
@@ -301,8 +300,7 @@ impl Render for SettingsView {
                             .w(px(200.))
                             .h_full()
                             .flex_shrink_0()
-                            .border_r_1()
-                            .border_color(cx.theme().border)
+                            .pr_2()
                             .overflow_y_scroll()
                             .child(nav),
                     )
@@ -424,23 +422,6 @@ pub(crate) fn show_team_chrome(cx: &App, team_id: &str) -> bool {
 // ---------------------------------------------------------------------------
 // Shared chrome bits (web Card + notices at compact density)
 // ---------------------------------------------------------------------------
-
-/// Compact screen header (same 34px bar the other screens use).
-pub(crate) fn screen_header(title: &'static str, cx: &App) -> impl IntoElement {
-    h_flex()
-        .px_3()
-        .h(px(34.))
-        .items_center()
-        .flex_shrink_0()
-        .border_b_1()
-        .border_color(cx.theme().border)
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .child(title),
-        )
-}
 
 /// Web `Card`: the shared glass card surface (EXP-269).
 pub(crate) fn card(_cx: &App) -> gpui::Div {

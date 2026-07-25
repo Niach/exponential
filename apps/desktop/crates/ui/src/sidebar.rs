@@ -651,11 +651,10 @@ impl Render for RailView {
             .items_center()
             .py_2()
             .gap_1()
-            // EXP-269: no fill — the rail floats on the page gradient,
-            // separated by the hairline border alone.
+            // EXP-269: no fill — the rail floats on the page gradient.
+            // EXP-277: no hairline either — the tool column's section wash
+            // provides the soft boundary (blended chrome).
             .text_color(cx.theme().sidebar_foreground)
-            .border_r_1()
-            .border_color(cx.theme().sidebar_border)
             // Search — opens the ⌘K sheet. Call the opener directly via
             // cx.listener (like the rail tool icons below) rather than
             // dispatching OpenSearch: a rail button that dispatches to the
@@ -945,6 +944,8 @@ impl SidebarPanel {
         title: &'static str,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
+        // EXP-277: no bottom hairline — typography + the strip's height
+        // separate the header from the list (fewer chrome lines).
         h_flex()
             .flex_shrink_0()
             .w_full()
@@ -952,8 +953,6 @@ impl SidebarPanel {
             .px_3()
             .gap_1p5()
             .items_center()
-            .border_b_1()
-            .border_color(cx.theme().sidebar_border)
             .text_color(cx.theme().sidebar_foreground.opacity(0.7))
             .child(icon.xsmall())
             .child(
@@ -2657,10 +2656,9 @@ impl Render for SidebarPanel {
             .overflow_hidden()
             // EXP-269: glass section wash — differentiates the tool column
             // from the center while letting the gradient show through.
+            // EXP-277: the wash edge IS the boundary — no hairline.
             .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
             .text_color(cx.theme().sidebar_foreground)
-            .border_r_1()
-            .border_color(cx.theme().sidebar_border)
             .child(match tool {
                 ToolWindow::Inbox => self.render_inbox_tool(cx),
                 ToolWindow::BoardIssues => self.render_board_issues_tool(cx),

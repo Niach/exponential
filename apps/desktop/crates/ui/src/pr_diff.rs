@@ -66,7 +66,9 @@ impl Render for PrDiffView {
         let theme_colors = cx.theme();
         let muted = theme_colors.muted_foreground;
         let fg = theme_colors.foreground;
-        let border = theme_colors.border;
+        // EXP-277: content headers use the faint glass row stroke, not the
+        // heavier chrome border (fewer/softer section lines).
+        let border = theme::tokens::glass::STROKE_ROW.to_hsla();
         let list_bg = theme_colors.colors.list;
         let pr_green = theme::tokens::GREEN.to_hsla();
 
