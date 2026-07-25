@@ -240,10 +240,15 @@ html {
 
 /* Floating glass layer (popovers, menus, dialogs, sheets): frosted popover
    surface + hairline + soft drop with an inset top highlight. Productized
-   from the .editor-image-menu-trigger recipe below. */
+   from the .editor-image-menu-trigger recipe below. EXP-277: 95% mix — menus
+   read opaque (legible over busy content) while the retained blur + stroke +
+   highlight keep the glass edge; 95% is the shared floating-surface alpha
+   step (tooltip/bulk bar). Deliberate exemption: the round icon pill chrome
+   (mobile tab bar, reviews nav pills) stays at /85 — translucency there is
+   intentional ambience over scrolling content, not a legibility surface. */
 @utility glass-panel {
   border: 1px solid var(--glass-stroke-card);
-  background: color-mix(in oklab, var(--popover) 84%, transparent);
+  background: color-mix(in oklab, var(--popover) 95%, transparent);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow:
@@ -592,9 +597,10 @@ html {
   z-index: 1;
   width: 1.75rem;
   height: 1.75rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-stroke-card);
   border-radius: 9999px;
-  background: color-mix(in oklab, var(--popover) 94%, transparent);
+  /* EXP-277: on the shared 95% floating-surface step, glass stroke token. */
+  background: color-mix(in oklab, var(--popover) 95%, transparent);
   color: color-mix(in oklab, var(--popover-foreground) 85%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
