@@ -1,5 +1,4 @@
-• One Start dialog for everything — issues and actions now share the same sheet, with the full agent, model and effort options for action runs
-• Actions can ask for inputs — fill in text, pick a repository or a board before the run starts
-• Much faster catch-up — the app now syncs immediately when you open it, regain a connection, or get a notification
-• Opening an issue from a notification no longer strands you on a blank loading screen
-• Pull to refresh on the issue list now really waits for your team's latest
+• Your team's actions now sync live — new and edited actions appear the moment they change, with no refresh
+• End a running coding session from your phone — a kill button, with confirmation, in the live session view
+• Merging a pull request now cleanly ends the coding sessions of the issues it closes
+• Quieter live sessions — the steering captions are gone; the composer tint is the only signal you need
