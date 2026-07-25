@@ -27,22 +27,19 @@ impl TabId {
     }
 }
 
-/// §6.13's tab kinds (v4 §4.9 adds [`TabKind::ClaudeTask`]; EXP-253 adds
-/// [`TabKind::Action`] and removes the run-config `Run` kind).
+/// §6.13's tab kinds (EXP-253 adds [`TabKind::Action`] and removes the
+/// run-config `Run` kind; EXP-259 removes the one-shot `ClaudeTask` kind —
+/// conflict fixing became the builtin "Fix merge conflicts" action run).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabKind {
     /// A Start-coding session (one per `coding_sessions` row, §07 opens it).
     Claude,
-    /// A one-shot Claude task (masterplan v4 §4.9): interactive `claude` NOT
-    /// bound to a `coding_sessions` row (no steer room, no plan charge, no
-    /// worktree). Visually behaves like a [`TabKind::Shell`] tab. The
-    /// `coding::claude_task` primitive builds its spawn spec.
-    ClaudeTask,
-    /// A running team action (EXP-253): an interactive claude session bound
+    /// A running team action (EXP-253): an interactive agent session bound
     /// to a `coding_sessions` row (steerable like [`TabKind::Claude`]) but
-    /// with no worktree/branch/PR — it runs on the trunk clone or a scratch
-    /// dir. Carries the `actions` row id (plain string; the `terminal` crate
-    /// has no api/DB types — §6.1 dependency rule).
+    /// with no PR contract — it runs on the trunk clone, a PR branch's
+    /// worktree (the fix-conflicts builtin), or a scratch dir. Carries the
+    /// `actions` row id (plain string; the `terminal` crate has no api/DB
+    /// types — §6.1 dependency rule).
     Action(String),
     /// A plain "+" terminal (`$SHELL -l`), like any IDE.
     Shell,

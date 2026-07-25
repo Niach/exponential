@@ -23,10 +23,11 @@ object DomainContract {
     val codexEffortValues: List<String> = listOf("minimal", "low", "medium", "high", "xhigh")
     val piModelValues: List<String> = listOf("fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5")
     val piThinkingValues: List<String> = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
-    val actionInputTypeValues: List<String> = listOf("text", "repo", "board")
+    val actionInputTypeValues: List<String> = listOf("text", "repo", "board", "pr")
 
     const val codingSessionStaleMs: Long = 7200000L
     const val builtinCreateActionId: String = "builtin:create-action"
+    const val builtinFixConflictsId: String = "builtin:fix-conflicts"
     const val actionInputsMax: Int = 10
     const val actionInputTextMax: Int = 4096
 

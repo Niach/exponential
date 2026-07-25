@@ -808,8 +808,7 @@ fn persisted_kind(kind: &TabKind) -> &'static str {
         // v4 §4.9: not issue-bound and not persisted-restorable as a session —
         // treated like a shell tab for cold-restore (a plain terminal), matching
         // its shell-like runtime behavior.
-        TabKind::ClaudeTask => "shell",
-        // EXP-253: like ClaudeTask, an action session is never auto-respawned
+        // EXP-253: an action session is never auto-respawned
         // — a cold restore yields a plain shell at the action's cwd.
         TabKind::Action(_) => "shell",
         TabKind::Shell => "shell",

@@ -5,18 +5,78 @@
 //! `actions` shape rows are body-less (EXP-268) — then resolves the repo and
 //! launches. The per-device sha256 trust prompt that used to gate runs was
 //! removed in EXP-268: actions are team-owner-authored content and run
-//! without a local approval step. The BUILTIN "Create action" (EXP-257)
-//! constructs its row locally BEFORE the fetch (the server rejects
-//! `actions.get` for the builtin id).
+//! without a local approval step. The BUILTINS — "Create action" (EXP-257)
+//! and "Fix merge conflicts" (EXP-259) — construct their rows locally BEFORE
+//! the fetch (the server rejects `actions.get` for the builtin ids).
+//!
+//! The fix-conflicts builtin additionally resolves its `pr` INPUT (the
+//! representative issue id of an open PR) against the synced store up front:
+//! the issue's branch + identifier feed [`coding::ActionRunKind::FixConflicts`]
+//! and its board's repository pins the run's repo group (remote frames carry
+//! the server-resolved group instead).
 
 use gpui::{App, SharedString};
 use gpui_component::{notification::Notification, WindowExt as _};
 use serde::Deserialize;
 
+use sync::Store;
+
 use crate::coding_flow::{self, SessionSubject};
 use crate::queries;
-use api::actions::BUILTIN_CREATE_ACTION_ID;
-use coding::{ActionInputValue, ActionLaunchRequest, LaunchOptions, LaunchOrigin, Prepared, PrepareRequest};
+use api::actions::{is_builtin_action_id, BUILTIN_FIX_CONFLICTS_ID};
+use coding::{
+    ActionInputValue, ActionLaunchRequest, ActionRunKind, LaunchOptions, LaunchOrigin, Prepared,
+    PrepareRequest,
+};
+
+/// The resolved `pr` input target of a fix-conflicts run (EXP-259), read
+/// from the synced store before the gate spawns.
+struct FixConflictsTarget {
+    identifier: String,
+    branch: String,
+    /// The PR issue's board repository — pins the run's repo group on LOCAL
+    /// starts (remote frames carry the server-resolved group).
+    repository_id: Option<String>,
+}
+
+/// Resolve the fix-conflicts `pr` input (a representative issue id) against
+/// the synced issues/boards. Errors are user-facing.
+fn resolve_fix_conflicts_target(
+    inputs: &[ActionInputValue],
+    cx: &App,
+) -> Result<FixConflictsTarget, String> {
+    let issue_id = inputs
+        .iter()
+        .find(|input| input.key == "pr")
+        .map(|input| input.value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Pick a pull request to fix.".to_string())?;
+    let collections = Store::global(cx).collections().clone();
+    let issues = collections.issues.read(cx);
+    let issue = issues
+        .get(&issue_id)
+        .ok_or_else(|| "That pull request's issue is not synced on this device.".to_string())?;
+    if issue.pr_state.as_deref() != Some(domain::contract::PR_STATE_OPEN) {
+        return Err("That pull request is no longer open.".to_string());
+    }
+    let branch = issue
+        .branch
+        .clone()
+        .filter(|branch| !branch.is_empty())
+        .ok_or_else(|| "That pull request has no recorded branch.".to_string())?;
+    let identifier = issue.identifier.clone();
+    let board_id = issue.board_id.clone();
+    let repository_id = collections
+        .boards
+        .read(cx)
+        .get(&board_id)
+        .and_then(|board| board.repository_id.clone());
+    Ok(FixConflictsTarget {
+        identifier,
+        branch,
+        repository_id,
+    })
+}
 
 /// How the run resolves its repo group.
 pub(crate) enum ActionRepo {
@@ -85,22 +145,83 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         log::warn!("actions: run ignored — not signed in");
         return;
     };
-    let builtin = action_id == BUILTIN_CREATE_ACTION_ID;
+    let builtin = is_builtin_action_id(&action_id);
+    // EXP-259: the fix-conflicts builtin's PR target comes from the synced
+    // store — resolved up front (the background closure has no gpui access).
+    let fix_target = if action_id == BUILTIN_FIX_CONFLICTS_ID {
+        match resolve_fix_conflicts_target(&inputs, cx) {
+            Ok(resolved) => Some(resolved),
+            Err(message) => {
+                log::warn!("actions: fix-conflicts start refused — {message}");
+                notify_target_error(target, &message, cx);
+                return;
+            }
+        }
+    } else {
+        None
+    };
+    // The kind fields the post-fetch request needs (the background closure
+    // owns `fix_target` for its repo resolution).
+    let fix_kind = fix_target
+        .as_ref()
+        .map(|fix| (fix.branch.clone(), fix.identifier.clone()));
 
     cx.spawn(async move |cx| {
-        // Background: fetch-fresh + resolve the repo. The builtin constructs
-        // its row locally (the server REJECTS `actions.get` for the builtin
-        // id) and forces repo-less — its repo INPUT only pins the authored
-        // action's binding, never this run's cwd.
+        // Background: fetch-fresh + resolve the repo. The builtins construct
+        // their rows locally (the server REJECTS `actions.get` for the
+        // builtin ids). The creator forces repo-less — its repo INPUT only
+        // pins the authored action's binding, never this run's cwd; the
+        // fix-conflicts run instead resolves the PR's repository.
         let fetched = cx
             .background_executor()
             .spawn(async move {
                 if builtin {
-                    let mut action = api::actions::builtin_create_action(&team_id);
-                    // The runner composes the creator prompt itself — the
-                    // input schema is dialog-side concern only.
+                    let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
+                    let mut action = if fixing {
+                        api::actions::builtin_fix_conflicts_action(&team_id)
+                    } else {
+                        api::actions::builtin_create_action(&team_id)
+                    };
+                    // The runner composes the builtin prompts itself — the
+                    // input schema is a dialog-side concern only.
                     action.inputs = Vec::new();
-                    return Ok((action, None));
+                    let repo_group = if fixing {
+                        match repo {
+                            // Remote start: the frame's server-resolved group.
+                            ActionRepo::Provided(group) => group,
+                            // Local start: the PR issue's board repository.
+                            ActionRepo::Resolve => {
+                                let Some(repository_id) = fix_target
+                                    .as_ref()
+                                    .and_then(|fix| fix.repository_id.clone())
+                                else {
+                                    return Err(
+                                        "That pull request's board has no linked repository."
+                                            .to_string(),
+                                    );
+                                };
+                                let rows = fetch_repositories(&trpc, &action.team_id).map_err(
+                                    |err| format!("Could not resolve the repository: {err}"),
+                                )?;
+                                let Some(row) =
+                                    rows.into_iter().find(|row| row.id == repository_id)
+                                else {
+                                    return Err(
+                                        "That pull request's repository is no longer connected."
+                                            .to_string(),
+                                    );
+                                };
+                                Some(coding::RepoGroup {
+                                    repository_id: row.id,
+                                    full_name: row.full_name,
+                                    default_branch: row.default_branch.unwrap_or_default(),
+                                })
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    return Ok((action, repo_group));
                 }
                 let action = api::actions::get(&trpc, &action_id)
                     .map_err(|err| format!("Could not load the action: {err}"))?;
@@ -148,6 +269,36 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                 cx.activate(true);
             }
 
+            let kind = match fix_kind {
+                Some((branch, identifier)) => {
+                    let default_branch = repo_group
+                        .as_ref()
+                        .map(|group| group.default_branch.clone())
+                        .unwrap_or_default();
+                    if default_branch.is_empty() {
+                        // L30: never fabricate `main` — without a known
+                        // default branch there is no rebase target.
+                        let message =
+                            "The repository has no known default branch — refresh it in \
+team settings → Repositories.";
+                        log::warn!("actions: fix-conflicts start refused — {message}");
+                        let _ = window.update(cx, |_, window, cx| {
+                            window.push_notification(
+                                Notification::error(SharedString::from(message)),
+                                cx,
+                            );
+                        });
+                        return;
+                    }
+                    ActionRunKind::FixConflicts {
+                        branch,
+                        default_branch,
+                        identifier,
+                    }
+                }
+                None if builtin => ActionRunKind::CreateAction,
+                None => ActionRunKind::Team,
+            };
             let request = ActionLaunchRequest {
                 action_id: action.id.clone(),
                 action_name: action.name.clone(),
@@ -155,7 +306,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                 body: action.body.clone(),
                 repo: repo_group,
                 inputs,
-                builtin,
+                kind,
                 device_label: coding::default_device_label(),
                 origin,
                 options,

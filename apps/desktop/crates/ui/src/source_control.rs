@@ -3,12 +3,15 @@
 //! the per-file changes column is gone — the trunk is expected always clean,
 //! so the pane shows commit diffs from the sidebar History, and a dirty tree
 //! is an ANOMALY that only surfaces a slim count/discard strip), plus (in
-//! conflict mode) the rebase/merge banner with "Fix conflicts with Claude" /
-//! "Open terminal" / "Abort" (EXP-259 will auto-resolve conflicts via the
-//! action system). The IDE neither stages, commits nor pushes anymore — the
-//! editor is view-only, changes arrive via PRs, and the trunk is kept fresh
-//! by the headless [`crate::trunk_sync`] engine. The ONE write affordance is
-//! the escape hatch: discard local changes via
+//! conflict mode) the rebase/merge banner with "Open terminal" / "Abort" /
+//! "Discard & reset" (EXP-259 deleted the claude-task "Fix conflicts with
+//! Claude" button — PR merge conflicts are fixed by the builtin "Fix merge
+//! conflicts" ACTION run from the Reviews list / actions surfaces; a trunk
+//! rebase/merge conflict is a manual-recovery anomaly). The IDE neither
+//! stages, commits nor pushes anymore — the editor is view-only, changes
+//! arrive via PRs, and the trunk is kept fresh by the headless
+//! [`crate::trunk_sync`] engine. The ONE write affordance is the escape
+//! hatch: discard local changes via
 //! [`crate::trunk_sync::TrunkSync::hard_reset`] (reset to origin/<default>),
 //! behind an explicit confirm.
 //!
@@ -26,11 +29,9 @@
 //!
 //! Conflict mode (§4.4): entry/exit is purely `scm::detect_conflict` off disk
 //! (`.git/rebase-merge` / `MERGE_HEAD`), so the banner clears no matter who
-//! finishes the rebase — Claude, a terminal, or another tool. **Fix conflicts
-//! with Claude** opens a [`coding::claude_task`] in a `ClaudeTask` terminal tab
-//! (§4.9); it is a *separate* primitive from `coding::launch` (no session row,
-//! no worktree). All git invocations are argv-only through [`coding::scm`] —
-//! never `gh`, never a library (DNR L5).
+//! finishes the rebase — a terminal, another tool, or the reset hatch. All
+//! git invocations are argv-only through [`coding::scm`] — never `gh`, never
+//! a library (DNR L5).
 
 use std::path::PathBuf;
 
@@ -48,7 +49,6 @@ use gpui_component::{
 use sync::Store;
 
 use coding::scm::{self, CommitInfo, ConflictKind, ConflictState};
-use terminal::TabKind;
 
 use crate::coding_flow::{self, CodingHub};
 use crate::diff::{build_scm_diff, DiffView};
@@ -83,8 +83,8 @@ enum Load {
 #[derive(Clone)]
 struct TrunkScope {
     /// The server-reported default branch (L30: server-healed, never fabricated
-    /// as `main`). `None` when the API omitted it; the labelling fallback for
-    /// the conflict-fix task when no branch is checked out.
+    /// as `main`). `None` when the API omitted it; the hard-reset confirm's
+    /// labelling fallback when no branch is checked out.
     default_branch: Option<String>,
     clone_dir: PathBuf,
 }
@@ -380,44 +380,6 @@ impl SourceControlView {
 
     // -- conflict mode ------------------------------------------------------
 
-    /// **Fix conflicts with Claude** (§4.4/§4.9): a Claude task in the trunk,
-    /// in a `ClaudeTask` terminal tab (no session row, no worktree).
-    fn fix_with_claude(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(scope) = self.scope.clone() else {
-            return;
-        };
-        let Some(conflict) = self.conflict.clone() else {
-            return;
-        };
-        let branch = self
-            .status
-            .as_ref()
-            .map(|status| status.branch.clone())
-            .filter(|branch| !branch.is_empty())
-            .or_else(|| scope.default_branch.clone())
-            .unwrap_or_default();
-        let settings = CodingHub::global(cx).read(cx).settings.clone();
-        let prompt = coding::fix_conflicts_prompt(&branch, &conflict.files);
-        let label = format!("Fix conflicts · {branch}");
-        // A pre-EXP-98 "Create with Claude" crash can leave a stale
-        // `.mcp.json` in the clone root, re-raising claude's project-approval
-        // dialog.
-        coding::remove_stale_legacy_mcp_json(&scope.clone_dir);
-        let task = coding::claude_task(&settings, &scope.clone_dir, &prompt, &label);
-        let Some(manager) = coding_flow::window_terminal_manager(window, cx) else {
-            self.error = Some("No terminal dock in this window.".into());
-            cx.notify();
-            return;
-        };
-        let result = manager.update(cx, |manager, cx| {
-            manager.open_tab(TabKind::ClaudeTask, task.tab_title.clone(), None, &task.spawn, None, cx)
-        });
-        if let Err(err) = result {
-            self.error = Some(format!("Could not start Claude: {err}").into());
-            cx.notify();
-        }
-    }
-
     /// **Open terminal** (§4.4): a plain shell tab at the trunk clone.
     fn open_terminal(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(scope) = self.scope.clone() else {
@@ -530,7 +492,8 @@ impl SourceControlView {
 
     /// The §4.4 conflict banner (leads the screen while a rebase/merge is
     /// paused). Conflicted-file chips open their marker diff; the actions
-    /// are Fix-with-Claude / Open-terminal / Abort / the reset hatch.
+    /// are Open-terminal / Abort / the reset hatch (EXP-259 removed the
+    /// claude-task fix button).
     fn render_conflict_banner(
         &self,
         conflict: &ConflictState,
@@ -586,16 +549,6 @@ impl SourceControlView {
             .child(
                 gpui_component::h_flex()
                     .gap_2()
-                    .child(
-                        Button::new("scm-fix-claude")
-                            .primary()
-                            .small()
-                            .label("Fix conflicts with Claude")
-                            .disabled(self.busy.is_some())
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.fix_with_claude(window, cx);
-                            })),
-                    )
                     .child(
                         Button::new("scm-open-terminal")
                             .small()

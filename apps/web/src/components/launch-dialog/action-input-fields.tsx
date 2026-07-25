@@ -5,8 +5,8 @@ import {
   type ActionInputDef,
   MAX_ACTION_INPUT_TEXT,
 } from "@exp/db-schema/domain"
-import type { Board } from "@/db/schema"
-import { boardCollection } from "@/lib/collections"
+import type { Board, Issue } from "@/db/schema"
+import { boardCollection, issueCollection } from "@/lib/collections"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import {
   MobilePopover,
@@ -35,9 +35,11 @@ import {
 // The selected action's typed input fields (EXP-257): text → plain Input,
 // repo → compact Select over the team's connected repos, board → a
 // MobilePopover + Command picker over the synced boards (the board-picker
-// pattern). Values live in the dialog shell as a flat Record<key, string> —
-// repo/board store the picked id, blank = unset (dropped from the payload by
-// buildInputsPayload).
+// pattern), pr (EXP-259) → the same picker over the team's OPEN issue-linked
+// pull requests (deduped by prUrl — a batch PR shows once, its value is the
+// representative issue's id). Values live in the dialog shell as a flat
+// Record<key, string> — repo/board/pr store the picked id, blank = unset
+// (dropped from the payload by buildInputsPayload).
 
 // Radix Select forbids an empty-string item value; the unset optional repo
 // rides this sentinel inside the dialog only.
@@ -106,6 +108,19 @@ export function ActionInputFields({
             </div>
           )
         }
+        if (def.type === `pr`) {
+          return (
+            <div key={def.key} className="space-y-2">
+              <Label>{label}</Label>
+              <PrInputField
+                teamId={teamId}
+                value={values[def.key] ?? ``}
+                required={def.required}
+                onChange={(value) => onChange(def.key, value)}
+              />
+            </div>
+          )
+        }
         return (
           <div key={def.key} className="space-y-2">
             <Label>{label}</Label>
@@ -119,6 +134,133 @@ export function ActionInputFields({
         )
       })}
     </div>
+  )
+}
+
+// Open-PR single-select (EXP-259): the team's issue-linked open pull
+// requests, deduped by prUrl (a batch PR links several issues to one PR —
+// the row lists every linked identifier and carries the representative
+// issue's id as its value). Issues don't sync team_id, so the team scope
+// comes from the synced boards.
+function PrInputField({
+  teamId,
+  value,
+  required,
+  onChange,
+}: {
+  teamId: string
+  /** The picked representative issue id, or `` when unset. */
+  value: string
+  required: boolean
+  onChange: (issueId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  const { data: boardRows } = useLiveQuery(
+    (q) =>
+      q
+        .from({ boards: boardCollection })
+        .where(({ boards }) => eq(boards.teamId, teamId)),
+    [teamId]
+  )
+  const { data: issueRows } = useLiveQuery(
+    (q) =>
+      q
+        .from({ issues: issueCollection })
+        .where(({ issues }) => eq(issues.prState, `open`)),
+    []
+  )
+  const pulls = useMemo(() => {
+    const teamBoards = new Set(
+      ((boardRows ?? []) as Board[]).map((board) => board.id)
+    )
+    const byPrUrl = new Map<
+      string,
+      { issueId: string; prNumber: number | null; identifiers: string[] }
+    >()
+    for (const issue of (issueRows ?? []) as Issue[]) {
+      if (!teamBoards.has(issue.boardId) || !issue.prUrl) continue
+      const entry = byPrUrl.get(issue.prUrl)
+      if (entry) {
+        entry.identifiers.push(issue.identifier)
+      } else {
+        byPrUrl.set(issue.prUrl, {
+          issueId: issue.id,
+          prNumber: issue.prNumber,
+          identifiers: [issue.identifier],
+        })
+      }
+    }
+    return [...byPrUrl.values()]
+      .map((entry) => ({
+        ...entry,
+        label: `${entry.prNumber ? `#${entry.prNumber} · ` : ``}${entry.identifiers.sort().join(`, `)}`,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label))
+  }, [boardRows, issueRows])
+  const selected = pulls.find((pull) => pull.issueId === value) ?? null
+
+  const pick = (issueId: string) => {
+    setOpen(false)
+    onChange(issueId)
+  }
+
+  return (
+    <MobilePopover open={open} onOpenChange={setOpen}>
+      <MobilePopoverTrigger asChild>
+        <Button
+          variant="outline"
+          className="w-full justify-start font-normal"
+        >
+          {selected ? (
+            <span className="min-w-0 truncate">{selected.label}</span>
+          ) : (
+            <span className="text-muted-foreground">
+              Select a pull request…
+            </span>
+          )}
+        </Button>
+      </MobilePopoverTrigger>
+      <MobilePopoverContent
+        className="w-[18rem] p-0"
+        align="start"
+        mobileTitle="Select a pull request"
+      >
+        <Command>
+          <CommandInput placeholder="Select a pull request..." />
+          <CommandList>
+            <CommandEmpty>No open pull requests.</CommandEmpty>
+            <CommandGroup>
+              {!required && (
+                <CommandItem value="none" onSelect={() => pick(``)}>
+                  <span className="text-muted-foreground">None</span>
+                  {value === `` && (
+                    <Check className="ml-auto size-3.5 shrink-0" />
+                  )}
+                </CommandItem>
+              )}
+              {pulls.map((pull) => (
+                <CommandItem
+                  key={pull.issueId}
+                  // Label keeps cmdk text filtering working; the id suffix
+                  // keeps values unique.
+                  value={`${pull.label} ${pull.issueId}`}
+                  onSelect={() => pick(pull.issueId)}
+                  className="flex items-center gap-2"
+                >
+                  <span className="min-w-0 truncate text-sm">
+                    {pull.label}
+                  </span>
+                  {pull.issueId === value && (
+                    <Check className="ml-auto size-3.5 shrink-0" />
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </MobilePopoverContent>
+    </MobilePopover>
   )
 }
 

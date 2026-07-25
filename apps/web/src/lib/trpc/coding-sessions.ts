@@ -9,17 +9,20 @@ import {
 } from "@/lib/team-membership"
 import {
   BUILTIN_CREATE_ACTION_ID,
-  BUILTIN_CREATE_ACTION_NAME,
+  BUILTIN_FIX_CONFLICTS_ID,
+  builtinActionName,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 
-// Built-in action runs (EXP-257) have no DB row to FK — their session rows
-// are batch-shaped (actionId NULL) with the server-constant name snapshot,
-// which also makes clients' actionName-based run watching work uniformly.
+// Built-in action runs (EXP-257/EXP-259) have no DB row to FK — their session
+// rows are batch-shaped (actionId NULL) with the server-constant name
+// snapshot, which also makes clients' actionName-based run watching work
+// uniformly.
 const actionIdInput = z
   .string()
   .uuid()
   .or(z.literal(BUILTIN_CREATE_ACTION_ID))
+  .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
 // interactive session; synced to every client as an Electric shape.
@@ -69,7 +72,7 @@ export const codingSessionsRouter = router({
             // labels the run on every client.
             teamId: input.teamId!,
             actionId: null,
-            actionName: BUILTIN_CREATE_ACTION_NAME,
+            actionName: builtinActionName(input.actionId),
             userId: ctx.session.user.id,
             deviceLabel: input.deviceLabel ?? null,
             status: `running`,
@@ -263,7 +266,7 @@ export const codingSessionsRouter = router({
               teamId: input.teamId!,
               actionId,
               actionName: builtin
-                ? BUILTIN_CREATE_ACTION_NAME
+                ? builtinActionName(input.actionId!)
                 : input.actionId
                   ? (input.actionName ?? null)
                   : null,

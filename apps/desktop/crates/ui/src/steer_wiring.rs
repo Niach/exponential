@@ -190,12 +190,19 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         // EXP-253/EXP-257: the actions capabilities — advertised when ANY
         // agent is usable (action runs stopped being Claude-only), plus
         // `action-inputs` (this build understands builtin + inputs-carrying
-        // starts). Remote clients strictly gate action starts on these, so
-        // an incapable desktop is never targeted.
+        // starts) and `fix-conflicts` (EXP-259: this build launches the
+        // "Fix merge conflicts" builtin — a pre-EXP-259 desktop would treat
+        // its id as a real action and fail the fetch). Remote clients
+        // strictly gate action starts on these, so an incapable desktop is
+        // never targeted.
         let caps: Vec<String> = if agents.is_empty() {
             Vec::new()
         } else {
-            vec!["actions".to_string(), "action-inputs".to_string()]
+            vec![
+                "actions".to_string(),
+                "action-inputs".to_string(),
+                "fix-conflicts".to_string(),
+            ]
         };
         let _ = cx.update(|cx| {
             // The probe raced a sign-out/switch: starting a socket for a

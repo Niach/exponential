@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { actionCollection } from "@/lib/collections"
-import { builtinCreateAction } from "@/lib/builtin-actions"
+import {
+  builtinCreateAction,
+  builtinFixConflictsAction,
+} from "@/lib/builtin-actions"
 import {
   Bot,
   Github,
@@ -265,14 +268,19 @@ function AgentsPage() {
     [teamId]
   )
 
-  // Builtin pinned FIRST by its flag; the synced rows re-apply the server's
-  // ordering (sortOrder asc, then name — collections hydrate unordered).
+  // Builtins pinned FIRST by their flag (neither is a DB row, so the shape
+  // can't carry them); the synced rows re-apply the server's ordering
+  // (sortOrder asc, then name — collections hydrate unordered).
   const sortedActions = useMemo<TeamAction[] | null>(() => {
     if (!teamId || !isMember || actionRows === undefined) return null
     const rows = [...actionRows]
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
       .map((row) => ({ ...row, builtin: false as const }))
-    return [builtinCreateAction(teamId), ...rows]
+    return [
+      builtinCreateAction(teamId),
+      builtinFixConflictsAction(teamId),
+      ...rows,
+    ]
   }, [teamId, isMember, actionRows])
 
   // Repo names for the badges + the editor's repository select.

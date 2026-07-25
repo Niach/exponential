@@ -38,7 +38,7 @@ use terminal::TerminalManager;
 use crate::agent::CodingAgent;
 use crate::argv::{session_args, AgentMcp, LaunchOptions, SessionTail, MCP_TOKEN_ENV, MCP_URL_ENV};
 use crate::action_prompt::{render_action_prompt, ActionInputValue};
-use crate::claude_task::create_action_prompt;
+use crate::action_prompt::{create_action_prompt, fix_pr_conflicts_prompt};
 use crate::batch_launcher::{batch_branch_name, BatchLaunchRequest, RepoGroup};
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
@@ -123,9 +123,45 @@ pub struct LaunchRequest {
     pub resume: bool,
 }
 
-/// An action run's launch input (EXP-253): no worktree, no branch, no PR —
-/// an interactive agent session on the repo's trunk clone (autopulled) or,
-/// for a repo-less action, a scratch dir holding only the MCP config.
+/// Which program an action run executes (EXP-257/EXP-259). `Team` is a
+/// user-authored action (fresh trust-gated body); the other two are the
+/// server-defined virtual BUILTINS whose prompts are composed from shipped
+/// constants (`body` stays empty, the trust gate is skipped).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActionRunKind {
+    /// A team action row: preamble [+ inputs] + the fresh body.
+    Team,
+    /// The "Create action" creator (EXP-257): scratch cwd, prompt generated
+    /// from the `description`/`repo` input values.
+    CreateAction,
+    /// The "Fix merge conflicts" run (EXP-259): spawned in the WORKTREE of
+    /// the selected PR's branch (the caller resolved the `pr` input to the
+    /// representative issue), rebases onto `origin/<default_branch>`,
+    /// resolves, force-pushes, and merges via `exponential_pr_merge`.
+    FixConflicts {
+        /// The PR's head branch (e.g. `exp/EXP-42` / `exp/batch-<id8>`).
+        branch: String,
+        /// The rebase target — the repo's server-reported default branch.
+        default_branch: String,
+        /// The representative issue's identifier (prompt context + the
+        /// `exponential_pr_merge` argument).
+        identifier: String,
+    },
+}
+
+impl ActionRunKind {
+    /// Whether this run is a server-defined virtual builtin (its session row
+    /// is keyed by team — `codingSessions.start` can't resolve a team from
+    /// the builtin literal).
+    pub fn is_builtin(&self) -> bool {
+        !matches!(self, Self::Team)
+    }
+}
+
+/// An action run's launch input (EXP-253): no PR contract, no status flips —
+/// an interactive agent session on the repo's trunk clone (autopulled), a
+/// PR branch's worktree (the fix-conflicts builtin), or, for a repo-less
+/// action, a scratch dir holding only the MCP config.
 #[derive(Clone, Debug)]
 pub struct ActionLaunchRequest {
     pub action_id: String,
@@ -136,23 +172,24 @@ pub struct ActionLaunchRequest {
     /// resolve a team from the builtin literal).
     pub team_id: String,
     /// The FRESH body — the caller fetched it via `actions.get` right before
-    /// the run (synced rows carry no body). Empty for the builtin (its
-    /// prompt is generated).
+    /// the run (synced rows carry no body). Empty for the builtins (their
+    /// prompts are generated).
     pub body: String,
-    /// `Some` = run in this repo's trunk clone on the default branch;
-    /// `None` = repo-less (scratch dir). Local starts resolve it from the
-    /// window resolver; relay starts carry it in the frame (batch precedent
-    /// — the desktop syncs no repositories). Ignored for the builtin (its
-    /// repo INPUT only pins the authored action's `repositoryId`).
+    /// `Some` = run in this repo's trunk clone on the default branch (or,
+    /// for [`ActionRunKind::FixConflicts`], the PR branch's worktree —
+    /// REQUIRED there); `None` = repo-less (scratch dir). Local starts
+    /// resolve it from the window resolver; relay starts carry it in the
+    /// frame (batch precedent — the desktop syncs no repositories). Ignored
+    /// for the creator builtin (its repo INPUT only pins the authored
+    /// action's `repositoryId`).
     pub repo: Option<RepoGroup>,
     /// The resolved run-time input values (EXP-257), definition-ordered:
     /// real actions inject them as the prompt's `## Inputs` section; the
-    /// builtin reads its `description`/`repo` inputs to build the creator
-    /// prompt.
+    /// creator builtin reads its `description`/`repo` inputs to build the
+    /// creator prompt.
     pub inputs: Vec<ActionInputValue>,
-    /// The server-defined virtual "Create action" run (EXP-257): scratch
-    /// cwd, generated creator prompt, session row keyed by team.
-    pub builtin: bool,
+    /// Which program this run executes (team action or a virtual builtin).
+    pub kind: ActionRunKind,
     pub device_label: String,
     pub origin: LaunchOrigin,
     /// The FULL option set (EXP-257 — same per-agent vocabulary as issue
@@ -817,25 +854,28 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
 }
 
 /// The action-run sequence (EXP-253; blocking, background executor) — the
-/// deliberately SHORT sibling of the issue/batch skeleton above: no
-/// worktree, no branch, no PR contract, no status flips.
+/// deliberately SHORT sibling of the issue/batch skeleton above: no PR
+/// contract, no status flips.
 ///
 /// 0. doctor — the SELECTED agent always (EXP-257: action runs take the
 ///    full option set, no Claude clamp); `git` only when repo-backed (a
 ///    repo-less action needs no git at all);
-/// 1. cwd — repo-backed: mint the JIT token (cache-seeded like a session),
-///    ensure the trunk clone + ambient auth, then a BEST-EFFORT autopull
-///    (`clone_manager::auto_sync` — a dirty/diverged trunk still launches;
-///    the trunk-sync engine surfaces that state); repo-less:
+/// 1. cwd — repo-backed team action: mint the JIT token (cache-seeded like a
+///    session), ensure the trunk clone + ambient auth, then a BEST-EFFORT
+///    autopull (`clone_manager::auto_sync` — a dirty/diverged trunk still
+///    launches; the trunk-sync engine surfaces that state); the
+///    fix-conflicts builtin (EXP-259) instead fetches the PR branch and
+///    creates/reuses ITS worktree; repo-less:
 ///    `<data_dir>/actions/<action id>/`, created on demand;
 /// 2. per-agent MCP wiring in the cwd ([`wire_agent_mcp`] — shared with the
 ///    issue path; repo-backed also git-excludes the seed files);
 /// 3. prompt — [`render_action_prompt`] preamble [+ `## Inputs`] + the fresh
-///    body; the BUILTIN instead renders [`create_action_prompt`] from its
-///    `description`/`repo` input values (EXP-257);
+///    body; the BUILTINS instead render [`create_action_prompt`] from the
+///    `description`/`repo` input values (EXP-257) or
+///    [`fix_pr_conflicts_prompt`] from the resolved PR target (EXP-259);
 /// 4. `codingSessions.start({actionId[, teamId]})` — BEFORE spawn; its id
 ///    keys the tab + steer room like any session (teamId rides only for the
-///    builtin literal);
+///    builtin literals);
 /// 5. spawn spec — the selected agent's interactive session argv
 ///    (model/effort/toggles + its MCP posture).
 fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
@@ -843,9 +883,19 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
     // run (the server validates remote starts identically).
     let options = req.options.clone();
     let agent = options.agent;
-    // The builtin always runs in its scratch dir — a repo INPUT only pins
-    // the authored action's repositoryId, never this run's cwd.
-    let repo = if req.builtin { &None } else { &req.repo };
+    // The creator builtin always runs in its scratch dir — a repo INPUT only
+    // pins the authored action's repositoryId, never this run's cwd. The
+    // fix-conflicts builtin REQUIRES its repo (checked below).
+    let repo = if matches!(req.kind, ActionRunKind::CreateAction) {
+        &None
+    } else {
+        &req.repo
+    };
+    if matches!(req.kind, ActionRunKind::FixConflicts { .. }) && repo.is_none() {
+        return Err(CodingError::Io(
+            "the fix-conflicts run needs the pull request's repository".to_string(),
+        ));
+    }
 
     // Step 0 — doctor: the selected agent always; git only when a clone is
     // involved.
@@ -872,7 +922,10 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
         std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
     };
 
-    // Step 1 — resolve the cwd.
+    // Step 1 — resolve the cwd. `trunk_clone` stays the CLONE root for
+    // repo-backed runs even when the cwd is a worktree (fix-conflicts) —
+    // the shared cargo cache and the session registry key off it.
+    let mut trunk_clone: Option<PathBuf> = None;
     let (cwd, repository_id) = match repo {
         Some(repo) => {
             // Repo-backed: JIT token via the cache (same refresher-lead
@@ -901,7 +954,26 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
                 &clone,
                 &[crate::mcp_json::MCP_JSON_FILE, crate::pi_bridge::PI_BRIDGE_FILE],
             );
-            (clone, Some(repo.repository_id.clone()))
+            let cwd = match &req.kind {
+                // EXP-259: the fix-conflicts run works on the PR branch, not
+                // the trunk — fetch the branch (it may only exist on origin;
+                // the PR may have been coded on another device) and
+                // create/reuse its worktree, cutting a missing local branch
+                // from origin/<branch>.
+                ActionRunKind::FixConflicts { branch, .. } => {
+                    crate::git_worktree::validate_branch_arg(branch, "fix conflicts")?;
+                    crate::git_worktree::fetch_base(&clone, branch, &url)?;
+                    crate::git_worktree::create_worktree(
+                        &clone,
+                        branch,
+                        &format!("origin/{branch}"),
+                        &url,
+                    )?
+                }
+                _ => clone.clone(),
+            };
+            trunk_clone = Some(clone);
+            (cwd, Some(repo.repository_id.clone()))
         }
         // Repo-less: a scratch dir holding only the MCP config (+ PROMPT.md
         // when the body is large). No git, no token. The id is a server
@@ -937,44 +1009,50 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
     let agent_mcp = wire_agent_mcp(agent, &cwd, deps.trpc.base_url(), &personal_key)?;
 
     // Step 3 — the prompt (size-gated like a session's; the PROMPT.md
-    // exclude write no-ops without a `.git`). The builtin renders the
-    // creator prompt from its input VALUES; real actions get the preamble
-    // [+ inputs section] + the fresh body.
-    let rendered = if req.builtin {
-        let Some(description) = req
-            .inputs
-            .iter()
-            .find(|input| input.key == "description")
-            .map(|input| input.value.trim())
-            .filter(|value| !value.is_empty())
-        else {
-            return Err(CodingError::Io(
-                "the builtin Create-action run is missing its description input".to_string(),
-            ));
-        };
-        let repo_input = req
-            .inputs
-            .iter()
-            .find(|input| input.key == "repo" && !input.value.trim().is_empty())
-            .map(|input| {
-                (
-                    input.value.as_str(),
-                    input.display.as_deref().unwrap_or(input.value.as_str()),
-                )
-            });
-        create_action_prompt(&req.team_id, description, repo_input)
-    } else {
-        render_action_prompt(&req.action_name, &req.body, &req.inputs)
+    // exclude write no-ops without a `.git`). The builtins render their
+    // generated prompts; real actions get the preamble [+ inputs section] +
+    // the fresh body.
+    let rendered = match &req.kind {
+        ActionRunKind::CreateAction => {
+            let Some(description) = req
+                .inputs
+                .iter()
+                .find(|input| input.key == "description")
+                .map(|input| input.value.trim())
+                .filter(|value| !value.is_empty())
+            else {
+                return Err(CodingError::Io(
+                    "the builtin Create-action run is missing its description input".to_string(),
+                ));
+            };
+            let repo_input = req
+                .inputs
+                .iter()
+                .find(|input| input.key == "repo" && !input.value.trim().is_empty())
+                .map(|input| {
+                    (
+                        input.value.as_str(),
+                        input.display.as_deref().unwrap_or(input.value.as_str()),
+                    )
+                });
+            create_action_prompt(&req.team_id, description, repo_input)
+        }
+        ActionRunKind::FixConflicts {
+            branch,
+            default_branch,
+            identifier,
+        } => fix_pr_conflicts_prompt(identifier, branch, default_branch),
+        ActionRunKind::Team => render_action_prompt(&req.action_name, &req.body, &req.inputs),
     };
     let delivery = deliver_prompt(&cwd, &cwd, &rendered)
         .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?;
 
-    // Step 4 — the session row, BEFORE spawn. Only the builtin literal
-    // carries teamId (the server forbids it on real action ids).
+    // Step 4 — the session row, BEFORE spawn. Only the builtin literals
+    // carry teamId (the server forbids it on real action ids).
     let session = match coding_sessions::start_action(
         &deps.trpc,
         &req.action_id,
-        req.builtin.then_some(req.team_id.as_str()),
+        req.kind.is_builtin().then_some(req.team_id.as_str()),
         Some(&req.device_label),
     ) {
         Ok(session) => session,
@@ -991,25 +1069,32 @@ fn prepare_action(req: &ActionLaunchRequest, deps: &CodingDeps) -> Result<Prepar
         .args(args)
         .cwd(&cwd);
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
-    if repo.is_some() {
-        // Same EXP-76 shared-cache posture as a session — inert repo-less.
+    if let Some(clone) = &trunk_clone {
+        // Same EXP-76 shared-cache posture as a session — keyed off the
+        // CLONE (the fix-conflicts cwd is a worktree); inert repo-less.
         spawn = spawn
             .env(
                 "CARGO_TARGET_DIR",
-                shared_cargo_target_dir(&cwd).to_string_lossy().into_owned(),
+                shared_cargo_target_dir(clone).to_string_lossy().into_owned(),
             )
             .env("CARGO_INCREMENTAL", "0");
     }
 
+    // The fix-conflicts run pushes its PR branch — carrying it keeps the
+    // EXP-102 live-branch guard blocking that worktree's prune while the run
+    // is alive. Every other action run has no branch (the empty string keeps
+    // branch-keyed registry lookups a miss).
+    let branch = match &req.kind {
+        ActionRunKind::FixConflicts { branch, .. } => branch.clone(),
+        _ => String::new(),
+    };
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         issue_identifier: req.action_name.clone(),
         worktree: cwd.clone(),
-        clone: cwd,
+        clone: trunk_clone.unwrap_or(cwd),
         repository_id,
-        // No branch — an action run never pushes; the empty string keeps
-        // every branch-keyed registry lookup a miss.
-        branch: String::new(),
+        branch,
         spawn,
         tab_title,
         tab_title_prefix: req.action_name.clone(),
@@ -1338,7 +1423,7 @@ mod tests {
     }
 
     /// A base repo-less action request — tests override the fields they
-    /// exercise (EXP-257: team_id/inputs/builtin ride every request).
+    /// exercise (EXP-257: team_id/inputs/kind ride every request).
     fn action_request() -> ActionLaunchRequest {
         ActionLaunchRequest {
             action_id: "act-1".to_string(),
@@ -1347,7 +1432,7 @@ mod tests {
             body: "# Review\nScan the backlog.".to_string(),
             repo: None,
             inputs: Vec::new(),
-            builtin: false,
+            kind: ActionRunKind::Team,
             device_label: "box".to_string(),
             origin: LaunchOrigin::Local,
             options: LaunchOptions {
@@ -1674,7 +1759,7 @@ mod tests {
         req.action_id = "builtin:create-action".to_string();
         req.action_name = "Create action".to_string();
         req.body = String::new();
-        req.builtin = true;
+        req.kind = ActionRunKind::CreateAction;
         // A repo group riding in must be IGNORED — the builtin always runs
         // in its scratch dir (the repo INPUT below is what Claude binds).
         req.repo = Some(RepoGroup {
@@ -1736,12 +1821,42 @@ mod tests {
         let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
         let mut req = action_request();
         req.action_id = "builtin:create-action".to_string();
-        req.builtin = true;
+        req.kind = ActionRunKind::CreateAction;
         req.inputs = Vec::new();
 
         match prepare(&PrepareRequest::Action(req), &deps) {
             Err(CodingError::Io(message)) => assert!(message.contains("description")),
             other => panic!("expected the missing-description error, got {other:?}"),
+        }
+    }
+
+    /// EXP-259: the fix-conflicts builtin is repo-backed by definition — a
+    /// request without the PR's repo group is a hard error BEFORE any
+    /// doctor/network work (the caller resolves it upstream).
+    #[test]
+    fn prepare_action_fix_conflicts_requires_the_repo() {
+        let dir = temp_dir("action-fix-conflicts-repoless");
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
+        let mut req = action_request();
+        req.action_id = "builtin:fix-conflicts".to_string();
+        req.action_name = "Fix merge conflicts".to_string();
+        req.body = String::new();
+        req.kind = ActionRunKind::FixConflicts {
+            branch: "exp/EXP-42".to_string(),
+            default_branch: "main".to_string(),
+            identifier: "EXP-42".to_string(),
+        };
+        req.repo = None;
+
+        match prepare(&PrepareRequest::Action(req), &deps) {
+            Err(CodingError::Io(message)) => {
+                assert!(message.contains("repository"), "{message}");
+            }
+            other => panic!("expected the missing-repo error, got {other:?}"),
         }
     }
 

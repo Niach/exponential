@@ -48,7 +48,7 @@ use sync::Store;
 
 use domain::rows::Issue;
 
-use crate::coding_flow::{window_terminal_manager, CodingHub, StartCodingControl};
+use crate::coding_flow::StartCodingControl;
 use crate::icons::ExpIcon;
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, navigate, replace_screen, Screen};
@@ -818,9 +818,9 @@ impl IssueDetailView {
     /// duplicate for a duplicate issue (L27 removed the standalone "Mark as
     /// duplicate…" entry; the status control now owns that path via
     /// interception). After the delete fires, the web navigates back to the
-    /// board — the tabbed analog is popping the back stack. "Update from
-    /// main" (rehomed from the deleted Changes tab, EXP-179) appears while
-    /// the issue's worktree exists on disk.
+    /// board — the tabbed analog is popping the back stack. (EXP-259 deleted
+    /// the claude-task "Update from main" entry — a conflicted PR is fixed
+    /// by the builtin "Fix merge conflicts" action run instead.)
     fn render_actions_menu(
         &mut self,
         issue: &Issue,
@@ -830,44 +830,11 @@ impl IssueDetailView {
         let board_id = issue.board_id.clone();
         let is_duplicate = issue.duplicate_of_id.is_some();
         let can_move = !crate::issue_list::move_target_boards(cx, &board_id).is_empty();
-        // Update-from-main context (EXP-179, ex-Changes-tab §4.9 action):
-        // resolved repo + a worktree on disk. Blocked while a session runs —
-        // a second `claude` in the same worktree would supersede the session
-        // transcript the activity emitter tails.
-        let update_ctx = self.start_coding.read(cx).resolved_repo().cloned().and_then(|repo| {
-            let settings = CodingHub::global(cx).read(cx).settings.clone();
-            let clone = coding::clone_path(&settings.repos_root_path(), &repo.full_name);
-            let branch = coding::branch_name(&settings.branch_prefix, &issue.identifier);
-            let worktree = coding::worktree_path(&clone, &branch);
-            worktree.join(".git").exists().then(|| UpdateFromMainContext {
-                settings,
-                worktree,
-                default_branch: repo.default_branch,
-                identifier: issue.identifier.clone(),
-            })
-        });
-        let session_running = session_running(&issue.id, cx);
         Button::new("issue-actions")
             .ghost()
             .xsmall()
             .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
             .dropdown_menu(move |mut menu, window, cx| {
-                if let Some(ctx) = update_ctx.clone() {
-                    let item = if session_running {
-                        PopupMenuItem::new(
-                            "Update from main — stop the running session first",
-                        )
-                        .icon(Icon::from(ExpIcon::Repeat))
-                        .disabled(true)
-                    } else {
-                        PopupMenuItem::new("Update from main")
-                            .icon(Icon::from(ExpIcon::Repeat))
-                            .on_click(move |_, window, cx| {
-                                update_from_main(&ctx, window, cx);
-                            })
-                    };
-                    menu = menu.item(item).separator();
-                }
                 if is_duplicate {
                     let issue_id = issue_id.clone();
                     menu = menu
@@ -1377,21 +1344,6 @@ fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
         })
 }
 
-/// A running `coding_sessions` row for the issue (any client — the synced
-/// shape). Heartbeat-stale rows count as absent (EXP-153).
-fn session_running(issue_id: &str, cx: &App) -> bool {
-    let now = chrono::Utc::now().timestamp();
-    Store::global(cx)
-        .collections()
-        .coding_sessions
-        .read(cx)
-        .iter()
-        .any(|session| {
-            session.issue_id.as_deref() == Some(issue_id)
-                && crate::queries::coding_session_is_live(session, now)
-        })
-}
-
 /// The issue's full web URL — `{instance}/t/{team}/boards/{board}/issues/{id}`
 /// (the web copy-link button's exact shape). `None` while signed out or before
 /// the board/team rows (or their slugs) have synced.
@@ -1406,44 +1358,6 @@ fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
         account.instance_url.trim_end_matches('/'),
         issue.identifier
     ))
-}
-
-/// Everything the actions-menu "Update from main" click needs, resolved at
-/// render time (menus must not read `self`).
-#[derive(Clone)]
-struct UpdateFromMainContext {
-    settings: coding::Settings,
-    worktree: std::path::PathBuf,
-    default_branch: String,
-    identifier: String,
-}
-
-/// Update from main (v4 §4.9, rehomed from the deleted Changes tab —
-/// EXP-179): a Claude task in the worktree — "rebase onto origin/<default>,
-/// resolve conflicts, verify the build, then push with --force-with-lease" —
-/// opened as a `ClaudeTask` terminal tab.
-fn update_from_main(ctx: &UpdateFromMainContext, window: &mut Window, cx: &mut App) {
-    let Some(manager) = window_terminal_manager(window, cx) else {
-        return;
-    };
-    let prompt = coding::resolve_pr_prompt(&ctx.default_branch);
-    let label = format!("Update from main · {}", ctx.identifier);
-    // A worktree prepared by a pre-EXP-98 app version still carries a stale
-    // `.mcp.json`, which alone re-raises claude's project-approval dialog.
-    coding::remove_stale_legacy_mcp_json(&ctx.worktree);
-    let task = coding::claude_task(&ctx.settings, &ctx.worktree, &prompt, &label);
-    let _ = manager.update(cx, |manager, cx| {
-        // EXP-145: keep the issue identity visible once claude's OSC titles
-        // take over the tab.
-        manager.open_tab(
-            terminal::TabKind::ClaudeTask,
-            task.tab_title.clone(),
-            Some(ctx.identifier.clone().into()),
-            &task.spawn,
-            None,
-            cx,
-        )
-    });
 }
 
 /// The §4.2 steer presence pill: a "coding now" badge while a

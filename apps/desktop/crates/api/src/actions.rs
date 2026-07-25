@@ -12,11 +12,22 @@ use crate::error::ApiError;
 use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 
-/// The virtual "Create action" row's id (EXP-257) — the ONE non-UUID action
-/// id. `actions.get/update/delete` reject it; clients construct the row
-/// locally ([`builtin_create_action`]) — its content is product-shipped,
-/// never owner-authored.
+/// The virtual "Create action" row's id (EXP-257) — one of the two non-UUID
+/// action ids. `actions.get/update/delete` reject both; clients construct the
+/// rows locally ([`builtin_create_action`], [`builtin_fix_conflicts_action`])
+/// — their content is product-shipped, never owner-authored.
 pub const BUILTIN_CREATE_ACTION_ID: &str = domain::contract::BUILTIN_CREATE_ACTION_ID;
+
+/// The server-defined virtual "Fix merge conflicts" row's id (EXP-259) — the
+/// second builtin: takes a `pr` input (an issue-linked open PR), rebases its
+/// branch onto the default branch in a worktree, resolves the conflicts,
+/// pushes, and merges via the `exponential_pr_merge` MCP tool.
+pub const BUILTIN_FIX_CONFLICTS_ID: &str = domain::contract::BUILTIN_FIX_CONFLICTS_ID;
+
+/// Whether `id` is a server-defined virtual builtin action id.
+pub fn is_builtin_action_id(id: &str) -> bool {
+    id == BUILTIN_CREATE_ACTION_ID || id == BUILTIN_FIX_CONFLICTS_ID
+}
 
 /// One typed run-time input definition on an action (EXP-257 — filled in the
 /// unified launch dialog, resolved server-side for remote starts).
@@ -254,6 +265,37 @@ pub fn builtin_create_action(team_id: &str) -> Action {
     }
 }
 
+/// The client-constructed virtual "Fix merge conflicts" row (EXP-259/EXP-268):
+/// like [`builtin_create_action`] it isn't a DB row, so it can't ride the
+/// synced shape — every client prepends its own local copy. Its `pr` input is
+/// the representative issue id of an open PR; the run rebases that PR's branch
+/// onto the default branch, resolves the conflicts, pushes, and merges via the
+/// `exponential_pr_merge` MCP tool. Mirrors the web's `builtinFixConflictsAction`.
+pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
+    Action {
+        id: BUILTIN_FIX_CONFLICTS_ID.to_string(),
+        team_id: team_id.to_string(),
+        repository_id: None,
+        name: "Fix merge conflicts".to_string(),
+        description: Some(
+            "Pick a conflicted pull request and let Claude rebase, resolve, and merge it"
+                .to_string(),
+        ),
+        body: String::new(),
+        builtin: true,
+        inputs: vec![ActionInput {
+            key: "pr".to_string(),
+            label: "Pull request".to_string(),
+            input_type: "pr".to_string(),
+            required: true,
+            placeholder: None,
+        }],
+        sort_order: 1e9 + 1.0,
+        created_at: None,
+        updated_at: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,5 +492,23 @@ mod tests {
         // Pinned first by flag; the huge sortOrder only keeps naive
         // sortOrder-asc renderers from interleaving it.
         assert_eq!(builtin.sort_order, 1e9);
+    }
+
+    #[test]
+    fn builtin_fix_conflicts_action_matches_the_web_factory() {
+        let builtin = builtin_fix_conflicts_action("team-1");
+        assert_eq!(builtin.id, BUILTIN_FIX_CONFLICTS_ID);
+        assert!(builtin.builtin);
+        // The prompt is generated from shipped constants — never a synced body.
+        assert!(builtin.body.is_empty());
+        assert_eq!(builtin.name, "Fix merge conflicts");
+        // The single required `pr` input (EXP-259) — the run has no target
+        // without it.
+        assert_eq!(builtin.inputs.len(), 1);
+        assert_eq!(builtin.inputs[0].key, "pr");
+        assert_eq!(builtin.inputs[0].input_type, "pr");
+        assert!(builtin.inputs[0].required);
+        // Sorts right after "Create action" (web parity: 1e9 + 1).
+        assert_eq!(builtin.sort_order, 1e9 + 1.0);
     }
 }

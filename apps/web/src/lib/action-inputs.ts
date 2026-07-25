@@ -59,6 +59,12 @@ export interface ActionInputLookups {
   repo(id: string, teamId: string): Promise<{ fullName: string } | null>
   /** null unless the board exists in teamId and is not trashed. */
   board(id: string, teamId: string): Promise<{ name: string } | null>
+  /** `pr` inputs (EXP-259): the value is an ISSUE id — null unless the issue
+   * exists in teamId and carries an OPEN linked pull request. */
+  pr(
+    issueId: string,
+    teamId: string
+  ): Promise<{ identifier: string; prNumber: number | null } | null>
 }
 
 export type ResolveInputsResult =
@@ -113,10 +119,29 @@ export async function resolveActionInputs(
       continue
     }
 
-    // repo / board: the value is a picked id — must be a uuid that resolves
-    // team-scoped, or the run is refused before waking the desktop.
+    // repo / board / pr: the value is a picked id — must be a uuid that
+    // resolves team-scoped, or the run is refused before waking the desktop.
     if (!UUID_RE.test(raw)) {
       return { ok: false, message: `Input "${def.key}" must be an id` }
+    }
+    if (def.type === `pr`) {
+      const pr = await lookups.pr(raw, teamId)
+      if (!pr) {
+        return {
+          ok: false,
+          message: `Input "${def.key}": pick an open pull request of the team`,
+        }
+      }
+      inputs.push({
+        key: def.key,
+        label: def.label,
+        type: def.type,
+        value: raw,
+        display: pr.prNumber
+          ? `#${pr.prNumber} · ${pr.identifier}`
+          : pr.identifier,
+      })
+      continue
     }
     if (def.type === `repo`) {
       const repo = await lookups.repo(raw, teamId)

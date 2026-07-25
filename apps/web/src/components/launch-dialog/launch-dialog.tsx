@@ -10,7 +10,10 @@ import {
   codingSessionCollection,
   issueCollection,
 } from "@/lib/collections"
-import { builtinCreateAction } from "@/lib/builtin-actions"
+import {
+  builtinCreateAction,
+  builtinFixConflictsAction,
+} from "@/lib/builtin-actions"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
@@ -159,8 +162,9 @@ export function LaunchDialog({
     }
   }, [open, teamId])
 
-  // Live synced actions (EXP-268 — the body-less list projection); builtin
-  // pinned FIRST, the rest re-apply the server's ordering (sortOrder, name).
+  // Live synced actions (EXP-268 — the body-less list projection); the
+  // builtins (not DB rows) pinned FIRST, the rest re-apply the server's
+  // ordering (sortOrder, name).
   const { data: syncedActionRows } = useLiveQuery(
     (query) =>
       open
@@ -175,7 +179,11 @@ export function LaunchDialog({
     const rows = [...syncedActionRows]
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
       .map((row) => ({ ...row, builtin: false as const }))
-    return [builtinCreateAction(teamId), ...rows]
+    return [
+      builtinCreateAction(teamId),
+      builtinFixConflictsAction(teamId),
+      ...rows,
+    ]
   }, [open, teamId, syncedActionRows])
   const selectedAction =
     (actions ?? []).find((action) => action.id === selectedActionId) ?? null

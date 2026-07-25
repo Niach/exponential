@@ -9,7 +9,7 @@ import {
   type ActionInputDef,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { actions, boards, codingSessions, repositories } from "@/db/schema"
+import { actions, boards, codingSessions, issues, repositories } from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -27,8 +27,10 @@ import {
 import { resolveActionInputs } from "@/lib/action-inputs"
 import {
   BUILTIN_CREATE_ACTION_ID,
-  BUILTIN_CREATE_ACTION_NAME,
+  BUILTIN_FIX_CONFLICTS_ID,
+  builtinActionName,
   builtinCreateAction,
+  builtinFixConflictsAction,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 
@@ -180,6 +182,7 @@ export const steerRouter = router({
             .string()
             .uuid()
             .or(z.literal(BUILTIN_CREATE_ACTION_ID))
+            .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
             .optional(),
           // Required iff actionId is the builtin (there is no DB row to
           // derive the team from); forbidden otherwise.
@@ -320,12 +323,15 @@ export const steerRouter = router({
         const builtin = isBuiltinActionId(input.actionId)
         if (builtin) {
           await assertTeamMember(userId, input.teamId!)
-          const virtual = builtinCreateAction(input.teamId!)
+          const virtual =
+            input.actionId === BUILTIN_FIX_CONFLICTS_ID
+              ? builtinFixConflictsAction(input.teamId!)
+              : builtinCreateAction(input.teamId!)
           action = {
             id: virtual.id,
             teamId: virtual.teamId,
             repositoryId: null,
-            name: BUILTIN_CREATE_ACTION_NAME,
+            name: builtinActionName(virtual.id),
           }
           inputDefs = virtual.inputs
         } else {
@@ -379,6 +385,21 @@ export const steerRouter = router({
                 .limit(1)
               return row && row.teamId === teamId ? { name: row.name } : null
             },
+            pr: async (issueId, teamId) => {
+              const [row] = await db
+                .select({
+                  teamId: issues.teamId,
+                  identifier: issues.identifier,
+                  prNumber: issues.prNumber,
+                  prState: issues.prState,
+                })
+                .from(issues)
+                .where(eq(issues.id, issueId))
+                .limit(1)
+              return row && row.teamId === teamId && row.prState === `open`
+                ? { identifier: row.identifier, prNumber: row.prNumber }
+                : null
+            },
           }
         )
         if (!resolved.ok) {
@@ -392,7 +413,46 @@ export const steerRouter = router({
         // gone can't happen (FK SET NULL nulls repositoryId); an archived or
         // inaccessible repo passes through — the desktop clone fails visibly.
         let repo: SteerStartRepo | undefined
-        if (action.repositoryId) {
+        if (input.actionId === BUILTIN_FIX_CONFLICTS_ID) {
+          // The fix-conflicts builtin's repo is the picked PR's — derived
+          // from its issue's board, exactly the repo the PR branch lives in.
+          const prIssueId = resolved.inputs.find(
+            (value) => value.key === `pr`
+          )?.value
+          const [issueRow] = prIssueId
+            ? await db
+                .select({ boardId: issues.boardId })
+                .from(issues)
+                .where(eq(issues.id, prIssueId))
+                .limit(1)
+            : []
+          const [repoRow] = issueRow
+            ? await db
+                .select({
+                  id: repositories.id,
+                  fullName: repositories.fullName,
+                  defaultBranch: repositories.defaultBranch,
+                })
+                .from(boards)
+                .innerJoin(
+                  repositories,
+                  eq(repositories.id, boards.repositoryId)
+                )
+                .where(eq(boards.id, issueRow.boardId))
+                .limit(1)
+            : []
+          if (!repoRow) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `The pull request's board has no linked repository`,
+            })
+          }
+          repo = {
+            repositoryId: repoRow.id,
+            fullName: repoRow.fullName,
+            defaultBranch: repoRow.defaultBranch,
+          }
+        } else if (action.repositoryId) {
           const [row] = await db
             .select({
               id: repositories.id,
@@ -427,6 +487,19 @@ export const steerRouter = router({
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `That desktop app can't run action inputs yet — update it`,
+          })
+        }
+        // The fix-conflicts builtin (EXP-259) needs its own launch path on
+        // the device — a pre-EXP-259 desktop advertises `actions` +
+        // `action-inputs` but would treat the id as a real action and fail
+        // its fetch.
+        if (
+          input.actionId === BUILTIN_FIX_CONFLICTS_ID &&
+          !caps.includes(`fix-conflicts`)
+        ) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That desktop app can't fix merge conflicts yet — update it`,
           })
         }
         // EXP-257: actions run on any agent the device advertised, same

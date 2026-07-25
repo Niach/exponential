@@ -8,7 +8,10 @@ import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_CREATE_ACTION_NAME,
+  BUILTIN_FIX_CONFLICTS_ID,
+  BUILTIN_FIX_CONFLICTS_NAME,
   builtinCreateAction,
+  builtinFixConflictsAction,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 
@@ -109,12 +112,13 @@ function duplicateNameError(name: string): TRPCError {
   })
 }
 
-// The builtin's id is accepted by every id field (so clients get a readable
+// The builtins' ids are accepted by every id field (so clients get a readable
 // error instead of a zod 400) but rejected before any DB work.
 const actionIdSchema = z
   .string()
   .uuid()
   .or(z.literal(BUILTIN_CREATE_ACTION_ID))
+  .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
 
 function rejectBuiltin(id: string, verb: string): void {
   if (isBuiltinActionId(id)) {
@@ -125,14 +129,20 @@ function rejectBuiltin(id: string, verb: string): void {
   }
 }
 
-// Keep the list free of a second "Create action" entry — the builtin owns
-// that name on every team.
+// Keep the list free of a second "Create action" / "Fix merge conflicts"
+// entry — the builtins own those names on every team.
 function assertNotReservedName(name: string): void {
-  if (name.trim().toLowerCase() === BUILTIN_CREATE_ACTION_NAME.toLowerCase()) {
-    throw new TRPCError({
-      code: `CONFLICT`,
-      message: `"${BUILTIN_CREATE_ACTION_NAME}" is a built-in action name`,
-    })
+  const normalized = name.trim().toLowerCase()
+  for (const reserved of [
+    BUILTIN_CREATE_ACTION_NAME,
+    BUILTIN_FIX_CONFLICTS_NAME,
+  ]) {
+    if (normalized === reserved.toLowerCase()) {
+      throw new TRPCError({
+        code: `CONFLICT`,
+        message: `"${reserved}" is a built-in action name`,
+      })
+    }
   }
 }
 
@@ -157,13 +167,14 @@ export const actionsRouter = router({
         .from(actions)
         .where(eq(actions.teamId, input.teamId))
         .orderBy(asc(actions.sortOrder), asc(actions.name))
-      // EXP-257: the virtual "Create action" rides every list — clients pin
-      // it first by its `builtin` flag (explicit false on real rows so the
+      // EXP-257/EXP-259: the virtual builtins ride every list — clients pin
+      // them first by the `builtin` flag (explicit false on real rows so the
       // union stays uniformly narrowable).
       return {
         actions: [
           ...rows.map((row) => ({ ...row, builtin: false as const })),
           builtinCreateAction(input.teamId),
+          builtinFixConflictsAction(input.teamId),
         ],
       }
     }),
