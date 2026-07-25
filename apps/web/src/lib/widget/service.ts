@@ -56,9 +56,10 @@ export class WidgetRequestError extends Error {
   constructor(
     readonly status: number,
     message: string,
-    // Additive structured hint for the client's email-recovery flow. Only
-    // email failures carry a code; validation behavior is otherwise unchanged.
-    readonly code?: `invalid_email` | `email_required`
+    // Additive structured hint for the client. Email codes drive the panel's
+    // email-recovery flow; `name_required` only maps to a friendlier form
+    // error (names have no format validation, so no recovery machinery).
+    readonly code?: `invalid_email` | `email_required` | `name_required`
   ) {
     super(message)
   }
@@ -134,6 +135,43 @@ export function requestedWidgetModes(
       ]
     : []
   return modes.length > 0 ? modes : [`feedback`]
+}
+
+// Owner-defined extra inputs on the feedback form (EXP-244). Values are
+// merged into the submitted customData blob client-side — no dedicated
+// persistence. The write path validates shape (formConfigSchema in
+// trpc/widgets.ts), but form_config is untyped jsonb, so the read paths
+// re-sanitize defensively before anything ships to third-party pages.
+export interface WidgetCustomFieldConfig {
+  key: string
+  label: string
+  required: boolean
+}
+
+export const maxWidgetCustomFields = 8
+export const widgetCustomFieldKeyPattern = /^[a-z0-9][a-z0-9_-]{0,39}$/
+
+export function sanitizeWidgetCustomFields(
+  formConfig: Record<string, unknown> | null | undefined
+): WidgetCustomFieldConfig[] {
+  const raw = formConfig?.customFields
+  if (!Array.isArray(raw)) return []
+  const out: WidgetCustomFieldConfig[] = []
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    if (out.length >= maxWidgetCustomFields) break
+    if (entry === null || typeof entry !== `object`) continue
+    const { key, label, required } = entry as Record<string, unknown>
+    if (typeof key !== `string` || !widgetCustomFieldKeyPattern.test(key))
+      continue
+    if (seen.has(key)) continue
+    if (typeof label !== `string`) continue
+    const trimmedLabel = label.trim().slice(0, 40)
+    if (trimmedLabel.length === 0) continue
+    seen.add(key)
+    out.push({ key, label: trimmedLabel, required: required === true })
+  }
+  return out
 }
 
 // Support mode is served (and accepted) only while the TEAM helpdesk is
@@ -281,11 +319,34 @@ export async function createWidgetSubmission(args: {
     throw new WidgetRequestError(400, `Email is required`, `email_required`)
   }
 
+  // Same advisory-gate rule for the name toggle (EXP-244): the panel's
+  // required marker can lag the config (5-min cache) or be absent on cached
+  // pre-name bundles, so the owner's policy is enforced here.
+  if (config.formConfig?.nameRequired === true && !fields.data.name) {
+    throw new WidgetRequestError(400, `Name is required`, `name_required`)
+  }
+
   const customData = parseJsonField(
     formData.get(`customData`),
     8 * 1024,
     `customData`
   )
+
+  // Required custom fields (EXP-244): values ride the merged customData blob,
+  // so requiredness is checked against it — a host-provided setCustomData
+  // value satisfies the field just like a typed one.
+  for (const field of sanitizeWidgetCustomFields(config.formConfig)) {
+    if (!field.required) continue
+    const value = customData?.[field.key]
+    const present =
+      typeof value === `number` ||
+      typeof value === `boolean` ||
+      (typeof value === `string` && value.trim().length > 0)
+    if (!present) {
+      throw new WidgetRequestError(400, `Please fill in "${field.label}"`)
+    }
+  }
+
   const metaRaw = parseJsonField(formData.get(`meta`), 4 * 1024, `meta`) ?? {}
   const meta = envMetaSchema.safeParse(metaRaw)
   if (!meta.success) {
@@ -515,6 +576,12 @@ export async function createWidgetSupportSubmission(args: {
     )
   }
 
+  // Name toggle applies to the support form too (EXP-244) — the thread's
+  // reporter_name is what the inbox shows.
+  if (config.formConfig?.nameRequired === true && !fields.data.name) {
+    throw new WidgetRequestError(400, `Name is required`, `name_required`)
+  }
+
   const customData = parseJsonField(
     formData.get(`customData`),
     8 * 1024,
@@ -631,6 +698,7 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
   }
 
   const form = config.formConfig ?? {}
+  const collectName = form.collectName === true
   return jsonResponse(
     200,
     {
@@ -648,6 +716,13 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
         position:
           form.position === `bottom-right` ? `bottom-right` : `bottom-left`,
         emailRequired: form.emailRequired === true,
+        // EXP-244 toggles — ADDITIVE, cached pre-fields bundles ignore them.
+        // Required always implies collect, whatever the jsonb bag says.
+        collectEmail:
+          form.emailRequired === true ? true : form.collectEmail !== false,
+        collectName,
+        nameRequired: collectName && form.nameRequired === true,
+        customFields: sanitizeWidgetCustomFields(config.formConfig),
       },
       limits: { maxScreenshotBytes: maxImageUploadBytes },
     },

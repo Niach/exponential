@@ -27,12 +27,48 @@ export type ExponentialWidgetCustomData = Record<
   string | number | boolean
 >
 
+// Programmatic submission for hosts rolling their own UI (EXP-244 headless
+// mode — pair with `showButton: false`). Identity and setCustomData state
+// merge in exactly like a panel submission; the screenshot is host-supplied
+// (headless never captures).
+export interface ExponentialWidgetSubmitPayload {
+  // Absent = `feedback`.
+  mode?: WidgetMode
+  // Feedback mode.
+  title?: string
+  description?: string
+  screenshot?: Blob
+  // Support mode.
+  message?: string
+  // Both modes; fall back to identify() values when absent.
+  email?: string
+  name?: string
+  // Merged over identify-time custom data for this submission only.
+  customData?: ExponentialWidgetCustomData
+}
+
+export interface ExponentialWidgetSubmitResult {
+  ok: boolean
+  // Feedback submissions carry the created issue identifier (e.g. "EXP-42").
+  identifier?: string | null
+  url?: string | null
+  error?: string
+  code?: string | null
+}
+
 export interface ExponentialWidgetApi {
   init(options: ExponentialWidgetInitOptions): void
   identify(identity: ExponentialWidgetIdentity): void
   setCustomData(data: ExponentialWidgetCustomData): void
   open(): void
   close(): void
+  // Resolves with an error result instead of throwing. NOTE: calls queued
+  // through the snippet stub (before loader.js executes) run fire-and-forget
+  // and return undefined — call from user interaction handlers, where the
+  // loader is long loaded, to get the Promise.
+  submit(
+    payload: ExponentialWidgetSubmitPayload
+  ): Promise<ExponentialWidgetSubmitResult>
 }
 
 export type QueuedCall = [method: string, args: unknown[]]
@@ -42,11 +78,25 @@ export interface ExponentialWidgetStub extends ExponentialWidgetApi {
   q?: QueuedCall[]
 }
 
+// Owner-defined extra feedback-form input (EXP-244); the typed value lands
+// in the submission's customData blob under `key`.
+export interface WidgetCustomField {
+  key: string
+  label: string
+  required?: boolean
+}
+
 export interface WidgetRemoteForm {
   buttonLabel: string | null
   accentColor: string | null
   position: `bottom-right` | `bottom-left`
   emailRequired: boolean
+  // EXP-244 field toggles — absent on older servers: collectEmail defaults
+  // true, collectName false (legacy behavior).
+  collectEmail?: boolean
+  collectName?: boolean
+  nameRequired?: boolean
+  customFields?: WidgetCustomField[]
 }
 
 // Which entry points the panel offers (EXP-130).

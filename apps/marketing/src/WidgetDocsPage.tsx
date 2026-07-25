@@ -10,9 +10,11 @@ import { SiteFooter, SiteHeader } from "./components/SiteShell"
 const SECTIONS: DocsSectionType[] = [
   { id: `install`, num: `01`, label: `Install` },
   { id: `js-api`, num: `02`, label: `JS API` },
-  { id: `screenshots`, num: `03`, label: `Screenshots & annotation` },
-  { id: `what-lands`, num: `04`, label: `What lands in Exponential` },
-  { id: `try-it`, num: `05`, label: `Try it` },
+  { id: `form-fields`, num: `03`, label: `Form fields` },
+  { id: `headless`, num: `04`, label: `Headless mode` },
+  { id: `screenshots`, num: `05`, label: `Screenshots & annotation` },
+  { id: `what-lands`, num: `06`, label: `What lands in Exponential` },
+  { id: `try-it`, num: `07`, label: `Try it` },
 ]
 
 const WIDGET_SNIPPET =
@@ -20,7 +22,7 @@ const WIDGET_SNIPPET =
   (function (w, d, u) {
     if (w.ExponentialWidget) return;
     var q = [], api = { q: q };
-    ["init","identify","setCustomData","open","close"].forEach(function (m) {
+    ["init","identify","setCustomData","open","close","submit"].forEach(function (m) {
       api[m] = function () { q.push([m, [].slice.call(arguments)]); };
     });
     w.ExponentialWidget = api;
@@ -84,7 +86,7 @@ export function WidgetDocsPage() {
             <h2>JS API</h2>
             <p>
               The snippet exposes <code>window.ExponentialWidget</code> with
-              five calls:
+              six calls:
             </p>
             <DocsCode language="js">{`
 // Required once — boots the widget with your public key.
@@ -109,17 +111,101 @@ ExponentialWidget.setCustomData({
 // "Report a bug" in your own menu to open().
 ExponentialWidget.open();
 ExponentialWidget.close();
+
+// Submit without the panel — see Headless mode below.
+ExponentialWidget.submit({ title: "Broken button" });
 `}</DocsCode>
             <p>
               All calls are safe to make before the script has loaded — the
-              loader queues and replays them in order.
+              loader queues and replays them in order. (A queued{` `}
+              <code>submit</code> runs fire-and-forget; call it after load —
+              e.g. from a click handler — to get its Promise.)
             </p>
           </DocsSection>
 
-          {/* ── 03 Screenshots & annotation ── */}
+          {/* ── 03 Form fields ── */}
+          <DocsSection id="form-fields" num="03" label="Form fields">
+            <h2>Form fields</h2>
+            <p>
+              The feedback form always asks for a title and details. Everything
+              else is configured per widget in{` `}
+              <strong>Team settings → Widget</strong>:
+            </p>
+            <ul>
+              <li>
+                <strong>Email</strong> — shown by default and optional; make it
+                required, or hide it entirely for internal tools where nobody
+                wants resolution emails.
+              </li>
+              <li>
+                <strong>Name</strong> — off by default. Turn it on (optionally
+                required) when a plain name is all you need to walk over and
+                ask &ldquo;what did you mean?&rdquo; — no email required.
+              </li>
+              <li>
+                <strong>Custom fields</strong> — up to 8 extra text inputs
+                (e.g. &ldquo;Which page?&rdquo;, &ldquo;Order number&rdquo;).
+                Responses land in the submission&apos;s custom-data block,
+                alongside your <code>setCustomData</code> payload — a typed
+                response wins over a host-set key of the same name.
+              </li>
+            </ul>
+            <p>
+              Visitors attached via <code>identify()</code> skip the email and
+              name fields — their identity rides along invisibly. Support mode
+              always asks for an email: it&apos;s the reply channel.
+            </p>
+          </DocsSection>
+
+          {/* ── 04 Headless mode ── */}
+          <DocsSection id="headless" num="04" label="Headless mode">
+            <h2>Headless mode</h2>
+            <p>
+              Want your own feedback UI? Boot the widget without its button and
+              submit programmatically — you keep the key + domain gating, rate
+              limits, and issue creation, and skip the panel entirely:
+            </p>
+            <DocsCode language="js">{`
+ExponentialWidget.init({ key: "expw_YOUR_KEY", showButton: false });
+ExponentialWidget.identify({ email: "ada@example.com", name: "Ada" });
+
+// Later, from your own form's submit handler:
+const result = await ExponentialWidget.submit({
+  title: "Broken button",           // required by the server
+  description: "Steps to reproduce…",
+  name: "dani",                     // overrides identify()
+  customData: { page: "checkout" }, // merged over setCustomData()
+  screenshot: myBlob,               // optional — you capture it
+});
+
+if (result.ok) {
+  console.log("Filed as", result.identifier); // e.g. "EXP-42"
+} else {
+  console.error(result.error, result.code);
+}
+
+// Support mode works too (requires the helpdesk):
+await ExponentialWidget.submit({
+  mode: "support",
+  message: "I can't log in",
+  email: "ada@example.com", // required — it's the reply channel
+});
+`}</DocsCode>
+            <p>
+              <code>submit()</code> resolves with{` `}
+              <code>{`{ ok, identifier, url }`}</code> on success and{` `}
+              <code>{`{ ok: false, error, code }`}</code> on failure — it never
+              throws. Screenshots are yours to capture in headless mode; pass a{` `}
+              <code>Blob</code> (PNG, JPEG, or WebP) and it&apos;s attached
+              like a panel screenshot. Server-side validation (required fields,
+              modes, rate limits) applies exactly as it does to the panel.
+            </p>
+          </DocsSection>
+
+          {/* ── 05 Screenshots & annotation ── */}
           <DocsSection
             id="screenshots"
-            num="03"
+            num="05"
             label="Screenshots & annotation"
           >
             <h2>Screenshots &amp; annotation</h2>
@@ -144,10 +230,10 @@ ExponentialWidget.close();
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 04 What lands in Exponential ── */}
+          {/* ── 06 What lands in Exponential ── */}
           <DocsSection
             id="what-lands"
-            num="04"
+            num="06"
             label="What lands in Exponential"
           >
             <h2>What lands in Exponential</h2>
@@ -183,8 +269,8 @@ ExponentialWidget.close();
             </p>
           </DocsSection>
 
-          {/* ── 05 Try it ── */}
-          <DocsSection id="try-it" num="05" label="Try it">
+          {/* ── 07 Try it ── */}
+          <DocsSection id="try-it" num="07" label="Try it">
             <h2>Try it</h2>
             <p>
               This site runs the real widget — the feedback button in the

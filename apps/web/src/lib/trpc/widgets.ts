@@ -17,6 +17,10 @@ import {
   getBoardTeamId,
 } from "@/lib/team-membership"
 import { generateWidgetKey } from "@/lib/widget/key"
+import {
+  maxWidgetCustomFields,
+  widgetCustomFieldKeyPattern,
+} from "@/lib/widget/service"
 import { assertCanCreateWidget, assertCanUseHelpdesk } from "@/lib/billing"
 
 const widgetNameSchema = z.string().trim().min(1).max(255)
@@ -45,6 +49,28 @@ const formConfigSchema = z
       .optional(),
     position: z.enum([`bottom-right`, `bottom-left`]).optional(),
     emailRequired: z.boolean().optional(),
+    // EXP-244 field toggles: collectEmail defaults true (absent = legacy
+    // behavior), collectName defaults false. The config route normalizes the
+    // required-implies-collect contradictions on read.
+    collectEmail: z.boolean().optional(),
+    collectName: z.boolean().optional(),
+    nameRequired: z.boolean().optional(),
+    // Owner-defined feedback-form inputs (EXP-244); values land in the
+    // submission's customData blob under `key`.
+    customFields: z
+      .array(
+        z.object({
+          key: z.string().regex(widgetCustomFieldKeyPattern),
+          label: z.string().trim().min(1).max(40),
+          required: z.boolean().optional(),
+        })
+      )
+      .max(maxWidgetCustomFields)
+      .refine(
+        (fields) => new Set(fields.map((f) => f.key)).size === fields.length,
+        { message: `Custom field keys must be unique` }
+      )
+      .optional(),
     // Which entry points the panel offers (EXP-130); absent = feedback-only.
     modes: z
       .array(z.enum([`feedback`, `support`]))

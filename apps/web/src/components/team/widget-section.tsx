@@ -67,6 +67,28 @@ type WidgetPosition = `bottom-left` | `bottom-right`
 // multi-select (there are only three valid combinations).
 type WidgetModeChoice = `feedback` | `support` | `both`
 
+// Editor rows for the owner-defined custom fields (EXP-244). `key` is null
+// for a not-yet-saved row — it's derived from the label at save time and
+// then stays STABLE across renames (submitted values live under it in the
+// customData blob).
+interface CustomFieldRow {
+  key: string | null
+  label: string
+  required: boolean
+}
+
+// Derive a storage key from a field label; must satisfy the server's
+// /^[a-z0-9][a-z0-9_-]{0,39}$/ pattern.
+function slugifyFieldKey(label: string): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, `-`)
+    .replace(/^[-_]+/, ``)
+    .slice(0, 40)
+    .replace(/[-_]+$/, ``)
+  return slug || `field`
+}
+
 // The styling knobs stored in widget_configs.form_config (jsonb) — read
 // defensively, rows may predate any of the fields.
 function readFormConfig(raw: Record<string, unknown> | null): {
@@ -74,11 +96,23 @@ function readFormConfig(raw: Record<string, unknown> | null): {
   accentColor: string
   position: WidgetPosition
   emailRequired: boolean
+  collectEmail: boolean
+  collectName: boolean
+  nameRequired: boolean
+  customFields: CustomFieldRow[]
   mode: WidgetModeChoice
 } {
   const modes = Array.isArray(raw?.modes) ? raw.modes : []
   const hasSupport = modes.includes(`support`)
   const hasFeedback = modes.includes(`feedback`) || !hasSupport
+  const customFields = (
+    Array.isArray(raw?.customFields) ? raw.customFields : []
+  ).flatMap((entry): CustomFieldRow[] => {
+    if (entry === null || typeof entry !== `object`) return []
+    const { key, label, required } = entry as Record<string, unknown>
+    if (typeof key !== `string` || typeof label !== `string`) return []
+    return [{ key, label, required: required === true }]
+  })
   return {
     buttonLabel: typeof raw?.buttonLabel === `string` ? raw.buttonLabel : ``,
     accentColor:
@@ -88,6 +122,10 @@ function readFormConfig(raw: Record<string, unknown> | null): {
         : ``,
     position: raw?.position === `bottom-right` ? `bottom-right` : `bottom-left`,
     emailRequired: raw?.emailRequired === true,
+    collectEmail: raw?.collectEmail !== false,
+    collectName: raw?.collectName === true,
+    nameRequired: raw?.nameRequired === true,
+    customFields,
     mode: hasSupport ? (hasFeedback ? `both` : `support`) : `feedback`,
   }
 }
@@ -123,6 +161,12 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   const [formPosition, setFormPosition] =
     useState<WidgetPosition>(`bottom-left`)
   const [formEmailRequired, setFormEmailRequired] = useState(false)
+  const [formCollectEmail, setFormCollectEmail] = useState(true)
+  const [formCollectName, setFormCollectName] = useState(false)
+  const [formNameRequired, setFormNameRequired] = useState(false)
+  const [formCustomFields, setFormCustomFields] = useState<CustomFieldRow[]>(
+    []
+  )
   const [formMode, setFormMode] = useState<WidgetModeChoice>(`feedback`)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -156,6 +200,10 @@ export function TeamWidgetSection({ team }: { team: Team }) {
     setFormAccent(``)
     setFormPosition(`bottom-left`)
     setFormEmailRequired(false)
+    setFormCollectEmail(true)
+    setFormCollectName(false)
+    setFormNameRequired(false)
+    setFormCustomFields([])
     setFormMode(`feedback`)
     setFormError(null)
     setDialogOpen(true)
@@ -171,18 +219,56 @@ export function TeamWidgetSection({ team }: { team: Team }) {
     setFormAccent(config.accentColor)
     setFormPosition(config.position)
     setFormEmailRequired(config.emailRequired)
+    setFormCollectEmail(config.collectEmail)
+    setFormCollectName(config.collectName)
+    setFormNameRequired(config.nameRequired)
+    setFormCustomFields(config.customFields)
     setFormMode(config.mode)
     setFormError(null)
     setDialogOpen(true)
   }
 
-  const buildFormConfig = () => ({
-    ...(formButtonLabel.trim() ? { buttonLabel: formButtonLabel.trim() } : {}),
-    ...(formAccent ? { accentColor: formAccent } : {}),
-    position: formPosition,
-    emailRequired: formEmailRequired,
-    modes: modesForChoice(formMode),
-  })
+  // Rows with a label get a stable key: existing keys survive renames (the
+  // submitted values live under them), new rows derive one from the label
+  // with a numeric suffix on collision.
+  const buildCustomFields = () => {
+    const out: Array<{ key: string; label: string; required: boolean }> = []
+    const seen = new Set<string>()
+    for (const row of formCustomFields) {
+      const label = row.label.trim().slice(0, 40)
+      if (!label) continue
+      let key = row.key ?? slugifyFieldKey(label)
+      if (seen.has(key)) {
+        const base = key.slice(0, 37)
+        let suffix = 2
+        while (seen.has(`${base}-${suffix}`)) suffix += 1
+        key = `${base}-${suffix}`
+      }
+      seen.add(key)
+      out.push({ key, label, required: row.required })
+    }
+    return out
+  }
+
+  // Defaults are omitted to keep the jsonb blob lean (collectEmail true,
+  // collectName/nameRequired false, customFields empty). Required always
+  // implies collect on the server, so a hidden email field never re-enforces.
+  const buildFormConfig = () => {
+    const customFields = buildCustomFields()
+    return {
+      ...(formButtonLabel.trim()
+        ? { buttonLabel: formButtonLabel.trim() }
+        : {}),
+      ...(formAccent ? { accentColor: formAccent } : {}),
+      position: formPosition,
+      emailRequired: formCollectEmail && formEmailRequired,
+      ...(formCollectEmail ? {} : { collectEmail: false }),
+      ...(formCollectName ? { collectName: true } : {}),
+      ...(formCollectName && formNameRequired ? { nameRequired: true } : {}),
+      ...(customFields.length > 0 ? { customFields } : {}),
+      modes: modesForChoice(formMode),
+    }
+  }
 
   // A feedback board is required whenever the widget offers feedback mode; a
   // support-only widget has none (tickets go to the team support inbox).
@@ -561,17 +647,155 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="widget-email-required">Require email</Label>
-                    <div className="flex h-9 items-center">
-                      <Switch
-                        id="widget-email-required"
-                        checked={formEmailRequired}
-                        onCheckedChange={setFormEmailRequired}
-                      />
+                </div>
+                {/* EXP-244 replaced EXP-267's single "Require email" cell with
+                    per-field Show/Required switches. */}
+                <div className="space-y-2">
+                  <Label>Form fields</Label>
+                  <div className="space-y-3 rounded-md border px-3 py-3">
+                    {needsBoard && (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm">Email</span>
+                        <div className="flex items-center gap-4">
+                          <Label
+                            htmlFor="widget-collect-email"
+                            className="gap-1.5 text-xs font-normal text-muted-foreground"
+                          >
+                            Show
+                            <Switch
+                              id="widget-collect-email"
+                              checked={formCollectEmail}
+                              onCheckedChange={setFormCollectEmail}
+                            />
+                          </Label>
+                          <Label
+                            htmlFor="widget-email-required"
+                            className="gap-1.5 text-xs font-normal text-muted-foreground"
+                          >
+                            Required
+                            <Switch
+                              id="widget-email-required"
+                              checked={formCollectEmail && formEmailRequired}
+                              disabled={!formCollectEmail}
+                              onCheckedChange={setFormEmailRequired}
+                            />
+                          </Label>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm">Name</span>
+                      <div className="flex items-center gap-4">
+                        <Label
+                          htmlFor="widget-collect-name"
+                          className="gap-1.5 text-xs font-normal text-muted-foreground"
+                        >
+                          Show
+                          <Switch
+                            id="widget-collect-name"
+                            checked={formCollectName}
+                            onCheckedChange={setFormCollectName}
+                          />
+                        </Label>
+                        <Label
+                          htmlFor="widget-name-required"
+                          className="gap-1.5 text-xs font-normal text-muted-foreground"
+                        >
+                          Required
+                          <Switch
+                            id="widget-name-required"
+                            checked={formCollectName && formNameRequired}
+                            disabled={!formCollectName}
+                            onCheckedChange={setFormNameRequired}
+                          />
+                        </Label>
+                      </div>
                     </div>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    {needsBoard
+                      ? `Hide the email field for teams that follow up in person — a name is often all you need. Support mode always asks for an email (it's the reply channel).`
+                      : `Support mode always asks for an email (it's the reply channel); the name field is optional.`}
+                  </p>
                 </div>
+                {needsBoard && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Custom fields</Label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={formCustomFields.length >= 8}
+                        onClick={() =>
+                          setFormCustomFields((rows) => [
+                            ...rows,
+                            { key: null, label: ``, required: false },
+                          ])
+                        }
+                      >
+                        Add field
+                      </Button>
+                    </div>
+                    {formCustomFields.length > 0 && (
+                      <div className="space-y-2">
+                        {formCustomFields.map((row, index) => (
+                          <div
+                            // eslint-disable-next-line react/no-array-index-key
+                            key={index}
+                            className="flex items-center gap-2"
+                          >
+                            <Input
+                              placeholder="Field label"
+                              maxLength={40}
+                              value={row.label}
+                              onChange={(event) =>
+                                setFormCustomFields((rows) =>
+                                  rows.map((current, i) =>
+                                    i === index
+                                      ? { ...current, label: event.target.value }
+                                      : current
+                                  )
+                                )
+                              }
+                            />
+                            <Label className="gap-1.5 text-xs font-normal text-muted-foreground">
+                              Required
+                              <Switch
+                                checked={row.required}
+                                onCheckedChange={(next) =>
+                                  setFormCustomFields((rows) =>
+                                    rows.map((current, i) =>
+                                      i === index
+                                        ? { ...current, required: next }
+                                        : current
+                                    )
+                                  )
+                                }
+                              />
+                            </Label>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Remove field"
+                              onClick={() =>
+                                setFormCustomFields((rows) =>
+                                  rows.filter((_, i) => i !== index)
+                                )
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Extra text inputs on the feedback form (up to 8). Responses
+                      show under “Custom data” on the issue and override matching
+                      setCustomData keys.
+                    </p>
+                  </div>
+                )}
                 <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-3">
                   <span className="text-xs text-muted-foreground">
                     Launcher preview

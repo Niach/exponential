@@ -9,7 +9,7 @@ export function buildWidgetSnippet(publicKey: string, origin: string): string {
   (function (w, d, u) {
     if (w.ExponentialWidget) return;
     var q = [], api = { q: q };
-    ["init","identify","setCustomData","open","close"].forEach(function (m) {
+    ["init","identify","setCustomData","open","close","submit"].forEach(function (m) {
       api[m] = function () { q.push([m, [].slice.call(arguments)]); };
     });
     w.ExponentialWidget = api;

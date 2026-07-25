@@ -20,6 +20,11 @@ export async function submitSupportRequest(args: {
   state: WidgetRuntimeState
   message: string
   email: string
+  // Overrides for the identify()-time values (a panel-typed name) and the
+  // setCustomData blob (caller pre-merges field values); absent = legacy
+  // state fallbacks.
+  name?: string | null
+  customData?: Record<string, string | number | boolean>
   meta: EnvMeta
 }): Promise<SubmitResult> {
   const { state } = args
@@ -28,10 +33,12 @@ export async function submitSupportRequest(args: {
   formData.set(`mode`, `support`)
   formData.set(`message`, args.message)
   formData.set(`email`, args.email)
-  if (state.identity.name) formData.set(`name`, state.identity.name)
+  const name = args.name ?? state.identity.name
+  if (name) formData.set(`name`, name)
   if (state.identity.userId) formData.set(`userId`, state.identity.userId)
-  if (Object.keys(state.customData).length > 0) {
-    formData.set(`customData`, JSON.stringify(state.customData))
+  const customData = args.customData ?? state.customData
+  if (Object.keys(customData).length > 0) {
+    formData.set(`customData`, JSON.stringify(customData))
   }
   formData.set(`meta`, JSON.stringify(args.meta))
 
@@ -80,6 +87,11 @@ export async function submitFeedback(args: {
   title: string
   description: string
   email: string | null
+  // Overrides for the identify()-time values (a panel-typed name) and the
+  // setCustomData blob (caller pre-merges custom-field values); absent =
+  // legacy state fallbacks.
+  name?: string | null
+  customData?: Record<string, string | number | boolean>
   screenshot: Blob | null
   meta: EnvMeta
 }): Promise<SubmitResult> {
@@ -89,10 +101,12 @@ export async function submitFeedback(args: {
   formData.set(`title`, args.title)
   formData.set(`description`, args.description)
   if (args.email) formData.set(`email`, args.email)
-  if (state.identity.name) formData.set(`name`, state.identity.name)
+  const name = args.name ?? state.identity.name
+  if (name) formData.set(`name`, name)
   if (state.identity.userId) formData.set(`userId`, state.identity.userId)
-  if (Object.keys(state.customData).length > 0) {
-    formData.set(`customData`, JSON.stringify(state.customData))
+  const customData = args.customData ?? state.customData
+  if (Object.keys(customData).length > 0) {
+    formData.set(`customData`, JSON.stringify(customData))
   }
   formData.set(`meta`, JSON.stringify(args.meta))
   if (args.screenshot) {

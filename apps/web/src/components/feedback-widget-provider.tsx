@@ -25,10 +25,13 @@ function installSnippetStub(): void {
     `setCustomData`,
     `open`,
     `close`,
+    `submit`,
   ] as const) {
-    api[method] = (...args: unknown[]) => {
+    // Like the public snippet, queued stub calls are fire-and-forget — a
+    // pre-loader submit() returns undefined, not the loader's Promise.
+    api[method] = ((...args: unknown[]) => {
       queue.push([method, args])
-    }
+    }) as never
   }
   window.ExponentialWidget = api
 }
