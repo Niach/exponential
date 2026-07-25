@@ -16,8 +16,8 @@
 //! **Auto-sync**: a [`clone_manager::AUTO_SYNC_INTERVAL`] timer plus a
 //! window-focus observer call [`TrunkSync::maybe_auto_sync`], debounced
 //! through [`clone_manager::should_fetch`] and skipped while a sync is in
-//! flight or a Claude task / Action tab is alive for this repo (never
-//! fast-forward the tree under Claude's feet). The background pass is
+//! flight or an Action tab is alive for this repo (never fast-forward the
+//! tree under Claude's feet). The background pass is
 //! [`clone_manager::auto_sync`]: fetch → fast-forward ONLY when clean +
 //! behind-only; anything else is a loud-but-quiet Skipped outcome. Background
 //! failures collapse into one sticky badge (cleared on the next success) —
@@ -82,7 +82,7 @@ enum SyncMode {
     /// ff-only catch-up AutoSync runs.
     Fetch,
     /// [`SyncMode::Fetch`] under the live-task hold-off: fetch only, NO
-    /// ff catch-up — a Claude task / Action tab is working on this repo's
+    /// ff catch-up — an Action tab is working on this repo's
     /// clone, and the fetch is harmless but the working-tree update would
     /// move the tree under Claude's feet (same rule as the AutoSync
     /// hold-off, which skips the whole pass).
@@ -258,7 +258,7 @@ impl TrunkSync {
     }
 
     /// Freshness fetch + trunk re-read (the Source Control refresh button).
-    /// While a Claude task / Action tab is alive on this repo's clone the
+    /// While an Action tab is alive on this repo's clone the
     /// pass degrades to fetch-only — the ff working-tree update is held off
     /// exactly like the AutoSync one (never move the tree under Claude's
     /// feet).
@@ -294,9 +294,8 @@ impl TrunkSync {
 
     /// Debounced background sync trigger (timer tick + window focus): no-op
     /// while an op is in flight, before the clone exists, inside the
-    /// [`clone_manager::FETCH_DEBOUNCE`] window, or while a Claude task /
-    /// Action tab is alive for this repo (never move the tree under Claude's
-    /// feet).
+    /// [`clone_manager::FETCH_DEBOUNCE`] window, or while an Action tab is
+    /// alive for this repo (never move the tree under Claude's feet).
     fn maybe_auto_sync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.syncing {
             return;
@@ -380,10 +379,11 @@ impl TrunkSync {
         branches
     }
 
-    /// Whether a live Claude task or Action tab is working inside this
-    /// repo's clone (or one of its worktrees) — the sync hold-off
-    /// (EXP-253 extended it to Action tabs: an action runs ON the trunk
-    /// clone, so an ff under it would move the tree under Claude's feet).
+    /// Whether a live Action tab is working inside this repo's clone (or
+    /// one of its worktrees) — the sync hold-off (an action runs ON the
+    /// trunk clone or a PR worktree, so an ff under it would move the tree
+    /// under Claude's feet; EXP-259 deleted the ClaudeTask kind this also
+    /// used to match).
     /// AutoSync skips its whole pass; a user Fetch degrades to fetch-only;
     /// Source Control reads it to word the hard-reset confirm. Shell tabs
     /// deliberately do NOT hold sync off: a shell is alive for entire work
@@ -398,7 +398,7 @@ impl TrunkSync {
         };
         let worktrees = git_worktree::worktrees_dir(&repo.clone);
         manager.read(cx).tabs().iter().any(|tab| {
-            matches!(tab.kind, TabKind::ClaudeTask | TabKind::Action(_))
+            matches!(tab.kind, TabKind::Action(_))
                 && tab.is_running()
                 && tab
                     .cwd

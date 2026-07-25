@@ -8,7 +8,9 @@
 //! coding settings (repos root / branch prefix / per-agent paths — never
 //! a manual API-key field), and the agent spawn into the embedded
 //! terminal. EXP-201: three agents — `claude`, `codex`, and `pi`
-//! ([`agent::CodingAgent`]); one-shot [`claude_task`]s stay Claude-only.
+//! ([`agent::CodingAgent`]). (EXP-259 deleted the one-shot claude-task
+//! primitive — conflict fixing became the builtin "Fix merge conflicts"
+//! ACTION run.)
 //!
 //! ## The one entry point (§7.1)
 //!
@@ -37,7 +39,6 @@ pub mod agent;
 pub mod argv;
 pub mod batch_launcher;
 pub mod batch_prompt;
-pub mod claude_task;
 pub mod clone_manager;
 pub mod codex_sessions;
 pub mod doctor;
@@ -64,11 +65,10 @@ pub use argv::{
 pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
 };
-pub use action_prompt::{render_action_prompt, ActionInputValue};
-pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
-pub use claude_task::{
-    claude_task, create_action_prompt, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask,
+pub use action_prompt::{
+    create_action_prompt, fix_pr_conflicts_prompt, render_action_prompt, ActionInputValue,
 };
+pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use codex_sessions::{default_codex_sessions_root, find_latest_codex_session_id};
 pub use doctor::{
@@ -86,8 +86,8 @@ pub use git_worktree::{
 };
 pub use launcher::{
     default_device_label, end_session_best_effort, prepare, spawn_prepared, spawn_prepared_with,
-    ActionLaunchRequest, CodingDeps, CodingError, DisabledReason, ExitNotify, GitWorktrees,
-    IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared,
+    ActionLaunchRequest, ActionRunKind, CodingDeps, CodingError, DisabledReason, ExitNotify,
+    GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared,
     PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use mcp_json::{

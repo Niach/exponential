@@ -42,7 +42,7 @@ interface Contract {
   piModel: Section
   piThinking: Section
   actionInputType: Section
-  builtinAction: { createActionId: string }
+  builtinAction: { createActionId: string; fixConflictsId: string }
   actionInputs: { max: number; maxTextLength: number }
 }
 
@@ -156,6 +156,7 @@ ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
     public static let builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
+    public static let builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
 
@@ -197,6 +198,7 @@ ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
     const val builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
+    const val builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
 
@@ -240,6 +242,7 @@ ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
 pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";
+pub const BUILTIN_FIX_CONFLICTS_ID: &str = "${contract.builtinAction.fixConflictsId}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 

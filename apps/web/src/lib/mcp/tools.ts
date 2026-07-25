@@ -1139,6 +1139,31 @@ export function registerExponentialTools(
     }
   )
 
+  server.registerTool(
+    `exponential_pr_merge`,
+    {
+      title: `Squash-merge an issue's open pull request`,
+      description: `Squash-merge the issue's linked open pull request via the GitHub App — you don't need 'gh' or a token. Merging completes EVERY issue linked to that PR (a batch PR links several issues to one prUrl): each flips to prState='merged' and status 'done'. Use this after conflict-resolution work (e.g. the "Fix merge conflicts" run: rebase, resolve, push --force-with-lease, then merge). Idempotent when the PR is already merged. Fails with GitHub's own message when the PR is still not mergeable. Accepts a UUID or human identifier (e.g. "MET-12").`,
+      inputSchema: { issueId: z.string().min(1) },
+    },
+    async ({ issueId }) => {
+      try {
+        const id = await resolveIssueId(issueId, user.id, access)
+        const issueCtx = await getIssueTeamContext(id)
+        assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
+        await resolveTeamAccess(user.id, issueCtx.teamId)
+        // The tRPC mutation owns the guards (open-state, repo-from-prUrl,
+        // installation link-gate) and the shared applyPrMergeState writer.
+        const result = await caller(user, request).issues.mergePr({
+          issueId: id,
+        })
+        return ok(result)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // -----------------------------------------------------------------------
   // Comments (edit / delete)
   // -----------------------------------------------------------------------
