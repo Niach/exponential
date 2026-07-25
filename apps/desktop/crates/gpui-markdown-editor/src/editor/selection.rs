@@ -10,9 +10,17 @@ use super::{
     UndoSelectionSnapshot, ViewMode,
 };
 use crate::components::{
-    Block, BlockKind, Copy, Cut, Delete, DeleteBack, UndoCaptureKind,
+    Block, BlockKind, BlockRecord, Copy, Cut, Delete, DeleteBack, UndoCaptureKind,
     serialize_table_markdown_lines,
 };
+
+/// EXP-277 vendoring: what a click BETWEEN blocks (or above the first /
+/// below the last) resolves to. `prev`/`next` are the blocks flanking the
+/// gap; either may be `None` at the document edges.
+pub(super) struct GapClick {
+    pub prev: Option<Entity<Block>>,
+    pub next: Option<Entity<Block>>,
+}
 
 /// Cross-block selection with endpoints ordered by visible block position.
 #[derive(Clone, Copy)]
@@ -403,6 +411,105 @@ impl Editor {
             entity_id: entity.entity_id(),
             offset: entity.read(cx).visible_len(),
         })
+    }
+
+    /// EXP-277 vendoring: resolve a point to the inter-block gap it fell in.
+    /// `None` when the point lands INSIDE any block's bounds (that click is
+    /// the block's own business) or the document has no measured blocks.
+    fn gap_click_target_for_point(&self, position: Point<Pixels>, cx: &App) -> Option<GapClick> {
+        let mut previous: Option<Entity<Block>> = None;
+        let mut saw_bounds = false;
+        for visible in self.document.visible_blocks() {
+            let entity = visible.entity.clone();
+            let Some(bounds) = entity.read(cx).last_bounds else {
+                continue;
+            };
+            saw_bounds = true;
+            if position.y < bounds.top() {
+                return Some(GapClick {
+                    prev: previous,
+                    next: Some(entity),
+                });
+            }
+            if position.y <= bounds.bottom() {
+                return None;
+            }
+            previous = Some(entity);
+        }
+        if !saw_bounds {
+            return None;
+        }
+        previous.map(|prev| GapClick {
+            prev: Some(prev),
+            next: None,
+        })
+    }
+
+    /// EXP-277 vendoring: a rendered-mode click in a gap adjacent to a
+    /// standalone image places a caret there — focusing an existing empty
+    /// paragraph neighbor, else inserting one at the gap. Returns whether
+    /// the click was handled. Deliberately no `mark_dirty`: an untyped
+    /// empty paragraph must never phantom-save (the trailing-strand
+    /// precedent in `events.rs`).
+    pub(super) fn handle_image_gap_click(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(gap) = self.gap_click_target_for_point(position, cx) else {
+            return false;
+        };
+        fn is_image(entity: &Entity<Block>, cx: &App) -> bool {
+            entity.read(cx).renders_as_standalone_image()
+        }
+        fn is_empty_paragraph(entity: &Entity<Block>, cx: &App) -> bool {
+            let block = entity.read(cx);
+            block.kind() == BlockKind::Paragraph
+                && !block.renders_as_standalone_image()
+                && block.visible_len() == 0
+        }
+        let involves_image = gap.prev.as_ref().is_some_and(|entity| is_image(entity, cx))
+            || gap.next.as_ref().is_some_and(|entity| is_image(entity, cx));
+        if !involves_image {
+            return false;
+        }
+        // Repeated gap clicks focus the existing empty neighbor instead of
+        // stacking empties.
+        for neighbor in [gap.next.as_ref(), gap.prev.as_ref()].into_iter().flatten() {
+            if is_empty_paragraph(neighbor, cx) {
+                self.cross_block_drag = None;
+                self.focus_block(neighbor.entity_id());
+                let neighbor = neighbor.clone();
+                neighbor.update(cx, |block, cx| block.move_to(0, cx));
+                cx.notify();
+                return true;
+            }
+        }
+        // Insert before `next` (equivalently: after `prev`).
+        let location = match (&gap.prev, &gap.next) {
+            (_, Some(next)) => self
+                .document
+                .find_block_location(next.entity_id())
+                .map(|location| (location.parent, location.index)),
+            (Some(prev), None) => self
+                .document
+                .find_block_location(prev.entity_id())
+                .map(|location| (location.parent, location.index + 1)),
+            (None, None) => None,
+        };
+        let Some((parent, index)) = location else {
+            return false;
+        };
+        let paragraph = Self::new_block(cx, BlockRecord::paragraph(String::new()));
+        self.document
+            .insert_blocks_at(parent, index, vec![paragraph.clone()], cx);
+        // The capture-phase drag anchor from this same mouse-down is stale
+        // now that the tree changed.
+        self.cross_block_drag = None;
+        self.focus_block(paragraph.entity_id());
+        paragraph.update(cx, |block, cx| block.move_to(0, cx));
+        cx.notify();
+        true
     }
 
     fn cross_block_selection_is_empty(&self, selection: CrossBlockSelection) -> bool {
@@ -879,7 +986,7 @@ mod tests {
     use gpui::{AppContext, Bounds, Context, TestAppContext, point, px, size};
 
     use super::{CrossBlockSelection, CrossBlockSelectionEndpoint, Editor};
-    use crate::components::{Cut, Undo, UndoCaptureKind};
+    use crate::components::{BlockKind, Cut, Undo, UndoCaptureKind};
 
     fn init_editor_test_app(cx: &mut TestAppContext) {
         cx.update(|cx| {
@@ -931,6 +1038,74 @@ mod tests {
                 ));
             });
         }
+    }
+
+    // EXP-277 vendoring: gap clicks around standalone images.
+    #[test]
+    fn gap_click_between_an_image_and_text_inserts_then_refocuses_a_paragraph() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)\n\nbeta".to_string(), None));
+
+        editor.update(&mut cx, |editor, cx| {
+            assign_visible_block_bounds(editor, cx);
+            // Block 0 (image) spans y 0..24, block 1 (text) 32..56 — the gap
+            // between them is y 24..32.
+            assert!(editor.handle_image_gap_click(point(px(10.0), px(28.0)), cx));
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 3);
+            let inserted = visible[1].entity.clone();
+            assert_eq!(inserted.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(inserted.read(cx).display_text(), "");
+            assert_eq!(editor.pending_focus, Some(inserted.entity_id()));
+
+            // A repeat click in the gap focuses the (now painted) empty
+            // paragraph instead of stacking another.
+            assign_visible_block_bounds(editor, cx);
+            assert!(editor.handle_image_gap_click(point(px(10.0), px(28.0)), cx));
+            assert_eq!(editor.document.visible_blocks().len(), 3);
+        });
+    }
+
+    #[test]
+    fn gap_click_above_a_leading_image_inserts_a_paragraph_at_the_top() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+
+        editor.update(&mut cx, |editor, cx| {
+            let image = editor.document.first_root().expect("image block").clone();
+            image.update(cx, |block, _cx| {
+                block.last_bounds = Some(Bounds::new(
+                    point(px(0.0), px(20.0)),
+                    size(px(400.0), px(48.0)),
+                ));
+            });
+            assert!(editor.handle_image_gap_click(point(px(10.0), px(4.0)), cx));
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(visible[0].entity.read(cx).display_text(), "");
+            assert_eq!(visible[1].entity.entity_id(), image.entity_id());
+        });
+    }
+
+    #[test]
+    fn clicks_inside_a_block_or_beside_text_are_not_gap_clicks() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "alpha\n\nbeta".to_string(), None));
+
+        editor.update(&mut cx, |editor, cx| {
+            assign_visible_block_bounds(editor, cx);
+            // Inside block 0's bounds — the block's own business.
+            assert!(!editor.handle_image_gap_click(point(px(10.0), px(10.0)), cx));
+            // In the text-text gap — no image involved, no insert.
+            assert!(!editor.handle_image_gap_click(point(px(10.0), px(28.0)), cx));
+            assert_eq!(editor.document.visible_blocks().len(), 2);
+        });
     }
 
     #[test]
