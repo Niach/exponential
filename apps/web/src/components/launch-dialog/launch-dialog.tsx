@@ -482,7 +482,7 @@ export function LaunchDialog({
           columns — issue/action picker left, launch options right — where
           ONLY the picker list scrolls, so the dialog never shows nested
           scrollbars. */}
-      <DialogContent className="grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-3 sm:max-h-[85dvh] sm:max-w-2xl">
+      <DialogContent className="grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-3 sm:max-h-[85dvh] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {tab === `actions` ? `Run action` : `Start coding`}
@@ -577,7 +577,10 @@ export function LaunchDialog({
           >
             Cancel
           </Button>
-          <Button onClick={submit} disabled={starting || !device || submitBlocked}>
+          <Button
+            onClick={submit}
+            disabled={starting || !device || submitBlocked}
+          >
             {starting ? <Loader2 className="animate-spin" /> : <MonitorUp />}
             {tab === `actions`
               ? `Run action`
