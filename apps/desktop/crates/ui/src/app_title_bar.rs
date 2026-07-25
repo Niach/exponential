@@ -10,12 +10,13 @@
 //! native chrome remains.
 
 use gpui::{
-    div, App, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render,
-    Styled as _, Window,
+    div, prelude::FluentBuilder as _, App, Entity, InteractiveElement as _, IntoElement,
+    MouseButton, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
 use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _, TitleBar};
 
 use crate::icons::ExpIcon;
+use crate::screens::ScreensPanel;
 
 #[cfg(not(feature = "staging"))]
 const APP_TITLE: &str = "Exponential";
@@ -43,34 +44,69 @@ pub(crate) fn interactive(children: impl IntoElement) -> impl IntoElement {
         .child(children)
 }
 
-/// The main window's titlebar content: brand glyph + app name on the drag
-/// strip. Deliberately minimal — search/update/account affordances stay in
-/// the rail.
-pub struct AppTitleBar;
+/// The main window's titlebar content: brand glyph + app name, then the
+/// center tab strip (EXP-277 — the decoration band doubles as the tab row so
+/// the content area gains its height back). Search/update/account affordances
+/// stay in the rail.
+pub struct AppTitleBar {
+    /// This window's center screens panel, resolved lazily from the
+    /// per-window registry — the panel is built after the titlebar during
+    /// `Shell::new`, so the first render(s) may not find it yet.
+    screens: Option<Entity<ScreensPanel>>,
+    /// Repaints the bar when tabs open/close/retitle.
+    _observe_screens: Option<Subscription>,
+}
 
 impl AppTitleBar {
     pub fn new() -> Self {
-        Self
+        Self { screens: None, _observe_screens: None }
     }
 }
 
 impl Render for AppTitleBar {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        if self.screens.is_none() {
+            if let Some(panel) = crate::screens::screens_for_window(window, cx) {
+                self._observe_screens = Some(cx.observe(&panel, |_, _, cx| cx.notify()));
+                self.screens = Some(panel);
+            }
+        }
+        // Building the strip via `update` on the panel entity is safe here —
+        // the titlebar renders outside the panel's own render pass.
+        let strip = self
+            .screens
+            .as_ref()
+            .map(|panel| panel.update(cx, |panel, cx| panel.render_tab_strip(cx)));
+
         TitleBar::new().child(
             h_flex()
+                .flex_1()
+                .min_w_0()
                 .items_center()
-                .gap_2()
+                .gap_3()
                 .child(
-                    Icon::from(ExpIcon::Logo)
-                        .small()
-                        .text_color(cx.theme().muted_foreground),
+                    h_flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::from(ExpIcon::Logo)
+                                .small()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().foreground.opacity(0.7))
+                                .child(APP_TITLE),
+                        ),
                 )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().foreground.opacity(0.7))
-                        .child(APP_TITLE),
-                ),
+                // The strip content swallows its own mouse-downs (interactive
+                // wrapper) so tab presses never start a window drag; the empty
+                // remainder of the flex_1 container stays a drag/zoom zone.
+                .when_some(strip, |bar, strip| {
+                    bar.child(div().flex_1().min_w_0().child(interactive(strip)))
+                }),
         )
     }
 }

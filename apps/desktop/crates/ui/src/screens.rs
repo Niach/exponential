@@ -11,10 +11,12 @@
 //! neighbor; closing the last shows the empty state. A team switch
 //! drops all tabs (they are team-scoped).
 
+use std::collections::HashMap;
+
 use gpui::{
-    div, prelude::FluentBuilder as _, App, AppContext as _, ClickEvent, Entity, FocusHandle,
-    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity, FocusHandle,
+    Focusable, FontWeight, InteractiveElement as _, IntoElement, MouseButton, ParentElement,
+    Render, StatefulInteractiveElement as _, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -22,8 +24,7 @@ use gpui_component::{
     h_flex,
     menu::{ContextMenuExt as _, PopupMenuItem},
     skeleton::Skeleton,
-    tab::{Tab, TabBar},
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _, Size,
+    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 use sync::Store;
 
@@ -42,6 +43,33 @@ pub const PANEL_NAME: &str = "Screens";
 /// gpui resolves `group_hover` against the innermost enclosing group (the
 /// same idiom as the issue list's `ROW_GROUP`).
 const TAB_GROUP: &str = "center-tab";
+
+/// EXP-277: per-window handle to the center [`ScreensPanel`] so the titlebar
+/// ([`crate::app_title_bar::AppTitleBar`]) can host the tab strip. Mirrors
+/// `sidebar::RailRegistry` / `navigation`'s per-window globals. Shell windows
+/// only — undocked windows have no center panel and no strip.
+#[derive(Default)]
+struct ScreensRegistry {
+    by_window: HashMap<WindowId, Entity<ScreensPanel>>,
+}
+
+impl gpui::Global for ScreensRegistry {}
+
+/// This window's center screens panel, if one exists yet.
+pub(crate) fn screens_for_window(window: &Window, cx: &App) -> Option<Entity<ScreensPanel>> {
+    cx.try_global::<ScreensRegistry>()
+        .and_then(|registry| registry.by_window.get(&window.window_handle().window_id()).cloned())
+}
+
+/// Drop a closed window's entry (called from the `Shell` release hook,
+/// mirroring `sidebar::remove_window`).
+pub(crate) fn remove_window(window_id: WindowId, cx: &mut App) {
+    if let Some(registry) = cx.try_global::<ScreensRegistry>() {
+        if registry.by_window.contains_key(&window_id) {
+            cx.global_mut::<ScreensRegistry>().by_window.remove(&window_id);
+        }
+    }
+}
 
 /// Build a FRESH content view for `screen` (EXP-65 undocked windows). The
 /// panel's own shared single-instance views (re-pointed on tab switch) must
@@ -148,6 +176,13 @@ impl ScreensPanel {
                 cx.notify();
             },
         ));
+
+        // EXP-277: publish this window's panel so the titlebar can render the
+        // tab strip (insert overwrites — a rebuilt center wins).
+        let panel_entity = cx.entity();
+        cx.default_global::<ScreensRegistry>()
+            .by_window
+            .insert(window.window_handle().window_id(), panel_entity);
 
         let mut this = Self {
             focus_handle: cx.focus_handle(),
@@ -296,111 +331,118 @@ impl ScreensPanel {
         self.close_tab(ix, window, cx);
     }
 
-    fn render_tab_bar(&self, active_ix: usize, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    /// EXP-277: the hand-rolled rounded tab strip. Hosted INSIDE the titlebar
+    /// (via [`screens_for_window`] from `AppTitleBar`) when the window paints
+    /// its own chrome; falls back to the legacy in-panel position under Linux
+    /// server-side decorations (where the titlebar is hidden). Chips are plain
+    /// stateful divs, so the EXP-235 context-menu overlay hack is gone — the
+    /// menu attaches directly.
+    pub(crate) fn render_tab_strip(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        if self.tabs.is_empty() {
+            return gpui::Empty.into_any_element();
+        }
+        let active_ix = resolved_screen(&self.nav, cx)
+            .and_then(|screen| self.tabs.iter().position(|tab| *tab == screen));
         let panel = cx.entity().downgrade();
         let tab_count = self.tabs.len();
-        TabBar::new("center-tabs")
-            .with_size(Size::Small)
-            .selected_index(active_ix)
-            .on_click(cx.listener(|this, ix: &usize, window, cx| {
-                if let Some(screen) = this.tabs.get(*ix).cloned() {
-                    // Direct tab activation — no back-stack push.
-                    set_screen(window, cx, Some(screen));
-                }
-            }))
+        h_flex()
+            .id("center-tab-strip")
+            .max_w_full()
+            .overflow_x_scroll()
+            .gap_1()
+            .items_center()
             .children(self.tabs.iter().enumerate().map(|(ix, screen)| {
-                Tab::new()
+                crate::surface::tab_chip(Some(ix) == active_ix, cx)
+                    .id(("center-tab", ix))
                     .group(TAB_GROUP)
-                    .label(screen_title(screen, cx))
-                    // Middle-click closes (EXP-235). `on_aux_click` so the
-                    // TabBar-level `on_click` keeps owning primary clicks.
-                    .on_aux_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-                        if event.is_middle_click() {
-                            cx.stop_propagation();
-                            this.close_tab(ix, window, cx);
+                    // Direct tab activation — no back-stack push.
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        if let Some(screen) = this.tabs.get(ix).cloned() {
+                            set_screen(window, cx, Some(screen));
                         }
                     }))
-                    // Right-click context menu (EXP-235). TabBar children must
-                    // BE `Tab`s, so the ContextMenu wrapper can't wrap the tab
-                    // itself — an absolute overlay rides the unused `prefix`
-                    // slot instead (a direct child of the tab's relative base,
-                    // so `inset_0` spans the whole tab). Its only listener is
-                    // the right-mouse one; other clicks fall through.
-                    .prefix(
-                        div()
-                            .id(("center-tab-context", ix))
-                            .absolute()
-                            .inset_0()
-                            .context_menu({
-                                let panel = panel.clone();
-                                move |menu, _window, _cx| {
-                                    let close = panel.clone();
-                                    let close_others = panel.clone();
-                                    let close_all = panel.clone();
-                                    menu.item(PopupMenuItem::new("Close").on_click(
-                                        move |_, window, cx| {
-                                            let _ = close.update(cx, |this, cx| {
-                                                this.close_tab(ix, window, cx);
-                                            });
-                                        },
-                                    ))
-                                    .item(
-                                        PopupMenuItem::new("Close others")
-                                            .disabled(tab_count <= 1)
-                                            .on_click(move |_, window, cx| {
-                                                let _ = close_others.update(cx, |this, cx| {
-                                                    this.close_other_tabs(ix, window, cx);
-                                                });
-                                            }),
-                                    )
-                                    .item(PopupMenuItem::new("Close all").on_click(
-                                        move |_, window, cx| {
-                                            let _ = close_all.update(cx, |this, cx| {
-                                                this.close_all_tabs(window, cx);
-                                            });
-                                        },
-                                    ))
-                                }
-                            }),
+                    // Middle-click closes (EXP-235).
+                    .on_mouse_down(
+                        MouseButton::Middle,
+                        cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.close_tab(ix, window, cx);
+                        }),
                     )
-                    .suffix(
-                    h_flex()
-                        .pr_1()
-                        .gap_0p5()
-                        // Hover-revealed undock (EXP-65): `invisible` keeps
-                        // the layout slot so tabs don't jitter on hover.
-                        .when(screen.undockable(), |this| {
-                            this.child(
-                                div()
-                                    .invisible()
-                                    .group_hover(TAB_GROUP, |style| style.visible())
-                                    .child(
-                                        Button::new(("undock-center-tab", ix))
-                                            .ghost()
-                                            .xsmall()
-                                            .icon(ExpIcon::ExternalLink)
-                                            .tooltip("Open in new window")
-                                            .on_click(cx.listener(
-                                                move |this, _: &ClickEvent, window, cx| {
-                                                    cx.stop_propagation();
-                                                    this.undock_tab(ix, window, cx);
-                                                },
-                                            )),
-                                    ),
+                    // Right-click context menu (EXP-235).
+                    .context_menu({
+                        let panel = panel.clone();
+                        move |menu, _window, _cx| {
+                            let close = panel.clone();
+                            let close_others = panel.clone();
+                            let close_all = panel.clone();
+                            menu.item(PopupMenuItem::new("Close").on_click(
+                                move |_, window, cx| {
+                                    let _ = close.update(cx, |this, cx| {
+                                        this.close_tab(ix, window, cx);
+                                    });
+                                },
+                            ))
+                            .item(
+                                PopupMenuItem::new("Close others")
+                                    .disabled(tab_count <= 1)
+                                    .on_click(move |_, window, cx| {
+                                        let _ = close_others.update(cx, |this, cx| {
+                                            this.close_other_tabs(ix, window, cx);
+                                        });
+                                    }),
                             )
-                        })
-                        .child(
-                            Button::new(("close-center-tab", ix))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Close)
-                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                    cx.stop_propagation();
-                                    this.close_tab(ix, window, cx);
-                                })),
-                        ),
-                )
+                            .item(PopupMenuItem::new("Close all").on_click(
+                                move |_, window, cx| {
+                                    let _ = close_all.update(cx, |this, cx| {
+                                        this.close_all_tabs(window, cx);
+                                    });
+                                },
+                            ))
+                        }
+                    })
+                    .child(div().max_w(px(180.)).truncate().child(screen_title(screen, cx)))
+                    .child(
+                        h_flex()
+                            .gap_0p5()
+                            // Hover-revealed undock (EXP-65): `invisible`
+                            // keeps the layout slot so tabs don't jitter.
+                            .when(screen.undockable(), |this| {
+                                this.child(
+                                    div()
+                                        .invisible()
+                                        .group_hover(TAB_GROUP, |style| style.visible())
+                                        .child(
+                                            Button::new(("undock-center-tab", ix))
+                                                .ghost()
+                                                .xsmall()
+                                                .icon(ExpIcon::ExternalLink)
+                                                .tooltip("Open in new window")
+                                                .on_click(cx.listener(
+                                                    move |this, _: &ClickEvent, window, cx| {
+                                                        cx.stop_propagation();
+                                                        this.undock_tab(ix, window, cx);
+                                                    },
+                                                )),
+                                        ),
+                                )
+                            })
+                            .child(
+                                Button::new(("close-center-tab", ix))
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::Close)
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            cx.stop_propagation();
+                                            this.close_tab(ix, window, cx);
+                                        },
+                                    )),
+                            ),
+                    )
             }))
+            .into_any_element()
     }
 
     /// §4.1: while the team/boards shapes have not caught up, render a
@@ -576,7 +618,7 @@ impl Focusable for ScreensPanel {
 }
 
 impl Render for ScreensPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let screen = resolved_screen(&self.nav, cx);
 
         // DEV-ONLY (§11.4 headless verification, EXP_DEV_* family): once a
@@ -588,7 +630,7 @@ impl Render for ScreensPanel {
                 use std::sync::atomic::{AtomicBool, Ordering};
                 static FIRED: AtomicBool = AtomicBool::new(false);
                 if !FIRED.swap(true, Ordering::SeqCst) {
-                    cx.spawn_in(_window, async move |_this, cx| {
+                    cx.spawn_in(window, async move |_this, cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(1500))
                             .await;
@@ -616,16 +658,18 @@ impl Render for ScreensPanel {
             Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
         };
 
-        let active_ix = screen
-            .as_ref()
-            .and_then(|screen| self.tabs.iter().position(|tab| tab == screen))
-            .unwrap_or(0);
-        let tab_bar = (!self.tabs.is_empty()).then(|| self.render_tab_bar(active_ix, cx));
+        // EXP-277: the tab strip lives in the titlebar (AppTitleBar) whenever
+        // the window paints its own chrome; under Linux server-side
+        // decorations the titlebar is hidden, so the strip renders here in
+        // its legacy in-panel position.
+        let fallback_strip = (!self.tabs.is_empty()
+            && !crate::app_title_bar::client_chrome(window))
+        .then(|| div().w_full().px_2().pt_1().child(self.render_tab_strip(cx)));
 
         div().size_full().bg(cx.theme().colors.list).child(
             v_flex()
                 .size_full()
-                .children(tab_bar)
+                .children(fallback_strip)
                 .child(div().flex_1().min_h_0().child(content)),
         )
     }
