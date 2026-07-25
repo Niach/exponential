@@ -25,8 +25,8 @@ use super::images::{self, SharedImageState, WysiwygImageResolver, WysiwygPasteHa
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{markdown_for_save, DRAFT_SCHEME};
 use crate::markdown::{
-    detect_trigger, download_image, split_inline_images_into_blocks, store_completion_source,
-    CompletionItem, CompletionSource, ImageCache, ImageSlot, StagedImage,
+    detect_trigger, download_image, normalize_for_wysiwyg, restore_blank_line_markers,
+    store_completion_source, CompletionItem, CompletionSource, ImageCache, ImageSlot, StagedImage,
 };
 use crate::queries;
 
@@ -134,7 +134,7 @@ impl WysiwygDescription {
                 }));
             }
             VendoredEditor::new(
-                split_inline_images_into_blocks(initial_markdown),
+                normalize_for_wysiwyg(initial_markdown),
                 MarkdownEditorOptions {
                     mode: MarkdownEditorMode::Rendered,
                     environment,
@@ -261,16 +261,19 @@ impl WysiwygDescription {
         this
     }
 
-    /// Current canonical GFM. The vendored serializer IS the canonical form
-    /// on this path — no comrak `canonicalize` pass (see wysiwyg_parity.rs).
+    /// Current canonical GFM — what every persist site writes. The vendored
+    /// serializer IS the canonical form on this path (no comrak
+    /// `canonicalize` pass, see wysiwyg_parity.rs); the one thing it cannot
+    /// express is the `&nbsp;` blank-line marker it trimmed on the way in
+    /// (EXP-271), which [`restore_blank_line_markers`] writes back.
     pub fn markdown(&self, cx: &App) -> String {
-        self.editor.read(cx).markdown(cx)
+        restore_blank_line_markers(&self.editor.read(cx).markdown(cx))
     }
 
     /// Replace the whole buffer (remote echo / dialog reset). Resets undo
     /// history, matching the vendored `replace_markdown` semantics.
     pub fn set_markdown(&mut self, markdown: &str, _window: &mut Window, cx: &mut Context<Self>) {
-        let markdown = split_inline_images_into_blocks(markdown);
+        let markdown = normalize_for_wysiwyg(markdown);
         self.editor
             .update(cx, |editor, cx| editor.replace_markdown(markdown, cx));
         // A full buffer replace discards any staged (unsubmitted) images.
@@ -1062,6 +1065,89 @@ mod tests {
         });
     }
 
+    // EXP-271: `&nbsp;` is the interchange form of an intentional blank line
+    // (web `markdown-paragraph.ts`), and the web's serializer also emits
+    // `&gt;`/`&amp;` for literal `>`/`&`. The vendored engine has no notion of
+    // HTML entities, so all of it rendered as raw source. Loading decodes
+    // them — and the decoded blank-line paragraph must SURVIVE the engine's
+    // round trip, or a save would silently drop the user's blank line.
+    #[gpui::test]
+    async fn html_entities_load_decoded_and_the_blank_line_survives(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(
+                None,
+                None,
+                "Add description...",
+                "close the laptop =&gt; no internet.\n\n&nbsp;\n\nTom &amp; Jerry",
+                None,
+                window,
+                cx,
+            )
+        });
+        view.read_with(cx, |view, cx| {
+            // `&gt;`/`&amp;` stay decoded on the way back out — the block
+            // editor persists them the same way — but the blank-line
+            // paragraph the engine trims comes back as its stored marker
+            // instead of the bare blank lines that parse as nothing.
+            assert_eq!(
+                view.markdown(cx),
+                "close the laptop => no internet.\n\n&nbsp;\n\nTom & Jerry"
+            );
+            assert!(!view.is_dirty(cx));
+        });
+    }
+
+    // EXP-271: the blank-line marker has to survive a real EDIT, not just a
+    // load — a save that dropped it would silently delete the user's blank
+    // line on every other client.
+    #[gpui::test]
+    async fn an_edited_save_keeps_the_blank_line_marker(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let saved: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
+        let on_save: OnSave = Rc::new({
+            let saved = saved.clone();
+            move |markdown, _window, _cx| saved.borrow_mut().push(markdown)
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(
+                None,
+                None,
+                "Add description...",
+                "first\n\n&nbsp;\n\n![shot](/api/attachments/old)",
+                Some(on_save),
+                window,
+                cx,
+            )
+        });
+
+        // A structural edit (the image-upload rewrite) — any real mutation.
+        cx.update(|_window, cx| {
+            view.update(cx, |view, cx| {
+                let mut map = HashMap::new();
+                map.insert(
+                    "/api/attachments/old".to_string(),
+                    "/api/attachments/new".to_string(),
+                );
+                view.editor
+                    .update(cx, |editor, cx| editor.rewrite_image_sources(&map, cx));
+            });
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| view.save_now(window, cx));
+        });
+        assert_eq!(
+            saved.borrow().as_slice(),
+            ["first\n\n&nbsp;\n\n![shot](/api/attachments/new)".to_string()]
+        );
+    }
+
     // EXP-271, the engine-level counterfactual behind the fix above: the
     // vendored engine builds an image runtime (its one render path for a
     // picture) ONLY for a block that holds nothing but the image, so it
@@ -1096,7 +1182,7 @@ mod tests {
 
         assert!(resolved_srcs(glued.to_string(), cx).is_empty());
         assert_eq!(
-            resolved_srcs(split_inline_images_into_blocks(glued), cx),
+            resolved_srcs(normalize_for_wysiwyg(glued), cx),
             ["/api/attachments/abc"]
         );
     }
