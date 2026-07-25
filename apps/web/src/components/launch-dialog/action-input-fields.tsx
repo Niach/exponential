@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Check } from "lucide-react"
-import type { ActionInputDef } from "@exp/db-schema/domain"
+import {
+  type ActionInputDef,
+  MAX_ACTION_INPUT_TEXT,
+} from "@exp/db-schema/domain"
 import type { Board } from "@/db/schema"
 import { boardCollection } from "@/lib/collections"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
@@ -69,6 +72,9 @@ export function ActionInputFields({
                 value={values[def.key] ?? ``}
                 onChange={(e) => onChange(def.key, e.target.value)}
                 placeholder={def.placeholder}
+                // Client parity with the server's per-value cap, so a long
+                // paste is refused at the field instead of at submit.
+                maxLength={MAX_ACTION_INPUT_TEXT}
               />
             </div>
           )

@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-actions-launch-dialog`,
+    date: `2026-07-25`,
+    title: `One dialog for starting anything`,
+    summary: `Issues and actions now start from the same dialog on every client, actions can ask for inputs, and mobile sync catches up the moment you open the app.`,
+    body: `- **One launch dialog** — "Start coding" and "Run action" merged into a single dialog with Issues and Actions tabs, sharing the same device, agent, model, effort and toggle options. Actions finally get the full option set instead of running on defaults.
+- **Actions can ask for inputs** — an action can declare text, repository and board inputs, and the dialog prompts for them before the run starts. Values are resolved and checked against your team on the server.
+- **Actions moved into Agents** — the separate Actions page is gone; your actions now live alongside your desktops on the Agents page, with a built-in "Create action" card that writes a new action for you.
+- **Faster mobile sync** — iOS and Android now catch up immediately when you open the app, regain a connection, or receive a push, instead of waiting out a stale poll. Opening an issue from a notification no longer strands you on a blank loading screen.`,
+  },
+  {
     id: `2026-07-desktop-editor-toolbar`,
     date: `2026-07-25`,
     title: `A formatting toolbar for desktop descriptions`,

@@ -432,6 +432,21 @@ export const steerRouter = router({
         // EXP-257: actions run on any agent the device advertised, same
         // lenient fallback as the issue branch (nothing advertised ⇒ claude).
         const actionAgent = input.agent ?? `claude`
+        // ...but only on a desktop that actually LAUNCHES the chosen agent. A
+        // pre-EXP-257 desktop advertises `actions` and its full agent list,
+        // yet its action runner clamps the agent to claude while still
+        // honoring the model string — a codex/pi start would silently launch
+        // claude with a foreign model. `action-inputs` is the EXP-257 marker
+        // cap, so it is the reliable "this desktop honors the agent" test.
+        // (The new toggles are NOT gated: an old desktop ignores them and
+        // falls back to its own device settings, exactly as it did before
+        // EXP-257 offered them — degraded, not a regression.)
+        if (actionAgent !== `claude` && !caps.includes(`action-inputs`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That desktop app can only run actions on claude yet — update it`,
+          })
+        }
         const actionDeviceAgents =
           device.agents && device.agents.length > 0
             ? device.agents

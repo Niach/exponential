@@ -321,7 +321,10 @@ function MarkdownImageNodeView({
       />
       <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
         <DialogContent
-          className="w-auto max-w-[min(96vw,80rem)] p-2 max-sm:content-center max-sm:justify-items-center sm:max-w-[min(96vw,80rem)]"
+          // sm:w-auto opts out of DialogContent's sm:w-[calc(100%-2rem)]
+          // gutter width — the lightbox panel hugs the image instead of
+          // spanning the viewport with the image left-aligned inside it.
+          className="w-auto max-w-[min(96vw,80rem)] p-2 max-sm:content-center max-sm:justify-items-center sm:w-auto sm:max-w-[min(96vw,80rem)]"
           aria-describedby={undefined}
         >
           <DialogTitle className="sr-only">{imageLabel}</DialogTitle>

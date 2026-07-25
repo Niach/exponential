@@ -485,6 +485,42 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
+  it(`non-claude runs require the action-inputs cap (pre-EXP-257 desktops clamp to claude)`, async () => {
+    // A pre-EXP-257 desktop advertises `actions` + its full agent list, but
+    // its action runner forces claude while honoring the model string — the
+    // start would silently launch claude with a codex model.
+    actionsCapableDevice([`actions`], [`claude`, `codex`])
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
+    ])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: ACTION_ID,
+        deviceId: `dev-1`,
+        agent: `codex`,
+        model: `gpt-5.6-sol`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`only run actions on claude`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`claude runs stay allowed on an actions-only desktop (options it ignores are not a regression)`, async () => {
+    actionsCapableDevice([`actions`], [`claude`])
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
+    ])
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      agent: `claude`,
+      model: `opus`,
+      skipPermissions: true,
+    })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
   it(`inputs-carrying runs require the action-inputs cap`, async () => {
     actionsCapableDevice([`actions`])
     h.dbQueue.push([
