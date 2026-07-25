@@ -52,17 +52,19 @@ struct ActionsListView: View {
         }
         // EXP-257: the unified Start-coding sheet, opened in Actions mode
         // preselected on the tapped row (it filters device candidates by
-        // capability itself). No issue candidates on this surface — the
-        // Issues tab simply shows its empty state.
+        // capability itself). The Issues tab carries the team's real
+        // candidate pool (Android parity) so flipping over never dead-ends.
         .sheet(item: $runTarget) { action in
             StartCodingSheet(
                 devices: devices ?? [],
-                issues: [],
+                issues: viewModel?.startCandidates ?? [],
                 preselectedIds: [],
                 teamId: teamState.activeTeam?.id,
                 initialTab: .actions,
                 preselectedActionId: action.id,
-                onStart: { _, _, _ in },
+                onStart: { device, issueIds, options in
+                    viewModel?.startCoding(device: device, issueIds: issueIds, options: options)
+                },
                 onRunAction: { device, chosen, options, inputs in
                     viewModel?.run(
                         action: chosen,
@@ -209,6 +211,9 @@ struct ActionsListView: View {
 
             Button {
                 runTarget = action
+                // Rebuild the Issues-tab pool at open time — the sheet
+                // self-heals if the read lands after presentation.
+                Task { await viewModel?.refreshStartCandidates() }
             } label: {
                 Text("Run")
                     .font(.caption.weight(.medium))

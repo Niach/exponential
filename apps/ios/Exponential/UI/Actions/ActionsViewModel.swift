@@ -21,6 +21,12 @@ final class ActionsViewModel {
     var actions: [ActionDto] = []
     var isLoading = false
     var loadError: String?
+    // Issues the unified sheet's Issues tab can queue (Android parity —
+    // the AgentsViewModel.startCandidates rules): the loaded team's
+    // repo-backed non-archived boards; open issues, recency-ordered.
+    // Rebuilt on every Run tap; the sheet's candidate pool self-heals if
+    // the read lands after presentation.
+    var startCandidates: [StartCodingSheet.IssueOption] = []
 
     // Run feedback (the AgentsView split): success caption (informational,
     // tertiary) vs failure (red) — a start error must read as an error and a
@@ -98,6 +104,94 @@ final class ActionsViewModel {
                 )
                 sentCaption = "Start sent to \(label) — waiting for the desktop…"
                 watchForStartedRun(actionName: action.name, userId: userId)
+            } catch {
+                startError = error.localizedDescription
+            }
+        }
+    }
+
+    /// One-shot rebuild of `startCandidates` from the synced store — the
+    /// same eligibility as the Agents-tab picker (repo-backed non-archived
+    /// boards, open issues, no merged PR), scoped to the loaded team.
+    func refreshStartCandidates() async {
+        guard let teamId = loadedTeamId, let pool = try? db.pool(forAccountId: accountId) else {
+            startCandidates = []
+            return
+        }
+        let boards = (try? await pool.read { db in try BoardEntity.fetchAll(db) }) ?? []
+        let issues = (try? await pool.read { db in try IssueEntity.fetchAll(db) }) ?? []
+        // Repo-backed, non-archived boards only — boardId → repositoryId.
+        var repoByBoard: [String: String] = [:]
+        for board in boards where board.archivedAt == nil && board.teamId == teamId {
+            if let repoId = board.repositoryId {
+                repoByBoard[board.id] = repoId
+            }
+        }
+        let terminal: Set<String> = [
+            IssueStatus.done.rawValue,
+            IssueStatus.cancelled.rawValue,
+            IssueStatus.duplicate.rawValue,
+        ]
+        startCandidates = issues
+            .filter { row in
+                guard repoByBoard[row.boardId] != nil else { return false }
+                if row.archivedAt != nil { return false }
+                if terminal.contains(row.status) { return false }
+                if row.prState == DomainContract.prStateMerged { return false }
+                return true
+            }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .map { row in
+                StartCodingSheet.IssueOption(
+                    id: row.id,
+                    identifier: row.identifier,
+                    title: row.title,
+                    repositoryId: repoByBoard[row.boardId],
+                    status: row.status,
+                    priority: row.priority
+                )
+            }
+    }
+
+    /// Remote-start issues from the unified sheet's Issues tab (the
+    /// AgentsView.start twin, surfaced through the same captions): 1 id
+    /// launches a plain single-issue session, 2+ a batch. No session watch —
+    /// the run surfaces on the Agents tab via sync like any desktop start.
+    func startCoding(device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
+        guard !issueIds.isEmpty else { return }
+        // A fresh attempt supersedes the previous outcome (success or error).
+        sentCaption = nil
+        startError = nil
+        let isBatch = issueIds.count > 1
+        let label = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
+        Task {
+            do {
+                if isBatch {
+                    try await steerApi.startSession(
+                        accountId: accountId,
+                        issueIds: issueIds,
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                } else {
+                    try await steerApi.startSession(
+                        accountId: accountId,
+                        issueId: issueIds[0],
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                }
+                let sent = isBatch
+                    ? "Batch start sent to \(label) — it'll appear on the Agents tab when it spins up."
+                    : "Start sent to \(label) — it'll appear on the Agents tab when it spins up."
+                sentCaption = sent
+                // The informational caption clears after a grace window; a
+                // newer attempt's caption must not be clobbered (errors
+                // persist until the next attempt so they can't be missed).
+                try? await Task.sleep(for: .seconds(30))
+                if sentCaption == sent {
+                    sentCaption = nil
+                }
             } catch {
                 startError = error.localizedDescription
             }
