@@ -24,8 +24,12 @@ public enum DomainContract {
     public static let codexEffortValues: [String] = ["minimal", "low", "medium", "high", "xhigh"]
     public static let piModelValues: [String] = ["fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5"]
     public static let piThinkingValues: [String] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+    public static let actionInputTypeValues: [String] = ["text", "repo", "board"]
 
     public static let codingSessionStaleMs: Int = 7200000
+    public static let builtinCreateActionId: String = "builtin:create-action"
+    public static let actionInputsMax: Int = 10
+    public static let actionInputTextMax: Int = 4096
 
     public static let issueSourceUser: String = "user"
     public static let issueSourceWidget: String = "widget"

@@ -1,0 +1,1 @@
+ALTER TABLE "actions" ADD COLUMN "inputs" jsonb DEFAULT '[]'::jsonb NOT NULL;

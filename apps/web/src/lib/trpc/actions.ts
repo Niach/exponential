@@ -1,9 +1,16 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, ne } from "drizzle-orm"
+import { actionInputsSchema } from "@exp/db-schema/domain"
 import { router, authedProcedure } from "@/lib/trpc"
 import { actions, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
+import {
+  BUILTIN_CREATE_ACTION_ID,
+  BUILTIN_CREATE_ACTION_NAME,
+  builtinCreateAction,
+  isBuiltinActionId,
+} from "@/lib/builtin-actions"
 
 // Team action prompts (EXP-253). tRPC-only — NOT an Electric shape: the
 // desktops fetch on demand and gate every run behind the per-device
@@ -28,6 +35,7 @@ const wireColumns = {
   name: actions.name,
   description: actions.description,
   body: actions.body,
+  inputs: actions.inputs,
   sortOrder: actions.sortOrder,
   createdAt: actions.createdAt,
   updatedAt: actions.updatedAt,
@@ -102,6 +110,33 @@ function duplicateNameError(name: string): TRPCError {
   })
 }
 
+// The builtin's id is accepted by every id field (so clients get a readable
+// error instead of a zod 400) but rejected before any DB work.
+const actionIdSchema = z
+  .string()
+  .uuid()
+  .or(z.literal(BUILTIN_CREATE_ACTION_ID))
+
+function rejectBuiltin(id: string, verb: string): void {
+  if (isBuiltinActionId(id)) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Built-in actions can't be ${verb}`,
+    })
+  }
+}
+
+// Keep the list free of a second "Create action" entry — the builtin owns
+// that name on every team.
+function assertNotReservedName(name: string): void {
+  if (name.trim().toLowerCase() === BUILTIN_CREATE_ACTION_NAME.toLowerCase()) {
+    throw new TRPCError({
+      code: `CONFLICT`,
+      message: `"${BUILTIN_CREATE_ACTION_NAME}" is a built-in action name`,
+    })
+  }
+}
+
 // Postgres unique_violation (23505), as surfaced by postgres-js directly or
 // wrapped in an error cause by drizzle.
 function isUniqueViolation(err: unknown): boolean {
@@ -123,14 +158,25 @@ export const actionsRouter = router({
         .from(actions)
         .where(eq(actions.teamId, input.teamId))
         .orderBy(asc(actions.sortOrder), asc(actions.name))
-      return { actions: rows }
+      // EXP-257: the virtual "Create action" rides every list — clients pin
+      // it first by its `builtin` flag (explicit false on real rows so the
+      // union stays uniformly narrowable).
+      return {
+        actions: [
+          ...rows.map((row) => ({ ...row, builtin: false as const })),
+          builtinCreateAction(input.teamId),
+        ],
+      }
     }),
 
   // Member-gated single fetch — the desktop re-fetches the body right before
   // a run and hashes THAT (never a listed/cached copy) for the trust gate.
   get: authedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: actionIdSchema }))
     .query(async ({ ctx, input }) => {
+      // The builtin has no server body — desktops compose its prompt from
+      // their own shipped constants and never trust-gate it.
+      rejectBuiltin(input.id, `fetched`)
       const action = await loadAction(input.id)
       await assertTeamMember(ctx.session.user.id, action.teamId)
       return { action }
@@ -144,10 +190,12 @@ export const actionsRouter = router({
         description: descriptionSchema.optional(),
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema,
+        inputs: actionInputsSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       await assertTeamOwner(ctx.session.user.id, input.teamId)
+      assertNotReservedName(input.name)
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, input.teamId)
       }
@@ -169,6 +217,7 @@ export const actionsRouter = router({
           name: input.name,
           description: input.description ?? null,
           body: input.body,
+          inputs: input.inputs ?? [],
           sortOrder: nextSortOrder,
         })
         .onConflictDoNothing({
@@ -183,17 +232,20 @@ export const actionsRouter = router({
   update: authedProcedure
     .input(
       z.object({
-        id: z.string().uuid(),
+        id: actionIdSchema,
         name: nameSchema.optional(),
         description: descriptionSchema.optional(),
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema.optional(),
+        inputs: actionInputsSchema.optional(),
         sortOrder: z.number().finite().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      rejectBuiltin(input.id, `edited`)
       const existing = await loadAction(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
+      if (input.name !== undefined) assertNotReservedName(input.name)
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, existing.teamId)
       }
@@ -224,6 +276,8 @@ export const actionsRouter = router({
         updates.repositoryId = input.repositoryId
       }
       if (input.body !== undefined) updates.body = input.body
+      // Whole-array replace — inputs are small and orderful, no patching.
+      if (input.inputs !== undefined) updates.inputs = input.inputs
       if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
 
       // Nothing to change — return the current row (drizzle rejects an empty
@@ -270,8 +324,9 @@ export const actionsRouter = router({
   // Live coding_sessions rows survive a delete batch-shaped: action_id nulls
   // (FK SET NULL) while the action_name snapshot keeps labeling the run.
   delete: authedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: actionIdSchema }))
     .mutation(async ({ ctx, input }) => {
+      rejectBuiltin(input.id, `deleted`)
       const existing = await loadAction(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
       await ctx.db.delete(actions).where(eq(actions.id, input.id))

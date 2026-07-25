@@ -8,18 +8,34 @@ import { TRPCError } from "@trpc/server"
 // teamId + repo, installationId stripped) for 2+. The relay call is
 // mocked, so a caller + a handful of stubs is enough.
 
-const h = vi.hoisted(() => ({
-  getSteerRelayConfig: vi.fn(),
-  relayPostStart: vi.fn(),
-  relayGetDevices: vi.fn(),
-  assertTeamMember: vi.fn(),
-  getIssueTeamContext: vi.fn(),
-  resolveBoardRepository: vi.fn(),
-}))
+const h = vi.hoisted(() => {
+  // Minimal drizzle select-chain: each awaited query pops the next row set
+  // off the queue (the action branch runs its selects in a fixed order).
+  const dbQueue: unknown[][] = []
+  const makeChain = () => {
+    const chain = {
+      from: () => chain,
+      where: () => chain,
+      limit: () => Promise.resolve(dbQueue.shift() ?? []),
+    }
+    return chain
+  }
+  return {
+    getSteerRelayConfig: vi.fn(),
+    relayPostStart: vi.fn(),
+    relayGetDevices: vi.fn(),
+    assertTeamMember: vi.fn(),
+    getIssueTeamContext: vi.fn(),
+    resolveBoardRepository: vi.fn(),
+    dbQueue,
+    db: { select: () => makeChain() },
+  }
+})
 
 // lib/trpc.ts + lib/admin.ts import db/auth at module scope; runtime here only
-// needs the exports to exist.
-vi.mock(`@/db/connection`, () => ({ db: {} }))
+// needs the exports to exist (the action branch additionally runs queued
+// selects — see h.dbQueue).
+vi.mock(`@/db/connection`, () => ({ db: h.db }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
 vi.mock(`@/lib/team-membership`, () => ({
@@ -99,6 +115,7 @@ beforeEach(() => {
     defaultBranch: `main`,
     installationId: 42,
   })
+  h.dbQueue.length = 0
 })
 
 describe(`steer.startSession — subject XOR`, () => {
@@ -358,6 +375,300 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
         deviceId: `dev-1`,
         agent: `pi`,
         skipPermissions: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
+})
+
+// ── Action runs (EXP-253 base + EXP-257 full options / inputs / builtin) ──────
+
+const ACTION_ID = `33333333-3333-4333-8333-333333333333`
+const REPO_INPUT_ID = `44444444-4444-4444-8444-444444444444`
+const BUILTIN_ID = `builtin:create-action`
+
+function actionsCapableDevice(caps: string[], agents?: string[]) {
+  h.relayGetDevices.mockResolvedValue({
+    devices: [
+      {
+        deviceId: `dev-1`,
+        deviceLabel: `MacBook`,
+        connectedAt: 0,
+        agents: agents ?? [`claude`, `codex`, `pi`],
+        caps,
+      },
+    ],
+  })
+}
+
+describe(`steer.startSession — action runs (EXP-257)`, () => {
+  it(`forwards the FULL option set on an action start (no more Claude-only clamp)`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`])
+    h.dbQueue.push([
+      {
+        id: ACTION_ID,
+        teamId: `ws-1`,
+        repositoryId: null,
+        name: `Code review`,
+        inputs: [],
+      },
+    ])
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      agent: `codex`,
+      model: `gpt-5.6-sol`,
+      effort: `xhigh`,
+      skipPermissions: true,
+    })
+    expect(lastStartBody()).toMatchObject({
+      userId: `actor`,
+      deviceId: `dev-1`,
+      actionId: ACTION_ID,
+      actionName: `Code review`,
+      teamId: `ws-1`,
+      agent: `codex`,
+      model: `gpt-5.6-sol`,
+      effort: `xhigh`,
+      skipPermissions: true,
+    })
+    expect(`inputs` in lastStartBody()).toBe(false)
+  })
+
+  it(`still validates per-agent vocabulary on action starts`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: ACTION_ID,
+        deviceId: `dev-1`,
+        agent: `codex`,
+        ultracode: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`rejects an agent the device did not advertise on action starts`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`], [`claude`])
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
+    ])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: ACTION_ID,
+        deviceId: `dev-1`,
+        agent: `codex`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`codex is not installed`)
+  })
+
+  it(`refuses a device without the actions cap`, async () => {
+    // Default beforeEach device advertises agents but NO caps.
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
+    ])
+    const error = await rejectionOf(
+      caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`can't run actions`)
+  })
+
+  it(`input-less runs stay allowed on an actions-only (pre-inputs) desktop`, async () => {
+    actionsCapableDevice([`actions`])
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
+    ])
+    await caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`inputs-carrying runs require the action-inputs cap`, async () => {
+    actionsCapableDevice([`actions`])
+    h.dbQueue.push([
+      {
+        id: ACTION_ID,
+        teamId: `ws-1`,
+        repositoryId: null,
+        name: `A`,
+        inputs: [{ key: `topic`, label: `Topic`, type: `text`, required: false }],
+      },
+    ])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: ACTION_ID,
+        deviceId: `dev-1`,
+        inputs: { topic: `perf` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`action inputs`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`validates values against the schema — missing required, unknown key`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`])
+    const defs = [{ key: `topic`, label: `Topic`, type: `text`, required: true }]
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: defs },
+    ])
+    let error = await rejectionOf(
+      caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`Missing required input`)
+
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: defs },
+    ])
+    error = await rejectionOf(
+      caller.startSession({
+        actionId: ACTION_ID,
+        deviceId: `dev-1`,
+        inputs: { topic: `x`, bogus: `y` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`Unknown input`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`resolves repo-typed inputs to display names, team-scoped`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`])
+    h.dbQueue.push([
+      {
+        id: ACTION_ID,
+        teamId: `ws-1`,
+        repositoryId: null,
+        name: `A`,
+        inputs: [{ key: `repo`, label: `Repository`, type: `repo`, required: true }],
+      },
+    ])
+    // The repo lookup select.
+    h.dbQueue.push([{ teamId: `ws-1`, fullName: `acme/api` }])
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      inputs: { repo: REPO_INPUT_ID },
+    })
+    expect(lastStartBody().inputs).toEqual([
+      {
+        key: `repo`,
+        label: `Repository`,
+        type: `repo`,
+        value: REPO_INPUT_ID,
+        display: `acme/api`,
+      },
+    ])
+  })
+
+  it(`rejects a cross-team repo input value`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`])
+    h.dbQueue.push([
+      {
+        id: ACTION_ID,
+        teamId: `ws-1`,
+        repositoryId: null,
+        name: `A`,
+        inputs: [{ key: `repo`, label: `Repository`, type: `repo`, required: true }],
+      },
+    ])
+    h.dbQueue.push([{ teamId: `ws-OTHER`, fullName: `evil/repo` }])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: ACTION_ID,
+        deviceId: `dev-1`,
+        inputs: { repo: REPO_INPUT_ID },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+})
+
+describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
+  it(`requires teamId for the builtin (and rejects teamId elsewhere)`, async () => {
+    let error = await rejectionOf(
+      caller.startSession({ actionId: BUILTIN_ID, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+
+    error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        teamId: `11111111-1111-4111-8111-111111111111`,
+        deviceId: `dev-1`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`routes a builtin start with no DB action load and the resolved inputs`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`])
+    const teamId = `55555555-5555-4555-8555-555555555555`
+    await caller.startSession({
+      actionId: BUILTIN_ID,
+      teamId,
+      deviceId: `dev-1`,
+      inputs: { description: `Review PRs weekly` },
+    })
+    // No queued rows were consumed — the builtin never loads a DB action.
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, teamId)
+    expect(lastStartBody()).toMatchObject({
+      actionId: BUILTIN_ID,
+      actionName: `Create action`,
+      teamId,
+      inputs: [
+        {
+          key: `description`,
+          label: `Description`,
+          type: `text`,
+          value: `Review PRs weekly`,
+          display: `Review PRs weekly`,
+        },
+      ],
+    })
+    expect(`repo` in lastStartBody()).toBe(false)
+  })
+
+  it(`enforces the builtin's required description`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: BUILTIN_ID,
+        teamId: `55555555-5555-4555-8555-555555555555`,
+        deviceId: `dev-1`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(
+      `Missing required input "description"`
+    )
+  })
+
+  it(`builtin starts require the action-inputs cap`, async () => {
+    actionsCapableDevice([`actions`])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: BUILTIN_ID,
+        teamId: `55555555-5555-4555-8555-555555555555`,
+        deviceId: `dev-1`,
+        inputs: { description: `x` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`action inputs`)
+  })
+
+  it(`rejects inputs riding a non-action start`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        inputs: { description: `x` },
       })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)

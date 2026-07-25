@@ -7,6 +7,19 @@ import {
   assertTeamMember,
   getIssueTeamContext,
 } from "@/lib/team-membership"
+import {
+  BUILTIN_CREATE_ACTION_ID,
+  BUILTIN_CREATE_ACTION_NAME,
+  isBuiltinActionId,
+} from "@/lib/builtin-actions"
+
+// Built-in action runs (EXP-257) have no DB row to FK — their session rows
+// are batch-shaped (actionId NULL) with the server-constant name snapshot,
+// which also makes clients' actionName-based run watching work uniformly.
+const actionIdInput = z
+  .string()
+  .uuid()
+  .or(z.literal(BUILTIN_CREATE_ACTION_ID))
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
 // interactive session; synced to every client as an Electric shape.
@@ -25,19 +38,47 @@ export const codingSessionsRouter = router({
         .object({
           issueId: z.string().uuid().optional(),
           teamId: z.string().uuid().optional(),
-          actionId: z.string().uuid().optional(),
+          actionId: actionIdInput.optional(),
           deviceLabel: z.string().max(255).optional(),
         })
         .refine(
-          (value) =>
-            [value.issueId, value.teamId, value.actionId].filter(Boolean)
-              .length === 1,
+          (value) => {
+            // Built-in actions have no DB row to derive the team from — the
+            // builtin literal REQUIRES teamId (and still excludes issueId).
+            if (value.actionId && isBuiltinActionId(value.actionId)) {
+              return Boolean(value.teamId) && !value.issueId
+            }
+            return (
+              [value.issueId, value.teamId, value.actionId].filter(Boolean)
+                .length === 1
+            )
+          },
           {
             message: `Exactly one of issueId/teamId/actionId is required`,
           }
         )
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.actionId && isBuiltinActionId(input.actionId)) {
+        await assertTeamMember(ctx.session.user.id, input.teamId!)
+
+        const [session] = await ctx.db
+          .insert(codingSessions)
+          .values({
+            // Batch-shaped: actionId NULL (nothing to FK), the constant name
+            // labels the run on every client.
+            teamId: input.teamId!,
+            actionId: null,
+            actionName: BUILTIN_CREATE_ACTION_NAME,
+            userId: ctx.session.user.id,
+            deviceLabel: input.deviceLabel ?? null,
+            status: `running`,
+          })
+          .returning()
+
+        return { session }
+      }
+
       if (input.actionId) {
         // Action run: every member may run a team action (running is a
         // member affordance; only WRITES are owner-gated). The name is
@@ -144,7 +185,7 @@ export const codingSessionsRouter = router({
           // Action scope (EXP-253) rides WITH teamId so a deleted action
           // still lets the row resurrect batch-shaped; actionName is the
           // client-held snapshot (the action may be gone by resurrect time).
-          actionId: z.string().uuid().optional(),
+          actionId: actionIdInput.optional(),
           actionName: z.string().max(255).optional(),
           deviceLabel: z.string().max(255).optional(),
         })
@@ -202,8 +243,13 @@ export const codingSessionsRouter = router({
             // belong to the claimed team (the same derivation `start`
             // enforces) — a cross-team actionId degrades to NULL instead of
             // planting a cross-tenant FK reference in the synced row.
+            // The builtin literal is not a uuid — comparing it against the
+            // uuid PK would 22P02, and its rows are actionId-NULL anyway
+            // (the server constant, never client text, labels them).
+            const builtin =
+              input.actionId !== undefined && isBuiltinActionId(input.actionId)
             let actionId: string | null = null
-            if (input.actionId) {
+            if (input.actionId && !builtin) {
               const [action] = await ctx.db
                 .select({ id: actions.id, teamId: actions.teamId })
                 .from(actions)
@@ -216,7 +262,11 @@ export const codingSessionsRouter = router({
               id: input.id,
               teamId: input.teamId!,
               actionId,
-              actionName: input.actionId ? (input.actionName ?? null) : null,
+              actionName: builtin
+                ? BUILTIN_CREATE_ACTION_NAME
+                : input.actionId
+                  ? (input.actionName ?? null)
+                  : null,
               userId: ctx.session.user.id,
               deviceLabel: input.deviceLabel ?? null,
               // Batch/action rows have no issue to re-derive review state

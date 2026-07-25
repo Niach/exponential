@@ -11,6 +11,9 @@ import {
   type SteerTicketClaims,
 } from "@exp/steer-ticket"
 import type { TeamRole } from "@/lib/domain"
+import type { SteerStartInput } from "@/lib/action-inputs"
+
+export type { SteerStartInput } from "@/lib/action-inputs"
 
 // ── Config (env) ──────────────────────────────────────────────────────────────
 
@@ -178,9 +181,10 @@ export interface SteerDevice {
   /** EXP-201: agent CLIs the device advertised (`claude`/`codex`/`pi`).
    * Absent from an old relay ⇒ treat as claude-only. */
   agents?: string[]
-  /** EXP-253: feature capabilities the device advertised (`actions`).
-   * Absent (old desktop/relay) ⇒ none — action starts are strictly gated
-   * on this, unlike the lenient agents fallback. */
+  /** EXP-253: feature capabilities the device advertised (`actions`, and
+   * since EXP-257 `action-inputs` — required for builtin or inputs-carrying
+   * action starts). Absent (old desktop/relay) ⇒ none — action starts are
+   * strictly gated on this, unlike the lenient agents fallback. */
   caps?: string[]
 }
 
@@ -242,12 +246,20 @@ export interface SteerStartRepo {
  * issues sharing one team + repo group, or an action (EXP-253 — the name is
  * a display snapshot so the desktop can title the tab/trust dialog before
  * its own `actions.get` resolves; `repo` is absent for repo-less actions).
- * Exactly one form.
+ * `inputs` (EXP-257) are the action's filled input values, fully resolved
+ * server-side (display names included) so the desktop injects them into the
+ * prompt with zero lookups. Exactly one form.
  */
 export type SteerStartSubject =
   | { issueId: string }
   | { issueIds: string[]; teamId: string; repo: SteerStartRepo }
-  | { actionId: string; actionName: string; teamId: string; repo?: SteerStartRepo }
+  | {
+      actionId: string
+      actionName: string
+      teamId: string
+      repo?: SteerStartRepo
+      inputs?: SteerStartInput[]
+    }
 
 /** POST /start — route a remote start to the device's control socket.
  * Undefined option fields are dropped by JSON.stringify — never sent. */

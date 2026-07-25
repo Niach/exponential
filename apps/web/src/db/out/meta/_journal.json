@@ -323,6 +323,13 @@
       "when": 1784897887807,
       "tag": "0045_steady_talisman",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1784939150588,
+      "tag": "0046_rainy_black_knight",
+      "breakpoints": true
     }
   ]
 }
