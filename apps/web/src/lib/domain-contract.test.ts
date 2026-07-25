@@ -18,7 +18,10 @@ import {
   MAX_ACTION_INPUTS,
   MAX_ACTION_INPUT_TEXT,
 } from "@exp/db-schema/domain"
-import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
+import {
+  BUILTIN_CREATE_ACTION_ID,
+  BUILTIN_FIX_CONFLICTS_ID,
+} from "@/lib/builtin-actions"
 
 // Guards that the hand-maintained TS enums in @exp/db-schema/domain stay in
 // lockstep with the canonical packages/domain-contract/contract.json. If they
@@ -93,5 +96,8 @@ describe(`domain-contract parity`, () => {
     expect(MAX_ACTION_INPUTS).toBe(contract.actionInputs.max)
     expect(MAX_ACTION_INPUT_TEXT).toBe(contract.actionInputs.maxTextLength)
     expect(BUILTIN_CREATE_ACTION_ID).toBe(contract.builtinAction.createActionId)
+    expect(BUILTIN_FIX_CONFLICTS_ID).toBe(
+      contract.builtinAction.fixConflictsId
+    )
   })
 })
