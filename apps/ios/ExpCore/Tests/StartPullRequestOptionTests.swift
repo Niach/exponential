@@ -12,7 +12,8 @@ final class StartPullRequestOptionTests: XCTestCase {
         boardId: String,
         identifier: String?,
         prUrl: String?,
-        prNumber: Int?
+        prNumber: Int?,
+        prState: String = DomainContract.prStateOpen
     ) -> IssueEntity {
         IssueEntity(
             id: id,
@@ -35,7 +36,7 @@ final class StartPullRequestOptionTests: XCTestCase {
             duplicateOfId: nil,
             prUrl: prUrl,
             prNumber: prNumber,
-            prState: "open",
+            prState: prState,
             branch: nil,
             prMergedAt: nil,
             createdAt: "2026-07-25T00:00:00Z",
@@ -93,6 +94,42 @@ final class StartPullRequestOptionTests: XCTestCase {
         )
 
         XCTAssertEqual(options.map(\.issueId), ["mine"])
+    }
+
+    // EXP-270 review: the open-PR guarantee lives in the helper itself, not in
+    // the caller's SQL — merged/closed/nil-state rows must be excluded even
+    // when the caller passes them through.
+    func testExcludesIssuesWhosePullRequestIsNotOpen() {
+        let options = StartPullRequestOption.build(
+            from: [
+                issue(
+                    id: "open",
+                    boardId: "b-1",
+                    identifier: "EXP-1",
+                    prUrl: "https://github.com/acme/web/pull/1",
+                    prNumber: 1
+                ),
+                issue(
+                    id: "merged",
+                    boardId: "b-1",
+                    identifier: "EXP-2",
+                    prUrl: "https://github.com/acme/web/pull/2",
+                    prNumber: 2,
+                    prState: DomainContract.prStateMerged
+                ),
+                issue(
+                    id: "closed",
+                    boardId: "b-1",
+                    identifier: "EXP-3",
+                    prUrl: "https://github.com/acme/web/pull/3",
+                    prNumber: 3,
+                    prState: DomainContract.prStateClosed
+                ),
+            ],
+            teamBoardIds: ["b-1"]
+        )
+
+        XCTAssertEqual(options.map(\.issueId), ["open"])
     }
 
     func testLabelFallsBackToIdentifiersWhenThePrNumberIsMissing() {

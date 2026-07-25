@@ -790,7 +790,8 @@ struct StartCodingSheet: View {
             // synced boards — same derivation the web picker uses.
             let boardIds = Set(boards.map(\.id))
             let openPrIssues = (try? await pool.read { db in
-                try IssueEntity.filter(Column("pr_state") == "open").fetchAll(db)
+                try IssueEntity.filter(Column("pr_state") == DomainContract.prStateOpen)
+                    .fetchAll(db)
             }) ?? []
             pullRequests = StartPullRequestOption.build(
                 from: openPrIssues,
