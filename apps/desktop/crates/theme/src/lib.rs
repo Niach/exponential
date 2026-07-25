@@ -254,12 +254,14 @@ pub fn exponential_dark() -> ThemeColor {
     c.tab_bar_segmented = t::glass::FILL_CARD.to_hsla();
 
     // ---- Window chrome — glass (EXP-269): the titlebar/status bar are
-    //      transparent strips over the page gradient, separated by hairline
-    //      strokes; the Linux CSD frame uses the strong active stroke. --------
+    //      transparent strips over the page gradient. EXP-277 drops the
+    //      hairline strokes between chrome and content — the bars and the
+    //      panels below read as one blended surface; the Linux CSD frame
+    //      keeps the strong active stroke. -------------------------------------
     c.title_bar = transparent;
-    c.title_bar_border = t::glass::STROKE_SECTION.to_hsla();
+    c.title_bar_border = transparent;
     c.status_bar = transparent;
-    c.status_bar_border = t::glass::STROKE_SECTION.to_hsla();
+    c.status_bar_border = transparent;
     c.tiles = card;
     c.window_border = t::glass::STROKE_ACTIVE.to_hsla(); // Linux CSD only
 
@@ -377,14 +379,45 @@ pub fn apply_exponential_dark(cx: &mut App) {
     // palette — no live window exists at bootstrap time.
 }
 
+/// EXP-277: how far the desktop lifts the gradient's top stop toward the
+/// bottom stop. The token `BACKGROUND_TOP` (#09090B) is near-black and read as
+/// a hard band behind the titlebar against the white-alpha panel washes below;
+/// mixing 60% toward `BACKGROUND_BOTTOM` (≈ #121215) blends chrome and panels
+/// into one surface. Desktop-only presentation — the token values stay
+/// mobile-verbatim in tokens.json, and web/mobile keep the full ramp.
+const GRADIENT_TOP_MIX: f32 = 0.6;
+
+/// Channel-wise sRGB lerp used to derive the desktop gradient's top stop.
+fn mix_rgba(a: Rgba, b: Rgba, k: f32) -> Rgba {
+    Rgba {
+        r: a.r + (b.r - a.r) * k,
+        g: a.g + (b.g - a.g) * k,
+        b: a.b + (b.b - a.b) * k,
+        a: a.a + (b.a - a.a) * k,
+    }
+}
+
+/// The desktop gradient's top stop: `BACKGROUND_TOP` mixed
+/// [`GRADIENT_TOP_MIX`] of the way toward `BACKGROUND_BOTTOM`.
+pub fn blended_background_top() -> Hsla {
+    mix_rgba(
+        t::glass::BACKGROUND_TOP.to_rgba(),
+        t::glass::BACKGROUND_BOTTOM.to_rgba(),
+        GRADIENT_TOP_MIX,
+    )
+    .into()
+}
+
 /// The glass page background (EXP-269): the mobile `AppBackground` gradient —
-/// zinc-950 → zinc-900, top to bottom. Paint it on every window's root content
-/// element (Shell + undocked windows); panel surfaces above it are transparent
-/// or white-alpha glass fills so the ramp shows through.
+/// top to bottom. Paint it on every window's root content element (Shell +
+/// undocked windows); panel surfaces above it are transparent or white-alpha
+/// glass fills so the ramp shows through. EXP-277 softens the desktop's top
+/// stop (see [`blended_background_top`]) so the titlebar band no longer steps
+/// hard against the content panels.
 pub fn background_gradient() -> gpui::Background {
     gpui::linear_gradient(
         180.,
-        gpui::linear_color_stop(t::glass::BACKGROUND_TOP.to_hsla(), 0.),
+        gpui::linear_color_stop(blended_background_top(), 0.),
         gpui::linear_color_stop(t::glass::BACKGROUND_BOTTOM.to_hsla(), 1.),
     )
 }
@@ -484,12 +517,22 @@ mod tests {
     #[test]
     fn glass_chrome_and_brand_accent() {
         // EXP-269: transparent titlebar strips (the gradient shows through the
-        // gpui-component TitleBar via theme.tokens), hairline chrome borders,
-        // and the indigo brand accent on interaction colors.
+        // gpui-component TitleBar via theme.tokens); EXP-277 dropped the
+        // chrome hairlines so bars and panels blend into one surface. The
+        // indigo brand accent stays on the interaction colors.
         let c = exponential_dark();
         assert!(approx(c.title_bar.a, 0.0), "title_bar is transparent: {:?}", c.title_bar);
         assert!(approx(c.tab_bar.a, 0.0), "tab_bar is transparent: {:?}", c.tab_bar);
-        assert_hsla_eq(c.title_bar_border, tokens::glass::STROKE_SECTION.to_hsla(), "title_bar_border");
+        assert!(
+            approx(c.title_bar_border.a, 0.0),
+            "title_bar_border is transparent (EXP-277): {:?}",
+            c.title_bar_border
+        );
+        assert!(
+            approx(c.status_bar_border.a, 0.0),
+            "status_bar_border is transparent (EXP-277): {:?}",
+            c.status_bar_border
+        );
         assert_hsla_eq(c.window_border, tokens::glass::STROKE_ACTIVE.to_hsla(), "window_border");
         assert_hsla_eq(c.ring, tokens::BRAND.to_hsla(), "ring");
         // link is the lightened brand (body text needs the 4.5:1 AA floor);
@@ -507,6 +550,17 @@ mod tests {
         // the Debug representation.
         let bg = format!("{:?}", background_gradient());
         assert!(bg.contains("LinearGradient"), "{bg}");
+    }
+
+    #[test]
+    fn gradient_top_is_lifted_between_the_token_stops() {
+        // EXP-277: the desktop top stop sits strictly between the token stops
+        // — lighter than the near-black BACKGROUND_TOP (no hard titlebar
+        // band), darker than BACKGROUND_BOTTOM (the ramp still ramps).
+        let top = blended_background_top();
+        assert!(top.l > tokens::glass::BACKGROUND_TOP.to_hsla().l);
+        assert!(top.l < tokens::glass::BACKGROUND_BOTTOM.to_hsla().l);
+        assert!(approx(top.a, 1.0));
     }
 
     #[test]

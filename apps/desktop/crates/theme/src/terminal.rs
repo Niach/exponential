@@ -96,7 +96,13 @@ const BRIGHT_CYAN: crate::Srgb8 = crate::Srgb8 { r: 0x22, g: 0xd3, b: 0xee, a: 0
 /// Pure — no gpui `App` required (unit-testable, §6.2).
 pub fn terminal_palette() -> TerminalPalette {
     let foreground = t::FOREGROUND.to_hsla();
-    let background = t::BACKGROUND.to_hsla();
+    // EXP-277: the terminal was the one opaque near-black (#0a0a0a) surface
+    // left on the glass gradient — it read as a hole in the blended page.
+    // Anchor it to the gradient's bottom stop instead (the dock sits at the
+    // window bottom, so opaque #18181B blends near-seamlessly; translucency is
+    // out — the element paints its background twice, so alpha would
+    // double-composite).
+    let background = t::glass::BACKGROUND_BOTTOM.to_hsla();
 
     // ANSI black must stay visible on the near-black background → the web
     // secondary surface; bright black is the ring gray (both token-locked).
@@ -163,7 +169,8 @@ mod tests {
     fn palette_is_token_locked() {
         let p = terminal_palette();
         assert_eq!(p.foreground, t::FOREGROUND.to_hsla());
-        assert_eq!(p.background, t::BACKGROUND.to_hsla());
+        // EXP-277: terminal blends with the glass gradient's bottom stop.
+        assert_eq!(p.background, t::glass::BACKGROUND_BOTTOM.to_hsla());
         assert_eq!(p.ansi(1), t::RED.to_hsla());
         assert_eq!(p.ansi(2), t::GREEN.to_hsla());
         assert_eq!(p.ansi(3), t::YELLOW.to_hsla());
