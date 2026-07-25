@@ -95,6 +95,9 @@ pub struct Shell {
     /// at it (`window_size::load_last_size`). Always `None` on ordinal > 0.
     pending_window_size: Option<Size<Pixels>>,
     _size_save_task: Option<Task<()>>,
+    /// EXP-263: this window's min-size clamp budget (see
+    /// [`crate::window_size::MinSizeClamp`]).
+    min_size_clamp: crate::window_size::MinSizeClamp,
 }
 
 impl Shell {
@@ -197,8 +200,11 @@ impl Shell {
         // macOS enforces `window_min_size` natively; on Linux the option is
         // only a hint the WM/compositor may ignore, so every shell window
         // clamps itself back to the floor (no-op where the OS enforces it).
-        cx.observe_window_bounds(window, |_, window, cx| {
-            crate::window_size::enforce_min_size(window, cx);
+        // A WM that refuses the request (tiling WMs answer with a synthetic
+        // ConfigureNotify at the unchanged size) wins after a few tries
+        // instead of spinning this observer at frame rate.
+        cx.observe_window_bounds(window, |this, window, cx| {
+            crate::window_size::enforce_min_size(&mut this.min_size_clamp, window, cx);
         })
         .detach();
 
@@ -233,6 +239,7 @@ impl Shell {
             _save_task: None,
             pending_window_size: None,
             _size_save_task: None,
+            min_size_clamp: Default::default(),
         }
     }
 
