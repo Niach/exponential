@@ -53,7 +53,22 @@ pub struct ActionsPanel {
 impl ActionsPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
-        let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        // The builtin "Create action" run authors the new action via MCP
+        // during its session — refetch the rail when any run of it ends
+        // (EXP-257: replaces the deleted describe-task exit hook; the exit
+        // announcement covers child exit, tab close, and window teardown).
+        let local_sessions = crate::coding_flow::LocalSessions::global(cx);
+        let subscriptions = vec![
+            cx.observe(&nav, |_, _, cx| cx.notify()),
+            cx.subscribe(
+                &local_sessions,
+                |this, _, event: &crate::coding_flow::ActionRunEnded, cx| {
+                    if event.action_id == api::actions::BUILTIN_CREATE_ACTION_ID {
+                        this.refetch(cx);
+                    }
+                },
+            ),
+        ];
         Self {
             nav,
             team_id: None,

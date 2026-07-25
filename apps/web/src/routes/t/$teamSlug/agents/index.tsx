@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
+import { and, eq, useLiveQuery } from "@tanstack/react-db"
+import type { CodingSession } from "@/db/schema"
+import { codingSessionCollection } from "@/lib/collections"
+import { BUILTIN_CREATE_ACTION_NAME } from "@/lib/builtin-actions"
 import {
   Bot,
   Github,
@@ -268,6 +272,44 @@ function AgentsPage() {
     setActions(null)
     void refetch()
   }, [refetch])
+
+  // Refetch after a builtin "Create action" run finishes (EXP-257): the
+  // creator authors the new action via MCP during the run, and `actions` is
+  // tRPC-fetched (never synced) — so watch the SYNCED session rows for the
+  // team's "Create action" runs and refetch on the running→ended edge.
+  // Builtin rows carry actionId NULL, so the name snapshot is the key.
+  const { data: createRunRows } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ s: codingSessionCollection })
+            .where(({ s }) =>
+              and(
+                eq(s.teamId, teamId),
+                eq(s.actionName, BUILTIN_CREATE_ACTION_NAME)
+              )
+            )
+        : undefined,
+    [teamId]
+  )
+  const endedCreateRuns = useMemo(
+    () =>
+      ((createRunRows ?? []) as CodingSession[]).filter(
+        (s) => s.status === `ended`
+      ).length,
+    [createRunRows]
+  )
+  // First observation per team only baselines (historic ended rows must not
+  // trigger a duplicate fetch right after mount).
+  const endedBaselineRef = useRef<number | null>(null)
+  useEffect(() => {
+    endedBaselineRef.current = null
+  }, [teamId])
+  useEffect(() => {
+    const baseline = endedBaselineRef.current
+    endedBaselineRef.current = endedCreateRuns
+    if (baseline !== null && endedCreateRuns > baseline) void refetch()
+  }, [endedCreateRuns, refetch])
 
   // Builtin pinned FIRST by its flag (never by sort order); the rest keep
   // the server's ordering.

@@ -42,8 +42,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use gpui::{
-    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, WeakEntity, Window,
+    div, App, AppContext as _, Entity, EventEmitter, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -51,7 +51,7 @@ use gpui_component::{
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
-use terminal::{TabId, TerminalManager, TerminalManagerEvent};
+use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent};
 
 use coding::{
     run_doctor, CodingDeps, DoctorReport, IssueSeed, LaunchOptions, LaunchOrigin, LaunchOutcome,
@@ -201,7 +201,22 @@ pub struct LocalCodingSession {
     pub branch: String,
     pub tab: TabId,
     pub manager: WeakEntity<TerminalManager>,
+    /// The team action this run executes (`None` for issue/batch sessions) —
+    /// lets the exit funnel announce ended action runs (EXP-257: the actions
+    /// rail refetches after the builtin creator finishes).
+    pub action_id: Option<String>,
 }
+
+/// Emitted by [`LocalSessions`] when an ACTION run's session leaves the
+/// registry (child exit, tab close, or window teardown — every path funnels
+/// through `remove`). The builtin "Create action" run writes a new action via
+/// MCP during its session, so the actions rail refetches on this edge —
+/// replacing the deleted describe-task exit hook (EXP-257).
+pub struct ActionRunEnded {
+    pub action_id: String,
+}
+
+impl EventEmitter<ActionRunEnded> for LocalSessions {}
 
 /// Subject-keyed registry of local sessions. An entity (not a bare global) so
 /// the header affordances can `cx.observe` it for the play↔stop flip.
@@ -294,6 +309,9 @@ impl LocalSessions {
             };
             if let Some(entry) = &entry {
                 this.watchers.remove(&entry.session_id);
+                if let Some(action_id) = &entry.action_id {
+                    cx.emit(ActionRunEnded { action_id: action_id.clone() });
+                }
             }
             cx.notify();
             entry
@@ -823,6 +841,11 @@ pub fn spawn_into_window(
     // The P9 refresher inputs, snapshotted before the spawn consumes them.
     let clone = prepared.clone.clone();
     let repository_id = prepared.repository_id.clone();
+    // Action identity for the registry's exit announcement (EXP-257).
+    let action_id = match &prepared.tab_kind {
+        TabKind::Action(id) => Some(id.clone()),
+        _ => None,
+    };
 
     let sessions = LocalSessions::global(cx);
     let notify_sessions = sessions.downgrade();
@@ -865,6 +888,7 @@ pub fn spawn_into_window(
                     branch,
                     tab: terminal_tab,
                     manager: manager.downgrade(),
+                    action_id,
                 },
                 trpc,
                 cx,
