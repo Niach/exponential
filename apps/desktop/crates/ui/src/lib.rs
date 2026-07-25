@@ -23,6 +23,7 @@ mod action_run;
 mod actions;
 mod actions_panel;
 mod active_filter_pills;
+mod app_title_bar;
 mod attachments_row;
 mod board;
 pub mod coding_flow;
@@ -73,6 +74,7 @@ mod timeline;
 mod undock;
 mod undocked_terminal;
 mod update;
+mod window_frame;
 pub mod window_size;
 mod shell;
 

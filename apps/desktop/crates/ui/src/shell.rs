@@ -1,14 +1,15 @@
 //! The per-window Shell — a gpui-component `DockArea` (masterplan-v3
 //! §3.3 / §3.6 / §3.10).
 //!
-//! Shell layout (JetBrains new UI): a full-width **top bar** (board picker
-//! + breadcrumbs + run/git widgets) above everything, the 44px **icon rail**
-//! left of the dock area, and the dock area filling the rest. The dock
-//! area's **center** is [`CenterPanel`] — a resizable split of the tool
-//! window column (sidebar) and the screens panel — and its **bottom dock**
-//! is the terminal dock. Because the sidebar lives inside the center (not a
-//! left dock), the bottom terminal dock spans the full width right of the
-//! rail, running beneath the sidebar.
+//! Shell layout (EXP-269 glass): the in-app **titlebar** (34px drag strip
+//! with embedded window controls, `crate::app_title_bar`) above everything,
+//! the 44px **icon rail** left of the dock area, and the dock area filling
+//! the rest — all over the page gradient. The dock area's **center** is
+//! [`CenterPanel`] — a resizable split of the tool window column (sidebar)
+//! and the screens panel — and its **bottom dock** is the terminal dock.
+//! Because the sidebar lives inside the center (not a left dock), the bottom
+//! terminal dock spans the full width right of the rail, running beneath the
+//! sidebar. (The old EXP-253 top bar is gone — boards live in the rail.)
 //!
 //! Every window gets its own `Root → Shell → DockArea`, but they all read
 //! the same global `Store` (§3.6 multi-window) — the sidebar's window counter
@@ -23,9 +24,9 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
-    div, px, AnyElement, App, AppContext as _, ClickEvent, Edges, Entity, FocusHandle, Focusable,
-    FontWeight, IntoElement, ParentElement, Pixels, Render, SharedString, Size, Styled, Task,
-    WeakEntity, Window,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent, Edges,
+    Entity, FocusHandle, Focusable, FontWeight, IntoElement, ParentElement, Pixels, Render,
+    SharedString, Size, Styled, Task, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -60,7 +61,9 @@ use crate::{
 /// v7: the top bar is GONE (EXP-253) — boards moved into the rail as icon
 ///     entries and the git bar became the headless trunk-sync engine; the
 ///     freed header height changes every persisted pane size.
-const LAYOUT_VERSION: usize = 7;
+/// v8: the in-app titlebar (EXP-269) reserves 34px above the dock area on
+///     every platform — persisted pane sizes shift again.
+const LAYOUT_VERSION: usize = 8;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
@@ -77,6 +80,9 @@ const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 pub struct Shell {
     dock_area: Entity<DockArea>,
+    /// The in-app titlebar (EXP-269) — the first row of every window; hidden
+    /// only under the Linux server-decoration fallback (`client_chrome`).
+    title_bar: Entity<crate::app_title_bar::AppTitleBar>,
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
     /// (so the bottom terminal dock spans everything right of it and lines
     /// up with the rail's terminal toggle).
@@ -214,7 +220,19 @@ impl Shell {
         // `open_shell_window`. Local file only — never synced.
         if ordinal == 0 {
             cx.observe_window_bounds(window, |this, window, cx| {
-                let last = window.window_bounds().get_bounds().size;
+                let bounds = window.window_bounds().get_bounds().size;
+                // EXP-269 Linux CSD: persist the VISIBLE frame size, not the
+                // outer surface — the 12px client inset per side grows the
+                // outer bounds after the first render, and persisting the raw
+                // outer size would creep the window +24px per launch
+                // (`compute_outer_size` re-adds the inset on restore).
+                // `window_paddings` is zero under server decorations, so
+                // macOS/Windows are untouched.
+                let pad = gpui_component::window_paddings(window);
+                let last = Size {
+                    width: bounds.width - pad.left - pad.right,
+                    height: bounds.height - pad.top - pad.bottom,
+                };
                 // Skip degenerate frames (minimize / teardown can report 0).
                 if last.width >= px(1.) && last.height >= px(1.)
                     && this.pending_window_size != Some(last)
@@ -229,9 +247,11 @@ impl Shell {
         // The rail lives OUTSIDE the dock area. Built after the fixed chrome
         // so the dock already exists.
         let rail = cx.new(|cx| RailView::new(window, cx));
+        let title_bar = cx.new(|_| crate::app_title_bar::AppTitleBar::new());
 
         Self {
             dock_area,
+            title_bar,
             rail,
             login,
             ordinal,
@@ -422,19 +442,35 @@ impl Render for Shell {
         // EXP-104: the server 426'd this build — nothing is usable until it
         // updates. This wins over the session switch (login OR board): the
         // whole window becomes the blocking "Update required" surface.
+        let client_chrome = crate::app_title_bar::client_chrome(window);
         let blocked = UpdateState::global_ref(cx).is_some_and(|m| m.read(cx).is_blocked());
         if blocked {
             let sheet_layer = Root::render_sheet_layer(window, cx);
             let dialog_layer = Root::render_dialog_layer(window, cx);
             let notification_layer = Root::render_notification_layer(window, cx);
-            return div()
-                .size_full()
-                .bg(theme::background_gradient())
-                .text_color(cx.theme().foreground)
-                .child(self.render_update_required(cx))
-                .children(sheet_layer)
-                .children(dialog_layer)
-                .children(notification_layer)
+            // The titlebar renders here too — without it this window would be
+            // undraggable/unclosable on Windows/Linux (no native chrome).
+            return crate::window_frame::window_frame()
+                .child(
+                    div()
+                        .size_full()
+                        .bg(theme::background_gradient())
+                        .text_color(cx.theme().foreground)
+                        .child(
+                            v_flex()
+                                .size_full()
+                                .when(client_chrome, |body| body.child(self.title_bar.clone()))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_h_0()
+                                        .child(self.render_update_required(cx)),
+                                ),
+                        )
+                        .children(sheet_layer)
+                        .children(dialog_layer)
+                        .children(notification_layer),
+                )
                 .into_any_element();
         }
 
@@ -473,24 +509,33 @@ impl Render for Shell {
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
 
-        // The update banner (§11.2) rides above the whole shell (login OR
-        // board) as a fixed-height strip; the content fills the rest. A column
-        // wrapper keeps the `size_full` content from overlapping the banner.
+        // The titlebar (EXP-269) is the first row of the window; the update
+        // banner (§11.2) stacks under it as a second strip; the content fills
+        // the rest. A column wrapper keeps the `size_full` content from
+        // overlapping either strip.
         let body = v_flex()
             .size_full()
+            .when(client_chrome, |body| body.child(self.title_bar.clone()))
             .children(self.render_update_banner(cx))
             .child(div().flex_1().min_h_0().child(content));
 
-        div()
-            .size_full()
-            // EXP-269: the glass page gradient — every panel above it is
-            // transparent or a white-alpha fill so the ramp shows through.
-            .bg(theme::background_gradient())
-            .text_color(cx.theme().foreground)
-            .child(body)
-            .children(sheet_layer)
-            .children(dialog_layer)
-            .children(notification_layer)
+        // window_frame: Linux CSD shadow + rounded frame + resize zones
+        // (pass-through elsewhere). The sheet/dialog/notification layers stay
+        // INSIDE it so overlays clip to the visible window.
+        crate::window_frame::window_frame()
+            .child(
+                div()
+                    .size_full()
+                    // EXP-269: the glass page gradient — every panel above it
+                    // is transparent or a white-alpha fill so the ramp shows
+                    // through.
+                    .bg(theme::background_gradient())
+                    .text_color(cx.theme().foreground)
+                    .child(body)
+                    .children(sheet_layer)
+                    .children(dialog_layer)
+                    .children(notification_layer),
+            )
             .into_any_element()
     }
 }

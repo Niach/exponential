@@ -28,9 +28,10 @@ use gpui::{
     FocusHandle, Focusable, Global, InteractiveElement as _, IntoElement, ParentElement, Render,
     SharedString, Styled, Window, WindowBounds, WindowId, WindowKind, WindowOptions,
 };
+use gpui::AnyElement;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Root, Sizable as _,
+    h_flex, ActiveTheme as _, Root, Sizable as _, TitleBar,
 };
 use terminal::{TabId, TerminalManager};
 
@@ -194,11 +195,32 @@ fn undocked_window_options(default_size: gpui::Size<gpui::Pixels>, cx: &App) -> 
         // Match the shell window's Wayland app_id / X11 WM_CLASS so
         // undocked windows also pick up the `.desktop` taskbar icon (EXP-68).
         app_id: Some(CHANNEL_APP_ID.to_string()),
-        // Linux: server-side decorations, same rationale as the main window.
+        // EXP-269: in-app chrome, same rationale as the main window — the
+        // fake header strips became real TitleBars with drag + controls.
+        titlebar: Some(gpui_component::TitleBar::title_bar_options()),
         #[cfg(target_os = "linux")]
-        window_decorations: Some(gpui::WindowDecorations::Server),
+        window_background: gpui::WindowBackgroundAppearance::Transparent,
+        #[cfg(target_os = "linux")]
+        window_decorations: Some(gpui::WindowDecorations::Client),
         ..Default::default()
     }
+}
+
+/// Build the undocked-window Root view — Linux clears the stock square frame
+/// + opaque background so `crate::window_frame` can draw the rounded CSD
+/// (same composition as the main window, `app/src/windows.rs`).
+fn undocked_root(
+    view: impl Into<gpui::AnyView>,
+    window: &mut Window,
+    cx: &mut gpui::Context<Root>,
+) -> Root {
+    let root = Root::new(view.into(), window, cx);
+    #[cfg(target_os = "linux")]
+    let root = {
+        use gpui::Styled as _;
+        root.bordered(false).bg(gpui::transparent_black())
+    };
+    root
 }
 
 // Duplicates `app::channel::APP_ID` (ui cannot depend on the app crate) via
@@ -239,7 +261,7 @@ pub(crate) fn open_undocked_screen(screen: Screen, origin: AnyWindowHandle, cx: 
                 cx.new(|cx| UndockedScreenWindow::new(screen.clone(), origin, window, cx));
             // Root MUST be the first view of every window (§3.3) — it hosts
             // the dialog/notification overlay layers issue detail relies on.
-            cx.new(|cx| Root::new(view, window, cx))
+            cx.new(|cx| undocked_root(view, window, cx))
         })?;
         let _ = origin_id;
         window.update(cx, |_, window, cx| {
@@ -351,28 +373,44 @@ impl Render for UndockedScreenWindow {
             window.set_window_title(&title);
         }
 
-        let header = h_flex()
-            .h(px(34.))
-            .w_full()
-            .flex_shrink_0()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().title_bar)
-            .child(
-                Button::new("reattach-screen")
-                    .ghost()
-                    .xsmall()
-                    .icon(crate::icons::ExpIcon::ExternalLinkIn)
-                    .tooltip("Move back into the main window")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.reattach(window, cx);
-                    })),
-            )
-            .child(div().text_sm().child(title))
-            .child(div().flex_1());
+        let reattach = Button::new("reattach-screen")
+            .ghost()
+            .xsmall()
+            .icon(crate::icons::ExpIcon::ExternalLinkIn)
+            .tooltip("Move back into the main window")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.reattach(window, cx);
+            }));
+        // EXP-269: a real TitleBar (drag zone + window controls) when this
+        // window paints its own chrome; under the Linux server-decoration
+        // fallback the WM already provides both, so keep the plain strip
+        // (Reattach must stay reachable either way).
+        let header: AnyElement = if crate::app_title_bar::client_chrome(window) {
+            TitleBar::new()
+                .child(crate::app_title_bar::interactive(
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(reattach)
+                        .child(div().text_sm().child(title)),
+                ))
+                .into_any_element()
+        } else {
+            h_flex()
+                .h(px(34.))
+                .w_full()
+                .flex_shrink_0()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().title_bar)
+                .child(reattach)
+                .child(div().text_sm().child(title))
+                .child(div().flex_1())
+                .into_any_element()
+        };
 
         // Root overlay layers — same composition rule as `Shell::render`:
         // without them, `window.open_dialog` (issue delete confirm, image
@@ -381,20 +419,22 @@ impl Render for UndockedScreenWindow {
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
 
-        div()
-            .size_full()
-            .bg(theme::background_gradient())
-            .text_color(cx.theme().foreground)
-            .track_focus(&self.focus_handle)
-            .child(
-                gpui_component::v_flex()
-                    .size_full()
-                    .child(header)
-                    .child(div().flex_1().min_h_0().child(self.content.clone())),
-            )
-            .children(sheet_layer)
-            .children(dialog_layer)
-            .children(notification_layer)
+        crate::window_frame::window_frame().child(
+            div()
+                .size_full()
+                .bg(theme::background_gradient())
+                .text_color(cx.theme().foreground)
+                .track_focus(&self.focus_handle)
+                .child(
+                    gpui_component::v_flex()
+                        .size_full()
+                        .child(header)
+                        .child(div().flex_1().min_h_0().child(self.content.clone())),
+                )
+                .children(sheet_layer)
+                .children(dialog_layer)
+                .children(notification_layer),
+        )
     }
 }
 
@@ -428,7 +468,7 @@ pub(crate) fn open_undocked_terminal_tab(
                     manager, tab_id, origin, window, cx,
                 )
             });
-            cx.new(|cx| Root::new(view, window, cx))
+            cx.new(|cx| undocked_root(view, window, cx))
         })?;
         window.update(cx, |_, window, cx| {
             window.set_window_title(&title);
