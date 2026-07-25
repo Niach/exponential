@@ -57,6 +57,7 @@ html {
      Values mirror packages/design-tokens/tokens.json (semantic.brand + the
      glass group); design-tokens.test.ts guards the parity. */
   --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-soft: var(--brand-soft);
   --color-glass-section: var(--glass-fill-section);
@@ -123,6 +124,10 @@ html {
      tokens.json verbatim; --brand-foreground/--brand-soft are web-only
      derivations. */
   --brand: #6366F1;
+  /* Fill variant for brand surfaces that carry small text. --brand itself is
+     indigo-500 and only reaches ~4.4:1 against --brand-foreground, just under
+     the 4.5:1 AA floor; the tint (/5–/20) and dot usages keep --brand. */
+  --brand-strong: #4F46E5;
   --brand-foreground: oklch(0.985 0 0);
   --brand-soft: color-mix(in oklab, var(--brand) 60%, white);
   --glass-background-top: #09090B;
@@ -184,6 +189,10 @@ html {
   /* EXP-269 brand + glass tokens — see the :root copy. This block is the one
      design-tokens.test.ts parity-checks against tokens.json. */
   --brand: #6366F1;
+  /* Fill variant for brand surfaces that carry small text. --brand itself is
+     indigo-500 and only reaches ~4.4:1 against --brand-foreground, just under
+     the 4.5:1 AA floor; the tint (/5–/20) and dot usages keep --brand. */
+  --brand-strong: #4F46E5;
   --brand-foreground: oklch(0.985 0 0);
   --brand-soft: color-mix(in oklab, var(--brand) 60%, white);
   --glass-background-top: #09090B;
@@ -240,13 +249,6 @@ html {
   box-shadow:
     0 12px 32px -12px oklch(0 0 0 / 0.45),
     inset 0 1px 0 oklch(1 0 0 / 6%);
-}
-
-/* In-page glass surface (sections/tiles) — blur-free on purpose: cheap at
-   list scale, matching Android's alpha-fill approximation. */
-@utility glass-surface {
-  border: 1px solid var(--glass-stroke-section);
-  background: var(--glass-fill-section);
 }
 
 /* Full-viewport gradient repaint for full-screen covers that would otherwise

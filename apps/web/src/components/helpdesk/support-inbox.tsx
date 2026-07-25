@@ -354,7 +354,7 @@ function ConversationPane({
                       ? `self-start rounded-bl-sm bg-muted`
                       : isInternal
                         ? `self-end rounded-br-sm border border-amber-500/40 bg-amber-500/10`
-                        : `self-end rounded-br-sm bg-brand text-brand-foreground`
+                        : `self-end rounded-br-sm bg-brand-strong text-brand-foreground`
                   }`}
                 >
                   {isInternal && (

@@ -72,7 +72,7 @@ function UnreadCountPill({ active }: { active: boolean }) {
       className={cn(
         `rounded-full px-1.5 py-px text-[10px] font-medium tabular-nums`,
         active
-          ? `bg-brand text-brand-foreground`
+          ? `bg-brand-strong text-brand-foreground`
           : `bg-muted text-muted-foreground`
       )}
     >

@@ -468,7 +468,7 @@ export function CreateIssueDialog({
               <Button
                 type="submit"
                 disabled={!title.trim() || closeDisabled}
-                className="inline-flex items-center justify-center rounded-full bg-brand px-3 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand/90 disabled:pointer-events-none disabled:opacity-50 h-7"
+                className="inline-flex items-center justify-center rounded-full bg-brand-strong px-3 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand-strong/90 disabled:pointer-events-none disabled:opacity-50 h-7"
               >
                 {submitPhase === `uploading`
                   ? `Uploading images...`
