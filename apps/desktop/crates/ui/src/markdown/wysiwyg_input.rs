@@ -230,7 +230,10 @@ fn entity_reference_end(bytes: &[u8], start: usize) -> Option<usize> {
 /// fixpoint on its own output), so each one is written back as the `&nbsp;`
 /// line the contract stores — exactly what web's `MarkdownParagraph`
 /// serializer does. Leading and trailing empties are separators, not
-/// paragraphs, and stay blank.
+/// paragraphs, and stay blank — and so are blank lines inside code (a fence's
+/// interior, tracked with the same [`fence_opener`]/[`closes_fence`] scan
+/// [`normalize_for_wysiwyg`] uses, or between two indented-code chunks): those
+/// are code bytes the serializer emitted verbatim, never trimmed paragraphs.
 pub fn restore_blank_line_markers(markdown: &str) -> String {
     const MARKER: &str = "&nbsp;";
 
@@ -238,8 +241,18 @@ pub fn restore_blank_line_markers(markdown: &str) -> String {
     let mut out: Vec<&str> = Vec::with_capacity(lines.len());
     let mut index = 0;
     let mut changed = false;
+    let mut fence: Option<(u8, usize)> = None;
     while index < lines.len() {
+        if let Some((ch, len)) = fence {
+            if closes_fence(lines[index], ch, len) {
+                fence = None;
+            }
+            out.push(lines[index]);
+            index += 1;
+            continue;
+        }
         if !lines[index].is_empty() {
+            fence = fence_opener(lines[index]);
             out.push(lines[index]);
             index += 1;
             continue;
@@ -250,7 +263,11 @@ pub fn restore_blank_line_markers(markdown: &str) -> String {
         }
         let run = index - start;
         let interior = start > 0 && index < lines.len();
-        if interior && run >= 3 && run % 2 == 1 {
+        if interior
+            && run >= 3
+            && run % 2 == 1
+            && !blank_run_inside_indented_code(&lines, start, index)
+        {
             changed = true;
             for step in 0..run {
                 out.push(if step % 2 == 0 { "" } else { MARKER });
@@ -265,6 +282,14 @@ pub fn restore_blank_line_markers(markdown: &str) -> String {
     } else {
         markdown.to_string()
     }
+}
+
+/// Whether the blank run `start..end` sits between two indented-code lines.
+/// CommonMark folds such blanks into ONE indented code block, so they are
+/// code bytes, not trimmed empty paragraphs.
+fn blank_run_inside_indented_code(lines: &[&str], start: usize, end: usize) -> bool {
+    let indented = |line: &str| !line.is_empty() && strip_block_indent(line).is_none();
+    start > 0 && end < lines.len() && indented(lines[start - 1]) && indented(lines[end])
 }
 
 // -- 2. Inline images ------------------------------------------------------
@@ -542,6 +567,35 @@ mod tests {
         assert_eq!(restore("\n\n\n\nA"), "\n\n\n\nA");
         assert_eq!(restore("A\n\n\n\n"), "A\n\n\n\n");
         assert_eq!(restore(""), "");
+    }
+
+    #[test]
+    fn never_rewrites_blank_lines_inside_code_blocks() {
+        use super::restore_blank_line_markers as restore;
+
+        // An odd run of blank lines inside a fence is code the serializer
+        // emitted verbatim — injecting the marker would corrupt the block.
+        assert_eq!(restore("```\na\n\n\n\nb\n```"), "```\na\n\n\n\nb\n```");
+        assert_eq!(
+            restore("~~~text\na\n\n\n\n\n\nb\n~~~"),
+            "~~~text\na\n\n\n\n\n\nb\n~~~"
+        );
+        // An unclosed fence runs to the end of the document.
+        assert_eq!(restore("```\na\n\n\n\nb"), "```\na\n\n\n\nb");
+        // Blank lines between indented-code chunks belong to ONE code block.
+        assert_eq!(restore("    a\n\n\n\n    b"), "    a\n\n\n\n    b");
+    }
+
+    #[test]
+    fn still_writes_markers_outside_a_fenced_block() {
+        use super::restore_blank_line_markers as restore;
+
+        // Runs before and after the fence get the marker treatment; the run
+        // inside it stays untouched.
+        assert_eq!(
+            restore("A\n\n\n\nB\n\n```\na\n\n\n\nb\n```\n\n\n\nC"),
+            "A\n\n&nbsp;\n\nB\n\n```\na\n\n\n\nb\n```\n\n&nbsp;\n\nC"
+        );
     }
 
     #[test]
