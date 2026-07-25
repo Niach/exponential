@@ -136,7 +136,7 @@ export function IssueRowContextMenu({
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent
-          className="w-[17.5rem] rounded-xl border-border/60 bg-popover/95 p-1.5 shadow-2xl supports-[backdrop-filter]:bg-popover/90"
+          className="w-[17.5rem] p-1.5"
           collisionPadding={12}
         >
           <ContextMenuLabel className="rounded-lg bg-accent/40 px-3 py-2.5">

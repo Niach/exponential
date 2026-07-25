@@ -271,7 +271,7 @@ function FilePatch({ file, open, onOpenChange }: FilePatchProps) {
         return (
           <div
             key={i}
-            className="bg-indigo-500/5 px-3 py-0.5 whitespace-pre text-indigo-300/80"
+            className="bg-brand/5 px-3 py-0.5 whitespace-pre text-brand-soft/80"
           >
             {line.text}
           </div>

@@ -165,7 +165,7 @@ export function AgentDock({
   if (isMobile) {
     if (!expandedRow) return null
     return (
-      <div className="fixed inset-0 z-40 bg-background pb-[env(safe-area-inset-bottom)]">
+      <div className="fixed inset-0 z-40 bg-app-gradient pb-[env(safe-area-inset-bottom)]">
         <AgentSessionView
           key={expandedRow.session.id}
           session={expandedRow.session}
@@ -187,10 +187,11 @@ export function AgentDock({
       className={cn(
         // z-40 covers the layout while staying under every z-50 overlay
         // (dialogs, dropdowns) so kill-confirm etc. still stack above.
+        // Fullscreen takeover repaints the gradient (opaque); the docked bar
+        // is a blurred glass strip over whatever scrolls beneath it.
         fullscreen && expandedRow
-          ? `fixed inset-0 z-40 flex flex-col`
-          : `sticky bottom-0 z-30 border-t`,
-        `border-border bg-background`
+          ? `fixed inset-0 z-40 flex flex-col bg-app-gradient border-border`
+          : `sticky bottom-0 z-30 border-t border-border/60 bg-background/70 backdrop-blur-xl`
       )}
     >
       {expandedRow && (

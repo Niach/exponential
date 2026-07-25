@@ -13,7 +13,11 @@ const repoRoot = join(__dirname, `..`, `..`, `..`, `..`)
 
 const tokens = JSON.parse(
   readFileSync(join(repoRoot, `packages/design-tokens/tokens.json`), `utf8`)
-) as { palette: Record<string, string> }
+) as {
+  palette: Record<string, string>
+  semantic: Record<string, string>
+  glass: Record<string, string>
+}
 
 const stylesCss = readFileSync(
   join(repoRoot, `apps/web/src/styles.css`),
@@ -48,5 +52,20 @@ describe(`design-tokens parity with web styles.css`, () => {
         `tokens.palette.${key} should equal --${cssVar} in styles.css`
       ).toBe(value)
     }
+  })
+
+  it(`every glass token matches the corresponding --glass-* CSS variable`, () => {
+    for (const [key, value] of Object.entries(tokens.glass)) {
+      if (key.startsWith(`$`)) continue
+      const cssVar = `glass-${kebab(key)}`
+      expect(
+        darkVars[cssVar],
+        `tokens.glass.${key} should equal --${cssVar} in styles.css`
+      ).toBe(value)
+    }
+  })
+
+  it(`the brand accent matches --brand`, () => {
+    expect(darkVars.brand).toBe(tokens.semantic.brand)
   })
 })

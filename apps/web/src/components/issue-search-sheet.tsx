@@ -190,7 +190,7 @@ export function IssueSearchSheet({
         <SheetContent
           side="bottom"
           showCloseButton={false}
-          className="top-0 h-[100dvh] p-0 gap-0 flex flex-col"
+          className="top-0 h-[100dvh] rounded-none p-0 gap-0 flex flex-col"
         >
           <SheetTitle className="sr-only">Search issues</SheetTitle>
           <div className="flex items-center gap-2 px-3 py-3 border-b border-border/50">

@@ -67,13 +67,13 @@ export function resolveBoardTarget(
 function InboxDot() {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
-  return <TabDot className="bg-indigo-400" />
+  return <TabDot className="bg-brand" />
 }
 
 function SupportDot({ teamId }: { teamId?: string }) {
   const unread = useUnreadSupportCount(teamId)
   if (unread === 0) return null
-  return <TabDot className="bg-indigo-400" />
+  return <TabDot className="bg-brand" />
 }
 
 // Review green (EXP-214): open PRs are "stuff to do", colored like the
@@ -106,7 +106,7 @@ function TabDot({ className }: { className: string }) {
 function tabClass(active: boolean): string {
   return cn(
     `relative flex size-11 items-center justify-center rounded-full transition-colors`,
-    active ? `bg-white/10 text-foreground` : `text-muted-foreground`
+    active ? `bg-glass-active text-foreground` : `text-muted-foreground`
   )
 }
 
@@ -153,7 +153,7 @@ export function MobileTabBar({
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-center justify-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden">
       <nav
         aria-label="Primary"
-        className="pointer-events-auto flex items-center rounded-full border border-white/10 bg-zinc-900/85 p-1 shadow-lg shadow-black/40 backdrop-blur-xl"
+        className="pointer-events-auto flex items-center rounded-full border border-glass-stroke-card bg-popover/85 p-1 shadow-lg shadow-black/40 backdrop-blur-xl"
       >
         {boardTarget ? (
           <Link
@@ -229,7 +229,7 @@ export function MobileTabBar({
           params={{ teamSlug, boardSlug: boardTarget.slug }}
           search={{ new: 1 }}
           aria-label="New issue"
-          className="pointer-events-auto flex size-[3.25rem] shrink-0 items-center justify-center rounded-full border border-white/10 bg-zinc-900/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl"
+          className="pointer-events-auto flex size-[3.25rem] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl"
         >
           <SquarePen className="size-5" />
         </Link>

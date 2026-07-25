@@ -25,14 +25,17 @@ import { formatDate } from "@/lib/utils"
 import type { IssueStatus } from "@/lib/domain"
 import type { IssueGroup } from "@/lib/board-view"
 
+// Status-tinted washes for the sticky group headers — the Tailwind palette
+// colors the old rgba literals encoded (zinc-500/zinc-300/yellow-500/
+// green-500/blue-500), matching the status icon hues in lib/domain.ts.
 const statusHeaderBg: Record<IssueStatus, string> = {
-  backlog: `rgba(113, 113, 122, 0.08)`,
-  todo: `rgba(212, 212, 216, 0.08)`,
-  in_progress: `rgba(234, 179, 8, 0.10)`,
-  in_review: `rgba(34, 197, 94, 0.10)`,
-  done: `rgba(59, 130, 246, 0.10)`,
-  cancelled: `rgba(113, 113, 122, 0.08)`,
-  duplicate: `rgba(113, 113, 122, 0.08)`,
+  backlog: `bg-zinc-500/10`,
+  todo: `bg-zinc-300/10`,
+  in_progress: `bg-yellow-500/10`,
+  in_review: `bg-green-500/10`,
+  done: `bg-blue-500/10`,
+  cancelled: `bg-zinc-500/10`,
+  duplicate: `bg-zinc-500/10`,
 }
 
 interface IssueListProps {
@@ -344,8 +347,7 @@ export function IssueList({
         const config = getStatusConfig(group.status)
         const Icon = config.icon
         const isOpen = !collapsedGroups.has(group.status)
-        const headerBg =
-          statusHeaderBg[group.status] ?? `rgba(113, 113, 122, 0.08)`
+        const headerBg = statusHeaderBg[group.status] ?? `bg-zinc-500/10`
         return (
           <CollapsiblePrimitive.Root
             key={group.status}
@@ -354,9 +356,10 @@ export function IssueList({
             data-testid={`issue-group-${group.status}`}
           >
             {/* Group header */}
+            {/* backdrop-blur is load-bearing: the tint is translucent and
+                rows scroll under the sticky header. */}
             <div
-              className="group sticky top-0 z-10 flex items-center justify-between pl-3 pr-3 md:pr-6 py-1.5 border-b border-border/50"
-              style={{ backgroundColor: headerBg }}
+              className={`group sticky top-0 z-10 flex items-center justify-between pl-3 pr-3 md:pr-6 py-1.5 border-b border-border/40 backdrop-blur-md ${headerBg}`}
             >
               <div className="flex items-center gap-1.5">
                 <CollapsiblePrimitive.Trigger asChild>
@@ -410,7 +413,7 @@ export function IssueList({
                     onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div
-                      className={`grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer`}
+                      className={`grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 hover:bg-glass-row border-b border-border/30 group/row cursor-pointer`}
                       onClick={() => onIssueClick(issue)}
                       data-testid={`issue-row-${issue.identifier}`}
                     >

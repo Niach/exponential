@@ -53,10 +53,28 @@ html {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* EXP-269 glass design system — brand accent + glass surface tokens.
+     Values mirror packages/design-tokens/tokens.json (semantic.brand + the
+     glass group); design-tokens.test.ts guards the parity. */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-glass-section: var(--glass-fill-section);
+  --color-glass-row: var(--glass-fill-row);
+  --color-glass-card: var(--glass-fill-card);
+  --color-glass-active: var(--glass-fill-active);
+  --color-glass-stroke: var(--glass-stroke-row);
+  --color-glass-stroke-section: var(--glass-stroke-section);
+  --color-glass-stroke-card: var(--glass-stroke-card);
+  --color-glass-stroke-strong: var(--glass-stroke-strong);
+  --color-glass-stroke-active: var(--glass-stroke-active);
 }
 
 :root {
-  --radius: 0.625rem;
+  /* px, not rem: the ≥768px root font is 1.15625rem, which would inflate a
+     rem radius ~1.16×. 12px lands rounded-md/lg/xl/3xl exactly on the mobile
+     glass ladder (row 10 / section 12 / card 16 / sheet 24). */
+  --radius: 12px;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -100,6 +118,24 @@ html {
   --hljs-tag: oklch(0.5 0.17 30);
   --hljs-deletion: oklch(0.5 0.19 25);
   --hljs-addition: oklch(0.5 0.15 145);
+  /* EXP-269 brand + glass tokens (theme-invariant — the app is dark-only;
+     kept identical in :root and .dark). --brand and --glass-* mirror
+     tokens.json verbatim; --brand-foreground/--brand-soft are web-only
+     derivations. */
+  --brand: #6366F1;
+  --brand-foreground: oklch(0.985 0 0);
+  --brand-soft: color-mix(in oklab, var(--brand) 60%, white);
+  --glass-background-top: #09090B;
+  --glass-background-bottom: #18181B;
+  --glass-fill-section: oklch(1 0 0 / 4%);
+  --glass-fill-row: oklch(1 0 0 / 5%);
+  --glass-fill-card: oklch(1 0 0 / 6%);
+  --glass-fill-active: oklch(1 0 0 / 15%);
+  --glass-stroke-row: oklch(1 0 0 / 6%);
+  --glass-stroke-section: oklch(1 0 0 / 8%);
+  --glass-stroke-card: oklch(1 0 0 / 10%);
+  --glass-stroke-strong: oklch(1 0 0 / 12%);
+  --glass-stroke-active: oklch(1 0 0 / 20%);
 }
 
 .dark {
@@ -145,6 +181,22 @@ html {
   --hljs-tag: oklch(0.72 0.15 30);
   --hljs-deletion: oklch(0.65 0.18 25);
   --hljs-addition: oklch(0.72 0.14 145);
+  /* EXP-269 brand + glass tokens — see the :root copy. This block is the one
+     design-tokens.test.ts parity-checks against tokens.json. */
+  --brand: #6366F1;
+  --brand-foreground: oklch(0.985 0 0);
+  --brand-soft: color-mix(in oklab, var(--brand) 60%, white);
+  --glass-background-top: #09090B;
+  --glass-background-bottom: #18181B;
+  --glass-fill-section: oklch(1 0 0 / 4%);
+  --glass-fill-row: oklch(1 0 0 / 5%);
+  --glass-fill-card: oklch(1 0 0 / 6%);
+  --glass-fill-active: oklch(1 0 0 / 15%);
+  --glass-stroke-row: oklch(1 0 0 / 6%);
+  --glass-stroke-section: oklch(1 0 0 / 8%);
+  --glass-stroke-card: oklch(1 0 0 / 10%);
+  --glass-stroke-strong: oklch(1 0 0 / 12%);
+  --glass-stroke-active: oklch(1 0 0 / 20%);
 }
 
 @layer base {
@@ -152,9 +204,60 @@ html {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply text-foreground antialiased;
     font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    /* EXP-269: the page backdrop is the mobile glass gradient, painted by the
+       fixed ::before below (background-attachment: fixed is broken on iOS
+       Safari). The solid top color stays as overscroll/fallback paint. */
+    background-color: var(--glass-background-top);
   }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      var(--glass-background-top),
+      var(--glass-background-bottom)
+    );
+  }
+}
+
+/* EXP-269 glass recipes. Deliberately free of radius/size properties so
+   tailwind-merge never has conflicts to resolve against them — callers own
+   their rounded-* class. */
+
+/* Floating glass layer (popovers, menus, dialogs, sheets): frosted popover
+   surface + hairline + soft drop with an inset top highlight. Productized
+   from the .editor-image-menu-trigger recipe below. */
+@utility glass-panel {
+  border: 1px solid var(--glass-stroke-card);
+  background: color-mix(in oklab, var(--popover) 84%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow:
+    0 12px 32px -12px oklch(0 0 0 / 0.45),
+    inset 0 1px 0 oklch(1 0 0 / 6%);
+}
+
+/* In-page glass surface (sections/tiles) — blur-free on purpose: cheap at
+   list scale, matching Android's alpha-fill approximation. */
+@utility glass-surface {
+  border: 1px solid var(--glass-stroke-section);
+  background: var(--glass-fill-section);
+}
+
+/* Full-viewport gradient repaint for full-screen covers that would otherwise
+   occlude the body gradient with an opaque background. */
+@utility bg-app-gradient {
+  background-color: var(--glass-background-top);
+  background-image: linear-gradient(
+    to bottom,
+    var(--glass-background-top),
+    var(--glass-background-bottom)
+  );
 }
 
 /* ── Tiptap editor ── */
@@ -624,12 +727,15 @@ html {
 }
 
 /* Inside the issue dialogs the editor lives in a scroll region — keep the
-   toolbar pinned while long descriptions scroll underneath it. */
+   toolbar pinned while long descriptions scroll underneath it. Translucent +
+   blurred: dialogs are frosted glass now, an opaque patch would punch a hole. */
 .editor-scroll-region .static-toolbar {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--background);
+  background: color-mix(in oklab, var(--background) 78%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* On phones the toolbar stays a single horizontally scrollable line instead
@@ -663,4 +769,34 @@ html {
 
 .toolbar-link-input:focus {
   border-color: var(--ring);
+}
+
+/* ── Slim glass scrollbars (EXP-269) ──
+   Chrome ≥121 honors scrollbar-width/-color and ignores the webkit rules;
+   Safari uses the webkit rules. More specific rules (e.g. the toolbar's
+   scrollbar-width: none above) still win. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(1 0 0 / 18%) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 14%);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: oklch(1 0 0 / 24%);
+  background-clip: content-box;
 }

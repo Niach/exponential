@@ -289,7 +289,7 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
             <div className="flex items-center gap-2">
               <Button
                 size="xs"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                variant="brand"
                 disabled={!newName.trim() || submitting || newNameIsDuplicate}
                 onClick={handleCreate}
               >
