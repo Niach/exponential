@@ -235,9 +235,10 @@ impl Render for FileViewerView {
             }
         };
 
+        // EXP-269: no opaque fill — code floats on the page gradient (the
+        // syntax palette reads on both gradient endpoints).
         v_flex()
             .size_full()
-            .bg(cx.theme().background)
             .child(div().flex_1().min_h_0().child(body))
     }
 }

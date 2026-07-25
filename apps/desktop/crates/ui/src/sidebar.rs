@@ -651,7 +651,8 @@ impl Render for RailView {
             .items_center()
             .py_2()
             .gap_1()
-            .bg(cx.theme().tokens.sidebar)
+            // EXP-269: no fill — the rail floats on the page gradient,
+            // separated by the hairline border alone.
             .text_color(cx.theme().sidebar_foreground)
             .border_r_1()
             .border_color(cx.theme().sidebar_border)
@@ -2654,7 +2655,9 @@ impl Render for SidebarPanel {
             .size_full()
             .min_w_0()
             .overflow_hidden()
-            .bg(cx.theme().tokens.sidebar)
+            // EXP-269: glass section wash — differentiates the tool column
+            // from the center while letting the gradient show through.
+            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
             .text_color(cx.theme().sidebar_foreground)
             .border_r_1()
             .border_color(cx.theme().sidebar_border)

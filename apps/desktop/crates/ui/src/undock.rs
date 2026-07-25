@@ -383,7 +383,7 @@ impl Render for UndockedScreenWindow {
 
         div()
             .size_full()
-            .bg(cx.theme().background)
+            .bg(theme::background_gradient())
             .text_color(cx.theme().foreground)
             .track_focus(&self.focus_handle)
             .child(

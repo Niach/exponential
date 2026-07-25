@@ -113,7 +113,7 @@ impl Render for ImagePreview {
                 .max_w_full()
                 .max_h(max_h)
                 .object_fit(gpui::ObjectFit::ScaleDown)
-                .rounded(px(6.))
+                .rounded(cx.theme().radius)
                 .into_any_element(),
             ImageSlot::Loading => placeholder_box("Loading image…", cx),
             ImageSlot::Failed(_) => placeholder_box("Image unavailable", cx),

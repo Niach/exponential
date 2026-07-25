@@ -553,6 +553,7 @@ impl IssueListView {
         let popover_bg = cx.theme().popover;
         let popover_fg = cx.theme().popover_foreground;
         let danger = cx.theme().danger;
+        let radius = cx.theme().radius;
 
         let status_menu = {
             let ids = ids.clone();
@@ -870,7 +871,7 @@ impl IssueListView {
                     .px_3()
                     .py_2()
                     .items_center()
-                    .rounded(px(10.))
+                    .rounded(radius)
                     .border_1()
                     .border_color(border)
                     .bg(popover_bg)

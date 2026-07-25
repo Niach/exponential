@@ -429,7 +429,7 @@ impl Render for Shell {
             let notification_layer = Root::render_notification_layer(window, cx);
             return div()
                 .size_full()
-                .bg(cx.theme().background)
+                .bg(theme::background_gradient())
                 .text_color(cx.theme().foreground)
                 .child(self.render_update_required(cx))
                 .children(sheet_layer)
@@ -483,7 +483,9 @@ impl Render for Shell {
 
         div()
             .size_full()
-            .bg(cx.theme().background)
+            // EXP-269: the glass page gradient — every panel above it is
+            // transparent or a white-alpha fill so the ramp shows through.
+            .bg(theme::background_gradient())
             .text_color(cx.theme().foreground)
             .child(body)
             .children(sheet_layer)
