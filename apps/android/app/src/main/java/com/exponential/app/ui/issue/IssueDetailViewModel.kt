@@ -347,9 +347,10 @@ class IssueDetailViewModel @Inject constructor(
                     actionId = action.id,
                     deviceId = device.deviceId,
                     options = options,
-                    teamId = action.teamId.takeIf {
-                        action.id == DomainContract.builtinCreateActionId
-                    },
+                    // Required for EVERY builtin (there is no DB row to derive
+                    // the team from), forbidden otherwise — the server rejects
+                    // both mistakes.
+                    teamId = action.teamId.takeIf { action.isBuiltin },
                     inputs = inputs.takeIf { it.isNotEmpty() },
                 )
                 _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch = false)
