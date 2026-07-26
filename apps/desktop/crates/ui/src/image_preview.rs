@@ -8,8 +8,8 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, img, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render,
-    SharedString, Styled, StyledImage as _, Subscription, Window,
+    div, img, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, Styled,
+    StyledImage as _, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -51,8 +51,10 @@ pub(crate) fn open_image_preview(
     let height = viewport.height * 0.8;
     let spec = DialogSpec::new(label.clone(), size(width, height));
     native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
-        let preview = cx.new(|cx| ImagePreview::new(url, label, open_url, images, cx));
-        DialogContent::new(preview)
+        let preview = cx.new(|cx| ImagePreview::new(url, open_url, images, cx));
+        // The header's ✕ is the only mouse dismissal a lightbox has (there is
+        // no Cancel footer) — without it the modal window is a dead end.
+        DialogContent::new(preview).header(label)
     });
 }
 
@@ -76,7 +78,6 @@ fn preview_label(label: &str, url: &str) -> String {
 
 struct ImagePreview {
     url: String,
-    label: SharedString,
     open_url: Option<String>,
     images: Entity<ImageCache>,
     /// Re-render when the cache resolves the async fetch.
@@ -86,7 +87,6 @@ struct ImagePreview {
 impl ImagePreview {
     fn new(
         url: String,
-        label: String,
         open_url: Option<String>,
         images: Entity<ImageCache>,
         cx: &mut gpui::Context<Self>,
@@ -94,7 +94,6 @@ impl ImagePreview {
         let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
         Self {
             url,
-            label: SharedString::from(label),
             open_url,
             images,
             _images_changed: images_changed,
@@ -128,17 +127,9 @@ impl Render for ImagePreview {
                     .w_full()
                     .gap_2()
                     .items_center()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(self.label.clone()),
-                    )
+                    // The filename now titles the shell header — this row is
+                    // just the trailing "Open in browser" affordance.
+                    .justify_end()
                     .when_some(self.open_url.clone(), |el, open_url| {
                         el.child(
                             Button::new("image-preview-open-browser")

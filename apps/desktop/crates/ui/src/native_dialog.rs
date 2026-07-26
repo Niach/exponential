@@ -27,7 +27,7 @@
 //! contexts and overlay layers are per-window) and read the shared app
 //! globals like every other surface.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::{
@@ -63,6 +63,11 @@ pub(crate) fn init(cx: &mut App) {
 #[derive(Default)]
 struct DialogRegistry {
     openers: HashMap<WindowId, AnyWindowHandle>,
+    /// Openers whose dialog window is in flight — spawned but not opened yet.
+    /// `openers` only fills in once the window exists, so without this a
+    /// double-trigger (double-clicked button, ⌘N twice) would race past the
+    /// never-stack guard and open two windows.
+    pending: HashSet<WindowId>,
 }
 
 struct DialogRegistryGlobal(Entity<DialogRegistry>);
@@ -74,20 +79,16 @@ fn registry(cx: &App) -> Option<Entity<DialogRegistry>> {
         .map(|global| global.0.clone())
 }
 
-/// Whether `window` IS a native dialog window.
-pub(crate) fn is_dialog_window(window: &Window, cx: &App) -> bool {
-    let id = window.window_handle().window_id();
-    registry(cx).is_some_and(|registry| registry.read(cx).openers.contains_key(&id))
-}
-
 /// Whether a dialog is already up "here" — this window is a dialog, or a
-/// dialog it opened is still alive. The native replacement for the old
-/// `window.has_active_dialog` never-stack guards (⌘K spam, deep links).
+/// dialog it opened is still alive (or on its way up). The native replacement
+/// for the old `window.has_active_dialog` never-stack guards (⌘K spam, deep
+/// links).
 pub(crate) fn dialog_open_here(window: &Window, cx: &App) -> bool {
     let id = window.window_handle().window_id();
     registry(cx).is_some_and(|registry| {
         let registry = registry.read(cx);
         registry.openers.contains_key(&id)
+            || registry.pending.contains(&id)
             || registry
                 .openers
                 .values()
@@ -210,18 +211,28 @@ const CHANNEL_APP_ID: &str = "at.exponential.staging";
 /// Open a native dialog window over `window` (the opener). `build` runs
 /// INSIDE the new window and returns the content view + semantics.
 ///
-/// No-op when called from a dialog window (never nest dialogs — App-global
-/// shortcut handlers can land here while a dialog is active).
+/// No-op when a dialog is already up here — called from a dialog window
+/// (never nest dialogs — App-global shortcut handlers can land here while a
+/// dialog is active), or this window's dialog is still alive/in flight (a
+/// double-triggered opener must not stack two windows).
 pub(crate) fn open_dialog_window(
     window: &mut Window,
     cx: &mut App,
     spec: DialogSpec,
     build: impl FnOnce(&mut Window, &mut App) -> DialogContent + 'static,
 ) {
-    if is_dialog_window(window, cx) {
+    if dialog_open_here(window, cx) {
         return;
     }
     let opener = window.window_handle();
+    let opener_id = opener.window_id();
+    // Latch the in-flight marker synchronously — the window itself only
+    // registers once the spawn below actually opens it.
+    if let Some(registry) = registry(cx) {
+        registry.update(cx, |registry, _| {
+            registry.pending.insert(opener_id);
+        });
+    }
     // Parent-relative positioning: centered over the opener's outer bounds
     // (macOS ignores this — the sheet auto-positions under the titlebar).
     let opener_bounds = window.bounds();
@@ -253,7 +264,7 @@ pub(crate) fn open_dialog_window(
             window_decorations: Some(gpui::WindowDecorations::Client),
             ..Default::default()
         };
-        let handle = cx.open_window(options, move |window, cx| {
+        let opened = cx.open_window(options, move |window, cx| {
             let content = build(window, cx);
             let shell = cx.new(|cx| DialogShell::new(opener, content, window, cx));
             // Root MUST be the first view of every window (§3.3) — it hosts
@@ -268,7 +279,18 @@ pub(crate) fn open_dialog_window(
                 };
                 root
             })
-        })?;
+        });
+        // Drop the in-flight marker either way: on success `DialogShell::new`
+        // has already registered the real row (the build closure runs
+        // synchronously), on failure nothing may stay latched.
+        cx.update(|cx| {
+            if let Some(registry) = registry(cx) {
+                registry.update(cx, |registry, _| {
+                    registry.pending.remove(&opener_id);
+                });
+            }
+        });
+        let handle = opened?;
         handle.update(cx, |_, window, cx| {
             window.set_window_title(&title);
             window.activate_window();
@@ -350,6 +372,20 @@ impl Focusable for DialogShell {
 
 impl Render for DialogShell {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // gpui builds the key dispatch path from the FOCUSED node and falls
+        // back to the ROOT node when the window has no focus at all
+        // (`Window::dispatch_key_event` → `focus_node_id_in_rendered_frame`),
+        // so the `key_context(CONTEXT)` div below is off the path and
+        // Escape/Enter are dead in a freshly opened dialog window until the
+        // first click lands inside it. Claim focus while nothing else holds it
+        // — the gpui-component overlay `Dialog` focused itself on open the
+        // same way. Content views that autofocus an input still win: they do
+        // it either in the `build` closure (search — runs before this view
+        // exists) or in their own `render`, which runs after this one.
+        if window.focused(cx).is_none() {
+            self.focus_handle.focus(window, cx);
+        }
+
         let _ = self.opener;
         let closable = self.can_close(cx);
         let on_enter = self.content.on_enter.clone();
