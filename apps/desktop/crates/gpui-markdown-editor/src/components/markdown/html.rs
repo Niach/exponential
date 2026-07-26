@@ -8,9 +8,6 @@ use std::ops::Range;
 
 use cssparser::color::{parse_hash_color, parse_named_color};
 
-#[cfg(feature = "html-native")]
-use tree_sitter::Parser;
-
 /// Safety classification for an HTML fragment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HtmlSafetyClass {
@@ -279,7 +276,7 @@ pub(crate) fn parse_html_document(raw_source: &str) -> HtmlDocument {
         return HtmlDocument::raw(raw_source);
     }
 
-    if tree_sitter_reports_error(raw_source) {
+    if html_fragment_is_unverifiable(raw_source) {
         return HtmlDocument::raw(raw_source);
     }
 
@@ -1146,22 +1143,26 @@ fn is_void_tag(name: &str) -> bool {
     matches!(name, "br" | "hr" | "img")
 }
 
-#[cfg(feature = "html-native")]
-fn tree_sitter_reports_error(raw_source: &str) -> bool {
-    let mut parser = Parser::new();
-    if parser
-        .set_language(&tree_sitter_html::LANGUAGE.into())
-        .is_err()
-    {
-        return true;
-    }
-    parser
-        .parse(raw_source, None)
-        .is_none_or(|tree| tree.root_node().has_error())
-}
-
-#[cfg(not(feature = "html-native"))]
-fn tree_sitter_reports_error(_: &str) -> bool {
+/// Gate on `parse_html_document`'s semantic path — always closed here.
+///
+/// Upstream validated a fragment with the `tree-sitter-html` grammar before
+/// trusting the hand-written parser below. EXP-261 stripped every
+/// `tree-sitter*` dependency during vendoring, and EXP-302 removed the
+/// `html-native` feature that gated the call (a feature which, having no
+/// dependencies left to enable, could only ever fail to compile).
+///
+/// With no validator we cannot prove a fragment is well-formed, so every
+/// fragment classifies as [`HtmlSafetyClass::RawTextBlock`] and renders as its
+/// own source. That is the behavior the cross-client GFM contract wants
+/// regardless: raw HTML is not a round-trippable feature, so rendering it
+/// natively would put the desktop editor OUT of parity with web/iOS/Android.
+///
+/// The semantic parser below is deliberately retained rather than deleted. It
+/// stays statically reachable through this call (so it cannot rot into
+/// dead-code warnings), `style_for_node` is still live via the inline-HTML
+/// path in `inline.rs`, and it is the only remaining record of the
+/// classifier's shape should the grammar ever be re-vendored.
+fn html_fragment_is_unverifiable(_raw_source: &str) -> bool {
     true
 }
 
@@ -1169,12 +1170,18 @@ fn tree_sitter_reports_error(_: &str) -> bool {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "html-native")]
     #[test]
-    fn safe_inline_html_classifies_as_semantic() {
+    fn every_fragment_classifies_raw_without_the_html_grammar() {
+        // EXP-302: the semantic path is unreachable now that the validating
+        // grammar is gone (see `html_fragment_is_unverifiable`). Even the
+        // friendliest fragment — one the retained parser would have accepted
+        // as semantic — must come back raw, with its source preserved verbatim
+        // so serialization still round-trips it. The risky/malformed cases
+        // below assert the same outcome via inputs that were ALWAYS raw; this
+        // one is what pins the classifier shut.
         let doc = parse_html_document("<span style='color:blue;'>Blue</span>");
-        assert!(doc.is_semantic());
-        assert_eq!(doc.nodes[0].tag_name, "span");
+        assert!(!doc.is_semantic());
+        assert_eq!(doc.safety, HtmlSafetyClass::RawTextBlock);
         assert_eq!(doc.raw_source, "<span style='color:blue;'>Blue</span>");
     }
 
@@ -1224,32 +1231,39 @@ mod tests {
         assert!(parse_html_image_block("<span><img src=\"x.png\" /></span>").is_none());
     }
 
-    #[cfg(feature = "html-native")]
-    #[test]
-    fn risky_child_is_local_raw_inside_safe_parent() {
-        let doc = parse_html_document("<div>safe<script>alert(1)</script>tail</div>");
-        assert!(doc.is_semantic());
-        let div = &doc.nodes[0];
-        assert!(
-            div.children
-                .iter()
-                .any(|child| child.kind == HtmlNodeKind::RawTextBlock)
-        );
-    }
-
     #[test]
     fn malformed_html_falls_back_to_raw_text() {
         let doc = parse_html_document("<details><summary>x</details>");
         assert_eq!(doc.safety, HtmlSafetyClass::RawTextBlock);
     }
 
-    #[cfg(feature = "html-native")]
+    /// A semantic node built the way the LIVE inline-HTML path builds one
+    /// (`inline.rs::inline_html_style`). `parse_html_document` can no longer
+    /// return a semantic node (see `html_fragment_is_unverifiable`), but
+    /// `style_for_node` is still reached with nodes like this for every inline
+    /// `<span style=…>` in a description — so these CSS-whitelist tests cover
+    /// shipped behavior and construct their input directly.
+    fn inline_semantic_node(tag_name: &str, style_attr: &str) -> HtmlNode {
+        HtmlNode {
+            kind: HtmlNodeKind::InlineSemantic,
+            tag_name: tag_name.to_string(),
+            attrs: vec![HtmlAttr {
+                name: "style".to_string(),
+                value: Some(style_attr.to_string()),
+                raw_source: format!("style=\"{style_attr}\""),
+            }],
+            children: Vec::new(),
+            raw_source: String::new(),
+            source_range: 0..0,
+        }
+    }
+
     #[test]
     fn parses_whitelisted_style_color_background_and_font_size() {
-        let doc = parse_html_document(
-            "<span style=\"color:blue; background-color:#fff8; font-size:20px\">x</span>",
-        );
-        let style = style_for_node(&doc.nodes[0]);
+        let style = style_for_node(&inline_semantic_node(
+            "span",
+            "color:blue; background-color:#fff8; font-size:20px",
+        ));
 
         assert_eq!(
             style.color,
@@ -1272,13 +1286,12 @@ mod tests {
         assert_eq!(style.font_size, Some(HtmlCssFontSize::Px(20.0)));
     }
 
-    #[cfg(feature = "html-native")]
     #[test]
     fn parses_rgb_hsl_currentcolor_and_font_size_units() {
-        let doc = parse_html_document(
-            "<span style=\"color:rgba(255, 0, 0, .5); background-color:hsl(120 100% 50% / 25%); font-size:1.25em\">x</span>",
-        );
-        let style = style_for_node(&doc.nodes[0]);
+        let style = style_for_node(&inline_semantic_node(
+            "span",
+            "color:rgba(255, 0, 0, .5); background-color:hsl(120 100% 50% / 25%); font-size:1.25em",
+        ));
         assert_eq!(
             style.color,
             Some(HtmlCssColor::Rgba(HtmlCssRgba {
@@ -1299,10 +1312,10 @@ mod tests {
         );
         assert_eq!(style.font_size, Some(HtmlCssFontSize::Em(1.25)));
 
-        let doc = parse_html_document(
-            "<span style=\"color:currentColor; font-size:120%; background-color:transparent\">x</span>",
-        );
-        let style = style_for_node(&doc.nodes[0]);
+        let style = style_for_node(&inline_semantic_node(
+            "span",
+            "color:currentColor; font-size:120%; background-color:transparent",
+        ));
         assert_eq!(style.color, Some(HtmlCssColor::CurrentColor));
         assert_eq!(style.font_size, Some(HtmlCssFontSize::Percent(120.0)));
         assert_eq!(
@@ -1315,35 +1328,19 @@ mod tests {
             }))
         );
 
-        let doc = parse_html_document("<span style=\"font-size:large\">x</span>");
         assert_eq!(
-            style_for_node(&doc.nodes[0]).font_size,
+            style_for_node(&inline_semantic_node("span", "font-size:large")).font_size,
             Some(HtmlCssFontSize::Keyword(HtmlCssFontSizeKeyword::Large))
         );
     }
 
-    #[cfg(feature = "html-native")]
     #[test]
     fn ignores_unrecognized_or_invalid_style_declarations() {
-        let doc = parse_html_document(
-            "<span style=\"background-image:url(javascript:bad); color:not-a-real-color; font-size:-1px\">x</span>",
-        );
-        let style = style_for_node(&doc.nodes[0]);
-        assert_eq!(style, HtmlInlineStyle::default());
-        assert!(doc.is_semantic());
-    }
-
-    #[cfg(feature = "html-native")]
-    #[test]
-    fn export_sanitizes_style_to_whitelisted_declarations() {
-        let html = sanitize_html_for_export(
-            "<span style=\"color:blue; background-image:url(javascript:bad); background-color:rgb(255 255 0); font-size:120%\">x</span>",
-        );
-
-        assert!(html.contains(
-            "style=\"color: rgba(0,0,255,1.000); background-color: rgba(255,255,0,1.000); font-size: 120%;\""
+        let style = style_for_node(&inline_semantic_node(
+            "span",
+            "background-image:url(javascript:bad); color:not-a-real-color; font-size:-1px",
         ));
-        assert!(!html.contains("background-image"));
+        assert_eq!(style, HtmlInlineStyle::default());
     }
 
     #[test]

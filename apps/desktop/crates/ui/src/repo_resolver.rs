@@ -12,13 +12,13 @@
 //! The v4 model is one repo per board via `boards.repositoryId`; the server
 //! returns each repo with the `boards[]` it backs (the web `repositories.list`
 //! loader — `[{ id, name, slug }]`). A board resolves to the repo whose
-//! `boards[]` contains its id; the team-level trunk surface resolves the
-//! first board's repo, else the sole team repo.
+//! `boards[]` contains its id — the only resolution this entity serves (the
+//! desktop is board-scoped everywhere; the action runner resolves its own
+//! `repository_id` off its own `repositories.list` read, off-window).
 //!
 //! Consumer-driven, like every other load gate in this crate: a surface calls
 //! [`RepoResolver::ensure_loaded`] at render time (idempotent — one fetch per
-//! team) and reads [`RepoResolver::lookup_board`] /
-//! [`RepoResolver::lookup_team_trunk`]. The fetch keys on the active
+//! team) and reads [`RepoResolver::lookup_board`]. The fetch keys on the active
 //! team, so switching boards within a team reuses the cache; the
 //! surfaces `cx.observe(&resolver, …)` to re-render when the fetch lands.
 //!
@@ -208,47 +208,6 @@ impl RepoResolver {
         }
     }
 
-    /// Resolve a repo by its registry row id (EXP-253: an action's optional
-    /// `repository_id`) — the actions panel's local launch path.
-    pub fn lookup_repository(&self, repository_id: &str) -> RepoLookup {
-        match &self.state {
-            State::Idle | State::Loading => RepoLookup::Loading,
-            State::Error(msg) => RepoLookup::Error(msg.clone()),
-            State::Ready(repos) => match repos
-                .iter()
-                .find(|repo| repo.repository_id == repository_id)
-            {
-                Some(repo) => RepoLookup::Found(repo.clone()),
-                None => RepoLookup::NotFound,
-            },
-        }
-    }
-
-    /// Resolve the team trunk repo (Source Control scope): the
-    /// `first_board`'s repo, else the sole repo in the team.
-    pub fn lookup_team_trunk(&self, first_board: Option<&str>) -> RepoLookup {
-        match &self.state {
-            State::Idle | State::Loading => RepoLookup::Loading,
-            State::Error(msg) => RepoLookup::Error(msg.clone()),
-            State::Ready(repos) => {
-                let chosen = first_board
-                    .and_then(|board_id| {
-                        repos
-                            .iter()
-                            .find(|repo| repo.board_ids.iter().any(|id| id == board_id))
-                    })
-                    .or(if repos.len() == 1 {
-                        repos.first()
-                    } else {
-                        None
-                    });
-                match chosen {
-                    Some(repo) => RepoLookup::Found(repo.clone()),
-                    None => RepoLookup::NotFound,
-                }
-            }
-        }
-    }
 }
 
 /// A team's (board → repository) links from the SYNCED boards rows

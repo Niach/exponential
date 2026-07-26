@@ -3046,43 +3046,6 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "html-native")]
-    #[gpui::test]
-    async fn unsupported_nested_block_preserves_native_list_item_with_raw_child(
-        cx: &mut TestAppContext,
-    ) {
-        let editor = cx.new(|cx| {
-            Editor::from_markdown(
-                cx,
-                "- native before\n- raw item\n  <div>\n  inner\n  </div>\n- native after"
-                    .to_string(),
-                None,
-            )
-        });
-
-        editor.update(cx, |editor, cx| {
-            let visible = editor.document.visible_blocks();
-            assert_eq!(visible.len(), 4);
-            assert_eq!(
-                visible[0].entity.read(cx).kind(),
-                BlockKind::BulletedListItem
-            );
-            assert_eq!(visible[0].entity.read(cx).display_text(), "native before");
-            assert_eq!(
-                visible[1].entity.read(cx).kind(),
-                BlockKind::BulletedListItem
-            );
-            assert_eq!(visible[1].entity.read(cx).display_text(), "raw item");
-            assert_eq!(visible[2].entity.read(cx).kind(), BlockKind::HtmlBlock);
-            assert!(visible[2].entity.read(cx).display_text().contains("<div>"));
-            assert_eq!(
-                visible[3].entity.read(cx).kind(),
-                BlockKind::BulletedListItem
-            );
-            assert_eq!(visible[3].entity.read(cx).display_text(), "native after");
-        });
-    }
-
     #[gpui::test]
     async fn imports_and_canonicalizes_task_lists(cx: &mut TestAppContext) {
         let editor = cx.new(|cx| {
@@ -3171,65 +3134,28 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "html-native")]
     #[gpui::test]
-    async fn imports_details_html_block_with_blank_lines_as_native_html_block(
-        cx: &mut TestAppContext,
-    ) {
-        let markdown =
-            "<details>\n<summary>Title</summary>\n\nHidden content with `code`.\n\n</details>"
-                .to_string();
-        let editor = cx.new(|cx| Editor::from_markdown(cx, markdown.clone(), None));
+    async fn imports_raw_html_blocks_as_raw_markdown_that_round_trips(cx: &mut TestAppContext) {
+        // EXP-302: `html_or_raw_block` can no longer produce an HtmlBlock —
+        // the semantic classifier is shut without its grammar. What the GFM
+        // interchange contract actually requires is this: whatever HTML a
+        // description carries stays visible and serializes back byte-identical.
+        for markdown in [
+            "<img src=\"./assets/pic.png\" alt=\"alt text\" style=\"zoom:80%;\" />",
+            "<span style='color:blue;'>Anaconda</span>",
+            "<details><summary>x</summary>body</details>",
+        ] {
+            let markdown = markdown.to_string();
+            let editor = cx.new(|cx| Editor::from_markdown(cx, markdown.clone(), None));
 
-        editor.update(cx, |editor, cx| {
-            let visible = editor.document.visible_blocks();
-            assert_eq!(visible.len(), 1);
-            assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::HtmlBlock);
-            assert_eq!(visible[0].entity.read(cx).display_text(), markdown);
-            assert!(
-                visible[0]
-                    .entity
-                    .read(cx)
-                    .record
-                    .html
-                    .as_ref()
-                    .is_some_and(|html| html.is_semantic())
-            );
-            assert_eq!(editor.document.markdown_text(cx), markdown);
-        });
-    }
-
-    #[cfg(feature = "html-native")]
-    #[gpui::test]
-    async fn imports_safe_inline_html_line_as_native_html_block(cx: &mut TestAppContext) {
-        let markdown = "<span style='color:blue;'>Anaconda</span>: https://example.com".to_string();
-        let editor = cx.new(|cx| Editor::from_markdown(cx, markdown.clone(), None));
-
-        editor.update(cx, |editor, cx| {
-            let visible = editor.document.visible_blocks();
-            assert_eq!(visible.len(), 1);
-            let block = visible[0].entity.read(cx);
-            assert_eq!(block.kind(), BlockKind::HtmlBlock);
-            assert_eq!(block.display_text(), markdown);
-            assert_eq!(editor.document.markdown_text(cx), markdown);
-        });
-    }
-
-    #[cfg(feature = "html-native")]
-    #[gpui::test]
-    async fn imports_standalone_html_image_as_native_html_block(cx: &mut TestAppContext) {
-        let markdown =
-            "<img src=\"./assets/pic.png\" alt=\"alt text\" style=\"zoom:80%;\" />".to_string();
-        let editor = cx.new(|cx| Editor::from_markdown(cx, markdown.clone(), None));
-
-        editor.update(cx, |editor, cx| {
-            let visible = editor.document.visible_blocks();
-            assert_eq!(visible.len(), 1);
-            let block = visible[0].entity.read(cx);
-            assert_eq!(block.kind(), BlockKind::HtmlBlock);
-            assert_eq!(block.display_text(), markdown);
-            assert_eq!(editor.document.markdown_text(cx), markdown);
-        });
+            editor.update(cx, |editor, cx| {
+                let visible = editor.document.visible_blocks();
+                assert_eq!(visible.len(), 1);
+                assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::RawMarkdown);
+                assert_eq!(visible[0].entity.read(cx).display_text(), markdown);
+                assert_eq!(editor.document.markdown_text(cx), markdown);
+            });
+        }
     }
 
     #[gpui::test]
@@ -3282,30 +3208,6 @@ mod tests {
             assert_eq!(visible.len(), 1);
             assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::RawMarkdown);
             assert_eq!(visible[0].entity.read(cx).display_text(), markdown);
-            assert_eq!(editor.document.markdown_text(cx), markdown);
-        });
-    }
-
-    #[cfg(feature = "html-native")]
-    #[gpui::test]
-    async fn safe_html_with_risky_child_uses_html_block_and_preserves_source(
-        cx: &mut TestAppContext,
-    ) {
-        let markdown = "<div>safe<script>alert(1)</script>tail</div>".to_string();
-        let editor = cx.new(|cx| Editor::from_markdown(cx, markdown.clone(), None));
-
-        editor.update(cx, |editor, cx| {
-            let visible = editor.document.visible_blocks();
-            assert_eq!(visible.len(), 1);
-            let block = visible[0].entity.read(cx);
-            assert_eq!(block.kind(), BlockKind::HtmlBlock);
-            assert!(
-                block
-                    .record
-                    .html
-                    .as_ref()
-                    .is_some_and(|html| html.is_semantic())
-            );
             assert_eq!(editor.document.markdown_text(cx), markdown);
         });
     }
@@ -3619,10 +3521,10 @@ mod tests {
 
             assert!(visible.iter().any(|block| {
                 let block = block.entity.read(cx);
-                // EXP-261 vendoring: html-native is off by default, so the
-                // <details> section classifies as RawMarkdown instead of
-                // HtmlBlock; either way its source must stay visible.
-                matches!(block.kind(), BlockKind::HtmlBlock | BlockKind::RawMarkdown)
+                // EXP-302: with the html-native gate gone, raw HTML always
+                // classifies as RawMarkdown (never HtmlBlock) — and either
+                // way its source must stay visible.
+                block.kind() == BlockKind::RawMarkdown
                     && block.display_text().contains("<details>")
             }));
 
