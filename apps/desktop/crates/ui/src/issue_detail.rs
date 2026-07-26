@@ -40,7 +40,7 @@ use gpui_component::{
     input::{self, Input, InputEvent, InputState},
     skeleton::Skeleton,
     text::TextView,
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 use sync::Store;
 
@@ -837,16 +837,13 @@ pub(crate) fn apply_status_selection(
 /// §4.6 shared-`IssuePicker` rule: both the detail actions menu and the row
 /// `ContextMenu`'s "Mark as duplicate…" item open this same overlay.
 pub(crate) fn open_duplicate_picker(issue_id: String, window: &mut Window, cx: &mut App) {
-    let picker = cx.new(|cx| DuplicatePicker::new(issue_id, window, cx));
-    window.open_dialog(cx, move |dialog, _, _| {
-        let picker = picker.clone();
-        crate::surface::glass_dialog(dialog)
-            .title("Mark as duplicate")
-            .w(px(480.))
-            .button_props(
-                gpui_component::dialog::DialogButtonProps::default().show_cancel(false),
-            )
-            .content(move |content, _, _| content.child(picker.clone()))
+    let spec = crate::native_dialog::DialogSpec::new(
+        "Mark as duplicate",
+        gpui::size(px(480.), px(480.)),
+    );
+    crate::native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let picker = cx.new(|cx| DuplicatePicker::new(issue_id, window, cx));
+        crate::native_dialog::DialogContent::new(picker).header("Mark as duplicate")
     });
 }
 
@@ -906,7 +903,7 @@ impl DuplicatePicker {
         // The server sets status='duplicate' atomically with the link.
         input.duplicate_of_id = api::Patch::Set(canonical_id);
         spawn_issue_update(cx, input);
-        window.close_dialog(cx);
+        crate::native_dialog::close_dialog_window(window, cx);
     }
 }
 

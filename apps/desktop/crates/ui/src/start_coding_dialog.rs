@@ -43,8 +43,8 @@
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, InteractiveElement as _,
-    IntoElement, ParentElement, Render, ScrollHandle, SharedString,
+    div, prelude::FluentBuilder as _, px, size, AnyWindowHandle, App, AppContext as _, Entity,
+    InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -56,7 +56,7 @@ use gpui_component::{
     scroll::{Scrollbar, ScrollbarAxis},
     select::Select,
     tab::{Tab, TabBar, TabVariant},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size,
 };
 use sync::Store;
 
@@ -73,6 +73,7 @@ use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
 use crate::icons::ExpIcon;
+use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
 /// Soft cost warning threshold: more checked issues than this shows the
@@ -136,22 +137,20 @@ fn open(
     preselected: Vec<String>,
     preselect_action: Option<String>,
 ) {
-    let view = cx.new(|cx| {
-        StartCodingDialogView::new(team_id, preselected, preselect_action, window, cx)
-    });
-    window.open_dialog(cx, move |dialog, window, cx| {
-        let busy = view.read(cx).launching;
-        let max_height = window.viewport_size().height * 0.85;
-        // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
-        // picker left, options right). Must stay `.w()`: the dialog centers
-        // off `props.width`, `max_w` alone would left-anchor it.
-        crate::surface::glass_dialog(dialog)
-            .w(px(760.))
-            .max_h(max_height)
-            .title("Start coding")
-            .overlay_closable(!busy)
-            .keyboard(!busy)
-            .child(view.clone())
+    // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
+    // picker left, options right); the launched terminal tab lands back in
+    // the OPENER window (EXP-284: the dialog is its own native window).
+    let opener = window.window_handle();
+    let height = (window.viewport_size().height * 0.85).min(px(640.));
+    let spec = DialogSpec::new("Start coding", size(px(760.), height));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| {
+            StartCodingDialogView::new(team_id, preselected, preselect_action, opener, window, cx)
+        });
+        let busy = view.clone();
+        DialogContent::new(view)
+            .header("Start coding")
+            .can_close(move |cx| !busy.read(cx).launching)
     });
 }
 
@@ -212,6 +211,9 @@ fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, boo
 
 pub struct StartCodingDialogView {
     team_id: String,
+    /// The window that opened this dialog — the launched terminal tab spawns
+    /// into ITS dock (EXP-284: the dialog is its own native window).
+    opener: AnyWindowHandle,
     /// EXP-257: which subject half is showing — Issues (the checklist) or
     /// Actions (the single-select action list + input fields).
     subject_tab: SubjectTab,
@@ -281,6 +283,7 @@ impl StartCodingDialogView {
         team_id: String,
         preselected: Vec<String>,
         preselect_action: Option<String>,
+        opener: AnyWindowHandle,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -405,6 +408,7 @@ impl StartCodingDialogView {
 
         let mut this = Self {
             team_id,
+            opener,
             subject_tab: if preselect_action.is_some() {
                 SubjectTab::Actions
             } else {
@@ -997,8 +1001,10 @@ impl StartCodingDialogView {
             };
             let inputs = self.collect_action_inputs(&action, cx);
             let options = self.options(cx);
-            let handle = window.window_handle();
-            window.close_dialog(cx);
+            // The runner's terminal tab targets the OPENER window — this
+            // dialog window is about to be gone.
+            let handle = self.opener;
+            native_dialog::close_dialog_window(window, cx);
             action_run::start_action_run(
                 StartActionArgs {
                     action_id: action.id,
@@ -1067,28 +1073,34 @@ impl StartCodingDialogView {
         cx.notify();
 
         let hooks = crate::steer_wiring::hook_setup(cx);
+        let opener = self.opener;
         cx.spawn_in(window, async move |this, window| {
             let prepared = window
                 .background_executor()
                 .spawn(async move { coding::prepare_with_hooks(&request, &deps, hooks.as_ref()) })
                 .await;
+            // The terminal tab spawns into the OPENER window's dock
+            // (EXP-284) — a fresh cross-window update from the async
+            // context, never from inside this window's update.
+            let outcome: Result<(), SharedString> = match prepared {
+                Ok(Prepared::Ready(prepared)) => {
+                    match opener.update(window, |_, window, cx| {
+                        coding_flow::spawn_into_window(prepared, subject, window, cx)
+                    }) {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(message)) => Err(message.into()),
+                        Err(_) => Err("The window that opened this dialog was closed.".into()),
+                    }
+                }
+                // Explain inline, never crash — the exact §7 copy.
+                Ok(Prepared::Disabled(reason)) => Err(reason.message().into()),
+                Err(err) => Err(format!("Could not start the coding session: {err}").into()),
+            };
             let _ = this.update_in(window, |this, window, cx| {
                 this.launching = false;
-                match prepared {
-                    Ok(Prepared::Ready(prepared)) => {
-                        match coding_flow::spawn_into_window(prepared, subject, window, cx) {
-                            Ok(()) => {
-                                window.close_dialog(cx);
-                            }
-                            Err(message) => this.error = Some(message.into()),
-                        }
-                    }
-                    // Explain inline, never crash — the exact §7 copy.
-                    Ok(Prepared::Disabled(reason)) => this.error = Some(reason.message().into()),
-                    Err(err) => {
-                        this.error =
-                            Some(format!("Could not start the coding session: {err}").into())
-                    }
+                match outcome {
+                    Ok(()) => native_dialog::close_dialog_window(window, cx),
+                    Err(message) => this.error = Some(message),
                 }
                 cx.notify();
             });
@@ -1668,7 +1680,7 @@ impl StartCodingDialogView {
                         if this.launching {
                             return;
                         }
-                        window.close_dialog(cx);
+                        native_dialog::close_dialog_window(window, cx);
                     })),
             )
             .child(

@@ -39,15 +39,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, FontWeight, IntoElement, KeyBinding, ParentElement,
-    SharedString, Styled, Task, Window, WindowId,
+    div, px, size, App, AppContext as _, Entity, FontWeight, IntoElement, KeyBinding,
+    ParentElement, Render, SharedString, Styled, Task, Window, WindowId,
 };
 use gpui_component::{
     h_flex,
     list::{List, ListDelegate, ListItem, ListState},
-    v_flex, ActiveTheme as _, Icon, IconName, IndexPath, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Icon, IconName, IndexPath, Sizable as _,
 };
 use sync::{SessionPhase, Store};
+
+use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use coding::clone_path;
 use domain::options::get_issue_status_config;
@@ -143,7 +145,7 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
     }
     // Never stack search over an already-open dialog (⌘K spam / ⌘K while a
     // modal is up).
-    if window.has_active_dialog(cx) {
+    if native_dialog::dialog_open_here(window, cx) {
         return;
     }
     let nav = nav_for_window(window, cx);
@@ -153,39 +155,41 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
     let repo_resolver = repo_resolver_for_window(window, cx);
     let window_id = window.window_handle().window_id();
 
-    let list = cx.new(|cx| {
-        ListState::new(
-            SearchDelegate::new(team_id, window_id, nav.clone(), repo_resolver),
-            window,
-            cx,
+    // Web: max-h-[60vh] — the native window is that cap; the List grows into
+    // it (its `Infer` sizing keeps the empty prompt short).
+    let height = window.viewport_size().height * 0.6;
+    let spec = DialogSpec::new("Search", size(px(DIALOG_WIDTH), height));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let list = cx.new(|cx| {
+            ListState::new(
+                SearchDelegate::new(team_id, window_id, nav.clone(), repo_resolver),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        // Focus the query input (searchable list → input handle) so typing
+        // starts immediately, like the web autoFocus.
+        list.update(cx, |list, cx| list.focus(window, cx));
+        let view = cx.new(|_| SearchSheetView { list });
+        DialogContent::new(view).padless()
+    });
+}
+
+/// Slim window-content wrapper: the List fills the fixed dialog window.
+struct SearchSheetView {
+    list: Entity<ListState<SearchDelegate>>,
+}
+
+impl Render for SearchSheetView {
+    fn render(&mut self, window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let max_h = window.viewport_size().height;
+        div().size_full().child(
+            List::new(&self.list)
+                .search_placeholder("Search issues and files…")
+                .max_h(max_h),
         )
-        .searchable(true)
-    });
-
-    // Web: top-[15%], max-h-[60vh]. The List auto-grows with results up to
-    // max_h (its `Infer` sizing), so the empty prompt stays a small dialog.
-    let viewport = window.viewport_size();
-    let margin_top = viewport.height * 0.15;
-    let max_h = viewport.height * 0.6;
-
-    window.open_dialog(cx, {
-        let list = list.clone();
-        move |dialog, _window, _cx| {
-            crate::surface::glass_dialog(dialog)
-                .close_button(false)
-                .w(px(DIALOG_WIDTH))
-                .margin_top(margin_top)
-                .p_0()
-                .child(
-                    List::new(&list)
-                        .search_placeholder("Search issues and files…")
-                        .max_h(max_h),
-                )
-        }
-    });
-    // Focus the query input (searchable list → input handle) so typing starts
-    // immediately, like the web autoFocus.
-    list.update(cx, |list, cx| list.focus(window, cx));
+    }
 }
 
 /// One resolved issue hit — board name/color denormalized at search time
@@ -485,10 +489,13 @@ impl SearchDelegate {
     /// session (which is what normally publishes it).
     fn open_file(&self, path: String, window: &mut Window, cx: &mut App) {
         if let RepoState::Ready { root, .. } = &self.repo {
+            // `window_id` is the OPENER's id (captured at open) — the trunk
+            // root must land on the window the viewer will open in.
             crate::file_tree::publish_trunk_root(self.window_id, root.clone(), cx);
         }
-        navigate(window, cx, Screen::FileViewer { path });
-        window.close_dialog(cx);
+        native_dialog::close_then(window, cx, move |window, cx| {
+            navigate(window, cx, Screen::FileViewer { path });
+        });
     }
 
     // -- row builders (each returns None for an out-of-range index) -----------
@@ -792,8 +799,9 @@ impl ListDelegate for SearchDelegate {
                     return;
                 };
                 let issue_id = hit.issue_id.clone();
-                navigate(window, cx, Screen::IssueDetail { issue_id });
-                window.close_dialog(cx);
+                native_dialog::close_then(window, cx, move |window, cx| {
+                    navigate(window, cx, Screen::IssueDetail { issue_id });
+                });
             }
             SECTION_FILES => {
                 let Some(path) = self.file_hits.get(ix.row).cloned() else {
@@ -813,10 +821,10 @@ impl ListDelegate for SearchDelegate {
         }
     }
 
-    /// Esc closes (the List consumes Escape ahead of the dialog's own
+    /// Esc closes (the List consumes Escape ahead of the dialog shell's own
     /// binding, so the delegate owns the close).
     fn cancel(&mut self, window: &mut Window, cx: &mut gpui::Context<ListState<Self>>) {
-        window.close_dialog(cx);
+        native_dialog::close_dialog_window(window, cx);
     }
 
     /// Web: the pre-query hint.

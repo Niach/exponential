@@ -23,8 +23,9 @@
 //! action; [`init`] owns the handler.
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, size, App, AppContext as _, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -40,6 +41,7 @@ use sync::Store;
 use crate::actions::NewBoard;
 use crate::create_issue_dialog::parse_hex_color;
 use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
+use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::navigation::{active_team_id, nav_for_window};
 use crate::queries;
 use crate::settings::open_url;
@@ -144,24 +146,22 @@ pub fn init(cx: &mut App) {
     });
 }
 
-/// Open the dialog for a team.
+/// Open the dialog for a team (a native window since EXP-284).
 pub fn open(window: &mut Window, cx: &mut App, team_id: String) {
-    let view = cx.new(|cx| CreateBoardDialogView::new(team_id, window, cx));
-    window.open_dialog(cx, move |dialog, _window, cx| {
-        let busy = view.read(cx).submitting;
-        crate::surface::glass_dialog(dialog)
-            .w(px(416.)) // web sm:max-w-[26rem]
-            .title("Create board")
-            .overlay_closable(!busy)
-            .keyboard(!busy)
-            .on_ok({
-                let view = view.clone();
-                move |_, window, cx| {
-                    view.update(cx, |view, cx| view.submit(window, cx));
-                    false
-                }
+    // Web sm:max-w-[26rem] width; the form is tall (icon grid + swatches +
+    // repo picker) — cap against the opener and let the shell scroll the rest.
+    let height = (window.viewport_size().height * 0.85).min(px(680.));
+    let spec = DialogSpec::new("Create board", size(px(416.), height));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| CreateBoardDialogView::new(team_id, window, cx));
+        let busy = view.clone();
+        let submit = view.clone();
+        DialogContent::new(view)
+            .header("Create board")
+            .can_close(move |cx| !busy.read(cx).submitting)
+            .on_enter(move |window, cx| {
+                submit.update(cx, |view, cx| view.submit(window, cx));
             })
-            .child(view.clone())
     });
 }
 
@@ -355,15 +355,16 @@ impl CreateBoardDialogView {
                         queries::await_row_visible(&boards, &board_id, window).await;
                     }
                     let _ = this.update_in(window, |_, window, cx| {
-                        window.close_dialog(cx);
-                        // Scope the window to the new board and surface its
-                        // (empty) issue list in the sidebar.
-                        crate::navigation::set_active_board(window, cx, board_id);
-                        crate::sidebar::activate_tool(
-                            window,
-                            cx,
-                            crate::sidebar::ToolWindow::BoardIssues,
-                        );
+                        native_dialog::close_then(window, cx, move |window, cx| {
+                            // Scope the opener to the new board and surface
+                            // its (empty) issue list in the sidebar.
+                            crate::navigation::set_active_board(window, cx, board_id);
+                            crate::sidebar::activate_tool(
+                                window,
+                                cx,
+                                crate::sidebar::ToolWindow::BoardIssues,
+                            );
+                        });
                     });
                 }
                 Err(err) => {
@@ -385,13 +386,17 @@ impl CreateBoardDialogView {
                         }
                         if is_plan_limit(&err) {
                             // §4.9: neutral hand-off, never an upgrade dialog.
-                            window.close_dialog(cx);
-                            window.push_notification(
-                                Notification::warning(
-                                    "Board limit reached — upgrade on the web to create more.",
-                                ),
-                                cx,
-                            );
+                            // The notification lands on the OPENER — this
+                            // window is about to be gone.
+                            native_dialog::close_then(window, cx, |window, cx| {
+                                window.push_notification(
+                                    Notification::warning(
+                                        "Board limit reached — upgrade on the web to \
+                                         create more.",
+                                    ),
+                                    cx,
+                                );
+                            });
                             return;
                         }
                         this.error = Some(format!("{err}").into());

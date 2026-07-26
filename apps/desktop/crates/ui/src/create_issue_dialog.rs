@@ -24,7 +24,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
+    div, px, size, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
     Window,
 };
@@ -37,7 +37,6 @@ use gpui_component::{
     popover::Popover,
     switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Side, Sizable as _,
-    WindowExt as _,
 };
 use sync::Store;
 
@@ -50,6 +49,7 @@ use crate::attachments_row;
 use crate::icons::{option_icon, ExpIcon};
 use crate::markdown::image_paste::strip_draft_images;
 use crate::markdown::{self};
+use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::wysiwyg::WysiwygDescription;
 use crate::navigation::{active_board_id, nav_for_window, navigate, Screen};
 use crate::queries;
@@ -80,40 +80,32 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
         return;
     };
 
-    let view = cx.new(|cx| {
-        CreateIssueDialogView::new(
-            board.id.clone(),
-            board.team_id.clone(),
-            board.prefix.clone().unwrap_or_default(),
-            board.color.clone(),
-            window,
-            cx,
-        )
-    });
-
-    window.open_dialog(cx, move |dialog, window, cx| {
-        let busy = view.read(cx).submitting;
-        // Web: sm:max-w-[40rem] p-0 max-h-[85vh] — the dialog HUGS its
-        // content (no fixed empty band); only past the cap does the editor
-        // region scroll, with header/chips/footer pinned.
-        let max_height = window.viewport_size().height * 0.85;
-        crate::surface::glass_dialog(dialog)
-            .w(px(640.))
-            .max_h(max_height)
-            .p_0()
-            .close_button(false)
-            .overlay_closable(!busy)
-            .keyboard(!busy)
-            // Enter anywhere in the dialog submits (web form submit); never
-            // let the stock ConfirmDialog close an un-submitted dialog.
-            .on_ok({
-                let view = view.clone();
-                move |_, window, cx| {
-                    view.update(cx, |view, cx| view.submit(window, cx));
-                    false
-                }
+    // Web: sm:max-w-[40rem] p-0 max-h-[85vh]. A native window has a fixed
+    // size — the editor region flexes to fill and scrolls past the cap, with
+    // header/chips/footer pinned (the view's own layout).
+    let height = (window.viewport_size().height * 0.85).min(px(620.));
+    let spec = DialogSpec::new("New issue", size(px(640.), height));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| {
+            CreateIssueDialogView::new(
+                board.id.clone(),
+                board.team_id.clone(),
+                board.prefix.clone().unwrap_or_default(),
+                board.color.clone(),
+                window,
+                cx,
+            )
+        });
+        let busy = view.clone();
+        let submit = view.clone();
+        // The view draws its own header (board pill · › · "New issue" · ✕).
+        DialogContent::new(view)
+            .padless()
+            .can_close(move |cx| !busy.read(cx).submitting)
+            // Enter anywhere in the dialog submits (web form submit).
+            .on_enter(move |window, cx| {
+                submit.update(cx, |view, cx| view.submit(window, cx));
             })
-            .child(view.clone())
     });
 }
 
@@ -413,8 +405,9 @@ impl CreateIssueDialogView {
                         queries::await_row_visible(&issues, &issue_id, window).await;
                     }
                     let _ = this.update_in(window, |_, window, cx| {
-                        window.close_dialog(cx);
-                        navigate(window, cx, Screen::IssueDetail { issue_id });
+                        native_dialog::close_then(window, cx, move |window, cx| {
+                            navigate(window, cx, Screen::IssueDetail { issue_id });
+                        });
                     });
                 }
                 Err(err) => {
@@ -898,7 +891,7 @@ impl Render for CreateIssueDialogView {
                         if this.submitting {
                             return;
                         }
-                        window.close_dialog(cx);
+                        native_dialog::close_dialog_window(window, cx);
                     })),
             );
 
