@@ -110,8 +110,10 @@ pub(crate) enum PendingOrigin {
 }
 
 /// Human title for a screen — the center tab label, and the undocked
-/// window's header/title (EXP-65). Issue titles join the synced identifier
-/// live; unknown ids degrade to a generic label.
+/// window's header/title (EXP-65). Issue tabs show the synced issue TITLE
+/// (EXP-288 — "the tabs [carry] our issue names, not only the shortcode"),
+/// degrading to the identifier while the title is blank and to a generic
+/// label for unknown ids.
 pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
     match screen {
         Screen::IssueDetail { issue_id } => Store::global(cx)
@@ -119,7 +121,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .issues
             .read(cx)
             .get(issue_id)
-            .map(|issue| gpui::SharedString::from(issue.identifier.clone()))
+            .map(issue_tab_title)
             .unwrap_or_else(|| "Issue".into()),
         Screen::Settings => "Settings".into(),
         Screen::Account => "Account".into(),
@@ -135,7 +137,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .issues
             .read(cx)
             .get(issue_id)
-            .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue.identifier)))
+            .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue_tab_title(issue))))
             .unwrap_or_else(|| "Diff".into()),
         // Actions ARE synced (body-less rows carry the name) — no process
         // global needed, unlike support threads.
@@ -147,6 +149,17 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .and_then(|action| action.name.clone())
             .map(gpui::SharedString::from)
             .unwrap_or_else(|| "Action".into()),
+    }
+}
+
+/// An issue's tab label: the title, or the identifier while the title is
+/// blank (EXP-288). The chip's own `max_w` + truncation handles long titles.
+fn issue_tab_title(issue: &domain::rows::Issue) -> gpui::SharedString {
+    let title = issue.title.trim();
+    if title.is_empty() {
+        gpui::SharedString::from(issue.identifier.clone())
+    } else {
+        gpui::SharedString::from(title.to_string())
     }
 }
 
