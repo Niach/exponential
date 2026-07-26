@@ -222,6 +222,10 @@ pub(crate) struct DialogContent {
     /// Standard 16px padding + overflow scrolling around the content
     /// (`false` = the view owns the full window, e.g. create-issue).
     padded: bool,
+    /// EXP-291: keep the padded/header chrome but hand the view a DEFINITE
+    /// full-height body box instead of the shell's scroller (see
+    /// [`DialogContent::self_scrolling`]).
+    self_scrolling: bool,
     /// Gates Escape / ✕ / the OS close request. Default: always closable.
     can_close: Option<CanCloseFn>,
     /// Enter fallback when no focused editor consumed it (the old `on_ok`).
@@ -234,6 +238,7 @@ impl DialogContent {
             view: view.into(),
             header: None,
             padded: true,
+            self_scrolling: false,
             can_close: None,
             on_enter: None,
         }
@@ -246,6 +251,18 @@ impl DialogContent {
 
     pub(crate) fn padless(mut self) -> Self {
         self.padded = false;
+        self
+    }
+
+    /// EXP-291: keep the standard padded body + header row, but let the
+    /// CONTENT view own its scrolling. The view's root is handed a definite
+    /// full-height box (a `size_full()` root resolves against it, exactly
+    /// like [`DialogContent::padless`]), so it can pin an action bar at the
+    /// bottom and scroll only its own body. The default wrapper instead
+    /// scrolls the WHOLE view — footer included, which is what made the
+    /// Start-coding dialog's Cancel/Start buttons scroll out of reach.
+    pub(crate) fn self_scrolling(mut self) -> Self {
+        self.self_scrolling = true;
         self
     }
 
@@ -333,8 +350,13 @@ pub(crate) fn open_dialog_window(
             is_minimizable: false,
             window_min_size: min_size,
             app_id: Some(CHANNEL_APP_ID.to_string()),
-            #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
+            // EXP-290 glass: non-opaque + behind-window blur, same as the shell
+            // (`app::windows` carries the per-platform rationale). A floating
+            // dialog is the surface the glass reads best on — and on macOS the
+            // blurred backdrop is what keeps its 0.92-alpha page from showing
+            // the raw desktop through. Windows stays Opaque.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            window_background: gpui::WindowBackgroundAppearance::Blurred,
             #[cfg(target_os = "linux")]
             window_decorations: Some(gpui::WindowDecorations::Client),
             ..Default::default()
@@ -352,6 +374,14 @@ pub(crate) fn open_dialog_window(
                 let root = {
                     use gpui::Styled as _;
                     root.bordered(false).bg(gpui::transparent_black())
+                };
+                // EXP-290 macOS glass: clear Root's opaque full-window
+                // `tokens.background` fill — it would sit between the blurred
+                // backdrop and the translucent page gradient.
+                #[cfg(target_os = "macos")]
+                let root = {
+                    use gpui::Styled as _;
+                    root.bg(gpui::transparent_black())
                 };
                 root
             })
@@ -583,14 +613,23 @@ impl Render for DialogShell {
 
         let body: AnyElement = if self.content.padded {
             let has_header = header.is_some();
-            let content = // Overflowing forms scroll instead of clipping the footer
-                // (the old overlay grew with its content; a window can't).
+            // Overflowing forms scroll instead of clipping the footer (the
+            // old overlay grew with its content; a window can't) — unless the
+            // view is `self_scrolling` (EXP-291), which trades the wrapper
+            // for a plain definite-height box the view fills itself.
+            let inner: AnyElement = if self.content.self_scrolling {
                 div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(v_flex().size_full().overflow_y_scrollbar().child(
-                        div().pr_1().child(self.content.view.clone()),
-                    ));
+                    .size_full()
+                    .child(self.content.view.clone())
+                    .into_any_element()
+            } else {
+                v_flex()
+                    .size_full()
+                    .overflow_y_scrollbar()
+                    .child(div().pr_1().child(self.content.view.clone()))
+                    .into_any_element()
+            };
+            let content = div().flex_1().min_h_0().child(inner);
             if has_header {
                 // EXP-288: the header owns the top padding (drag region
                 // reaches y=0); only the content wrapper pads the rest.

@@ -128,14 +128,16 @@ impl RenderOnce for IssueFilterPopover {
         let count = active_filter_count(&self.filters);
 
         // Web trigger: ghost xs `text-muted-foreground` — ListFilter icon +
-        // "Filter" + count badge.
+        // "Filter" + count badge. EXP-289: one size step up (xsmall → small,
+        // 20px → 24px) so the title row's two controls stay comfortably
+        // hittable next to the floating bulk bar.
         let trigger = Button::new("issue-filter-trigger")
             .ghost()
-            .xsmall()
+            .small()
             .text_color(cx.theme().muted_foreground)
             .icon(
                 Icon::from(ExpIcon::ListFilter)
-                    .size_3()
+                    .size_3p5()
                     .text_color(cx.theme().muted_foreground),
             )
             .label("Filter")

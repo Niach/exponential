@@ -427,6 +427,11 @@ pub fn blended_background_top() -> Hsla {
 /// the ramp at the quad's own y instead, so the occluder disappears into the
 /// page. `t` is clamped, so a caller passing a NaN/─ve ratio still gets the
 /// top stop rather than a garbage color.
+///
+/// EXP-290 made the painted gradient translucent ([`GLASS_BACKGROUND_ALPHA`]);
+/// this sampler stays FULLY OPAQUE on purpose — an occluder that lets the cells
+/// behind it through is not an occluder. It therefore reads slightly more solid
+/// than the page it sits on, which is the correct trade for one IME quad.
 pub fn background_gradient_color_at(t: f32) -> Hsla {
     let k = if t.is_finite() { t.clamp(0., 1.) } else { 0. };
     mix_rgba(
@@ -437,17 +442,54 @@ pub fn background_gradient_color_at(t: f32) -> Hsla {
     .into()
 }
 
+/// EXP-290 "glass look": how opaque [`background_gradient`] paints, so the
+/// window's behind-window blur shows the desktop faintly through the whole app
+/// (Cursor/native-macOS style). 0.92 is deliberately at the "only very lightly"
+/// end of the range — 8% of the blurred backdrop bleeds through, enough to read
+/// as glass over a wallpaper but far too little to move body text off its
+/// contrast floor (the near-white `FOREGROUND` still clears AA even against a
+/// pure-white backdrop lifting the near-black page by 8%).
+///
+/// Windows is EXCLUDED (stays fully opaque) because its windows keep the
+/// default `Opaque` appearance — see the window-options sites in
+/// `app::windows` / `ui::undock` / `ui::native_dialog`. gpui's DirectX renderer
+/// clears an Opaque window's target to WHITE, so a translucent page gradient
+/// there would wash out into white rather than reveal anything behind it.
+#[cfg(not(target_os = "windows"))]
+pub const GLASS_BACKGROUND_ALPHA: f32 = 0.92;
+#[cfg(target_os = "windows")]
+pub const GLASS_BACKGROUND_ALPHA: f32 = 1.0;
+
 /// The glass page background (EXP-269): the mobile `AppBackground` gradient —
 /// top to bottom. Paint it on every window's root content element (Shell +
 /// undocked windows); panel surfaces above it are transparent or white-alpha
 /// glass fills so the ramp shows through. EXP-277 softens the desktop's top
 /// stop (see [`blended_background_top`]) so the titlebar band no longer steps
 /// hard against the content panels.
+///
+/// EXP-290: both stops carry [`GLASS_BACKGROUND_ALPHA`] — the ONE place the
+/// window turns translucent. It pairs with `WindowBackgroundAppearance::Blurred`
+/// on the window itself; without the blur this would just be a smeared raw
+/// desktop, and without the alpha the blur would be invisible behind an opaque
+/// page. Deliberately NOT applied to [`background_gradient_color_at`], which
+/// must stay an opaque occluder.
 pub fn background_gradient() -> gpui::Background {
+    let (top, bottom) = background_gradient_stops();
     gpui::linear_gradient(
         180.,
-        gpui::linear_color_stop(blended_background_top(), 0.),
-        gpui::linear_color_stop(t::glass::BACKGROUND_BOTTOM.to_hsla(), 1.),
+        gpui::linear_color_stop(top, 0.),
+        gpui::linear_color_stop(bottom, 1.),
+    )
+}
+
+/// The page gradient's stop colors as painted (top, bottom) — the exact pair
+/// [`background_gradient`] hands gpui, factored out because `Background`'s
+/// fields are private at the pinned gpui rev, so the EXP-290 alpha contract is
+/// otherwise untestable.
+pub fn background_gradient_stops() -> (Hsla, Hsla) {
+    (
+        blended_background_top().opacity(GLASS_BACKGROUND_ALPHA),
+        t::glass::BACKGROUND_BOTTOM.to_hsla().opacity(GLASS_BACKGROUND_ALPHA),
     )
 }
 
@@ -580,6 +622,38 @@ mod tests {
         // the Debug representation.
         let bg = format!("{:?}", background_gradient());
         assert!(bg.contains("LinearGradient"), "{bg}");
+    }
+
+    #[test]
+    fn page_gradient_is_lightly_translucent_for_the_window_blur() {
+        // EXP-290: the page is the ONE translucent layer — both stops carry
+        // GLASS_BACKGROUND_ALPHA so the window's behind-window blur shows the
+        // desktop faintly through. Hues/lightnesses are untouched.
+        let (top, bottom) = background_gradient_stops();
+        assert!(approx(top.a, GLASS_BACKGROUND_ALPHA), "top stop alpha: {top:?}");
+        assert!(approx(bottom.a, GLASS_BACKGROUND_ALPHA), "bottom stop alpha: {bottom:?}");
+        assert!(approx(top.l, blended_background_top().l), "top stop color unchanged");
+        assert!(
+            approx(bottom.l, tokens::glass::BACKGROUND_BOTTOM.to_hsla().l),
+            "bottom stop color unchanged"
+        );
+        // The occluder sampler is deliberately NOT translucent (it hides the
+        // grid cells behind IME composition text) — the two must not drift.
+        assert!(approx(background_gradient_color_at(0.).a, 1.0));
+    }
+
+    #[test]
+    fn glass_alpha_stays_only_very_lightly_transparent() {
+        // EXP-290 guard rail: "very lightly" — never below 0.85 (content
+        // readability) and never above 1.0. Windows keeps opaque windows, so
+        // there the constant is exactly 1.0 (a translucent page would composite
+        // onto the DirectX renderer's WHITE clear color).
+        assert!(GLASS_BACKGROUND_ALPHA <= 1.0);
+        assert!(GLASS_BACKGROUND_ALPHA >= 0.85);
+        #[cfg(target_os = "windows")]
+        assert!(approx(GLASS_BACKGROUND_ALPHA, 1.0));
+        #[cfg(not(target_os = "windows"))]
+        assert!(GLASS_BACKGROUND_ALPHA < 1.0, "the page must actually be see-through");
     }
 
     #[test]

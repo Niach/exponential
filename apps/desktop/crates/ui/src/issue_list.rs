@@ -536,14 +536,49 @@ impl IssueListView {
 
     // -- bulk action bar -------------------------------------------------------
 
-    /// The bulk action bar (web `bulk-action-bar.tsx`): an in-flow row pinned
-    /// above the scroll area (EXP-251 — the space freed by the removed filter
-    /// tabs): N selected · Status · Priority · Assignee · Labels ·
-    /// Start coding · Delete (nested confirm) · clear. Buttons are icon-only
-    /// with tooltips — every issue list renders inside the ~260px tool panel,
-    /// where the web's labeled buttons cannot fit on one row. Property edits
-    /// keep the selection alive — only delete clears it (FIX F3); every
-    /// mutation chunks at 200 ids (FIX F4) and lands via the Electric echo.
+    /// The bulk action bar for the current selection, or `None` when nothing
+    /// is selected (or the team hasn't synced yet — the bar waits for it, the
+    /// selection itself does not).
+    ///
+    /// EXP-289: the bar is NOT rendered by this view anymore. Entering
+    /// multiselect used to prepend an in-flow row, which pushed the whole list
+    /// down by its height — the list "jumped". [`crate::board::BoardView`]
+    /// now floats the element this returns over the filter bar's title row
+    /// instead, so the rows never move. `BoardView` observes this entity, so a
+    /// selection change re-renders it; the ids are recomputed here off the
+    /// CURRENT query data (never a snapshot taken during this view's own
+    /// render, which runs AFTER its parent's and would lag a frame), in
+    /// visible list order and pruned to rows that still exist — the same
+    /// projection `render` prunes `selected` with. That costs one extra board
+    /// query per frame, but ONLY while a selection is alive (the empty check
+    /// comes first), which is the price of a bar that can never disagree with
+    /// the rows underneath it.
+    pub(crate) fn bulk_bar(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+        if self.selected.is_empty() {
+            return None;
+        }
+        let ids: Vec<String> = self
+            .board_data(cx)?
+            .groups
+            .iter()
+            .flat_map(|group| group.issues.iter())
+            .filter(|issue| self.selected.contains(&issue.id))
+            .map(|issue| issue.id.clone())
+            .collect();
+        if ids.is_empty() {
+            return None;
+        }
+        let team_id = self.bulk_team_id(cx)?;
+        Some(self.render_bulk_bar(team_id, ids, cx))
+    }
+
+    /// The bulk action bar's element (web `bulk-action-bar.tsx`): N selected ·
+    /// clear · Status · Priority · Assignee · Labels · Start coding · Delete
+    /// (nested confirm). Buttons are icon-only with tooltips — every issue
+    /// list renders inside the ~260px tool panel, where the web's labeled
+    /// buttons cannot fit on one row. Property edits keep the selection alive
+    /// — only delete clears it (FIX F3); every mutation chunks at 200 ids
+    /// (FIX F4) and lands via the Electric echo.
     fn render_bulk_bar(
         &self,
         team_id: String,
@@ -859,49 +894,49 @@ impl IssueListView {
                 })
         };
 
-        div()
-            .w_full()
-            .px_4()
-            .pb_2()
-            .flex()
+        // EXP-289: a FLOATING pill — the caller (`BoardView`) positions this
+        // over the filter bar's title row, so it no longer takes layout space.
+        // Padding is `py_1` (was `py_2`) so the pill stays inside the title
+        // row's height, and the fill went back from the EXP-282 glass card to
+        // the opaque popover surface: an overlay has to MASK the title behind
+        // it, which a 6% white wash cannot. `occlude` keeps the clicks it
+        // covers off the row underneath.
+        h_flex()
+            .id("bulk-action-bar")
+            .occlude()
+            .gap_2()
+            .px_3()
+            .py_1()
+            .items_center()
+            .rounded(px(t::radius::XL))
+            .border_1()
+            .border_color(t::glass::STROKE_CARD.to_hsla())
+            .bg(cx.theme().popover)
+            .shadow_md()
             .child(
-                // EXP-282: glass card instead of the opaque popover fill — the
-                // bar is an in-flow strip over the gradient, not an overlay.
-                h_flex()
-                    .id("bulk-action-bar")
-                    .gap_2()
-                    .px_3()
-                    .py_2()
-                    .items_center()
-                    .rounded(px(t::radius::XL))
-                    .border_1()
-                    .border_color(t::glass::STROKE_CARD.to_hsla())
-                    .bg(t::glass::FILL_CARD.to_hsla())
-                    .child(
-                        div()
-                            .px_1()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .whitespace_nowrap()
-                            .child(SharedString::from(format!("{count} selected"))),
-                    )
-                    .child(
-                        Button::new("bulk-clear")
-                            .ghost()
-                            .small()
-                            .icon(Icon::new(IconName::Close))
-                            .tooltip("Clear selection")
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.clear_selection(cx);
-                            })),
-                    )
-                    .child(status_menu)
-                    .child(priority_menu)
-                    .when_some(assignee_menu, |this, btn| this.child(btn))
-                    .child(labels_menu)
-                    .child(start_coding)
-                    .child(delete_menu),
+                div()
+                    .px_1()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .whitespace_nowrap()
+                    .child(SharedString::from(format!("{count} selected"))),
             )
+            .child(
+                Button::new("bulk-clear")
+                    .ghost()
+                    .small()
+                    .icon(Icon::new(IconName::Close))
+                    .tooltip("Clear selection")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.clear_selection(cx);
+                    })),
+            )
+            .child(status_menu)
+            .child(priority_menu)
+            .when_some(assignee_menu, |this, btn| this.child(btn))
+            .child(labels_menu)
+            .child(start_coding)
+            .child(delete_menu)
             .into_any_element()
     }
 }
@@ -1080,52 +1115,35 @@ impl Render for IssueListView {
         );
         self.rows = Rc::new(rows);
 
-        // The bulk action bar — an in-flow row above the scroll area;
-        // selected ids snapshotted in visible list order (team resolution can
-        // lag the issue rows; the bar waits for it, the selection itself does
-        // not).
-        let bulk_bar = if self.selected.is_empty() {
-            None
-        } else {
-            self.bulk_team_id(cx).map(|team_id| {
-                let ids: Vec<String> = data
-                    .groups
-                    .iter()
-                    .flat_map(|group| group.issues.iter())
-                    .filter(|issue| self.selected.contains(&issue.id))
-                    .map(|issue| issue.id.clone())
-                    .collect();
-                self.render_bulk_bar(team_id, ids, cx)
-            })
-        };
-
-        base.when_some(bulk_bar, |this, bar| this.child(bar))
-            .child(
-                div().flex_1().min_h_0().child(
-                    v_flex()
-                        .id("issue-list-scroll")
-                        .relative()
-                        .size_full()
-                        .child(
-                            v_virtual_list(
-                                cx.entity().clone(),
-                                "issue-list-rows",
-                                sizes,
-                                |this, visible_range, window, cx| {
-                                    visible_range
-                                        .map(|ix| this.render_row(ix, window, cx))
-                                        .collect()
-                                },
-                            )
-                            .track_scroll(&self.scroll_handle),
+        // EXP-289: no bulk-action row here anymore — [`Self::bulk_bar`] hands
+        // it to `BoardView`, which floats it over the title row. The list's
+        // geometry is therefore identical selected or not: no jump.
+        base.child(
+            div().flex_1().min_h_0().child(
+                v_flex()
+                    .id("issue-list-scroll")
+                    .relative()
+                    .size_full()
+                    .child(
+                        v_virtual_list(
+                            cx.entity().clone(),
+                            "issue-list-rows",
+                            sizes,
+                            |this, visible_range, window, cx| {
+                                visible_range
+                                    .map(|ix| this.render_row(ix, window, cx))
+                                    .collect()
+                            },
                         )
-                        .scrollbar(
-                            &self.scroll_handle,
-                            gpui_component::scroll::ScrollbarAxis::Vertical,
-                        ),
-                ),
-            )
-            .into_any_element()
+                        .track_scroll(&self.scroll_handle),
+                    )
+                    .scrollbar(
+                        &self.scroll_handle,
+                        gpui_component::scroll::ScrollbarAxis::Vertical,
+                    ),
+            ),
+        )
+        .into_any_element()
     }
 }
 

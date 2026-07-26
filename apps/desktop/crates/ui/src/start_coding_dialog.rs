@@ -36,6 +36,12 @@
 //! [`crate::action_run::start_action_run`] instead of `coding::prepare`
 //! directly.
 //!
+//! EXP-291: the dialog renders as a full-height column — only the BODY
+//! (subject strip + the two columns) scrolls; the Cancel / Start action bar
+//! is pinned to the window's bottom edge and is always reachable, however
+//! small the window is resized. That needs [`DialogContent::self_scrolling`]:
+//! the shell's default wrapper scrolls the whole content view, footer and all.
+//!
 //! Launch = snapshot → [`coding::prepare`] on the background executor → the
 //! shared `coding_flow::spawn_into_window` foreground spawn. A
 //! `Prepared::Disabled` reason renders inline and keeps the dialog open.
@@ -153,6 +159,9 @@ fn open(
         let busy = view.clone();
         DialogContent::new(view)
             .header("Start coding")
+            // EXP-291: the view pins its own action bar and scrolls only the
+            // body — the shell's wrapper would scroll the buttons away.
+            .self_scrolling()
             .can_close(move |cx| !busy.read(cx).launching)
     });
 }
@@ -265,6 +274,10 @@ pub struct StartCodingDialogView {
     /// Scroll position of the checklist (view state so it survives
     /// re-renders — the EXP-67 scroll-pane idiom, bounded by `max_h`).
     list_scroll: ScrollHandle,
+    /// EXP-291: scroll position of the dialog BODY (tabs + the two columns).
+    /// The body is the only scrolling region — the action bar below it is
+    /// pinned to the dialog's bottom edge and never scrolls away.
+    body_scroll: ScrollHandle,
     /// The selected agent CLI (EXP-201) — the tab strip above the pickers;
     /// seeded from `settings.default_agent`, overridable per launch.
     agent: CodingAgent,
@@ -438,6 +451,7 @@ impl StartCodingDialogView {
             checked,
             search,
             list_scroll: ScrollHandle::new(),
+            body_scroll: ScrollHandle::new(),
             agent,
             model: choice_select(
                 model_choices_for(agent),
@@ -1652,12 +1666,22 @@ impl StartCodingDialogView {
     }
 
     /// Footer: blocker copy + Cancel + Start.
+    ///
+    /// EXP-291: PINNED at the dialog's bottom edge (see [`Render`]) — it sits
+    /// outside the scrolling body, so it reads as a bar: a hairline above it
+    /// and `pt_3` breathing room instead of the old in-flow `pt_1`.
     fn footer(
         &self,
         blocker: Option<SharedString>,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let mut footer = h_flex().items_center().gap_2().pt_1();
+        let mut footer = h_flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap_2()
+            .pt_3()
+            .border_t_1()
+            .border_color(cx.theme().border);
         if let Some(reason) = &blocker {
             if !self.launching {
                 footer = footer.child(
@@ -1980,18 +2004,63 @@ fill in its inputs. \"Create action\" authors a new one from your description.")
             right = right.child(toggles);
         }
 
-        let mut body = v_flex().gap_3().child(self.subject_tabs(cx)).child(
-            h_flex()
-                .w_full()
-                .gap_5()
-                .items_start()
-                .child(left)
-                .child(right),
-        );
+        let mut body = v_flex()
+            .w_full()
+            .gap_3()
+            .child(self.subject_tabs(cx))
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_5()
+                    .items_start()
+                    .child(left)
+                    .child(right),
+            );
         if let Some(error) = &self.error {
             body = body.child(div().text_sm().text_color(danger).child(error.clone()));
         }
 
-        body.child(self.footer(blocker, cx)).into_any_element()
+        // EXP-291: full-height column — the BODY scrolls, the action bar is
+        // pinned to the dialog's bottom edge and always reachable. The dialog
+        // opts out of the shell's own scroller
+        // ([`DialogContent::self_scrolling`]), which hands this root a
+        // definite-height box for `size_full` to resolve against; without it
+        // the root would collapse to its content height and the whole view —
+        // footer included — would scroll again.
+        //
+        // The body pane is the EXP-67 scroll-pane idiom without a `max_h`
+        // (`flex_1` + `min_h_0` bounds it against the window instead), so at
+        // the 640×480 resize floor the two columns scroll here while the
+        // inner `bounded_pane` lists keep their own caps and scroll
+        // independently.
+        let body_scroll = self.body_scroll.clone();
+        v_flex()
+            .size_full()
+            .gap_3()
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        v_flex()
+                            .id("sc-body-scroll")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&body_scroll)
+                            .child(body),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .child(Scrollbar::new(&body_scroll).axis(ScrollbarAxis::Vertical)),
+                    ),
+            )
+            .child(self.footer(blocker, cx))
+            .into_any_element()
     }
 }

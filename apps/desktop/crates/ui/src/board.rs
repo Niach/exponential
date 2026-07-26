@@ -8,6 +8,12 @@
 //! `my-issues/index.tsx` renders the identical bar+list pair with
 //! `title="My Issues"` and `canCreate=false`).
 //!
+//! EXP-289: this view also hosts the list's **floating** bulk-action bar —
+//! an absolutely-positioned overlay over the title row (see `render`). It
+//! used to be an in-flow row inside the list, which shoved every issue down
+//! the moment multiselect started. One fix covers both surfaces: the Inbox
+//! tool window's *My Issues* tab is this same view.
+//!
 //! State ownership (§4.1): this entity owns the `IssueFilters` (the web route
 //! keeps them in the URL; the desktop keeps them per-board and resets on
 //! navigation — same lifecycle, no shareable URLs on desktop by design), the
@@ -19,8 +25,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window,
+    div, prelude::FluentBuilder as _, App, AppContext as _, Entity, IntoElement, ParentElement,
+    Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{input::InputState, v_flex};
 use sync::Store;
@@ -55,6 +61,10 @@ impl BoardView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // Live label search re-filters the popover's label rows.
             cx.observe(&label_query, |_, _, cx| cx.notify()),
+            // EXP-289: the floating bulk bar lives in THIS view's tree, so a
+            // selection change inside the list (checkbox, Cmd/Shift-click,
+            // Cmd-A, Escape) has to re-render the board too.
+            cx.observe(&issue_list, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -190,8 +200,18 @@ impl Render for BoardView {
             }
         });
 
+        // EXP-289: the list's bulk-action bar FLOATS over the title row
+        // instead of sitting in flow above the list — an in-flow row pushed
+        // every issue down the moment a checkbox was ticked (the list
+        // "jumped"). The overlay wrapper below pins to the root's top edge and
+        // repeats the filter bar's `px_4` inset, so the 34px pill lands on the
+        // 44px title row; the pill itself is opaque + occluding, so it masks
+        // (and swallows the clicks over) what it covers.
+        let bulk_bar = self.issue_list.update(cx, |list, cx| list.bulk_bar(cx));
+
         v_flex()
             .size_full()
+            .relative()
             .child(IssueFilterBar::new(
                 self.title(),
                 self.filters.clone(),
@@ -203,5 +223,18 @@ impl Render for BoardView {
                 self.can_create(),
             ))
             .child(div().flex_1().min_h_0().child(self.issue_list.clone()))
+            .when_some(bulk_bar, |board, bar| {
+                board.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .px_4()
+                        .py_1()
+                        .flex()
+                        .child(bar),
+                )
+            })
     }
 }
