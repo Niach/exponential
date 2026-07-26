@@ -47,12 +47,6 @@ pub enum Screen {
     Settings,
     /// `routes/_authenticated/account/*` (integrations + notifications).
     Account,
-    /// Trunk Source Control screen (masterplan v4 §4.4). Trunk-only — no
-    /// board/issue scope (the active team's trunk clone).
-    SourceControl,
-    /// Read-only trunk file viewer (masterplan v4 §4.5); `path` is
-    /// trunk-relative.
-    FileViewer { path: String },
     /// One support ticket's conversation (EXP-180 — server-only tRPC data,
     /// opened from the Support tool window's thread list).
     SupportThread { thread_id: String },
@@ -74,13 +68,45 @@ impl Screen {
     pub(crate) fn undockable(&self) -> bool {
         matches!(
             self,
+            Screen::IssueDetail { .. } | Screen::PrDiff { .. } | Screen::ActionDetail { .. }
+        )
+    }
+
+    /// EXP-288: whether the screen is a DETAIL view — the only kind that
+    /// gets a tab chip. Settings/Account are tab-less full-screen modes
+    /// (leave by clicking any rail entry or open tab); Source Control's
+    /// diff and the file viewer are TOOL-DEFAULT center content driven by
+    /// the sidebar selection, never tabs.
+    pub(crate) fn is_detail(&self) -> bool {
+        matches!(
+            self,
             Screen::IssueDetail { .. }
-                | Screen::FileViewer { .. }
-                | Screen::SourceControl
+                | Screen::SupportThread { .. }
                 | Screen::PrDiff { .. }
                 | Screen::ActionDetail { .. }
         )
     }
+}
+
+/// EXP-288: which sidebar entry a detail tab was opened from — clicking the
+/// tab re-selects that entry (and its board, for the board-scoped list) so
+/// the sidebar always shows the list the tab came from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TabOrigin {
+    pub tool: crate::sidebar::ToolWindow,
+    /// The origin board when `tool == BoardIssues` (boards share one tool
+    /// window; the board id disambiguates which list to restore).
+    pub board_id: Option<String>,
+}
+
+/// The pending origin marker a navigation leaves for the screens panel
+/// (consumed like [`Navigation::replaced_screen`]): `Capture` = read the
+/// CURRENT rail tool + active board at consume time (right for every
+/// sidebar-row click path); `Explicit` = the caller knows better (create
+/// dialog, deep links — the rail may point anywhere).
+pub(crate) enum PendingOrigin {
+    Capture,
+    Explicit(TabOrigin),
 }
 
 /// Human title for a screen — the center tab label, and the undocked
@@ -95,10 +121,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .get(issue_id)
             .map(|issue| gpui::SharedString::from(issue.identifier.clone()))
             .unwrap_or_else(|| "Issue".into()),
-        Screen::FileViewer { path } => {
-            gpui::SharedString::from(path.rsplit('/').next().unwrap_or(path).to_string())
-        }
-        Screen::SourceControl => "Source Control".into(),
         Screen::Settings => "Settings".into(),
         Screen::Account => "Account".into(),
         // Thread titles are tRPC-only (never synced) — the support surfaces
@@ -145,6 +167,12 @@ pub struct Navigation {
     /// identity in place instead of opening a new tab. Cleared by every
     /// ordinary navigation.
     replaced_screen: Option<Screen>,
+    /// EXP-288: the pending tab-origin marker the screens panel consumes
+    /// when it opens/updates a tab for the navigated screen. Set by
+    /// [`navigate`]/[`navigate_from`]/[`replace_screen`]; cleared by
+    /// [`set_screen`]/[`go_back`]/[`switch_team`] so tab activation never
+    /// rewrites a tab's remembered origin.
+    pending_origin: Option<PendingOrigin>,
 }
 
 impl Navigation {
@@ -162,6 +190,7 @@ impl Navigation {
             back_stack: Vec::new(),
             last_board_id: None,
             replaced_screen: None,
+            pending_origin: None,
         }
     }
 
@@ -280,30 +309,37 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
 }
 
 /// Navigate the window to `screen`, pushing the previous screen onto the
-/// back stack (no-op when already there).
+/// back stack (no-op when already there). The screens panel captures the
+/// tab's origin from the CURRENT rail tool + board (every sidebar-row click
+/// path runs with its tool already active); use [`navigate_from`] where the
+/// rail may point anywhere (create dialog, deep links).
 pub fn navigate(window: &Window, cx: &mut App, screen: Screen) {
+    navigate_inner(window, cx, screen, PendingOrigin::Capture);
+}
+
+/// [`navigate`] with an EXPLICIT tab origin (EXP-288).
+pub(crate) fn navigate_from(window: &Window, cx: &mut App, screen: Screen, origin: TabOrigin) {
+    navigate_inner(window, cx, screen, PendingOrigin::Explicit(origin));
+}
+
+fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: PendingOrigin) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
     nav.update(cx, |nav, cx| {
         if nav.screen.as_ref() == Some(&screen) {
+            // Re-navigating to the already-active screen still refreshes the
+            // tab's origin (dedupe keeps ONE tab; the LATEST origin wins).
+            nav.pending_origin = Some(origin);
+            cx.notify();
             return;
         }
-        // File-viewer tab switches (FileViewer → FileViewer) replace rather than
-        // stack: the back stack keeps the screen the viewer was opened from (one
-        // entry), not a trail of individual files. Closing the last tab then
-        // returns there reliably instead of resurrecting an already-closed file.
-        let replace = matches!(
-            (nav.screen.as_ref(), &screen),
-            (Some(Screen::FileViewer { .. }), Screen::FileViewer { .. })
-        );
-        if !replace {
-            if let Some(previous) = nav.screen.take() {
-                nav.back_stack.push(previous);
-            }
+        if let Some(previous) = nav.screen.take() {
+            nav.back_stack.push(previous);
         }
         nav.screen = Some(screen);
         nav.replaced_screen = None;
+        nav.pending_origin = Some(origin);
         cx.notify();
     });
 }
@@ -321,6 +357,10 @@ pub fn replace_screen(window: &Window, cx: &mut App, screen: Screen) {
             return;
         }
         nav.replaced_screen = nav.screen.replace(screen);
+        // The swapped tab KEEPS its origin (the screens panel only reads
+        // this marker when it pushes a brand-new tab, i.e. the replaced
+        // screen's tab was already closed).
+        nav.pending_origin = Some(PendingOrigin::Capture);
         cx.notify();
     });
 }
@@ -330,6 +370,16 @@ pub fn replace_screen(window: &Window, cx: &mut App, screen: Screen) {
 /// observer to swap that tab's identity instead of pushing a new tab.
 pub fn take_replaced_screen(nav: &Entity<Navigation>, cx: &mut App) -> Option<Screen> {
     nav.update(cx, |nav, _| nav.replaced_screen.take())
+}
+
+/// Consume the pending tab-origin marker (EXP-288). `None` = the screen
+/// change wasn't a real navigation (tab click / close-reactivation /
+/// go-back) — the tab keeps whatever origin it has.
+pub(crate) fn take_pending_origin(
+    nav: &Entity<Navigation>,
+    cx: &mut App,
+) -> Option<PendingOrigin> {
+    nav.update(cx, |nav, _| nav.pending_origin.take())
 }
 
 /// Set the active tab DIRECTLY — no back-stack push. Tab clicks and
@@ -343,6 +393,7 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
         if nav.screen != screen {
             nav.screen = screen;
             nav.replaced_screen = None;
+            nav.pending_origin = None;
             cx.notify();
         }
     });
@@ -378,6 +429,7 @@ pub fn go_back(window: &Window, cx: &mut App) {
         if let Some(previous) = nav.back_stack.pop() {
             nav.screen = Some(previous);
             nav.replaced_screen = None;
+            nav.pending_origin = None;
             cx.notify();
         }
     });
@@ -399,6 +451,7 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
         nav.back_stack.clear();
         nav.last_board_id = None;
         nav.replaced_screen = None;
+        nav.pending_origin = None;
         cx.notify();
         true
     });

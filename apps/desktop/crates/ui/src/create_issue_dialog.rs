@@ -51,7 +51,7 @@ use crate::markdown::image_paste::strip_draft_images;
 use crate::markdown::{self};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::wysiwyg::WysiwygDescription;
-use crate::navigation::{active_board_id, nav_for_window, navigate, Screen};
+use crate::navigation::{active_board_id, nav_for_window, navigate_from, Screen, TabOrigin};
 use crate::queries;
 
 /// Register the App-global [`NewIssue`] handler (call once from `ui::init`).
@@ -413,9 +413,16 @@ impl CreateIssueDialogView {
                     if let Some(issues) = issues {
                         queries::await_row_visible(&issues, &issue_id, window).await;
                     }
-                    let _ = this.update_in(window, |_, window, cx| {
+                    let _ = this.update_in(window, |this, window, cx| {
+                        // EXP-288: the rail may point anywhere while the
+                        // dialog is up — the new tab's origin is the ISSUE's
+                        // board, explicitly.
+                        let origin = TabOrigin {
+                            tool: crate::sidebar::ToolWindow::BoardIssues,
+                            board_id: Some(this.board_id.clone()),
+                        };
                         native_dialog::close_then(window, cx, move |window, cx| {
-                            navigate(window, cx, Screen::IssueDetail { issue_id });
+                            navigate_from(window, cx, Screen::IssueDetail { issue_id }, origin);
                         });
                     });
                 }

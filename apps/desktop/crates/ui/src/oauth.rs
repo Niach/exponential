@@ -111,23 +111,30 @@ pub(crate) fn parse_issue_deep_link(url: &str) -> Option<String> {
 /// issues. Unknown / not-yet-synced identifiers log and no-op, consistent
 /// with unhandled deep links.
 fn open_issue_deep_link(identifier: &str, cx: &mut App) {
-    let issue_id = Store::global(cx)
+    let issue = Store::global(cx)
         .collections()
         .issues
         .read(cx)
         .iter()
         .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
-        .map(|issue| issue.id.clone());
-    let Some(issue_id) = issue_id else {
+        .map(|issue| (issue.id.clone(), issue.board_id.clone()));
+    let Some((issue_id, board_id)) = issue else {
         log::info!("[ui] open-urls: issue deep link {identifier} matches no synced issue — ignored");
         return;
     };
     if let Some(window) = crate::navigation::active_or_primary_window(cx) {
         let _ = window.update(cx, |_, window, cx| {
-            crate::navigation::navigate(
+            // EXP-288: land fully scoped — the deep link's tab originates
+            // from the issue's board (the rail may point anywhere).
+            crate::navigation::set_active_board(window, cx, board_id.clone());
+            crate::navigation::navigate_from(
                 window,
                 cx,
                 crate::navigation::Screen::IssueDetail { issue_id },
+                crate::navigation::TabOrigin {
+                    tool: crate::sidebar::ToolWindow::BoardIssues,
+                    board_id: Some(board_id),
+                },
             );
         });
     }

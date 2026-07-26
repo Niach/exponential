@@ -485,10 +485,12 @@ impl SearchDelegate {
         .detach();
     }
 
-    /// Open a trunk-relative file result in the read-only viewer + close the
-    /// dialog. Publishes the resolved trunk root first so the viewer can turn
-    /// the relative path absolute even if the Files rail was never opened this
-    /// session (which is what normally publishes it).
+    /// Open a trunk-relative file result in the center viewer + close the
+    /// dialog (EXP-288: no file tabs — select the file and activate the
+    /// Files tool, which shows the viewer). Publishes the resolved trunk
+    /// root first so the viewer can turn the relative path absolute even if
+    /// the Files rail was never opened this session (which is what normally
+    /// publishes it).
     fn open_file(&self, path: String, window: &mut Window, cx: &mut App) {
         if let RepoState::Ready { root, .. } = &self.repo {
             // `window_id` is the OPENER's id (captured at open) — the trunk
@@ -496,7 +498,8 @@ impl SearchDelegate {
             crate::file_tree::publish_trunk_root(self.window_id, root.clone(), cx);
         }
         native_dialog::close_then(window, cx, move |window, cx| {
-            navigate(window, cx, Screen::FileViewer { path });
+            crate::sidebar::select_file(window, cx, Some(path));
+            crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::Files);
         });
     }
 
