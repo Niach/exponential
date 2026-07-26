@@ -139,6 +139,11 @@ pub(crate) struct RailShared {
     /// The commit the Source Control screen's diff pane shows — the sidebar
     /// history list selects it (EXP-253; `None` = nothing selected).
     sc_selected_commit: Option<String>,
+    /// EXP-288: the trunk-relative file the center file viewer shows — the
+    /// Files tree selects it (files are NOT tabs anymore; the viewer is the
+    /// Files tool's center content, like the SC diff follows
+    /// `sc_selected_commit`). `None` = nothing selected.
+    selected_file: Option<String>,
     /// EXP-282: whether the rail renders EXPANDED (labelled rows) instead of
     /// the 44px icon strip. Per-window runtime state, seeded from — and
     /// persisted back to — the per-install `settings.json` (`railExpanded`).
@@ -156,6 +161,12 @@ impl RailShared {
         &self.git_bar
     }
 
+    /// The active tool window (EXP-288 — the screens panel reads it for the
+    /// tab-less center default and for tab-origin capture).
+    pub(crate) fn tool(&self) -> ToolWindow {
+        self.tool
+    }
+
     /// The sidebar history list's commit selection (EXP-253).
     pub(crate) fn sc_selected_commit(&self) -> Option<&str> {
         self.sc_selected_commit.as_deref()
@@ -166,6 +177,21 @@ impl RailShared {
     pub(crate) fn clear_sc_selected_commit(&mut self, cx: &mut gpui::Context<Self>) {
         if self.sc_selected_commit.is_some() {
             self.sc_selected_commit = None;
+            cx.notify();
+        }
+    }
+
+    /// The Files tree's file selection (EXP-288 — drives the center file
+    /// viewer while the Files tool is active).
+    pub(crate) fn selected_file(&self) -> Option<&str> {
+        self.selected_file.as_deref()
+    }
+
+    /// Drop the file selection (a board/team scope change invalidated the
+    /// trunk-relative path).
+    pub(crate) fn clear_selected_file(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.selected_file.is_some() {
+            self.selected_file = None;
             cx.notify();
         }
     }
@@ -190,7 +216,7 @@ impl RailShared {
     /// EXP-282: the settings nav's selected section (raw — callers clamp it
     /// through `settings::effective_selection`).
     pub(crate) fn settings_section(&self) -> crate::settings::SettingsSection {
-        self.settings_section
+        self.settings_section.clone()
     }
 }
 
@@ -247,6 +273,18 @@ pub(crate) fn select_sc_commit(window: &mut Window, cx: &mut App, commit: Option
     });
 }
 
+/// Point the center file viewer at a trunk-relative `path` (EXP-288 — the
+/// Files tree's click target); `None` clears the selection.
+pub(crate) fn select_file(window: &mut Window, cx: &mut App, path: Option<String>) {
+    let shared = rail_shared_for_window(window, cx);
+    shared.update(cx, |shared, cx| {
+        if shared.selected_file != path {
+            shared.selected_file = path;
+            cx.notify();
+        }
+    });
+}
+
 #[derive(Default)]
 struct RailRegistry {
     by_window: HashMap<WindowId, Entity<RailShared>>,
@@ -287,6 +325,7 @@ pub(crate) fn rail_shared_for_window(
         board_active,
         board_my,
         sc_selected_commit: None,
+        selected_file: None,
         rail_expanded,
         settings_section: crate::settings::SettingsSection::General,
     });
@@ -306,11 +345,26 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
     }
 }
 
-/// Select `tool` in this window's rail. Re-selecting the active tool is a
-/// no-op (a tool window can never be unselected). Source Control additionally
-/// navigates to the changes screen — the sidebar shows branches, the center
-/// shows commits + diff, immediately.
+/// Select `tool` in this window's rail AND deselect the active center tab
+/// (EXP-288: a rail-entry click always shows the tool's own center content —
+/// the SC diff, the file viewer, or the empty state — never a stale detail
+/// tab from another context). Loop-safe: `set_screen` only notifies nav; the
+/// screens panel's `sync_tabs` early-returns on `None` and never writes back
+/// here.
 pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow) {
+    set_tool_inner(window, cx, tool);
+    crate::navigation::set_screen(window, cx, None);
+}
+
+/// Select `tool` WITHOUT touching the center tab (EXP-288 — the tab-click
+/// path: activating a tab re-selects its origin tool, then sets its screen).
+pub(crate) fn select_tool_for_tab(window: &mut Window, cx: &mut App, tool: ToolWindow) {
+    set_tool_inner(window, cx, tool);
+}
+
+/// The shared tool switch (re-selecting the active tool is a no-op — a tool
+/// window can never be unselected).
+fn set_tool_inner(window: &mut Window, cx: &mut App, tool: ToolWindow) {
     let shared = rail_shared_for_window(window, cx);
     if shared.read(cx).tool != tool {
         shared.update(cx, |shared, cx| {
@@ -322,9 +376,6 @@ pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow)
             }
             cx.notify();
         });
-    }
-    if tool == ToolWindow::SourceControl {
-        navigate(window, cx, Screen::SourceControl);
     }
 }
 
@@ -640,13 +691,10 @@ impl RailView {
             })
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
                 // EXP-282: no "Settings" item — the rail's gear is the single
-                // settings entry. "Account" (was "Notifications") opens the
-                // account pane inside the same settings chrome.
-                let mut menu = menu.label(label.clone()).menu_with_icon(
-                    "Account",
-                    IconName::CircleUser,
-                    Box::new(crate::actions::OpenAccount),
-                );
+                // settings entry. EXP-288: no "Account" item either — Account
+                // lives only in the settings nav's Personal group; this menu
+                // is team switching + session actions.
+                let mut menu = menu.label(label.clone());
                 // "Switch team" section — flat checked rows (the menu builder
                 // has no submenus); shown only with somewhere to switch to.
                 if teams.len() > 1 {

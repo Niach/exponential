@@ -84,14 +84,27 @@ impl FileViewerView {
     }
 
     /// Point the viewer at a trunk-relative `path` — called from the screens
-    /// panel on `Screen::FileViewer` navigation. Same path = no-op (tab
-    /// re-activation must not re-read).
+    /// panel when the Files tree selection changes (EXP-288). Same path =
+    /// no-op (re-activation must not re-read).
     pub fn set_path(&mut self, path: String, cx: &mut gpui::Context<Self>) {
         if path.is_empty() || self.path.as_deref() == Some(path.as_str()) {
             return;
         }
         self.path = Some(path);
         self.start_load(cx);
+    }
+
+    /// Drop the open file (EXP-288 — the selection was cleared by a
+    /// board/team switch); back to the Idle "open a file" notice.
+    pub fn clear(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.path.is_none() {
+            return;
+        }
+        self.path = None;
+        self.parent_dir = None;
+        self.load_gen += 1; // supersede any in-flight load
+        self.phase = Phase::Idle;
+        cx.notify();
     }
 
     /// Read `self.path` off the foreground, swapping in the result on the UI

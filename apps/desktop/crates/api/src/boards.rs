@@ -101,6 +101,10 @@ pub struct BoardsUpdateInput {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Curated board icon name (EXP-288 — the per-board settings page's icon
+    /// grid; server: `boardIconSchema.nullable().optional()`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// ISO datetime to archive; `Null` un-archives (owner-only server-side).
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub archived_at: Patch<String>,
@@ -112,6 +116,7 @@ impl BoardsUpdateInput {
             id: id.into(),
             name: None,
             color: None,
+            icon: None,
             archived_at: Patch::Omit,
         }
     }
@@ -261,6 +266,12 @@ mod tests {
         input.archived_at = Patch::Null;
         let json = serde_json::to_string(&input).unwrap();
         assert_eq!(json, r#"{"id":"p-1","archivedAt":null}"#);
+
+        // EXP-288: the per-board settings page's icon update.
+        let mut input = BoardsUpdateInput::new("p-1");
+        input.icon = Some("rocket".to_string());
+        let json = serde_json::to_string(&input).unwrap();
+        assert_eq!(json, r#"{"id":"p-1","icon":"rocket"}"#);
     }
 
     #[test]

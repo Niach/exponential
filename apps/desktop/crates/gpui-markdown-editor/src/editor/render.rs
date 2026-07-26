@@ -189,6 +189,18 @@ impl Editor {
         }
     }
 
+    /// The scroll handle the caret-follow math runs against: the editor's
+    /// own in standalone mode, the HOST's tracked handle in embedded mode
+    /// (EXP-288 — `None` when the host never handed one over, which
+    /// disables following entirely, the pre-EXP-288 embedded behavior).
+    fn follow_handle(&self) -> Option<&ScrollHandle> {
+        if self.embedded {
+            self.external_scroll_handle.as_ref()
+        } else {
+            Some(&self.scroll_handle)
+        }
+    }
+
     fn ensure_focused_caret_visible(&mut self, window: &Window, cx: &App) -> bool {
         let Some(focused_block) = self.focused_edit_target(window, cx) else {
             return false;
@@ -198,12 +210,15 @@ impl Editor {
         else {
             return false;
         };
+        let Some(handle) = self.follow_handle() else {
+            return false;
+        };
 
-        let viewport = self.scroll_handle.bounds();
+        let viewport = handle.bounds();
         let padding = px(20.0);
         let top_limit = viewport.top() + padding;
         let bottom_limit = viewport.bottom() - padding;
-        let mut offset = self.scroll_handle.offset();
+        let mut offset = handle.offset();
         let mut changed = false;
 
         if active_bounds.top() < top_limit {
@@ -215,9 +230,9 @@ impl Editor {
         }
 
         if changed {
-            let max_offset_y = self.scroll_handle.max_offset().y.max(px(0.0));
+            let max_offset_y = handle.max_offset().y.max(px(0.0));
             offset.y = offset.y.min(px(0.0)).max(-max_offset_y);
-            self.scroll_handle.set_offset(offset);
+            handle.set_offset(offset);
         }
 
         true
@@ -280,15 +295,25 @@ impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_pending_focus(window, cx);
         // EXP-261 vendoring: in embedded mode the HOST owns scrolling — the
-        // internal scroll handle is untracked and all offset math is skipped.
-        if !self.embedded {
+        // internal scroll handle is untracked and all offset math is skipped
+        // UNLESS the host handed its tracked handle over (EXP-288), which
+        // re-enables the caret-follow machinery against the host container.
+        let follows = self.follow_handle().is_some();
+        if follows {
             self.apply_pending_scroll_into_view(window, cx);
         }
         self.last_selection_snapshot = self.capture_source_selection_snapshot(cx);
 
+        // The internal handle's bounds still drive the standalone scrollbar
+        // math below; the follow-handle's bounds drive the caret-follow
+        // resize re-assertion (identical in standalone mode).
         let viewport_bounds = self.scroll_handle.bounds();
-        let viewport_size = viewport_bounds.size;
-        if !self.embedded {
+        let viewport_size = self
+            .follow_handle()
+            .unwrap_or(&self.scroll_handle)
+            .bounds()
+            .size;
+        if follows {
             self.sync_scroll_viewport(viewport_size, cx);
         }
 

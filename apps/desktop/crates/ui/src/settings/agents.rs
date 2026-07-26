@@ -1,34 +1,36 @@
-//! Settings → Coding (masterplan-v3 §7.7 DC-3, §7.2).
+//! Settings → Agents (EXP-288 — split out of the old Coding pane; the
+//! remaining this-device knobs live in [`super::tools`]).
 //!
 //! The JetBrains-SDK-settings-style pane for the Start-coding launcher,
-//! grouped HARD by agent (EXP-206 — the old single flat card buried the
-//! toggles, and the issue/batch run split is gone):
+//! grouped HARD by agent (EXP-206):
 //!
 //! | Card   | Contents                                                     |
 //! |--------|--------------------------------------------------------------|
-//! | Coding | Default agent, repos & worktrees root, branch prefix         |
-//! | Agents | One TAB per agent: CLI path + model + effort, plus the       |
-//! |        | agent's own toggles — Claude: plan mode, ultracode, skip     |
-//! |        | permissions; Codex: skip permissions; pi: nothing (no        |
-//! |        | permission system)                                           |
+//! | Agents | Default agent, then one TAB per agent: CLI path + model +    |
+//! |        | effort, plus the agent's own toggles — Claude: plan mode,    |
+//! |        | ultracode, skip permissions; Codex: skip permissions; pi:    |
+//! |        | nothing (no permission system)                               |
 //! | Doctor | "Check tools" report                                         |
 //!
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
 //! text — the closed alias sets the CLI accepts). The per-agent toggles are
 //! what the shared Start-coding dialog prefills from — ONE set of defaults
-//! for single-issue and batch runs alike (EXP-206): Claude plan mode ON,
-//! ultracode OFF, skip permissions OFF everywhere.
+//! for single-issue and batch runs alike (EXP-206).
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. Saving re-runs the doctor
-//! against the new claude path, and the doctor's report is exactly what
-//! gates the Start-coding button (§7.1 step 1 ANDs `claude.ok && git.ok`,
-//! including the minimum-version gate).
+//! against the new agent paths, and the doctor's report is exactly what
+//! gates the Start-coding button (§7.1 step 1 ANDs `agent.ok && git.ok`).
+//! The doctor lives HERE (not in Tools) because it probes the agent CLIs;
+//! its git row is along for the ride.
+//!
+//! This pane and the Tools pane share ONE settings struct but own DISJOINT
+//! fields — see the [`super::tools`] module doc for the drafted/save/resync
+//! contract that keeps their saves from clobbering each other.
 //!
 //! The personal API key is provisioned and rotated **fully automatically**
 //! (`api::users::ensure_personal_key` on the first coding session; the
-//! `.exp-mcp.json` writer picks it up), so there is no key UI here at all — no
-//! value field, no reveal, no copy, no manual entry, no status row.
+//! `.exp-mcp.json` writer picks it up), so there is no key UI here at all.
 
 use gpui::{
     div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -53,13 +55,13 @@ use crate::coding_selects::{
     AGENT_CHOICES,
 };
 
-use super::{section, card_header, error_notice};
+use super::{card_header, error_notice, section};
 
 // ---------------------------------------------------------------------------
 // Pane
 // ---------------------------------------------------------------------------
 
-pub struct CodingPane {
+pub struct AgentsPane {
     /// The default agent the Start-coding dialog preselects (EXP-201).
     agent_select: ChoiceSelect,
     claude_input: Entity<InputState>,
@@ -71,8 +73,6 @@ pub struct CodingPane {
     pi_input: Entity<InputState>,
     pi_model_select: ChoiceSelect,
     pi_thinking_select: ChoiceSelect,
-    repos_input: Entity<InputState>,
-    prefix_input: Entity<InputState>,
     /// Which agent tab of the Agents card is showing — pure UI state, not
     /// persisted (EXP-206).
     agent_tab: CodingAgent,
@@ -89,7 +89,7 @@ pub struct CodingPane {
     _subscriptions: Vec<Subscription>,
 }
 
-impl CodingPane {
+impl AgentsPane {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let claude_input = cx
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_PATH));
@@ -97,11 +97,6 @@ impl CodingPane {
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODEX_PATH));
         let pi_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_PI_PATH));
-        let repos_input = cx
-            .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_REPOS_ROOT));
-        let prefix_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(coding::settings::DEFAULT_BRANCH_PREFIX)
-        });
         let defaults = Settings::default();
         let agent_select =
             choice_select(&AGENT_CHOICES, defaults.default_agent.id(), window, cx);
@@ -151,7 +146,7 @@ impl CodingPane {
                 cx.notify();
             }),
         ];
-        for input in [&claude_input, &codex_input, &pi_input, &repos_input, &prefix_input] {
+        for input in [&claude_input, &codex_input, &pi_input] {
             subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify(); // live dirty tracking on the Save button
@@ -183,8 +178,6 @@ impl CodingPane {
             pi_input,
             pi_model_select,
             pi_thinking_select,
-            repos_input,
-            prefix_input,
             agent_tab: defaults.default_agent,
             claude_ultracode: defaults.claude_ultracode,
             claude_plan_mode: defaults.claude_plan_mode,
@@ -198,17 +191,37 @@ impl CodingPane {
         this
     }
 
+    /// Overlay ONLY this pane's owned fields from `from` onto `onto` —
+    /// the single definition `resync`/`save` both lean on so the two can
+    /// never drift.
+    fn overlay_owned(onto: &mut Settings, from: &Settings) {
+        onto.default_agent = from.default_agent;
+        onto.claude_path = from.claude_path.clone();
+        onto.codex_path = from.codex_path.clone();
+        onto.pi_path = from.pi_path.clone();
+        onto.claude_model = from.claude_model.clone();
+        onto.claude_effort = from.claude_effort.clone();
+        onto.codex_model = from.codex_model.clone();
+        onto.codex_effort = from.codex_effort.clone();
+        onto.pi_model = from.pi_model.clone();
+        onto.pi_thinking = from.pi_thinking.clone();
+        onto.claude_ultracode = from.claude_ultracode;
+        onto.claude_plan_mode = from.claude_plan_mode;
+        onto.claude_skip_permissions = from.claude_skip_permissions;
+        onto.codex_skip_permissions = from.codex_skip_permissions;
+    }
+
     /// Mirror the hub's settings into the controls whenever they change out
-    /// from under us (save from another pane instance, first build).
+    /// from under us. Unowned fields (Tools' repos/prefix/shell, the rail
+    /// pref) are adopted into the baseline FIRST, so a sibling pane's save
+    /// never wipes edits here; only owned-field changes rewrite the controls.
     fn resync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let hub = CodingHub::global(cx);
         let settings = hub.read(cx).settings.clone();
-        // EXP-282: the rail pref shares this settings file but is NOT a control
-        // on this pane — fold its new value into the dirty baseline (`drafted`
-        // carries it through from there) instead of letting a rail toggle drive
-        // a full control resync that would wipe the edits in flight.
         if let Some(synced) = self.synced.as_mut() {
-            synced.rail_expanded = settings.rail_expanded;
+            let mut adopted = settings.clone();
+            Self::overlay_owned(&mut adopted, synced);
+            *synced = adopted;
         }
         if self.synced.as_ref() == Some(&settings) {
             return;
@@ -221,12 +234,6 @@ impl CodingPane {
         });
         self.pi_input.update(cx, |input, cx| {
             input.set_value(settings.pi_path.clone(), window, cx)
-        });
-        self.repos_input.update(cx, |input, cx| {
-            input.set_value(settings.repos_root.clone(), window, cx)
-        });
-        self.prefix_input.update(cx, |input, cx| {
-            input.set_value(settings.branch_prefix.clone(), window, cx)
         });
         // The persisted values are load-normalized into the choice sets, so
         // every set_selected_value below finds its row.
@@ -262,10 +269,11 @@ impl CodingPane {
         cx.notify();
     }
 
-    /// The settings the controls currently describe. Blank text fields
-    /// degrade to the §7.7 defaults — a hand-blanked pane can never produce
-    /// an unusable launcher (mirrors `Settings::load`); the selects are
-    /// closed sets by construction.
+    /// The settings the controls currently describe: the synced baseline with
+    /// ONLY this pane's fields overlaid. Blank CLI paths degrade to the §7.7
+    /// defaults — a hand-blanked pane can never produce an unusable launcher
+    /// (mirrors `Settings::load`); the selects are closed sets by
+    /// construction.
     fn drafted(&self, cx: &App) -> Settings {
         let defaults = Settings::default();
         let value = |input: &Entity<InputState>, default: &str| {
@@ -276,7 +284,8 @@ impl CodingPane {
                 raw
             }
         };
-        Settings {
+        let mut drafted = self.synced.clone().unwrap_or_default();
+        let owned = Settings {
             default_agent: CodingAgent::parse(&selected(&self.agent_select, cx))
                 .unwrap_or_default(),
             claude_path: value(&self.claude_input, &defaults.claude_path),
@@ -292,14 +301,10 @@ impl CodingPane {
             claude_plan_mode: self.claude_plan_mode,
             claude_skip_permissions: self.claude_skip_permissions,
             codex_skip_permissions: self.codex_skip_permissions,
-            repos_root: value(&self.repos_input, &defaults.repos_root),
-            branch_prefix: value(&self.prefix_input, &defaults.branch_prefix),
-            // EXP-282: a UI pref sharing this settings file, NOT a control on
-            // this pane — carry the synced value through so saving here never
-            // resets the rail (and `dirty` doesn't false-positive on it).
-            // `save` re-reads the hub's live value right before writing.
-            rail_expanded: self.synced.as_ref().and_then(|synced| synced.rail_expanded),
-        }
+            ..defaults
+        };
+        Self::overlay_owned(&mut drafted, &owned);
+        drafted
     }
 
     fn dirty(&self, cx: &App) -> bool {
@@ -310,18 +315,19 @@ impl CodingPane {
     }
 
     fn save(&mut self, cx: &mut gpui::Context<Self>) {
-        let mut drafted = self.drafted(cx);
+        let drafted = self.drafted(cx);
         let hub = CodingHub::global(cx);
-        // EXP-282: the rail pref can have been toggled since this pane last
-        // synced — take the hub's live value so a coding save never rolls it
-        // back.
-        drafted.rail_expanded = hub.read(cx).settings.rail_expanded;
-        self.save_error = CodingHub::save_settings(&hub, drafted.clone(), cx)
+        // Overlay ONLY the owned fields onto the hub's LIVE settings, so a
+        // save here can never roll back a concurrent Tools-pane save (or the
+        // rail pref).
+        let mut settings = hub.read(cx).settings.clone();
+        Self::overlay_owned(&mut settings, &drafted);
+        self.save_error = CodingHub::save_settings(&hub, settings.clone(), cx)
             .err()
             .map(SharedString::from);
         // `synced` follows the hub via the observer's resync; setting it here
         // too keeps the Save button honest when the observer coalesces.
-        self.synced = Some(drafted);
+        self.synced = Some(settings);
         cx.notify();
     }
 
@@ -500,9 +506,7 @@ impl CodingPane {
             ),
         )
     }
-}
 
-impl CodingPane {
     /// The Agents card (EXP-206): one TAB per agent, each holding that
     /// agent's CLI path + model/effort selects and its OWN toggles — plan
     /// mode and ultracode exist only on the Claude tab, skip permissions on
@@ -542,6 +546,12 @@ impl CodingPane {
                 "Agents",
                 "Each agent's CLI, model, and run defaults — the Start-coding dialog \
                  prefills the toggles, and every launch can still override them.",
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Default agent",
+                "Preselected in the Start-coding dialog — every launch can still pick another.",
+                &self.agent_select,
                 cx,
             ))
             .child(tabs);
@@ -636,35 +646,9 @@ impl CodingPane {
     }
 }
 
-impl Render for CodingPane {
+impl Render for AgentsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let dirty = self.dirty(cx);
-
-        let general_card = section(cx)
-            .child(card_header(
-                "Coding",
-                "Local launcher settings for \u{201c}Start coding\u{201d} — per machine, never synced.",
-                cx,
-            ))
-            .child(Self::labeled_select(
-                "Default agent",
-                "Preselected in the Start-coding dialog — every launch can still pick another.",
-                &self.agent_select,
-                cx,
-            ))
-            .child(Self::labeled_input(
-                "Repos & worktrees root",
-                "Where repositories are cloned and per-issue worktrees are created (~ works).",
-                &self.repos_input,
-                cx,
-            ))
-            .child(Self::labeled_input(
-                "Branch prefix",
-                "Prepended to the issue identifier for the coding branch (exp/EXP-42).",
-                &self.prefix_input,
-                cx,
-            ));
-
         let agents_card = self.render_agents_section(cx);
 
         let mut save_area = v_flex().gap_2();
@@ -673,7 +657,7 @@ impl Render for CodingPane {
         }
         save_area = save_area.child(
             h_flex().justify_end().child(
-                Button::new("coding-save")
+                Button::new("agents-save")
                     .primary()
                     .small()
                     .label("Save changes")
@@ -688,7 +672,6 @@ impl Render for CodingPane {
         v_flex()
             .w_full()
             .gap_6()
-            .child(general_card)
             .child(agents_card)
             .child(save_area)
             .child(self.render_doctor_section(cx))

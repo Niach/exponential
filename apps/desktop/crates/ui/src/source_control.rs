@@ -389,8 +389,10 @@ impl SourceControlView {
             cx.notify();
             return;
         };
-        let result =
-            manager.update(cx, |manager, cx| manager.open_shell(Some(scope.clone_dir.clone()), cx));
+        let shell_override = crate::coding_flow::terminal_shell_override(cx);
+        let result = manager.update(cx, |manager, cx| {
+            manager.open_shell(Some(scope.clone_dir.clone()), shell_override, cx)
+        });
         if let Err(err) = result {
             self.error = Some(format!("Could not open terminal: {err}").into());
             cx.notify();

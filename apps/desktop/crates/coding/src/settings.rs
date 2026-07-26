@@ -129,6 +129,12 @@ pub struct Settings {
     /// belongs next to `lastTeamId`/`lastBoardId`, not in a second file.
     /// `None` = never toggled → collapsed (the historical rail).
     pub rail_expanded: Option<bool>,
+    /// EXP-288: program name or absolute path of the shell new terminal tabs
+    /// spawn (launched as a login shell on unix). Like `rail_expanded`, not a
+    /// launcher knob — it lives here because this file is the one
+    /// merge-preserving per-install store. `None`/blank = auto (the
+    /// platform's `default_shell()` resolution in the terminal crate).
+    pub terminal_shell: Option<String>,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -164,6 +170,7 @@ impl Default for Settings {
             claude_skip_permissions: false,
             codex_skip_permissions: false,
             rail_expanded: None,
+            terminal_shell: None,
         }
     }
 }
@@ -209,6 +216,10 @@ impl Settings {
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
         settings.pi_model = normalize_choice(&settings.pi_model, &PI_MODELS, "");
         settings.pi_thinking = normalize_choice(&settings.pi_thinking, &PI_THINKING, "");
+        // Blank/whitespace shell degrades to None (= auto-detect).
+        settings.terminal_shell = settings
+            .terminal_shell
+            .filter(|shell| !shell.trim().is_empty());
         settings
     }
 
@@ -462,6 +473,23 @@ mod tests {
         assert!(settings.claude_plan_mode);
         assert!(!settings.claude_skip_permissions);
         assert!(!settings.codex_skip_permissions);
+        // EXP-288: no shell override by default (auto-detect).
+        assert_eq!(settings.terminal_shell, None);
+    }
+
+    /// EXP-288: a blank/whitespace `terminalShell` degrades to None (auto)
+    /// instead of spawning an empty program.
+    #[test]
+    fn blank_terminal_shell_degrades_to_auto() {
+        let dir = TempDir::new("shell");
+        let path = dir.0.join("settings.json");
+        fs::write(&path, r#"{"terminalShell":"  "}"#).unwrap();
+        assert_eq!(Settings::load(&path).terminal_shell, None);
+        fs::write(&path, r#"{"terminalShell":"/opt/homebrew/bin/fish"}"#).unwrap();
+        assert_eq!(
+            Settings::load(&path).terminal_shell.as_deref(),
+            Some("/opt/homebrew/bin/fish")
+        );
     }
 
     /// EXP-201: `defaultAgent` round-trips; unknown or mistyped values
@@ -650,10 +678,12 @@ mod tests {
             claude_skip_permissions: true,
             codex_skip_permissions: true,
             rail_expanded: Some(true),
+            terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         assert!(raw.contains("\"claudePath\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"terminalShell\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeModel\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeEffort\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");

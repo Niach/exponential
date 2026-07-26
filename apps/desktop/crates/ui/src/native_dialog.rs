@@ -324,7 +324,10 @@ pub(crate) fn open_dialog_window(
             titlebar: native_chrome.then(|| gpui::TitlebarOptions {
                 title: Some(title.clone()),
                 appears_transparent: true,
-                traffic_light_position: Some(point(px(12.), px(12.))),
+                // EXP-288: (12,20) puts the light centers at ≈26px from the
+                // top — level with the dialog header titles (they sat ≈7px
+                // above the text before).
+                traffic_light_position: Some(point(px(12.), px(20.))),
             }),
             is_resizable: min_size.is_some(),
             is_minimizable: false,
@@ -516,11 +519,22 @@ impl Render for DialogShell {
         let closable = self.can_close(cx);
         let on_enter = self.content.on_enter.clone();
 
+        // EXP-288: with macOS native chrome the traffic lights ARE the
+        // mouse dismissal — the header ✕ was redundant. Chromeless dialogs
+        // (image preview) and Windows/Linux (no visible native close on a
+        // transparent titlebar) keep it.
+        let hide_close = self.native_chrome && cfg!(target_os = "macos");
         let header = self.content.header.clone().map(|title| {
             h_flex()
                 .flex_shrink_0()
                 .items_center()
                 .justify_between()
+                // EXP-288: the header carries its own padding (the body's
+                // p_4 used to leave a 16px undraggable band above it) —
+                // pt_3 also drops the title center to ≈26px, level with the
+                // traffic lights at their EXP-288 (12,20) position.
+                .px_4()
+                .pt_3()
                 // EXP-285: clear the macOS traffic lights floating over the
                 // content, and make the row a window-drag region (floating
                 // windows have no other draggable chrome).
@@ -547,41 +561,53 @@ impl Render for DialogShell {
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(title),
                 )
-                .child(crate::app_title_bar::interactive(
-                    Button::new("native-dialog-close")
-                        .ghost()
-                        .xsmall()
-                        .icon(
-                            Icon::new(IconName::Close)
-                                .small()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .disabled(!closable)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if this.can_close(cx) {
-                                close_dialog_window(window, cx);
-                            }
-                        })),
-                ))
+                .when(!hide_close, |header| {
+                    header.child(crate::app_title_bar::interactive(
+                        Button::new("native-dialog-close")
+                            .ghost()
+                            .xsmall()
+                            .icon(
+                                Icon::new(IconName::Close)
+                                    .small()
+                                    .text_color(cx.theme().muted_foreground),
+                            )
+                            .disabled(!closable)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if this.can_close(cx) {
+                                    close_dialog_window(window, cx);
+                                }
+                            })),
+                    ))
+                })
         });
 
         let body: AnyElement = if self.content.padded {
-            v_flex()
-                .size_full()
-                .p_4()
-                .gap_3()
-                .children(header)
-                .child(
-                    // Overflowing forms scroll instead of clipping the footer
-                    // (the old overlay grew with its content; a window can't).
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .child(v_flex().size_full().overflow_y_scrollbar().child(
-                            div().pr_1().child(self.content.view.clone()),
-                        )),
-                )
-                .into_any_element()
+            let has_header = header.is_some();
+            let content = // Overflowing forms scroll instead of clipping the footer
+                // (the old overlay grew with its content; a window can't).
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(v_flex().size_full().overflow_y_scrollbar().child(
+                        div().pr_1().child(self.content.view.clone()),
+                    ));
+            if has_header {
+                // EXP-288: the header owns the top padding (drag region
+                // reaches y=0); only the content wrapper pads the rest.
+                v_flex()
+                    .size_full()
+                    .gap_3()
+                    .children(header)
+                    .child(content.px_4().pb_4())
+                    .into_any_element()
+            } else {
+                v_flex()
+                    .size_full()
+                    .p_4()
+                    .gap_3()
+                    .child(content)
+                    .into_any_element()
+            }
         } else {
             div()
                 .size_full()
@@ -726,13 +752,18 @@ impl Render for AlertView {
 
         v_flex()
             .size_full()
-            .p_4()
+            // EXP-288: the header row owns the top padding (the root's old
+            // p_4 left a 16px undraggable band above it); pt_3 also levels
+            // the title with the (12,20) traffic lights.
+            .px_4()
+            .pb_4()
             .gap_3()
             .child(
                 h_flex()
                     .flex_shrink_0()
                     .items_center()
                     .justify_between()
+                    .pt_3()
                     // EXP-285: clear the macOS traffic lights + drag region
                     // (alerts always carry native chrome).
                     .pl(macos_chrome_inset())
@@ -758,17 +789,22 @@ impl Render for AlertView {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(self.spec.title.clone()),
                     )
-                    .child(crate::app_title_bar::interactive(
-                        Button::new("native-alert-close")
-                            .ghost()
-                            .xsmall()
-                            .icon(
-                                Icon::new(IconName::Close)
-                                    .small()
-                                    .text_color(cx.theme().muted_foreground),
-                            )
-                            .on_click(|_, window, cx| close_dialog_window(window, cx)),
-                    )),
+                    // EXP-288: on macOS the traffic lights are the mouse
+                    // dismissal — no redundant ✕ (alerts always carry
+                    // native chrome; Windows/Linux keep it).
+                    .when(!cfg!(target_os = "macos"), |header| {
+                        header.child(crate::app_title_bar::interactive(
+                            Button::new("native-alert-close")
+                                .ghost()
+                                .xsmall()
+                                .icon(
+                                    Icon::new(IconName::Close)
+                                        .small()
+                                        .text_color(cx.theme().muted_foreground),
+                                )
+                                .on_click(|_, window, cx| close_dialog_window(window, cx)),
+                        ))
+                    }),
             )
             .child(
                 v_flex()

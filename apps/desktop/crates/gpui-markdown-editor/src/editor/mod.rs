@@ -56,6 +56,12 @@ pub struct Editor {
     pending_scroll_active_block_into_view: bool,
     pending_scroll_recheck_after_layout: bool,
     scroll_handle: ScrollHandle,
+    /// EXP-288: a HOST-owned scroll handle for embedded mode. Embedded
+    /// editors have no internal scrolling (the host's container scrolls);
+    /// when the host hands its tracked handle over, the caret-follow
+    /// machinery (`apply_pending_scroll_into_view`) runs against it so
+    /// typing/pasting keeps the caret visible inside the host's viewport.
+    external_scroll_handle: Option<ScrollHandle>,
     last_scroll_viewport_size: Option<Size<Pixels>>,
     prev_visible_block_ids: Vec<EntityId>,
     row_stride_cache: HashMap<EntityId, f32>,
@@ -263,6 +269,7 @@ impl Editor {
             pending_scroll_active_block_into_view: true,
             pending_scroll_recheck_after_layout: true,
             scroll_handle: ScrollHandle::new(),
+            external_scroll_handle: None,
             last_scroll_viewport_size: None,
             prev_visible_block_ids: Vec::new(),
             row_stride_cache: HashMap::new(),

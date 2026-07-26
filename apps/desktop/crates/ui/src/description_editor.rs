@@ -119,6 +119,11 @@ impl DescriptionEditor for WysiwygSeamEditor {
     // EXP-261: the vendored editor tracks real edits via its revision
     // counter, so the flush path can tell "user typed" apart from "the
     // serializer normalized the loaded bytes".
+    fn set_scroll_handle(&self, handle: gpui::ScrollHandle, cx: &mut App) {
+        self.editor
+            .update(cx, |editor, cx| editor.set_scroll_handle(handle, cx));
+    }
+
     fn is_dirty(&self, cx: &App) -> bool {
         self.editor.read(cx).is_dirty(cx)
     }

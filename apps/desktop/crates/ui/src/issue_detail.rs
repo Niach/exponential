@@ -129,6 +129,10 @@ pub trait DescriptionEditor {
     /// EXP-261: record that the current content was just persisted (the
     /// flush path saves outside the editor's own save hook).
     fn mark_clean(&self, _cx: &mut App) {}
+    /// EXP-288: hand the editor the HOST's tracked scroll handle so its
+    /// caret-follow keeps the caret visible in the host's scroll container
+    /// while typing/pasting. Default no-op for editors without one.
+    fn set_scroll_handle(&self, _handle: gpui::ScrollHandle, _cx: &mut App) {}
     /// EXP-261: the bytes a PERSIST site must use — [`Self::markdown`] with
     /// still-uploading `draft://` staging images structurally stripped. A
     /// `draft://` URL must never reach the server; every save path (the
@@ -450,7 +454,11 @@ impl IssueDetailView {
                 spawn_issue_update(cx, input);
             }),
         };
-        self.editor = Some(build(&params, window, cx));
+        let editor = build(&params, window, cx);
+        // EXP-288: the detail body's scroll container follows the caret
+        // while typing/pasting at the bottom of a long description.
+        editor.set_scroll_handle(self.body_scroll.clone(), cx);
+        self.editor = Some(editor);
         self.editor_issue = Some(issue.id.clone());
     }
 

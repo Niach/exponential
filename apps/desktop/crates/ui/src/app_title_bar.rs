@@ -119,10 +119,22 @@ impl Render for AppTitleBar {
         }
         // Building the strip via `update` on the panel entity is safe here —
         // the titlebar renders outside the panel's own render pass.
+        // EXP-288: the strip gets a width budget (viewport minus the
+        // titlebar's left cluster and right window-control reserve — rough
+        // estimates; overflowing tabs collapse into the strip's "+N" menu).
+        let strip_available = {
+            let left_reserve = px(240.);
+            let right_reserve = if cfg!(target_os = "macos") {
+                px(24.)
+            } else {
+                px(150.)
+            };
+            (window.viewport_size().width - left_reserve - right_reserve).max(px(160.))
+        };
         let strip = self
             .screens
             .as_ref()
-            .map(|panel| panel.update(cx, |panel, cx| panel.render_tab_strip(cx)));
+            .map(|panel| panel.update(cx, |panel, cx| panel.render_tab_strip(strip_available, cx)));
 
         // EXP-285: with the full-height rail to our left, the vendored 80px
         // macOS traffic-light reserve is wrong — the lights float over the
@@ -131,14 +143,19 @@ impl Render for AppTitleBar {
         // hides the lights, so the reserve is reclaimed outright.
         let rail = rail_present(cx);
         let expanded = rail && crate::sidebar::rail_expanded(window, cx);
-        let bar = TitleBar::new().when(rail, |bar| {
-            let pl = if cfg!(target_os = "macos") && !window.is_fullscreen() && !expanded {
-                px(80. - crate::sidebar::RAIL_W)
-            } else {
-                px(8.)
-            };
-            bar.pl(pl)
-        });
+        let bar = TitleBar::new()
+            // EXP-288: a hairline under the tab row — the chips' vertical
+            // strokes used to end into nothing.
+            .border_b_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .when(rail, |bar| {
+                let pl = if cfg!(target_os = "macos") && !window.is_fullscreen() && !expanded {
+                    px(80. - crate::sidebar::RAIL_W)
+                } else {
+                    px(8.)
+                };
+                bar.pl(pl)
+            });
 
         // Collapsed rail: the 44px strip can't host the expand toggle (the
         // macOS traffic lights sit over it) — surface it here instead.

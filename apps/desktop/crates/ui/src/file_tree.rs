@@ -39,7 +39,7 @@ use sync::Store;
 use coding::scm::{self, FileStatus};
 
 use crate::coding_flow::CodingHub;
-use crate::navigation::{self, Navigation, Screen};
+use crate::navigation::{self, Navigation};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
 /// Files >2 MB (and binary files) never load in the read-only viewer; the tree
@@ -134,8 +134,9 @@ fn ensure_actions_registered(cx: &mut App) {
                 let Some(manager) = crate::coding_flow::window_terminal_manager(window, cx) else {
                     return;
                 };
+                let shell_override = crate::coding_flow::terminal_shell_override(cx);
                 manager.update(cx, |manager, cx| {
-                    if let Err(err) = manager.open_shell(Some(dir), cx) {
+                    if let Err(err) = manager.open_shell(Some(dir), shell_override, cx) {
                         log::error!("[ui] file tree: open terminal here failed: {err:#}");
                     }
                 });
@@ -517,8 +518,14 @@ impl FileTreeView {
 }
 
 impl Render for FileTreeView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let scope_before = self.board_id.clone();
         self.ensure_loaded(cx);
+        // EXP-288: a board-scope change invalidates the file selection (the
+        // trunk-relative path belongs to the OLD board's clone).
+        if self.board_id != scope_before {
+            crate::sidebar::select_file(window, cx, None);
+        }
 
         let still_resolving = matches!(self.load, Load::Idle | Load::Loading);
         let body: gpui::AnyElement = if self.board_id.is_none() {
@@ -536,14 +543,14 @@ impl Render for FileTreeView {
             let trunk = self.trunk_root.clone().unwrap_or_default();
             let ctx_meta = meta.clone();
             let ctx_trunk = trunk.clone();
-            // The active file (the file viewer's active tab, kept in lockstep
-            // with the navigated `Screen::FileViewer`) is highlighted in the
-            // rail so the rail and viewer stay in sync.
+            // The active file (the center viewer's file, driven by the
+            // rail's selection since EXP-288 — files are not tabs) is
+            // highlighted so the rail and viewer stay in sync.
             let active_file: Option<SharedString> =
-                match navigation::resolved_screen(&self.nav, cx) {
-                    Some(Screen::FileViewer { path }) => Some(path.into()),
-                    _ => None,
-                };
+                crate::sidebar::rail_shared_for_window(window, cx)
+                    .read(cx)
+                    .selected_file()
+                    .map(|path| SharedString::from(path.to_string()));
             tree(&self.tree_state, move |ix, entry, _selected, _window, cx| {
                 render_tree_item(&meta, &trunk, active_file.as_deref(), ix, entry, cx)
             })
@@ -674,18 +681,15 @@ fn render_tree_item(
         });
     }
 
-    // File click → the read-only viewer (trunk-relative path). Directories
+    // File click → the read-only viewer (trunk-relative path) via the
+    // rail's selection channel — no tab (EXP-288); deselecting the active
+    // tab shows the viewer (the Files tool's center default). Directories
     // fall through to the tree's own expand toggle.
     if !node.is_dir {
         let path = id.to_string();
         row = row.on_click(move |_: &ClickEvent, window, cx| {
-            navigation::navigate(
-                window,
-                cx,
-                Screen::FileViewer {
-                    path: path.clone(),
-                },
-            );
+            crate::sidebar::select_file(window, cx, Some(path.clone()));
+            navigation::set_screen(window, cx, None);
         });
     }
     let _ = trunk; // trunk is used by the context menu, not the row body
