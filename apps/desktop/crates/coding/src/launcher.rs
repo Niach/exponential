@@ -1229,11 +1229,13 @@ fn prepare_action(
 
 /// Foreground follow-up to the child-exit edge (§7.5): the ui layer passes
 /// one of these into [`spawn_prepared_with`] to flip its play↔stop state /
-/// clear its local-session registry when the Claude child dies. Runs on the
+/// clear its local-session registry / detach the steer publisher when the
+/// agent child dies. Receives the captured [`terminal::pty::ChildExit`] so
+/// the steer `bye` can carry the spec'd `exit:<code>` outcome. Runs on the
 /// gpui foreground AFTER the idempotent `codingSessions.end` fire-and-forget
 /// thread is spawned. The `coding` crate itself never needs it —
 /// [`spawn_prepared`] passes `None`.
-pub type ExitNotify = Box<dyn FnOnce(&mut App) + 'static>;
+pub type ExitNotify = Box<dyn FnOnce(&terminal::pty::ChildExit, &mut App) + 'static>;
 
 /// Steps 7–8 of §7.1 (foreground; needs `&mut App`):
 ///
@@ -1294,7 +1296,7 @@ pub fn spawn_prepared_with(
 
     let end_session_id = session_id.clone();
     let exit_trpc = Arc::clone(&trpc);
-    let on_exit: terminal::ExitHook = Box::new(move |_tab, _exit, cx| {
+    let on_exit: terminal::ExitHook = Box::new(move |_tab, exit, cx| {
         // Disconnect the heartbeat thread — the child is gone, so the row is
         // about to be ended and must stop being kept alive.
         drop(heartbeat_stop);
@@ -1307,7 +1309,7 @@ pub fn spawn_prepared_with(
             let _ = coding_sessions::end(&trpc, &end_session_id);
         });
         if let Some(notify) = exit_notify {
-            notify(cx);
+            notify(exit, cx);
         }
     });
 

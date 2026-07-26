@@ -31,8 +31,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::activity::{AnswerLink, RemoteAnswer};
 use crate::frames::{
-    ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
-    CLOSE_UNAUTHORIZED,
+    ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, CLOSE_REPLACED, CLOSE_UNAUTHORIZED,
 };
 use crate::journal::ActivityJournal;
 use crate::{dial, Backoff, DialError, SteerRuntime, WsStream, BACKOFF_RESET_AFTER};
@@ -89,12 +88,19 @@ pub struct Presence {
 }
 
 /// Why the publisher asked the coding flow to tear the session down.
+///
+/// EXP-283: an explicit relay `kill` frame is the ONLY relay signal that may
+/// end the local session. A relay-initiated socket CLOSE — whatever its code —
+/// is transport-level and must never kill live local work: the relay's
+/// idle-publisher detector closes quiet sockets with `CLOSE_SESSION_ENDED`
+/// (a laptop sleeping >90s reads that close on wake), and treating it as a
+/// kill was tearing down live agents mid-session. Real session ends always
+/// also flip the synced `coding_sessions` row, which the §8.8 kill-watch
+/// handles durably.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KillSignal {
     /// A relay `kill` frame (steer.killSession fan-out / a steerer's kill).
     RemoteKill,
-    /// The relay closed the room with `CLOSE_SESSION_ENDED` (4001).
-    SessionEnded,
 }
 
 /// Remote `input` bytes → the shared PTY writer (§6.5). Aliased so the
@@ -240,8 +246,8 @@ impl PublisherHandle {
         self.shutdown(Some("killed".to_string()));
     }
 
-    /// False once the publisher stopped for good (clean end, 4001/4002,
-    /// skew give-up).
+    /// False once the publisher stopped for good (clean end, kill frame,
+    /// 4002 replaced, skew give-up).
     pub fn is_active(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
@@ -406,14 +412,6 @@ async fn run_publisher_loop(
                 running.store(false, Ordering::SeqCst);
                 return;
             }
-            LoopEnd::Closed(Some(CLOSE_SESSION_ENDED)) => {
-                // 4001: the session is over — never reconnect; make sure the
-                // local session tears down too (§8.6).
-                log::info!("steer publisher: relay says session ended");
-                running.store(false, Ordering::SeqCst);
-                (hooks.kill)(KillSignal::SessionEnded);
-                return;
-            }
             LoopEnd::Closed(Some(CLOSE_REPLACED)) => {
                 // 4002: a newer publisher socket owns the room — this socket
                 // must not fight it (expected during our own reconnect race).
@@ -431,10 +429,16 @@ async fn run_publisher_loop(
                 continue 'reconnect; // re-mint once, immediately (§8.6/§8.7)
             }
             LoopEnd::Closed(_) | LoopEnd::Dropped => {
-                // 4008 (viewer-side code — treat as a normal drop) and any
-                // other unexpected drop: reconnect while the session is still
-                // running, resuming the same room (§8.6). Reconnect promptly —
-                // the relay's staleTimer bounds the grace window.
+                // Any other close or unexpected drop: reconnect while the
+                // session is still running, resuming the same room (§8.6).
+                // That INCLUDES 4001 (EXP-283): the relay's idle-publisher
+                // detector closes quiet sockets with CLOSE_SESSION_ENDED —
+                // e.g. read on wake after a laptop sleep >90s — and a relay
+                // close must never kill live local work. Real kills arrive as
+                // the explicit `kill` frame or the §8.8 own-row Electric flip;
+                // re-hello resets the relay's idle timer and resumes the room.
+                // Reconnect promptly — the relay's staleTimer bounds the
+                // grace window.
                 if established.elapsed() >= BACKOFF_RESET_AFTER {
                     backoff.reset();
                 }

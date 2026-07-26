@@ -303,6 +303,13 @@ export const CLOSE_SESSION_ENDED = 4001
 export const CLOSE_REPLACED = 4002
 export const CLOSE_UNAUTHORIZED = 4003
 export const CLOSE_SLOW_CONSUMER = 4008
+// EXP-283: idle-publisher eviction. Deliberately NOT 4001 — desktops treated
+// CLOSE_SESSION_ENDED as a terminal remote kill (tear down the live agent +
+// terminal tab), so an idle close after a laptop sleep >90s was killing live
+// sessions on wake. Publishers treat this (and any unknown code) as a plain
+// drop and reconnect; a truly dead publisher just never re-hellos and the
+// room dies via the grace timer.
+export const CLOSE_PUBLISHER_IDLE = 4009
 
 export function parseClientFrame(raw: string): ClientFrame | null {
   let json: unknown

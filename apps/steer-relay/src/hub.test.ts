@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import { Hub, type RelaySocket } from "./hub"
-import { CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER } from "./protocol"
+import {
+  CLOSE_PUBLISHER_IDLE,
+  CLOSE_SESSION_ENDED,
+  CLOSE_SLOW_CONSUMER,
+} from "./protocol"
 
 class FakeSocket implements RelaySocket {
   sent: string[] = []
@@ -113,6 +117,7 @@ interface RoomInternals {
   activityBytes: number
   lastDiff: { framed: string } | null
   lastPublisherActivity: number
+  publisher: unknown
 }
 
 function room(hub: Hub, sessionId = `sess-1`): RoomInternals {
@@ -1079,8 +1084,8 @@ describe(`claim steal (EXP-32)`, () => {
 // REV2-X regression: the desktop publisher keeps a live-but-quiet session
 // (plan mode / a parked agent) alive with protocol-level WebSocket pings.
 // Bun delivers those to the `ping` handler, NOT to `message`, so the idle
-// detector must be fed from hub.onPing — otherwise it closes the room after
-// 90s and the desktop kills the running agent (CLOSE_SESSION_ENDED = terminal).
+// detector must be fed from hub.onPing — otherwise it detaches the publisher
+// after 90s (a churny reconnect; EXP-283 made the idle close non-terminal).
 describe(`idle publisher detection (REV2-X)`, () => {
   const IDLE_MS = 91_000
 
@@ -1093,12 +1098,33 @@ describe(`idle publisher detection (REV2-X)`, () => {
     ;(hub as unknown as { checkIdlePublishers: () => void }).checkIdlePublishers()
   }
 
-  test(`a genuinely silent publisher (no pings) times out`, () => {
+  test(`a genuinely silent publisher (no pings) times out — with the NON-terminal idle code`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub, `sess-idle`)
     idle(hub, `sess-idle`, IDLE_MS)
     checkIdle(hub)
-    expect(pub.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    // EXP-283: MUST be CLOSE_PUBLISHER_IDLE, never CLOSE_SESSION_ENDED —
+    // desktops treat 4001 as a remote kill and would tear down a live agent
+    // that merely slept through the idle window (laptop suspend).
+    expect(pub.closed?.code).toBe(CLOSE_PUBLISHER_IDLE)
+    hub.destroy()
+  })
+
+  test(`an idle-detached publisher can re-hello and resume its room`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub, `sess-resume`)
+    idle(hub, `sess-resume`, IDLE_MS)
+    checkIdle(hub)
+    expect(pub.closed?.code).toBe(CLOSE_PUBLISHER_IDLE)
+    hub.onClose(pub)
+
+    // The woken desktop reconnects and re-hellos into the SAME room.
+    const again = connectPublisher(hub, `sess-resume`)
+    expect(again.closed).toBeNull()
+    expect(room(hub, `sess-resume`).publisher).not.toBeNull()
+    // The re-hello reset the idle clock — the next check must not re-fire.
+    checkIdle(hub)
+    expect(again.closed).toBeNull()
     hub.destroy()
   })
 
