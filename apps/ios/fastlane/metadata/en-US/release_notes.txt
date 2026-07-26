@@ -1,2 +1,3 @@
-• Count badges and the selected agent chip use a stronger indigo, so their white text clears the accessibility contrast floor
-• Coding sessions started from your phone are steadier — a desktop that sleeps mid-run reconnects instead of ending the session
+• One shared icon set — every icon now matches web, Android and desktop pixel for pixel
+• Live agent sessions no longer get stuck on multi-question prompts, and the session view scrolls more smoothly
+• Actions can carry their own icon, so long lists stay scannable
