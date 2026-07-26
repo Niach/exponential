@@ -231,9 +231,15 @@ impl Shell {
         .detach();
 
         // ---- EXP-210: remember the MAIN window's last used size ------------
-        // Restore-bounds, not the viewport, so a maximized session saves the
-        // pre-maximize size; `load_last_size` feeds the next launch's
-        // `open_shell_window`. Local file only — never synced.
+        // `load_last_size` feeds the next launch's `open_shell_window`. Local
+        // file only — never synced.
+        //
+        // EXP-292: what survives a maximized session is the last WINDOWED
+        // frame, because the tracker ignores every frame observed while
+        // maximized/fullscreen. `window_bounds()` is NOT the restore size
+        // there (this comment used to claim it was): X11 reports the current
+        // maximized surface, and Wayland the pre-maximize OUTER bounds while
+        // `window_paddings` reads zero (maximizing tiles every edge).
         //
         // EXP-269/EXP-276/EXP-278: what we persist is the VISIBLE frame size
         // (the outer surface minus the Linux CSD shadow), but the two Linux
