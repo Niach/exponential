@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-desktop-settings-and-tabs`,
+    date: `2026-07-26`,
+    title: `Settings that fit, tabs that remember`,
+    summary: `The desktop IDE gets a real settings section, tabs that remember where you opened them from, and a Linux window that stops shrinking.`,
+    body: `- **Settings, restructured** — every board gets its own settings page with web parity (name, icon, color, repository, an honest 48-hour move-to-trash), the coding pane splits into Tools and Agents, and a read-only Plan & Billing card shows seats, storage and widget usage at a glance.
+- **Pick your terminal shell** — a new setting chooses which shell the embedded terminal spawns; leave it blank for the platform default.
+- **Tabs remember where they came from** — clicking a tab re-selects the sidebar entry (and board) it was opened from, issue tabs carry the issue title instead of just the identifier, and chips that no longer fit collapse into a "+N" menu.
+- **Calmer dialogs** — the new-issue dialog opens compact and grows with what you type, the caret stays visible while typing or pasting, and the Start-coding dialog's Cancel/Start bar stays pinned instead of scrolling out of reach. Status, priority, assignee, label and due-date pickers are shared with the sidebar now, so the dialog's label picker finally has search.
+- **Linux windows behave** — the main window no longer shrinks 24px on every launch on X11, and all four corners are genuinely round instead of hiding square notches behind the arc.
+- **Real glass** — the desktop blurs what sits behind it on macOS and KDE Wayland, and the bulk-select bar floats over the list instead of shoving every row down.`,
+  },
+  {
     id: `2026-07-stable-terminals-native-dialogs`,
     date: `2026-07-26`,
     title: `Sessions that survive a closed lid`,

@@ -1,0 +1,1 @@
+Count badges use a stronger indigo, so their white text is easier to read.
