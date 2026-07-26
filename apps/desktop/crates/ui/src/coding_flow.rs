@@ -363,6 +363,15 @@ impl LocalSessions {
                         // server-side — a normal exit already ended it
                         // before the close).
                         spawn_tracked_end(Arc::clone(&trpc), session_id.clone());
+                        // EXP-283: detach the steer side (stop publisher +
+                        // emitter, unwatch the kill-watch) so our own end's
+                        // synced `ended` flip can't read back as a remote
+                        // kill. No-op when the kill path already detached.
+                        crate::steer_wiring::detach_publisher(
+                            &session_id,
+                            Some("killed".to_string()),
+                            cx,
+                        );
                         if let Some(sessions) = sessions.upgrade() {
                             LocalSessions::remove(&sessions, &watch_subject, cx);
                         }
@@ -379,7 +388,15 @@ impl LocalSessions {
                     // this subscription) — reaching here means the window
                     // died around a live session. Idempotent server-side;
                     // tracked so a release-cascade-then-quit still waits.
-                    spawn_tracked_end(trpc, session_id);
+                    spawn_tracked_end(trpc, session_id.clone());
+                    // EXP-283: same detach as the exit/close edges — the end
+                    // above flips the row, and the kill-watch must not read
+                    // our own flip back as a remote kill.
+                    crate::steer_wiring::detach_publisher(
+                        &session_id,
+                        Some("killed".to_string()),
+                        cx,
+                    );
                     if let Some(sessions) = sessions.upgrade() {
                         LocalSessions::remove(&sessions, &watch_subject, cx);
                     }
@@ -838,7 +855,19 @@ pub fn spawn_into_window(
     let sessions = LocalSessions::global(cx);
     let notify_sessions = sessions.downgrade();
     let notify_subject = subject.clone();
-    let exit_notify: coding::ExitNotify = Box::new(move |cx: &mut App| {
+    let notify_session_id = prepared.session_id.clone();
+    let exit_notify: coding::ExitNotify = Box::new(move |exit, cx: &mut App| {
+        // EXP-283: detach the steer side FIRST — the exit hook just spawned
+        // the `codingSessions.end` thread, and the kill-watch must be
+        // unregistered before our own `ended` flip syncs back via Electric,
+        // or it reads as a remote kill and closes the exited tab (which must
+        // stay open with the exit strip, §7.5). Also stops the publisher with
+        // the spec'd `exit:<code>` bye and halts the activity emitter.
+        crate::steer_wiring::detach_publisher(
+            &notify_session_id,
+            Some(format!("exit:{}", exit.code)),
+            cx,
+        );
         if let Some(sessions) = notify_sessions.upgrade() {
             LocalSessions::remove(&sessions, &notify_subject, cx);
         }

@@ -387,8 +387,9 @@ export default {
     },
     // REV2-X: Bun routes protocol-level ping frames HERE, not to `message`.
     // The desktop publisher pings every 30s during idle/plan-mode; without
-    // this the idle detector would never see them and would close (and kill)
-    // a live-but-quiet session after 90s.
+    // this the idle detector would never see them and would detach a
+    // live-but-quiet publisher after 90s (a churny reconnect — EXP-283 made
+    // the idle close non-terminal).
     ping(ws: ServerWebSocket<WsData>) {
       hub.onPing(adapt(ws))
     },

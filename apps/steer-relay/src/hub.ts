@@ -4,6 +4,7 @@
 
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import {
+  CLOSE_PUBLISHER_IDLE,
   CLOSE_REPLACED,
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
@@ -181,9 +182,10 @@ export class Hub {
    * handler, NOT to `message`, so an idle publisher's 30s keepalive pings
    * never reach onMessage. Without this hook, lastPublisherActivity would
    * stop refreshing during a live-but-quiet session (plan mode / a parked
-   * agent), and checkIdlePublishers would wrongly close the room after 90s —
-   * killing the running agent (publisher treats CLOSE_SESSION_ENDED as
-   * terminal). Bump activity here exactly as onMessage does for data frames. */
+   * agent), and checkIdlePublishers would wrongly detach the publisher after
+   * 90s (a churny reconnect at best — EXP-283 made the idle close
+   * non-terminal). Bump activity here exactly as onMessage does for data
+   * frames. */
   onPing(sock: RelaySocket) {
     const conn = this.conns.get(sock)
     if (!conn) return
@@ -594,7 +596,16 @@ export class Hub {
 
   /** REV2-X: Periodic check for publishers that have sent no frames (including
    * pings) within PUBLISHER_IDLE_TIMEOUT_MS. A silent publisher is a dead
-   * publisher — close the room so viewers stop retrying `no_such_session`. */
+   * publisher — detach it so viewers stop retrying `no_such_session`.
+   *
+   * EXP-283: the close code MUST NOT be CLOSE_SESSION_ENDED — publishers
+   * treated 4001 as a terminal remote kill (tear down the live agent + the
+   * whole terminal tab), so a publisher that merely slept through the idle
+   * window (laptop suspend, network stall) had its live coding session
+   * killed the moment it woke up and read the close frame. An idle socket is
+   * a transport-level determination, never a session end: close with the
+   * dedicated CLOSE_PUBLISHER_IDLE, which every desktop (old and new) treats
+   * as a plain drop and reconnects from. */
   private checkIdlePublishers() {
     const now = Date.now()
     for (const room of this.rooms.values()) {
@@ -602,15 +613,14 @@ export class Hub {
       const idleMs = now - room.lastPublisherActivity
       if (idleMs >= PUBLISHER_IDLE_TIMEOUT_MS) {
         console.log(
-          `[hub] publisher for session ${room.sessionId} idle for ${Math.floor(idleMs / 1000)}s — closing room`
+          `[hub] publisher for session ${room.sessionId} idle for ${Math.floor(idleMs / 1000)}s — detaching publisher`
         )
-        // Close the publisher socket first, which triggers onClose's grace
-        // period logic. BUT the room is dead either way: if the publisher
-        // reconnects within the grace period, re-hello resets
+        // Closing the socket triggers onClose's grace-period logic: if the
+        // publisher reconnects within the grace window, re-hello resets
         // lastPublisherActivity so the next idle check won't re-fire; if it
         // doesn't reconnect, the grace timer closes the room.
         room.publisher.sock.close(
-          CLOSE_SESSION_ENDED,
+          CLOSE_PUBLISHER_IDLE,
           `publisher_idle_${Math.floor(idleMs / 1000)}s`
         )
       }

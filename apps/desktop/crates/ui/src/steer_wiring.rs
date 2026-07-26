@@ -1016,17 +1016,33 @@ fn teardown_session(
         manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
     }
 
-    // Stop the publisher (idempotent) and forget the entry. Notify so any
-    // §8.5 banner watching this registry clears itself.
-    registry.update(cx, |registry, cx| {
-        if let Some(entry) = registry.entries.get(session_id) {
-            entry.handle.session_ended();
-            // §P7: stop the activity emitter thread promptly.
-            entry.activity_active.store(false, Ordering::SeqCst);
-        }
-        registry.entries.remove(session_id);
-        cx.notify();
-    });
+    detach_publisher(session_id, Some("killed".to_string()), cx);
+}
+
+/// Detach the steer side of a session WITHOUT touching its terminal tab
+/// (EXP-283): stop the publisher with a clean `bye {outcome}`, stop the §P7
+/// activity emitter, forget the registry entry, and drop the kill-watch
+/// registration. Idempotent — a no-op for sessions this process is not
+/// (or no longer) publishing.
+///
+/// This is the child-exit edge's steer cleanup: the exit hook's own
+/// `codingSessions.end` flips the synced row to `ended`, and without the
+/// unwatch here the §8.8 kill-watch would read our OWN end back from Electric
+/// as a remote kill and close the exited tab — which must stay open with the
+/// exit strip (§7.5 keep-tab-open semantics).
+pub fn detach_publisher(session_id: &str, outcome: Option<String>, cx: &mut App) {
+    if let Some(registry) = PublisherRegistry::global_ref(cx) {
+        registry.update(cx, |registry, cx| {
+            if let Some(entry) = registry.entries.remove(session_id) {
+                // Stop the publisher (idempotent) and notify so any §8.5
+                // banner watching this registry clears itself.
+                entry.handle.shutdown(outcome);
+                // §P7: stop the activity emitter thread promptly.
+                entry.activity_active.store(false, Ordering::SeqCst);
+                cx.notify();
+            }
+        });
+    }
 
     // Drop the kill-watch registration so a later row change can't re-fire.
     if let Some(kill_watch) = cx.try_global::<KillWatchGlobal>().map(|g| g.0.clone()) {
