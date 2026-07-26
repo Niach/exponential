@@ -126,6 +126,13 @@ fn is_tab_line(t: &str) -> bool {
     t.chars().any(|c| TAB_GLYPHS.contains(&c))
 }
 
+/// How many tab glyphs a line carries. The real bar of a multi-question ask
+/// has one per question plus `✔ Submit` (≥2); the review screen's per-answer
+/// summary rows carry at most one `✔` each, so glyph count separates the two.
+fn tab_glyph_count(t: &str) -> usize {
+    t.chars().filter(|c| TAB_GLYPHS.contains(c)).count()
+}
+
 /// A line that terminates option/question scanning in either direction.
 fn is_boundary(t: &str) -> bool {
     t.is_empty() || is_rule(t) || is_tab_line(t)
@@ -246,8 +253,17 @@ pub fn detect(lines: &[String]) -> Option<QuestionSnapshot> {
         return None;
     }
 
-    // Anchors: a tab-bar line above the options, the footer below them.
-    let tab_idx = lines[..first_idx].iter().rposition(|l| is_tab_line(l.trim()))?;
+    // Anchors: a tab-bar line above the options, the footer below them. The
+    // review screen renders ✔-carrying answer-summary rows BETWEEN the bar and
+    // the options — anchoring on the nearest glyph line landed on a summary
+    // row there, parsing junk tabs and missing `review` (EXP-275). Prefer the
+    // nearest line with ≥2 glyphs (the real multi-question bar); a
+    // single-question ask has a 1-glyph bar and no summary rows, so the
+    // any-glyph fallback stays correct for it.
+    let tab_idx = lines[..first_idx]
+        .iter()
+        .rposition(|l| tab_glyph_count(l.trim()) >= 2)
+        .or_else(|| lines[..first_idx].iter().rposition(|l| is_tab_line(l.trim())))?;
     lines[last_option_idx + 1..]
         .iter()
         .position(|l| l.contains(FOOTER_ANCHOR))?;
@@ -604,6 +620,43 @@ mod tests {
         // submitting ⇒ this is the ask's final step.
         assert!(snap.review);
         assert_eq!(snap.current_tab, Some(2));
+    }
+
+    #[test]
+    fn review_screen_with_checkmarked_summary_rows_still_reads_the_real_tab_bar() {
+        // EXP-275: the real review screen's per-answer summary rows can carry
+        // ✔ glyphs. Anchoring the tab bar on the NEAREST glyph line landed on
+        // a summary row, parsed junk tabs, and never flagged `review` — so
+        // the `#submit` step was never published and the remote flow stalled.
+        let lines = screen(&[
+            "←  ☒ Toppings  ☒ Size  ✔ Submit  →",
+            "",
+            "Review your answers",
+            "",
+            " ✔ Which toppings do you want?",
+            "   Mushrooms, Cheese",
+            " ✔ Which size?",
+            "   Large",
+            "",
+            "Ready to submit your answers?",
+            "",
+            "❯ 1. Submit answers",
+            "  2. Cancel",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]);
+        let snap = detect(&lines).expect("picker detected");
+        assert_eq!(snap.text, "Ready to submit your answers?");
+        assert_eq!(
+            snap.tabs,
+            vec![
+                QuestionTab { label: "Toppings".into(), answered: true },
+                QuestionTab { label: "Size".into(), answered: true },
+                QuestionTab { label: "Submit".into(), answered: true },
+            ]
+        );
+        assert_eq!(snap.current_tab, Some(2));
+        assert!(snap.review);
     }
 
     #[test]

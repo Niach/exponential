@@ -1116,6 +1116,11 @@ struct SteerState {
     answered: HashSet<String>,
     /// Fallback plan identity when a hook payload carries no `tool_use_id`.
     plan_seq: u32,
+    /// EXP-275: the session runs with permissions bypassed
+    /// (`--dangerously-skip-permissions` / codex bypass). A real permission
+    /// prompt cannot happen then, so a permission-flavored Notification is
+    /// claude parked on input — never a blocked-on-approval card.
+    bypass_permissions: bool,
 }
 
 /// One question about to go on the wire.
@@ -1297,6 +1302,20 @@ impl SteerState {
                 });
             }
             HookEventKind::PermissionPrompt { message, tool } => {
+                // A pending picker's own nudge: claude sends a "needs your
+                // permission" Notification for AskUserQuestion/ExitPlanMode
+                // too (even in bypass mode). The picker already carries the
+                // needs-input signal, and a permission card would claim a
+                // block the steerer can't act on remotely (EXP-275).
+                if self.ask.is_some() || self.plan.is_some() {
+                    return;
+                }
+                // Bypass mode cannot hit a real permission prompt — whatever
+                // sent this, claude is merely parked on human input.
+                if self.bypass_permissions {
+                    self.attention = Some(Attention::Idle);
+                    return;
+                }
                 self.attention = Some(Attention::Permission);
                 sender.send(ActivityEvent::Permission {
                     tool: truncate(tool.as_deref().unwrap_or("Tool"), ID_MAX),
@@ -1306,7 +1325,39 @@ impl SteerState {
             }
             HookEventKind::Idle { .. } => self.attention = Some(Attention::Idle),
             // The turn ended: whatever the session was waiting on is over.
-            HookEventKind::Stop | HookEventKind::SessionEnd { .. } => self.attention = None,
+            // Besides the attention flag, retire any ask/plan still marked
+            // pending — normally the transcript flush resolves them
+            // (`observe_published`), but a missed flush used to pin
+            // `needs_input` and the clients' steppers forever (EXP-275).
+            // A normally-answered ask is already gone here, so this is a
+            // silent safety net; the transcript's enriched resolution (with
+            // the collected answers) still follows when it does land.
+            HookEventKind::Stop | HookEventKind::SessionEnd { .. } => {
+                self.attention = None;
+                if let Some(ask) = self.ask.take() {
+                    self.live
+                        .retain(|_, live| live.ask_id.as_deref() != Some(ask.ask_id.as_str()));
+                    sender.send(ActivityEvent::QuestionResolved {
+                        id: None,
+                        ask_id: Some(ask.ask_id),
+                        answers: None,
+                        dismissed: None,
+                        at: None,
+                    });
+                }
+                if let Some(plan) = self.plan.take() {
+                    self.live.remove(&plan.id);
+                    if plan.published {
+                        sender.send(ActivityEvent::QuestionResolved {
+                            id: Some(plan.id),
+                            ask_id: None,
+                            answers: None,
+                            dismissed: None,
+                            at: None,
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -1384,7 +1435,20 @@ impl SteerState {
             return false;
         };
         let ask_id = ask.ask_id.clone();
-        if snapshot.review {
+        let visible = normalize_question_text(&snapshot.text);
+        let matched = ask.questions.iter().position(|question| {
+            normalized_texts_match(&normalize_question_text(&question.question), &visible)
+        });
+        // The review step. `snapshot.review` is the tab bar's verdict — but
+        // the bar's glyphs are claude-version-dependent and mis-anchoring on
+        // the review screen's own ✔ summary rows used to drop the flag
+        // (EXP-275), stranding the whole ask on the TUI. While a
+        // MULTI-question ask is pending, the only settled ask-shaped picker
+        // whose text matches none of the hook's questions is the review
+        // screen (its copy varies by claude version), so an unmatched text is
+        // treated as the submit step too. A single-question ask renders no
+        // review step — an unmatched text there keeps the legacy fallback.
+        if snapshot.review || (matched.is_none() && ask.questions.len() > 1) {
             if ask.submit_published {
                 return true;
             }
@@ -1406,10 +1470,7 @@ impl SteerState {
             );
             return true;
         }
-        let visible = normalize_question_text(&snapshot.text);
-        let Some(index) = ask.questions.iter().position(|question| {
-            normalized_texts_match(&normalize_question_text(&question.question), &visible)
-        }) else {
+        let Some(index) = matched else {
             return false;
         };
         if snapshot.options.len() <= ask.published_options[index] {
@@ -1514,8 +1575,17 @@ impl SteerState {
                 };
                 let visible = normalize_question_text(&snapshot.text);
                 match live.kind {
-                    // The submit step is only answerable ON the review tab.
-                    QuestionKind::Submit if !snapshot.review => return,
+                    // The submit step is only answerable ON the review tab —
+                    // recognized by the tab bar OR by the visible text being
+                    // the one the submit card was published with (the grid's
+                    // own review copy; the bar's `review` verdict can be lost
+                    // to glyph mis-anchoring, EXP-275).
+                    QuestionKind::Submit
+                        if !snapshot.review
+                            && !normalized_texts_match(&live.text_norm, &visible) =>
+                    {
+                        return
+                    }
                     QuestionKind::Ask
                         if snapshot.review
                             || !normalized_texts_match(&live.text_norm, &visible) =>
@@ -1648,6 +1718,10 @@ pub struct EmitterConfig {
     /// EXP-249: the semantic-answer seam. `None` = no remote answering (the
     /// publisher then never forwards `answer` frames either).
     pub steering: Option<Steering>,
+    /// EXP-275: the session was launched with permissions bypassed
+    /// (`--dangerously-skip-permissions` / codex bypass) — permission-flavored
+    /// Notifications then never become "blocked on approval" cards.
+    pub bypass_permissions: bool,
 }
 
 /// Start the public activity emitter on a dedicated OS thread. `active` is the
@@ -1686,7 +1760,10 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut picker_watcher = PlanPickerWatcher::new();
     let mut question_watcher = QuestionPickerWatcher::new();
     let mut transcript_state = TranscriptState::default();
-    let mut steer = SteerState::default();
+    let mut steer = SteerState {
+        bypass_permissions: config.bypass_permissions,
+        ..SteerState::default()
+    };
     // EXP-214: last "needs input" flag forwarded — fire only on flips.
     let mut needs_input = false;
 
@@ -3268,6 +3345,240 @@ mod tests {
         );
         assert_eq!(*keys.lock().unwrap(), vec!["2"]);
         assert!(matches!(drained(&rx)[..], [ActivityEvent::AnswerAck { .. }]));
+    }
+
+    #[test]
+    fn an_unmatched_picker_while_a_multi_question_ask_is_pending_publishes_the_submit_step() {
+        // EXP-275: the review screen's copy varies by claude version and its
+        // tab bar can be mis-anchored — but while a multi-question ask is
+        // pending, an ask-shaped picker whose text matches none of the hook's
+        // questions can only be the review step.
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        let snapshot = QuestionSnapshot {
+            text: "All set — send these answers?".to_string(),
+            options: vec![
+                QuestionOption::new("Submit answers", "1"),
+                QuestionOption::new("Cancel", "2"),
+            ],
+            multi_select: false,
+            checked: vec![false, false],
+            tabs: Vec::new(),
+            current_tab: None,
+            review: false,
+        };
+        assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { id, ask_id, text, options, .. }] => {
+                assert_eq!(id.as_deref(), Some("toolu_01#submit"));
+                assert_eq!(ask_id.as_deref(), Some("toolu_01"));
+                assert_eq!(text, "All set — send these answers?");
+                assert_eq!(options[0].label, "Submit answers");
+            }
+            other => panic!("expected the submit step, got {other:?}"),
+        }
+
+        // The dedupe guard holds across re-sightings.
+        assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
+        assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn a_submit_answer_is_accepted_by_text_match_when_review_is_not_detected() {
+        // A review screen whose ✔-carrying answer-summary row steals the
+        // tab-bar anchor: `review` comes out false, but the submit card was
+        // published with the grid's own text, so the text match must carry
+        // the remote answer through (EXP-275).
+        let review_with_summary: Vec<String> = [
+            "←  ☒ Toppings  ☒ Size  ✔ Submit  →",
+            "",
+            "Review your answers",
+            "",
+            " ✔ Cheese  ✔ Mushrooms",
+            "",
+            "Ready to submit your answers?",
+            "",
+            "❯ 1. Submit answers",
+            "  2. Cancel",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect();
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &review_with_summary);
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        let snapshot = question_picker::detect(&screen_lines(&term)).expect("picker");
+        assert!(!snapshot.review, "the fixture must exercise the lost flag");
+        assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
+        drained(&rx);
+
+        // Submitting empties the picker (the ask is over).
+        let (write_input, keys) = recording_input(term.clone(), Some(Vec::new()), "1");
+        steer.handle_answer(
+            RemoteAnswer {
+                question_id: "toolu_01#submit".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(*keys.lock().unwrap(), vec!["1"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "toolu_01#submit"),
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stop_clears_a_pending_ask_and_retires_its_cards() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &toppings_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        // The turn ended with the ask still marked pending (the transcript
+        // flush was missed): the safety net retires the cards and unpins
+        // "needs input" instead of sticking forever (EXP-275).
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id, ask_id, answers, dismissed, .. }] => {
+                assert_eq!(*id, None);
+                assert_eq!(ask_id.as_deref(), Some("toolu_01"));
+                assert_eq!((answers, dismissed), (&None, &None), "neutral retire");
+            }
+            other => panic!("expected one ask resolution, got {other:?}"),
+        }
+        assert!(!steer.has_pending_question());
+
+        // The retired cards are no longer answerable.
+        let (write_input, keys) = recording_input(term.clone(), None, "\t");
+        steer.handle_answer(
+            RemoteAnswer {
+                question_id: "toolu_01#0".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["2".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert!(keys.lock().unwrap().is_empty());
+        assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn stop_clears_a_pending_plan() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PlanProposed {
+                tool_use_id: Some("toolu_plan".to_string()),
+                plan: "## Plan".to_string(),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.confirm_plan_from_grid(vec![QuestionOption::new("Yes", "1")], &sender);
+        drained(&rx);
+
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id, ask_id, .. }] => {
+                assert_eq!(id.as_deref(), Some("toolu_plan"));
+                assert_eq!(*ask_id, None);
+            }
+            other => panic!("expected the plan resolution, got {other:?}"),
+        }
+        assert!(!steer.has_pending_question());
+
+        // An UNPUBLISHED plan (the picker never confirmed) clears silently.
+        steer.apply_hook(
+            hook(HookEventKind::PlanProposed {
+                tool_use_id: Some("toolu_plan2".to_string()),
+                plan: "## Plan 2".to_string(),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        drained(&rx);
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        assert!(drained(&rx).is_empty(), "nothing was on the wire to retire");
+        assert!(!steer.has_pending_question());
+    }
+
+    #[test]
+    fn a_permission_notification_while_a_picker_is_pending_is_swallowed() {
+        // Claude fires "needs your permission" notifications for
+        // AskUserQuestion too — the picker's own nudge must not become a
+        // "blocked on approval" card (EXP-275).
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Claude needs your permission to use AskUserQuestion".to_string(),
+                tool: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(drained(&rx).is_empty(), "no permission card");
+        assert!(steer.attention.is_none(), "the picker already carries needs-input");
+    }
+
+    #[test]
+    fn bypass_permissions_downgrades_permission_prompts_to_idle() {
+        // With --dangerously-skip-permissions a real permission prompt cannot
+        // happen — whatever notified, claude is merely parked on input.
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState {
+            bypass_permissions: true,
+            ..SteerState::default()
+        };
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Claude needs your permission to use Bash".to_string(),
+                tool: Some("Bash".to_string()),
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        assert!(drained(&rx).is_empty(), "no permission card in bypass mode");
+        assert!(steer.attention == Some(Attention::Idle), "parked on input, not blocked");
     }
 
     #[test]

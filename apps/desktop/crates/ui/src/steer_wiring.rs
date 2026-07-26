@@ -764,6 +764,10 @@ pub fn attach_publisher(
     tab: TabId,
     manager: &Entity<TerminalManager>,
     worktree: PathBuf,
+    // EXP-275: the launch's resolved permission posture (skip-permissions on,
+    // plan mode off) — the emitter keeps permission-flavored notifications
+    // from becoming "blocked on approval" cards in bypass mode.
+    bypass_permissions: bool,
     cx: &mut App,
 ) {
     let Some(runtime) = runtime(cx) else {
@@ -892,6 +896,7 @@ pub fn attach_publisher(
                 link: answer_link,
                 write_input,
             }),
+            bypass_permissions,
         },
         handle.activity_sender(),
         activity_active.clone(),

@@ -857,6 +857,8 @@ pub fn spawn_into_window(
     // The P9 refresher inputs, snapshotted before the spawn consumes them.
     let clone = prepared.clone.clone();
     let repository_id = prepared.repository_id.clone();
+    // EXP-275: the emitter's permission posture rides the prepared launch.
+    let bypass_permissions = prepared.bypass_permissions;
     // Action identity for the registry's exit announcement (EXP-257).
     let action_id = match &prepared.tab_kind {
         TabKind::Action(id) => Some(id.clone()),
@@ -899,6 +901,7 @@ pub fn spawn_into_window(
                 terminal_tab,
                 &manager,
                 worktree,
+                bypass_permissions,
                 cx,
             );
             // P9: keep the clone's embedded token fresh for the session's
