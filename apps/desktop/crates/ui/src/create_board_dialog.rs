@@ -23,8 +23,8 @@
 //! action; [`init`] owns the handler.
 
 use gpui::{
-    div, px, size, App, AppContext as _, Entity, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    div, px, size, App, AppContext as _, Entity, IntoElement,
+    ParentElement, Render, SharedString, Styled, Subscription,
     Window,
 };
 use gpui_component::{
@@ -39,20 +39,11 @@ use serde::{Deserialize, Serialize};
 use sync::Store;
 
 use crate::actions::NewBoard;
-use crate::create_issue_dialog::parse_hex_color;
 use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::navigation::{active_team_id, nav_for_window};
 use crate::queries;
 use crate::settings::open_url;
-
-/// Web `LABEL_COLORS` (`lib/label-colors.ts`) — the swatch palette shared by
-/// board + label colors (fixed hex literals on web too).
-pub(crate) const SWATCH_COLORS: [&str; 20] = [
-    "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#10b981",
-    "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899",
-    "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
-];
 
 /// Web default board color (`create-board-dialog.tsx`).
 const DEFAULT_COLOR: &str = "#6366f1";
@@ -412,48 +403,21 @@ impl CreateBoardDialogView {
 }
 
 impl CreateBoardDialogView {
-    /// The icon picker: a wrapping grid of the curated contract glyphs
-    /// (`domain::contract::BOARD_ICON_VALUES`), one clickable cell per icon
-    /// name; the selected one carries the primary ring (same selection style
-    /// as the color swatch grid below).
+    /// The icon picker: the shared grid of curated contract glyphs
+    /// (EXP-288 — `crate::board_form`, also the per-board settings page).
     fn icon_picker(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let mut grid = h_flex().flex_wrap().gap_1p5();
-        for &name in domain::contract::BOARD_ICON_VALUES {
-            let selected = name == self.icon;
-            let view = cx.entity().clone();
-            grid = grid.child(
-                div()
-                    .id(SharedString::from(format!("board-icon-{name}")))
-                    .size(px(28.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(if selected {
-                        cx.theme().primary
-                    } else {
-                        cx.theme().border
-                    })
-                    .cursor_pointer()
-                    .child(
-                        crate::icons::board_icon_name_glyph(name)
-                            .small()
-                            .text_color(if selected {
-                                cx.theme().primary
-                            } else {
-                                cx.theme().muted_foreground
-                            }),
-                    )
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            this.icon = name;
-                            cx.notify();
-                        });
-                    }),
-            );
-        }
-
+        let view = cx.entity().clone();
+        let grid = crate::board_form::icon_swatch_grid(
+            "create-board",
+            self.icon,
+            move |name, _, cx| {
+                view.update(cx, |this, cx| {
+                    this.icon = name;
+                    cx.notify();
+                });
+            },
+            cx,
+        );
         v_flex().gap_2().child(field_label(cx, "Icon")).child(grid)
     }
 
@@ -821,41 +785,19 @@ impl Render for CreateBoardDialogView {
     }
 }
 
-/// Web `ColorSwatchGrid`: a wrapping row of h-5 w-5 rounded-full swatches;
-/// the selected one carries a ring (approximated as a padded border ring).
+/// Web `ColorSwatchGrid` — the shared grid (EXP-288: `crate::board_form`,
+/// also the per-board settings page).
 fn color_swatch_grid(
     selected: &str,
     view: Entity<CreateBoardDialogView>,
     cx: &App,
 ) -> impl IntoElement {
-    let mut grid = h_flex().flex_wrap().gap_1p5();
-    for color in SWATCH_COLORS {
-        let fill = parse_hex_color(color).unwrap_or(cx.theme().muted_foreground);
-        let is_selected = color == selected;
-        let view = view.clone();
-        grid = grid.child(
-            div()
-                .id(SharedString::from(format!("swatch-{color}")))
-                .size(px(24.))
-                .rounded_full()
-                .p(px(2.))
-                .border_1()
-                .border_color(if is_selected {
-                    cx.theme().foreground
-                } else {
-                    gpui::transparent_black()
-                })
-                .cursor_pointer()
-                .child(div().size_full().rounded_full().bg(fill))
-                .on_click(move |_, _, cx| {
-                    view.update(cx, |this, cx| {
-                        this.color = color.to_string();
-                        cx.notify();
-                    });
-                }),
-        );
-    }
-    grid
+    crate::board_form::color_swatch_grid("create-board", selected, move |color, _, cx| {
+        view.update(cx, |this, cx| {
+            this.color = color.to_string();
+            cx.notify();
+        });
+    }, cx)
 }
 
 fn field_label(cx: &App, label: &'static str) -> impl IntoElement {

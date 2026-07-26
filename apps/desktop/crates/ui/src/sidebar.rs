@@ -190,7 +190,7 @@ impl RailShared {
     /// EXP-282: the settings nav's selected section (raw — callers clamp it
     /// through `settings::effective_selection`).
     pub(crate) fn settings_section(&self) -> crate::settings::SettingsSection {
-        self.settings_section
+        self.settings_section.clone()
     }
 }
 
@@ -640,13 +640,10 @@ impl RailView {
             })
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
                 // EXP-282: no "Settings" item — the rail's gear is the single
-                // settings entry. "Account" (was "Notifications") opens the
-                // account pane inside the same settings chrome.
-                let mut menu = menu.label(label.clone()).menu_with_icon(
-                    "Account",
-                    IconName::CircleUser,
-                    Box::new(crate::actions::OpenAccount),
-                );
+                // settings entry. EXP-288: no "Account" item either — Account
+                // lives only in the settings nav's Personal group; this menu
+                // is team switching + session actions.
+                let mut menu = menu.label(label.clone());
                 // "Switch team" section — flat checked rows (the menu builder
                 // has no submenus); shown only with somewhere to switch to.
                 if teams.len() > 1 {

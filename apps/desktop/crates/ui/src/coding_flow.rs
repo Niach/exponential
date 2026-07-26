@@ -640,6 +640,15 @@ pub(crate) fn issue_board(issue_id: &str, cx: &App) -> Option<domain::rows::Boar
         .cloned()
 }
 
+/// EXP-288: the user's terminal-shell override for new `+` shell tabs, read
+/// live from the coding settings at each spawn (the terminal crate can't see
+/// the coding crate, so every `open_shell` caller threads this through).
+/// `None` = auto (the terminal crate's platform `default_shell`).
+pub(crate) fn terminal_shell_override(cx: &mut App) -> Option<String> {
+    let hub = CodingHub::global(cx);
+    hub.read(cx).settings.terminal_shell.clone()
+}
+
 // ---------------------------------------------------------------------------
 // Window plumbing — this window's TerminalManager (§06 dock)
 // ---------------------------------------------------------------------------

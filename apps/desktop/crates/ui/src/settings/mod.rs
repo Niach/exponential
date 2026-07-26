@@ -5,32 +5,34 @@
 //! their `components/team/*-section.tsx` cards, plus
 //! `routes/_authenticated/account/notifications.tsx`. The team-settings
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
-//! left nav with the web's groups — **Team** (General, Members, Labels) and
-//! **Boards** (Boards, Repositories) — plus the desktop-only **This
-//! device** group (Coding, Local repositories); the detail column shows ONE
-//! selected pane with the web's `isOwner &&` gating (General additionally
-//! hides when solo — the pane renders nothing there, matching the web); each
-//! pane mirrors its web card field-for-field.
+//! left nav with the groups — **Team** (General, Members, Labels), **Boards**
+//! (one entry PER board + New board + Repositories — EXP-288 flattened the
+//! old flat Boards list into per-board detail pages), and the desktop-only
+//! **This device** group (Tools, Agents, Local repositories); the detail
+//! column shows ONE selected pane with the web's `isOwner &&` gating
+//! (General additionally hides when solo — the pane renders nothing there,
+//! matching the web); each pane mirrors its web card field-for-field.
 //!
-//! Navigation INTO these screens: the sidebar footer account
-//! dropdown dispatches `OpenSettings` / `OpenAccount` (see `sidebar.rs` +
-//! `navigation::init`); this module only provides the screens.
+//! Navigation INTO these screens: the rail's gear dispatches `OpenSettings`
+//! (see `sidebar.rs` + `navigation::init`); this module only provides the
+//! screens.
 //!
-//! Explicit non-goals held here (§4.9): NO billing pane, NO widget-config
-//! pane, NO admin surface. Plan-cap failures (HTTP 412 from `lib/billing.ts`)
-//! render as a neutral "Upgrade on the web" notice — never an in-app
-//! purchase/pricing UI. The GitHub App *install* is a browser hand-off
-//! (§7.9); Google Calendar does not exist anywhere.
+//! Billing (EXP-288): General carries a READ-ONLY plan/usage summary with a
+//! "Manage on the web" hand-off — still no in-app purchase/pricing UI, no
+//! widget-config pane, no admin surface. Plan-cap failures (HTTP 412 from
+//! `lib/billing.ts`) render as a neutral "Upgrade on the web" notice. The
+//! GitHub App *install* is a browser hand-off (§7.9).
 
 mod account;
-mod coding;
+mod agents;
 mod labels;
 mod local_repos;
 mod members;
 mod notifications_prefs;
-mod boards;
+mod board_detail;
 mod repositories;
 mod team_general;
+mod tools;
 
 pub use account::AccountView;
 
@@ -57,23 +59,31 @@ use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared
 use labels::LabelsPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
-use boards::BoardsPane;
+use agents::AgentsPane;
+use board_detail::BoardDetailPane;
 use repositories::RepositoriesPane;
-use self::coding::CodingPane;
 use team_general::GeneralPane;
+use tools::ToolsPane;
 
 // ---------------------------------------------------------------------------
 // Section nav model (EXP-146 grouped master-detail)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum SettingsSection {
     General,
     Members,
     Labels,
-    Boards,
+    /// One board's detail settings page (EXP-288 — the Boards group lists
+    /// every board as its own nav entry; the payload is the board id).
+    Board(String),
     Repositories,
-    Coding,
+    /// This-device tools (EXP-288: renamed from "Coding" — repos root,
+    /// branch prefix, terminal shell).
+    Tools,
+    /// The per-agent launcher settings + doctor (EXP-288: split out of the
+    /// old Coding pane).
+    Agents,
     LocalRepos,
 }
 
@@ -87,9 +97,11 @@ struct NavGroup {
     items: &'static [NavItem],
 }
 
-/// The web's `SETTINGS_NAV` groups minus the web-only Billing/Widget items,
-/// plus the desktop-only "This device" group. Order defines both the nav and
-/// the non-owner fallback (first visible item).
+/// The STATIC nav skeleton — the web's `SETTINGS_NAV` groups minus the
+/// web-only Billing/Widget items, plus the desktop-only "This device" group.
+/// The Boards group's per-board rows + "New board" are injected dynamically
+/// at render (EXP-288); order defines both the nav and the fallback scan
+/// (first visible item).
 const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
         label: "Team",
@@ -110,23 +122,21 @@ const NAV_GROUPS: &[NavGroup] = &[
     },
     NavGroup {
         label: "Boards",
-        items: &[
-            NavItem {
-                label: "Boards",
-                section: SettingsSection::Boards,
-            },
-            NavItem {
-                label: "Repositories",
-                section: SettingsSection::Repositories,
-            },
-        ],
+        items: &[NavItem {
+            label: "Repositories",
+            section: SettingsSection::Repositories,
+        }],
     },
     NavGroup {
         label: "This device",
         items: &[
             NavItem {
-                label: "Coding",
-                section: SettingsSection::Coding,
+                label: "Tools",
+                section: SettingsSection::Tools,
+            },
+            NavItem {
+                label: "Agents",
+                section: SettingsSection::Agents,
             },
             NavItem {
                 label: "Local repositories",
@@ -136,30 +146,80 @@ const NAV_GROUPS: &[NavGroup] = &[
     },
 ];
 
-/// Web nav `visible` gating: General/Boards/Repositories are owner-only,
+/// EXP-288: every nav entry carries an icon. Board rows use the tinted board
+/// glyph instead (`icons::board_icon`), so they don't route through here.
+fn section_icon(section: &SettingsSection) -> Icon {
+    match section {
+        SettingsSection::General => Icon::new(IconName::Building2),
+        SettingsSection::Members => Icon::new(IconName::User),
+        SettingsSection::Labels => Icon::from(crate::icons::ExpIcon::Tag),
+        SettingsSection::Board(_) => Icon::from(crate::icons::ExpIcon::SquareKanban),
+        SettingsSection::Repositories => Icon::new(IconName::Github),
+        SettingsSection::Tools => Icon::new(IconName::SquareTerminal),
+        SettingsSection::Agents => Icon::new(IconName::Bot),
+        SettingsSection::LocalRepos => Icon::new(IconName::HardDrive),
+    }
+}
+
+/// Web nav `visible` gating: General/board pages/Repositories are owner-only,
 /// and General additionally hides when solo (GeneralPane renders nothing
 /// there, mirroring the web section's `if (solo) return null`).
-fn section_visible(section: SettingsSection, owner: bool, solo: bool) -> bool {
+fn section_visible(section: &SettingsSection, owner: bool, solo: bool) -> bool {
     match section {
         SettingsSection::General => owner && !solo,
-        SettingsSection::Boards | SettingsSection::Repositories => owner,
+        SettingsSection::Board(_) | SettingsSection::Repositories => owner,
         _ => true,
     }
+}
+
+/// The synced board ids of the active team, used to clamp a stale
+/// `Board(id)` selection. `None` while the boards collection is still
+/// loading — treat any selection as valid then (bias kept, mirroring
+/// `is_solo_team`'s loading bias) so a restored selection doesn't bounce.
+fn valid_board_ids(
+    cx: &App,
+    nav: &Entity<Navigation>,
+) -> Option<std::collections::HashSet<String>> {
+    let collections = Store::global(cx).collections();
+    if !collections.boards.read(cx).is_ready() {
+        return None;
+    }
+    let Some(team_id) = active_team_id(nav, cx) else {
+        return Some(Default::default());
+    };
+    Some(
+        collections
+            .boards_in_team(&team_id, cx)
+            .into_iter()
+            .map(|board| board.id)
+            .collect(),
+    )
 }
 
 /// The selected section, clamped to what's visible. Clamped at render time —
 /// never mutated — so a membership change that hides the selection falls back
 /// (to Members, the first never-gated item) and restores it if ownership
-/// returns.
-fn effective_selection(selected: SettingsSection, owner: bool, solo: bool) -> SettingsSection {
-    if section_visible(selected, owner, solo) {
+/// returns. A selected `Board(id)` additionally requires the board to still
+/// exist in the active team (`board_ok`) — a trashed board falls back.
+fn effective_selection(
+    selected: SettingsSection,
+    owner: bool,
+    solo: bool,
+    board_ok: impl Fn(&str) -> bool,
+) -> SettingsSection {
+    let visible = section_visible(&selected, owner, solo)
+        && match &selected {
+            SettingsSection::Board(id) => board_ok(id),
+            _ => true,
+        };
+    if visible {
         return selected;
     }
     NAV_GROUPS
         .iter()
         .flat_map(|group| group.items)
-        .map(|item| item.section)
-        .find(|&section| section_visible(section, owner, solo))
+        .map(|item| item.section.clone())
+        .find(|section| section_visible(section, owner, solo))
         .expect("Members is never gated")
 }
 
@@ -175,13 +235,17 @@ pub struct SettingsView {
     general: Entity<GeneralPane>,
     members: Entity<MembersPane>,
     labels: Entity<LabelsPane>,
-    boards: Entity<BoardsPane>,
+    /// EXP-288: ONE per-board detail pane — it reads the selected `Board(id)`
+    /// from the shared selection itself and re-points at board switches.
+    board_detail: Entity<BoardDetailPane>,
     repositories: Entity<RepositoriesPane>,
-    /// §7.7 desktop-only card block (launcher settings + doctor + key status)
-    /// — local per-install state, so NOT owner-gated and last in the column.
-    coding: Entity<CodingPane>,
+    /// This-device tools (EXP-288: repos root, branch prefix, terminal
+    /// shell) — local per-install state, so NOT owner-gated.
+    tools: Entity<ToolsPane>,
+    /// Per-agent launcher settings + doctor (EXP-288: split out of Tools).
+    agents: Entity<AgentsPane>,
     /// §4.7 desktop-only Local repositories section (clone disk usage +
-    /// prune/remove) — local per-install state, un-gated, after Coding.
+    /// prune/remove) — local per-install state, un-gated.
     local_repos: Entity<LocalReposPane>,
     /// EXP-282: the nav selection lives on the window's [`RailShared`] now —
     /// the nav column renders OUTSIDE this view (it replaces the tool column
@@ -195,17 +259,19 @@ pub struct SettingsView {
 impl SettingsView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
+        let shared = rail_shared_for_window(window, cx);
         let general = cx.new(|cx| GeneralPane::new(nav.clone(), window, cx));
         let members = cx.new(|cx| MembersPane::new(nav.clone(), window, cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
-        let boards = cx.new(|cx| BoardsPane::new(nav.clone(), cx));
+        let board_detail =
+            cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), cx));
-        let coding = cx.new(|cx| CodingPane::new(window, cx));
+        let tools = cx.new(|cx| ToolsPane::new(window, cx));
+        let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
 
         // The section nav + header depend on role (owner gating) and the
         // solo heuristic — re-render when membership/team data moves.
-        let shared = rail_shared_for_window(window, cx);
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -214,6 +280,8 @@ impl SettingsView {
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
+            // EXP-288: a trashed board clamps a selected `Board(id)` back.
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -221,9 +289,10 @@ impl SettingsView {
             general,
             members,
             labels,
-            boards,
+            board_detail,
             repositories,
-            coding,
+            tools,
+            agents,
             local_repos,
             shared,
             _subscriptions: subscriptions,
@@ -247,16 +316,24 @@ impl Render for SettingsView {
         // selected section pane in the detail column. EXP-282: the nav is
         // the window's left column now ([`SettingsNavPanel`]) — this view is
         // the detail column alone.
-        let effective =
-            effective_selection(self.shared.read(cx).settings_section(), owner, solo);
+        let board_ids = valid_board_ids(cx, &self.nav);
+        let effective = effective_selection(
+            self.shared.read(cx).settings_section(),
+            owner,
+            solo,
+            |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
+        );
 
-        let pane: gpui::AnyElement = match effective {
+        let pane: gpui::AnyElement = match &effective {
             SettingsSection::General => self.general.clone().into_any_element(),
             SettingsSection::Members => self.members.clone().into_any_element(),
             SettingsSection::Labels => self.labels.clone().into_any_element(),
-            SettingsSection::Boards => self.boards.clone().into_any_element(),
+            // The pane reads the selected board id from the shared selection
+            // itself (it needs to flush a pending rename on board switches).
+            SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
-            SettingsSection::Coding => self.coding.clone().into_any_element(),
+            SettingsSection::Tools => self.tools.clone().into_any_element(),
+            SettingsSection::Agents => self.agents.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
         };
 
@@ -311,6 +388,8 @@ impl SettingsNavPanel {
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
+            // EXP-288: the Boards group lists the live synced boards.
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -321,15 +400,16 @@ impl SettingsNavPanel {
 
     /// One nav row (hand-rolled — gpui-component's `Button` centers its
     /// inner layout, and these rows must read as a left-aligned list).
+    /// EXP-288: id/label are `impl Into<…>` so dynamic per-board rows fit.
     fn row(
-        id: &'static str,
-        label: &'static str,
+        id: impl Into<gpui::ElementId>,
+        label: impl Into<SharedString>,
         icon: Option<Icon>,
         selected: bool,
         cx: &App,
     ) -> gpui::Stateful<gpui::Div> {
         h_flex()
-            .id(id)
+            .id(id.into())
             .w_full()
             .px_2()
             .py_1()
@@ -343,7 +423,15 @@ impl SettingsNavPanel {
             })
             .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
             .children(icon.map(|icon| icon.xsmall().flex_shrink_0()))
-            .child(label)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(label.into()),
+            )
     }
 
     fn group_label(label: &'static str, cx: &App) -> impl IntoElement {
@@ -355,6 +443,16 @@ impl SettingsNavPanel {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(cx.theme().muted_foreground)
             .child(label)
+    }
+
+    /// EXP-288: the hairline between nav groups — the group labels alone
+    /// read as floating headings.
+    fn group_divider() -> impl IntoElement {
+        div()
+            .h(px(1.))
+            .mx_2()
+            .my_1()
+            .bg(theme::tokens::glass::STROKE_ROW.to_hsla())
     }
 }
 
@@ -370,38 +468,101 @@ impl Render for SettingsNavPanel {
         // The Account screen IS a settings section as far as this column is
         // concerned — while it is up no team/device row is highlighted.
         let on_account = matches!(resolved_screen(&self.nav, cx), Some(Screen::Account));
-        let effective =
-            effective_selection(self.shared.read(cx).settings_section(), owner, solo);
+        let board_ids = valid_board_ids(cx, &self.nav);
+        let effective = effective_selection(
+            self.shared.read(cx).settings_section(),
+            owner,
+            solo,
+            |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
+        );
+        let team_id = active_team_id(&self.nav, cx);
+        let boards = team_id
+            .as_deref()
+            .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
+            .unwrap_or_default();
 
         let mut list = v_flex().p_2().gap_0p5();
+        let mut first_group = true;
         for group in NAV_GROUPS {
             let visible: Vec<&NavItem> = group
                 .items
                 .iter()
-                .filter(|item| section_visible(item.section, owner, solo))
+                .filter(|item| section_visible(&item.section, owner, solo))
                 .collect();
-            if visible.is_empty() {
+            // EXP-288: the Boards group's per-board rows are injected ahead
+            // of its static items (owner-only, like the pages themselves).
+            let board_group = group.label == "Boards" && owner;
+            if visible.is_empty() && !board_group {
                 continue;
             }
+            if !first_group {
+                list = list.child(Self::group_divider());
+            }
+            first_group = false;
             list = list.child(Self::group_label(group.label, cx));
+            if board_group {
+                for board in &boards {
+                    let section = SettingsSection::Board(board.id.clone());
+                    let selected = !on_account && section == effective;
+                    let color = board
+                        .color
+                        .as_deref()
+                        .and_then(parse_hex_color)
+                        .unwrap_or(cx.theme().muted_foreground);
+                    let icon = crate::icons::board_icon(board).text_color(color);
+                    list = list.child(
+                        Self::row(
+                            SharedString::from(format!("settings-nav-board-{}", board.id)),
+                            board.name.clone(),
+                            Some(icon),
+                            selected,
+                            cx,
+                        )
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            select_settings_section(window, cx, section.clone());
+                            navigate(window, cx, Screen::Settings);
+                        })),
+                    );
+                }
+                if let Some(team_id) = team_id.clone() {
+                    let new_board = Self::row(
+                        "settings-nav-new-board",
+                        "New board",
+                        Some(Icon::new(IconName::Plus)),
+                        false,
+                        cx,
+                    )
+                    .text_color(cx.theme().muted_foreground)
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        crate::create_board_dialog::open(window, cx, team_id.clone());
+                    }));
+                    list = list.child(new_board);
+                }
+            }
             for item in visible {
-                let section = item.section;
+                let section = item.section.clone();
                 let selected = !on_account && section == effective;
                 list = list.child(
-                    Self::row(item.label, item.label, None, selected, cx).on_click(
-                        cx.listener(move |_, _, window, cx| {
-                            select_settings_section(window, cx, section);
-                            // A section click from the Account screen returns
-                            // to the settings detail.
-                            navigate(window, cx, Screen::Settings);
-                        }),
-                    ),
+                    Self::row(
+                        item.label,
+                        item.label,
+                        Some(section_icon(&section)),
+                        selected,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        select_settings_section(window, cx, section.clone());
+                        // A section click from the Account screen returns
+                        // to the settings detail.
+                        navigate(window, cx, Screen::Settings);
+                    })),
                 );
             }
         }
         // EXP-282: Account moved INTO the settings chrome (it used to be a
         // second account-dropdown entry with its own bare screen).
         list = list
+            .child(Self::group_divider())
             .child(Self::group_label("Personal", cx))
             .child(
                 Self::row(
@@ -704,10 +865,14 @@ pub(crate) fn is_plan_limit(err: &api::ApiError) -> bool {
 mod tests {
     use super::*;
 
+    fn any_board(_: &str) -> bool {
+        true
+    }
+
     #[test]
     fn owner_defaults_to_general() {
         assert_eq!(
-            effective_selection(SettingsSection::General, true, false),
+            effective_selection(SettingsSection::General, true, false, any_board),
             SettingsSection::General
         );
     }
@@ -716,11 +881,11 @@ mod tests {
     fn non_owner_falls_back_to_members() {
         for gated in [
             SettingsSection::General,
-            SettingsSection::Boards,
+            SettingsSection::Board("b-1".to_string()),
             SettingsSection::Repositories,
         ] {
             assert_eq!(
-                effective_selection(gated, false, false),
+                effective_selection(gated, false, false, any_board),
                 SettingsSection::Members
             );
         }
@@ -730,28 +895,55 @@ mod tests {
     fn solo_owner_hides_general() {
         // GeneralPane renders nothing when solo (web parity), so the nav must
         // hide it and the default selection must fall through to Members.
-        assert!(!section_visible(SettingsSection::General, true, true));
+        assert!(!section_visible(&SettingsSection::General, true, true));
         assert_eq!(
-            effective_selection(SettingsSection::General, true, true),
+            effective_selection(SettingsSection::General, true, true, any_board),
             SettingsSection::Members
         );
         // Solo does NOT gate the other owner sections.
-        assert!(section_visible(SettingsSection::Boards, true, true));
+        assert!(section_visible(
+            &SettingsSection::Board("b-1".to_string()),
+            true,
+            true
+        ));
     }
 
     #[test]
     fn device_sections_never_gated() {
-        for section in [SettingsSection::Coding, SettingsSection::LocalRepos] {
-            assert!(section_visible(section, false, true));
-            assert_eq!(effective_selection(section, false, true), section);
+        for section in [
+            SettingsSection::Tools,
+            SettingsSection::Agents,
+            SettingsSection::LocalRepos,
+        ] {
+            assert!(section_visible(&section, false, true));
+            assert_eq!(
+                effective_selection(section.clone(), false, true, any_board),
+                section
+            );
         }
     }
 
     #[test]
     fn ungated_selection_is_kept() {
         assert_eq!(
-            effective_selection(SettingsSection::Labels, false, false),
+            effective_selection(SettingsSection::Labels, false, false, any_board),
             SettingsSection::Labels
+        );
+    }
+
+    /// EXP-288: a selected board page survives while the board exists and
+    /// falls back once it's gone (trash/team switch) — and General (the
+    /// owner's first item) wins the fallback scan over Members.
+    #[test]
+    fn stale_board_selection_falls_back() {
+        let selected = SettingsSection::Board("b-1".to_string());
+        assert_eq!(
+            effective_selection(selected.clone(), true, false, |id| id == "b-1"),
+            selected
+        );
+        assert_eq!(
+            effective_selection(selected, true, false, |_| false),
+            SettingsSection::General
         );
     }
 }

@@ -27,6 +27,7 @@ mod active_filter_pills;
 mod app_title_bar;
 mod attachments_row;
 mod board;
+mod board_form;
 pub mod coding_flow;
 mod coding_selects;
 mod comments;

@@ -117,14 +117,18 @@ impl TerminalManager {
     }
 
     /// The "+" affordance (§6.13): a plain `Shell` tab running the user's
-    /// `$SHELL -l` in `cwd` (team/worktree root when there is repo
-    /// context — Phase 5) or `$HOME`.
+    /// shell as a login shell in `cwd` (team/worktree root when there is repo
+    /// context — Phase 5) or `$HOME`. `shell_override` is the EXP-288
+    /// settings knob (the terminal crate can't see the coding settings, so
+    /// the ui threads it through); blank/None falls back to
+    /// [`default_shell`]'s `$SHELL`/platform resolution.
     pub fn open_shell(
         &mut self,
         cwd: Option<PathBuf>,
+        shell_override: Option<String>,
         cx: &mut Context<Self>,
     ) -> anyhow::Result<TabId> {
-        let shell = default_shell();
+        let shell = resolve_shell(shell_override);
         let cwd = cwd.or_else(home_dir);
         // v4 §4.6: shell tab headers show the cwd directory name (the trunk
         // clone dir / `$HOME`), not the shell basename. OSC titles still
@@ -256,8 +260,19 @@ impl Default for TerminalManager {
     }
 }
 
+/// EXP-288: resolve the shell for a new `+` tab — the settings override when
+/// set (trimmed), else [`default_shell`].
+fn resolve_shell(shell_override: Option<String>) -> String {
+    shell_override
+        .map(|shell| shell.trim().to_string())
+        .filter(|shell| !shell.is_empty())
+        .unwrap_or_else(default_shell)
+}
+
 /// The user's shell for `+` tabs (§6.13's `$SHELL`), with a platform default.
-fn default_shell() -> String {
+/// Public so the settings pane can show the detected default as the shell
+/// input's placeholder (EXP-288).
+pub fn default_shell() -> String {
     #[cfg(windows)]
     {
         // PowerShell is present on every supported Windows; COMSPEC (cmd.exe)
@@ -411,5 +426,22 @@ mod tests {
     #[test]
     fn default_shell_is_never_empty() {
         assert!(!default_shell().is_empty());
+    }
+
+    /// EXP-288: the settings override wins when set; blank/whitespace falls
+    /// through to the platform default.
+    #[test]
+    fn shell_override_resolution() {
+        assert_eq!(
+            resolve_shell(Some("/opt/homebrew/bin/fish".into())),
+            "/opt/homebrew/bin/fish"
+        );
+        assert_eq!(
+            resolve_shell(Some("  /bin/bash  ".into())),
+            "/bin/bash",
+            "override is trimmed"
+        );
+        assert_eq!(resolve_shell(Some("   ".into())), default_shell());
+        assert_eq!(resolve_shell(None), default_shell());
     }
 }

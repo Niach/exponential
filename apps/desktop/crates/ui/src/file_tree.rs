@@ -134,8 +134,9 @@ fn ensure_actions_registered(cx: &mut App) {
                 let Some(manager) = crate::coding_flow::window_terminal_manager(window, cx) else {
                     return;
                 };
+                let shell_override = crate::coding_flow::terminal_shell_override(cx);
                 manager.update(cx, |manager, cx| {
-                    if let Err(err) = manager.open_shell(Some(dir), cx) {
+                    if let Err(err) = manager.open_shell(Some(dir), shell_override, cx) {
                         log::error!("[ui] file tree: open terminal here failed: {err:#}");
                     }
                 });

@@ -179,6 +179,7 @@ impl TerminalDockPanel {
 
         // Restore BEFORE subscribing so a cold restore neither force-expands
         // the dock (its open state is persisted separately) nor steals focus.
+        let shell_override = crate::coding_flow::terminal_shell_override(cx);
         manager.update(cx, |manager, cx| {
             for tab in persisted
                 .tabs
@@ -190,7 +191,9 @@ impl TerminalDockPanel {
                     tab.kind == persisted_kind(&TabKind::Shell) || tab.kind == "run"
                 })
             {
-                if let Err(error) = manager.open_shell(tab.cwd.clone(), cx) {
+                if let Err(error) =
+                    manager.open_shell(tab.cwd.clone(), shell_override.clone(), cx)
+                {
                     log::warn!("terminal dock: restoring shell tab failed: {error:#}");
                 }
             }
@@ -237,8 +240,9 @@ impl TerminalDockPanel {
         if manager.read(cx).is_empty()
             && std::env::var("EXP_DEV_OPEN_SHELL").is_ok_and(|value| value == "1")
         {
+            let shell_override = crate::coding_flow::terminal_shell_override(cx);
             manager.update(cx, |manager, cx| {
-                if let Err(error) = manager.open_shell(None, cx) {
+                if let Err(error) = manager.open_shell(None, shell_override, cx) {
                     log::warn!("terminal dock: EXP_DEV_OPEN_SHELL spawn failed: {error:#}");
                 }
             });
@@ -435,7 +439,10 @@ impl TerminalDockPanel {
 
     /// Spawn a shell tab at `cwd` (`None` → `$HOME`, resolved by the manager).
     fn open_shell_cwd(&mut self, cwd: Option<PathBuf>, cx: &mut gpui::Context<Self>) {
-        let result = self.manager.update(cx, |manager, cx| manager.open_shell(cwd, cx));
+        let shell_override = crate::coding_flow::terminal_shell_override(cx);
+        let result = self
+            .manager
+            .update(cx, |manager, cx| manager.open_shell(cwd, shell_override, cx));
         if let Err(error) = result {
             log::error!("terminal dock: shell spawn failed: {error:#}");
         }
