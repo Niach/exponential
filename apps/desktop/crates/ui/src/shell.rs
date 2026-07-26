@@ -486,7 +486,11 @@ impl Render for Shell {
         // Synced shell = rail + dock area, no header (EXP-253 removed the top
         // bar) — the bottom terminal dock spans the full width right of the
         // rail (beneath the sidebar, which lives inside the center split).
-        let content: gpui::AnyElement = match session {
+        // EXP-285: the rail spans the FULL window height — through the
+        // titlebar strip (Cursor look); titlebar + update banner + dock stack
+        // in the column to its right. The login/update surfaces keep the
+        // titlebar-first layout (no rail there).
+        let body: gpui::AnyElement = match session {
             // `.h_full()` on the dock wrapper is load-bearing: without a
             // definite height the dock area collapses (same flex-child rule
             // as the source-control diff pane).
@@ -495,14 +499,21 @@ impl Render for Shell {
                 .min_h_0()
                 .child(self.rail.clone())
                 .child(
-                    div()
+                    v_flex()
                         .flex_1()
                         .min_w_0()
                         .h_full()
-                        .child(self.dock_area.clone()),
+                        .when(client_chrome, |col| col.child(self.title_bar.clone()))
+                        .children(self.render_update_banner(cx))
+                        .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
                 )
                 .into_any_element(),
-            _ => self.login.clone().into_any_element(),
+            _ => v_flex()
+                .size_full()
+                .when(client_chrome, |body| body.child(self.title_bar.clone()))
+                .children(self.render_update_banner(cx))
+                .child(div().flex_1().min_h_0().child(self.login.clone()))
+                .into_any_element(),
         };
 
         // Root overlay layers (the sanctioned gpui-component pattern — story
@@ -513,16 +524,6 @@ impl Render for Shell {
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
-
-        // The titlebar (EXP-269) is the first row of the window; the update
-        // banner (§11.2) stacks under it as a second strip; the content fills
-        // the rest. A column wrapper keeps the `size_full` content from
-        // overlapping either strip.
-        let body = v_flex()
-            .size_full()
-            .when(client_chrome, |body| body.child(self.title_bar.clone()))
-            .children(self.render_update_banner(cx))
-            .child(div().flex_1().min_h_0().child(content));
 
         // window_frame: Linux CSD shadow + rounded frame + resize zones
         // (pass-through elsewhere). The sheet/dialog/notification layers stay

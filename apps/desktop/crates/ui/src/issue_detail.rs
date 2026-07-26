@@ -79,11 +79,9 @@ pub(crate) const DETAIL_COLUMN_W: f32 = 768.;
 /// hosts the self-padding WYSIWYG editor.
 pub(crate) const DETAIL_GUTTER: f32 = 16.;
 
-/// The vendored WYSIWYG editor's own per-block horizontal padding
-/// (`gpui-markdown-editor` `dimensions.block_padding_x`, unchanged by the
-/// theme bridge). Subtracted from [`DETAIL_GUTTER`] so the editor's text
-/// lands on the shared edge instead of 12px past it.
-const WYSIWYG_BLOCK_PADDING_X: f32 = 12.;
+/// The vendored WYSIWYG editor's own per-block horizontal padding —
+/// shared with the toolbar compensation (EXP-285), see `wysiwyg::mod`.
+pub(crate) use crate::wysiwyg::WYSIWYG_BLOCK_PADDING_X;
 
 pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
     div()
@@ -619,9 +617,15 @@ impl IssueDetailView {
             // own `block_padding_x` (12px), so a `px_4` slot pushed the
             // description text 28px in — 12px past the title/timeline edge.
             // The slot contributes the REMAINDER of the shared 16px gutter.
+            // EXP-285: a flex column so the editor view's trailing filler
+            // strip absorbs the min-height leftover — clicking the empty
+            // area below a short description places the caret at the end
+            // (textarea behavior) instead of dying on a bare div.
             return div()
                 .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
                 .min_h(px(96.))
+                .flex()
+                .flex_col()
                 .child(editor.element(window, cx))
                 .into_any_element();
         }
@@ -837,9 +841,10 @@ pub(crate) fn apply_status_selection(
 /// §4.6 shared-`IssuePicker` rule: both the detail actions menu and the row
 /// `ContextMenu`'s "Mark as duplicate…" item open this same overlay.
 pub(crate) fn open_duplicate_picker(issue_id: String, window: &mut Window, cx: &mut App) {
+    // EXP-285: trimmed 480 → 420.
     let spec = crate::native_dialog::DialogSpec::new(
         "Mark as duplicate",
-        gpui::size(px(480.), px(480.)),
+        gpui::size(px(480.), px(420.)),
     );
     crate::native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let picker = cx.new(|cx| DuplicatePicker::new(issue_id, window, cx));

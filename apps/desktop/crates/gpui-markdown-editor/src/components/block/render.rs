@@ -1954,8 +1954,10 @@ impl Render for Block {
         // EXP-268: `show_empty_placeholder` gates the empty-editing
         // placeholder to the first block of an EMPTY document (the editor
         // maintains the flag) — a mid-document empty line must never show it.
-        let is_placeholder = focused
-            && self.show_empty_placeholder
+        // EXP-285: no focus gate — the placeholder is an empty-document
+        // affordance that must be visible BEFORE the first click (web tiptap
+        // parity: `p.is-editor-empty:first-child::before` needs no focus).
+        let is_placeholder = self.show_empty_placeholder
             && self.display_text().is_empty()
             && self.marked_range.is_none();
 

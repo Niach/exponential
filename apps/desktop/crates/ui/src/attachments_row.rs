@@ -167,7 +167,7 @@ pub(crate) fn image_chip(
         .px_2()
         .py_1()
         .rounded_md()
-        .bg(cx.theme().secondary.opacity(0.5))
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
         .items_center()
         .child(
             Icon::from(ExpIcon::Image)
@@ -191,7 +191,7 @@ pub(crate) fn image_chip(
         let url = crate::markdown::image_url::strip_query(url).to_string();
         row = row
             .cursor_pointer()
-            .hover(|el| el.bg(cx.theme().secondary))
+            .hover(|el| el.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
             .on_click(move |_, window, cx| {
                 crate::image_preview::open_image_preview(
                     url.clone(),

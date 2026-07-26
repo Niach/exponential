@@ -2159,6 +2159,55 @@ impl Editor {
                 target.update(cx, |target, cx| target.move_to(0, cx));
                 cx.notify();
             }
+            BlockEvent::RequestTypeBelowStructural { text } => {
+                // EXP-285: typing while a rendered standalone image is
+                // focused — route the text into the paragraph below the
+                // image. Reuse an empty/whitespace neighbor (the gap-click
+                // rule — never stack empties), else insert one.
+                let target = visible_before
+                    .get(current_visible_index + 1)
+                    .map(|visible| visible.entity.clone())
+                    .filter(|entity| {
+                        let neighbor = entity.read(cx);
+                        neighbor.kind() == BlockKind::Paragraph
+                            && !neighbor.renders_as_standalone_image()
+                            && neighbor.display_text().chars().all(char::is_whitespace)
+                    });
+                let target = match target {
+                    Some(target) => target,
+                    None => {
+                        let Some(location) =
+                            self.document.find_block_location(block.entity_id())
+                        else {
+                            return;
+                        };
+                        let paragraph =
+                            Self::new_block(cx, BlockRecord::paragraph(String::new()));
+                        self.document.insert_blocks_at(
+                            location.parent,
+                            location.index + 1,
+                            vec![paragraph.clone()],
+                            cx,
+                        );
+                        paragraph
+                    }
+                };
+                self.focus_block(target.entity_id());
+                let text = text.clone();
+                target.update(cx, |target, cx| {
+                    target.prepare_undo_capture(
+                        crate::components::UndoCaptureKind::CoalescibleText,
+                        cx,
+                    );
+                    // Replace the whole visible content: a reused neighbor
+                    // may hold the EXP-271 blank-line NBSP marker, and the
+                    // typed text supersedes it (same as clicking there and
+                    // typing over it).
+                    let visible_len = target.visible_len();
+                    target.replace_text_in_visible_range(0..visible_len, &text, None, false, cx);
+                });
+                cx.notify();
+            }
             BlockEvent::RequestDelete => {
                 if self.downgrade_empty_callout_body_to_quote(&block, cx) {
                     return;
@@ -2289,6 +2338,127 @@ mod tests {
             assert_eq!(editor.pending_focus, Some(landing.entity_id()));
             // The image block's source is untouched.
             assert_eq!(visible[0].entity.read(cx).display_text(), "![a](p.png)");
+        });
+    }
+
+    // EXP-285: typing while a rendered image is focused routes below it.
+    #[gpui::test]
+    async fn typing_on_a_standalone_image_inserts_the_text_in_a_paragraph_below(
+        cx: &mut TestAppContext,
+    ) {
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+        editor.update(cx, |editor, cx| {
+            let image = editor.document.first_root().expect("image block").clone();
+            assert!(image.read(cx).renders_as_standalone_image());
+            editor.on_block_event(
+                image.clone(),
+                &BlockEvent::RequestTypeBelowStructural {
+                    text: "hi".to_string(),
+                },
+                cx,
+            );
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let landing = visible[1].entity.clone();
+            assert_eq!(landing.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(landing.read(cx).display_text(), "hi");
+            assert_eq!(landing.read(cx).selected_range, 2..2);
+            assert_eq!(editor.pending_focus, Some(landing.entity_id()));
+            // The image block's source is untouched.
+            assert_eq!(visible[0].entity.read(cx).display_text(), "![a](p.png)");
+        });
+    }
+
+    #[gpui::test]
+    async fn typing_on_a_standalone_image_reuses_an_empty_neighbor_paragraph(
+        cx: &mut TestAppContext,
+    ) {
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+        editor.update(cx, |editor, cx| {
+            let image = editor.document.first_root().expect("image block").clone();
+            // Enter-on-image first: creates the empty paragraph below.
+            editor.on_block_event(
+                image.clone(),
+                &BlockEvent::RequestNewline {
+                    trailing: InlineTextTree::plain(String::new()),
+                    source_already_mutated: false,
+                },
+                cx,
+            );
+            assert_eq!(editor.document.visible_blocks().len(), 2);
+            // Typing on the image must reuse that paragraph, not stack a
+            // second empty.
+            editor.on_block_event(
+                image.clone(),
+                &BlockEvent::RequestTypeBelowStructural {
+                    text: "x".to_string(),
+                },
+                cx,
+            );
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            assert_eq!(visible[1].entity.read(cx).display_text(), "x");
+            assert_eq!(editor.pending_focus, Some(visible[1].entity.entity_id()));
+        });
+    }
+
+    #[gpui::test]
+    async fn backspace_on_a_standalone_image_deletes_the_image_block(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "before\n\n![a](p.png)".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let image = editor.document.visible_blocks()[1].entity.clone();
+                assert!(image.read(cx).renders_as_standalone_image());
+                image.update(cx, |block, block_cx| {
+                    block.on_delete_back(&DeleteBack, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 1);
+            assert_eq!(visible[0].entity.read(cx).display_text(), "before");
+            // The old fall-through merged the raw source into the paragraph.
+            assert_eq!(editor.document.markdown_text(cx), "before");
+        });
+    }
+
+    // EXP-285: the textarea "click below the text" affordance.
+    #[gpui::test]
+    async fn focus_document_end_places_the_caret_at_the_end_of_the_last_block(
+        cx: &mut TestAppContext,
+    ) {
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha\n\nbeta".to_string(), None));
+        editor.update(cx, |editor, cx| {
+            let before = editor.document.markdown_text(cx);
+            editor.focus_document_end(cx);
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let last = visible[1].entity.clone();
+            assert_eq!(editor.pending_focus, Some(last.entity_id()));
+            assert_eq!(last.read(cx).selected_range, 4..4);
+            // No structural change, nothing to phantom-save.
+            assert_eq!(editor.document.markdown_text(cx), before);
+        });
+    }
+
+    #[gpui::test]
+    async fn focus_document_end_after_a_trailing_image_ensures_a_paragraph(
+        cx: &mut TestAppContext,
+    ) {
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+        editor.update(cx, |editor, cx| {
+            editor.focus_document_end(cx);
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let landing = visible[1].entity.clone();
+            assert_eq!(landing.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(landing.read(cx).display_text(), "");
+            assert_eq!(editor.pending_focus, Some(landing.entity_id()));
         });
     }
 

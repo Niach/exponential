@@ -32,6 +32,10 @@ gpui-component.workspace = true
 # Same ropey the pinned gpui-component uses (its `SyntaxHighlighter::update`
 # takes `&ropey::Rope`; two ropey majors in the tree would not unify).
 ropey = "2.0.0-beta.1"
+# EXP-285: header-only image dimension probe — sizes pasted/dimension-less
+# editor images so gpui's `img` never letterboxes them (already in the tree
+# transitively via gpui).
+imagesize = "0.13"
 # §4.7 ExpIcon: icon_named!(ExpIcon, "../../assets/icons") — the project-local
 # Lucide set (status circles, priority signal bars, …).
 gpui-component-macros.workspace = true

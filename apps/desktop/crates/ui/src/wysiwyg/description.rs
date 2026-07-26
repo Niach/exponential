@@ -15,7 +15,7 @@ use gpui::{
     Pixels, Point, Render, SharedString, Styled as _, Subscription, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
-use gpui_component::{notification::Notification, ActiveTheme as _, WindowExt as _};
+use gpui_component::{notification::Notification, v_flex, ActiveTheme as _, WindowExt as _};
 use gpui_markdown_editor::{
     FormatCommand, ImageSourceResolution, MarkdownEditor as VendoredEditor, MarkdownEditorEvent,
     MarkdownEditorMode, MarkdownEditorOptions, ReferenceKind,
@@ -86,6 +86,14 @@ pub struct WysiwygDescription {
     /// image rewrites), never on `replace_markdown`/construction. Blur saves
     /// only when the live revision has moved past this (EXP-261).
     clean_revision: u64,
+    /// EXP-285: memoized header-probed natural sizes per cache key — the
+    /// fallback when the synced `attachments` row carries no dimensions
+    /// (drafts, legacy rows). The synced row stays authoritative.
+    probed_sizes: HashMap<String, (f32, f32)>,
+    /// EXP-285: `true` = the host renders the toolbar itself (the
+    /// create-issue dialog pins it above its scroll region) and the inline
+    /// toolbar is suppressed.
+    external_toolbar: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -252,6 +260,8 @@ impl WysiwygDescription {
             refs,
             completion_source,
             completion: None,
+            probed_sizes: HashMap::new(),
+            external_toolbar: false,
             _subscriptions: subscriptions,
         };
         // Kick off fetches for images already present in the description and
@@ -312,6 +322,32 @@ impl WysiwygDescription {
     pub fn focus(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.editor
             .update(cx, |editor, cx| editor.focus_first_block(cx));
+    }
+
+    /// EXP-285: caret to the very end of the document — the textarea
+    /// "click the empty area below the text" affordance (the render's filler
+    /// strip routes here).
+    pub fn focus_end(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.editor
+            .update(cx, |editor, cx| editor.focus_document_end(cx));
+    }
+
+    /// EXP-285: suppress the inline toolbar — the host renders it via
+    /// [`Self::toolbar_row`] instead (the create-issue dialog pins it above
+    /// its scroll region so it never scrolls away with a long description).
+    pub fn use_external_toolbar(&mut self) {
+        self.external_toolbar = true;
+    }
+
+    /// The toolbar row for [`Self::use_external_toolbar`] hosts — called via
+    /// `entity.update` from the host's render (the `render_tab_strip`
+    /// precedent: safe outside this view's own render pass).
+    pub fn toolbar_row(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
+        self.render_toolbar(window, cx)
     }
 
     // -- save ---------------------------------------------------------------
@@ -395,6 +431,23 @@ impl WysiwygDescription {
                                 resolutions.insert(real_key.clone(), existing);
                             }
                         }
+                        // EXP-285: carry the probed natural size across the
+                        // draft→real rewrite so there is no one-frame
+                        // letterbox flash before the next sync re-probes.
+                        let draft_size =
+                            this.probed_sizes.get(&staged.draft_url).copied().or_else(|| {
+                                this.shared
+                                    .natural_sizes
+                                    .lock()
+                                    .ok()
+                                    .and_then(|sizes| sizes.get(&staged.draft_url).copied())
+                            });
+                        if let Some(size) = draft_size {
+                            this.probed_sizes.insert(real_key.clone(), size);
+                            if let Ok(mut sizes) = this.shared.natural_sizes.lock() {
+                                sizes.insert(real_key.clone(), size);
+                            }
+                        }
                         this.images.update(cx, |cache, _cx| {
                             cache.insert_bytes(
                                 real_key,
@@ -447,33 +500,50 @@ impl WysiwygDescription {
                 continue;
             }
             let key = images::cache_key(src).to_string();
-            if let Some(size) = crate::markdown::attachment_natural_size(src, cx) {
-                natural.insert(key.clone(), size);
-            }
             if next.contains_key(&key) {
                 continue;
             }
-            if src.starts_with(DRAFT_SCHEME) {
+            let resolution = if src.starts_with(DRAFT_SCHEME) {
                 // Draft bytes were inserted by the paste handler; keep
                 // whatever state they carry (Decoded, or Failed on upload
                 // error).
-                let existing = self
-                    .shared
+                self.shared
                     .resolutions
                     .lock()
                     .ok()
                     .and_then(|resolutions| resolutions.get(&key).cloned())
-                    .unwrap_or(ImageSourceResolution::Failed);
-                next.insert(key, existing);
+                    .unwrap_or(ImageSourceResolution::Failed)
             } else {
                 let slot = self.images.update(cx, |cache, cx| cache.slot(&key, cx));
-                let resolution = match slot {
+                match slot {
                     ImageSlot::Ready(image) => ImageSourceResolution::Decoded(image),
                     ImageSlot::Loading => ImageSourceResolution::Pending,
                     ImageSlot::Failed(_) => ImageSourceResolution::Failed,
+                }
+            };
+            // EXP-285: natural size — the synced `attachments` row first
+            // (the cross-client contract stays authoritative), else a
+            // memoized header probe of the decoded bytes. Without a size the
+            // vendored editor letterboxes the picture in a max-height
+            // Contain box (huge empty bands) — this makes every draft paste
+            // and dimension-less legacy row render aspect-correct.
+            let size = crate::markdown::attachment_natural_size(src, cx).or_else(|| {
+                if let Some(memoized) = self.probed_sizes.get(&key).copied() {
+                    return Some(memoized);
+                }
+                let ImageSourceResolution::Decoded(image) = &resolution else {
+                    return None;
                 };
-                next.insert(key, resolution);
+                let probed = images::probe_natural_size(&image.bytes);
+                if let Some(probed) = probed {
+                    self.probed_sizes.insert(key.clone(), probed);
+                }
+                probed
+            });
+            if let Some(size) = size {
+                natural.insert(key.clone(), size);
             }
+            next.insert(key, resolution);
         }
 
         let sizes_changed = self
@@ -967,12 +1037,35 @@ impl Render for WysiwygDescription {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let completion_popup = self.render_completion(window, cx);
         let menu_backdrop = self.render_image_menu_backdrop(window, cx);
-        div()
+        let toolbar = if self.external_toolbar {
+            None
+        } else {
+            self.render_toolbar(window, cx)
+        };
+        // EXP-285: a flex column that STRETCHES when the host slot gives it
+        // height, with a trailing filler strip below the (content-hugging
+        // embedded) editor. Clicking the filler focuses the document end —
+        // the textarea affordance; without it the leftover slot area was a
+        // dead zone where clicks (and therefore typing) went nowhere. The
+        // filler sits below the editor, so it can never shadow the toolbar
+        // or the editor's own gap-click handling.
+        v_flex()
             .w_full()
+            .flex_1()
             .track_focus(&self.focus_handle)
             .capture_key_down(cx.listener(Self::on_key_down_capture))
-            .children(self.render_toolbar(window, cx))
+            .children(toolbar)
             .child(self.editor.clone())
+            .child(
+                div()
+                    .w_full()
+                    .flex_1()
+                    .min_h(px(24.))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.focus_end(window, cx)),
+                    ),
+            )
             .children(completion_popup)
             .children(menu_backdrop)
             .children(self.render_image_menu(cx))

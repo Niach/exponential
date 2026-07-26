@@ -25,8 +25,8 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, size, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Window,
+    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window, WindowControlArea,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -80,11 +80,13 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
         return;
     };
 
-    // Web: sm:max-w-[40rem] p-0 max-h-[85vh]. A native window has a fixed
-    // size — the editor region flexes to fill and scrolls past the cap, with
+    // Web: sm:max-w-[40rem] p-0 max-h-[85vh]. EXP-285: much shorter (620 →
+    // 460 — a modest textarea, not a tower) and user-resizable with a sane
+    // floor; the editor region flexes to fill and scrolls past the cap, with
     // header/chips/footer pinned (the view's own layout).
-    let height = (window.viewport_size().height * 0.85).min(px(620.));
-    let spec = DialogSpec::new("New issue", size(px(640.), height));
+    let height = (window.viewport_size().height * 0.85).min(px(460.));
+    let spec = DialogSpec::new("New issue", size(px(640.), height))
+        .resizable(size(px(560.), px(400.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
             CreateIssueDialogView::new(
@@ -137,6 +139,9 @@ pub struct CreateIssueDialogView {
     submitting: bool,
     error: Option<SharedString>,
     focused_once: bool,
+    /// Header drag state (the titlebar `should_move` pattern, EXP-285 —
+    /// the dialog is a floating window with no other draggable chrome).
+    should_move: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -161,6 +166,9 @@ impl CreateIssueDialogView {
             window,
             cx,
         );
+        // EXP-285: the dialog pins the formatting bar ABOVE its scroll
+        // region (a long description must not scroll the toolbar away).
+        description.update(cx, |description, _| description.use_external_toolbar());
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
         let due_time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM"));
         let end_time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM"));
@@ -235,6 +243,7 @@ impl CreateIssueDialogView {
             submitting: false,
             error: None,
             focused_once: false,
+            should_move: false,
             _subscriptions: subscriptions,
         }
     }
@@ -848,12 +857,31 @@ impl Render for CreateIssueDialogView {
         let closable = !self.submitting;
 
         // Header: board pill · › · "New issue" · ✕ (web px-5 pt-4 pb-2).
+        // EXP-285: also the window-drag region (floating window, no other
+        // draggable chrome), inset past the macOS traffic lights.
         let header = h_flex()
             .px_5()
             .pt_4()
             .pb_2()
             .items_center()
             .justify_between()
+            .pl(native_dialog::macos_chrome_inset().max(px(20.)))
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down_out(cx.listener(|this, _, _, _| this.should_move = false))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.should_move = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.should_move = false),
+            )
+            .on_mouse_move(cx.listener(|this, _, window, _| {
+                if this.should_move {
+                    this.should_move = false;
+                    window.start_window_move();
+                }
+            }))
             .child(
                 h_flex()
                     .gap_1p5()
@@ -877,7 +905,7 @@ impl Render for CreateIssueDialogView {
                     .child(Icon::new(IconName::ChevronRight).xsmall())
                     .child("New issue"),
             )
-            .child(
+            .child(crate::app_title_bar::interactive(
                 Button::new("create-issue-close")
                     .ghost()
                     .xsmall()
@@ -893,7 +921,7 @@ impl Render for CreateIssueDialogView {
                         }
                         native_dialog::close_dialog_window(window, cx);
                     })),
-            );
+            ));
 
         // Chip row (web px-4 py-2 border-t): status · priority · assignee ·
         // labels · due.
@@ -944,16 +972,31 @@ impl Render for CreateIssueDialogView {
                     ),
             )
             .child(
+                // EXP-285: the formatting bar sits ABOVE the scroll region so
+                // a long description never scrolls it away. Same px_3 as the
+                // slot: 12 + the toolbar's own glyph-align inset lands the
+                // first glyph on the shared 24px text edge.
+                div().px_3().children(
+                    self.description
+                        .update(cx, |description, cx| description.toolbar_row(window, cx)),
+                ),
+            )
+            .child(
                 // Only this region scrolls; header/chips/footer
                 // pinned. The 56px floor mirrors web's `.tiptap-content
                 // { min-height: 3.5rem }` so an empty dialog still shows a
-                // description area (content-hugging above that).
+                // description area. EXP-285: a flex column so the editor
+                // view's trailing filler stretches — clicking anywhere below
+                // the last line places the caret at the end (textarea
+                // behavior).
                 div()
                     .id("create-issue-description")
                     .flex_1()
                     .min_h(px(56.))
                     .px_3()
                     .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
                     .child(self.description.clone()),
             )
             .child(chips)

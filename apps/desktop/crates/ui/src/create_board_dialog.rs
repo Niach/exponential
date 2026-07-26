@@ -149,8 +149,9 @@ pub fn init(cx: &mut App) {
 /// Open the dialog for a team (a native window since EXP-284).
 pub fn open(window: &mut Window, cx: &mut App, team_id: String) {
     // Web sm:max-w-[26rem] width; the form is tall (icon grid + swatches +
-    // repo picker) — cap against the opener and let the shell scroll the rest.
-    let height = (window.viewport_size().height * 0.85).min(px(680.));
+    // repo picker) — cap against the opener and let the shell scroll the
+    // rest. EXP-285: trimmed 680 → 560 (content-sized, scroll past the cap).
+    let height = (window.viewport_size().height * 0.85).min(px(560.));
     let spec = DialogSpec::new("Create board", size(px(416.), height));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| CreateBoardDialogView::new(team_id, window, cx));

@@ -420,9 +420,10 @@ impl Render for SettingsNavPanel {
             .size_full()
             .min_w_0()
             .overflow_hidden()
-            // Same section wash as the tool column it replaces (EXP-269) —
-            // fill only, no hairline.
-            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+            // EXP-285: like the tool column it replaces — no fill, just a
+            // hairline boundary over the one page gradient.
+            .border_r_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .text_color(cx.theme().sidebar_foreground)
             .child(
                 div()
@@ -543,6 +544,40 @@ pub(crate) fn section(_cx: &App) -> gpui::Div {
 /// instead of the heavier `theme.border`, now that no card frames them.
 pub(crate) fn row_stroke(_cx: &App) -> gpui::Hsla {
     theme::tokens::glass::STROKE_ROW.to_hsla()
+}
+
+/// EXP-285: one settings preference row — label + hint column left (the hint
+/// wraps at a readable measure instead of sprawling the full pane), the
+/// control pinned right, hairline separators BETWEEN rows carrying the
+/// rhythm (`first` rows draw none).
+pub(crate) fn pref_row(
+    label: impl IntoElement,
+    hint: impl Into<SharedString>,
+    control: impl IntoElement,
+    first: bool,
+    cx: &App,
+) -> gpui::Div {
+    h_flex()
+        .w_full()
+        .items_center()
+        .gap_4()
+        .py_2p5()
+        .when(!first, |row| row.border_t_1().border_color(row_stroke(cx)))
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_0p5()
+                .child(label)
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .max_w(px(460.))
+                        .child(hint.into()),
+                ),
+        )
+        .child(div().flex_none().child(control))
 }
 
 /// Web `CardTitle` + `CardDescription`.

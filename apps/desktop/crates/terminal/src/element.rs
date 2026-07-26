@@ -506,7 +506,11 @@ impl Render for TerminalView {
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .size_full()
-            .bg(self.palette.background)
+            // EXP-285: no background paint — default-bg cells skip painting
+            // (see `bg != palette.background` in layout), so the window's
+            // page gradient shows through and the terminal blends into the
+            // one glassy surface. `palette.background` stays meaningful as
+            // the default-bg sentinel + OSC color-report value.
             .on_key_down(cx.listener(Self::handle_key_down))
             .child(TerminalElement {
                 view: cx.entity(),
@@ -1282,7 +1286,7 @@ impl Element for TerminalElement {
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
+        _bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         layout: &mut Self::PrepaintState,
         window: &mut Window,
@@ -1291,9 +1295,8 @@ impl Element for TerminalElement {
         let palette = self.palette;
         let line_height = layout.geometry.line_height;
 
-        // Clear to the terminal background (the default-bg cells rely on it).
-        window.paint_quad(fill(bounds, palette.background));
-
+        // EXP-285: no background clear — default-bg cells paint nothing and
+        // the window's page gradient shows through (one glassy surface).
         if layout.geometry.cols == 0 || layout.geometry.rows == 0 {
             return; // collapsed dock — nothing else to do (§6.9)
         }

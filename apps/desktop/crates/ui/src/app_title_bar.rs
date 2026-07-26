@@ -10,13 +10,18 @@
 //! native chrome remains.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, Entity, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement as _, Render, Styled as _, Subscription, Window,
+    div, prelude::FluentBuilder as _, px, App, ClickEvent, Entity, InteractiveElement as _,
+    IntoElement, MouseButton, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
-use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _, TitleBar};
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    h_flex, ActiveTheme as _, Icon, IconName, Sizable as _, TitleBar,
+};
+use sync::{SessionPhase, Store};
 
 use crate::icons::ExpIcon;
 use crate::screens::ScreensPanel;
+use crate::update::UpdateState;
 
 #[cfg(not(feature = "staging"))]
 const APP_TITLE: &str = "Exponential";
@@ -56,12 +61,23 @@ pub struct AppTitleBar {
     screens: Option<Entity<ScreensPanel>>,
     /// Repaints the bar when tabs open/close/retitle.
     _observe_screens: Option<Subscription>,
+    /// Repaints the bar when the rail expands/collapses (EXP-285 — the
+    /// left padding and the collapsed-state expand toggle depend on it).
+    _observe_rail: Option<Subscription>,
 }
 
 impl AppTitleBar {
     pub fn new() -> Self {
-        Self { screens: None, _observe_screens: None }
+        Self { screens: None, _observe_screens: None, _observe_rail: None }
     }
+}
+
+/// EXP-285: whether this window renders the full-height rail next to the
+/// titlebar (`Shell`'s Synced branch, not update-blocked). Mirrors the
+/// branch conditions in `Shell::render` — keep the two in sync.
+fn rail_present(cx: &App) -> bool {
+    let blocked = UpdateState::global_ref(cx).is_some_and(|m| m.read(cx).is_blocked());
+    !blocked && matches!(Store::global(cx).session(cx), SessionPhase::Synced { .. })
 }
 
 impl Render for AppTitleBar {
@@ -72,6 +88,10 @@ impl Render for AppTitleBar {
                 self.screens = Some(panel);
             }
         }
+        if self._observe_rail.is_none() {
+            let shared = crate::sidebar::rail_shared_for_window(window, cx);
+            self._observe_rail = Some(cx.observe(&shared, |_, _, cx| cx.notify()));
+        }
         // Building the strip via `update` on the panel entity is safe here —
         // the titlebar renders outside the panel's own render pass.
         let strip = self
@@ -79,12 +99,46 @@ impl Render for AppTitleBar {
             .as_ref()
             .map(|panel| panel.update(cx, |panel, cx| panel.render_tab_strip(cx)));
 
-        TitleBar::new().child(
+        // EXP-285: with the full-height rail to our left, the vendored 80px
+        // macOS traffic-light reserve is wrong — the lights float over the
+        // RAIL now. Expanded (164px) the rail clears the cluster entirely;
+        // collapsed (44px) the bar still needs the remainder. Fullscreen
+        // hides the lights, so the reserve is reclaimed outright.
+        let rail = rail_present(cx);
+        let expanded = rail && crate::sidebar::rail_expanded(window, cx);
+        let bar = TitleBar::new().when(rail, |bar| {
+            let pl = if cfg!(target_os = "macos") && !window.is_fullscreen() && !expanded {
+                px(80. - crate::sidebar::RAIL_W)
+            } else {
+                px(8.)
+            };
+            bar.pl(pl)
+        });
+
+        // Collapsed rail: the 44px strip can't host the expand toggle (the
+        // macOS traffic lights sit over it) — surface it here instead.
+        let expand_toggle = (rail && !expanded).then(|| {
+            interactive(
+                Button::new("titlebar-rail-expand")
+                    .ghost()
+                    .small()
+                    .icon(IconName::PanelLeftOpen)
+                    .tooltip("Expand sidebar")
+                    // Direct call (EXP-17): titlebar buttons must not
+                    // dispatch App-global actions.
+                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                        crate::sidebar::toggle_rail_expanded(window, cx);
+                    })),
+            )
+        });
+
+        bar.child(
             h_flex()
                 .flex_1()
                 .min_w_0()
                 .items_center()
                 .gap_3()
+                .children(expand_toggle)
                 .child(
                     h_flex()
                         .flex_none()

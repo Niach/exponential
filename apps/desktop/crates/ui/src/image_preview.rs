@@ -49,7 +49,9 @@ pub(crate) fn open_image_preview(
     let viewport = window.viewport_size();
     let width = (viewport.width * 0.8).min(px(1100.));
     let height = viewport.height * 0.8;
-    let spec = DialogSpec::new(label.clone(), size(width, height));
+    // EXP-285: chromeless — traffic lights over the image corner read as
+    // dirt; the header ✕ stays the dismissal.
+    let spec = DialogSpec::new(label.clone(), size(width, height)).chromeless();
     native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
         let preview = cx.new(|cx| ImagePreview::new(url, open_url, images, cx));
         // The header's ✕ is the only mouse dismissal a lightbox has (there is

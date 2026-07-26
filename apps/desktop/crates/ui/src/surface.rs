@@ -47,14 +47,13 @@ pub(crate) fn tab_chip(selected: bool, cx: &App) -> Div {
 
 /// Width of the right detail sidebars (issue properties / action detail /
 /// support thread). EXP-282: shared here (was one const + two magic 240s)
-/// and trimmed 240 → 220 per feedback.
-pub(crate) const DETAIL_SIDEBAR_WIDTH: f32 = 220.;
+/// and trimmed 240 → 220; EXP-285 trimmed again 220 → 192 per feedback.
+pub(crate) const DETAIL_SIDEBAR_WIDTH: f32 = 192.;
 
 /// Right detail sidebar container (EXP-282): the shared column shape the
-/// three detail views hand-rolled identically, plus a glass section fill so
-/// the panel reads as a distinct pane over the gradient — mirroring the left
-/// tool column (`SidebarPanel`). Fill only, no hairline: EXP-277 removed the
-/// left border deliberately and the tool column sets the fill-only precedent.
+/// three detail views hand-rolled identically. EXP-285: no section fill —
+/// every pane sits on the ONE page gradient (only the icon rail is tinted);
+/// a hairline marks the boundary to the center.
 pub(crate) fn glass_sidebar() -> Div {
     v_flex()
         .w(px(DETAIL_SIDEBAR_WIDTH))
@@ -64,7 +63,8 @@ pub(crate) fn glass_sidebar() -> Div {
         .py_3()
         .gap_3()
         .text_sm()
-        .bg(t::glass::FILL_SECTION.to_hsla())
+        .border_l_1()
+        .border_color(t::glass::STROKE_ROW.to_hsla())
 }
 
 /// Shared markdown `TextView` style (EXP-282): code blocks get a glass
