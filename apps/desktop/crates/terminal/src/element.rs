@@ -1346,9 +1346,23 @@ impl Element for TerminalElement {
             }
         }
 
-        // IME composition overlay at the cursor.
+        // IME composition overlay at the cursor. This quad must stay OPAQUE —
+        // it occludes the grid cells the composition text is drawn over (IME
+        // mid-line would otherwise render two strings on top of each other).
+        // EXP-285: with the grid no longer clearing to `palette.background`,
+        // that flat fill banded against the page gradient, so sample the
+        // gradient at this quad's own y instead.
         if let Some((ime_bounds, origin, line)) = &layout.ime {
-            window.paint_quad(fill(*ime_bounds, palette.background));
+            let viewport_h = f32::from(window.viewport_size().height);
+            let ime_t = if viewport_h > 0. {
+                f32::from(ime_bounds.origin.y) / viewport_h
+            } else {
+                0.
+            };
+            window.paint_quad(fill(
+                *ime_bounds,
+                theme::background_gradient_color_at(ime_t),
+            ));
             let _ = line.paint(*origin, line_height, TextAlign::default(), None, window, cx);
             cursor_pixel_bounds = Some(*ime_bounds);
         }

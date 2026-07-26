@@ -64,11 +64,24 @@ pub struct AppTitleBar {
     /// Repaints the bar when the rail expands/collapses (EXP-285 — the
     /// left padding and the collapsed-state expand toggle depend on it).
     _observe_rail: Option<Subscription>,
+    /// Repaints the bar when the session phase flips (EXP-285 — `rail_present`
+    /// reads it, and the macOS traffic-light padding follows the rail). Without
+    /// this a Synced↔login transition leaves the bar on the previous padding
+    /// until some unrelated notify happens to repaint it.
+    _observe_session: Option<Subscription>,
+    /// Same, for the update-blocked gate — the other half of `rail_present`.
+    _observe_update: Option<Subscription>,
 }
 
 impl AppTitleBar {
     pub fn new() -> Self {
-        Self { screens: None, _observe_screens: None, _observe_rail: None }
+        Self {
+            screens: None,
+            _observe_screens: None,
+            _observe_rail: None,
+            _observe_session: None,
+            _observe_update: None,
+        }
     }
 }
 
@@ -91,6 +104,18 @@ impl Render for AppTitleBar {
         if self._observe_rail.is_none() {
             let shared = crate::sidebar::rail_shared_for_window(window, cx);
             self._observe_rail = Some(cx.observe(&shared, |_, _, cx| cx.notify()));
+        }
+        // Both halves of `rail_present` live outside this view — observe them
+        // so the rail-aware padding can't go stale (see the field docs).
+        if self._observe_session.is_none() {
+            if let Some(state) = Store::try_global(cx).map(|store| store.state()) {
+                self._observe_session = Some(cx.observe(&state, |_, _, cx| cx.notify()));
+            }
+        }
+        if self._observe_update.is_none() {
+            if let Some(update) = UpdateState::global_ref(cx) {
+                self._observe_update = Some(cx.observe(&update, |_, _, cx| cx.notify()));
+            }
         }
         // Building the strip via `update` on the panel entity is safe here —
         // the titlebar renders outside the panel's own render pass.

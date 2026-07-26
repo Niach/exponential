@@ -400,13 +400,39 @@ fn mix_rgba(a: Rgba, b: Rgba, k: f32) -> Rgba {
     }
 }
 
-/// The desktop gradient's top stop: `BACKGROUND_TOP` mixed
-/// [`GRADIENT_TOP_MIX`] of the way toward `BACKGROUND_BOTTOM`.
-pub fn blended_background_top() -> Hsla {
+/// The desktop gradient's top stop as raw sRGB (the lerp endpoint that both
+/// [`blended_background_top`] and [`background_gradient_color_at`] start from).
+fn blended_background_top_rgba() -> Rgba {
     mix_rgba(
         t::glass::BACKGROUND_TOP.to_rgba(),
         t::glass::BACKGROUND_BOTTOM.to_rgba(),
         GRADIENT_TOP_MIX,
+    )
+}
+
+/// The desktop gradient's top stop: `BACKGROUND_TOP` mixed
+/// [`GRADIENT_TOP_MIX`] of the way toward `BACKGROUND_BOTTOM`.
+pub fn blended_background_top() -> Hsla {
+    blended_background_top_rgba().into()
+}
+
+/// The SOLID color of [`background_gradient`] at vertical fraction `t` (0 =
+/// window top, 1 = window bottom).
+///
+/// EXP-285 dropped the opaque fills so everything sits on the one page
+/// gradient — but an element that genuinely must occlude what is behind it
+/// (the terminal's IME composition underlay, which covers the grid cells the
+/// composition text overlays) still needs an OPAQUE paint. Stamping a flat
+/// `palette.background` there banded visibly against the ramp; this samples
+/// the ramp at the quad's own y instead, so the occluder disappears into the
+/// page. `t` is clamped, so a caller passing a NaN/─ve ratio still gets the
+/// top stop rather than a garbage color.
+pub fn background_gradient_color_at(t: f32) -> Hsla {
+    let k = if t.is_finite() { t.clamp(0., 1.) } else { 0. };
+    mix_rgba(
+        blended_background_top_rgba(),
+        t::glass::BACKGROUND_BOTTOM.to_rgba(),
+        k,
     )
     .into()
 }
@@ -565,6 +591,31 @@ mod tests {
         assert!(top.l > tokens::glass::BACKGROUND_TOP.to_hsla().l);
         assert!(top.l < tokens::glass::BACKGROUND_BOTTOM.to_hsla().l);
         assert!(approx(top.a, 1.0));
+    }
+
+    #[test]
+    fn gradient_sample_matches_the_stops_and_stays_opaque() {
+        // EXP-285: the terminal's IME underlay paints this instead of a flat
+        // `palette.background`, so it must reproduce the ramp's endpoints and
+        // stay fully opaque (it is an occluder — see the fn docs).
+        let top = background_gradient_color_at(0.);
+        let bottom = background_gradient_color_at(1.);
+        assert_hsla_eq(top, blended_background_top(), "sample at t=0");
+        assert_hsla_eq(
+            bottom,
+            tokens::glass::BACKGROUND_BOTTOM.to_hsla(),
+            "sample at t=1",
+        );
+        // Monotonic in between, and never see-through.
+        let mid = background_gradient_color_at(0.5);
+        assert!(mid.l > top.l && mid.l < bottom.l, "mid={mid:?}");
+        for t in [0., 0.5, 1.] {
+            assert!(approx(background_gradient_color_at(t).a, 1.0));
+        }
+        // Out-of-range / non-finite ratios clamp instead of producing garbage.
+        assert_hsla_eq(background_gradient_color_at(-3.), top, "clamped low");
+        assert_hsla_eq(background_gradient_color_at(9.), bottom, "clamped high");
+        assert_hsla_eq(background_gradient_color_at(f32::NAN), top, "NaN ratio");
     }
 
     #[test]

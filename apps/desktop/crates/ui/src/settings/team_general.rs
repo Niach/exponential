@@ -285,7 +285,11 @@ impl Render for GeneralPane {
                     .border_1()
                     .border_color(cx.theme().danger.opacity(0.5))
                     .rounded(cx.theme().radius_lg)
-                    .bg(cx.theme().colors.list_head)
+                    // EXP-285 made `list_head` transparent, which silently
+                    // flattened this card into the page gradient. The Danger
+                    // Zone must stay a distinct surface, so take the same
+                    // danger tint the sibling `error_notice` card uses.
+                    .bg(cx.theme().danger.opacity(0.1))
                     .child(
                         v_flex()
                             .gap_0p5()

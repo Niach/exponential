@@ -195,9 +195,15 @@ impl DialogSpec {
 /// EXP-285: extra left inset for a dialog's own header row on macOS while the
 /// native traffic lights float over the content (close enabled, the disabled
 /// minimize/zoom siblings still reserve their slots).
+///
+/// Must clear the whole cluster, not just the close button: at the
+/// `traffic_light_position` used below (x=12) the three standard-pitch slots
+/// run to roughly x=66, so the previous 56px let the zoom slot sit on top of
+/// the header title. 80px matches the reserve gpui's own `TitleBar` keeps for
+/// the same cluster and leaves a normal gutter after it.
 pub(crate) fn macos_chrome_inset() -> Pixels {
     if cfg!(target_os = "macos") {
-        px(56.)
+        px(80.)
     } else {
         px(0.)
     }
