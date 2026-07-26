@@ -45,8 +45,8 @@ use theme::tokens as t;
 
 use domain::board::format_short_date;
 use domain::options::{
-    get_issue_priority_config, get_issue_status_config, IssueOption, ISSUE_PRIORITY_OPTIONS,
-    ISSUE_STATUS_OPTIONS,
+    get_issue_priority_config, get_issue_status_config, ColorToken, IssueOption,
+    ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_OPTIONS,
 };
 use domain::rows::{Issue, Label, Board, User};
 use domain::{IssueFilters, IssueStatus};
@@ -339,10 +339,10 @@ impl IssueListView {
         row
     }
 
-    /// Web group header: chevron trigger + status icon + label + count on the
-    /// shared glass section band (EXP-282: the per-status rgba washes are
-    /// gone — the status COLOR now lives only in the header's icon, so the
-    /// list reads as one surface over the page gradient).
+    /// Web group header: chevron trigger + status icon + label + count over a
+    /// wash in the status' own hue (EXP-293 — restores the web
+    /// `statusHeaderBg` tint that EXP-282/EXP-285 flattened away; see
+    /// [`status_header_tint`] for why it came back).
     fn render_group_header(
         &self,
         status: IssueStatus,
@@ -363,8 +363,10 @@ impl IssueListView {
             .px_3()
             .gap_1p5()
             .items_center()
-            // EXP-285: no header band — one glassy surface; the hairline
-            // below is the only group separator.
+            // EXP-293: a wash in the status' hue so the header reads as a group
+            // divider and not as one more issue row (the hairline alone was too
+            // little). Web parity — `statusHeaderBg` in issue-list.tsx.
+            .bg(status_header_tint(status))
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.5))
             .child(
@@ -1853,11 +1855,51 @@ fn due_cell(issue: &Issue, cx: &App) -> impl IntoElement {
 // Chrome bits
 // ---------------------------------------------------------------------------
 
-// EXP-282: `status_header_bg` (the verbatim web `statusHeaderBg` rgba tints —
-// zinc / yellow / green / blue washes per status) is GONE. EXP-285 flattened
-// the remaining glass section band too — group headers sit directly on the
-// page gradient (hairline-separated) and the status hue survives in the
-// header's option icon.
+/// Group-header tint strength. Web parity: `statusHeaderBg`'s `/10` washes in
+/// `apps/web/src/components/issue-list.tsx`. Deliberately between the glass
+/// ladder's row fill (white 5% — the hover state) and its active fill (white
+/// 15% — the selected state), so a tinted header can never be misread as a
+/// hovered or selected issue row.
+const HEADER_TINT_ALPHA: f32 = 0.10;
+
+/// The group header's background wash, in the status' own hue (EXP-293).
+///
+/// History: EXP-282 deleted the original `status_header_bg` (verbatim web rgba
+/// literals) and EXP-285 flattened the remaining glass band, leaving headers
+/// bare on the page gradient with only a hairline — at 28px row height that
+/// made them near-indistinguishable from issue rows. The tint is back, but
+/// token-locked this time: the hue comes from the status' own [`ColorToken`]
+/// (`domain::options` — "status/priority accents are token-locked, never loose
+/// hex in Rust"), so header, icon and every other status affordance can never
+/// drift apart.
+fn status_header_tint(status: IssueStatus) -> gpui::Hsla {
+    status_tint_base(get_issue_status_config(status).color)
+        .to_hsla()
+        .opacity(HEADER_TINT_ALPHA)
+}
+
+/// Hue source for [`status_header_tint`] — the generated design token behind a
+/// [`ColorToken`], deliberately as a pure fn (no `cx`) so the mapping is unit
+/// testable.
+///
+/// The five accents are exactly what [`crate::icons::token_color`] resolves
+/// them to. The two FOREGROUND roles cannot be: `theme.foreground` and
+/// `theme.muted_foreground` are near-white and near-grey, so a wash of them
+/// would be indistinguishable from the white-alpha glass fills the app already
+/// paints everywhere (hover, active, section). They map to the NEUTRAL accent
+/// instead — the same role web's `zinc-500/10` plays for backlog / cancelled /
+/// duplicate. (Web additionally splits todo as `zinc-300/10`; that half-step is
+/// not worth a second neutral token here.)
+fn status_tint_base(token: ColorToken) -> theme::Srgb8 {
+    match token {
+        ColorToken::Foreground | ColorToken::MutedForeground => t::NEUTRAL,
+        ColorToken::Yellow => t::YELLOW,
+        ColorToken::Green => t::GREEN,
+        ColorToken::Red => t::RED,
+        ColorToken::Orange => t::ORANGE,
+        ColorToken::Blue => t::BLUE,
+    }
+}
 
 /// Web `IssueListSkeleton`: one header row + five body rows of placeholders.
 fn list_skeleton(cx: &App) -> impl IntoElement {
@@ -1951,5 +1993,49 @@ mod tests {
         let saturday = chrono::NaiveDate::from_ymd_opt(2026, 7, 4).unwrap();
         let [_, end_of_week, _] = due_date_presets(saturday);
         assert_eq!(end_of_week.1, chrono::NaiveDate::from_ymd_opt(2026, 7, 10).unwrap());
+    }
+
+    #[test]
+    fn group_header_tints_follow_the_status_accent_tokens() {
+        // EXP-293 web parity (`statusHeaderBg`): in_progress yellow, in_review
+        // green, done blue; every grey status shares the neutral accent. Locked
+        // to the GENERATED tokens so the header wash can never drift from the
+        // status icon beside it.
+        for (status, want) in [
+            (IssueStatus::InProgress, t::YELLOW),
+            (IssueStatus::InReview, t::GREEN),
+            (IssueStatus::Done, t::BLUE),
+            (IssueStatus::Backlog, t::NEUTRAL),
+            (IssueStatus::Todo, t::NEUTRAL),
+            (IssueStatus::Cancelled, t::NEUTRAL),
+            (IssueStatus::Duplicate, t::NEUTRAL),
+            // Forward-compat: an unknown wire value falls back to backlog's
+            // config (`get_issue_status_config`), so it must still get a tint.
+            (IssueStatus::Unknown, t::NEUTRAL),
+        ] {
+            let tint = status_header_tint(status);
+            let want = want.to_hsla();
+            assert!(
+                (tint.h - want.h).abs() < 0.001 && (tint.s - want.s).abs() < 0.001,
+                "{status:?} tint hue/sat {tint:?} != token {want:?}"
+            );
+            assert!(
+                (tint.a - HEADER_TINT_ALPHA).abs() < 0.001,
+                "{status:?} tint alpha: {tint:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn header_tint_sits_between_the_row_hover_and_active_fills() {
+        // The header must never be mistaken for a hovered (glass FILL_ROW) or
+        // selected (FILL_ACTIVE) issue row — those are the two white washes
+        // painted on the rows right below it.
+        let hover = t::glass::FILL_ROW.a as f32 / 255.;
+        let active = t::glass::FILL_ACTIVE.a as f32 / 255.;
+        assert!(
+            hover < HEADER_TINT_ALPHA && HEADER_TINT_ALPHA < active,
+            "hover {hover} < header {HEADER_TINT_ALPHA} < active {active}"
+        );
     }
 }

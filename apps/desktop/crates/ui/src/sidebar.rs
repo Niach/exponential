@@ -1081,7 +1081,11 @@ impl Render for RailView {
             .gap_1()
             // EXP-285: the rail is the ONE lighter column of the app (Cursor
             // look) — section wash in BOTH states, full height, while every
-            // other pane sits bare on the page gradient.
+            // other pane sits bare on the page gradient. EXP-293: it is also
+            // the app's GLASS column — the wash is the only thing it paints, so
+            // the Shell root's sidebar-alpha ramp (`theme::glass_sidebar_alpha`)
+            // stays exposed here while the content column right of it tops up to
+            // near-solid.
             .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
             // EXP-269 corners: the wash runs flush into the window's LEFT
             // edge, top to bottom, so it must round its two left corners with

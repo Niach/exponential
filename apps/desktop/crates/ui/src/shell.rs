@@ -526,13 +526,31 @@ impl Render for Shell {
                         .flex_1()
                         .min_w_0()
                         .h_full()
+                        // EXP-293 glass swap: the root below paints the SIDEBAR
+                        // ramp (the app's most transparent region — the rail
+                        // sits on it bare), and this column tops it up to
+                        // `theme::glass_content_alpha()` so everything right of
+                        // the rail — list, tabs, detail sidebar, terminal dock —
+                        // reads as the near-solid surface. Same stops as the
+                        // base and the same y span (full window height), so the
+                        // two ramps align exactly and only alpha adds up.
+                        .bg(theme::content_topup_gradient())
+                        // EXP-269 corners, right half: this layer paints to the
+                        // window's right edge, and gpui's content mask is
+                        // rectangular, so it must round with the frame itself
+                        // (the rail does the same for the two LEFT corners).
+                        .rounded_tr(crate::window_frame::frame_radii(window).top_right)
+                        .rounded_br(crate::window_frame::frame_radii(window).bottom_right)
                         .when(client_chrome, |col| col.child(self.title_bar.clone()))
                         .children(self.render_update_banner(cx))
                         .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
                 )
                 .into_any_element(),
-            _ => v_flex()
+            // No rail here, so the whole window is content: top the sidebar
+            // base up on all four corners (EXP-293).
+            _ => crate::window_frame::round_to_frame(v_flex(), window)
                 .size_full()
+                .bg(theme::content_topup_gradient())
                 .when(client_chrome, |body| body.child(self.title_bar.clone()))
                 .children(self.render_update_banner(cx))
                 .child(div().flex_1().min_h_0().child(self.login.clone()))
@@ -562,8 +580,12 @@ impl Render for Shell {
                     .size_full()
                     // EXP-269: the glass page gradient — every panel above it
                     // is transparent or a white-alpha fill so the ramp shows
-                    // through.
-                    .bg(theme::background_gradient())
+                    // through. EXP-293: the Shell paints the SIDEBAR ramp as
+                    // its base (the rail's alpha) because alpha compositing can
+                    // only ADD opacity — the most transparent region has to be
+                    // the bottom layer, and the content column above tops it up
+                    // (`theme::content_topup_gradient`).
+                    .bg(theme::sidebar_background_gradient())
                     .text_color(cx.theme().foreground)
                     .child(body)
                     .children(sheet_layer)
