@@ -203,6 +203,13 @@ impl CodingPane {
     fn resync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let hub = CodingHub::global(cx);
         let settings = hub.read(cx).settings.clone();
+        // EXP-282: the rail pref shares this settings file but is NOT a control
+        // on this pane — fold its new value into the dirty baseline (`drafted`
+        // carries it through from there) instead of letting a rail toggle drive
+        // a full control resync that would wipe the edits in flight.
+        if let Some(synced) = self.synced.as_mut() {
+            synced.rail_expanded = settings.rail_expanded;
+        }
         if self.synced.as_ref() == Some(&settings) {
             return;
         }

@@ -32,7 +32,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     dock::{DockArea, DockAreaState, DockEvent, DockItem, Panel, PanelControl, PanelEvent, PanelView},
     h_flex,
-    resizable::{h_resizable, resizable_panel},
+    resizable::{h_resizable, resizable_panel, ResizableState},
     v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _,
 };
 use sync::{SessionPhase, Store};
@@ -872,6 +872,12 @@ pub struct CenterPanel {
     /// window right of the rail instead of nesting a second nav inside the
     /// center pane.
     settings_nav: Entity<SettingsNavPanel>,
+    /// The tool-column split's dragged width. Owned HERE, not by the element:
+    /// `h_resizable`'s own state is per-frame element state (gpui drops what a
+    /// frame never touched), and settings unmount the split entirely — without
+    /// this entity a Settings round-trip would snap the column back to its
+    /// default width.
+    center_split: Entity<ResizableState>,
     nav: Entity<Navigation>,
     _subscriptions: Vec<gpui::Subscription>,
 }
@@ -891,6 +897,7 @@ impl CenterPanel {
             sidebar: cx.new(|cx| SidebarPanel::new(window, cx)),
             screens: cx.new(|cx| ScreensPanel::new(window, cx)),
             settings_nav: cx.new(|cx| SettingsNavPanel::new(window, cx)),
+            center_split: cx.new(|_| ResizableState::default()),
             nav,
             _subscriptions: subscriptions,
         }
@@ -966,6 +973,9 @@ impl Render for CenterPanel {
             .size_full()
             .child(
                 h_resizable("center-split")
+                    // Panel-owned state: settings unmount this split, and
+                    // element state dies with the frame that stops touching it.
+                    .with_state(&self.center_split)
                     .child(
                         resizable_panel()
                             .size(SIDEBAR_WIDTH)

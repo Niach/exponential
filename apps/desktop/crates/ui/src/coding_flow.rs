@@ -365,9 +365,12 @@ impl LocalSessions {
                         // emitter, unwatch the kill-watch) so our own end's
                         // synced `ended` flip can't read back as a remote
                         // kill. No-op when the kill path already detached.
+                        // The bye outcome is `ended`, NOT `killed`: closing a
+                        // tab is a normal end, and remote viewers label the
+                        // outcome verbatim (only `ended` renders detail-less).
                         crate::steer_wiring::detach_publisher(
                             &session_id,
-                            Some("killed".to_string()),
+                            Some("ended".to_string()),
                             cx,
                         );
                         if let Some(sessions) = sessions.upgrade() {
@@ -389,10 +392,11 @@ impl LocalSessions {
                     spawn_tracked_end(trpc, session_id.clone());
                     // EXP-283: same detach as the exit/close edges — the end
                     // above flips the row, and the kill-watch must not read
-                    // our own flip back as a remote kill.
+                    // our own flip back as a remote kill. `ended`, not
+                    // `killed`: a released window is a normal end for viewers.
                     crate::steer_wiring::detach_publisher(
                         &session_id,
-                        Some("killed".to_string()),
+                        Some("ended".to_string()),
                         cx,
                     );
                     if let Some(sessions) = sessions.upgrade() {
