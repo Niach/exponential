@@ -266,12 +266,15 @@ jobs:
   # it is never downloaded from a Release. Skipped on workflow_dispatch (no tag).
   release:
     needs: build
-    # `always()` because `needs: build` covers BOTH channels: a flaky STAGING
-    # leg used to skip this job and leave a tag with no Release at all (0.8.34,
-    # `hdiutil: create failed - Resource busy`). Staging is artifacts-only, so
-    # it must never gate the production publish — the guard below is what
-    # actually enforces a complete production set.
-    if: always() && startsWith(github.ref, 'refs/tags/desktop-v')
+    # `!cancelled()` because `needs: build` covers BOTH channels: a flaky
+    # STAGING leg used to skip this job and leave a tag with no Release at all
+    # (0.8.34, `hdiutil: create failed - Resource busy`). Staging is
+    # artifacts-only, so it must never gate the production publish — the guard
+    # below is what actually enforces a complete production set. NOT `always()`:
+    # that runs even on a CANCELLED run, so hitting cancel on a tag build whose
+    # production legs had already uploaded would still publish it as `latest`
+    # and self-update the fleet to a build we deliberately killed.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/desktop-v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
