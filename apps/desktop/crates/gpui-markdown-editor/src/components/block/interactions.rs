@@ -984,6 +984,15 @@ impl Block {
                     self.replace_text_in_range(None, &normalized, window, cx);
                     return;
                 }
+                // EXP-285: a focused rendered image has no caret, so the
+                // source split below would splice the pasted lines into the
+                // raw `![alt](src)` markdown at a stale offset. Route them
+                // into the paragraph below instead (same guard as
+                // typing/IME/single-line paste).
+                if self.showing_rendered_image() {
+                    cx.emit(BlockEvent::RequestTypeBelowStructural { text: normalized });
+                    return;
+                }
                 let clean_selected = self.selection_clean_range();
                 let (leading, tail) = self.record.title.split_at(clean_selected.start);
                 let (_, trailing) =

@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use super::Editor;
 use crate::api::MarkdownEditorEvent;
+use crate::components::markdown::paste::should_split_plain_multiline_paste;
 use crate::components::{
     BlockEvent, BlockKind, BlockRecord, CollapsedCaretAffinity, IndentBlock, InlineTextTree,
     OutdentBlock, PastedImageSource, TableCellPosition, is_table_row_candidate,
@@ -2194,6 +2195,25 @@ impl Editor {
                 };
                 self.focus_block(target.entity_id());
                 let text = text.clone();
+                // EXP-285: a multiline paste routed below the image — hand the
+                // lines to the normal paste path on the (empty) target
+                // paragraph so tables, fences and lists still import as blocks
+                // instead of landing as one paragraph with embedded newlines.
+                if text.contains('\n') {
+                    let lines = text.split('\n').map(ToOwned::to_owned).collect::<Vec<_>>();
+                    let split_physical_lines = should_split_plain_multiline_paste(&lines);
+                    self.on_block_event(
+                        target,
+                        &BlockEvent::RequestPasteMultiline {
+                            leading: InlineTextTree::plain(String::new()),
+                            lines,
+                            trailing: InlineTextTree::plain(String::new()),
+                            split_physical_lines,
+                        },
+                        cx,
+                    );
+                    return;
+                }
                 target.update(cx, |target, cx| {
                     target.prepare_undo_capture(
                         crate::components::UndoCaptureKind::CoalescibleText,
@@ -2289,9 +2309,9 @@ mod tests {
     use super::Editor;
     use crate::components::{
         Block, BlockEvent, BlockKind, BlockRecord, CalloutVariant, Delete, DeleteBack,
-        ExitCodeBlock, InlineTextTree, Newline,
+        ExitCodeBlock, InlineTextTree, Newline, Paste,
     };
-    use gpui::{App, AppContext, Entity, TestAppContext};
+    use gpui::{App, AppContext, ClipboardItem, Entity, TestAppContext};
 
     #[gpui::test]
     async fn request_quote_break_creates_new_root_leaf_quote_group(cx: &mut TestAppContext) {
@@ -2399,6 +2419,40 @@ mod tests {
             assert_eq!(visible.len(), 2);
             assert_eq!(visible[1].entity.read(cx).display_text(), "x");
             assert_eq!(editor.pending_focus, Some(visible[1].entity.entity_id()));
+        });
+    }
+
+    // EXP-285: a multiline paste on a rendered image routes below it too —
+    // the old title split spliced the lines into the `![alt](src)` source.
+    #[gpui::test]
+    async fn multiline_paste_on_a_standalone_image_lands_below_and_keeps_the_source(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+
+        cx.update(|window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string("one\ntwo".to_string()));
+            editor.update(cx, |editor, cx| {
+                let image = editor.document.first_root().expect("image block").clone();
+                assert!(image.read(cx).showing_rendered_image());
+                image.update(cx, |block, block_cx| {
+                    block.on_paste(&Paste, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 3);
+            // The image block's source is untouched.
+            assert_eq!(visible[0].entity.read(cx).display_text(), "![a](p.png)");
+            assert_eq!(visible[1].entity.read(cx).display_text(), "one");
+            assert_eq!(visible[2].entity.read(cx).display_text(), "two");
+            assert_eq!(
+                editor.document.markdown_text(cx),
+                "![a](p.png)\n\none\n\ntwo"
+            );
         });
     }
 
