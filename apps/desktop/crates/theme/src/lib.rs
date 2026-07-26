@@ -511,10 +511,14 @@ pub fn glass_sidebar_alpha() -> f32 {
 /// surfaces that carry body text, code and diffs keep their contrast while
 /// still reading as glass.
 ///
-/// EXP-303 tried lowering this to 0.85 to make the content "a little glassy"
-/// and it read WRONG — more desktop/behind-window ghosting, not glassiness.
-/// The content's glass comes from [`content_glass_wash`] instead; this alpha
-/// stays put.
+/// EXP-303 note: this alpha never reaches the screen inside the DOCK — at the
+/// pinned gpui-component rev, `TabPanel::render` paints an opaque
+/// `tokens.background` across every docked panel, occluding the page ramp
+/// entirely (which is why lowering this to 0.85 changed nothing visible in
+/// the content). The dock's own glass comes from [`content_glass_opacity`];
+/// this alpha still governs the surfaces the dock does NOT cover (the
+/// titlebar strip via [`content_topup_top`], standalone windows, dialogs'
+/// pages, login).
 ///
 /// 1.0 without a real blur backdrop ([`blur_backdrop_available`]).
 pub fn glass_content_alpha() -> f32 {
@@ -525,20 +529,37 @@ pub fn glass_content_alpha() -> f32 {
     }
 }
 
-/// EXP-303: the faint white-alpha wash the Shell paints over the main-content
-/// column's page ramp — the "little bit glassy" the issue asks for. Glassiness
-/// here is the app's OWN glass idiom (the white-alpha `t::glass::FILL_*`
-/// ladder every list row/card uses), not more window translucency: lowering
-/// [`glass_content_alpha`] was tried first and just ghosted whatever sat
-/// behind the window through the body text. A frosted lightening wash reads as
-/// a glass pane on every platform — including the no-blur ones, so it is
-/// deliberately NOT gated on [`blur_backdrop_available`].
+/// EXP-303: the gpui ELEMENT opacity the Shell renders the dock subtree at —
+/// the "little bit glassy" main content. gpui-component's `TabPanel` paints an
+/// opaque `tokens.background` under every docked panel (issue list, tabs,
+/// detail sidebar, terminal dock), and that token cannot be made translucent
+/// without also ghosting every dialog/sheet/select that reads it — so instead
+/// the whole dock subtree renders at this opacity over the Shell's bare
+/// sidebar-alpha base ramp. Net desktop bleed through the content is
+/// `(1 - glass_sidebar_alpha) · (1 - this)` ≈ 3% — a tenth of the sidebar's
+/// (the issue's "not as much as the sidebar but a very small amount").
 ///
-/// Sits well below the rail's old white-4% `FILL_SECTION` wash ("not as much
-/// as the sidebar but a very small amount") and far below `FILL_ROW`/`FILL_CARD`,
-/// so hover/selection fills painted on top keep their contrast against it.
-pub fn content_glass_wash() -> Hsla {
-    gpui::hsla(0., 0., 1., 0.03)
+/// The cost is that TEXT in the dock also renders at this opacity, which is
+/// why it must stay a whisper (≥ 0.85, same contrast floor as
+/// [`glass_content_alpha`]'s guard rail). 1.0 without a real blur backdrop —
+/// there the bleed would be zero and the text dimming pure loss.
+pub fn content_glass_opacity() -> f32 {
+    if blur_backdrop_available() {
+        0.90
+    } else {
+        1.0
+    }
+}
+
+/// EXP-303: the flat underlay for the titlebar strip, replacing the
+/// column-wide [`content_topup_gradient`] the Shell used to paint (that
+/// top-up sat UNDER the dock too, and stacked with the dock's own paint it
+/// multiplied the desktop bleed away — (1-0.90)·(1-ω) instead of
+/// (1-0.72)·(1-ω)). The strip is ~30px at the very top of the window, where
+/// the ramp's drift is invisible, so a flat sample of the top-up's top stop
+/// keeps the EXP-293 near-solid titlebar band exactly.
+pub fn content_topup_top() -> Hsla {
+    gradient_stops_at_alpha(content_topup_alpha()).0
 }
 
 /// The glass page background (EXP-269): the mobile `AppBackground` gradient —
@@ -826,19 +847,30 @@ mod tests {
     }
 
     #[test]
-    fn content_glass_wash_is_a_subtle_white_fill() {
-        // EXP-303: the content's glass is a frosted WASH, not translucency —
-        // white (the glass FILL_* family's hue), and quieter than every
-        // interactive glass fill so hover/selection still read against it.
-        // It must also stay below the rail's old white-4% FILL_SECTION wash
-        // ("not as much as the sidebar but a very small amount").
-        let wash = content_glass_wash();
-        assert!(approx(wash.s, 0.) && approx(wash.l, 1.), "white: {wash:?}");
-        assert!(wash.a > 0., "the wash must be visible: {wash:?}");
-        assert!(
-            wash.a < tokens::glass::FILL_SECTION.to_hsla().a,
-            "quieter than FILL_SECTION: {wash:?}"
-        );
+    fn content_glass_opacity_is_a_whisper_over_the_bare_base_ramp() {
+        // EXP-303: the dock renders at element opacity — text pays for the
+        // bleed, so the opacity floor mirrors glass_content_alpha's 0.85
+        // contrast guard rail, and the resulting desktop bleed must stay a
+        // small fraction of the sidebar's (the issue's "not as much as the
+        // sidebar but a very small amount").
+        let o = content_glass_opacity();
+        if blur_backdrop_available() {
+            assert!((0.85..1.0).contains(&o), "content opacity: {o}");
+            let content_bleed = (1.0 - glass_sidebar_alpha()) * (1.0 - o);
+            let sidebar_bleed = 1.0 - glass_sidebar_alpha();
+            assert!(content_bleed > 0., "the content must actually bleed");
+            assert!(
+                content_bleed < sidebar_bleed / 4.,
+                "content bleed {content_bleed} must stay well under the sidebar's {sidebar_bleed}"
+            );
+        } else {
+            // No backdrop = no bleed to buy; dimming text would be pure loss.
+            assert!(approx(o, 1.0), "no-blur content opacity must be 1: {o}");
+        }
+        // The titlebar underlay is the top-up's top stop, flat — same color
+        // and alpha as the gradient the column used to paint at y=0.
+        let (top, _) = gradient_stops_at_alpha(content_topup_alpha());
+        assert_hsla_eq(content_topup_top(), top, "titlebar underlay");
     }
 
     #[test]
