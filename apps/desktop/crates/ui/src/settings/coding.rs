@@ -53,7 +53,7 @@ use crate::coding_selects::{
     AGENT_CHOICES,
 };
 
-use super::{card, card_header, error_notice};
+use super::{section, card_header, error_notice};
 
 // ---------------------------------------------------------------------------
 // Pane
@@ -287,6 +287,11 @@ impl CodingPane {
             codex_skip_permissions: self.codex_skip_permissions,
             repos_root: value(&self.repos_input, &defaults.repos_root),
             branch_prefix: value(&self.prefix_input, &defaults.branch_prefix),
+            // EXP-282: a UI pref sharing this settings file, NOT a control on
+            // this pane — carry the synced value through so saving here never
+            // resets the rail (and `dirty` doesn't false-positive on it).
+            // `save` re-reads the hub's live value right before writing.
+            rail_expanded: self.synced.as_ref().and_then(|synced| synced.rail_expanded),
         }
     }
 
@@ -298,8 +303,12 @@ impl CodingPane {
     }
 
     fn save(&mut self, cx: &mut gpui::Context<Self>) {
-        let drafted = self.drafted(cx);
+        let mut drafted = self.drafted(cx);
         let hub = CodingHub::global(cx);
+        // EXP-282: the rail pref can have been toggled since this pane last
+        // synced — take the hub's live value so a coding save never rolls it
+        // back.
+        drafted.rail_expanded = hub.read(cx).settings.rail_expanded;
         self.save_error = CodingHub::save_settings(&hub, drafted.clone(), cx)
             .err()
             .map(SharedString::from);
@@ -432,7 +441,7 @@ impl CodingPane {
             )
     }
 
-    fn render_doctor_card(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render_doctor_section(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let hub = CodingHub::global(cx);
         let (report, running, default_agent): (Option<DoctorReport>, bool, CodingAgent) = {
             let hub = hub.read(cx);
@@ -443,7 +452,7 @@ impl CodingPane {
             )
         };
 
-        let mut body = card(cx).child(card_header(
+        let mut body = section(cx).child(card_header(
             "Tooling doctor",
             "git is required; of the agent CLIs, only the one you launch with must be \
              installed. A red row blocks that launch until it's fixed.",
@@ -491,7 +500,7 @@ impl CodingPane {
     /// agent's CLI path + model/effort selects and its OWN toggles — plan
     /// mode and ultracode exist only on the Claude tab, skip permissions on
     /// Claude and Codex.
-    fn render_agents_card(&mut self, cx: &mut gpui::Context<Self>) -> gpui::Div {
+    fn render_agents_section(&mut self, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let active_ix = CodingAgent::ALL
             .iter()
             .position(|agent| *agent == self.agent_tab)
@@ -521,7 +530,7 @@ impl CodingPane {
                 })),
         );
 
-        let mut body = card(cx)
+        let mut body = section(cx)
             .child(card_header(
                 "Agents",
                 "Each agent's CLI, model, and run defaults — the Start-coding dialog \
@@ -624,7 +633,7 @@ impl Render for CodingPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let dirty = self.dirty(cx);
 
-        let general_card = card(cx)
+        let general_card = section(cx)
             .child(card_header(
                 "Coding",
                 "Local launcher settings for \u{201c}Start coding\u{201d} — per machine, never synced.",
@@ -649,7 +658,7 @@ impl Render for CodingPane {
                 cx,
             ));
 
-        let agents_card = self.render_agents_card(cx);
+        let agents_card = self.render_agents_section(cx);
 
         let mut save_area = v_flex().gap_2();
         if let Some(error) = &self.save_error {
@@ -666,11 +675,15 @@ impl Render for CodingPane {
             ),
         );
 
+        // EXP-282: the sections are flat now — whitespace is the only
+        // separator, so they sit further apart (the detail column's own
+        // section rhythm).
         v_flex()
-            .gap_4()
+            .w_full()
+            .gap_6()
             .child(general_card)
             .child(agents_card)
             .child(save_area)
-            .child(self.render_doctor_card(cx))
+            .child(self.render_doctor_section(cx))
     }
 }

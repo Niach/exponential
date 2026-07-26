@@ -51,7 +51,7 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
     let view = cx.new(|cx| JoinTeamView::new(token, window, cx));
     window.open_dialog(cx, move |dialog, _window, cx| {
         let busy = view.read(cx).accepting;
-        dialog
+        crate::surface::glass_dialog(dialog)
             .w(px(416.))
             .title("Join a team")
             .overlay_closable(!busy)

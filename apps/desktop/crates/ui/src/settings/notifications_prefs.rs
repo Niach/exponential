@@ -39,7 +39,7 @@ use domain::contract::{
 
 use crate::queries;
 
-use super::{card, error_notice, spawn_trpc};
+use super::{section, error_notice, spawn_trpc};
 
 /// Web `TYPE_ROWS` — verbatim labels + hints, contract-locked type values.
 const TYPE_ROWS: [(&str, &str, &str); 7] = [
@@ -215,24 +215,13 @@ impl Render for NotificationsPrefsPane {
             _ => (false, false, false),
         };
 
-        // Card header: icon tile + title/description + the master switch.
-        let mut body = card(cx).child(
+        // EXP-282: section header — title/description + the master switch.
+        // The 40px opaque icon tile is gone: with the card frame removed it
+        // was a lone box floating in a flat pane.
+        let mut body = section(cx).child(
             h_flex()
                 .gap_3()
                 .items_start()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size_10()
-                        .flex_shrink_0()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(cx.theme().border)
-                        .bg(cx.theme().muted)
-                        .child(gpui_component::Icon::new(IconName::Bell)),
-                )
                 .child(
                     v_flex()
                         .flex_1()
@@ -303,8 +292,10 @@ impl Render for NotificationsPrefsPane {
                             .py_2()
                             .rounded(cx.theme().radius)
                             .border_1()
-                            .border_color(cx.theme().border)
-                            .bg(cx.theme().muted)
+                            .border_color(super::row_stroke(cx))
+                            // EXP-282: glass section fill, not the opaque
+                            // `theme.muted` panel.
+                            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child(
@@ -360,7 +351,7 @@ impl Render for NotificationsPrefsPane {
                         .items_center()
                         .pt_3()
                         .border_t_1()
-                        .border_color(cx.theme().border)
+                        .border_color(super::row_stroke(cx))
                         .child(
                             v_flex()
                                 .flex_1()

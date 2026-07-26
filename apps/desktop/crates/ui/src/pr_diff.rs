@@ -69,7 +69,6 @@ impl Render for PrDiffView {
         // EXP-277: content headers use the faint glass row stroke, not the
         // heavier chrome border (fewer/softer section lines).
         let border = theme::tokens::glass::STROKE_ROW.to_hsla();
-        let list_bg = theme_colors.colors.list;
         let pr_green = theme::tokens::GREEN.to_hsla();
 
         // Header off the live synced issue row (identifier/title/PR fields
@@ -144,9 +143,11 @@ impl Render for PrDiffView {
                 )
         });
 
+        // EXP-282: no fill — the screen floats on the page gradient (the
+        // dropped paint was `colors.list`, transparent since EXP-269, so this
+        // is a dead-code removal, not a visual change).
         v_flex()
             .size_full()
-            .bg(list_bg)
             .children(header)
             .child(div().flex_1().min_h_0().child(self.diff.clone()))
     }

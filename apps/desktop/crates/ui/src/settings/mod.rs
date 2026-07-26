@@ -34,16 +34,25 @@ mod team_general;
 
 pub use account::AccountView;
 
+/// EXP-282: width of the settings nav column — it REPLACES the tool column
+/// while a settings screen is up (rendered by `shell::CenterPanel`), so it
+/// owns a fixed width like the right detail sidebars rather than riding the
+/// resizable split.
+pub const SETTINGS_NAV_WIDTH: f32 = 212.;
+
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, IconName, Sizable as _};
 use sync::Store;
 
-use crate::navigation::{active_team_id, nav_for_window, Navigation};
+use crate::navigation::{
+    active_team_id, nav_for_window, navigate, resolved_screen, Navigation, Screen,
+};
 use crate::queries;
+use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared};
 
 use labels::LabelsPane;
 use local_repos::LocalReposPane;
@@ -174,9 +183,12 @@ pub struct SettingsView {
     /// §4.7 desktop-only Local repositories section (clone disk usage +
     /// prune/remove) — local per-install state, un-gated, after Coding.
     local_repos: Entity<LocalReposPane>,
-    /// The nav selection; clamped through `effective_selection` at render
-    /// time so gated sections never show for non-owners.
-    selected: SettingsSection,
+    /// EXP-282: the nav selection lives on the window's [`RailShared`] now —
+    /// the nav column renders OUTSIDE this view (it replaces the tool column
+    /// while settings are up), so both must read one value. Clamped through
+    /// `effective_selection` at render time so gated sections never show for
+    /// non-owners.
+    shared: Entity<RailShared>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -193,9 +205,12 @@ impl SettingsView {
 
         // The section nav + header depend on role (owner gating) and the
         // solo heuristic — re-render when membership/team data moves.
+        let shared = rail_shared_for_window(window, cx);
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
+            // EXP-282: the nav column mutates the shared selection.
+            cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
@@ -210,7 +225,7 @@ impl SettingsView {
             repositories,
             coding,
             local_repos,
-            selected: SettingsSection::General,
+            shared,
             _subscriptions: subscriptions,
         }
     }
@@ -229,51 +244,11 @@ impl Render for SettingsView {
                 .unwrap_or(true)
         };
         // Web settings layout route (EXP-146): grouped left nav + one
-        // selected section pane in the detail column.
-        let effective = effective_selection(self.selected, owner, solo);
-
-        let mut nav = v_flex().p_2().gap_0p5();
-        for group in NAV_GROUPS {
-            let visible: Vec<&NavItem> = group
-                .items
-                .iter()
-                .filter(|item| section_visible(item.section, owner, solo))
-                .collect();
-            if visible.is_empty() {
-                continue;
-            }
-            nav = nav.child(
-                div()
-                    .px_2()
-                    .pt_2()
-                    .pb_0p5()
-                    .text_xs()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().muted_foreground)
-                    .child(group.label),
-            );
-            for item in visible {
-                let section = item.section;
-                let is_selected = section == effective;
-                nav = nav.child(
-                    h_flex()
-                        .id(item.label)
-                        .w_full()
-                        .px_2()
-                        .py_1()
-                        .rounded(cx.theme().radius)
-                        .text_sm()
-                        .cursor_pointer()
-                        .when(is_selected, |this| this.bg(cx.theme().list_active))
-                        .hover(|this| this.bg(cx.theme().list_hover))
-                        .child(item.label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.selected = section;
-                            cx.notify();
-                        })),
-                );
-            }
-        }
+        // selected section pane in the detail column. EXP-282: the nav is
+        // the window's left column now ([`SettingsNavPanel`]) — this view is
+        // the detail column alone.
+        let effective =
+            effective_selection(self.shared.read(cx).settings_section(), owner, solo);
 
         let pane: gpui::AnyElement = match effective {
             SettingsSection::General => self.general.clone().into_any_element(),
@@ -286,44 +261,176 @@ impl Render for SettingsView {
         };
 
         // EXP-277: no screen header (the center tab already carries the
-        // title) and no nav divider — the columns separate by whitespace.
+        // title). EXP-282: no nav column and no centering wrapper either —
+        // the content column hugs the left edge under a 672px cap, so every
+        // pane's headings line up with the nav column beside it.
+        //
+        // Scroll id keyed by section so each section keeps an independent
+        // scroll offset.
+        div()
+            .id(SharedString::from(format!("settings-detail-{effective:?}")))
+            .size_full()
+            .min_w_0()
+            .overflow_y_scroll()
+            .child(detail_column().child(pane))
+    }
+}
+
+/// EXP-282: the shared settings detail column — left-aligned, capped, with
+/// generous section spacing (the panes are flat sections now, so whitespace
+/// is the only separator left). Also used by the Account screen so both
+/// settings surfaces sit on the same grid.
+pub(crate) fn detail_column() -> gpui::Div {
+    v_flex().w_full().max_w(px(672.)).p_5().gap_6()
+}
+
+// ---------------------------------------------------------------------------
+// SettingsNavPanel — the settings nav as the window's LEFT column (EXP-282)
+// ---------------------------------------------------------------------------
+
+/// The settings navigation, rendered by `shell::CenterPanel` IN PLACE of the
+/// tool column while `Screen::Settings`/`Screen::Account` is up. It reads and
+/// writes the window's shared [`RailShared::settings_section`], so the detail
+/// view ([`SettingsView`]) always shows what this column highlights.
+pub struct SettingsNavPanel {
+    nav: Entity<Navigation>,
+    shared: Entity<RailShared>,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl SettingsNavPanel {
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = nav_for_window(window, cx);
+        let shared = rail_shared_for_window(window, cx);
+        let collections = Store::global(cx).collections().clone();
+        let subscriptions = vec![
+            // The Account row's highlight follows the active screen.
+            cx.observe(&nav, |_, _, cx| cx.notify()),
+            cx.observe(&shared, |_, _, cx| cx.notify()),
+            // Owner/solo gating hides rows — same data the detail view reads.
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
+            cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
+            cx.observe(&collections.users, |_, _, cx| cx.notify()),
+        ];
+        Self {
+            nav,
+            shared,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    /// One nav row (hand-rolled — gpui-component's `Button` centers its
+    /// inner layout, and these rows must read as a left-aligned list).
+    fn row(
+        id: &'static str,
+        label: &'static str,
+        icon: Option<Icon>,
+        selected: bool,
+        cx: &App,
+    ) -> gpui::Stateful<gpui::Div> {
+        h_flex()
+            .id(id)
+            .w_full()
+            .px_2()
+            .py_1()
+            .gap_2()
+            .items_center()
+            .rounded(cx.theme().radius)
+            .text_sm()
+            .cursor_pointer()
+            .when(selected, |this| {
+                this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+            })
+            .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+            .children(icon.map(|icon| icon.xsmall().flex_shrink_0()))
+            .child(label)
+    }
+
+    fn group_label(label: &'static str, cx: &App) -> impl IntoElement {
+        div()
+            .px_2()
+            .pt_2()
+            .pb_0p5()
+            .text_xs()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(cx.theme().muted_foreground)
+            .child(label)
+    }
+}
+
+impl Render for SettingsNavPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let owner = active_team_id(&self.nav, cx)
+            .map(|ws| is_owner(cx, &ws))
+            .unwrap_or(false);
+        let solo = active_team_id(&self.nav, cx)
+            .as_deref()
+            .map(|ws| !show_team_chrome(cx, ws))
+            .unwrap_or(true);
+        // The Account screen IS a settings section as far as this column is
+        // concerned — while it is up no team/device row is highlighted.
+        let on_account = matches!(resolved_screen(&self.nav, cx), Some(Screen::Account));
+        let effective =
+            effective_selection(self.shared.read(cx).settings_section(), owner, solo);
+
+        let mut list = v_flex().p_2().gap_0p5();
+        for group in NAV_GROUPS {
+            let visible: Vec<&NavItem> = group
+                .items
+                .iter()
+                .filter(|item| section_visible(item.section, owner, solo))
+                .collect();
+            if visible.is_empty() {
+                continue;
+            }
+            list = list.child(Self::group_label(group.label, cx));
+            for item in visible {
+                let section = item.section;
+                let selected = !on_account && section == effective;
+                list = list.child(
+                    Self::row(item.label, item.label, None, selected, cx).on_click(
+                        cx.listener(move |_, _, window, cx| {
+                            select_settings_section(window, cx, section);
+                            // A section click from the Account screen returns
+                            // to the settings detail.
+                            navigate(window, cx, Screen::Settings);
+                        }),
+                    ),
+                );
+            }
+        }
+        // EXP-282: Account moved INTO the settings chrome (it used to be a
+        // second account-dropdown entry with its own bare screen).
+        list = list
+            .child(Self::group_label("Personal", cx))
+            .child(
+                Self::row(
+                    "settings-nav-account",
+                    "Account",
+                    Some(Icon::new(IconName::CircleUser)),
+                    on_account,
+                    cx,
+                )
+                .on_click(cx.listener(|_, _, window, cx| {
+                    navigate(window, cx, Screen::Account);
+                })),
+            );
+
         v_flex()
             .size_full()
+            .min_w_0()
+            .overflow_hidden()
+            // Same section wash as the tool column it replaces (EXP-269) —
+            // fill only, no hairline.
+            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+            .text_color(cx.theme().sidebar_foreground)
             .child(
-                h_flex()
+                div()
+                    .id("settings-nav")
                     .flex_1()
-                    .w_full()
                     .min_h_0()
-                    .child(
-                        div()
-                            .id("settings-nav")
-                            .w(px(200.))
-                            .h_full()
-                            .flex_shrink_0()
-                            .pr_2()
-                            .overflow_y_scroll()
-                            .child(nav),
-                    )
-                    .child(
-                        // Scroll id keyed by section so each section keeps an
-                        // independent scroll offset.
-                        div()
-                            .id(SharedString::from(format!("settings-detail-{effective:?}")))
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .overflow_y_scroll()
-                            .child(
-                                h_flex().w_full().justify_center().child(
-                                    v_flex()
-                                        .w_full()
-                                        .max_w(px(672.))
-                                        .p_4()
-                                        .gap_4()
-                                        .child(pane),
-                                ),
-                            ),
-                    ),
+                    .overflow_y_scroll()
+                    .child(list),
             )
     }
 }
@@ -423,9 +530,19 @@ pub(crate) fn show_team_chrome(cx: &App, team_id: &str) -> bool {
 // Shared chrome bits (web Card + notices at compact density)
 // ---------------------------------------------------------------------------
 
-/// Web `Card`: the shared glass card surface (EXP-269).
-pub(crate) fn card(_cx: &App) -> gpui::Div {
-    crate::surface::glass_card().w_full().gap_3().p_4()
+/// EXP-282: the settings panes' section container — FLAT. It used to be the
+/// glass card (EXP-269); stacked cards inside an already-glass column read as
+/// boxes-in-boxes, so a section is now just a left-aligned block whose
+/// heading ([`card_header`]) carries the structure. Renamed `card` → `section`
+/// across the panes.
+pub(crate) fn section(_cx: &App) -> gpui::Div {
+    v_flex().w_full().gap_3()
+}
+
+/// EXP-282: the hairline the panes' rows/chips draw — the glass row stroke
+/// instead of the heavier `theme.border`, now that no card frames them.
+pub(crate) fn row_stroke(_cx: &App) -> gpui::Hsla {
+    theme::tokens::glass::STROKE_ROW.to_hsla()
 }
 
 /// Web `CardTitle` + `CardDescription`.

@@ -32,7 +32,7 @@ use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
 use super::repositories::{fetch_repositories, RepoRow};
-use super::{card, card_header, error_notice, parse_hex_color, spawn_trpc};
+use super::{section, card_header, error_notice, parse_hex_color, spawn_trpc};
 
 /// Server fetch state for the per-board repository picker.
 enum RepoLoad {
@@ -180,7 +180,7 @@ impl BoardsPane {
         window.open_alert_dialog(cx, move |alert, _, _| {
             let name = board_name.clone();
             let board_id = board_id.clone();
-            alert
+            crate::surface::glass_dialog(alert)
                 .overlay_closable(true)
                 .close_button(true)
                 .title("Delete board")
@@ -353,7 +353,7 @@ impl Render for BoardsPane {
             })
             .unwrap_or_default();
 
-        let mut body = card(cx).child(card_header(
+        let mut body = section(cx).child(card_header(
             format!("Boards · {}", boards.len()),
             "Manage boards in this team.",
             cx,
@@ -366,7 +366,7 @@ impl Render for BoardsPane {
                     .py_2()
                     .rounded(cx.theme().radius)
                     .border_1()
-                    .border_color(cx.theme().border)
+                    .border_color(super::row_stroke(cx))
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child("No boards in this team yet."),
@@ -411,7 +411,7 @@ impl Render for BoardsPane {
                         .py_2()
                         .rounded(cx.theme().radius)
                         .border_1()
-                        .border_color(cx.theme().border)
+                        .border_color(super::row_stroke(cx))
                         .child(div().size_2p5().rounded_full().flex_shrink_0().bg(color))
                         .child(
                             div()
@@ -431,7 +431,7 @@ impl Render for BoardsPane {
                                 .py_0p5()
                                 .rounded(cx.theme().radius)
                                 .border_1()
-                                .border_color(cx.theme().border)
+                                .border_color(super::row_stroke(cx))
                                 .text_xs()
                                 .font_family(theme::terminal::FONT_FAMILY)
                                 .text_color(cx.theme().muted_foreground)

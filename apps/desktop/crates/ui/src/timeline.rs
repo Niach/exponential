@@ -396,11 +396,14 @@ impl Render for IssueTimeline {
             format!("Activity ({})", items.len())
         };
 
-        // Content re-centers to the detail column; the section border lives
-        // on the full-width wrapper below (EXP-67 full-bleed divider). The
-        // centering must ride `centered_column` — `max_w` + `mx_auto` here
-        // made taffy size the column fit-content, mis-measuring wrapped
-        // comment text (EXP-179).
+        // Content re-centers to the detail column (EXP-282: the full-bleed
+        // EXP-67 divider under the description is GONE — whitespace separates
+        // the description from the activity section now, like the rest of the
+        // blended chrome). The centering must ride `centered_column` —
+        // `max_w` + `mx_auto` here made taffy size the column fit-content,
+        // mis-measuring wrapped comment text (EXP-179).
+        // `px_4` is the shared detail-body left edge (title / description /
+        // activity all align on it — EXP-282).
         let mut body = v_flex()
             .px_4()
             .py_3()
@@ -467,10 +470,10 @@ impl Render for IssueTimeline {
         let has_draft = !self.composer.read(cx).value().trim().is_empty();
         let composer =
             comments::composer_row(&self.composer_mention, self.submitting, has_draft, cx);
+        // EXP-282: no top hairline — the section's own `py_3` is the only
+        // separation from the description above.
         v_flex()
             .w_full()
-            .border_t_1()
-            .border_color(cx.theme().border)
             .child(crate::issue_detail::centered_column(
                 body.child(composer),
             ))
@@ -618,11 +621,12 @@ fn event_row(
     // it was still auto-width and the row itself relied on implicit stretch
     // (EXP-175). So: w_full row → flex_1 wrapper → flex_1 phrase, every
     // level resolvable without measuring the text.
+    // EXP-282: no extra `pl_1` — event rows start on the same left edge as
+    // the section header, the comment avatars and the description above.
     let mut row = h_flex()
         .id(SharedString::from(format!("issue-event-{}", event.id)))
         .w_full()
         .py_1()
-        .pl_1()
         .gap_2()
         .items_center()
         .text_xs()

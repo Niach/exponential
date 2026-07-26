@@ -155,6 +155,12 @@ pub struct Block {
     pub(crate) parent_is_list_item: bool,
     pub list_ordinal: Option<usize>,
     pub is_selecting: bool,
+    /// EXP-282 vendoring: the word/line range pinned by a double/triple click.
+    /// [`Block::select_to`] refuses to shrink inside it, so the drag that
+    /// follows such a click grows outward from the WHOLE word/line instead of
+    /// collapsing into it (gpui-component's `selected_word_range`). Cleared by
+    /// any plain caret move and by the end of the pointer session.
+    pub(crate) pointer_selection_extent: Option<Range<usize>>,
     pub cursor_blink_epoch: Instant,
     pub vertical_motion_x: Option<Pixels>,
     pub(super) cursor_blink_task: Option<Task<()>>,
@@ -283,6 +289,7 @@ impl Block {
             parent_is_list_item: false,
             list_ordinal: None,
             is_selecting: false,
+            pointer_selection_extent: None,
             cursor_blink_epoch: Instant::now(),
             vertical_motion_x: None,
             cursor_blink_task: None,
@@ -2241,6 +2248,9 @@ impl Block {
         preferred_x: Option<Pixels>,
         cx: &mut Context<Self>,
     ) {
+        // EXP-282 vendoring: any plain caret move ends the double/triple-click
+        // extent — it must not survive into an unrelated later drag.
+        self.pointer_selection_extent = None;
         self.assign_collapsed_selection_offset(
             offset,
             CollapsedCaretAffinity::Default,
@@ -2299,10 +2309,21 @@ impl Block {
         }
     }
 
+    /// EXP-282 vendoring: start a pointer selection session on THIS block —
+    /// the editor uses it when a click landed outside every block's hitbox
+    /// (an inter-block gap) and it routed the caret here, so the drag that
+    /// follows still selects text.
+    pub(crate) fn begin_pointer_selection_session(&mut self) {
+        self.is_selecting = true;
+    }
+
     pub(crate) fn end_pointer_selection_session(&mut self) -> bool {
         let changed = self.is_selecting || self.code_language_is_selecting;
         self.is_selecting = false;
         self.code_language_is_selecting = false;
+        // EXP-282 vendoring: the double/triple-click extent lives exactly as
+        // long as the pointer session that armed it.
+        self.pointer_selection_extent = None;
         changed
     }
 
@@ -2363,10 +2384,100 @@ impl Block {
             self.selection_reversed = !self.selection_reversed;
             self.selected_range = self.selected_range.end..self.selected_range.start;
         }
+        // EXP-282 vendoring: a drag that began as a double/triple click keeps
+        // the initially selected word/line whole — the moving endpoint may
+        // grow the range outward but never shrink into it. The reversal flag
+        // is untouched: only the passive endpoint is pushed back out, so the
+        // cursor stays on the endpoint the pointer is actually dragging.
+        if let Some(extent) = self.pointer_selection_extent.clone() {
+            self.selected_range.start = self.selected_range.start.min(extent.start);
+            self.selected_range.end = self.selected_range.end.max(extent.end);
+        }
         self.cursor_blink_epoch = Instant::now();
         self.clear_vertical_motion();
         self.sync_collapsed_caret_affinity();
         cx.notify();
+    }
+
+    /// EXP-282 vendoring: byte range of the word-ish run at `offset` in the
+    /// visible text. The text is split into alternating word / non-word runs
+    /// (`unicode_word_indices` supplies the word runs, everything between them
+    /// is a gap run) and the run containing `offset` wins. One deliberate
+    /// nudge: an offset sitting exactly on a word's trailing edge — the caret
+    /// index a click on the right half of its last glyph produces — selects
+    /// that word rather than the whitespace after it.
+    pub fn word_range_at(&self, offset: usize) -> Range<usize> {
+        let text = self.display_text();
+        if text.is_empty() {
+            return 0..0;
+        }
+        let offset = offset.min(text.len());
+
+        let mut runs: Vec<(Range<usize>, bool)> = Vec::new();
+        let mut cursor = 0usize;
+        for (start, word) in text.unicode_word_indices() {
+            if start > cursor {
+                runs.push((cursor..start, false));
+            }
+            cursor = start + word.len();
+            runs.push((start..cursor, true));
+        }
+        if cursor < text.len() {
+            runs.push((cursor..text.len(), false));
+        }
+        if runs.is_empty() {
+            return 0..text.len();
+        }
+
+        let index = runs
+            .iter()
+            .position(|(range, _)| offset < range.end)
+            .unwrap_or(runs.len() - 1);
+        let (range, is_word) = runs[index].clone();
+        if is_word {
+            return range;
+        }
+        if index > 0 && offset == range.start && runs[index - 1].1 {
+            return runs[index - 1].0.clone();
+        }
+        range
+    }
+
+    /// EXP-282 vendoring: double-click selection — select the word under
+    /// `offset` and pin it as the drag extent.
+    pub fn select_word(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let range = self.word_range_at(offset);
+        self.apply_pointer_selection_extent(range, cx);
+    }
+
+    /// EXP-282 vendoring: triple-click (and beyond) selection — select the
+    /// whole HARD line containing `offset` and pin it as the drag extent. A
+    /// fourth click deliberately stays on the line rather than cycling to the
+    /// whole block: the block IS the paragraph, so the two only differ for
+    /// soft-broken multi-line blocks, where re-selecting the same line is the
+    /// less surprising answer (gpui-component's `click_count >= 3` rule).
+    pub fn select_line(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let ranges = super::element::hard_line_ranges(self.display_text());
+        let (line_idx, _) = super::element::line_index_for_offset(&ranges, offset);
+        let range = ranges[line_idx].clone();
+        self.apply_pointer_selection_extent(range, cx);
+    }
+
+    fn apply_pointer_selection_extent(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
+        let len = self.visible_len();
+        let range = range.start.min(len)..range.end.min(len);
+        self.selected_range = range.clone();
+        self.selection_reversed = false;
+        self.pointer_selection_extent = (!range.is_empty()).then_some(range);
+        self.cursor_blink_epoch = Instant::now();
+        self.clear_vertical_motion();
+        self.sync_collapsed_caret_affinity();
+        cx.notify();
+    }
+
+    /// EXP-282 vendoring: drop the double/triple-click drag extent.
+    pub(crate) fn clear_pointer_selection_extent(&mut self) {
+        self.pointer_selection_extent = None;
     }
 
     pub(super) fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
@@ -2438,13 +2549,15 @@ impl Block {
             return 0;
         };
 
-        if position.y < bounds.top() {
-            return 0;
-        }
-        if position.y > bounds.bottom() {
-            return self.visible_len();
-        }
-
+        // EXP-282 vendoring: no y short-circuits. The block shell is taller
+        // than its text (`py(block_padding_y)` plus `min_h(block_min_height)`
+        // against ~18.5px lines), so a click in the padding band — or below
+        // the last text row of a short block — used to answer 0 / len and
+        // ignore x entirely: the caret jumped to the block start unless you
+        // hit the few pixels of actual text. `wrapped_line_for_y` now clamps
+        // the point into the text band instead, so an above-the-text click
+        // maps x onto the first wrapped row and a below-the-text click maps
+        // it onto the last one.
         let text = self.display_text();
         let ranges = super::element::hard_line_ranges(text);
         let relative_y = position.y - bounds.top();

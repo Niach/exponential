@@ -337,7 +337,16 @@ pub(super) fn wrapped_line_for_y(
     for (line_idx, line) in lines.iter().enumerate() {
         let height = wrapped_line_height(line, line_height);
         if relative_y < top + height || line_idx + 1 == lines.len() {
-            return Some((line_idx, (relative_y - top).max(px(0.0))));
+            // EXP-282 vendoring: clamp into the line's OWN band. The last hard
+            // line used to hand back an unclamped `y_in_line`, and gpui's
+            // `LineLayout::_index_for_position` computes its wrapped-row index
+            // as `y / line_height` and answers `Err(0)` once that runs past
+            // the line's wrap boundaries — so every click below the last text
+            // row (the padding band, a tall block's empty space) snapped the
+            // caret to the block START instead of the nearest character on
+            // the last row.
+            let max_y = (height - px(1.0)).max(px(0.0));
+            return Some((line_idx, (relative_y - top).clamp(px(0.0), max_y)));
         }
         top += height;
     }
@@ -1710,6 +1719,238 @@ mod tests {
 
         assert_eq!(hit, Some("https://example.com".to_string()));
         assert_eq!(miss_right, None);
+    }
+
+    // EXP-282 vendoring: pointer text selection + whole-band caret placement.
+    // The blocks below are painted by hand — layout, bounds and line height
+    // are the state a real paint would have left behind — and the bounds sit
+    // 4px down from the shell origin, mirroring the block shell's `py(4)`.
+    const EXP282_LINE_HEIGHT: gpui::Pixels = px(20.0);
+    const EXP282_PAD: gpui::Pixels = px(4.0);
+
+    fn exp282_block(
+        text: &str,
+        width: gpui::Pixels,
+        cx: &mut VisualTestContext,
+    ) -> gpui::Entity<Block> {
+        let lines = shaped_lines(text, width, cx);
+        let height = lines.iter().fold(px(0.0), |height, line| {
+            height + wrapped_line_height(line, EXP282_LINE_HEIGHT)
+        });
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(BlockKind::Paragraph, InlineTextTree::plain(text)),
+            )
+        });
+        block.update(cx, |block, _cx| {
+            block.last_layout = Some(lines);
+            block.last_bounds = Some(Bounds::new(point(px(0.0), EXP282_PAD), size(width, height)));
+            block.last_line_height = EXP282_LINE_HEIGHT;
+        });
+        block
+    }
+
+    /// Pointer position at the caret offset `offset` of hard line `line`.
+    fn exp282_point(
+        block: &gpui::Entity<Block>,
+        cx: &VisualTestContext,
+        line: usize,
+        offset_in_line: usize,
+    ) -> gpui::Point<gpui::Pixels> {
+        block.read_with(cx, |block, _cx| {
+            let lines = block.last_layout.as_ref().expect("painted layout");
+            let x = lines[line]
+                .position_for_index(offset_in_line, EXP282_LINE_HEIGHT)
+                .expect("offset position")
+                .x;
+            let top = super::wrapped_line_top(lines, EXP282_LINE_HEIGHT, line);
+            point(x, EXP282_PAD + top + EXP282_LINE_HEIGHT / 2.0)
+        })
+    }
+
+    fn exp282_mouse_down(position: gpui::Point<gpui::Pixels>, click_count: usize) -> MouseDownEvent {
+        MouseDownEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Modifiers::default(),
+            click_count,
+            first_mouse: false,
+        }
+    }
+
+    fn exp282_drag_to(position: gpui::Point<gpui::Pixels>) -> gpui::MouseMoveEvent {
+        gpui::MouseMoveEvent {
+            position,
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Modifiers::default(),
+        }
+    }
+
+    #[gpui::test]
+    async fn first_click_drag_selects_text_exp282(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = exp282_block("alpha beta gamma", px(320.0), cx);
+        let start = exp282_point(&block, cx, 0, 0);
+        let end = exp282_point(&block, cx, 0, 5);
+
+        // The block is NOT focused yet: this is the click that enters it, the
+        // one that used to leave `is_selecting` false and kill the drag.
+        cx.update(|window, app| {
+            block.update(app, |block, cx| {
+                block.on_mouse_down(&exp282_mouse_down(start, 1), window, cx)
+            });
+        });
+        block.read_with(cx, |block, _cx| {
+            assert!(block.is_selecting);
+            assert_eq!(block.selected_range, 0..0);
+        });
+
+        cx.update(|window, app| {
+            block.update(app, |block, cx| {
+                block.on_mouse_move(&exp282_drag_to(end), window, cx)
+            });
+        });
+        block.read_with(cx, |block, _cx| {
+            assert_eq!(block.selected_range, 0..5);
+        });
+    }
+
+    #[gpui::test]
+    async fn double_click_selects_the_word_under_the_pointer_exp282(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = exp282_block("alpha beta gamma", px(320.0), cx);
+        let inside_beta = exp282_point(&block, cx, 0, 8);
+
+        cx.update(|window, app| {
+            block.update(app, |block, cx| {
+                block.on_mouse_down(&exp282_mouse_down(inside_beta, 2), window, cx)
+            });
+        });
+        block.read_with(cx, |block, _cx| {
+            assert_eq!(block.selected_range, 6..10);
+            assert!(!block.selection_reversed);
+        });
+    }
+
+    #[gpui::test]
+    async fn triple_click_selects_the_whole_hard_line_exp282(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let text = "alpha beta\nsecond line";
+        let block = exp282_block(text, px(320.0), cx);
+        let inside_second_line = exp282_point(&block, cx, 1, 3);
+
+        cx.update(|window, app| {
+            block.update(app, |block, cx| {
+                block.on_mouse_down(&exp282_mouse_down(inside_second_line, 3), window, cx)
+            });
+        });
+        let expected = text.find("second").expect("second line")..text.len();
+        block.read_with(cx, |block, _cx| {
+            assert_eq!(block.selected_range, expected);
+        });
+
+        // A fourth click deliberately stays on the line instead of cycling.
+        cx.update(|window, app| {
+            block.update(app, |block, cx| {
+                block.on_mouse_down(&exp282_mouse_down(inside_second_line, 4), window, cx)
+            });
+        });
+        block.read_with(cx, |block, _cx| {
+            assert_eq!(block.selected_range, expected);
+        });
+    }
+
+    #[gpui::test]
+    async fn double_click_drag_never_shrinks_inside_the_word_exp282(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = exp282_block("alpha beta gamma", px(320.0), cx);
+        let inside_beta = exp282_point(&block, cx, 0, 8);
+        let inside_alpha = exp282_point(&block, cx, 0, 2);
+
+        cx.update(|window, app| {
+            block.update(app, |block, cx| {
+                block.on_mouse_down(&exp282_mouse_down(inside_beta, 2), window, cx);
+                // Dragging back left past the word start extends leftwards but
+                // keeps the double-clicked word whole.
+                block.on_mouse_move(&exp282_drag_to(inside_alpha), window, cx);
+            });
+        });
+        block.read_with(cx, |block, _cx| {
+            assert_eq!(block.selected_range, 2..10);
+            assert!(block.selection_reversed);
+        });
+
+        // Dragging back INTO the word cannot shrink the selection below it.
+        cx.update(|window, app| {
+            block.update(app, |block, cx| {
+                block.on_mouse_move(&exp282_drag_to(inside_beta), window, cx)
+            });
+        });
+        block.read_with(cx, |block, _cx| {
+            assert_eq!(block.selected_range, 6..10);
+        });
+
+        // Releasing the button retires the extent, so the next plain click is
+        // an ordinary caret move again.
+        cx.update(|window, app| {
+            block.update(app, |block, cx| {
+                block.on_mouse_up(
+                    &gpui::MouseUpEvent {
+                        button: MouseButton::Left,
+                        position: inside_beta,
+                        modifiers: Modifiers::default(),
+                        click_count: 1,
+                    },
+                    window,
+                    cx,
+                );
+                block.on_mouse_down(&exp282_mouse_down(inside_alpha, 1), window, cx);
+            });
+        });
+        block.read_with(cx, |block, _cx| {
+            assert_eq!(block.selected_range, 2..2);
+        });
+    }
+
+    #[gpui::test]
+    async fn clicks_outside_the_text_band_still_follow_x_exp282(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = exp282_block("alpha beta gamma", px(320.0), cx);
+        let in_band = exp282_point(&block, cx, 0, 8);
+
+        block.read_with(cx, |block, _cx| {
+            let expected = block.index_for_mouse_position(in_band);
+            assert_eq!(expected, 8);
+
+            // Below the last text row (a tall block's empty space) — this used
+            // to snap the caret to the block start.
+            let below = point(in_band.x, px(120.0));
+            assert_eq!(block.index_for_mouse_position(below), expected);
+
+            // Inside the shell's top padding band, above the measured text.
+            let above = point(in_band.x, px(0.0));
+            assert_eq!(block.index_for_mouse_position(above), expected);
+        });
+    }
+
+    #[gpui::test]
+    async fn blank_line_band_click_places_the_caret_by_x_exp282(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        // EXP-271 blank lines load as a U+00A0 paragraph — a few pixels of
+        // text in a 28px-tall shell, so nearly every click on that row lands
+        // outside the measured band.
+        let block = exp282_block("\u{00A0}", px(320.0), cx);
+
+        block.read_with(cx, |block, _cx| {
+            let len = block.visible_len();
+            assert!(len > 0);
+            assert_eq!(block.index_for_mouse_position(point(px(0.0), px(60.0))), 0);
+            assert_eq!(
+                block.index_for_mouse_position(point(px(300.0), px(60.0))),
+                len
+            );
+        });
     }
 
     #[gpui::test]

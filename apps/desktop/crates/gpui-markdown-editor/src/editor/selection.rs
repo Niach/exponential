@@ -106,6 +106,22 @@ impl Editor {
         };
 
         if self.cross_block_selection.is_none() && drag.anchor.entity_id == focus.entity_id {
+            // EXP-282 vendoring: an intra-block drag used to die right here.
+            // A block's own `on_mouse_move` is hitbox-gated by gpui, so once
+            // the pointer wandered out of the block's bounds — into a row gap,
+            // the padding band, or past the end of the text — nothing extended
+            // the selection any more, and this editor-level fallback refused
+            // same-block drags. Forward the move to the anchor block instead:
+            // it owns that caret and selection, so the result is identical to
+            // dragging inside the hitbox and no cross-block selection is
+            // fabricated for a drag that never left the block.
+            if let Some(block) = self.focusable_entity_by_id(focus.entity_id) {
+                block.update(cx, |block, cx| {
+                    if block.is_selecting {
+                        block.select_to(focus.offset, cx);
+                    }
+                });
+            }
             return;
         }
 
@@ -515,6 +531,61 @@ impl Editor {
         self.cross_block_drag = None;
         self.focus_block(paragraph.entity_id());
         paragraph.update(cx, |block, cx| block.move_to(0, cx));
+        cx.notify();
+        true
+    }
+
+    /// EXP-282 vendoring: the general form of the image-gap click above — a
+    /// rendered-mode click that landed in ANY inter-block gap (or the empty
+    /// area above the first / below the last block) routes the caret to the
+    /// nearest block at the offset nearest the click's x, and opens a pointer
+    /// selection session there so a drag started in the gap still selects.
+    /// The gaps are row MARGINS (`row.mt(block_gap)` in editor/render.rs), so
+    /// they belong to no hitbox at all and previously swallowed the click.
+    /// Deliberately no `mark_dirty` and no tree edit — unlike the image case
+    /// this never inserts a paragraph, so an untyped click can never make the
+    /// document look changed. Returns whether the click was handled.
+    pub(super) fn handle_gap_click_caret(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(gap) = self.gap_click_target_for_point(position, cx) else {
+            return false;
+        };
+        let target = match (&gap.prev, &gap.next) {
+            (Some(prev), Some(next)) => {
+                let prev_bottom = prev.read(cx).last_bounds.map(|bounds| bounds.bottom());
+                let next_top = next.read(cx).last_bounds.map(|bounds| bounds.top());
+                match (prev_bottom, next_top) {
+                    (Some(bottom), Some(top))
+                        if (position.y - bottom).abs() <= (top - position.y).abs() =>
+                    {
+                        prev.clone()
+                    }
+                    _ => next.clone(),
+                }
+            }
+            (Some(prev), None) => prev.clone(),
+            (None, Some(next)) => next.clone(),
+            (None, None) => return false,
+        };
+
+        let offset = target.read(cx).index_for_mouse_position(position);
+        // Re-anchor the capture-phase drag on the caret we just placed, so a
+        // drag out of the gap grows from here instead of from the whole-block
+        // endpoint `cross_block_endpoint_for_point` guessed without an x.
+        self.cross_block_drag = Some(CrossBlockDrag {
+            anchor: CrossBlockSelectionEndpoint {
+                entity_id: target.entity_id(),
+                offset,
+            },
+        });
+        self.focus_block(target.entity_id());
+        target.update(cx, |block, cx| {
+            block.begin_pointer_selection_session();
+            block.move_to(offset, cx);
+        });
         cx.notify();
         true
     }
@@ -990,9 +1061,12 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{AppContext, Bounds, Context, TestAppContext, point, px, size};
+    use gpui::{
+        AppContext, Bounds, Context, Modifiers, MouseButton, MouseMoveEvent, TestAppContext, point,
+        px, size,
+    };
 
-    use super::{CrossBlockSelection, CrossBlockSelectionEndpoint, Editor};
+    use super::{CrossBlockDrag, CrossBlockSelection, CrossBlockSelectionEndpoint, Editor};
     use crate::components::{BlockKind, Cut, Undo, UndoCaptureKind};
 
     fn init_editor_test_app(cx: &mut TestAppContext) {
@@ -1112,6 +1186,86 @@ mod tests {
             // In the text-text gap — no image involved, no insert.
             assert!(!editor.handle_image_gap_click(point(px(10.0), px(28.0)), cx));
             assert_eq!(editor.document.visible_blocks().len(), 2);
+        });
+    }
+
+    // EXP-282 vendoring: gap clicks that are NOT next to an image still place
+    // a caret — in the nearest block, and without touching the document.
+    #[test]
+    fn gap_click_routes_the_caret_to_the_nearest_block_without_editing_exp282() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha\n\nbeta".to_string(), None));
+
+        editor.update(&mut cx, |editor, cx| {
+            assign_visible_block_bounds(editor, cx);
+            let visible = editor.document.visible_blocks().to_vec();
+            let revision = editor.revision;
+
+            // Block 0 spans y 0..24, block 1 y 32..56 — the gap is y 24..32.
+            // y=30 is nearer block 1.
+            assert!(editor.handle_gap_click_caret(point(px(10.0), px(30.0)), cx));
+            assert_eq!(editor.document.visible_blocks().len(), 2);
+            assert_eq!(editor.pending_focus, Some(visible[1].entity.entity_id()));
+            assert!(visible[1].entity.read(cx).is_selecting);
+            assert!(editor.cross_block_drag.is_some());
+            // Non-dirtying: a click that only moves a caret must never make
+            // the host think the document changed.
+            assert_eq!(editor.revision, revision);
+
+            // y=26 is nearer block 0.
+            assert!(editor.handle_gap_click_caret(point(px(10.0), px(26.0)), cx));
+            assert_eq!(editor.pending_focus, Some(visible[0].entity.entity_id()));
+            assert_eq!(editor.document.visible_blocks().len(), 2);
+            assert_eq!(editor.revision, revision);
+
+            // A click inside a block's own bounds is still the block's
+            // business, not a gap click.
+            assert!(!editor.handle_gap_click_caret(point(px(10.0), px(10.0)), cx));
+        });
+    }
+
+    // EXP-282 vendoring: a block's own `on_mouse_move` is hitbox-gated, so the
+    // editor has to carry an intra-block drag that wandered out of it.
+    #[test]
+    fn drag_outside_the_block_hitbox_keeps_extending_its_selection_exp282() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let (editor, cx) =
+            cx.add_window_view(|_window, cx| Editor::from_markdown(cx, "alpha".to_string(), None));
+        redraw(cx);
+
+        cx.update(|window, app| {
+            editor.update(app, |editor, cx| {
+                assign_visible_block_bounds(editor, cx);
+                let block = editor.document.visible_blocks().to_vec()[0].entity.clone();
+                block.update(cx, |block, _cx| {
+                    block.begin_pointer_selection_session();
+                    block.selected_range = 0..0;
+                });
+                editor.cross_block_drag = Some(CrossBlockDrag {
+                    anchor: CrossBlockSelectionEndpoint {
+                        entity_id: block.entity_id(),
+                        offset: 0,
+                    },
+                });
+
+                // Far below the only block — outside its hitbox entirely.
+                editor.on_editor_mouse_move(
+                    &MouseMoveEvent {
+                        position: point(px(10.0), px(400.0)),
+                        pressed_button: Some(MouseButton::Left),
+                        modifiers: Modifiers::default(),
+                    },
+                    window,
+                    cx,
+                );
+
+                assert_eq!(block.read(cx).selected_range, 0..5);
+                // A drag that never left the block must not fabricate a
+                // cross-block selection.
+                assert!(editor.cross_block_selection.is_none());
+            });
         });
     }
 

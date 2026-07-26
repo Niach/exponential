@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, relative, App, AppContext as _, ClickEvent, Entity,
+    div, prelude::FluentBuilder as _, relative, App, AppContext as _, ClickEvent, Entity,
     FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
 };
@@ -657,14 +657,10 @@ impl Render for SupportThreadView {
                     .child("Open")
             });
 
-        let sidebar = v_flex()
-            .w(px(240.))
-            .flex_shrink_0()
-            .h_full()
-            .px_3()
-            .py_3()
-            .gap_3()
-            .text_sm()
+        // EXP-282: the shared glass detail-sidebar container (was a
+        // hand-rolled 240px column) — one shape across issue detail, action
+        // detail and this thread view.
+        let sidebar = crate::surface::glass_sidebar()
             .child(crate::properties_panel::property_group(
                 "Status",
                 v_flex()

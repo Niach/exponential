@@ -35,7 +35,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
 use super::{
-    card, card_header, error_notice, is_owner, is_plan_limit, show_team_chrome, spawn_trpc,
+    section, card_header, error_notice, is_owner, is_plan_limit, show_team_chrome, spawn_trpc,
     upgrade_notice,
 };
 
@@ -282,7 +282,7 @@ impl MembersPane {
             .py_2()
             .rounded(cx.theme().radius)
             .border_1()
-            .border_color(cx.theme().border)
+            .border_color(super::row_stroke(cx))
             .child(
                 h_flex()
                     .gap_3()
@@ -386,7 +386,7 @@ impl Render for MembersPane {
             .filter(|row| row.member.role.as_deref() == Some(TEAM_ROLE_OWNER))
             .count();
 
-        let mut body = card(cx).child(card_header(
+        let mut body = section(cx).child(card_header(
             if solo { "Invite teammates" } else { "Members" },
             if solo {
                 "Invite someone to collaborate. Shared boards unlock team features.".to_string()
@@ -412,7 +412,7 @@ impl Render for MembersPane {
                 .gap_3()
                 .pt_3()
                 .border_t_1()
-                .border_color(cx.theme().border)
+                .border_color(super::row_stroke(cx))
                 .child(
                     v_flex()
                         .gap_0p5()
@@ -445,7 +445,7 @@ impl Render for MembersPane {
                                 .py_1()
                                 .rounded(cx.theme().radius)
                                 .border_1()
-                                .border_color(cx.theme().border)
+                                .border_color(super::row_stroke(cx))
                                 .text_xs()
                                 .font_family(theme::terminal::FONT_FAMILY)
                                 .whitespace_nowrap()
@@ -557,7 +557,7 @@ impl Render for MembersPane {
                             .py_2()
                             .rounded(cx.theme().radius)
                             .border_1()
-                            .border_color(cx.theme().border)
+                            .border_color(super::row_stroke(cx))
                             .child(invite_identity)
                             .child(
                                 Button::new(row_id("invite-revoke", &invite.id))
@@ -622,7 +622,9 @@ fn role_chip(icon: IconName, label: SharedString, cx: &App) -> impl IntoElement 
         .px_1p5()
         .py_0p5()
         .rounded(cx.theme().radius)
-        .bg(cx.theme().secondary)
+        // EXP-282: glass row fill instead of the opaque `theme.secondary`
+        // chip — the panes are flat over the page gradient now.
+        .bg(theme::tokens::glass::FILL_ROW.to_hsla())
         .text_xs()
         .text_color(cx.theme().secondary_foreground)
         .items_center()

@@ -1390,17 +1390,40 @@ impl Block {
             return;
         }
 
-        if was_focused {
-            self.is_selecting = true;
-            if event.modifiers.shift {
-                self.select_to(offset, cx);
-            } else {
-                self.move_to(offset, cx);
-            }
-        } else {
-            self.is_selecting = false;
-            self.move_to(offset, cx);
+        // EXP-282 vendoring: the pointer selection session starts on the click
+        // that ENTERS the block, not only on a second click. gpui's
+        // `track_focus` registers its focus-transfer mouse-down listener
+        // before this element's own listeners, and bubble dispatch runs them
+        // in REVERSE registration order — so `was_focused` is still false here
+        // on the entering click. Gating `is_selecting` on it made every
+        // first-click drag a no-op (the editor-level fallback refused
+        // intra-block drags too), which is why text selection appeared not to
+        // work at all. Focus is requested first — through the editor, so it
+        // keeps its own bookkeeping — and the session starts unconditionally,
+        // mirroring `on_code_language_mouse_down`.
+        if !was_focused {
             cx.emit(BlockEvent::RequestFocus);
+        }
+        self.is_selecting = true;
+
+        // EXP-282 vendoring: double-click selects the word under the pointer,
+        // triple (and beyond) the whole hard line — gpui-component's
+        // `InputState::on_mouse_down` semantics. Both pin their range as the
+        // drag extent, so the follow-on drag can only grow the selection.
+        if event.click_count == 2 {
+            self.select_word(offset, cx);
+            return;
+        }
+        if event.click_count >= 3 {
+            self.select_line(offset, cx);
+            return;
+        }
+
+        self.clear_pointer_selection_extent();
+        if event.modifiers.shift {
+            self.select_to(offset, cx);
+        } else {
+            self.move_to(offset, cx);
         }
     }
 
@@ -1479,6 +1502,9 @@ impl Block {
         cx: &mut Context<Self>,
     ) {
         self.is_selecting = false;
+        // EXP-282 vendoring: the double/triple-click extent is scoped to the
+        // drag it belongs to, so it dies with the button.
+        self.clear_pointer_selection_extent();
 
         // Cmd/Ctrl+click follows a rendered link, using the same open-link
         // prompt as the double-click gesture below.

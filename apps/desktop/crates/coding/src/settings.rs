@@ -123,6 +123,12 @@ pub struct Settings {
     /// preset; ON is `--dangerously-bypass-approvals-and-sandbox`). pi has no
     /// permission system, hence no field ([`Self::skip_permissions_for`]).
     pub codex_skip_permissions: bool,
+    /// EXP-282: whether the ui's left rail renders EXPANDED (labelled rows)
+    /// instead of the 44px icon strip. Not a launcher knob — but this file is
+    /// the app's ONE merge-preserving per-install store, and the rail pref
+    /// belongs next to `lastTeamId`/`lastBoardId`, not in a second file.
+    /// `None` = never toggled → collapsed (the historical rail).
+    pub rail_expanded: Option<bool>,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -157,6 +163,7 @@ impl Default for Settings {
             claude_plan_mode: true,
             claude_skip_permissions: false,
             codex_skip_permissions: false,
+            rail_expanded: None,
         }
     }
 }
@@ -642,6 +649,7 @@ mod tests {
             claude_plan_mode: false,
             claude_skip_permissions: true,
             codex_skip_permissions: true,
+            rail_expanded: Some(true),
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();

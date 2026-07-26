@@ -11,7 +11,7 @@ use gpui::{
     div, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{v_flex, ActiveTheme as _};
+use gpui_component::ActiveTheme as _;
 
 use super::notifications_prefs::NotificationsPrefsPane;
 
@@ -34,28 +34,26 @@ impl Render for AccountView {
             .into();
 
         // EXP-277: no screen header — the center tab carries the title.
-        v_flex()
+        // EXP-282: the content column was `max_w` WITHOUT `w_full` (the
+        // EXP-179 bug — see `issue_detail.rs:66`): taffy then sized it
+        // fit-content, so wrapped text overflowed its own box and painted
+        // over the sections below. `detail_column()` is the shared settings
+        // grid (w_full + cap + padding), so this screen lines up with every
+        // settings pane beside it in the nav.
+        div()
+            .id("account-scroll")
             .size_full()
+            .min_w_0()
+            .overflow_y_scroll()
             .child(
-                div()
-                    .id("account-scroll")
-                    .flex_1()
-                    .w_full()
-                    .min_h_0()
-                    .overflow_y_scroll()
+                super::detail_column()
                     .child(
-                        v_flex()
-                            .p_4()
-                            .gap_2()
-                            .max_w(gpui::px(672.))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(subtitle),
-                            )
-                            .child(self.notifications.clone()),
-                    ),
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(subtitle),
+                    )
+                    .child(self.notifications.clone()),
             )
     }
 }

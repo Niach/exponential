@@ -243,6 +243,82 @@ gpui API drift fixes (crates.io gpui 0.2.2 snapshot -> zed rev 1d217ee)
 - `FocusHandle::focus(window)` -> `focus(window, cx)`.
 - `ClipboardEntry::ExternalPaths` + `ImageFormat::{Ico,Pnm}` match arms added.
 
+Pointer text selection (EXP-282 — drag and double/triple click did nothing)
+- src/components/block/interactions.rs (`on_mouse_down`): the pointer
+  selection session now starts on the click that ENTERS the block. gpui's
+  `track_focus` registers its focus-transfer mouse-down listener before the
+  element's own listeners and bubble dispatch runs them in REVERSE
+  registration order, so the block's handler always saw `was_focused == false`
+  on that click — it set `is_selecting = false` and the drag was a no-op,
+  while a second click (already focused) worked. Focus is still requested
+  through `BlockEvent::RequestFocus` so the editor keeps its bookkeeping, but
+  the session opens unconditionally, mirroring the code-language field's
+  mouse-down which had it right all along.
+- src/components/block/interactions.rs + runtime/mod.rs: `click_count` is now
+  read on mouse DOWN as well (it only opened footnotes/links on mouse up) —
+  2 selects the word under the pointer (`select_word` / `word_range_at`: the
+  text is split into alternating word / non-word runs from
+  `unicode_word_indices`, with an offset on a word's trailing edge resolving
+  to that word rather than the following space), >= 3 selects the whole hard
+  line (`select_line`). A fourth click deliberately stays on the line instead
+  of cycling to the block: the block IS the paragraph, so the two only differ
+  for multi-line blocks, where re-selecting the same line is less surprising
+  (gpui-component's `click_count >= 3` rule).
+- src/components/block/runtime/mod.rs: `pointer_selection_extent` — the
+  word/line range pinned by such a click, honored by `select_to`, which may
+  push the passive endpoint outward but never shrink inside it (upstream had
+  no equivalent; this is gpui-component's `selected_word_range`). It dies with
+  the pointer session (`end_pointer_selection_session`, `on_mouse_up`) and on
+  any plain caret move, so it can never leak into a later unrelated drag.
+- src/editor/selection.rs (`on_editor_mouse_move`): a same-block drag used to
+  hit an early return here. A block's own `on_mouse_move` is hitbox-gated by
+  gpui, so once the pointer left the block's bounds — a row gap, the padding
+  band, past the end of the text — nothing extended the selection any more.
+  The move is now forwarded to the anchor block instead of being dropped;
+  cross-block drags keep their existing path, and a drag that never left the
+  block still fabricates no cross-block selection. (Chosen over
+  gpui-component's window-level move/up handlers: the editor div already owns
+  the cross-block drag state and the whole editor area, so relaxing it reuses
+  that machinery rather than adding a second, competing one. Consequence: a
+  drag that leaves the EDITOR entirely still stops extending.)
+
+Whole-line caret placement (EXP-282 — clicking empty space snapped to offset 0)
+- src/components/block/element.rs (`wrapped_line_for_y`): the y offset handed
+  to the line layout is clamped into the line's own band. The last hard line
+  returned it unclamped, and gpui's `LineLayout::_index_for_position` derives
+  its wrapped-row index as `y / line_height` and answers `Err(0)` once that
+  runs past the line's wrap boundaries — so ANY click below the last text row
+  put the caret at the block start. `character_index_for_point`
+  (block/input.rs) shares this helper and is fixed by the same clamp.
+- src/components/block/runtime/mod.rs (`index_for_mouse_position`): dropped
+  the `y < top -> 0` / `y > bottom -> len` short-circuits, which ignored x
+  entirely. The block shell is taller than its text (`py(block_padding_y)`
+  plus `min_h(block_min_height)` against ~18.5px lines), so those padding
+  bands are a large part of every row; the click now maps its x onto the first
+  or last wrapped row. This is what makes an EXP-271 blank line (a U+00A0
+  paragraph a few pixels wide) clickable across its whole band.
+- src/editor/selection.rs + src/editor/events.rs: `handle_gap_click_caret` —
+  the general form of the EXP-277 image-gap click. Inter-block gaps are row
+  MARGINS (`row.mt(block_gap)`), so they belong to no hitbox and used to
+  swallow the click unless an image was adjacent; any such click now routes
+  the caret to the nearest flanking block at the offset nearest its x and
+  opens a selection session there, so a drag begun in a gap still selects.
+  Deliberately no tree edit and no `mark_dirty` (the image path's precedent):
+  an untyped click must never make the host think the document changed. The
+  row margins were left as margins — moving `block_gap` into shell padding
+  would have made the whole visual band hit-test, but it perturbs the
+  embedded auto-height layout the `embedded_layout_tests` pin, for no gain
+  over routing the gap click.
+- Tests: `*_exp282` in src/components/block/element.rs (first-click drag
+  selects; double-click selects the word; triple/fourth click selects the
+  hard line; double-click-drag never shrinks inside the word and retires the
+  extent on mouse-up; clicks above/below the text band follow x; a U+00A0
+  blank line is clickable across its band), src/components/block/runtime/
+  tests.rs (`word_range_at` word/gap runs and edges), and
+  src/editor/selection.rs (gap click routes the caret to the nearest block
+  without editing or dirtying; a drag outside the block's hitbox keeps
+  extending its selection).
+
 Tests
 - Deleted the math/mermaid/underline/superscript/subscript behavior tests;
   added replacements asserting the excised syntax stays plain text and

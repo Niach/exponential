@@ -145,7 +145,7 @@ fn open(
         // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
         // picker left, options right). Must stay `.w()`: the dialog centers
         // off `props.width`, `max_w` alone would left-anchor it.
-        dialog
+        crate::surface::glass_dialog(dialog)
             .w(px(760.))
             .max_h(max_height)
             .title("Start coding")

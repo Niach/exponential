@@ -45,7 +45,9 @@ use gpui_component::{
 use sync::Store;
 
 
-use crate::actions::{CreateTeam, JoinTeam, OpenSettings, SignOut, SwitchTeam};
+// EXP-282: `OpenSettings` is gone from this file — the rail gear navigates
+// directly (EXP-17) and the account dropdown no longer duplicates it.
+use crate::actions::{CreateTeam, JoinTeam, SignOut, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::trunk_sync::TrunkSync;
@@ -58,8 +60,13 @@ use crate::navigation::{
 use crate::properties_panel::parse_hex_color;
 use crate::queries;
 
-/// Width of the icon-only rail column (outside the dock area).
+/// Width of the icon-only rail column (outside the dock area) — the
+/// COLLAPSED rail.
 pub(crate) const RAIL_W: f32 = 44.;
+
+/// EXP-282: width of the EXPANDED rail (the Cursor-style labelled rail) —
+/// wide enough for a board name at `text_sm` without eating the tool column.
+pub(crate) const RAIL_EXPANDED_W: f32 = 184.;
 
 /// Default tool-window width (EXP-109: doubled from the original 260px web
 /// parity — the issue lists inside the tool window were too cramped).
@@ -129,6 +136,15 @@ pub(crate) struct RailShared {
     /// The commit the Source Control screen's diff pane shows — the sidebar
     /// history list selects it (EXP-253; `None` = nothing selected).
     sc_selected_commit: Option<String>,
+    /// EXP-282: whether the rail renders EXPANDED (labelled rows) instead of
+    /// the 44px icon strip. Per-window runtime state, seeded from — and
+    /// persisted back to — the per-install `settings.json` (`railExpanded`).
+    rail_expanded: bool,
+    /// EXP-282: the settings nav's selected section. Lives here (not on
+    /// `SettingsView`) because the nav column now renders OUTSIDE the settings
+    /// screen — it replaces the tool column while a settings screen is up, so
+    /// the column and the detail view must read one selection.
+    settings_section: crate::settings::SettingsSection,
 }
 
 impl RailShared {
@@ -167,6 +183,46 @@ impl RailShared {
     pub(crate) fn issue_boards(&self) -> [&Entity<BoardView>; 2] {
         [&self.board_active, &self.board_my]
     }
+
+    /// EXP-282: the settings nav's selected section (raw — callers clamp it
+    /// through `settings::effective_selection`).
+    pub(crate) fn settings_section(&self) -> crate::settings::SettingsSection {
+        self.settings_section
+    }
+}
+
+/// Toggle the rail between the icon strip and the labelled rail (EXP-282),
+/// persisting the choice to the per-install `settings.json` so the next
+/// launch opens the way this one closed.
+pub(crate) fn toggle_rail_expanded(window: &mut Window, cx: &mut App) {
+    let shared = rail_shared_for_window(window, cx);
+    let expanded = shared.update(cx, |shared, cx| {
+        shared.rail_expanded = !shared.rail_expanded;
+        cx.notify();
+        shared.rail_expanded
+    });
+    let hub = coding_flow::CodingHub::global(cx);
+    let mut settings = hub.read(cx).settings.clone();
+    settings.rail_expanded = Some(expanded);
+    if let Err(err) = coding_flow::CodingHub::save_settings(&hub, settings, cx) {
+        log::warn!("[ui] persisting the rail state failed: {err}");
+    }
+}
+
+/// Select `section` in the settings nav (EXP-282 — the nav column lives
+/// outside the settings screen now, so the selection is window state).
+pub(crate) fn select_settings_section(
+    window: &mut Window,
+    cx: &mut App,
+    section: crate::settings::SettingsSection,
+) {
+    let shared = rail_shared_for_window(window, cx);
+    shared.update(cx, |shared, cx| {
+        if shared.settings_section != section {
+            shared.settings_section = section;
+            cx.notify();
+        }
+    });
 }
 
 /// Point the Source Control screen's diff pane at `commit` (EXP-253 — the
@@ -204,6 +260,13 @@ pub(crate) fn rail_shared_for_window(
     let file_tree = cx.new(|cx| crate::file_tree::FileTreeView::new(window, cx));
     let board_active = cx.new(|cx| BoardView::new(window, cx));
     let board_my = cx.new(|cx| BoardView::new(window, cx));
+    // EXP-282: the persisted rail state (absent = collapsed, the historical
+    // icon rail). Read through the coding hub — it owns `settings.json`.
+    let rail_expanded = coding_flow::CodingHub::global(cx)
+        .read(cx)
+        .settings
+        .rail_expanded
+        .unwrap_or(false);
     let shared = cx.new(|_| RailShared {
         // Issues-first default: the active board's issue list.
         tool: ToolWindow::BoardIssues,
@@ -213,6 +276,8 @@ pub(crate) fn rail_shared_for_window(
         board_active,
         board_my,
         sc_selected_commit: None,
+        rail_expanded,
+        settings_section: crate::settings::SettingsSection::General,
     });
     cx.default_global::<RailRegistry>()
         .by_window
@@ -316,6 +381,52 @@ fn board_accent(nav: &Entity<Navigation>, cx: &App) -> Hsla {
         .unwrap_or_else(|| cx.theme().primary)
 }
 
+/// EXP-282: one row of the EXPANDED rail — icon + label, left-aligned, glass
+/// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
+/// inner layout with no `Styled` reach into it (the settings-nav rows set the
+/// same precedent), and a centered label would defeat the whole point of the
+/// labelled rail. Handlers are the caller's job.
+fn rail_row(
+    id: impl Into<gpui::ElementId>,
+    icon: Icon,
+    label: impl Into<SharedString>,
+    active: bool,
+    accent: Hsla,
+    badge: Option<Hsla>,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    // Active entries keep the collapsed rail's accent tint on the glyph; the
+    // glass active fill carries the selection (no 2px marker bar — the row
+    // fill IS the marker at this width).
+    let icon = if active { icon.text_color(accent) } else { icon };
+    h_flex()
+        .id(id)
+        .w_full()
+        .h(px(28.))
+        .px_1p5()
+        .gap_2()
+        .items_center()
+        .flex_shrink_0()
+        .rounded(cx.theme().radius)
+        .cursor_pointer()
+        .text_sm()
+        .when(active, |this| {
+            this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+        })
+        .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+        .child(icon.xsmall().flex_shrink_0())
+        .child(div().flex_1().min_w_0().truncate().child(label.into()))
+        .when_some(badge, |this, color| {
+            this.child(
+                div()
+                    .size_1p5()
+                    .flex_shrink_0()
+                    .rounded_full()
+                    .bg(color),
+            )
+        })
+}
+
 // ---------------------------------------------------------------------------
 // RailView — the icon strip left of the dock area
 // ---------------------------------------------------------------------------
@@ -366,18 +477,29 @@ impl RailView {
     /// One tool-window icon: a ghost icon button, `selected` + tinted with
     /// the board accent while its tool window is active; `badge` paints an
     /// attention dot in the given color (EXP-214: review green for open PRs,
-    /// amber for support/conflicts), `None` for no dot.
+    /// amber for support/conflicts), `None` for no dot. EXP-282: on the
+    /// EXPANDED rail the same entry renders as a labelled row instead.
+    #[allow(clippy::too_many_arguments)]
     fn rail_tool_icon(
         &self,
         id: &'static str,
         icon: Icon,
         tool: ToolWindow,
+        label: &'static str,
         tooltip: impl Into<SharedString>,
         badge: Option<Hsla>,
         accent: Hsla,
+        expanded: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let active = self.shared.read(cx).tool == tool;
+        if expanded {
+            return rail_row(id, icon, label, active, accent, badge, cx)
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    activate_tool(window, cx, tool);
+                }))
+                .into_any_element();
+        }
         let icon = if active { icon.text_color(accent) } else { icon };
         div()
             .relative()
@@ -425,11 +547,26 @@ impl RailView {
     /// (EXP-253: the top bar's merged board picker is gone — the rail shows
     /// only the ACTIVE team's boards, so other teams are reached here; a
     /// board-less team stays reachable too).
-    fn render_account_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let who: SharedString = crate::queries::active_account(cx)
+    fn render_account_button(
+        &self,
+        expanded: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let account = crate::queries::active_account(cx);
+        let who: SharedString = account
+            .as_ref()
             .map(|account| SharedString::from(account.email.clone()))
             .unwrap_or_else(|| "Not signed in".into());
         let label = who.clone();
+        // EXP-282: the expanded rail names the signed-in person (name over
+        // email, email alone when the account carries no name).
+        let display_name: SharedString = account
+            .as_ref()
+            .and_then(|account| account.name.clone())
+            .filter(|name| !name.trim().is_empty())
+            .map(SharedString::from)
+            .unwrap_or_else(|| who.clone());
+        let sub_label = (display_name != who).then(|| who.clone());
 
         // Captured snapshot for the lazy menu builder (overlay renders must
         // not read `self`): every team, checked on the active one.
@@ -447,17 +584,54 @@ impl RailView {
         Button::new("rail-account")
             .ghost()
             .small()
-            .icon(IconName::CircleUser)
-            .tooltip(who)
+            // EXP-282: expanded, the trigger becomes a full-width row — the
+            // Button's own inner layout is centered and unreachable, so the
+            // row is a `w_full` child that left-aligns inside it.
+            .map(|button| {
+                if expanded {
+                    button
+                        .w_full()
+                        .h(px(36.))
+                        .px_1p5()
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .items_center()
+                                .child(Icon::new(IconName::CircleUser).xsmall().flex_shrink_0())
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .gap_0()
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .truncate()
+                                                .child(display_name.clone()),
+                                        )
+                                        .children(sub_label.clone().map(|email| {
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .truncate()
+                                                .child(email)
+                                        })),
+                                ),
+                        )
+                } else {
+                    button.icon(IconName::CircleUser).tooltip(who.clone())
+                }
+            })
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
-                let mut menu = menu
-                    .label(label.clone())
-                    .menu_with_icon("Settings", IconName::Settings, Box::new(OpenSettings))
-                    .menu_with_icon(
-                        "Notifications",
-                        IconName::Bell,
-                        Box::new(crate::actions::OpenAccount),
-                    );
+                // EXP-282: no "Settings" item — the rail's gear is the single
+                // settings entry. "Account" (was "Notifications") opens the
+                // account pane inside the same settings chrome.
+                let mut menu = menu.label(label.clone()).menu_with_icon(
+                    "Account",
+                    IconName::CircleUser,
+                    Box::new(crate::actions::OpenAccount),
+                );
                 // "Switch team" section — flat checked rows (the menu builder
                 // has no submenus); shown only with somewhere to switch to.
                 if teams.len() > 1 {
@@ -489,6 +663,7 @@ impl RailView {
         &self,
         index: usize,
         board: &domain::rows::Board,
+        expanded: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let shared = self.shared.read(cx);
@@ -502,6 +677,24 @@ impl RailView {
             .unwrap_or_else(|| cx.theme().muted_foreground);
         let icon = crate::icons::board_icon(board).text_color(tint);
         let board_id = board.id.clone();
+        if expanded {
+            // EXP-282: the board's own color stays the row's accent (the
+            // glyph is always tinted — `active` only adds the row fill).
+            return rail_row(
+                ("rail-board", index),
+                icon,
+                SharedString::from(board.name.clone()),
+                active,
+                tint,
+                None,
+                cx,
+            )
+            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                crate::navigation::set_active_board(window, cx, board_id.clone());
+                activate_tool(window, cx, ToolWindow::BoardIssues);
+            }))
+            .into_any_element();
+        }
         div()
             .relative()
             .child(
@@ -531,11 +724,14 @@ impl RailView {
             .into_any_element()
     }
 
-    fn divider(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// EXP-282: the divider spans the labelled rail's full width and stays a
+    /// short centered tick on the icon rail.
+    fn divider(&self, expanded: bool, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         div()
-            .w_6()
+            .map(|this| if expanded { this.w_full() } else { this.w_6() })
             .h(px(1.))
             .my_1()
+            .flex_shrink_0()
             .bg(cx.theme().sidebar_border)
             .into_any_element()
     }
@@ -565,6 +761,8 @@ impl Render for RailView {
             }
         }
 
+        // EXP-282: the labelled-rail switch (persisted per install).
+        let expanded = self.shared.read(cx).rail_expanded;
         let accent = board_accent(&self.nav, cx);
         // Reviews badge: any open issue-linked PR in the active team.
         let has_reviews = active_team_id(&self.nav, cx)
@@ -583,8 +781,10 @@ impl Render for RailView {
                 Icon::from(ExpIcon::MessageSquare),
                 ToolWindow::Support,
                 "Support",
+                "Support",
                 support_badge,
                 accent,
+                expanded,
                 cx,
             )
         });
@@ -599,9 +799,25 @@ impl Render for RailView {
         let board_icons: Vec<gpui::AnyElement> = boards
             .iter()
             .enumerate()
-            .map(|(index, board)| self.rail_board_icon(index, board, cx))
+            .map(|(index, board)| self.rail_board_icon(index, board, expanded, cx))
             .collect();
-        let new_board = active_team.clone().map(|team_id| {
+        let new_board: Option<gpui::AnyElement> = active_team.clone().map(|team_id| {
+            if expanded {
+                return rail_row(
+                    "rail-new-board",
+                    Icon::new(IconName::Plus),
+                    "New board",
+                    false,
+                    accent,
+                    None,
+                    cx,
+                )
+                .text_color(cx.theme().muted_foreground)
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    crate::create_board_dialog::open(window, cx, team_id.clone());
+                }))
+                .into_any_element();
+            }
             Button::new("rail-new-board")
                 .ghost()
                 .small()
@@ -612,6 +828,7 @@ impl Render for RailView {
                 .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                     crate::create_board_dialog::open(window, cx, team_id.clone());
                 }))
+                .into_any_element()
         });
 
         // Source Control badge (EXP-253 — the git bar is headless now, this
@@ -644,35 +861,122 @@ impl Render for RailView {
             }
         };
 
+        // EXP-282: the expand/collapse toggle — top of the rail, pushed to
+        // the trailing edge while expanded (the Cursor/VS Code position).
+        let toggle = Button::new("rail-toggle")
+            .ghost()
+            .small()
+            .icon(if expanded {
+                IconName::PanelLeftClose
+            } else {
+                IconName::PanelLeftOpen
+            })
+            .tooltip(if expanded {
+                "Collapse sidebar"
+            } else {
+                "Expand sidebar"
+            })
+            // Direct call (EXP-17): rail buttons must not dispatch
+            // App-global actions.
+            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                toggle_rail_expanded(window, cx);
+            }));
+
+        // Search — opens the ⌘K sheet. Call the opener directly via
+        // cx.listener (like the rail tool icons below) rather than
+        // dispatching OpenSearch: a rail button that dispatches to the
+        // App-global handler fires from inside the window's own update, and
+        // the handler's re-entrant active-window lookup makes the click
+        // silently no-op — the gear next to it was dead for exactly this
+        // reason (EXP-17). The ⌘K keybinding still routes through the action.
+        let search: gpui::AnyElement = if expanded {
+            rail_row(
+                "rail-search",
+                Icon::new(IconName::Search),
+                "Search",
+                false,
+                accent,
+                None,
+                cx,
+            )
+            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                crate::search_sheet::open_search(window, cx)
+            }))
+            .into_any_element()
+        } else {
+            Button::new("rail-search")
+                .ghost()
+                .small()
+                .icon(IconName::Search)
+                .tooltip("Search")
+                .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                    crate::search_sheet::open_search(window, cx)
+                }))
+                .into_any_element()
+        };
+
+        // Settings gear — the SINGLE settings entry point (EXP-282 dropped
+        // the duplicate account-menu item). Navigates directly for the same
+        // EXP-17 reason as the search button above; the keymap still
+        // dispatches `OpenSettings`.
+        let settings_entry: gpui::AnyElement = if expanded {
+            rail_row(
+                "rail-settings",
+                Icon::new(IconName::Settings),
+                "Settings",
+                matches!(
+                    resolved_screen(&self.nav, cx),
+                    Some(Screen::Settings) | Some(Screen::Account)
+                ),
+                accent,
+                None,
+                cx,
+            )
+            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                navigate(window, cx, Screen::Settings)
+            }))
+            .into_any_element()
+        } else {
+            Button::new("rail-settings")
+                .ghost()
+                .small()
+                .icon(IconName::Settings)
+                .tooltip("Settings")
+                .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                    navigate(window, cx, Screen::Settings)
+                }))
+                .into_any_element()
+        };
+
         v_flex()
-            .w(px(RAIL_W))
+            .w(px(if expanded { RAIL_EXPANDED_W } else { RAIL_W }))
             .flex_shrink_0()
             .h_full()
-            .items_center()
             .py_2()
             .gap_1()
-            // EXP-269: no fill — the rail floats on the page gradient.
-            // EXP-277: no hairline either — the tool column's section wash
-            // provides the soft boundary (blended chrome).
+            // EXP-269: collapsed, no fill — the rail floats on the page
+            // gradient. EXP-277: no hairline either — the tool column's
+            // section wash provides the soft boundary (blended chrome).
+            // EXP-282: EXPANDED it takes that same section wash, because at
+            // 184px a bare gradient strip reads as part of the center.
+            .map(|this| {
+                if expanded {
+                    this.px_2()
+                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+                } else {
+                    this.items_center()
+                }
+            })
             .text_color(cx.theme().sidebar_foreground)
-            // Search — opens the ⌘K sheet. Call the opener directly via
-            // cx.listener (like the rail tool icons below) rather than
-            // dispatching OpenSearch: a rail button that dispatches to the
-            // App-global handler fires from inside the window's own update, and
-            // the handler's re-entrant active-window lookup makes the click
-            // silently no-op — the gear next to it was dead for exactly this
-            // reason (EXP-17). The ⌘K keybinding still routes through the action.
             .child(
-                Button::new("rail-search")
-                    .ghost()
-                    .small()
-                    .icon(IconName::Search)
-                    .tooltip("Search")
-                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                        crate::search_sheet::open_search(window, cx)
-                    })),
+                h_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .when(expanded, |this| this.justify_end())
+                    .child(toggle),
             )
-            .child(self.divider(cx))
+            .child(search)
+            .child(self.divider(expanded, cx))
             // Middle zone — scrollable so many boards never push the pinned
             // Settings/Account off small windows. Rail order (EXP-253):
             // [Inbox, Reviews, Support, Actions] / boards + "+" /
@@ -682,15 +986,17 @@ impl Render for RailView {
                 &self.rail_scroll,
                 v_flex()
                     .w_full()
-                    .items_center()
+                    .when(!expanded, |this| this.items_center())
                     .gap_1()
                     .child(self.rail_tool_icon(
                         "rail-inbox",
                         Icon::new(IconName::Inbox),
                         ToolWindow::Inbox,
                         "Inbox",
+                        "Inbox",
                         None,
                         accent,
+                        expanded,
                         cx,
                     ))
                     .child(self.rail_tool_icon(
@@ -698,10 +1004,12 @@ impl Render for RailView {
                         Icon::from(ExpIcon::GitPullRequest),
                         ToolWindow::Reviews,
                         "Reviews",
+                        "Reviews",
                         // Review green (EXP-214): open PRs are "stuff to do",
                         // colored like the in_review issue status.
                         has_reviews.then(|| theme::tokens::GREEN.to_hsla()),
                         accent,
+                        expanded,
                         cx,
                     ))
                     .children(support_icon)
@@ -710,50 +1018,42 @@ impl Render for RailView {
                         Icon::from(ExpIcon::Zap),
                         ToolWindow::Actions,
                         "Actions",
+                        "Actions",
                         None,
                         accent,
+                        expanded,
                         cx,
                     ))
-                    .child(self.divider(cx))
+                    .child(self.divider(expanded, cx))
                     .children(board_icons)
                     .children(new_board)
-                    .child(self.divider(cx))
+                    .child(self.divider(expanded, cx))
                     // Repo tool windows.
                     .child(self.rail_tool_icon(
                         "rail-files",
                         Icon::new(IconName::Folder),
                         ToolWindow::Files,
                         "Files",
+                        "Files",
                         None,
                         accent,
+                        expanded,
                         cx,
                     ))
                     .child(self.rail_tool_icon(
                         "rail-source-control",
                         Icon::from(ExpIcon::GitMerge),
                         ToolWindow::SourceControl,
+                        "Source Control",
                         sc_tooltip,
                         sc_badge,
                         accent,
+                        expanded,
                         cx,
                     )),
             ))
-            .child(
-                Button::new("rail-settings")
-                    .ghost()
-                    .small()
-                    .icon(IconName::Settings)
-                    .tooltip("Settings")
-                    // Navigate directly (see the search button above): the
-                    // dispatch → App-global OpenSettings handler no-ops when
-                    // fired from a rail button, which is why the gear did
-                    // nothing (EXP-17). The account-dropdown "Settings" item and
-                    // the keymap still dispatch the action.
-                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                        navigate(window, cx, Screen::Settings)
-                    })),
-            )
-            .child(self.render_account_button(cx))
+            .child(settings_entry)
+            .child(self.render_account_button(expanded, cx))
     }
 }
 
@@ -964,6 +1264,39 @@ impl SidebarPanel {
             )
     }
 
+    /// EXP-282: the centered icon-tab strip that REPLACED the icon+title
+    /// header on the two tabbed tool windows (Inbox, Support). The title was
+    /// pure duplication next to the tabs; centering the chips matches the
+    /// EXP-277 center/terminal strips. Same height as [`Self::tool_header`]
+    /// so the lists below don't shift between tools.
+    fn tool_tab_strip(&self, tabs: Vec<gpui::AnyElement>) -> gpui::Div {
+        h_flex()
+            .relative()
+            .flex_shrink_0()
+            .w_full()
+            .h(px(30.))
+            .px_2()
+            .items_center()
+            .justify_center()
+            .child(h_flex().gap_1().items_center().children(tabs))
+    }
+
+    /// One chip of [`Self::tool_tab_strip`] — the shared glass chip with a
+    /// leading glyph (`surface::tab_chip` already carries the gap).
+    fn tool_tab(
+        &self,
+        id: &'static str,
+        icon: Icon,
+        label: &'static str,
+        selected: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        crate::surface::tab_chip(selected, cx)
+            .id(id)
+            .child(icon.xsmall())
+            .child(label)
+    }
+
     fn list_skeleton(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         v_flex()
             .p_3()
@@ -996,28 +1329,32 @@ impl SidebarPanel {
     /// screen.
     fn render_inbox_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let tab = self.shared.read(cx).inbox_tab;
-        let header = self
-            .tool_header(Icon::new(IconName::Inbox), "Inbox", cx)
-            .child(
-                Button::new("inbox-tab-inbox")
-                    .ghost()
-                    .xsmall()
-                    .label("Inbox")
-                    .selected(tab == InboxTab::Inbox)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.set_inbox_tab(InboxTab::Inbox, cx);
-                    })),
+        // EXP-282: centered icon tabs instead of the icon+title header.
+        let inbox_tab = self
+            .tool_tab(
+                "inbox-tab-inbox",
+                Icon::new(IconName::Inbox),
+                "Inbox",
+                tab == InboxTab::Inbox,
+                cx,
             )
-            .child(
-                Button::new("inbox-tab-my-issues")
-                    .ghost()
-                    .xsmall()
-                    .label("My Issues")
-                    .selected(tab == InboxTab::MyIssues)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.set_inbox_tab(InboxTab::MyIssues, cx);
-                    })),
-            );
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.set_inbox_tab(InboxTab::Inbox, cx);
+            }))
+            .into_any_element();
+        let mine_tab = self
+            .tool_tab(
+                "inbox-tab-my-issues",
+                Icon::new(IconName::CircleUser),
+                "My Issues",
+                tab == InboxTab::MyIssues,
+                cx,
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.set_inbox_tab(InboxTab::MyIssues, cx);
+            }))
+            .into_any_element();
+        let header = self.tool_tab_strip(vec![inbox_tab, mine_tab]);
 
         if tab == InboxTab::MyIssues {
             return v_flex()
@@ -1030,30 +1367,43 @@ impl SidebarPanel {
         }
 
         let data = queries::inbox(cx);
+        // "Mark all read" rides the strip's trailing edge absolutely so the
+        // tab chips stay centered whether or not it is there (EXP-282).
         let header = header.when(data.total_unread > 0, |this| {
-                this.child(
-                    Button::new("inbox-mark-all-read")
-                        .ghost()
-                        .xsmall()
-                        .icon(Icon::from(ExpIcon::ListChecks))
-                        .tooltip("Mark all read")
-                        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
-                            if let Some(trpc) = queries::trpc_client(cx) {
-                                cx.background_executor()
-                                    .spawn(async move {
-                                        if let Err(err) =
-                                            api::notifications::notifications_mark_all_read(&trpc)
-                                        {
-                                            log::warn!(
-                                                "[ui] notifications.markAllRead failed: {err}"
-                                            );
-                                        }
-                                    })
-                                    .detach();
-                            }
-                        })),
-                )
-            });
+            this.child(
+                div()
+                    .absolute()
+                    .right_2()
+                    .top_0()
+                    .bottom_0()
+                    .flex()
+                    .items_center()
+                    .child(
+                        Button::new("inbox-mark-all-read")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::from(ExpIcon::ListChecks))
+                            .tooltip("Mark all read")
+                            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                                if let Some(trpc) = queries::trpc_client(cx) {
+                                    cx.background_executor()
+                                        .spawn(async move {
+                                            if let Err(err) =
+                                                api::notifications::notifications_mark_all_read(
+                                                    &trpc,
+                                                )
+                                            {
+                                                log::warn!(
+                                                    "[ui] notifications.markAllRead failed: {err}"
+                                                );
+                                            }
+                                        })
+                                        .detach();
+                                }
+                            })),
+                    ),
+            )
+        });
 
         // Single Linear-style activity stream: one row per issue group, the
         // LATEST notification's type icon + sentence. (The old trailing
@@ -2257,30 +2607,33 @@ impl SidebarPanel {
         }
         let filter = self.support_filter;
 
-        // Open/resolved filter buttons in the tool header (the Inbox
-        // header-button style).
-        let header = self
-            .tool_header(Icon::from(ExpIcon::MessageSquare), "Support", cx)
-            .child(
-                Button::new("support-filter-open")
-                    .ghost()
-                    .xsmall()
-                    .label("Open")
-                    .selected(filter == SupportFilter::Open)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.set_support_filter(SupportFilter::Open, cx);
-                    })),
+        // EXP-282: the open/resolved filter IS the header now — centered icon
+        // tabs (same strip as the Inbox tool), no icon+title line.
+        let open_tab = self
+            .tool_tab(
+                "support-filter-open",
+                Icon::from(ExpIcon::CircleDot),
+                "Open",
+                filter == SupportFilter::Open,
+                cx,
             )
-            .child(
-                Button::new("support-filter-resolved")
-                    .ghost()
-                    .xsmall()
-                    .label("Resolved")
-                    .selected(filter == SupportFilter::Resolved)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.set_support_filter(SupportFilter::Resolved, cx);
-                    })),
-            );
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.set_support_filter(SupportFilter::Open, cx);
+            }))
+            .into_any_element();
+        let resolved_tab = self
+            .tool_tab(
+                "support-filter-resolved",
+                Icon::from(ExpIcon::CircleCheck),
+                "Resolved",
+                filter == SupportFilter::Resolved,
+                cx,
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.set_support_filter(SupportFilter::Resolved, cx);
+            }))
+            .into_any_element();
+        let header = self.tool_tab_strip(vec![open_tab, resolved_tab]);
 
         let key = team_id.map(|id| (id, filter));
         let threads: Option<Vec<api::helpdesk::SupportThreadSummary>> = self

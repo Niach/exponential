@@ -97,7 +97,7 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
         // content (no fixed empty band); only past the cap does the editor
         // region scroll, with header/chips/footer pinned.
         let max_height = window.viewport_size().height * 0.85;
-        dialog
+        crate::surface::glass_dialog(dialog)
             .w(px(640.))
             .max_h(max_height)
             .p_0()

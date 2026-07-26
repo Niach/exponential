@@ -1,5 +1,5 @@
 //! The Actions tool window (EXP-253): the team's reusable markdown prompts —
-//! list + ▶ Run and owner-only Edit/Delete. EXP-257: creation moved into the
+//! list + ▶ Run and owner-only Delete. EXP-257: creation moved into the
 //! virtual **"Create action"** builtin (pinned first in this list; its run IS
 //! the creator — an MCP-wired agent session authoring the action), so the old
 //! "Describe with Claude"/"Write manually" headers and the local templates
@@ -10,22 +10,26 @@
 //! ([`crate::start_coding_dialog::open_for_action`]), which owns
 //! agent/model/effort choices and the typed input fields; the runner itself
 //! lives in [`crate::action_run`].
+//!
+//! EXP-282: the rows are FLAT and full-width (the issue-list shape — the
+//! container lost its padding, the row carries `px_3` and the hover spans
+//! edge to edge) with real overflow discipline, and the raw editor DIALOG is
+//! gone: editing an action is inline on [`crate::action_detail`], so the
+//! owner menu only opens the detail or deletes.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, AppContext as _, ClickEvent, Entity, InteractiveElement, IntoElement,
+    div, px, App, ClickEvent, Entity, InteractiveElement, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     dialog::DialogButtonProps,
-    input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     ActiveTheme as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
 
-use crate::action_run::{fetch_repositories, ActionRepoRow};
 use crate::icons::ExpIcon;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::queries;
@@ -92,13 +96,11 @@ impl ActionsPanel {
         index: usize,
         action: &api::actions::Action,
         owner: bool,
-        team_id: &str,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let run_id = action.id.clone();
-        let edit_action = action.clone();
-        let edit_team_id = team_id.to_string();
+        let menu_action = action.clone();
         let repo_backed = action.repository_id.is_some();
         let builtin = action.builtin;
         // EXP-277: the row itself navigates — real actions open the detail
@@ -107,11 +109,15 @@ impl ActionsPanel {
 
         gpui_component::v_flex()
             .id(SharedString::from(format!("action-{}", action.id)))
+            // EXP-282: flat full-width row (issue-list shape) — no inset
+            // pill, so the hover fill spans the whole tool column. `min_w_0`
+            // all the way down is what keeps a narrow sidebar from pushing
+            // the trailing buttons out of the box.
             .w_full()
+            .min_w_0()
             .gap_0p5()
-            .px_2()
+            .px_3()
             .py_1p5()
-            .rounded(theme.radius)
             .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -129,12 +135,16 @@ impl ActionsPanel {
             }))
             .child(
                 gpui_component::h_flex()
+                    .w_full()
+                    .min_w_0()
                     .items_center()
                     .gap_1()
                     .child(
                         // The builtin creator gets its distinct mark (Plus,
                         // like the web's ActionCard) — real actions keep Zap.
-                        if builtin {
+                        // EXP-282: every leading/trailing ornament sits in a
+                        // `flex_shrink_0` box so only the NAME gives way.
+                        div().flex_shrink_0().child(if builtin {
                             Icon::new(IconName::Plus)
                                 .xsmall()
                                 .text_color(theme.muted_foreground)
@@ -142,7 +152,7 @@ impl ActionsPanel {
                             Icon::from(ExpIcon::Zap)
                                 .xsmall()
                                 .text_color(theme.muted_foreground)
-                        },
+                        }),
                     )
                     .child(
                         div()
@@ -155,9 +165,11 @@ impl ActionsPanel {
                     )
                     .when(repo_backed, |this| {
                         this.child(
-                            Icon::from(ExpIcon::GitMerge)
-                                .xsmall()
-                                .text_color(theme.muted_foreground),
+                            div().flex_shrink_0().child(
+                                Icon::from(ExpIcon::GitMerge)
+                                    .xsmall()
+                                    .text_color(theme.muted_foreground),
+                            ),
                         )
                     })
                     // No owner menu on the builtin — it is server-defined,
@@ -168,6 +180,7 @@ impl ActionsPanel {
                             // Swallow the press so opening the menu never
                             // also fires the row navigation (EXP-277).
                             div()
+                                .flex_shrink_0()
                                 .on_mouse_down(
                                     gpui::MouseButton::Left,
                                     |_, _, cx: &mut App| cx.stop_propagation(),
@@ -181,18 +194,22 @@ impl ActionsPanel {
                                     // Direct closures (the members-menu
                                     // pattern) — never App-global dispatch
                                     // from an overlay into an unfocused view.
-                                    let edit = edit_action.clone();
-                                    let edit_team_id = edit_team_id.clone();
-                                    let delete = edit_action.clone();
+                                    // EXP-282: "Edit…" is gone with the raw
+                                    // editor dialog — editing is inline on
+                                    // the detail screen, so the menu just
+                                    // opens it (same target as a row click).
+                                    let open = menu_action.clone();
+                                    let delete = menu_action.clone();
                                     let delete_panel = panel.clone();
                                     menu.item(
-                                        PopupMenuItem::new("Edit…").on_click(
+                                        PopupMenuItem::new("Open action").on_click(
                                             move |_, window, cx| {
-                                                open_action_editor(
+                                                crate::navigation::navigate(
                                                     window,
                                                     cx,
-                                                    edit_team_id.clone(),
-                                                    edit.clone(),
+                                                    crate::navigation::Screen::ActionDetail {
+                                                        action_id: open.id.clone(),
+                                                    },
                                                 );
                                             },
                                         ),
@@ -218,20 +235,27 @@ impl ActionsPanel {
                         )
                     })
                     .child(
-                        Button::new(("action-run", index))
-                            .primary()
-                            .xsmall()
-                            .icon(Icon::from(ExpIcon::Play))
-                            .tooltip("Run on this device")
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                this.run(run_id.clone(), window, cx);
-                            })),
+                        div().flex_shrink_0().child(
+                            Button::new(("action-run", index))
+                                .primary()
+                                .xsmall()
+                                .icon(Icon::from(ExpIcon::Play))
+                                .tooltip("Run on this device")
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.run(run_id.clone(), window, cx);
+                                })),
+                        ),
                     ),
             )
             .when_some(action.description.clone(), |this, description| {
                 this.child(
+                    // EXP-282: one clamped line — a long description used to
+                    // wrap the row into a paragraph at narrow widths.
                     div()
+                        .w_full()
+                        .min_w_0()
+                        .truncate()
                         .text_xs()
                         .text_color(theme.muted_foreground)
                         .child(SharedString::from(description)),
@@ -255,12 +279,11 @@ impl Render for ActionsPanel {
             None => (Vec::new(), true),
         };
         let loading = !ready;
-        let team_id = team_id.unwrap_or_default();
 
         let rows: Vec<gpui::AnyElement> = actions
             .iter()
             .enumerate()
-            .map(|(index, action)| self.render_row(index, action, owner, &team_id, cx))
+            .map(|(index, action)| self.render_row(index, action, owner, cx))
             .collect();
 
         gpui_component::v_flex()
@@ -269,174 +292,23 @@ impl Render for ActionsPanel {
             .child(crate::scroll_pane::v_scroll_pane(
                 "actions-scroll",
                 &self.scroll,
+                // EXP-282: no horizontal padding and no inter-row gap — the
+                // rows own their `px_3` so hover/selection runs edge to edge
+                // (issue-list parity).
                 gpui_component::v_flex()
-                    .p_1()
-                    .gap_0p5()
+                    .py_1()
                     .children(rows)
                     .when(loading, |this| {
                         this.child(
                             div()
-                                .p_2()
+                                .px_3()
+                                .py_2()
                                 .text_xs()
                                 .text_color(muted)
                                 .child("Loading actions…"),
                         )
                     }),
             ))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// The raw editor dialog (EXP-257: EDIT-ONLY — creation is the builtin run)
-// ---------------------------------------------------------------------------
-
-struct ActionEditorView {
-    /// The edited action's id.
-    editing: String,
-    name: Entity<InputState>,
-    description: Entity<InputState>,
-    body: Entity<InputState>,
-    /// The chosen repo (`None` = repo-less).
-    repository: Option<ActionRepoRow>,
-    /// The edited action's repo binding as loaded — an update only sends
-    /// `repositoryId` when the picker actually CHANGED it (a failed or
-    /// still-loading repos fetch must never silently strip the binding).
-    initial_repository_id: Option<String>,
-    repos: Vec<ActionRepoRow>,
-    /// The picker rows landed (fetch succeeded) — the gate for trusting the
-    /// picker state on save.
-    repos_loaded: bool,
-    /// The body landed from `actions.get` (EXP-268: synced rows carry no
-    /// body) — save is refused until then so it can never blank the prompt.
-    body_loaded: bool,
-    submitting: bool,
-    error: Option<SharedString>,
-}
-
-impl ActionEditorView {
-    fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.submitting {
-            return;
-        }
-        if !self.body_loaded {
-            self.error = Some("Still loading the prompt — try again in a moment.".into());
-            cx.notify();
-            return;
-        }
-        let name = self.name.read(cx).value().trim().to_string();
-        let description = self.description.read(cx).value().trim().to_string();
-        let body = self.body.read(cx).value().to_string();
-        if name.is_empty() || body.trim().is_empty() {
-            self.error = Some("Name and body are required.".into());
-            cx.notify();
-            return;
-        }
-        let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
-            return;
-        };
-        self.submitting = true;
-        self.error = None;
-        cx.notify();
-
-        let editing = self.editing.clone();
-        let repository_id = self.repository.as_ref().map(|repo| repo.id.clone());
-        // Only a REAL picker change rides the update; an unloaded picker
-        // (fetch failed / still in flight) must not clobber the binding.
-        let repository_patch = if !self.repos_loaded {
-            api::Patch::Omit
-        } else if repository_id == self.initial_repository_id {
-            api::Patch::Omit
-        } else {
-            api::Patch::set_or_null(repository_id.clone())
-        };
-        cx.spawn_in(window, async move |this, window| {
-            let result = window
-                .background_executor()
-                .spawn(async move {
-                    let mut input = api::actions::ActionUpdate::new(editing);
-                    input.name = Some(name);
-                    input.description = Some(description);
-                    input.repository_id = repository_patch;
-                    input.body = Some(body);
-                    api::actions::update(&trpc, &input).map(|_| ())
-                })
-                .await;
-            let _ = this.update_in(window, |this, window, cx| {
-                this.submitting = false;
-                match result {
-                    // The synced collection picks the change up — no refetch.
-                    Ok(()) => window.close_dialog(cx),
-                    Err(err) => {
-                        this.error = Some(SharedString::from(format!("{err}")));
-                        cx.notify();
-                    }
-                }
-            });
-        })
-        .detach();
-    }
-}
-
-impl Render for ActionEditorView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let repo_label: SharedString = match &self.repository {
-            Some(repo) => repo.full_name.clone().into(),
-            None => "No repository".into(),
-        };
-        let repos = self.repos.clone();
-        gpui_component::v_flex()
-            .gap_2()
-            .child(field_label("Name", cx))
-            .child(Input::new(&self.name).small())
-            .child(field_label("Description (optional)", cx))
-            .child(Input::new(&self.description).small())
-            .child(field_label("Repository", cx))
-            .child(
-                Button::new("action-repo")
-                    .ghost()
-                    .xsmall()
-                    .label(repo_label)
-                    .dropdown_menu({
-                        let view = cx.entity().downgrade();
-                        move |mut menu, _window, _cx| {
-                            for pick in std::iter::once(None)
-                                .chain((0..repos.len()).map(Some))
-                            {
-                                let label: SharedString = match pick {
-                                    Some(index) => repos[index].full_name.clone().into(),
-                                    None => "No repository".into(),
-                                };
-                                let view = view.clone();
-                                menu = menu.item(PopupMenuItem::new(label).on_click(
-                                    move |_, _, cx| {
-                                        if let Some(view) = view.upgrade() {
-                                            view.update(cx, |view, cx| {
-                                                view.repository = pick.and_then(|index| {
-                                                    view.repos.get(index).cloned()
-                                                });
-                                                cx.notify();
-                                            });
-                                        }
-                                    },
-                                ));
-                            }
-                            menu
-                        }
-                    }),
-            )
-            .child(field_label("Instructions (markdown)", cx))
-            .child(Input::new(&self.body))
-            .when_some(self.error.clone(), |this, error| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.danger)
-                        .child(error),
-                )
-            })
     }
 }
 
@@ -450,7 +322,7 @@ pub(crate) fn prompt_delete_action(
 ) {
     window.open_alert_dialog(cx, move |alert, _window, _cx| {
         let action_id = action_id.clone();
-        alert
+        crate::surface::glass_dialog(alert)
             .confirm()
             .overlay_closable(true)
             .close_button(true)
@@ -480,137 +352,5 @@ pub(crate) fn prompt_delete_action(
                 .detach();
                 true
             })
-    });
-}
-
-fn field_label(text: &'static str, cx: &App) -> gpui::Div {
-    div()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(text)
-}
-
-/// The owner edit dialog (`pub(crate)` — the action-detail sidebar reuses
-/// it, EXP-277).
-pub(crate) fn open_action_editor(
-    window: &mut Window,
-    cx: &mut App,
-    team_id: String,
-    existing: api::actions::Action,
-) {
-    let existing_repo = existing.repository_id.clone();
-    let view = cx.new(|cx| ActionEditorView {
-        editing: existing.id.clone(),
-        name: cx.new(|cx| {
-            let mut state = InputState::new(window, cx).placeholder("e.g. Code review");
-            state.set_value(existing.name.clone(), window, cx);
-            state
-        }),
-        description: cx.new(|cx| {
-            let mut state =
-                InputState::new(window, cx).placeholder("One line on what this action does");
-            if let Some(description) = existing.description.clone() {
-                state.set_value(description, window, cx);
-            }
-            state
-        }),
-        body: cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .rows(12)
-                .placeholder("Loading prompt…")
-        }),
-        repository: None,
-        initial_repository_id: existing_repo.clone(),
-        repos: Vec::new(),
-        repos_loaded: false,
-        body_loaded: false,
-        submitting: false,
-        error: None,
-    });
-
-    // The synced row carries no body (EXP-268) — fetch the fresh one and
-    // seed the prompt field once it lands.
-    if let Some(trpc) = queries::trpc_client(cx) {
-        let view_for_body = view.downgrade();
-        let action_id = existing.id.clone();
-        let window_handle = window.window_handle();
-        cx.spawn(async move |cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::actions::get(&trpc, &action_id) })
-                .await;
-            let _ = window_handle.update(cx, |_, window, cx| {
-                let Some(view) = view_for_body.upgrade() else {
-                    return;
-                };
-                view.update(cx, |view, cx| match result {
-                    Ok(action) => {
-                        view.body.update(cx, |state, cx| {
-                            state.set_value(action.body.clone(), window, cx);
-                        });
-                        view.body_loaded = true;
-                        cx.notify();
-                    }
-                    Err(err) => {
-                        view.error = Some(SharedString::from(format!(
-                            "Could not load the prompt: {err}"
-                        )));
-                        cx.notify();
-                    }
-                });
-            });
-        })
-        .detach();
-    }
-
-    // Fetch the repo picker's rows off the foreground; pre-select the
-    // edited action's repo once they land.
-    if let Some(trpc) = queries::trpc_client(cx) {
-        let view_for_fetch = view.downgrade();
-        cx.spawn(async move |cx| {
-            let rows = cx
-                .background_executor()
-                .spawn(async move { fetch_repositories(&trpc, &team_id) })
-                .await;
-            let _ = cx.update(|cx| {
-                if let Some(view) = view_for_fetch.upgrade() {
-                    view.update(cx, |view, cx| match rows {
-                        Ok(rows) => {
-                            view.repository = existing_repo
-                                .as_deref()
-                                .and_then(|id| rows.iter().find(|row| row.id == id).cloned());
-                            view.repos = rows;
-                            view.repos_loaded = true;
-                            cx.notify();
-                        }
-                        Err(err) => {
-                            // Leave repos_loaded=false — save then omits the
-                            // binding instead of stripping it.
-                            log::warn!("actions: repositories.list failed: {err}");
-                            cx.notify();
-                        }
-                    });
-                }
-            });
-        })
-        .detach();
-    }
-
-    window.open_dialog(cx, move |dialog, _window, cx| {
-        let busy = view.read(cx).submitting;
-        dialog
-            .w(px(560.))
-            .title("Edit action")
-            .overlay_closable(!busy)
-            .keyboard(!busy)
-            .on_ok({
-                let view = view.clone();
-                move |_, window, cx| {
-                    view.update(cx, |view, cx| view.submit(window, cx));
-                    false
-                }
-            })
-            .child(view.clone())
     });
 }

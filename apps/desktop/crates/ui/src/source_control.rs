@@ -464,7 +464,7 @@ impl SourceControlView {
                      under it and may disrupt the session.",
                 );
             }
-            alert
+            crate::surface::glass_dialog(alert)
                 .confirm()
                 .overlay_closable(true)
                 .close_button(true)
@@ -511,7 +511,9 @@ impl SourceControlView {
             .gap_2()
             .p_3()
             .border_b_1()
-            .border_color(theme.border)
+            // EXP-282: faint glass row stroke instead of the heavy chrome
+            // border (the warning tint already separates the banner).
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .bg(theme.warning.opacity(0.12))
             .child(
                 div()
@@ -727,13 +729,14 @@ impl Render for SourceControlView {
                 }
             }
         }
-        let theme = cx.theme();
         let conflict = self.conflict.clone();
         let error = self.error.clone();
 
+        // EXP-282: no opaque fill — the screen floats on the page gradient
+        // like every other center screen (the old `theme.background` paint
+        // blocked the gradient behind the whole diff detail view).
         gpui_component::v_flex()
             .size_full()
-            .bg(theme.background)
             .when_some(conflict, |this, conflict| {
                 this.child(self.render_conflict_banner(&conflict, cx))
             })
@@ -896,15 +899,17 @@ impl HistoryList {
             .is_some_and(|hash| hash == commit.hash);
         let hash = commit.hash.clone();
         let meta = format!("{} · {}", commit.author, commit.relative_time);
+        // EXP-282: flat edge-to-edge rows like the issue list — the pill
+        // inset (rounded + horizontal container padding) and the pre-glass
+        // `accent` fills are gone; hover/selected use the glass list tokens.
         gpui_component::v_flex()
             .id(SharedString::from(format!("hist-commit-{}", commit.hash)))
             .w_full()
             .gap_0p5()
-            .px_1()
+            .px_3()
             .py_1()
-            .rounded(theme.radius)
-            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .when(selected, |this| this.bg(theme.list_active))
+            .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
             .child(
                 div()
@@ -941,11 +946,15 @@ impl Render for HistoryList {
             "hist-scroll",
             &self.scroll,
             gpui_component::v_flex()
-                .p_2()
+                // EXP-282: no horizontal padding — the commit rows run
+                // full-width (they carry their own `px_3`); the notices and
+                // the "Load more" button re-add the inset themselves.
+                .py_1()
                 .gap_0p5()
                 .when(no_clone, |this| {
                     this.child(
                         div()
+                            .px_3()
                             .py_2()
                             .text_xs()
                             .text_color(muted)
@@ -960,6 +969,7 @@ impl Render for HistoryList {
                 .when(!no_clone && self.history.is_empty(), |this| {
                     this.child(
                         div()
+                            .px_3()
                             .py_2()
                             .text_xs()
                             .text_color(muted)
@@ -968,18 +978,22 @@ impl Render for HistoryList {
                 })
                 .when(self.history_has_more, |this| {
                     this.child(
-                        Button::new("hist-more")
-                            .ghost()
-                            .xsmall()
-                            .label(if self.history_loading {
-                                "Loading…"
-                            } else {
-                                "Load more"
-                            })
-                            .disabled(self.history_loading)
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.load_more(cx);
-                            })),
+                        // EXP-282: the container lost its horizontal padding
+                        // for full-width rows — the button keeps its inset.
+                        div().px_2().child(
+                            Button::new("hist-more")
+                                .ghost()
+                                .xsmall()
+                                .label(if self.history_loading {
+                                    "Loading…"
+                                } else {
+                                    "Load more"
+                                })
+                                .disabled(self.history_loading)
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    this.load_more(cx);
+                                })),
+                        ),
                     )
                 }),
         )

@@ -1018,7 +1018,7 @@ impl StartCodingControl {
         };
         window.open_alert_dialog(cx, move |alert, _window, _cx| {
             let issue_id = issue_id.clone();
-            alert
+            crate::surface::glass_dialog(alert)
                 .confirm()
                 .overlay_closable(true)
                 .close_button(true)

@@ -149,7 +149,7 @@ pub fn open(window: &mut Window, cx: &mut App, team_id: String) {
     let view = cx.new(|cx| CreateBoardDialogView::new(team_id, window, cx));
     window.open_dialog(cx, move |dialog, _window, cx| {
         let busy = view.read(cx).submitting;
-        dialog
+        crate::surface::glass_dialog(dialog)
             .w(px(416.)) // web sm:max-w-[26rem]
             .title("Create board")
             .overlay_closable(!busy)
