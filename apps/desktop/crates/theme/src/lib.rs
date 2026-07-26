@@ -428,7 +428,7 @@ pub fn blended_background_top() -> Hsla {
 /// page. `t` is clamped, so a caller passing a NaN/─ve ratio still gets the
 /// top stop rather than a garbage color.
 ///
-/// EXP-290 made the painted gradient translucent ([`GLASS_BACKGROUND_ALPHA`]);
+/// EXP-290 made the painted gradient translucent ([`glass_content_alpha`]);
 /// this sampler stays FULLY OPAQUE on purpose — an occluder that lets the cells
 /// behind it through is not an occluder. It therefore reads slightly more solid
 /// than the page it sits on, which is the correct trade for one IME quad.
@@ -442,39 +442,142 @@ pub fn background_gradient_color_at(t: f32) -> Hsla {
     .into()
 }
 
-/// EXP-290 "glass look": how opaque [`background_gradient`] paints, so the
-/// window's behind-window blur shows the desktop faintly through the whole app
-/// (Cursor/native-macOS style). 0.92 is deliberately at the "only very lightly"
-/// end of the range — 8% of the blurred backdrop bleeds through, enough to read
-/// as glass over a wallpaper but far too little to move body text off its
-/// contrast floor (the near-white `FOREGROUND` still clears AA even against a
-/// pure-white backdrop lifting the near-black page by 8%).
+/// Whether this platform really puts a BLURRED backdrop behind a non-opaque
+/// window — the precondition for the EXP-290 glass look. Translucency without
+/// blur is not glass: it is a sharp, unsmeared ghost of the desktop showing
+/// through the page (EXP-293 — wallpaper icons and filenames were legible
+/// through the Linux sidebar), so where this is false the page paints FULLY
+/// OPAQUE and the glass reduces to the web's subtle top→bottom gradient.
 ///
-/// Windows is EXCLUDED (stays fully opaque) because its windows keep the
-/// default `Opaque` appearance — see the window-options sites in
-/// `app::windows` / `ui::undock` / `ui::native_dialog`. gpui's DirectX renderer
-/// clears an Opaque window's target to WHITE, so a translucent page gradient
-/// there would wash out into white rather than reveal anything behind it.
-#[cfg(not(target_os = "windows"))]
-pub const GLASS_BACKGROUND_ALPHA: f32 = 0.92;
-#[cfg(target_os = "windows")]
-pub const GLASS_BACKGROUND_ALPHA: f32 = 1.0;
+/// The three platform answers, at the pinned gpui rev:
+/// - **macOS: yes.** `WindowBackgroundAppearance::Blurred` installs a real
+///   `NSVisualEffectView` behind the window (`gpui_macos::window`).
+/// - **Windows: no.** Our windows deliberately stay `Opaque` (its `Blurred` is
+///   the legacy `ACCENT_ENABLE_BLURBEHIND`, a non-opaque window loses ClearType,
+///   and the DirectX renderer clears an Opaque target to WHITE — a translucent
+///   page there washes out instead of revealing anything).
+/// - **Linux: only KDE/KWin on Wayland.** gpui's Wayland backend asks the
+///   compositor's `org_kde_kwin_blur_manager`, an OPTIONAL global bind
+///   (`gpui_linux::linux::wayland`), and the X11 backend has no blur code at all
+///   — there `Blurred` only picks a 32-bit ARGB visual. So Mutter/GNOME,
+///   wlroots, Cinnamon/muffin and every X11 session get transparency with no
+///   blur, and must fall through to opaque. Setting
+///   `_KDE_NET_WM_BLUR_BEHIND_REGION` ourselves is not an option: gpui exposes
+///   no raw X11 window handle, and we do not patch gpui (LD: no fork).
+///
+/// The Linux answer is an env probe (there is no gpui API for "is the blur
+/// manager bound"), cached because it cannot change within a process.
+pub fn blur_backdrop_available() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(target_os = "windows")]
+    {
+        false
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::sync::OnceLock;
+        static AVAILABLE: OnceLock<bool> = OnceLock::new();
+        *AVAILABLE.get_or_init(|| {
+            let wayland = std::env::var("WAYLAND_DISPLAY").is_ok_and(|v| !v.is_empty());
+            let kde = std::env::var("XDG_CURRENT_DESKTOP")
+                .is_ok_and(|v| v.to_ascii_uppercase().contains("KDE"));
+            wayland && kde
+        })
+    }
+}
+
+/// EXP-293: how opaque the page paints under the SIDEBAR — the icon/nav rail,
+/// the most transparent surface in the app. This is the swap the issue asks
+/// for: the rail used to read as the solid column (its white-4% `FILL_SECTION`
+/// wash) over a uniformly translucent page, and now it is the glass one while
+/// the content next to it is nearly solid — the native macOS Finder/Mail idiom.
+///
+/// 1.0 without a real blur backdrop ([`blur_backdrop_available`]).
+pub fn glass_sidebar_alpha() -> f32 {
+    if blur_backdrop_available() {
+        0.72
+    } else {
+        1.0
+    }
+}
+
+/// EXP-293: how opaque the page paints under the MAIN CONTENT — everything
+/// right of the rail (issue list, tabs, detail sidebar, terminal dock) and
+/// every standalone window (undocked views, dialogs, the login/update
+/// surfaces). Only a tenth of the blurred backdrop bleeds through, so the
+/// surfaces that carry body text, code and diffs keep their contrast while
+/// still reading as glass.
+///
+/// 1.0 without a real blur backdrop ([`blur_backdrop_available`]).
+pub fn glass_content_alpha() -> f32 {
+    if blur_backdrop_available() {
+        0.90
+    } else {
+        1.0
+    }
+}
 
 /// The glass page background (EXP-269): the mobile `AppBackground` gradient —
-/// top to bottom. Paint it on every window's root content element (Shell +
-/// undocked windows); panel surfaces above it are transparent or white-alpha
-/// glass fills so the ramp shows through. EXP-277 softens the desktop's top
-/// stop (see [`blended_background_top`]) so the titlebar band no longer steps
-/// hard against the content panels.
+/// top to bottom, at [`glass_content_alpha`]. Paint it on the root content
+/// element of every window that is ALL content (undocked windows, dialogs, the
+/// login + update-required surfaces); panel surfaces above it are transparent
+/// or white-alpha glass fills so the ramp shows through. EXP-277 softens the
+/// desktop's top stop (see [`blended_background_top`]) so the titlebar band no
+/// longer steps hard against the content panels.
 ///
-/// EXP-290: both stops carry [`GLASS_BACKGROUND_ALPHA`] — the ONE place the
-/// window turns translucent. It pairs with `WindowBackgroundAppearance::Blurred`
-/// on the window itself; without the blur this would just be a smeared raw
-/// desktop, and without the alpha the blur would be invisible behind an opaque
-/// page. Deliberately NOT applied to [`background_gradient_color_at`], which
-/// must stay an opaque occluder.
+/// The Shell window is the exception: it splits the page into the rail and the
+/// content column, so it paints [`sidebar_background_gradient`] as its base and
+/// tops the content column up with [`content_topup_gradient`].
+///
+/// EXP-290/EXP-293: the stops carry the region's alpha — the ONE place the
+/// window turns translucent. It pairs with
+/// `WindowBackgroundAppearance::Blurred` on the window itself; without the blur
+/// this would just be a smeared raw desktop (hence
+/// [`blur_backdrop_available`]), and without the alpha the blur would be
+/// invisible behind an opaque page. Deliberately NOT applied to
+/// [`background_gradient_color_at`], which must stay an opaque occluder.
 pub fn background_gradient() -> gpui::Background {
-    let (top, bottom) = background_gradient_stops();
+    gradient_at_alpha(glass_content_alpha())
+}
+
+/// The page gradient under the sidebar/rail, at [`glass_sidebar_alpha`]. The
+/// Shell paints this as its base layer — under the rail AND under the content
+/// column, because alpha compositing can only ADD opacity: the most
+/// transparent region has to be the bottom layer, and the content column then
+/// paints [`content_topup_gradient`] on top of it.
+pub fn sidebar_background_gradient() -> gpui::Background {
+    gradient_at_alpha(glass_sidebar_alpha())
+}
+
+/// The layer the Shell's content column paints OVER
+/// [`sidebar_background_gradient`] so the composite lands exactly on
+/// [`glass_content_alpha`]. Same stop colors as the base, so stacking the two
+/// only adds alpha — the ramp's hue/lightness at any y is unchanged.
+pub fn content_topup_gradient() -> gpui::Background {
+    gradient_at_alpha(content_topup_alpha())
+}
+
+/// The `over` alpha that composites [`glass_sidebar_alpha`] up to
+/// [`glass_content_alpha`]: from `out = over + under·(1 - over)`,
+/// `over = (out - under) / (1 - under)`.
+///
+/// Returns 1.0 when the base is already fully opaque (the no-blur path — the
+/// division would be 0/0), which paints a harmless opaque layer over an opaque
+/// one instead of a NaN alpha.
+pub fn content_topup_alpha() -> f32 {
+    let under = glass_sidebar_alpha();
+    let out = glass_content_alpha();
+    if under >= 1.0 {
+        return 1.0;
+    }
+    ((out - under) / (1.0 - under)).clamp(0., 1.)
+}
+
+fn gradient_at_alpha(alpha: f32) -> gpui::Background {
+    let (top, bottom) = gradient_stops_at_alpha(alpha);
     gpui::linear_gradient(
         180.,
         gpui::linear_color_stop(top, 0.),
@@ -484,12 +587,21 @@ pub fn background_gradient() -> gpui::Background {
 
 /// The page gradient's stop colors as painted (top, bottom) — the exact pair
 /// [`background_gradient`] hands gpui, factored out because `Background`'s
-/// fields are private at the pinned gpui rev, so the EXP-290 alpha contract is
-/// otherwise untestable.
+/// fields are private at the pinned gpui rev, so the EXP-290/EXP-293 alpha
+/// contract is otherwise untestable.
 pub fn background_gradient_stops() -> (Hsla, Hsla) {
+    gradient_stops_at_alpha(glass_content_alpha())
+}
+
+/// [`background_gradient_stops`] for the sidebar base layer.
+pub fn sidebar_background_gradient_stops() -> (Hsla, Hsla) {
+    gradient_stops_at_alpha(glass_sidebar_alpha())
+}
+
+fn gradient_stops_at_alpha(alpha: f32) -> (Hsla, Hsla) {
     (
-        blended_background_top().opacity(GLASS_BACKGROUND_ALPHA),
-        t::glass::BACKGROUND_BOTTOM.to_hsla().opacity(GLASS_BACKGROUND_ALPHA),
+        blended_background_top().opacity(alpha),
+        t::glass::BACKGROUND_BOTTOM.to_hsla().opacity(alpha),
     )
 }
 
@@ -625,35 +737,89 @@ mod tests {
     }
 
     #[test]
-    fn page_gradient_is_lightly_translucent_for_the_window_blur() {
-        // EXP-290: the page is the ONE translucent layer — both stops carry
-        // GLASS_BACKGROUND_ALPHA so the window's behind-window blur shows the
-        // desktop faintly through. Hues/lightnesses are untouched.
-        let (top, bottom) = background_gradient_stops();
-        assert!(approx(top.a, GLASS_BACKGROUND_ALPHA), "top stop alpha: {top:?}");
-        assert!(approx(bottom.a, GLASS_BACKGROUND_ALPHA), "bottom stop alpha: {bottom:?}");
-        assert!(approx(top.l, blended_background_top().l), "top stop color unchanged");
-        assert!(
-            approx(bottom.l, tokens::glass::BACKGROUND_BOTTOM.to_hsla().l),
-            "bottom stop color unchanged"
-        );
+    fn page_gradient_stops_carry_their_regions_alpha() {
+        // EXP-290/EXP-293: the page is the ONE translucent layer — both stops
+        // of both regions carry that region's alpha so the window's
+        // behind-window blur shows the desktop through. Hues/lightnesses are
+        // untouched, and the two regions share the ramp exactly.
+        for (label, (top, bottom), alpha) in [
+            ("content", background_gradient_stops(), glass_content_alpha()),
+            ("sidebar", sidebar_background_gradient_stops(), glass_sidebar_alpha()),
+        ] {
+            assert!(approx(top.a, alpha), "{label} top stop alpha: {top:?}");
+            assert!(approx(bottom.a, alpha), "{label} bottom stop alpha: {bottom:?}");
+            assert!(approx(top.l, blended_background_top().l), "{label} top color unchanged");
+            assert!(
+                approx(bottom.l, tokens::glass::BACKGROUND_BOTTOM.to_hsla().l),
+                "{label} bottom color unchanged"
+            );
+        }
         // The occluder sampler is deliberately NOT translucent (it hides the
         // grid cells behind IME composition text) — the two must not drift.
         assert!(approx(background_gradient_color_at(0.).a, 1.0));
     }
 
     #[test]
-    fn glass_alpha_stays_only_very_lightly_transparent() {
-        // EXP-290 guard rail: "very lightly" — never below 0.85 (content
-        // readability) and never above 1.0. Windows keeps opaque windows, so
-        // there the constant is exactly 1.0 (a translucent page would composite
-        // onto the DirectX renderer's WHITE clear color).
-        assert!(GLASS_BACKGROUND_ALPHA <= 1.0);
-        assert!(GLASS_BACKGROUND_ALPHA >= 0.85);
+    fn content_topup_composites_the_sidebar_base_up_to_the_content_alpha() {
+        // EXP-293: the Shell paints the sidebar (most transparent) ramp as its
+        // base and this layer over it in the content column — alpha
+        // compositing can only ADD opacity, so the math has to land exactly on
+        // glass_content_alpha() or the content column drifts off its contrast
+        // budget.
+        let under = glass_sidebar_alpha();
+        let over = content_topup_alpha();
+        let composite = over + under * (1.0 - over);
+        assert!(
+            approx(composite, glass_content_alpha()),
+            "sidebar {under} ⊕ topup {over} = {composite}, want {}",
+            glass_content_alpha()
+        );
+        assert!((0. ..=1.0).contains(&over), "topup alpha in range: {over}");
+        let bg = format!("{:?}", content_topup_gradient());
+        assert!(bg.contains("LinearGradient"), "{bg}");
+    }
+
+    #[test]
+    fn glass_alphas_swap_the_sidebar_and_content_weighting() {
+        // EXP-293: the rail is the GLASS column and the content next to it is
+        // nearly solid (the issue's swap). Guard rails: the sidebar never goes
+        // below 0.7 (its own labels must stay legible over a bright blurred
+        // backdrop) and the content never below 0.85 (body text, code, diffs).
+        let (sidebar, content) = (glass_sidebar_alpha(), glass_content_alpha());
+        assert!(sidebar <= content, "sidebar {sidebar} must be the more transparent region");
+        assert!((0.7..=1.0).contains(&sidebar), "sidebar alpha: {sidebar}");
+        assert!((0.85..=1.0).contains(&content), "content alpha: {content}");
+        if blur_backdrop_available() {
+            // A real blurred backdrop exists — the page must actually be
+            // see-through, and the two regions must differ visibly.
+            assert!(content < 1.0, "the page must actually be see-through");
+            assert!(sidebar < content - 0.05, "the swap must be perceptible");
+        } else {
+            // EXP-293: no blur means translucency would be a sharp ghost of the
+            // desktop (the Linux/X11 report), so the page is FULLY opaque and
+            // the glass reduces to the ramp itself.
+            assert!(approx(sidebar, 1.0), "no-blur sidebar must be opaque: {sidebar}");
+            assert!(approx(content, 1.0), "no-blur content must be opaque: {content}");
+            assert!(approx(content_topup_alpha(), 1.0), "no NaN on the opaque path");
+        }
+    }
+
+    #[test]
+    fn blur_backdrop_availability_matches_the_platform_backends() {
+        // Locks the per-platform answer documented on the fn: only macOS
+        // (NSVisualEffectView) and KDE-on-Wayland (org_kde_kwin_blur_manager)
+        // blur at the pinned gpui rev.
+        #[cfg(target_os = "macos")]
+        assert!(blur_backdrop_available());
         #[cfg(target_os = "windows")]
-        assert!(approx(GLASS_BACKGROUND_ALPHA, 1.0));
-        #[cfg(not(target_os = "windows"))]
-        assert!(GLASS_BACKGROUND_ALPHA < 1.0, "the page must actually be see-through");
+        assert!(!blur_backdrop_available());
+        #[cfg(target_os = "linux")]
+        {
+            let wayland = std::env::var("WAYLAND_DISPLAY").is_ok_and(|v| !v.is_empty());
+            let kde = std::env::var("XDG_CURRENT_DESKTOP")
+                .is_ok_and(|v| v.to_ascii_uppercase().contains("KDE"));
+            assert_eq!(blur_backdrop_available(), wayland && kde);
+        }
     }
 
     #[test]
