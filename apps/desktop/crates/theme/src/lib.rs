@@ -507,16 +507,18 @@ pub fn glass_sidebar_alpha() -> f32 {
 /// EXP-293: how opaque the page paints under the MAIN CONTENT — everything
 /// right of the rail (issue list, tabs, detail sidebar, terminal dock) and
 /// every standalone window (undocked views, dialogs, the login/update
-/// surfaces). EXP-303 dropped this from 0.90 to the 0.85 contrast floor: the
-/// content should read a LITTLE glassy over a bright desktop ("not as much as
-/// the sidebar but a very small amount" — the sidebar stays 0.72), while the
-/// surfaces that carry body text, code and diffs keep their contrast.
+/// surfaces). EXP-303: BOTH regions read glassy — the EXP-293 flip had left
+/// the content near-solid (0.90, invisible over a dark wallpaper), and the
+/// ask is the EXP-290 frosted-content look back WITHOUT giving up the flip.
+/// 0.80 lets a fifth of the blurred backdrop through — clearly frosted even
+/// over a dark desktop, still visibly less than the sidebar's 0.72 (which
+/// EXP-303 does not touch: the sidebar must not get any more transparent).
 ///
 /// 1.0 without a real blur backdrop ([`blur_backdrop_available`]) — Windows
 /// and non-KDE-Wayland Linux have no glassy blur and stay fully opaque.
 pub fn glass_content_alpha() -> f32 {
     if blur_backdrop_available() {
-        0.85
+        0.80
     } else {
         1.0
     }
@@ -786,11 +788,13 @@ mod tests {
         // EXP-293: the rail is the GLASS column and the content next to it is
         // nearly solid (the issue's swap). Guard rails: the sidebar never goes
         // below 0.7 (its own labels must stay legible over a bright blurred
-        // backdrop) and the content never below 0.85 (body text, code, diffs).
+        // backdrop) and the content never below 0.80 (body text, code, diffs
+        // — EXP-303 lowered the old 0.85 floor one notch for the frosted
+        // content look; near-white foreground still clears AA contrast there).
         let (sidebar, content) = (glass_sidebar_alpha(), glass_content_alpha());
         assert!(sidebar <= content, "sidebar {sidebar} must be the more transparent region");
         assert!((0.7..=1.0).contains(&sidebar), "sidebar alpha: {sidebar}");
-        assert!((0.85..=1.0).contains(&content), "content alpha: {content}");
+        assert!((0.80..=1.0).contains(&content), "content alpha: {content}");
         if blur_backdrop_available() {
             // A real blurred backdrop exists — the page must actually be
             // see-through, and the two regions must differ visibly.
