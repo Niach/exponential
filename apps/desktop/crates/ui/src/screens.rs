@@ -554,7 +554,10 @@ impl ScreensPanel {
                             this.close_tab(ix, window, cx);
                         }),
                     )
-                    // Right-click context menu (EXP-235).
+                    // Right-click context menu (EXP-235). Hosted in the
+                    // titlebar this used to lose to the Linux WM window menu;
+                    // the strip's `app_title_bar::interactive` wrapper now
+                    // swallows the press that popped it (EXP-294).
                     .context_menu({
                         let panel = panel.clone();
                         move |menu, _window, _cx| {
