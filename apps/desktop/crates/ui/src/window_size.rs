@@ -198,13 +198,26 @@ pub enum SizeFrame {
 /// because the platform took our number as the outer surface) gets ONE
 /// compensating resize to `launched + padding`, so the window actually opens
 /// at the remembered size instead of 24px under it. It is a no-op wherever
-/// the visible frame already matches, and it is never sent for a
-/// fullscreen/maximized frame (the compositor owns that size — same rule as
-/// [`MinSizeClamp`]). If the WM refuses it, the echo is still suppressed, so
-/// the worst case is a one-time 24px discrepancy rather than a drift. (Even
-/// if a Wayland compositor ever emitted an X11-shaped frame before
-/// `compute_outer_size` kicked in, `launched + padding` is exactly the outer
-/// size that backend settles at anyway.)
+/// the visible frame already matches. If the WM refuses it, the echo is still
+/// suppressed, so the worst case is a one-time 24px discrepancy rather than a
+/// drift. (Even if a Wayland compositor ever emitted an X11-shaped frame
+/// before `compute_outer_size` kicked in, `launched + padding` is exactly the
+/// outer size that backend settles at anyway.)
+///
+/// # Maximized and fullscreen frames (EXP-292)
+///
+/// No frame observed while maximized or fullscreen is acted on at all —
+/// neither persisted nor fought (the compositor owns that size, same rule as
+/// [`MinSizeClamp`]). It cannot be treated as a windowed size, because
+/// `window_bounds()` reports something else entirely there, differently per
+/// backend: X11 hands back `Maximized(state.bounds)`, the CURRENT maximized
+/// surface, so quitting maximized replaced the remembered windowed size with
+/// the screen size; Wayland hands back `Maximized(state.window_bounds)`, the
+/// PRE-MAXIMIZE OUTER bounds, while `window_paddings` is zero because
+/// maximizing tiles every edge — so `outer - pad` was the windowed size plus
+/// the shadow, growing it 24px per maximize-and-quit cycle. What survives a
+/// maximized session is the last WINDOWED frame, persisted before the
+/// maximize.
 ///
 /// Measured on X11 + CSD (Cinnamon/muffin, scale 2, EXP-276): a window
 /// restored to a 1000×700 visible frame reports `bounds` 1024×724 with
@@ -233,8 +246,9 @@ impl WindowSizeTracker {
     /// Classify one observed frame. `outer` is
     /// `window.window_bounds().get_bounds().size`, `pad` the TOTAL client
     /// inset per axis (`window_paddings` left+right / top+bottom — zero
-    /// under server decorations), and `wm_sized` whether the frame is
-    /// fullscreen or maximized.
+    /// under server decorations, and zero while maximized because every edge
+    /// tiles), and `wm_sized` whether the frame is fullscreen or maximized —
+    /// which is ignored outright (EXP-292).
     pub fn observe(
         &mut self,
         outer: Size<Pixels>,
@@ -244,6 +258,18 @@ impl WindowSizeTracker {
         let visible = size(outer.width - pad.width, outer.height - pad.height);
         // Minimize/teardown can report a zero (or sub-pixel) frame.
         if visible.width < px(1.) || visible.height < px(1.) {
+            return SizeFrame::Ignore;
+        }
+
+        // EXP-292: a fullscreen/maximized frame belongs to the compositor, not
+        // to the user's windowed size — never persist it and never fight it
+        // (same rule as [`MinSizeClamp`]). This has to sit above BOTH the
+        // `launched` check and the echo branches: `window_bounds()` is not the
+        // restore size on either Linux backend while maximized, so any frame
+        // that did not happen to match an echo used to fall through and
+        // persist. `launched` is deliberately left intact — un-maximizing
+        // hands back the size we opened with, which is still an echo.
+        if wm_sized {
             return SizeFrame::Ignore;
         }
 
@@ -262,7 +288,7 @@ impl WindowSizeTracker {
         // is `pad` short of what we were asked to restore. Still an echo —
         // never persist it — but ask for the size that makes it right.
         if approx_eq(outer, launched) {
-            if self.compensated || wm_sized {
+            if self.compensated {
                 return SizeFrame::Ignore;
             }
             self.compensated = true;
@@ -383,6 +409,12 @@ mod tests {
         width: px(1280.),
         height: px(820.),
     };
+    /// A maximized window's surface — what X11 reports as `window_bounds()`
+    /// while maximized (EXP-292).
+    const MAXIMIZED_SURFACE: Size<Pixels> = Size {
+        width: px(1920.),
+        height: px(1080.),
+    };
 
     #[test]
     fn wayland_csd_launch_echo_is_never_persisted() {
@@ -447,6 +479,62 @@ mod tests {
         // what keeps us from requesting a resize if it is not.)
         let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
         assert_eq!(tracker.observe(LAUNCHED, CSD_PAD, true), SizeFrame::Ignore);
+    }
+
+    #[test]
+    fn a_maximized_frame_is_never_persisted() {
+        // EXP-292 (1): the guard used to sit only inside the X11 echo branch,
+        // so a maximized frame at any OTHER size fell through to `Persist` —
+        // and `window_bounds()` reports something unusable as a windowed size
+        // on both Linux backends. `pad` is zero in both readings: maximizing
+        // tiles every edge, which zeroes `window_paddings`.
+        //
+        // X11 reports `Maximized(state.bounds)`, the CURRENT maximized
+        // surface, so the remembered windowed size became the screen size.
+        let mut x11 = WindowSizeTracker::new(Some(LAUNCHED));
+        assert_eq!(
+            x11.observe(MAXIMIZED_SURFACE, NO_PAD, true),
+            SizeFrame::Ignore
+        );
+        // Wayland reports `Maximized(state.window_bounds)`, the PRE-MAXIMIZE
+        // OUTER bounds — the windowed size plus the shadow that is no longer
+        // subtracted, i.e. +24px per maximize-and-quit cycle.
+        let mut wayland = WindowSizeTracker::new(Some(LAUNCHED));
+        let pre_maximize_outer = size(LAUNCHED.width + px(24.), LAUNCHED.height + px(24.));
+        assert_eq!(
+            wayland.observe(pre_maximize_outer, NO_PAD, true),
+            SizeFrame::Ignore
+        );
+    }
+
+    #[test]
+    fn a_maximized_frame_is_ignored_after_the_launch_is_over() {
+        // The guard has to sit ABOVE the `launched` check: once a genuine
+        // resize has landed, `launched` is `None` and every later frame —
+        // maximized ones included — would otherwise persist.
+        let mut tracker = WindowSizeTracker::new(None);
+        assert_eq!(
+            tracker.observe(MAXIMIZED_SURFACE, NO_PAD, true),
+            SizeFrame::Ignore
+        );
+    }
+
+    #[test]
+    fn unmaximizing_back_to_the_launch_size_is_still_an_echo() {
+        // A maximized frame must not consume the launch: restoring the window
+        // hands back the size we opened with, which is still an echo — and a
+        // real drag after that still persists.
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        assert_eq!(
+            tracker.observe(MAXIMIZED_SURFACE, NO_PAD, true),
+            SizeFrame::Ignore
+        );
+        let restored = size(LAUNCHED.width + px(24.), LAUNCHED.height + px(24.));
+        assert_eq!(tracker.observe(restored, CSD_PAD, false), SizeFrame::Ignore);
+        assert_eq!(
+            tracker.observe(size(px(1024.), px(724.)), CSD_PAD, false),
+            SizeFrame::Persist(size(px(1000.), px(700.)))
+        );
     }
 
     #[test]
@@ -528,6 +616,20 @@ mod tests {
                 }
             }
         }
+
+        /// What `window_bounds()` reports while the window is MAXIMIZED,
+        /// given the outer bounds it had windowed. Neither Linux backend
+        /// answers with the windowed size (EXP-292): X11 hands back
+        /// `Maximized(state.bounds)`, the current maximized surface, and
+        /// Wayland `Maximized(state.window_bounds)`, the pre-maximize OUTER
+        /// bounds. `Server` follows the X11 shape here — the guard ignores
+        /// the frame either way.
+        fn maximized_outer(self, windowed_outer: Size<Pixels>) -> Size<Pixels> {
+            match self {
+                Backend::X11Csd | Backend::Server => MAXIMIZED_SURFACE,
+                Backend::WaylandCsd => windowed_outer,
+            }
+        }
     }
 
     /// One launch: open at `requested`, feed the backend's frames through the
@@ -553,6 +655,54 @@ mod tests {
         }
         let visible = size(outer.width - pad.width, outer.height - pad.height);
         (visible, persisted)
+    }
+
+    /// One session the user maximizes and then quits from: the windowed
+    /// launch frames, then the maximized ones. Returns whatever the tracker
+    /// persisted across it — which must be nothing, since the windowed size
+    /// is already on disk from before the maximize.
+    fn simulate_maximized_session(
+        backend: Backend,
+        stored: Size<Pixels>,
+    ) -> Option<Size<Pixels>> {
+        let mut tracker = WindowSizeTracker::new(Some(stored));
+        let pad = backend.pad();
+        let mut outer = backend.outer_for(stored);
+        let mut persisted = None;
+        for _ in 0..4 {
+            match tracker.observe(outer, pad, false) {
+                SizeFrame::Ignore => {}
+                SizeFrame::Persist(last) => persisted = Some(last),
+                SizeFrame::ResizeTo(target) => outer = backend.outer_for(target),
+            }
+        }
+        // Maximize: every edge tiles, so `window_paddings` drops to zero.
+        let maximized = backend.maximized_outer(outer);
+        for _ in 0..3 {
+            if let SizeFrame::Persist(last) = tracker.observe(maximized, NO_PAD, true) {
+                persisted = Some(last);
+            }
+        }
+        persisted
+    }
+
+    #[test]
+    fn maximizing_and_quitting_never_touches_the_remembered_size() {
+        // EXP-292 (1): a user who maximizes and quits maximized every session
+        // grew the remembered size by the inset per cycle on Wayland, and lost
+        // it to the screen size outright on X11.
+        for backend in [Backend::X11Csd, Backend::WaylandCsd, Backend::Server] {
+            let mut stored = LAUNCHED;
+            for session in 0..5 {
+                let persisted = simulate_maximized_session(backend, stored);
+                assert_eq!(
+                    persisted, None,
+                    "{backend:?} session {session}: a maximized frame was persisted"
+                );
+                stored = persisted.unwrap_or(stored);
+                assert_eq!(stored, LAUNCHED, "{backend:?} session {session}");
+            }
+        }
     }
 
     #[test]
