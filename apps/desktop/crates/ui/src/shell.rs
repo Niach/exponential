@@ -545,39 +545,24 @@ impl Render for Shell {
                         .flex_1()
                         .min_w_0()
                         .h_full()
-                        // EXP-303: no column-wide top-up anymore. gpui-component's
-                        // TabPanel paints an opaque `tokens.background` under
-                        // every docked panel, so the EXP-293 top-up under the
-                        // dock never reached the screen — and where the dock now
-                        // renders translucent (below), a top-up underneath would
-                        // multiply the desktop bleed away. The dock subtree sits
-                        // directly on the root's sidebar-alpha base ramp; only
-                        // the titlebar strip keeps its EXP-293 near-solid band,
-                        // as a flat sample of the top-up's top stop (the strip
-                        // is ~30px at the window top — the ramp's drift across
-                        // it is invisible).
-                        .when(client_chrome, |col| {
-                            col.child(
-                                div()
-                                    .bg(theme::content_topup_top())
-                                    .child(self.title_bar.clone()),
-                            )
-                        })
+                        // EXP-293 glass swap: the root below paints the SIDEBAR
+                        // ramp (the app's most transparent region — the rail
+                        // sits on it bare), and this column tops it up to
+                        // `theme::glass_content_alpha()` so everything right of
+                        // the rail — list, tabs, detail sidebar, terminal dock —
+                        // reads as the near-solid surface. Same stops as the
+                        // base and the same y span (full window height), so the
+                        // two ramps align exactly and only alpha adds up.
+                        .bg(theme::content_topup_gradient())
+                        // EXP-269 corners, right half: this layer paints to the
+                        // window's right edge, and gpui's content mask is
+                        // rectangular, so it must round with the frame itself
+                        // (the rail does the same for the two LEFT corners).
+                        .rounded_tr(crate::window_frame::frame_radii(window).top_right)
+                        .rounded_br(crate::window_frame::frame_radii(window).bottom_right)
+                        .when(client_chrome, |col| col.child(self.title_bar.clone()))
                         .children(self.render_update_banner(cx))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_h_0()
-                                // EXP-303: the main content's "very small amount"
-                                // of glass. TabPanel's opaque background can't be
-                                // made translucent via the theme (dialogs/sheets/
-                                // selects read the same token), so the whole dock
-                                // subtree renders at element opacity over the
-                                // bare base ramp — ~3% desktop bleed vs the
-                                // sidebar's ~28% (`theme::content_glass_opacity`).
-                                .opacity(theme::content_glass_opacity())
-                                .child(self.dock_area.clone()),
-                        ),
+                        .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
                 )
                 .into_any_element(),
             // No rail here, so the whole window is content: top the sidebar

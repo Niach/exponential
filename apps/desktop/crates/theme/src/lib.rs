@@ -507,59 +507,19 @@ pub fn glass_sidebar_alpha() -> f32 {
 /// EXP-293: how opaque the page paints under the MAIN CONTENT — everything
 /// right of the rail (issue list, tabs, detail sidebar, terminal dock) and
 /// every standalone window (undocked views, dialogs, the login/update
-/// surfaces). Only a tenth of the blurred backdrop bleeds through, so the
-/// surfaces that carry body text, code and diffs keep their contrast while
-/// still reading as glass.
+/// surfaces). EXP-303 dropped this from 0.90 to the 0.85 contrast floor: the
+/// content should read a LITTLE glassy over a bright desktop ("not as much as
+/// the sidebar but a very small amount" — the sidebar stays 0.72), while the
+/// surfaces that carry body text, code and diffs keep their contrast.
 ///
-/// EXP-303 note: this alpha never reaches the screen inside the DOCK — at the
-/// pinned gpui-component rev, `TabPanel::render` paints an opaque
-/// `tokens.background` across every docked panel, occluding the page ramp
-/// entirely (which is why lowering this to 0.85 changed nothing visible in
-/// the content). The dock's own glass comes from [`content_glass_opacity`];
-/// this alpha still governs the surfaces the dock does NOT cover (the
-/// titlebar strip via [`content_topup_top`], standalone windows, dialogs'
-/// pages, login).
-///
-/// 1.0 without a real blur backdrop ([`blur_backdrop_available`]).
+/// 1.0 without a real blur backdrop ([`blur_backdrop_available`]) — Windows
+/// and non-KDE-Wayland Linux have no glassy blur and stay fully opaque.
 pub fn glass_content_alpha() -> f32 {
     if blur_backdrop_available() {
-        0.90
+        0.85
     } else {
         1.0
     }
-}
-
-/// EXP-303: the gpui ELEMENT opacity the Shell renders the dock subtree at —
-/// the "little bit glassy" main content. gpui-component's `TabPanel` paints an
-/// opaque `tokens.background` under every docked panel (issue list, tabs,
-/// detail sidebar, terminal dock), and that token cannot be made translucent
-/// without also ghosting every dialog/sheet/select that reads it — so instead
-/// the whole dock subtree renders at this opacity over the Shell's bare
-/// sidebar-alpha base ramp. Net desktop bleed through the content is
-/// `(1 - glass_sidebar_alpha) · (1 - this)` ≈ 3% — a tenth of the sidebar's
-/// (the issue's "not as much as the sidebar but a very small amount").
-///
-/// The cost is that TEXT in the dock also renders at this opacity, which is
-/// why it must stay a whisper (≥ 0.85, same contrast floor as
-/// [`glass_content_alpha`]'s guard rail). 1.0 without a real blur backdrop —
-/// there the bleed would be zero and the text dimming pure loss.
-pub fn content_glass_opacity() -> f32 {
-    if blur_backdrop_available() {
-        0.90
-    } else {
-        1.0
-    }
-}
-
-/// EXP-303: the flat underlay for the titlebar strip, replacing the
-/// column-wide [`content_topup_gradient`] the Shell used to paint (that
-/// top-up sat UNDER the dock too, and stacked with the dock's own paint it
-/// multiplied the desktop bleed away — (1-0.90)·(1-ω) instead of
-/// (1-0.72)·(1-ω)). The strip is ~30px at the very top of the window, where
-/// the ramp's drift is invisible, so a flat sample of the top-up's top stop
-/// keeps the EXP-293 near-solid titlebar band exactly.
-pub fn content_topup_top() -> Hsla {
-    gradient_stops_at_alpha(content_topup_alpha()).0
 }
 
 /// The glass page background (EXP-269): the mobile `AppBackground` gradient —
@@ -844,33 +804,6 @@ mod tests {
             assert!(approx(content, 1.0), "no-blur content must be opaque: {content}");
             assert!(approx(content_topup_alpha(), 1.0), "no NaN on the opaque path");
         }
-    }
-
-    #[test]
-    fn content_glass_opacity_is_a_whisper_over_the_bare_base_ramp() {
-        // EXP-303: the dock renders at element opacity — text pays for the
-        // bleed, so the opacity floor mirrors glass_content_alpha's 0.85
-        // contrast guard rail, and the resulting desktop bleed must stay a
-        // small fraction of the sidebar's (the issue's "not as much as the
-        // sidebar but a very small amount").
-        let o = content_glass_opacity();
-        if blur_backdrop_available() {
-            assert!((0.85..1.0).contains(&o), "content opacity: {o}");
-            let content_bleed = (1.0 - glass_sidebar_alpha()) * (1.0 - o);
-            let sidebar_bleed = 1.0 - glass_sidebar_alpha();
-            assert!(content_bleed > 0., "the content must actually bleed");
-            assert!(
-                content_bleed < sidebar_bleed / 4.,
-                "content bleed {content_bleed} must stay well under the sidebar's {sidebar_bleed}"
-            );
-        } else {
-            // No backdrop = no bleed to buy; dimming text would be pure loss.
-            assert!(approx(o, 1.0), "no-blur content opacity must be 1: {o}");
-        }
-        // The titlebar underlay is the top-up's top stop, flat — same color
-        // and alpha as the gradient the column used to paint at y=0.
-        let (top, _) = gradient_stops_at_alpha(content_topup_alpha());
-        assert_hsla_eq(content_topup_top(), top, "titlebar underlay");
     }
 
     #[test]
