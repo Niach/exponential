@@ -4,8 +4,16 @@
 //! Apache-2.0). This file is Apache-2.0, NOT the repository licence — see the
 //! `NOTICE` and `LICENSE-APACHE-2.0` files at the root of this crate.
 //!
-//! The one deliberate delta — which is why we carry a copy at all — is the
-//! **rounded window controls**: the close button's hover/active fill is the
+//! The deliberate deltas — the first of which is why we carry a copy at all:
+//!
+//! 1. **Rounded window controls** (below).
+//! 2. **EXP-287 [`TitleBar::window_controls`]**: minimize/maximize are
+//!    optional. Upstream always draws both, but a non-resizable window (every
+//!    fixed-size native dialog) has no maximize affordance at the OS level, so
+//!    the button would be dead chrome. Upstream has no hook for this either —
+//!    `WindowControls` and `ControlIcon` are private.
+//!
+//! On (1): the close button's hover/active fill is the
 //! last thing painted in the window's TOP-RIGHT corner, and upstream paints
 //! it as a plain square. gpui's content mask is rectangular
 //! ([`crate::window_frame::frame_radii`]), so that square fill lands in the
@@ -16,8 +24,9 @@
 //!
 //! Everything else — drag/move, the Linux right-click window menu,
 //! double-click zoom, the Windows `WindowControlArea` hitboxes that drive
-//! Snap Layouts, the macOS traffic-light gutter — is upstream's behavior,
-//! carried over as-is.
+//! Snap Layouts, the macOS traffic-light gutter, and the Linux-only gate on
+//! [`TitleBar::on_close_window`] — is upstream's behavior, carried over
+//! as-is.
 //!
 //! One consequence worth knowing (EXP-294): the Linux window-menu overlay
 //! fires for EVERY right press over the bar, including one that landed on
@@ -51,6 +60,13 @@ pub struct TitleBar {
     style: StyleRefinement,
     children: Vec<AnyElement>,
     on_close_window: Option<Rc<Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>>>,
+    /// EXP-287 delta: which of the min/max controls the strip draws. Upstream
+    /// always draws both — but a window opened with `is_resizable: false`
+    /// (every fixed-size native dialog) has no `WS_MAXIMIZEBOX` on Windows and
+    /// no `NSResizableWindowMask` on macOS, so its maximize button is dead
+    /// chrome. Close is never optional.
+    show_minimize: bool,
+    show_maximize: bool,
 }
 
 impl TitleBar {
@@ -60,7 +76,18 @@ impl TitleBar {
             style: StyleRefinement::default(),
             children: Vec::new(),
             on_close_window: None,
+            show_minimize: true,
+            show_maximize: true,
         }
+    }
+
+    /// EXP-287: pick which window controls the strip draws (Windows/Linux —
+    /// macOS renders none of them; the native traffic lights are the chrome).
+    /// Pass `maximize: false` for a non-resizable window.
+    pub(crate) fn window_controls(mut self, minimize: bool, maximize: bool) -> Self {
+        self.show_minimize = minimize;
+        self.show_maximize = maximize;
+        self
     }
 
     // `title_bar_options()` is deliberately NOT copied: it returns plain
@@ -70,7 +97,16 @@ impl TitleBar {
 
     /// Add custom for close window event, default is None, then click X button will call `window.remove_window()`.
     /// Linux only, this will do nothing on other platforms.
-    #[allow(dead_code)]
+    ///
+    /// EXP-287: the Linux-only gate is upstream's and is kept deliberately —
+    /// it is exactly where it is needed. `Window::remove_window` never
+    /// consults `on_window_should_close`, so on Linux this callback is the
+    /// only way a busy dialog can refuse its own ✕. Windows routes the
+    /// control's `WindowControlArea::Close` hitbox through `WM_CLOSE` and
+    /// macOS through `windowShouldClose:` — both land on
+    /// `on_window_should_close`, which native dialogs already register with
+    /// the same `can_close` gate, and installing a second client-side path
+    /// there would close the window twice.
     pub fn on_close_window(
         mut self,
         f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -236,6 +272,9 @@ impl RenderOnce for ControlIcon {
 #[derive(IntoElement)]
 struct WindowControls {
     on_close_window: Option<Rc<Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>>>,
+    /// EXP-287: see [`TitleBar::window_controls`].
+    show_minimize: bool,
+    show_maximize: bool,
 }
 
 impl RenderOnce for WindowControls {
@@ -249,11 +288,15 @@ impl RenderOnce for WindowControls {
             .items_center()
             .flex_shrink_0()
             .h_full()
-            .child(ControlIcon::minimize())
-            .child(if window.is_maximized() {
-                ControlIcon::restore()
-            } else {
-                ControlIcon::maximize()
+            .when(self.show_minimize, |this| {
+                this.child(ControlIcon::minimize())
+            })
+            .when(self.show_maximize, |this| {
+                this.child(if window.is_maximized() {
+                    ControlIcon::restore()
+                } else {
+                    ControlIcon::maximize()
+                })
             })
             .child(ControlIcon::close(self.on_close_window))
     }
@@ -379,6 +422,8 @@ impl RenderOnce for TitleBar {
                 )
                 .child(WindowControls {
                     on_close_window: self.on_close_window,
+                    show_minimize: self.show_minimize,
+                    show_maximize: self.show_maximize,
                 }),
         )
     }

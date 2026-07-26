@@ -158,7 +158,6 @@ fn open(
         });
         let busy = view.clone();
         DialogContent::new(view)
-            .header("Start coding")
             // EXP-291: the view pins its own action bar and scrolls only the
             // body — the shell's wrapper would scroll the buttons away.
             .self_scrolling()

@@ -165,6 +165,12 @@ impl Shell {
                 // once no shell window remains — nothing left to reattach
                 // to, and non-macOS is about to quit.
                 crate::undock::on_shell_released(window_id, cx);
+                // EXP-287: same for the dialogs this window opened. A dialog
+                // is an independent `WindowKind::Normal` window now — its own
+                // taskbar button, no auto-dismissal — so nothing else would
+                // take it down, and an orphan would linger pointing at a dead
+                // opener (its `close_then` result path included).
+                crate::native_dialog::on_opener_released(window_id, cx);
                 // Non-macOS: the app quits when the last window closes.
                 // macOS keeps running (standard platform behavior; the dock
                 // icon / File ▸ New Window reopens a shell).

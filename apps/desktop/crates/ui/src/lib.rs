@@ -80,6 +80,7 @@ mod undock;
 mod undocked_terminal;
 mod update;
 mod window_frame;
+mod window_hooks;
 pub mod window_size;
 mod shell;
 
@@ -92,6 +93,7 @@ pub use session::{
     bootstrap as bootstrap_session, sign_out_active, upgrade_required_handler, AuthContext,
 };
 pub use shell::Shell;
+pub use window_hooks::set_window_opened_hook;
 
 use gpui::{App, AppContext as _};
 use gpui_component::dock::register_panel;

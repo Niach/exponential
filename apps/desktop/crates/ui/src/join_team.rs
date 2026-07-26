@@ -47,8 +47,10 @@ pub fn init(cx: &mut App) {
 /// Open the dialog, optionally pre-filled (the `exponential://invite/<token>` deep
 /// link passes the token and previews immediately).
 pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
-    if native_dialog::dialog_open_here(window, cx) {
-        return; // never stack over an open modal (deep link mid-dialog)
+    // Never stack over an open modal (deep link mid-dialog); EXP-287 raises
+    // the dialog this window already has instead of dropping the request.
+    if native_dialog::raise_existing_dialog(window, cx) {
+        return;
     }
     let spec = DialogSpec::new("Join a team", size(px(416.), px(300.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
@@ -56,7 +58,6 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
-            .header("Join a team")
             .can_close(move |cx| !busy.read(cx).accepting)
             .on_enter(move |window, cx| {
                 submit.update(cx, |view, cx| view.primary_action(window, cx));

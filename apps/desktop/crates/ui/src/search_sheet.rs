@@ -144,8 +144,8 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
         return;
     }
     // Never stack search over an already-open dialog (⌘K spam / ⌘K while a
-    // modal is up).
-    if native_dialog::dialog_open_here(window, cx) {
+    // modal is up); EXP-287 raises that dialog instead of dropping the ⌘K.
+    if native_dialog::raise_existing_dialog(window, cx) {
         return;
     }
     let nav = nav_for_window(window, cx);
