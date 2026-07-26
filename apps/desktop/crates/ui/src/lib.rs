@@ -51,6 +51,7 @@ mod login;
 pub mod markdown;
 mod mention_input;
 mod wysiwyg;
+mod native_dialog;
 mod navigation;
 mod oauth;
 mod pr_diff;
@@ -105,6 +106,9 @@ pub fn init(cx: &mut App) {
     // EXP-65 multi-window undock: the observable registry the screens panel
     // and terminal dock filter against.
     undock::init(cx);
+    // EXP-284: native dialog windows — Escape/Enter bindings + the
+    // dialog-window → opener registry every dialog opens through.
+    native_dialog::init(cx);
     // §4.5 seam: the issue-detail description edits through the vendored
     // WYSIWYG editor (EXP-261; factory installed before any window can
     // render a detail). The block editor stays for the comment composer.

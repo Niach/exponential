@@ -20,13 +20,13 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
-    dialog::DialogButtonProps,
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 use sync::Store;
 
+use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
@@ -174,37 +174,23 @@ impl BoardsPane {
         window: &mut Window,
         cx: &mut gpui::App,
     ) {
-        // Alert dialog, not a plain dialog: only AlertDialog renders the
-        // button_props ok/cancel footer — a plain Dialog shows title/body
-        // and NO buttons (EXP-181).
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let name = board_name.clone();
+        let spec = AlertSpec::new(
+            "Delete board",
+            format!(
+                "This will permanently delete {board_name} and all its issues. \
+                 This cannot be undone."
+            ),
+            "Delete board",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
             let board_id = board_id.clone();
-            crate::surface::glass_dialog(alert)
-                .overlay_closable(true)
-                .close_button(true)
-                .title("Delete board")
-                .description(SharedString::from(format!(
-                    "This will permanently delete {name} and all its issues. \
-                     This cannot be undone."
-                )))
-                .button_props(
-                    DialogButtonProps::default()
-                        .ok_text("Delete board")
-                        .ok_variant(ButtonVariant::Danger)
-                        .show_cancel(true)
-                        .on_ok({
-                            let board_id = board_id.clone();
-                            move |_, _, cx| {
-                                let board_id = board_id.clone();
-                                spawn_trpc(cx, "boards.delete", move |trpc| {
-                                    api::boards::boards_delete(trpc, &board_id)
-                                });
-                                true
-                            }
-                        }),
-                )
+            spawn_trpc(cx, "boards.delete", move |trpc| {
+                api::boards::boards_delete(trpc, &board_id)
+            });
+            true
         });
+        native_dialog::open_alert(window, cx, spec);
     }
 }
 

@@ -19,18 +19,18 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, ClickEvent, Entity, InteractiveElement, IntoElement,
+    div, App, ClickEvent, Entity, InteractiveElement, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dialog::DialogButtonProps,
     menu::{DropdownMenu as _, PopupMenuItem},
-    ActiveTheme as _, Icon, IconName, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 
 use crate::icons::ExpIcon;
+use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::queries;
 
@@ -320,37 +320,30 @@ pub(crate) fn prompt_delete_action(
     action_id: String,
     name: String,
 ) {
-    window.open_alert_dialog(cx, move |alert, _window, _cx| {
+    let spec = AlertSpec::new(
+        format!("Delete \"{name}\"?"),
+        "Team members will no longer be able to run this action. \
+         A live run keeps going and keeps its label.",
+        "Delete action",
+    )
+    .on_ok(move |_, cx| {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return true;
+        };
         let action_id = action_id.clone();
-        crate::surface::glass_dialog(alert)
-            .confirm()
-            .overlay_closable(true)
-            .close_button(true)
-            .width(px(416.))
-            .title(SharedString::from(format!("Delete \"{name}\"?")))
-            .description(
-                "Team members will no longer be able to run this action. \
-                 A live run keeps going and keeps its label.",
-            )
-            .button_props(DialogButtonProps::default().ok_text("Delete action"))
-            .on_ok(move |_, _, cx| {
-                let Some(trpc) = queries::trpc_client(cx) else {
-                    return true;
-                };
-                let action_id = action_id.clone();
-                cx.spawn(async move |cx| {
-                    let result = cx
-                        .background_executor()
-                        .spawn(async move { api::actions::delete(&trpc, &action_id) })
-                        .await;
-                    let _ = cx.update(|_| {
-                        if let Err(err) = result {
-                            log::warn!("actions: delete failed: {err}");
-                        }
-                    });
-                })
-                .detach();
-                true
-            })
+        cx.spawn(async move |cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::actions::delete(&trpc, &action_id) })
+                .await;
+            let _ = cx.update(|_| {
+                if let Err(err) = result {
+                    log::warn!("actions: delete failed: {err}");
+                }
+            });
+        })
+        .detach();
+        true
     });
+    native_dialog::open_alert(window, cx, spec);
 }

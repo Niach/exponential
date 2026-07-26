@@ -29,10 +29,9 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
-    dialog::DialogButtonProps,
     h_flex,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 use std::collections::HashMap;
 use sync::Store;
@@ -41,6 +40,7 @@ use coding::branch_name;
 use coding::git_worktree::{sanitize_branch_for_path, worktrees_dir};
 
 use crate::coding_flow::CodingHub;
+use crate::native_dialog::{self, AlertSpec};
 
 use super::{section, card_header};
 
@@ -222,41 +222,25 @@ impl LocalReposPane {
         cx: &mut gpui::Context<Self>,
     ) {
         let pane = cx.entity();
-        // AlertDialog — a plain Dialog never renders the button_props footer
-        // (EXP-181, same fix as the board-delete confirm).
-        window.open_alert_dialog(cx, move |alert, _, _| {
+        let spec = AlertSpec::new(
+            "Remove local copy",
+            format!(
+                "This deletes the local clone of {full_name} and all its \
+                 worktrees from disk. Your work on GitHub is untouched; \
+                 the clone re-creates on the next \u{201c}Start coding\u{201d}."
+            ),
+            "Remove local copy",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
             let full_name = full_name.clone();
             let clone = clone.clone();
-            let pane = pane.clone();
-            crate::surface::glass_dialog(alert)
-                .overlay_closable(true)
-                .close_button(true)
-                .title("Remove local copy")
-                .description(SharedString::from(format!(
-                    "This deletes the local clone of {full_name} and all its \
-                     worktrees from disk. Your work on GitHub is untouched; \
-                     the clone re-creates on the next \u{201c}Start coding\u{201d}."
-                )))
-                .button_props(
-                    DialogButtonProps::default()
-                        .ok_text("Remove local copy")
-                        .ok_variant(ButtonVariant::Danger)
-                        .show_cancel(true)
-                        .on_ok({
-                            let full_name = full_name.clone();
-                            let clone = clone.clone();
-                            let pane = pane.clone();
-                            move |_, _, cx| {
-                                let full_name = full_name.clone();
-                                let clone = clone.clone();
-                                pane.update(cx, |this, cx| {
-                                    this.run_remove(full_name, clone, cx);
-                                });
-                                true
-                            }
-                        }),
-                )
+            pane.update(cx, |this, cx| {
+                this.run_remove(full_name, clone, cx);
+            });
+            true
         });
+        native_dialog::open_alert(window, cx, spec);
     }
 
     /// One clone row: name, disk usage + worktree count, and the two actions.

@@ -16,13 +16,13 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
-    dialog::DialogButtonProps,
     h_flex,
     input::{Input, InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 use sync::Store;
 
+use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::Navigation;
 
 use super::{
@@ -168,60 +168,49 @@ impl GeneralPane {
         self.delete_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
         });
-        let delete_input = self.delete_input.clone();
-        // AlertDialog — a plain Dialog never renders the button_props footer
-        // (EXP-181). The typed-confirm block rides as a child between the
-        // description and the stock ok/cancel footer.
-        window.open_alert_dialog(cx, move |alert, _, cx| {
-            let name = team_name.clone();
-            let confirm_name = team_name.clone();
-            let team_id = team_id.clone();
-            let content_input = delete_input.clone();
-            let ok_input = delete_input.clone();
-            crate::surface::glass_dialog(alert)
-                .overlay_closable(true)
-                .close_button(true)
-                .title("Delete team")
-                .description(SharedString::from(format!(
-                    "This will permanently delete {name} and all its boards, \
-                     issues, and data. This cannot be undone."
-                )))
+        let content_input = self.delete_input.clone();
+        let ok_input = self.delete_input.clone();
+        let confirm_name = team_name.clone();
+        let prompt = format!("Type {team_name} to confirm");
+        // The typed-confirm block rides as extra content between the
+        // description and the ok/cancel footer.
+        let spec = AlertSpec::new(
+            "Delete team",
+            format!(
+                "This will permanently delete {team_name} and all its boards, \
+                 issues, and data. This cannot be undone."
+            ),
+            "Delete team",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .height(gpui::px(320.))
+        .content(move |_, cx| {
+            v_flex()
+                .gap_1()
+                .mt_2()
                 .child(
-                    v_flex()
-                        .gap_1()
-                        .mt_2()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(SharedString::from(format!("Type {name} to confirm"))),
-                        )
-                        .child(Input::new(&content_input).small())
-                        .into_any_element(),
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(prompt.clone())),
                 )
-                .button_props(
-                    DialogButtonProps::default()
-                        .ok_text("Delete team")
-                        .ok_variant(ButtonVariant::Danger)
-                        .show_cancel(true)
-                        .on_ok({
-                            let delete_input = ok_input.clone();
-                            move |_, _, cx| {
-                                let typed = delete_input.read(cx).value().trim().to_string();
-                                if typed != confirm_name {
-                                    // Mismatch keeps the dialog open (web
-                                    // disables the button until it matches).
-                                    return false;
-                                }
-                                let team_id = team_id.clone();
-                                spawn_trpc(cx, "teams.delete", move |trpc| {
-                                    api::teams::teams_delete(trpc, &team_id)
-                                });
-                                true
-                            }
-                        }),
-                )
+                .child(Input::new(&content_input).small())
+                .into_any_element()
+        })
+        .on_ok(move |_, cx| {
+            let typed = ok_input.read(cx).value().trim().to_string();
+            if typed != confirm_name {
+                // Mismatch keeps the dialog open (web disables the button
+                // until it matches).
+                return false;
+            }
+            let team_id = team_id.clone();
+            spawn_trpc(cx, "teams.delete", move |trpc| {
+                api::teams::teams_delete(trpc, &team_id)
+            });
+            true
         });
+        native_dialog::open_alert(window, cx, spec);
     }
 }
 

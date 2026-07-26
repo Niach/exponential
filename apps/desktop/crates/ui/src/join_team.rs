@@ -17,16 +17,18 @@
 //! synced collection (§4.1), and switch the window to it.
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
+    div, px, size, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 use sync::Store;
+
+use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use api::teams::TeamInviteOut;
 
@@ -45,25 +47,20 @@ pub fn init(cx: &mut App) {
 /// Open the dialog, optionally pre-filled (the `exponential://invite/<token>` deep
 /// link passes the token and previews immediately).
 pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
-    if window.has_active_dialog(cx) {
+    if native_dialog::dialog_open_here(window, cx) {
         return; // never stack over an open modal (deep link mid-dialog)
     }
-    let view = cx.new(|cx| JoinTeamView::new(token, window, cx));
-    window.open_dialog(cx, move |dialog, _window, cx| {
-        let busy = view.read(cx).accepting;
-        crate::surface::glass_dialog(dialog)
-            .w(px(416.))
-            .title("Join a team")
-            .overlay_closable(!busy)
-            .keyboard(!busy)
-            .on_ok({
-                let view = view.clone();
-                move |_, window, cx| {
-                    view.update(cx, |view, cx| view.primary_action(window, cx));
-                    false
-                }
+    let spec = DialogSpec::new("Join a team", size(px(416.), px(300.)));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| JoinTeamView::new(token, window, cx));
+        let busy = view.clone();
+        let submit = view.clone();
+        DialogContent::new(view)
+            .header("Join a team")
+            .can_close(move |cx| !busy.read(cx).accepting)
+            .on_enter(move |window, cx| {
+                submit.update(cx, |view, cx| view.primary_action(window, cx));
             })
-            .child(view.clone())
     });
 }
 
@@ -237,12 +234,13 @@ impl JoinTeamView {
                             queries::await_row_visible(&teams, &team_id, window).await;
                         }
                         let _ = this.update_in(window, |_, window, cx| {
-                            window.close_dialog(cx);
-                            switch_team(window, cx, team_id);
+                            native_dialog::close_then(window, cx, move |window, cx| {
+                                switch_team(window, cx, team_id);
+                            });
                         });
                     } else {
                         let _ = this.update_in(window, |_, window, cx| {
-                            window.close_dialog(cx);
+                            native_dialog::close_dialog_window(window, cx);
                         });
                     }
                 }
@@ -383,7 +381,7 @@ impl Render for JoinTeamView {
                             if this.accepting {
                                 return;
                             }
-                            window.close_dialog(cx);
+                            native_dialog::close_dialog_window(window, cx);
                         })),
                 )
                 .child(

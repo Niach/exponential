@@ -13,16 +13,18 @@
 //! via the [`CreateTeam`] action; [`init`] owns the handler.
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
+    div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 use sync::Store;
+
+use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use crate::actions::CreateTeam;
 use crate::navigation::switch_team;
@@ -36,24 +38,20 @@ pub fn init(cx: &mut App) {
     });
 }
 
-/// Open the dialog.
+/// Open the dialog (a native window since EXP-284).
 pub fn open(window: &mut Window, cx: &mut App) {
-    let view = cx.new(|cx| CreateTeamDialogView::new(window, cx));
-    window.open_dialog(cx, move |dialog, _window, cx| {
-        let busy = view.read(cx).submitting;
-        crate::surface::glass_dialog(dialog)
-            .w(px(416.)) // web sm:max-w-[26rem]
-            .title("Create team")
-            .overlay_closable(!busy)
-            .keyboard(!busy)
-            .on_ok({
-                let view = view.clone();
-                move |_, window, cx| {
-                    view.update(cx, |view, cx| view.submit(window, cx));
-                    false
-                }
+    // Web sm:max-w-[26rem] width; the height hugs the one-field form.
+    let spec = DialogSpec::new("Create team", size(px(416.), px(224.)));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| CreateTeamDialogView::new(window, cx));
+        let busy = view.clone();
+        let submit = view.clone();
+        DialogContent::new(view)
+            .header("Create team")
+            .can_close(move |cx| !busy.read(cx).submitting)
+            .on_enter(move |window, cx| {
+                submit.update(cx, |view, cx| view.submit(window, cx));
             })
-            .child(view.clone())
     });
 }
 
@@ -121,8 +119,9 @@ impl CreateTeamDialogView {
                         queries::await_row_visible(&teams, &team_id, window).await;
                     }
                     let _ = this.update_in(window, |_, window, cx| {
-                        window.close_dialog(cx);
-                        switch_team(window, cx, team_id);
+                        native_dialog::close_then(window, cx, move |window, cx| {
+                            switch_team(window, cx, team_id);
+                        });
                     });
                 }
                 Err(err) => {
@@ -186,7 +185,7 @@ impl Render for CreateTeamDialogView {
                             if this.submitting {
                                 return;
                             }
-                            window.close_dialog(cx);
+                            native_dialog::close_dialog_window(window, cx);
                         })),
                 )
                 .child(

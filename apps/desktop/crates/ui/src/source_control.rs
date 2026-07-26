@@ -43,8 +43,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dialog::DialogButtonProps,
-    ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Disableable as _, Sizable as _,
 };
 use sync::Store;
 
@@ -449,43 +448,36 @@ impl SourceControlView {
         // must say the tree is about to move under a live session.
         let session_live = trunk_sync.read(cx).repo_tasks_alive(window, cx);
         let this = cx.entity().downgrade();
-        window.open_alert_dialog(cx, move |alert, _window, _cx| {
-            let trunk_sync = trunk_sync.clone();
-            let this = this.clone();
-            let mut description = format!(
-                "This resets the trunk to origin/{branch}, discarding all \
-                 local tracked changes and aborting any paused rebase or \
-                 merge. Untracked files are kept. This cannot be undone."
+        let mut description = format!(
+            "This resets the trunk to origin/{branch}, discarding all \
+             local tracked changes and aborting any paused rebase or \
+             merge. Untracked files are kept. This cannot be undone."
+        );
+        if session_live {
+            description.push_str(
+                " A coding or action session is currently running in \
+                 this clone — the reset will move the working tree \
+                 under it and may disrupt the session.",
             );
-            if session_live {
-                description.push_str(
-                    " A coding or action session is currently running in \
-                     this clone — the reset will move the working tree \
-                     under it and may disrupt the session.",
-                );
+        }
+        let spec = crate::native_dialog::AlertSpec::new(
+            "Discard local changes?",
+            description,
+            "Discard changes & reset",
+        )
+        .height(px(280.))
+        .on_ok(move |_, cx| {
+            trunk_sync.update(cx, |engine, cx| engine.hard_reset(cx));
+            if let Some(this) = this.upgrade() {
+                this.update(cx, |this, cx| {
+                    this.selection = Selection::None;
+                    this.error = None;
+                    cx.notify();
+                });
             }
-            crate::surface::glass_dialog(alert)
-                .confirm()
-                .overlay_closable(true)
-                .close_button(true)
-                .width(px(416.))
-                .title("Discard local changes?")
-                .description(SharedString::from(description))
-                .button_props(
-                    DialogButtonProps::default().ok_text("Discard changes & reset"),
-                )
-                .on_ok(move |_, _, cx| {
-                    trunk_sync.update(cx, |engine, cx| engine.hard_reset(cx));
-                    if let Some(this) = this.upgrade() {
-                        this.update(cx, |this, cx| {
-                            this.selection = Selection::None;
-                            this.error = None;
-                            cx.notify();
-                        });
-                    }
-                    true
-                })
+            true
         });
+        crate::native_dialog::open_alert(window, cx, spec);
     }
 
     // -- render -------------------------------------------------------------

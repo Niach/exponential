@@ -67,20 +67,6 @@ pub(crate) fn glass_sidebar() -> Div {
         .bg(t::glass::FILL_SECTION.to_hsla())
 }
 
-/// Glass treatment for overlay dialogs and alerts (EXP-282): gradient-tone
-/// near-opaque fill (a hint of the dimmed content ghosts through — gpui has
-/// no backdrop blur), glass card hairline, card radius. Applied per call
-/// site because `Dialog`'s own defaults (`tokens.background` + `border`) are
-/// component-internal; the `Styled` refinement wins over them. Generic so it
-/// wraps both `Dialog` and `AlertDialog` (whose `Styled` impl delegates to
-/// its base dialog).
-pub(crate) fn glass_dialog<T: Styled>(dialog: T) -> T {
-    dialog
-        .bg(t::glass::BACKGROUND_BOTTOM.to_hsla().opacity(0.98))
-        .border_color(t::glass::STROKE_CARD.to_hsla())
-        .rounded(px(t::radius::XL))
-}
-
 /// Shared markdown `TextView` style (EXP-282): code blocks get a glass
 /// section fill instead of the component default opaque `tokens.muted`
 /// panel. Everything else stays at the component defaults the call sites

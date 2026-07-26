@@ -1,24 +1,24 @@
 //! In-app image lightbox (EXP-33): clicking an attachment chip or an inline
 //! description/comment image opens this modal preview — never the web
-//! browser. Built on the shared gpui-component dialog layer (same overlay
-//! machinery as the duplicate picker), so the dark scrim, Esc-close,
-//! click-outside-close and the ✕ button all come from the one modal pattern
-//! the app already uses. A small "Open in browser" affordance inside the
-//! preview keeps the old behavior reachable for URLs that resolve against
-//! the instance base.
+//! browser. Built on the shared native dialog window (EXP-284 — same modal
+//! shape as the duplicate picker), so Esc-close and the dismiss semantics
+//! come from the one dialog pattern the app uses. A small "Open in browser"
+//! affordance inside the preview keeps the old behavior reachable for URLs
+//! that resolve against the instance base.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, img, px, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
-    Styled, StyledImage as _, Subscription, Window,
+    div, img, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render,
+    SharedString, Styled, StyledImage as _, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
 use crate::icons::ExpIcon;
 use crate::markdown::{placeholder_box, ImageCache, ImageSlot};
+use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
 /// Open the lightbox for one image. `url` is the image's canonical (usually
@@ -42,17 +42,17 @@ pub(crate) fn open_image_preview(
     };
     let open_url = queries::absolute_api_url(cx, &url);
     let label = preview_label(&label, &url);
-    let preview = cx.new(|cx| ImagePreview::new(url, label, open_url, images, cx));
 
-    // Mostly-viewport lightbox: the dialog is horizontally centered by the
-    // layer; the image scales down inside (natural aspect, never upscaled).
-    let width = (window.viewport_size().width * 0.8).min(px(1100.));
-    window.open_dialog(cx, move |dialog, _, _| {
-        let preview = preview.clone();
-        crate::surface::glass_dialog(dialog)
-            .w(width)
-            .margin_top(px(48.))
-            .content(move |content, _, _| content.child(preview.clone()))
+    // Mostly-viewport lightbox window: the image scales down inside
+    // (natural aspect, never upscaled — the render caps to 72% of THIS
+    // window's height).
+    let viewport = window.viewport_size();
+    let width = (viewport.width * 0.8).min(px(1100.));
+    let height = viewport.height * 0.8;
+    let spec = DialogSpec::new(label.clone(), size(width, height));
+    native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
+        let preview = cx.new(|cx| ImagePreview::new(url, label, open_url, images, cx));
+        DialogContent::new(preview)
     });
 }
 

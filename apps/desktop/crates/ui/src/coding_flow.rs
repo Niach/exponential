@@ -42,14 +42,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, IntoElement, ParentElement, Render,
+    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dialog::DialogButtonProps,
     h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
-    WindowExt as _,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
@@ -1045,33 +1043,26 @@ impl StartCodingControl {
         let Some(issue_id) = self.issue_id.clone() else {
             return;
         };
-        window.open_alert_dialog(cx, move |alert, _window, _cx| {
-            let issue_id = issue_id.clone();
-            crate::surface::glass_dialog(alert)
-                .confirm()
-                .overlay_closable(true)
-                .close_button(true)
-                .width(px(416.))
-                .title("Stop this coding session?")
-                .description(
-                    "The agent stops immediately and the terminal tab closes. \
-                     Uncommitted work in the worktree is kept.",
-                )
-                .button_props(DialogButtonProps::default().ok_text("Stop session"))
-                .on_ok(move |_, _, cx| {
-                    let sessions = LocalSessions::global(cx);
-                    let handle = sessions.read(cx).get(&issue_id).and_then(|session| {
-                        session
-                            .manager
-                            .upgrade()
-                            .map(|manager| (manager, session.tab))
-                    });
-                    if let Some((manager, tab)) = handle {
-                        manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-                    }
-                    true
-                })
+        let spec = crate::native_dialog::AlertSpec::new(
+            "Stop this coding session?",
+            "The agent stops immediately and the terminal tab closes. \
+             Uncommitted work in the worktree is kept.",
+            "Stop session",
+        )
+        .on_ok(move |_, cx| {
+            let sessions = LocalSessions::global(cx);
+            let handle = sessions.read(cx).get(&issue_id).and_then(|session| {
+                session
+                    .manager
+                    .upgrade()
+                    .map(|manager| (manager, session.tab))
+            });
+            if let Some((manager, tab)) = handle {
+                manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+            }
+            true
         });
+        crate::native_dialog::open_alert(window, cx, spec);
     }
 
     /// Whether the control renders anything at all: an issue is set AND its
