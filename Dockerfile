@@ -9,6 +9,7 @@ COPY packages/db-schema/package.json packages/db-schema/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/domain-contract/package.json packages/domain-contract/package.json
 COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
+COPY packages/icons/package.json packages/icons/package.json
 COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
 COPY packages/tsconfig/package.json packages/tsconfig/package.json
