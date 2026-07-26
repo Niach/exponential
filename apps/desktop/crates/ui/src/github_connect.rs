@@ -82,8 +82,12 @@ pub(crate) struct GithubStatus {
 }
 
 /// One repo the signed-in user can connect inline — a row of
-/// `integrations.github.repos`'s `repos[]` (server `InstallationRepo`). The
-/// fields feed `boards.create`'s inline-repo union arm.
+/// `integrations.github.repos`'s `repos[]` (server `InstallationRepo`). These
+/// are exactly the fields `boards.create`'s inline-repo union arm takes
+/// (`fullName`/`defaultBranch`/`private`); the row's `installationId` is
+/// deliberately NOT mirrored — the server re-resolves the installation from
+/// the full name, so carrying a client copy would only invite passing it.
+/// Unknown fields on the wire are ignored.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GithubRepo {
@@ -92,8 +96,6 @@ pub(crate) struct GithubRepo {
     pub private: bool,
     #[serde(default)]
     pub default_branch: String,
-    #[serde(default)]
-    pub installation_id: i64,
 }
 
 /// `integrations.github.repos` result (mirrors the web `ReposResult`).

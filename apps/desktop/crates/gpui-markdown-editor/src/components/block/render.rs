@@ -3378,7 +3378,9 @@ mod tests {
     use crate::components::{TableAxisKind, TableAxisMarker};
     #[cfg(feature = "html-native")]
     use crate::theme::Theme;
-    use gpui::{Hsla, Rgba, TestAppContext, px};
+    #[cfg(feature = "html-native")]
+    use gpui::{Hsla, Rgba};
+    use gpui::{TestAppContext, px};
 
     #[test]
     fn top_gutter_only_appears_for_column_axis_state() {
@@ -3406,6 +3408,9 @@ mod tests {
         ));
     }
 
+    // Only the `html-native` style tests below assert colors — without the
+    // feature this helper has no callers, so it carries the same gate.
+    #[cfg(feature = "html-native")]
     fn assert_color_near(color: Hsla, red: u8, green: u8, blue: u8, alpha: u8) {
         let color = Rgba::from(color);
         let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as i16;
