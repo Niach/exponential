@@ -414,6 +414,12 @@ pub struct PreparedLaunch {
     /// Which tab kind the spawn opens: `Claude` for issue/batch sessions,
     /// `Action(id)` for action runs (EXP-253).
     pub tab_kind: TabKind,
+    /// EXP-275: the spawn runs with permissions bypassed
+    /// (`--dangerously-skip-permissions` / codex bypass — mirrors
+    /// `permission_args`: plan mode wins the starting mode, so it clears
+    /// this). The activity emitter uses it to keep permission-flavored
+    /// notifications from becoming "blocked on approval" cards.
+    pub bypass_permissions: bool,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -957,6 +963,7 @@ pub fn prepare_with_hooks(
         tab_title_prefix,
         heartbeat_scope,
         tab_kind: TabKind::Claude,
+        bypass_permissions: options.skip_permissions && !options.plan_mode,
     }))
 }
 
@@ -1224,6 +1231,7 @@ fn prepare_action(
             device_label: Some(req.device_label.clone()),
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
+        bypass_permissions: options.skip_permissions && !options.plan_mode,
     }))
 }
 
@@ -2205,6 +2213,8 @@ mod tests {
             ]
         );
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
+        // EXP-275: plan mode wins the starting mode, so no bypass posture.
+        assert!(!prepared.bypass_permissions);
 
         // Step 3 got the server-confirmed repo + §7.1 branch name + the
         // mint's real expiry (the ambient-auth no-downgrade stamp).
@@ -2845,6 +2855,8 @@ mod tests {
             ]
         );
         assert_eq!(prepared.spawn.args[7], "--dangerously-skip-permissions");
+        // EXP-275: the emitter's permission posture mirrors the argv.
+        assert!(prepared.bypass_permissions);
         let positional = prepared.spawn.args.last().unwrap();
         assert!(positional.contains("implement ALL 2 issues"));
         assert!(positional.contains("### EXP-42: Fix login flicker"));

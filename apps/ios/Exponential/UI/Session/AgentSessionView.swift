@@ -254,7 +254,11 @@ struct AgentSessionView: View {
                     )
                 }
                 .coordinateSpace(name: Self.feedCoordSpace)
-                .modifier(FollowPinTracker(atBottom: $atBottom, slack: Self.followSlack))
+                .modifier(FollowPinTracker(
+                    atBottom: $atBottom,
+                    slack: Self.followSlack,
+                    repin: { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                ))
                 .onAppear {
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                     // Lazy rows can still be sizing on the first pass, landing
@@ -544,7 +548,9 @@ struct AgentSessionView: View {
 
 // MARK: - Feed rows
 
-/// Assistant prose — a chat bubble with a small glyph, selectable text.
+/// Assistant prose — a small glyph + plain full-width selectable text.
+/// EXP-274 dropped the glass speech bubble: agent output is the feed's bulk,
+/// and the bubble insets cost real width on a phone.
 private struct NarrationBubble: View {
     let text: String
 
@@ -559,9 +565,6 @@ private struct NarrationBubble: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .glassSection()
         }
         .padding(.vertical, 5)
     }
@@ -795,10 +798,14 @@ private struct QuestionCard: View {
                         pick(option)
                     } label: {
                         optionLabel(option, showKey: showsKeyBadge(option))
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                     }
-                    .glassButton(isActive: primary || picked.contains(option.key))
+                    // glassRow, not glassButton: the capsule's height-derived
+                    // radius clipped multi-line option descriptions into an
+                    // ellipse (EXP-274).
+                    .glassRow(isActive: primary || picked.contains(option.key))
                     .buttonStyle(.plain)
                     .disabled(locked)
                     .opacity(locked ? 0.5 : 1)
@@ -1209,29 +1216,59 @@ private struct FollowPinTracker: ViewModifier {
     @Binding var atBottom: Bool
     /// Within this many points of the bottom still counts as pinned.
     let slack: CGFloat
+    /// Re-assert the bottom pin (a scrollTo) after the CONTENT grew while
+    /// pinned — in-place feed mutations (a question card filling in, a tool
+    /// group's live tail) change no row count, so the feed-count follow
+    /// misses them. Without this the growth pushed the bottom out from
+    /// under a pinned viewer, `atBottom` flipped false with no user gesture,
+    /// and the "Jump to bottom" pill sat on screen permanently (EXP-272).
+    let repin: () -> Void
+
+    /// A user scroll gesture is driving the offset (drag or its momentum).
+    @State private var userScrolling = false
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.onScrollGeometryChange(for: Bool.self) { geometry in
-                // Pinned ⇔ within slack of the MAXIMUM scrollable offset.
-                // The max is clamped to the minimum resting offset
-                // (-contentInsets.top): a feed shorter than the viewport
-                // rests there, and the unclamped bottom formula reported it
-                // as "not at bottom" — sticking the "Jump to bottom" pill
-                // on screen with nothing to scroll (EXP-242).
-                let minOffset = -geometry.contentInsets.top
-                let maxOffset = max(
-                    geometry.contentSize.height + geometry.contentInsets.bottom
-                        - geometry.containerSize.height,
-                    minOffset
-                )
-                return geometry.contentOffset.y >= maxOffset - slack
-            } action: { _, pinned in
-                if atBottom != pinned {
-                    atBottom = pinned
+            content
+                .onScrollPhaseChange { _, newPhase in
+                    userScrolling = newPhase == .tracking
+                        || newPhase == .interacting
+                        || newPhase == .decelerating
                 }
-            }
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    // Pinned ⇔ within slack of the MAXIMUM scrollable offset.
+                    // The max is clamped to the minimum resting offset
+                    // (-contentInsets.top): a feed shorter than the viewport
+                    // rests there, and the unclamped bottom formula reported
+                    // it as "not at bottom" — sticking the "Jump to bottom"
+                    // pill on screen with nothing to scroll (EXP-242).
+                    let minOffset = -geometry.contentInsets.top
+                    let maxOffset = max(
+                        geometry.contentSize.height + geometry.contentInsets.bottom
+                            - geometry.containerSize.height,
+                        minOffset
+                    )
+                    return geometry.contentOffset.y >= maxOffset - slack
+                } action: { _, pinned in
+                    // Reaching the bottom always re-arms follow; LEAVING it is
+                    // the user's alone (Android parity: only drags flip
+                    // `follow`) — content growth un-pins the geometry without
+                    // any gesture, and the growth observer below re-pins
+                    // instead (EXP-272).
+                    if pinned {
+                        if !atBottom { atBottom = true }
+                    } else if userScrolling, atBottom {
+                        atBottom = false
+                    }
+                }
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentSize.height
+                } action: { oldHeight, newHeight in
+                    if newHeight > oldHeight, atBottom, !userScrolling {
+                        repin()
+                    }
+                }
         } else {
             content.onPreferenceChange(FeedBottomOverflowKey.self) { [atBottom = $atBottom] overflow in
                 // Points of content extending below the viewport; ≤ slack

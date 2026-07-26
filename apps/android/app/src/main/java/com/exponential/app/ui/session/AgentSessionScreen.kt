@@ -568,7 +568,9 @@ private fun ActivityFeed(
     }
 }
 
-// Assistant prose — a chat bubble with a small glyph, selectable text.
+// Assistant prose — a small glyph + plain full-width selectable text. EXP-274
+// dropped the glass speech bubble: agent output is the feed's bulk, and the
+// bubble insets cost real width on a phone.
 @Composable
 private fun NarrationBubble(text: String) {
     Row(
@@ -589,10 +591,7 @@ private fun NarrationBubble(text: String) {
                 text,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassSection()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -770,7 +769,10 @@ private fun QuestionCard(
     onAnswer: (List<String>) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    // Both keyed on the card id: the stepper reuses ONE card slot across the
+    // ask's steps, so an unkeyed `expanded` leaked a "Show more" from a long
+    // step onto the next one (EXP-274).
+    var expanded by remember(item.id) { mutableStateOf(false) }
     var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
     val folds = remember(item.text) { clampable(item.text) }
     val locked = state != null
@@ -850,7 +852,11 @@ private fun QuestionCard(
                                 if (interactive) {
                                     Modifier
                                         .alpha(if (locked) 0.5f else 1f)
-                                        .glassButton(active = primary || selected)
+                                        // glassRow, not glassButton: the
+                                        // capsule's percent radius clipped
+                                        // multi-line option descriptions into
+                                        // an ellipse (EXP-274).
+                                        .glassRow(active = primary || selected)
                                 } else {
                                     Modifier
                                 },

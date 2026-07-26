@@ -38,15 +38,24 @@ public struct GlassCard: ViewModifier {
 }
 
 public struct GlassRow: ViewModifier {
-    public init() {}
+    /// Brighter fill + stroke for a selected/primary row (Android
+    /// `glassRow(active:)` parity — EXP-274 moved question options onto rows,
+    /// whose fixed radius survives multi-line content where the capsule
+    /// button clipped it).
+    public var isActive: Bool = false
+
+    public init(isActive: Bool = false) {
+        self.isActive = isActive
+    }
 
     public func body(content: Content) -> some View {
         content
+            .background(isActive ? Color.white.opacity(0.15) : Color.clear)
             .background(.ultraThinMaterial.opacity(0.5))
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
+                    .stroke(Color.white.opacity(isActive ? 0.2 : 0.06), lineWidth: 0.5)
             )
     }
 }
@@ -111,8 +120,8 @@ extension View {
         modifier(GlassCard(cornerRadius: cornerRadius))
     }
 
-    public func glassRow() -> some View {
-        modifier(GlassRow())
+    public func glassRow(isActive: Bool = false) -> some View {
+        modifier(GlassRow(isActive: isActive))
     }
 
     public func glassButton(isActive: Bool = false, isOpaque: Bool = false) -> some View {
