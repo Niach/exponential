@@ -66,15 +66,23 @@ pub fn open_shell_window(cx: &mut App) {
             // caption and the bar's WindowControlArea hitboxes drive
             // min/max/close + Snap Layouts.
             titlebar: Some(gpui_component::TitleBar::title_bar_options()),
-            // Linux: client-side decorations — gpui-component's window-border
-            // plumbing draws the frame/shadow/resize zones (our rounded
-            // `ui::window_frame` variant), and the in-app titlebar provides
-            // drag + controls. The window background must be transparent so
-            // the CSD shadow margins and rounded corners can composite; X11
-            // without a compositor falls back to Server decorations, where
-            // the bar hides itself (`app_title_bar::client_chrome`).
-            #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
+            // EXP-290 glass: a non-opaque window with behind-window blur, so
+            // the lightly translucent page gradient
+            // (`theme::GLASS_BACKGROUND_ALPHA`) lets the desktop show faintly
+            // through. macOS gets a real `NSVisualEffectView` backdrop; Wayland
+            // asks the compositor's blur manager (KDE protocol) and degrades to
+            // plain transparency where it is absent, which is also what X11
+            // does — harmless, since Linux CSD already REQUIRES a non-opaque
+            // window: the shadow margins and rounded corners of
+            // `ui::window_frame` can only composite against transparency (X11
+            // without a compositor falls back to Server decorations, where the
+            // in-app bar hides itself — `app_title_bar::client_chrome`).
+            // Windows is left at the default Opaque on purpose: its Blurred
+            // path is the legacy undocumented `ACCENT_ENABLE_BLURBEHIND`, and
+            // any non-opaque window there loses ClearType subpixel AA
+            // (`Window::should_use_subpixel_rendering`).
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            window_background: gpui::WindowBackgroundAppearance::Blurred,
             #[cfg(target_os = "linux")]
             window_decorations: Some(gpui::WindowDecorations::Client),
             ..Default::default()
@@ -94,6 +102,16 @@ pub fn open_shell_window(cx: &mut App) {
                 let root = {
                     use gpui::Styled as _;
                     root.bordered(false).bg(gpui::transparent_black())
+                };
+                // EXP-290 macOS glass: stock `Root` paints an opaque
+                // full-window `tokens.background` fill UNDER everything, which
+                // would sit between the blurred backdrop and the translucent
+                // page gradient and hide the effect entirely. Clear it (the
+                // stock frame stays — off Linux CSD it is a pass-through).
+                #[cfg(target_os = "macos")]
+                let root = {
+                    use gpui::Styled as _;
+                    root.bg(gpui::transparent_black())
                 };
                 root
             })

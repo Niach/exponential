@@ -201,8 +201,12 @@ fn undocked_window_options(default_size: gpui::Size<gpui::Pixels>, cx: &App) -> 
         // EXP-269: in-app chrome, same rationale as the main window — the
         // fake header strips became real TitleBars with drag + controls.
         titlebar: Some(gpui_component::TitleBar::title_bar_options()),
-        #[cfg(target_os = "linux")]
-        window_background: gpui::WindowBackgroundAppearance::Transparent,
+        // EXP-290 glass: same non-opaque + behind-window-blur window as the
+        // main shell (`app::windows` carries the per-platform rationale) — an
+        // undocked terminal/issue window is the same glass page, so it must
+        // not read as an opaque slab next to the shell. Windows stays Opaque.
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        window_background: gpui::WindowBackgroundAppearance::Blurred,
         #[cfg(target_os = "linux")]
         window_decorations: Some(gpui::WindowDecorations::Client),
         ..Default::default()
@@ -213,7 +217,8 @@ fn undocked_window_options(default_size: gpui::Size<gpui::Pixels>, cx: &App) -> 
 ///
 /// Linux clears the stock square frame + opaque background so
 /// `crate::window_frame` can draw the rounded CSD (same composition as the
-/// main window, `app/src/windows.rs`).
+/// main window, `app/src/windows.rs`). macOS clears only the background
+/// (EXP-290 glass — it would occlude the blurred backdrop).
 fn undocked_root(
     view: impl Into<gpui::AnyView>,
     window: &mut Window,
@@ -224,6 +229,11 @@ fn undocked_root(
     let root = {
         use gpui::Styled as _;
         root.bordered(false).bg(gpui::transparent_black())
+    };
+    #[cfg(target_os = "macos")]
+    let root = {
+        use gpui::Styled as _;
+        root.bg(gpui::transparent_black())
     };
     root
 }
