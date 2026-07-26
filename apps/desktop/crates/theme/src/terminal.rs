@@ -104,10 +104,15 @@ pub fn terminal_palette() -> TerminalPalette {
     // double-composite).
     let background = t::glass::BACKGROUND_BOTTOM.to_hsla();
 
-    // ANSI black must stay visible on the near-black background → the web
-    // secondary surface; bright black is the ring gray (both token-locked).
-    let black = t::SECONDARY.to_hsla();
-    let bright_black = t::RING.to_hsla();
+    // EXP-281: ANSI black must ACTUALLY stay visible on the near-black
+    // background. SECONDARY (#262626) only managed 1.17:1 against the glass
+    // bottom stop — effectively invisible — so black is the ring gray
+    // (3.7:1) and bright black steps up to the muted-foreground gray
+    // (both token-locked). Most dark terminal themes render ANSI black as a
+    // dark-to-mid grey for exactly this reason; the guard test below asserts
+    // the contrast ratio, not a lightness ordering.
+    let black = t::RING.to_hsla();
+    let bright_black = t::MUTED_FOREGROUND.to_hsla();
     let red = t::RED.to_hsla();
     let green = t::GREEN.to_hsla();
     let yellow = t::YELLOW.to_hsla();
@@ -171,6 +176,10 @@ mod tests {
         assert_eq!(p.foreground, t::FOREGROUND.to_hsla());
         // EXP-277: terminal blends with the glass gradient's bottom stop.
         assert_eq!(p.background, t::glass::BACKGROUND_BOTTOM.to_hsla());
+        // EXP-281: black is the ring gray, bright black the muted-foreground
+        // gray — SECONDARY was invisible (1.17:1) on the glass bottom stop.
+        assert_eq!(p.ansi(0), t::RING.to_hsla());
+        assert_eq!(p.ansi(8), t::MUTED_FOREGROUND.to_hsla());
         assert_eq!(p.ansi(1), t::RED.to_hsla());
         assert_eq!(p.ansi(2), t::GREEN.to_hsla());
         assert_eq!(p.ansi(3), t::YELLOW.to_hsla());
@@ -190,11 +199,42 @@ mod tests {
         }
     }
 
+    /// WCAG relative luminance (sRGB linearization + Rec. 709 weights).
+    fn luminance(color: Hsla) -> f32 {
+        fn linearize(c: f32) -> f32 {
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        let rgba = gpui::Rgba::from(color);
+        0.2126 * linearize(rgba.r) + 0.7152 * linearize(rgba.g) + 0.0722 * linearize(rgba.b)
+    }
+
+    /// WCAG contrast ratio, 1.0..=21.0.
+    fn contrast_ratio(a: Hsla, b: Hsla) -> f32 {
+        let (la, lb) = (luminance(a), luminance(b));
+        let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
     #[test]
     fn ansi_black_visible_on_background() {
         let p = terminal_palette();
-        assert!(p.ansi(0).l > p.background.l);
-        assert!(p.ansi(8).l > p.ansi(0).l);
+        // EXP-281: assert what the name claims — a minimum WCAG contrast
+        // ratio, not a lightness ordering (the old `l >` comparison passed at
+        // an invisible 1.17:1). 3:1 is the WCAG floor for large text / UI.
+        let black = contrast_ratio(p.ansi(0), p.background);
+        assert!(
+            black >= 3.0,
+            "ANSI black must hit >=3:1 on the terminal background, got {black:.2}:1"
+        );
+        let bright_black = contrast_ratio(p.ansi(8), p.background);
+        assert!(
+            bright_black > black,
+            "bright black ({bright_black:.2}:1) must out-contrast black ({black:.2}:1)"
+        );
     }
 
     #[test]
