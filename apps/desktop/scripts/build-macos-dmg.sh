@@ -45,13 +45,24 @@ STAGE="$(mktemp -d)"
 cp -R "$APP_DIR" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
-hdiutil create \
-  -volname "$APP_NAME" \
-  -srcfolder "$STAGE" \
-  -fs HFS+ \
-  -format UDZO \
-  -ov \
-  "$DMG"
+# `hdiutil create` intermittently dies with "Resource busy" on the CI runners
+# (diskarbitration/Spotlight still holding the freshly detached scratch volume
+# — it took out the 0.8.34 staging leg). It is transient every time, so retry
+# before failing the release build.
+for attempt in 1 2 3; do
+  if hdiutil create \
+    -volname "$APP_NAME" \
+    -srcfolder "$STAGE" \
+    -fs HFS+ \
+    -format UDZO \
+    -ov \
+    "$DMG"; then
+    break
+  fi
+  [ "$attempt" = 3 ] && { echo "hdiutil create failed after 3 attempts" >&2; exit 1; }
+  echo "hdiutil create failed (attempt ${attempt}/3) — retrying in 15s …" >&2
+  sleep 15
+done
 rm -rf "$STAGE"
 
 # --- Notarize + staple (gated on credentials) ------------------------------
