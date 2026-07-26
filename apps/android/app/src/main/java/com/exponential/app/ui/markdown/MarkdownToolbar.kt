@@ -14,15 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
@@ -32,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ListType
 
@@ -74,30 +66,30 @@ fun MarkdownToolbar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
             ) {
-                ToolbarButton(Icons.Filled.Image, "Image", active = false, enabled = imageEnabled) { onPickImage() }
+                ToolbarButton(ExpIcons.editorImage, "Image", active = false, enabled = imageEnabled) { onPickImage() }
                 Separator()
                 if (mentionEnabled) {
-                    ToolbarButton(Icons.Filled.AlternateEmail, "Mention a member", active = false) {
+                    ToolbarButton(ExpIcons.editorMention, "Mention a member", active = false) {
                         model.insertPlainText("@")
                     }
                 }
-                ToolbarButton(Icons.Filled.Tag, "Reference an issue", active = false) {
+                ToolbarButton(ExpIcons.editorIssueRef, "Reference an issue", active = false) {
                     model.insertPlainText("#")
                 }
                 Separator()
-                ToolbarButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet list", active = attrs?.listType == ListType.Bullet) {
+                ToolbarButton(ExpIcons.editorList, "Bullet list", active = attrs?.listType == ListType.Bullet) {
                     activeRowId?.let { model.toggleList(it, ListType.Bullet) }
                 }
-                ToolbarButton(Icons.Filled.FormatListNumbered, "Numbered list", active = attrs?.listType == ListType.Ordered) {
+                ToolbarButton(ExpIcons.editorListOrdered, "Numbered list", active = attrs?.listType == ListType.Ordered) {
                     activeRowId?.let { model.toggleList(it, ListType.Ordered) }
                 }
-                ToolbarButton(Icons.Filled.Checklist, "Task list", active = attrs?.listType == ListType.Checklist) {
+                ToolbarButton(ExpIcons.editorListTodo, "Task list", active = attrs?.listType == ListType.Checklist) {
                     activeRowId?.let { model.toggleList(it, ListType.Checklist) }
                 }
-                ToolbarButton(Icons.Filled.Code, "Code block", active = attrs?.kind == BlockKind.CodeBlock) {
+                ToolbarButton(ExpIcons.editorCode, "Code block", active = attrs?.kind == BlockKind.CodeBlock) {
                     activeRowId?.let { model.toggleCodeBlock(it) }
                 }
-                ToolbarButton(Icons.Filled.FormatQuote, "Quote", active = attrs?.kind == BlockKind.Blockquote) {
+                ToolbarButton(ExpIcons.editorQuote, "Quote", active = attrs?.kind == BlockKind.Blockquote) {
                     activeRowId?.let { model.toggleQuote(it) }
                 }
             }

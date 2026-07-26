@@ -111,8 +111,7 @@ struct IssueDetailView: View {
                             // creator — surface that provenance read-only.
                             if issue.source == DomainContract.issueSourceWidget {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "megaphone")
-                                        .font(.caption2)
+                                    AppIcon(AppIcons.uiWidget, size: 11)
                                     Text("Feedback widget")
                                         .font(.caption)
                                         .lineLimit(1)
@@ -166,13 +165,17 @@ struct IssueDetailView: View {
                             Button {
                                 vm.reloadRemoteDescription()
                             } label: {
-                                Label("Updated by someone else — Reload", systemImage: "arrow.triangle.2.circlepath")
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color.blue.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                                Label {
+                                    Text("Updated by someone else — Reload")
+                                } icon: {
+                                    AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.small)
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.blue.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
                         }
@@ -303,7 +306,7 @@ struct IssueDetailView: View {
                                 subject: Text(vm.shareText),
                                 message: Text(vm.shareText)
                             ) {
-                                Image(systemName: "square.and.arrow.up")
+                                AppIcon(AppIcons.uiShare, size: AppIcon.Size.large)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
                         }
@@ -312,7 +315,8 @@ struct IssueDetailView: View {
                         Button {
                             Task { await vm.toggleSubscribe() }
                         } label: {
-                            Image(systemName: vm.isSubscribed ? "bell.fill" : "bell.slash")
+                            AppIcon(vm.isSubscribed ? AppIcons.uiSubscribe : AppIcons.uiUnsubscribe,
+                                    size: AppIcon.Size.large)
                                 .foregroundStyle(
                                     vm.isSubscribed
                                         ? Color.accentColor
@@ -330,7 +334,7 @@ struct IssueDetailView: View {
                                     Button {
                                         Task { await vm.unmarkDuplicate() }
                                     } label: {
-                                        Label("Unmark duplicate", systemImage: "doc.on.doc.fill")
+                                        Label("Unmark duplicate", appIcon: AppIcons.statusDuplicate)
                                     }
                                 }
                                 // Move to another board in the same team
@@ -339,14 +343,14 @@ struct IssueDetailView: View {
                                     Button {
                                         activeSheet = .moveBoard
                                     } label: {
-                                        Label("Move to board", systemImage: "folder")
+                                        Label("Move to board", appIcon: AppIcons.navBoards)
                                     }
                                 }
                                 Button("Delete issue", role: .destructive) {
                                     showDeleteConfirm = true
                                 }
                             } label: {
-                                Image(systemName: "ellipsis.circle")
+                                AppIcon(AppIcons.uiMore, size: AppIcon.Size.large)
                             }
                         }
                     }
@@ -446,7 +450,7 @@ struct IssueDetailView: View {
                 Label {
                     Text(status.label)
                 } icon: {
-                    Image(systemName: status.sfSymbol)
+                    AppIcon(status.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(status.color)
                 }
             }
@@ -463,7 +467,7 @@ struct IssueDetailView: View {
                 Label {
                     Text(priority.label)
                 } icon: {
-                    Image(systemName: priority.sfSymbol)
+                    AppIcon(priority.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(priority.color)
                 }
             }
@@ -599,8 +603,7 @@ struct IssueDetailView: View {
     @ViewBuilder
     private func duplicateBanner(vm: IssueDetailViewModel, duplicateOfId: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "doc.on.doc")
-                .font(.caption)
+            AppIcon(AppIcons.statusDuplicate, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text("Duplicate of")
                 .font(.caption)

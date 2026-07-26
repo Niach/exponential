@@ -12,8 +12,7 @@ struct UpdateRequiredView: View {
             AppBackground()
 
             VStack(alignment: .leading, spacing: 0) {
-                Image(systemName: "arrow.up.circle")
-                    .font(.system(size: 44, weight: .semibold))
+                AppIcon(AppIcons.uiUpdate, size: AppIcon.Size.xlarge, weight: .semibold)
                     .foregroundStyle(.white)
 
                 Spacer().frame(height: 20)

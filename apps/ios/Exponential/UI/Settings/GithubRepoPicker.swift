@@ -92,7 +92,7 @@ struct GithubRepoPicker: View {
                 openConnect(data)
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    AppIcon(AppIcons.uiGithub, size: AppIcon.Size.medium)
                     Text("Connect GitHub")
                 }
                 .frame(maxWidth: .infinity)
@@ -125,8 +125,7 @@ struct GithubRepoPicker: View {
                 }
 
                 HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.caption)
+                    AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     TextField("Search repositories…", text: $query)
                         .textFieldStyle(.plain)
@@ -144,8 +143,7 @@ struct GithubRepoPicker: View {
                         dismiss()
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                                .font(.caption)
+                            AppIcon(AppIcons.uiRepository, size: AppIcon.Size.small)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             Text(repo.fullName)
                                 .font(.subheadline.monospaced())
@@ -153,8 +151,7 @@ struct GithubRepoPicker: View {
                                 .lineLimit(1)
                             Spacer()
                             if repo.`private` {
-                                Image(systemName: "lock.fill")
-                                    .font(.caption2)
+                                AppIcon(AppIcons.uiPrivate, size: 11)
                                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             }
                         }
@@ -202,7 +199,7 @@ struct GithubRepoPicker: View {
                 openConnect(data)
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.medium)
                     Text("Reconnect GitHub")
                 }
                 .frame(maxWidth: .infinity)
@@ -222,7 +219,7 @@ struct GithubRepoPicker: View {
                 openConnect(data)
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.medium)
                     Text("Reconnect GitHub")
                 }
                 .frame(maxWidth: .infinity)

@@ -120,8 +120,7 @@ struct ServerDetailView: View {
     private var identitySection: some View {
         sectionStack(title: nil) {
             HStack(spacing: 10) {
-                Image(systemName: "server.rack")
-                    .font(.title3)
+                AppIcon(AppIcons.settingsServers, size: AppIcon.Size.large)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(account?.displayName ?? "")
@@ -159,7 +158,7 @@ struct ServerDetailView: View {
                         }
                     } label: {
                         actionRow(
-                            icon: "arrow.triangle.2.circlepath",
+                            icon: AppIcons.settingsSync,
                             title: resyncing ? "Resyncing…" : "Resync now",
                             tint: .white
                         )
@@ -197,7 +196,7 @@ struct ServerDetailView: View {
                         }
                     } label: {
                         actionRow(
-                            icon: "rectangle.portrait.and.arrow.right",
+                            icon: AppIcons.navSignOut,
                             title: "Sign out",
                             tint: .red
                         )
@@ -210,7 +209,7 @@ struct ServerDetailView: View {
                         showDeleteAccountConfirm = true
                     } label: {
                         actionRow(
-                            icon: "person.crop.circle.badge.xmark",
+                            icon: AppIcons.uiDeleteAccount,
                             title: deletingAccount ? "Deleting account…" : "Delete account",
                             tint: .red
                         )
@@ -223,7 +222,7 @@ struct ServerDetailView: View {
                         dismiss()
                     } label: {
                         actionRow(
-                            icon: "arrow.clockwise",
+                            icon: AppIcons.uiRefresh,
                             title: "Reauthenticate",
                             tint: .white
                         )
@@ -236,7 +235,7 @@ struct ServerDetailView: View {
                         showRemoveConfirm = true
                     } label: {
                         actionRow(
-                            icon: "trash",
+                            icon: AppIcons.uiDelete,
                             title: "Remove server",
                             tint: .red
                         )
@@ -262,8 +261,7 @@ struct ServerDetailView: View {
 
     private func actionRow(icon: String, title: String, tint: Color) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.body)
+            AppIcon(icon, size: AppIcon.Size.medium)
                 .foregroundStyle(tint.opacity(tint == .red ? 0.85 : TextOpacity.secondary))
                 .frame(width: 22)
             Text(title)

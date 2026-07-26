@@ -20,8 +20,7 @@ struct LoginView: View {
                         Button {
                             viewModel?.goBack()
                         } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.body.weight(.medium))
+                            AppIcon(AppIcons.uiChevronLeft, size: AppIcon.Size.medium, weight: .medium)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .padding(8)
                                 .glassButton()
@@ -83,6 +82,9 @@ struct LoginView: View {
                             oauthButton(label: "Continue with Apple", action: {
                                 vm.startAppleOAuthFlow()
                             }) {
+                                // Apple's brand mark, not a registry glyph:
+                                // Lucide has no Apple logo and SIWA must use
+                                // Apple's own art (App Store guideline 4.8).
                                 Image(systemName: "apple.logo")
                                     .font(.body.weight(.medium))
                             }

@@ -28,14 +28,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.ArrowCircleUp
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Tag
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +48,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
@@ -190,7 +183,7 @@ private fun CollapsedBar(
         if (showProperties) {
             BarCircle(onClick = onOpenProperties) {
                 Icon(
-                    Icons.Filled.Tune,
+                    ExpIcons.uiProperties,
                     contentDescription = "Issue properties",
                     modifier = Modifier.size(20.dp),
                     tint = Color.White,
@@ -211,7 +204,7 @@ private fun CollapsedBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.Filled.Add,
+                ExpIcons.uiAdd,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = Color.White.copy(alpha = TextEmphasis.Tertiary),
@@ -227,7 +220,7 @@ private fun CollapsedBar(
             BarCircle(onClick = onStartClick) {
                 when (startButton) {
                     is StartButtonUi.Start -> Icon(
-                        Icons.Filled.PlayArrow,
+                        ExpIcons.actionRun,
                         contentDescription = "Start coding",
                         modifier = Modifier.size(22.dp),
                         tint = Color.White.copy(
@@ -333,7 +326,7 @@ private fun ExpandedCommentComposer(
         ) {
             IconButton(onClick = pickImage) {
                 Icon(
-                    Icons.Filled.Image,
+                    ExpIcons.editorImage,
                     contentDescription = "Add image",
                     modifier = Modifier.size(20.dp),
                     tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -342,7 +335,7 @@ private fun ExpandedCommentComposer(
             if (showMentionButton) {
                 IconButton(onClick = { model.insertPlainText("@") }) {
                     Icon(
-                        Icons.Filled.AlternateEmail,
+                        ExpIcons.editorMention,
                         contentDescription = "Mention a member",
                         modifier = Modifier.size(20.dp),
                         tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -351,7 +344,7 @@ private fun ExpandedCommentComposer(
             }
             IconButton(onClick = { model.insertPlainText("#") }) {
                 Icon(
-                    Icons.Filled.Tag,
+                    ExpIcons.editorIssueRef,
                     contentDescription = "Reference an issue",
                     modifier = Modifier.size(20.dp),
                     tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -371,7 +364,7 @@ private fun ExpandedCommentComposer(
                 enabled = !sending && draft.isNotBlank() && !hasPendingImages,
             ) {
                 Icon(
-                    Icons.Filled.ArrowCircleUp,
+                    ExpIcons.uiSubmit,
                     contentDescription = "Send",
                     modifier = Modifier.size(30.dp),
                     tint = if (draft.isBlank() || hasPendingImages) {

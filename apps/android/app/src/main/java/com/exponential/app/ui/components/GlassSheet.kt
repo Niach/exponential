@@ -14,10 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -80,7 +77,7 @@ fun GlassSheet(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Filled.Close,
+                        ExpIcons.uiClose,
                         contentDescription = "Close",
                         modifier = Modifier.size(16.dp),
                         tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -127,7 +124,7 @@ fun GlassSheetRow(
             trailing()
         } else if (selected) {
             Icon(
-                Icons.Filled.Check,
+                ExpIcons.uiCheck,
                 contentDescription = "Selected",
                 modifier = Modifier.size(18.dp),
                 tint = AccentIndigo,
@@ -159,7 +156,7 @@ fun GlassSheetSearchField(
         },
         leadingIcon = {
             Icon(
-                Icons.Filled.Search,
+                ExpIcons.navSearch,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )

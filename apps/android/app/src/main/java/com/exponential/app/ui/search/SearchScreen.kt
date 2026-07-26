@@ -16,9 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.IssueRow
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.GlassTokens
@@ -85,11 +83,11 @@ fun SearchScreen(
                 state.query.isEmpty() -> EmptyState(
                     message = "Search issues across all your boards.",
                     detail = "Matches identifiers, titles, and full text.",
-                    icon = Icons.Filled.Search,
+                    icon = ExpIcons.navSearch,
                 )
                 state.groups.isEmpty() -> EmptyState(
                     message = "No issues match",
-                    icon = Icons.Filled.Search,
+                    icon = ExpIcons.navSearch,
                 )
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -154,7 +152,7 @@ private fun SearchField(
         },
         leadingIcon = {
             Icon(
-                Icons.Filled.Search,
+                ExpIcons.navSearch,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
@@ -162,7 +160,7 @@ private fun SearchField(
         trailingIcon = {
             if (query.isNotEmpty()) {
                 IconButton(onClick = { onQueryChange("") }) {
-                    Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                    Icon(ExpIcons.uiClose, contentDescription = "Clear search")
                 }
             }
         },

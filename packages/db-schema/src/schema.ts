@@ -897,6 +897,12 @@ export const actions = pgTable(
     }),
     name: varchar({ length: 255 }).notNull(),
     description: text(),
+    // EXP-273: the action's display glyph — a curated icon name from the
+    // shared registry (same set as boards.icon). NULL = clients fall back to
+    // the generic action glyph. Varchar rather than the pg enum so growing the
+    // registry never needs a migration; the router validates against the
+    // contract.
+    icon: varchar({ length: 64 }),
     // The markdown prompt; ≤64KB enforced by the router zod.
     body: text().notNull(),
     // EXP-257: typed input schema — members fill the values in the run dialog

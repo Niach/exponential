@@ -10,7 +10,7 @@ public enum DomainContract {
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
     public static let issueSourceValues: [String] = ["user", "widget"]
     public static let teamRoleValues: [String] = ["owner", "member"]
-    public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"]
+    public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car"]
     public static let commentKindValues: [String] = ["regular"]
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
@@ -24,7 +24,7 @@ public enum DomainContract {
     public static let codexEffortValues: [String] = ["minimal", "low", "medium", "high", "xhigh"]
     public static let piModelValues: [String] = ["fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5"]
     public static let piThinkingValues: [String] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-    public static let actionInputTypeValues: [String] = ["text", "repo", "board", "pr"]
+    public static let actionInputTypeValues: [String] = ["text", "repo", "board", "pr", "icon"]
 
     public static let codingSessionStaleMs: Int = 7200000
     public static let builtinCreateActionId: String = "builtin:create-action"

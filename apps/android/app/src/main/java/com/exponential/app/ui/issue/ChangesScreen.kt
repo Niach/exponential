@@ -18,13 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.CallMerge
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,6 +65,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -253,7 +247,7 @@ fun ChangesScreen(
                 title = { Text("Review") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
@@ -443,7 +437,7 @@ private fun ChangesBottomBar(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(
-                            Icons.Filled.Close,
+                            ExpIcons.uiClose,
                             contentDescription = "Close PR without merging",
                             modifier = Modifier.size(20.dp),
                             tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -465,7 +459,7 @@ private fun ChangesBottomBar(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(
-                            Icons.AutoMirrored.Filled.CallMerge,
+                            ExpIcons.prMerged,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
                             tint = Color.White,
@@ -490,7 +484,7 @@ private fun ChangesBottomBar(
                     }
                 }) {
                     Icon(
-                        Icons.AutoMirrored.Filled.OpenInNew,
+                        ExpIcons.uiExternalLink,
                         contentDescription = "Open PR on GitHub",
                         modifier = Modifier.size(20.dp),
                         tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -616,7 +610,7 @@ private fun FileSection(file: PullFile, expanded: Boolean, onToggle: () -> Unit)
             Text("−${file.deletions}", color = DiffDelColor, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
             Spacer(Modifier.width(6.dp))
             Icon(
-                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                if (expanded) ExpIcons.uiChevronUp else ExpIcons.uiChevronDown,
                 contentDescription = if (expanded) "Collapse" else "Expand",
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),

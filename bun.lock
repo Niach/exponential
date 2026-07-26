@@ -99,6 +99,7 @@
         "@electric-sql/client": "^1.2.0",
         "@exp/db-schema": "workspace:*",
         "@exp/domain-contract": "workspace:*",
+        "@exp/icons": "workspace:*",
         "@exp/steer-ticket": "workspace:*",
         "@exp/widget": "workspace:*",
         "@mcp-b/global": "^4.0.0",
@@ -190,6 +191,13 @@
     "packages/electric-protocol": {
       "name": "@exp/electric-protocol",
       "version": "0.0.0",
+    },
+    "packages/icons": {
+      "name": "@exp/icons",
+      "version": "0.0.0",
+      "devDependencies": {
+        "lucide-react": "^0.544.0",
+      },
     },
     "packages/steer-ticket": {
       "name": "@exp/steer-ticket",
@@ -516,6 +524,8 @@
     "@exp/domain-contract": ["@exp/domain-contract@workspace:packages/domain-contract"],
 
     "@exp/electric-protocol": ["@exp/electric-protocol@workspace:packages/electric-protocol"],
+
+    "@exp/icons": ["@exp/icons@workspace:packages/icons"],
 
     "@exp/marketing": ["@exp/marketing@workspace:apps/marketing"],
 

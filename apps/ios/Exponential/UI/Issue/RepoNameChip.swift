@@ -59,14 +59,12 @@ struct RepoNameChip: View {
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .font(.caption2)
+                        AppIcon(AppIcons.uiRepository, size: 11)
                         Text(repo.fullName)
                             .font(.caption.monospaced())
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Image(systemName: "arrow.up.right")
-                            .font(.caption2)
+                        AppIcon(AppIcons.uiExternalLink, size: 11)
                     }
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .padding(.horizontal, 8)

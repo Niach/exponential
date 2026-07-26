@@ -17,8 +17,7 @@ struct InviteAcceptView: View {
             AppBackground()
 
             VStack(spacing: 20) {
-                Image(systemName: accepted ? "checkmark.circle.fill" : "person.2")
-                    .font(.system(size: 48))
+                AppIcon(accepted ? AppIcons.uiSuccess : AppIcons.settingsMembers, size: 48)
                     .foregroundStyle(accepted ? .green : .white.opacity(TextOpacity.secondary))
 
                 if loading {

@@ -464,6 +464,9 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     public let repositoryId: String?
     public let name: String
     public let description: String?
+    /// EXP-273: curated registry icon name (the same set as `boards.icon`);
+    /// nil = the generic action glyph.
+    public let icon: String?
     /// Typed inputs schema (jsonb array of {key,label,type,required,
     /// placeholder}) — Electric delivers it as a JSON value; stored as the
     /// stringified JSON, decoded lazily by the UI. Null when the action
@@ -479,6 +482,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         repositoryId: String?,
         name: String,
         description: String?,
+        icon: String?,
         inputs: String?,
         sortOrder: Double?,
         createdAt: String,
@@ -489,6 +493,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.repositoryId = repositoryId
         self.name = name
         self.description = description
+        self.icon = icon
         self.inputs = inputs
         self.sortOrder = sortOrder
         self.createdAt = createdAt
@@ -496,7 +501,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, inputs
+        case id, name, description, icon, inputs
         case teamId = "team_id"
         case repositoryId = "repository_id"
         case sortOrder = "sort_order"

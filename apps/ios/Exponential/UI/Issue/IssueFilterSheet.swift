@@ -66,8 +66,7 @@ struct IssueFilterSheet: View {
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
-                Image(systemName: "chevron.right")
-                    .font(.caption)
+                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.vertical, 14)
@@ -84,8 +83,7 @@ struct IssueFilterSheet: View {
                 checkRow(selected: vm.filters.statuses.contains(status)) {
                     vm.toggleStatus(status)
                 } content: {
-                    Image(systemName: status.sfSymbol)
-                        .font(.caption)
+                    AppIcon(status.iconName, size: AppIcon.Size.small)
                         .foregroundStyle(status.color)
                         .frame(width: 18)
                     Text(status.label)
@@ -102,8 +100,7 @@ struct IssueFilterSheet: View {
                 checkRow(selected: vm.filters.priorities.contains(priority)) {
                     vm.togglePriority(priority)
                 } content: {
-                    Image(systemName: priority.sfSymbol)
-                        .font(.caption)
+                    AppIcon(priority.iconName, size: AppIcon.Size.small)
                         .foregroundStyle(priority.color)
                         .frame(width: 18)
                     Text(priority.label)
@@ -160,8 +157,7 @@ struct IssueFilterSheet: View {
                 Button {
                     view = .categories
                 } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.body.weight(.medium))
+                    AppIcon(AppIcons.uiChevronLeft, size: AppIcon.Size.medium, weight: .medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
@@ -186,8 +182,7 @@ struct IssueFilterSheet: View {
                 content()
                 Spacer()
                 if selected {
-                    Image(systemName: "checkmark")
-                        .font(.subheadline.weight(.semibold))
+                    AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
                         .foregroundStyle(Accent.indigo)
                 }
             }

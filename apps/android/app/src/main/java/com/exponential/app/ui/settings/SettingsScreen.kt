@@ -12,12 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -46,6 +40,7 @@ import com.exponential.app.data.db.MultiAccountTeamRepository
 import com.exponential.app.data.db.ServerTeamGroup
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamAvatar
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
@@ -107,7 +102,7 @@ fun SettingsScreen(
                     title = { Text("Settings") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(ExpIcons.uiBack, contentDescription = "Back")
                         }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -139,7 +134,7 @@ fun SettingsScreen(
                         }
                         if (accounts.isNotEmpty()) CardDivider()
                         SettingsRow(
-                            icon = Icons.Filled.Add,
+                            icon = ExpIcons.uiAdd,
                             title = "Add server",
                             showChevron = false,
                             onClick = onAddServer,
@@ -180,7 +175,7 @@ fun SettingsScreen(
                     SectionHeader("General")
                     Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
                         SettingsRow(
-                            icon = Icons.Filled.Sync,
+                            icon = ExpIcons.settingsSync,
                             title = "Sync diagnostics",
                             subtitle = "Live Electric shape status",
                             onClick = onOpenSyncDiagnostics,
@@ -199,7 +194,7 @@ private fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
-    trailingIcon: ImageVector = Icons.Filled.ChevronRight,
+    trailingIcon: ImageVector = ExpIcons.uiChevronRight,
     showChevron: Boolean = true,
     onClick: () -> Unit,
 ) {
@@ -259,7 +254,7 @@ private fun ServerRow(account: ServerAccount, soleServer: Boolean, onClick: () -
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Icon(
-            Icons.Filled.Dns,
+            ExpIcons.settingsServers,
             contentDescription = null,
             modifier = Modifier.size(22.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -296,7 +291,7 @@ private fun ServerRow(account: ServerAccount, soleServer: Boolean, onClick: () -
         }
         Spacer(Modifier.width(8.dp))
         Icon(
-            Icons.Filled.ChevronRight,
+            ExpIcons.uiChevronRight,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
@@ -356,7 +351,7 @@ private fun TeamGroupBlock(
                     )
                     Spacer(Modifier.width(8.dp))
                     Icon(
-                        Icons.Filled.ChevronRight,
+                        ExpIcons.uiChevronRight,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),

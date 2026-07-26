@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-one-icon-set`,
+    date: `2026-07-26`,
+    title: `One icon set, everywhere`,
+    summary: `Every icon is now the same on web, iOS, Android and desktop — and actions get an icon of their own.`,
+    body: `- **The same icons on every device** — search, inbox, reviews, agents, support and settings used to be drawn from a different icon library on each platform, so the same thing looked different depending on where you opened it. All four apps now render one shared set. Android changes the most.
+- **Board icons you can actually pick** — the picker grew from 16 icons to 60, with a search field, and every one of them draws the same glyph on every device. On the desktop app 11 of the old 16 were quietly substituted with the nearest available shape (a bug was a dot, a wrench was a pencil, and "terminal" drew the same icon as "code") — they are all correct now.
+- **Actions have icons** — give an action its own glyph so a long list stays scannable. The "Create action" flow asks for one up front, and you can change it later from the action's editor.`,
+  },
+  {
     id: `2026-07-desktop-settings-and-tabs`,
     date: `2026-07-26`,
     title: `Settings that fit, tabs that remember`,

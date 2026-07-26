@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,6 +27,7 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSheetSearchField
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
@@ -95,7 +94,7 @@ fun LabelPickerSheet(
                     label = "Create new label “$trimmedQuery”",
                     leading = {
                         Icon(
-                            Icons.Filled.Add,
+                            ExpIcons.uiAdd,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = Color.White.copy(alpha = TextEmphasis.Secondary),

@@ -14,12 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Computer
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +44,7 @@ import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.PulsingDot
@@ -112,7 +107,7 @@ fun AgentsScreen(
                 // of a seventh tab. NOT helpdesk-gated.
                 TextButton(onClick = onOpenActions, modifier = Modifier.testTag("open-actions")) {
                     Icon(
-                        Icons.Filled.Bolt,
+                        ExpIcons.actionDefault,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -229,7 +224,7 @@ private fun DeviceRow(device: SteerDevice, onStart: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            Icons.Filled.Computer,
+            ExpIcons.uiDevice,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -249,7 +244,7 @@ private fun DeviceRow(device: SteerDevice, onStart: () -> Unit) {
             modifier = Modifier.padding(start = 8.dp),
         ) {
             Icon(
-                Icons.Filled.PlayArrow,
+                ExpIcons.actionRun,
                 contentDescription = null,
                 modifier = Modifier.size(15.dp),
                 tint = MaterialTheme.colorScheme.primary,
@@ -388,7 +383,7 @@ private fun AgentSessionRow(
         }
         IconButton(onClick = onInfo) {
             Icon(
-                Icons.Outlined.Info,
+                ExpIcons.uiInfo,
                 contentDescription = "Open issue",
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -407,7 +402,7 @@ private fun AgentsEmptyState() {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
-                Icons.Filled.SmartToy,
+                ExpIcons.navAgents,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 modifier = Modifier.size(28.dp),

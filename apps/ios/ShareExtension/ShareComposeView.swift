@@ -174,6 +174,9 @@ struct ShareMessageView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
+                // Stays an SF Symbol: the extension links neither ExpUI nor the
+                // app's asset catalog, so the shared Lucide registry (EXP-273)
+                // isn't reachable from here.
                 Image(systemName: "tray")
                     .font(.largeTitle)
                     .foregroundStyle(.secondary)

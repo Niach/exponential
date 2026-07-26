@@ -77,7 +77,7 @@ struct CreateIssueSheet: View {
                         VStack(spacing: 0) {
                             VStack(spacing: 12) {
                                 // Status
-                                metadataRow(label: "Status", icon: status.sfSymbol, iconColor: status.color) {
+                                metadataRow(label: "Status", icon: status.iconName, iconColor: status.color) {
                                     Button {
                                         showStatusPicker = true
                                     } label: {
@@ -89,7 +89,7 @@ struct CreateIssueSheet: View {
                                 }
 
                                 // Priority
-                                metadataRow(label: "Priority", icon: priority.sfSymbol, iconColor: priority.color) {
+                                metadataRow(label: "Priority", icon: priority.iconName, iconColor: priority.color) {
                                     Button {
                                         showPriorityPicker = true
                                     } label: {
@@ -193,8 +193,7 @@ struct CreateIssueSheet: View {
                                     showCreateLabel = true
                                 } label: {
                                     HStack(spacing: 4) {
-                                        Image(systemName: "plus")
-                                            .font(.caption2)
+                                        AppIcon(AppIcons.uiAdd, size: 11)
                                         Text("Label")
                                             .font(.caption)
                                     }
@@ -331,7 +330,7 @@ struct CreateIssueSheet: View {
                     Label {
                         Text(s.label)
                     } icon: {
-                        Image(systemName: s.sfSymbol)
+                        AppIcon(s.iconName, size: AppIcon.Size.medium)
                             .foregroundStyle(s.color)
                     }
                 }
@@ -347,7 +346,7 @@ struct CreateIssueSheet: View {
                     Label {
                         Text(p.label)
                     } icon: {
-                        Image(systemName: p.sfSymbol)
+                        AppIcon(p.iconName, size: AppIcon.Size.medium)
                             .foregroundStyle(p.color)
                     }
                 }
@@ -361,12 +360,16 @@ struct CreateIssueSheet: View {
                     onSelect: { assigneeId = $0.userId }
                 ) { option in
                     if option.userId == nil {
-                        Label("Unassigned", systemImage: "person.crop.circle.badge.xmark")
+                        Label {
+                            Text("Unassigned")
+                        } icon: {
+                            AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.medium)
+                        }
                     } else {
                         Label {
                             Text(option.displayName)
                         } icon: {
-                            Image(systemName: "person.circle")
+                            AppIcon(AppIcons.uiAssignee, size: AppIcon.Size.medium)
                         }
                     }
                 }
@@ -414,8 +417,7 @@ struct CreateIssueSheet: View {
     @ViewBuilder
     private func metadataRow<Content: View>(label: String, icon: String, iconColor: Color, @ViewBuilder content: () -> Content) -> some View {
         HStack {
-            Image(systemName: icon)
-                .font(.caption)
+            AppIcon(icon, size: AppIcon.Size.small)
                 .foregroundStyle(iconColor)
                 .frame(width: 20)
 

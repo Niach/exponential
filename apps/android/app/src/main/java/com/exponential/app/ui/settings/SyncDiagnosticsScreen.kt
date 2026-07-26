@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +39,7 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -80,7 +79,7 @@ fun SyncDiagnosticsScreen(
                 title = { Text("Sync Diagnostics") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),

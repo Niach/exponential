@@ -16,9 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FolderSpecial
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -42,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
 
@@ -142,7 +140,7 @@ private fun WelcomeStep(onContinue: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Filled.FolderSpecial,
+                ExpIcons.navBoards,
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
                 tint = MaterialTheme.colorScheme.primary,
@@ -372,7 +370,7 @@ private fun DoneStep(onFinish: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Filled.Check,
+                ExpIcons.uiCheck,
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
                 tint = MaterialTheme.colorScheme.primary,

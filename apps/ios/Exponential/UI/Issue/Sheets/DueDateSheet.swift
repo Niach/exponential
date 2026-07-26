@@ -53,8 +53,7 @@ struct DueDateSheet: View {
                             dismiss()
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "xmark.circle")
-                                    .font(.body)
+                                AppIcon(AppIcons.uiClear, size: AppIcon.Size.medium)
                                 Text("Clear due date")
                                     .font(.subheadline)
                                 Spacer(minLength: 0)

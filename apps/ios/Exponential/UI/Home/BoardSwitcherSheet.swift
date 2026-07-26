@@ -42,8 +42,7 @@ struct BoardSwitcherSheet: View {
     private var emptyHint: some View {
         VStack(spacing: 10) {
             Spacer()
-            Image(systemName: "tray")
-                .font(.title3)
+            AppIcon(AppIcons.navBoards, size: AppIcon.Size.large)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("Create your first board on the web or desktop app.")
                 .font(.caption)
@@ -120,10 +119,8 @@ struct BoardSwitcherSheet: View {
         HStack(spacing: 12) {
             // Board glyph (stored icon, else a shape-derived fallback) tinted
             // with the board color (replaces the plain color dot).
-            Image(systemName: BoardTypeDisplay.symbol(for: board))
-                .font(.caption)
+            AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
                 .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                .frame(width: 16, height: 16)
 
             Text(board.name)
                 .font(.body)
@@ -136,8 +133,7 @@ struct BoardSwitcherSheet: View {
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
             if isCurrent {
-                Image(systemName: "checkmark")
-                    .font(.caption.weight(.semibold))
+                AppIcon(AppIcons.uiCheck, size: AppIcon.Size.small, weight: .semibold)
                     .foregroundStyle(Accent.indigo)
             }
         }

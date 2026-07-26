@@ -361,6 +361,10 @@ pub const SHAPES: [ShapeSpec; 15] = [
             "repository_id",
             "name",
             "description",
+            // EXP-273: the action's curated registry glyph (same set as
+            // boards.icon). `heal_missing_columns` ALTERs it onto an existing
+            // local table, so no hand-written migration.
+            "icon",
             "inputs",
             "sort_order",
             "created_at",

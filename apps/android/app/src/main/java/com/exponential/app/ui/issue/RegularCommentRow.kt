@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -39,6 +37,7 @@ import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MentionMember
@@ -138,7 +137,7 @@ internal fun RegularCommentRow(
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(
-                                Icons.Filled.MoreVert,
+                                ExpIcons.uiMoreVertical,
                                 contentDescription = "Comment actions",
                                 tint = CommentMeta,
                             )

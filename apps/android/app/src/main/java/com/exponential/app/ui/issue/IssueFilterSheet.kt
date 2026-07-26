@@ -11,11 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -43,6 +38,7 @@ import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -139,7 +135,7 @@ private fun CategoryRow(label: String, count: Int, onClick: () -> Unit) {
             Spacer(Modifier.width(8.dp))
         }
         Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            ExpIcons.uiChevronRight,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -151,7 +147,7 @@ private fun CategoryRow(label: String, count: Int, onClick: () -> Unit) {
 private fun SubViewHeader(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            Icon(ExpIcons.uiBack, contentDescription = "Back")
         }
         Spacer(Modifier.width(4.dp))
         Text(title, style = MaterialTheme.typography.titleMedium)
@@ -173,7 +169,7 @@ private fun LabelsSubView(
             value = query,
             onValueChange = { query = it },
             placeholder = { Text("Filter labels…") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            leadingIcon = { Icon(ExpIcons.navSearch, contentDescription = null, modifier = Modifier.size(18.dp)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -215,7 +211,7 @@ private fun FilterCheckRow(
         }
         if (selected) {
             Icon(
-                Icons.Filled.Check,
+                ExpIcons.uiCheck,
                 contentDescription = "Selected",
                 tint = MaterialTheme.colorScheme.primary,
             )

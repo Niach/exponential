@@ -249,6 +249,9 @@ data class ActionEntity(
     @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
     val name: String,
     val description: String? = null,
+    // EXP-273: curated registry icon name (same set as boards.icon); null =
+    // the generic action glyph.
+    val icon: String? = null,
     // jsonb array of typed run-input defs ({key,label,type,required,placeholder}
     // — EXP-257), kept as its raw JSON string and parsed at the consumer.
     @Serializable(with = JsonAsStringSerializer::class) val inputs: String? = null,

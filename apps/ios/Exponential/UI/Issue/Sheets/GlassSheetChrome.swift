@@ -25,8 +25,7 @@ struct GlassSheetChrome<Content: View>: View {
                 Button {
                     dismiss()
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.semibold))
+                    AppIcon(AppIcons.uiClose, size: AppIcon.Size.small, weight: .semibold)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(width: 30, height: 30)
                         .background(Color.white.opacity(0.08), in: Circle())
@@ -67,8 +66,7 @@ struct GlassSheetRow<Leading: View>: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if selected {
-                    Image(systemName: "checkmark")
-                        .font(.subheadline.weight(.semibold))
+                    AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
                         .foregroundStyle(Accent.indigo)
                 }
             }
@@ -89,8 +87,7 @@ struct GlassSheetSearchField: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.caption)
+            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
                 .foregroundStyle(.secondary)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
@@ -100,8 +97,7 @@ struct GlassSheetSearchField: View {
                 Button {
                     text = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
+                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -146,8 +142,7 @@ struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
                                 row(wrapped.value)
                                 Spacer(minLength: 0)
                                 if let selectedID, wrapped.id == selectedID {
-                                    Image(systemName: "checkmark")
-                                        .font(.subheadline.weight(.semibold))
+                                    AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
                                         .foregroundStyle(Accent.indigo)
                                 }
                             }

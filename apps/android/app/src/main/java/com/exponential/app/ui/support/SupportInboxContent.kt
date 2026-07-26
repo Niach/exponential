@@ -16,8 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,6 +37,7 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -77,7 +76,7 @@ fun SupportInboxContent(
                     } else {
                         "No open tickets."
                     },
-                icon = Icons.Filled.SupportAgent,
+                icon = ExpIcons.navSupport,
             )
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -119,7 +118,7 @@ private fun SupportThreadRowItem(thread: SupportThreadRow, onClick: () -> Unit) 
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Filled.SupportAgent,
+                ExpIcons.navSupport,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),

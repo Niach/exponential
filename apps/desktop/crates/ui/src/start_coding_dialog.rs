@@ -253,6 +253,9 @@ pub struct StartCodingDialogView {
     /// Picked `(representative issue id, display label)` per `pr` input key
     /// (EXP-259 — the fix-conflicts builtin's open-PR target).
     action_pr_picks: HashMap<String, (String, String)>,
+    /// Picked curated icon NAME per `icon` input key (EXP-273). The only
+    /// pick that is not an id — the value goes to the server verbatim.
+    action_icon_picks: HashMap<String, String>,
     /// `repositories.list` rows for the repo input pickers.
     team_repos: Vec<ActionRepoRow>,
     /// Every non-archived team issue, board→number ordered.
@@ -442,6 +445,7 @@ impl StartCodingDialogView {
             action_repo_picks: HashMap::new(),
             action_board_picks: HashMap::new(),
             action_pr_picks: HashMap::new(),
+            action_icon_picks: HashMap::new(),
             team_repos: Vec::new(),
             rows,
             repos: HashMap::new(),
@@ -555,6 +559,7 @@ impl StartCodingDialogView {
         self.action_repo_picks.clear();
         self.action_board_picks.clear();
         self.action_pr_picks.clear();
+        self.action_icon_picks.clear();
         if let Some(action) = self.actions.iter().find(|action| action.id == action_id) {
             for input in &action.inputs {
                 if input.input_type != "text" {
@@ -594,6 +599,7 @@ impl StartCodingDialogView {
             "repo" => self.action_repo_picks.contains_key(&input.key),
             "board" => self.action_board_picks.contains_key(&input.key),
             "pr" => self.action_pr_picks.contains_key(&input.key),
+            "icon" => self.action_icon_picks.contains_key(&input.key),
             _ => false,
         }
     }
@@ -662,6 +668,18 @@ impl StartCodingDialogView {
                         input_type: input.input_type.clone(),
                         value: issue_id.clone(),
                         display: Some(label.clone()),
+                    });
+                }
+                "icon" => {
+                    let Some(icon) = self.action_icon_picks.get(&input.key) else {
+                        continue;
+                    };
+                    values.push(ActionInputValue {
+                        key: input.key.clone(),
+                        label: input.label.clone(),
+                        input_type: input.input_type.clone(),
+                        value: icon.clone(),
+                        display: Some(icon.clone()),
                     });
                 }
                 // Unknown types never reach here — the launch blocker gates.
@@ -868,7 +886,10 @@ impl StartCodingDialogView {
             for input in &action.inputs {
                 // Unknown input type = a schema this build predates — block
                 // hard, never silently degrade to a text field.
-                if !matches!(input.input_type.as_str(), "text" | "repo" | "board" | "pr") {
+                if !matches!(
+                    input.input_type.as_str(),
+                    "text" | "repo" | "board" | "pr" | "icon"
+                ) {
                     return Some("This action needs a newer app version.".into());
                 }
             }
@@ -1377,12 +1398,9 @@ impl StartCodingDialogView {
             .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
                 this.select_action(select_id.clone(), window, cx);
             }))
-            .child(if action.builtin {
-                // The builtin creator's distinct mark.
-                Icon::new(gpui_component::IconName::Plus).xsmall().text_color(muted)
-            } else {
-                Icon::from(ExpIcon::Zap).xsmall().text_color(muted)
-            })
+            // EXP-273: each action draws its own curated glyph (the builtins
+            // set one explicitly), so the row reads the same as the web list.
+            .child(crate::icons::action_icon(action.icon.as_deref()).xsmall().text_color(muted))
             .child(
                 div()
                     .flex_1()
@@ -1607,6 +1625,60 @@ impl StartCodingDialogView {
                                         }
                                     },
                                 ),
+                            );
+                        }
+                        menu
+                    })
+                    .into_any_element()
+            }
+            // EXP-273: the curated icon set. Unlike the other pickers the
+            // value is a NAME, not an id, so there is nothing to look up —
+            // the menu is the registry list, each row showing its own glyph.
+            "icon" => {
+                let picked = self.action_icon_picks.get(&input.key).cloned();
+                let pick_label: SharedString = match &picked {
+                    Some(name) => name.clone().into(),
+                    None => "Select icon…".into(),
+                };
+                let key = input.key.clone();
+                let optional = !input.required;
+                let view = cx.entity().downgrade();
+                Button::new(("sc-input-icon", ix))
+                    .outline()
+                    .small()
+                    .icon(crate::icons::action_icon(picked.as_deref()))
+                    .label(pick_label)
+                    .dropdown_menu(move |mut menu, _window, _cx| {
+                        if optional {
+                            let view = view.clone();
+                            let key = key.clone();
+                            menu = menu.item(PopupMenuItem::new("None").on_click(
+                                move |_, _, cx| {
+                                    if let Some(view) = view.upgrade() {
+                                        view.update(cx, |view, cx| {
+                                            view.action_icon_picks.remove(&key);
+                                            cx.notify();
+                                        });
+                                    }
+                                },
+                            ));
+                        }
+                        for name in crate::icons::registry::PICKABLE_ICONS {
+                            let view = view.clone();
+                            let key = key.clone();
+                            let name = (*name).to_string();
+                            menu = menu.item(
+                                PopupMenuItem::new(SharedString::from(name.clone()))
+                                    .icon(crate::icons::action_icon(Some(&name)))
+                                    .on_click(move |_, _, cx| {
+                                        if let Some(view) = view.upgrade() {
+                                            view.update(cx, |view, cx| {
+                                                view.action_icon_picks
+                                                    .insert(key.clone(), name.clone());
+                                                cx.notify();
+                                            });
+                                        }
+                                    }),
                             );
                         }
                         menu

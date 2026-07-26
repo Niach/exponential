@@ -44,6 +44,8 @@ data class ActionDto(
     val repositoryId: String? = null,
     val name: String,
     val description: String? = null,
+    /** EXP-273: curated registry icon name; null = the generic action glyph. */
+    val icon: String? = null,
     val body: String = "",
     val sortOrder: Double = 0.0,
     val createdAt: String = "",
@@ -65,6 +67,7 @@ fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
     teamId = teamId,
     name = "Create action",
     description = "Describe a new action and let Claude author it for the team",
+    icon = "sparkles",
     inputs = listOf(
         ActionInputDto(
             key = "description",
@@ -77,6 +80,13 @@ fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
             key = "repo",
             label = "Repository",
             type = "repo",
+            required = false,
+        ),
+        // EXP-273: the author picks the new action's glyph up front.
+        ActionInputDto(
+            key = "icon",
+            label = "Icon",
+            type = "icon",
             required = false,
         ),
     ),
@@ -96,6 +106,7 @@ fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
     teamId = teamId,
     name = "Fix merge conflicts",
     description = "Pick a conflicted pull request and let Claude rebase, resolve, and merge it",
+    icon = "git-branch",
     inputs = listOf(
         ActionInputDto(
             key = "pr",
@@ -127,6 +138,7 @@ fun ActionEntity.toActionDto(json: Json): ActionDto = ActionDto(
     repositoryId = repositoryId,
     name = name,
     description = description,
+    icon = icon,
     sortOrder = sortOrder,
     createdAt = createdAt,
     updatedAt = updatedAt,

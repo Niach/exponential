@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, ne } from "drizzle-orm"
-import { actionInputsSchema } from "@exp/db-schema/domain"
+import { actionIconSchema, actionInputsSchema } from "@exp/db-schema/domain"
 import { router, authedProcedure } from "@/lib/trpc"
 import { actions, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
@@ -36,6 +36,7 @@ const wireColumns = {
   repositoryId: actions.repositoryId,
   name: actions.name,
   description: actions.description,
+  icon: actions.icon,
   body: actions.body,
   inputs: actions.inputs,
   sortOrder: actions.sortOrder,
@@ -198,6 +199,7 @@ export const actionsRouter = router({
         teamId: z.string().uuid(),
         name: nameSchema,
         description: descriptionSchema.optional(),
+        icon: actionIconSchema.nullable().optional(),
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema,
         inputs: actionInputsSchema.optional(),
@@ -226,6 +228,7 @@ export const actionsRouter = router({
           repositoryId: input.repositoryId ?? null,
           name: input.name,
           description: input.description ?? null,
+          icon: input.icon ?? null,
           body: input.body,
           inputs: input.inputs ?? [],
           sortOrder: nextSortOrder,
@@ -245,6 +248,7 @@ export const actionsRouter = router({
         id: actionIdSchema,
         name: nameSchema.optional(),
         description: descriptionSchema.optional(),
+        icon: actionIconSchema.nullable().optional(),
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema.optional(),
         inputs: actionInputsSchema.optional(),
@@ -282,6 +286,7 @@ export const actionsRouter = router({
       if (input.description !== undefined) {
         updates.description = input.description
       }
+      if (input.icon !== undefined) updates.icon = input.icon
       if (input.repositoryId !== undefined) {
         updates.repositoryId = input.repositoryId
       }

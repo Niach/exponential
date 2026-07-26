@@ -66,8 +66,7 @@ struct InboxListContent: View {
         return HStack(alignment: .top, spacing: 10) {
             // Circular type-icon badge (no actor avatar — notifications carry
             // no actor column; the sentence names the actor).
-            Image(systemName: typeIcon(group.latest?.type))
-                .font(.caption)
+            AppIcon(typeIcon(group.latest?.type), size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 28, height: 28)
                 .background(Color.white.opacity(0.08), in: Circle())
@@ -122,8 +121,7 @@ struct InboxListContent: View {
     private func supportRow(_ group: InboxViewModel.SupportGroup) -> some View {
         let unread = group.unread > 0
         return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lifepreserver")
-                .font(.caption)
+            AppIcon(AppIcons.notificationSupportReply, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 28, height: 28)
                 .background(Color.white.opacity(0.08), in: Circle())
@@ -171,23 +169,25 @@ struct InboxListContent: View {
         .opacity(unread ? 1 : 0.6)
     }
 
-    /// Locked cross-platform type → icon mapping (SF Symbol column).
+    /// Locked cross-platform type → shared-registry icon mapping (EXP-273).
     private func typeIcon(_ type: String?) -> String {
         switch type {
         case DomainContract.notificationTypeIssueCreated:
-            return "tray.and.arrow.down"
+            return AppIcons.notificationIssueCreated
         case DomainContract.notificationTypeIssueAssigned:
-            return "person.badge.plus"
-        case DomainContract.notificationTypeIssueComment, DomainContract.notificationTypeIssueMention:
-            return "text.bubble"
+            return AppIcons.notificationIssueAssigned
+        case DomainContract.notificationTypeIssueComment:
+            return AppIcons.notificationIssueComment
+        case DomainContract.notificationTypeIssueMention:
+            return AppIcons.notificationIssueMention
         case DomainContract.notificationTypeIssueStatusChanged:
-            return "record.circle"
+            return AppIcons.notificationIssueStatusChanged
         case DomainContract.notificationTypePrOpened:
-            return "arrow.triangle.branch"
+            return AppIcons.notificationPrOpened
         case DomainContract.notificationTypePrMerged:
-            return "arrow.triangle.merge"
+            return AppIcons.notificationPrMerged
         default:
-            return "bell"
+            return AppIcons.navNotifications
         }
     }
 

@@ -83,8 +83,7 @@ struct TeamLabelsSection: View {
                     Button {
                         deleteTarget = label
                     } label: {
-                        Image(systemName: "trash")
-                            .font(.caption)
+                        AppIcon(AppIcons.uiDelete, size: AppIcon.Size.small)
                             .foregroundStyle(.red.opacity(0.5))
                     }
                     .buttonStyle(.plain)
@@ -163,7 +162,7 @@ struct TeamLabelsSection: View {
                     showCreate = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "plus")
+                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium)
                         Text("New label")
                     }
                     .font(.subheadline)

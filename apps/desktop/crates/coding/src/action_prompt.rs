@@ -66,13 +66,24 @@ board, label, and comment operations. When you finish, summarize what you did \
 /// MCP tools wired, and asks Claude to author ONE action for `team_id` from
 /// the user's one-line `description`. `repo` is the optional repo INPUT the
 /// user picked — `(id, display)`; when set, the authored action must bind to
-/// that repository. It must NOT touch git or files — it only calls the MCP
-/// tools.
+/// that repository. `icon` is the optional curated glyph the user picked
+/// (EXP-273). It must NOT touch git or files — it only calls the MCP tools.
 pub fn create_action_prompt(
     team_id: &str,
     description: &str,
     repo: Option<(&str, &str)>,
+    icon: Option<&str>,
 ) -> String {
+    let icon_rule = match icon {
+        Some(name) => format!(
+            " Set `icon` to `{name}` — the user picked that glyph for the action."
+        ),
+        // No pick: let Claude choose, since an unset icon renders as the
+        // generic action glyph and the list reads worse.
+        None => " Also set `icon` to the curated icon name that best fits the \
+action (the same set as board icons, e.g. `bug`, `rocket`, `database`, `chart-line`)."
+            .to_string(),
+    };
     let repo_rule = match repo {
         Some((id, display)) => format!(
             "Set `repositoryId` to `{id}` ({display}) — the user picked that repository \
@@ -91,9 +102,9 @@ Write a clear, focused markdown body for it: state the goal, the concrete steps,
 which exponential MCP tools to use (e.g. exponential_issues_list / \
 exponential_issues_create / exponential_labels_list), and what to report at the end. \
 Call `exponential_actions_list` for the team first so the name doesn't collide. \
-{repo_rule} Create the action with `exponential_actions_create` (teamId, a short \
-name, a one-line description, the markdown body). `exponential_actions_create` also \
-accepts an optional `inputs` array ({{key, label, type: text|repo|board, required?, \
+{repo_rule}{icon_rule} Create the action with `exponential_actions_create` (teamId, a \
+short name, a one-line description, the markdown body). `exponential_actions_create` also \
+accepts an optional `inputs` array ({{key, label, type: text|repo|board|pr|icon, required?, \
 placeholder?}}) declaring run-time inputs the runner fills in a form and the run \
 receives as an \"## Inputs\" prompt section — declare inputs when the described \
 action naturally varies per run (a free-text scope, a target repository or board); \
@@ -198,7 +209,8 @@ board, label, and comment operations. When you finish, summarize what you did \
 
     #[test]
     fn create_action_prompt_targets_the_team_and_the_mcp_tools() {
-        let prompt = create_action_prompt("team-123", "review the backlog weekly", None);
+        let prompt =
+            create_action_prompt("team-123", "review the backlog weekly", None, None);
         // Names the exact team so Claude passes the right teamId.
         assert!(prompt.contains("team-123"));
         // Carries the user's one-line description verbatim.
@@ -223,9 +235,23 @@ board, label, and comment operations. When you finish, summarize what you did \
             "team-123",
             "code review",
             Some(("repo-uuid-9", "acme/web")),
+            None,
         );
         assert!(prompt.contains("Set `repositoryId` to `repo-uuid-9` (acme/web)"));
         assert!(!prompt.contains("Leave `repositoryId` unset"));
+    }
+
+    /// EXP-273: a picked icon is pinned verbatim; an unpicked one delegates
+    /// the choice to Claude rather than leaving the action glyph-less.
+    #[test]
+    fn create_action_prompt_binds_the_picked_icon_input() {
+        let picked = create_action_prompt("team-123", "triage bugs", None, Some("bug"));
+        assert!(picked.contains("Set `icon` to `bug`"));
+        assert!(!picked.contains("best fits the"));
+
+        let unpicked = create_action_prompt("team-123", "triage bugs", None, None);
+        assert!(unpicked.contains("best fits the"));
+        assert!(!unpicked.contains("Set `icon` to `"));
     }
 
     /// EXP-259: the fix-conflicts prompt is the whole builtin's program —

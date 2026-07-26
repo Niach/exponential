@@ -669,6 +669,15 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // EXP-273: the action's curated registry glyph — the same set
+        // boards.icon draws from. Additive column on the existing actions
+        // shape; a fresh install gets it from v9 above, an upgrade here.
+        migrator.registerMigration("v10_action_icon") { db in
+            try db.alter(table: "actions") { t in
+                t.add(column: "icon", .text)
+            }
+        }
+
         return migrator
     }
 

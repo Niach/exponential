@@ -27,24 +27,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Tag
-import androidx.compose.material.icons.filled.UnfoldMore
-import androidx.compose.material.icons.outlined.Circle
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -104,6 +86,7 @@ import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.home.BoardSwitcherSheet
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.AccentIndigo
@@ -232,7 +215,7 @@ fun IssueListScreen(
             ) {
                 when (mode) {
                     IssueListMode.Pushed -> {
-                        CircleIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+                        CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack)
                         Spacer(Modifier.weight(1f))
                         FilterButton(count = state.filters.count, onClick = { showFilters = true })
                     }
@@ -249,7 +232,7 @@ fun IssueListScreen(
                             FilterButton(count = state.filters.count, onClick = { showFilters = true })
                             Spacer(Modifier.width(8.dp))
                         }
-                        CircleIconButton(Icons.Filled.Settings, "Settings", onClick = onOpenSettings)
+                        CircleIconButton(ExpIcons.navSettings, "Settings", onClick = onOpenSettings)
                     }
                 }
             }
@@ -361,7 +344,7 @@ fun IssueListScreen(
                         EmptyState(
                             message = homeError
                                 ?: "You're not in a team yet. Create one, or join a teammate's with an invite link.",
-                            icon = Icons.Filled.Groups,
+                            icon = ExpIcons.uiTeam,
                             action = {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -384,7 +367,7 @@ fun IssueListScreen(
                                 stillSyncing -> "Syncing…"
                                 else -> "No boards yet. Create your first board to get started."
                             },
-                            icon = Icons.Filled.UnfoldMore,
+                            icon = ExpIcons.navBoards,
                             action = if (syncingOrError) null else {
                                 {
                                     Button(onClick = { showCreateBoard = true }) {
@@ -788,7 +771,7 @@ private fun BoardSwitcherControl(
             overflow = TextOverflow.Ellipsis,
         )
         Icon(
-            Icons.Filled.UnfoldMore,
+            ExpIcons.uiSelector,
             contentDescription = "Switch board",
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(
@@ -827,7 +810,7 @@ private fun FilterButton(count: Int, onClick: () -> Unit) {
     BadgedBox(badge = {
         if (count > 0) Badge { Text(count.toString()) }
     }) {
-        CircleIconButton(Icons.Filled.FilterList, "Filters", onClick = onClick)
+        CircleIconButton(ExpIcons.navFilter, "Filters", onClick = onClick)
     }
 }
 
@@ -846,7 +829,7 @@ private fun StatusHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Filled.KeyboardArrowDown,
+            if (collapsed) ExpIcons.uiChevronRight else ExpIcons.uiChevronDown,
             contentDescription = if (collapsed) "Expand" else "Collapse",
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -915,7 +898,7 @@ internal fun IssueRow(
     ) {
         if (selected != null) {
             Icon(
-                if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
                 contentDescription = if (selected) "Selected" else "Not selected",
                 modifier = Modifier.size(20.dp),
                 tint = if (selected) {
@@ -966,7 +949,7 @@ internal fun IssueRow(
         if (issue.dueDate != null) {
             Spacer(Modifier.width(8.dp))
             Icon(
-                Icons.Filled.CalendarMonth,
+                ExpIcons.uiDueDate,
                 contentDescription = "Due date",
                 modifier = Modifier.size(13.dp),
                 tint = dueDateColor(issue.dueDate),
@@ -991,7 +974,7 @@ internal fun IssueRow(
         }
         Spacer(Modifier.width(6.dp))
         Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            ExpIcons.uiChevronRight,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -1097,7 +1080,7 @@ private fun SelectionBar(
         ) {
             IconButton(onClick = onClear, modifier = Modifier.size(34.dp)) {
                 Icon(
-                    Icons.Filled.Close,
+                    ExpIcons.uiClose,
                     contentDescription = "Clear selection",
                     modifier = Modifier.size(18.dp),
                     tint = neutral,
@@ -1115,7 +1098,7 @@ private fun SelectionBar(
                     StatusIcon(sharedStatus, size = 18.dp)
                 } else {
                     Icon(
-                        Icons.Filled.Checklist,
+                        ExpIcons.statusBacklog,
                         contentDescription = "Status",
                         modifier = Modifier.size(18.dp),
                         tint = neutral,
@@ -1137,7 +1120,7 @@ private fun SelectionBar(
             if (showAssignee) {
                 IconButton(onClick = onAssignee, modifier = Modifier.size(34.dp)) {
                     Icon(
-                        Icons.Outlined.Person,
+                        ExpIcons.uiAssignee,
                         contentDescription = "Assignee",
                         modifier = Modifier.size(18.dp),
                         tint = neutral,
@@ -1146,7 +1129,7 @@ private fun SelectionBar(
             }
             IconButton(onClick = onLabels, modifier = Modifier.size(34.dp)) {
                 Icon(
-                    Icons.Filled.Tag,
+                    ExpIcons.settingsLabels,
                     contentDescription = "Labels",
                     modifier = Modifier.size(18.dp),
                     tint = neutral,
@@ -1171,7 +1154,7 @@ private fun SelectionBar(
                         )
                     } else {
                         Icon(
-                            Icons.Filled.PlayArrow,
+                            ExpIcons.actionRun,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onPrimary,
@@ -1245,13 +1228,13 @@ private fun BulkLabelSheet(
                     trailing = {
                         when {
                             allHave -> Icon(
-                                Icons.Filled.Check,
+                                ExpIcons.uiCheck,
                                 contentDescription = "On every selected issue",
                                 modifier = Modifier.size(18.dp),
                                 tint = AccentIndigo,
                             )
                             someHave -> Icon(
-                                Icons.Filled.Remove,
+                                ExpIcons.uiMinus,
                                 contentDescription = "On some selected issues",
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),

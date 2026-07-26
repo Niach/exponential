@@ -381,8 +381,7 @@ struct ChangesView: View {
                                 if vm.closing {
                                     ProgressView().controlSize(.small).tint(.white)
                                 } else {
-                                    Image(systemName: "xmark")
-                                        .font(.body.weight(.medium))
+                                    AppIcon(AppIcons.uiClose, size: AppIcon.Size.medium, weight: .medium)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
                             }
@@ -398,8 +397,7 @@ struct ChangesView: View {
                                 if vm.merging {
                                     ProgressView().controlSize(.small).tint(.white)
                                 } else {
-                                    Image(systemName: "arrow.triangle.merge")
-                                        .font(.body.weight(.medium))
+                                    AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium, weight: .medium)
                                 }
                                 Text("Merge")
                                     .font(.subheadline.weight(.medium))
@@ -422,8 +420,7 @@ struct ChangesView: View {
                     if let prURL {
                         Link(destination: prURL) {
                             barCircle {
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.body.weight(.medium))
+                                AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.medium, weight: .medium)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
                         }
@@ -473,8 +470,7 @@ struct ChangesView: View {
                     Text("−\(file.deletions)")
                         .font(.caption2.monospaced())
                         .foregroundStyle(.red)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.caption2)
+                    AppIcon(expanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .padding(.horizontal, 12)

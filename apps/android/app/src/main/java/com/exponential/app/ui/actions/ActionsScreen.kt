@@ -14,12 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartCodingSheet
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -96,7 +91,7 @@ fun ActionsScreen(
                 title = { Text("Actions") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -168,7 +163,9 @@ private fun ActionRow(action: ActionDto, onRun: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (action.isBuiltin) Icons.Filled.Add else Icons.Filled.Bolt,
+            // EXP-273: the action's own curated glyph (the builtins set one
+            // too), falling back to the generic action mark.
+            action.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -186,7 +183,7 @@ private fun ActionRow(action: ActionDto, onRun: () -> Unit) {
                 if (action.repositoryId != null) {
                     Spacer(Modifier.width(6.dp))
                     Icon(
-                        Icons.Filled.AccountTree,
+                        ExpIcons.actionRepository,
                         contentDescription = "Runs in a repository",
                         modifier = Modifier.size(12.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -210,7 +207,7 @@ private fun ActionRow(action: ActionDto, onRun: () -> Unit) {
             modifier = Modifier.padding(start = 8.dp),
         ) {
             Icon(
-                Icons.Filled.PlayArrow,
+                ExpIcons.actionRun,
                 contentDescription = null,
                 modifier = Modifier.size(15.dp),
                 tint = MaterialTheme.colorScheme.primary,
@@ -280,7 +277,7 @@ private fun ActionsEmptyState() {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
-                Icons.Filled.Bolt,
+                ExpIcons.actionDefault,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 modifier = Modifier.size(28.dp),

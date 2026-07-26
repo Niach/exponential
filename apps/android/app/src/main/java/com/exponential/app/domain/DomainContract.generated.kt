@@ -9,7 +9,7 @@ object DomainContract {
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
     val issueSourceValues: List<String> = listOf("user", "widget")
     val teamRoleValues: List<String> = listOf("owner", "member")
-    val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle")
+    val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car")
     val commentKindValues: List<String> = listOf("regular")
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
@@ -23,7 +23,7 @@ object DomainContract {
     val codexEffortValues: List<String> = listOf("minimal", "low", "medium", "high", "xhigh")
     val piModelValues: List<String> = listOf("fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5")
     val piThinkingValues: List<String> = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
-    val actionInputTypeValues: List<String> = listOf("text", "repo", "board", "pr")
+    val actionInputTypeValues: List<String> = listOf("text", "repo", "board", "pr", "icon")
 
     const val codingSessionStaleMs: Long = 7200000L
     const val builtinCreateActionId: String = "builtin:create-action"

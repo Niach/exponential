@@ -45,12 +45,14 @@ final class MarkdownToolbar: UIInputView {
         pill.translatesAutoresizingMaskIntoConstraints = false
         addSubview(pill)
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        // Registry icons are vector imagesets, not symbols — the point size
+        // is baked in by AppIcons.uiImage instead of a SymbolConfiguration.
+        let iconPointSize: CGFloat = 18
         let tint = UIColor.white.withAlphaComponent(0.65)
 
-        func makeButton(_ symbol: String, _ action: Selector) -> UIButton {
+        func makeButton(_ icon: String, _ action: Selector) -> UIButton {
             let b = UIButton(type: .system)
-            b.setImage(UIImage(systemName: symbol, withConfiguration: iconConfig), for: .normal)
+            b.setImage(AppIcons.uiImage(icon, pointSize: iconPointSize), for: .normal)
             b.tintColor = tint
             b.addTarget(self, action: action, for: .touchUpInside)
             b.translatesAutoresizingMaskIntoConstraints = false
@@ -72,15 +74,16 @@ final class MarkdownToolbar: UIInputView {
         // quote. Text formatting (heading/bold/italic/strikethrough/link)
         // deliberately has no buttons — inline marks still render and
         // round-trip, only the authoring affordance is gone.
-        atButton = makeButton("at", #selector(insertMention))
-        let hashButton = makeButton("number", #selector(insertIssueRef))
-        bulletListButton = makeButton("list.bullet", #selector(toggleBulletList))
-        orderedListButton = makeButton("list.number", #selector(toggleOrderedList))
-        checklistButton = makeButton("checklist", #selector(toggleChecklist))
-        codeButton = makeButton("chevron.left.forwardslash.chevron.right", #selector(toggleCode))
-        quoteButton = makeButton("text.quote", #selector(toggleBlockquote))
-        let imageButton = makeButton("photo", #selector(pickImage))
-        let dismissButton = makeButton("keyboard.chevron.compact.down", #selector(dismissKeyboard))
+        atButton = makeButton(AppIcons.editorMention, #selector(insertMention))
+        let hashButton = makeButton(AppIcons.editorIssueRef, #selector(insertIssueRef))
+        bulletListButton = makeButton(AppIcons.editorList, #selector(toggleBulletList))
+        orderedListButton = makeButton(AppIcons.editorListOrdered, #selector(toggleOrderedList))
+        checklistButton = makeButton(AppIcons.editorListTodo, #selector(toggleChecklist))
+        codeButton = makeButton(AppIcons.editorCode, #selector(toggleCode))
+        quoteButton = makeButton(AppIcons.editorQuote, #selector(toggleBlockquote))
+        let imageButton = makeButton(AppIcons.editorImage, #selector(pickImage))
+        // Lucide has no keyboard glyph — the chevron reads as "collapse".
+        let dismissButton = makeButton(AppIcons.uiChevronDown, #selector(dismissKeyboard))
         atButton.isHidden = !showsMentionButton
 
         let scroll = UIScrollView()

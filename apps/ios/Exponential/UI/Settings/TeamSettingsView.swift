@@ -85,7 +85,7 @@ struct TeamSettingsView: View {
                                 showDeleteTeam = true
                             } label: {
                                 HStack {
-                                    Image(systemName: "trash")
+                                    AppIcon(AppIcons.uiDelete, size: AppIcon.Size.medium)
                                     Text("Delete Team")
                                 }
                                 .font(.subheadline.weight(.medium))

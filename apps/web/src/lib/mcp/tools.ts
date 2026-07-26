@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { actionInputsSchema } from "@exp/db-schema/domain"
+import { actionIconSchema, actionInputsSchema } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   and,
@@ -1581,11 +1581,12 @@ export function registerExponentialTools(
     `exponential_actions_create`,
     {
       title: `Create an action`,
-      description: `Create a team action. body is the markdown prompt an interactive agent session runs locally; repositoryId (optional, from the team's registry) makes the run target that repo's trunk clone — omit it for repo-less actions. inputs (optional, ≤10) declares typed run-time inputs — { key (snake_case ≤32), label, type: "text"|"repo"|"board", required?, placeholder? } — which members fill in the run dialog; the resolved values are injected into the prompt at launch. Every run is trust-gated per device against the body's hash. Team owner only.`,
+      description: `Create a team action. body is the markdown prompt an interactive agent session runs locally; repositoryId (optional, from the team's registry) makes the run target that repo's trunk clone — omit it for repo-less actions. icon (optional) is the action's display glyph — one of the curated icon names shared with boards.icon (e.g. "zap", "rocket", "bug", "database"). inputs (optional, ≤10) declares typed run-time inputs — { key (snake_case ≤32), label, type: "text"|"repo"|"board"|"pr"|"icon", required?, placeholder? } — which members fill in the run dialog; the resolved values are injected into the prompt at launch. Team owner only.`,
       inputSchema: {
         teamId: z.string().uuid(),
         name: z.string().min(1).max(255),
         description: z.string().nullable().optional(),
+        icon: actionIconSchema.nullable().optional(),
         repositoryId: z.string().uuid().nullable().optional(),
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
@@ -1606,11 +1607,12 @@ export function registerExponentialTools(
     `exponential_actions_update`,
     {
       title: `Update an action`,
-      description: `Update an action's name, description, repositoryId, body, inputs (typed run-time input declarations — whole-array replace), or sortOrder (by its UUID). Pass only the fields you want to change. Team owner only.`,
+      description: `Update an action's name, description, icon (a curated icon name shared with boards.icon; null clears it), repositoryId, body, inputs (typed run-time input declarations — whole-array replace), or sortOrder (by its UUID). Pass only the fields you want to change. Team owner only.`,
       inputSchema: {
         id: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
         description: z.string().nullable().optional(),
+        icon: actionIconSchema.nullable().optional(),
         repositoryId: z.string().uuid().nullable().optional(),
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),

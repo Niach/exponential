@@ -47,8 +47,7 @@ struct AgentsView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(value: AppRoute.actions) {
                     HStack(spacing: 4) {
-                        Image(systemName: "bolt")
-                            .font(.caption)
+                        AppIcon(AppIcons.actionDefault, size: AppIcon.Size.small)
                         Text("Actions")
                             .font(.subheadline)
                     }
@@ -107,11 +106,7 @@ struct AgentsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image("tab-robot")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 28, height: 28)
+            AppIcon(AppIcons.navAgents, size: 28)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("No agents running")
                 .font(.subheadline)
@@ -180,8 +175,7 @@ struct AgentsView: View {
 
     private func deviceRow(_ device: SteerDevice) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "display")
-                .font(.body)
+            AppIcon(AppIcons.uiDevice, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
                 .font(.subheadline.weight(.medium))
@@ -207,8 +201,7 @@ struct AgentsView: View {
 
     private var deviceHintRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: "display.trianglebadge.exclamationmark")
-                .font(.caption)
+            AppIcon(AppIcons.uiOffline, size: AppIcon.Size.small)
             Text("No desktop online — open the Exponential desktop app to run here.")
                 .font(.caption)
             Spacer(minLength: 0)
@@ -288,8 +281,7 @@ struct AgentsView: View {
 
             if let issue = row.issue {
                 NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                    Image(systemName: "info.circle")
-                        .font(.body)
+                    AppIcon(AppIcons.uiInfo, size: AppIcon.Size.medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())

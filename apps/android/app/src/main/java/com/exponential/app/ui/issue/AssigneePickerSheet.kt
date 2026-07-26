@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,6 +26,7 @@ import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -75,7 +74,7 @@ fun AssigneePickerSheet(
                 selected = selectedUserId == null,
                 leading = {
                     Icon(
-                        Icons.Filled.PersonOff,
+                        ExpIcons.uiUnassigned,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                         tint = Color.White.copy(alpha = TextEmphasis.Tertiary),

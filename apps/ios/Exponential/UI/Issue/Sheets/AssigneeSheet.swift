@@ -41,8 +41,7 @@ struct AssigneeSheet: View {
                             dismiss()
                         }
                     ) {
-                        Image(systemName: "person.crop.circle.badge.xmark")
-                            .font(.body)
+                        AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
 

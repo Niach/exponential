@@ -15,14 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallMerge
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Inbox
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -33,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -109,26 +102,26 @@ fun BottomNavBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TabItem(
-                icon = Icons.AutoMirrored.Filled.List,
+                icon = ExpIcons.navMyIssues,
                 contentDescription = "Issues",
                 active = issuesActive,
                 width = tabWidth,
                 onClick = onIssues,
             )
             TabItem(
-                icon = Icons.Filled.Inbox,
+                icon = ExpIcons.navInbox,
                 contentDescription = "My Work",
                 active = personalActive,
                 width = tabWidth,
                 showDot = unreadCount > 0,
                 onClick = onPersonal,
             )
-            // Support (EXP-180): the team helpdesk inbox — the same headset
+            // Support (EXP-180): the team helpdesk inbox — the same life-buoy
             // glyph its rows use. Present only while the active team's synced
             // helpdesk flag is on.
             if (showsSupport) {
                 TabItem(
-                    icon = Icons.Filled.SupportAgent,
+                    icon = ExpIcons.navSupport,
                     contentDescription = "Support",
                     active = supportActive,
                     width = tabWidth,
@@ -137,7 +130,7 @@ fun BottomNavBar(
                 )
             }
             TabItem(
-                icon = Icons.Filled.SmartToy,
+                icon = ExpIcons.navAgents,
                 contentDescription = "Agents",
                 active = agentsActive,
                 width = tabWidth,
@@ -151,7 +144,7 @@ fun BottomNavBar(
             // glyph the Reviews rows use. Green dot while open PRs await
             // review (EXP-214).
             TabItem(
-                icon = Icons.AutoMirrored.Filled.CallMerge,
+                icon = ExpIcons.navReviews,
                 contentDescription = "Reviews",
                 active = reviewsActive,
                 width = tabWidth,
@@ -160,7 +153,7 @@ fun BottomNavBar(
                 onClick = onReviews,
             )
             TabItem(
-                icon = Icons.Filled.Search,
+                icon = ExpIcons.navSearch,
                 contentDescription = "Search",
                 active = searchActive,
                 width = tabWidth,
@@ -181,7 +174,7 @@ fun BottomNavBar(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Filled.Edit,
+                    ExpIcons.navCreateIssue,
                     contentDescription = "New issue",
                     modifier = Modifier.size(20.dp),
                     tint = Color.White,

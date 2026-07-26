@@ -35,8 +35,7 @@ struct IssuePropertiesSheet: View {
                         value: status.label,
                         target: .status
                     ) {
-                        Image(systemName: status.sfSymbol)
-                            .font(.body)
+                        AppIcon(status.iconName, size: AppIcon.Size.medium)
                             .foregroundStyle(status.color)
                     }
                     propertyRow(
@@ -44,8 +43,7 @@ struct IssuePropertiesSheet: View {
                         value: priority.label,
                         target: .priority
                     ) {
-                        Image(systemName: priority.sfSymbol)
-                            .font(.body)
+                        AppIcon(priority.iconName, size: AppIcon.Size.medium)
                             .foregroundStyle(priority.color)
                     }
                     // Solo team: no one else to reassign to (EXP-50).
@@ -58,8 +56,7 @@ struct IssuePropertiesSheet: View {
                             if let assigneeId = issue.assigneeId {
                                 UserAvatar(user: assignee, id: assigneeId, size: 22)
                             } else {
-                                Image(systemName: "person.crop.circle.badge.xmark")
-                                    .font(.body)
+                                AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.medium)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
                         }
@@ -69,8 +66,7 @@ struct IssuePropertiesSheet: View {
                         value: issue.dueDate.map(dueDateChipLabel) ?? "None",
                         target: .dueDate
                     ) {
-                        Image(systemName: "calendar")
-                            .font(.body)
+                        AppIcon(AppIcons.uiDueDate, size: AppIcon.Size.medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
 
@@ -106,8 +102,7 @@ struct IssuePropertiesSheet: View {
                             onNavigate(.labels)
                         } label: {
                             HStack(spacing: 4) {
-                                Image(systemName: "plus")
-                                    .font(.caption2)
+                                AppIcon(AppIcons.uiAdd, size: 11)
                                 Text("Label")
                                     .font(.caption)
                             }
@@ -126,8 +121,7 @@ struct IssuePropertiesSheet: View {
                             value: boardName ?? "",
                             target: .moveBoard
                         ) {
-                            Image(systemName: "folder")
-                                .font(.body)
+                            AppIcon(AppIcons.navBoards, size: AppIcon.Size.medium)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
                         .padding(.top, 8)
@@ -160,8 +154,7 @@ struct IssuePropertiesSheet: View {
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
+                AppIcon(AppIcons.uiChevronRight, size: 11)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 14)

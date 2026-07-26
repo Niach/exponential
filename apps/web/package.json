@@ -30,6 +30,7 @@
     "@electric-sql/client": "^1.2.0",
     "@exp/db-schema": "workspace:*",
     "@exp/domain-contract": "workspace:*",
+    "@exp/icons": "workspace:*",
     "@exp/steer-ticket": "workspace:*",
     "@exp/widget": "workspace:*",
     "@mcp-b/global": "^4.0.0",

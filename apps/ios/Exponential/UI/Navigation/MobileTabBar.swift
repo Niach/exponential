@@ -32,25 +32,18 @@ struct MobileTabBar: View {
     let onSupport: () -> Void
     let onCompose: () -> Void
 
-    /// SF Symbols has no robot-head glyph, so the Agents tab draws a bundled
-    /// template vector asset; every other tab keeps a system symbol.
-    private enum TabGlyph {
-        case system(String)
-        case asset(String)
-    }
-
     var body: some View {
         HStack(spacing: 12) {
             // Six tabs (helpdesk on) must still fit a 375pt screen (SE/mini)
             // beside the compose circle: drop the inter-tab spacing and pull
             // the outer padding in — the 44pt touch targets stay intact.
             HStack(spacing: showsSupport ? 0 : 4) {
-                tab(glyph: .system("list.bullet"), label: "Issues", active: issuesActive, action: onIssues)
+                tab(glyph: AppIcons.navIssues, label: "Issues", active: issuesActive, action: onIssues)
                     .accessibilityIdentifier("tab-issues")
                 // EXP-58: the Inbox tab became My Work (Inbox + My Issues
                 // merged) — same glyph, same unread dot.
                 tab(
-                    glyph: .system("tray"),
+                    glyph: AppIcons.navInbox,
                     label: "My Work",
                     active: myWorkActive,
                     badge: unreadCount > 0,
@@ -63,7 +56,7 @@ struct MobileTabBar: View {
                 // team's synced helpdesk flag is on.
                 if showsSupport {
                     tab(
-                        glyph: .system("lifepreserver"),
+                        glyph: AppIcons.navSupport,
                         label: "Support",
                         active: supportActive,
                         badge: supportUnread,
@@ -73,7 +66,7 @@ struct MobileTabBar: View {
                     .accessibilityIdentifier("tab-support")
                 }
                 tab(
-                    glyph: .asset("tab-robot"),
+                    glyph: AppIcons.navAgents,
                     label: "Agents",
                     active: agentsActive,
                     badge: agentsRunning,
@@ -89,7 +82,7 @@ struct MobileTabBar: View {
                 // open-PR glyph the in_review status uses. Green dot while
                 // open PRs await review (EXP-214).
                 tab(
-                    glyph: .system("arrow.triangle.pull"),
+                    glyph: AppIcons.navReviews,
                     label: "Reviews",
                     active: reviewsActive,
                     badge: reviewsOpen,
@@ -97,7 +90,7 @@ struct MobileTabBar: View {
                     action: onReviews
                 )
                 .accessibilityIdentifier("tab-reviews")
-                tab(glyph: .system("magnifyingglass"), label: "Search", active: searchActive, action: onSearch)
+                tab(glyph: AppIcons.navSearch, label: "Search", active: searchActive, action: onSearch)
                     .accessibilityIdentifier("tab-search")
             }
             .padding(5)
@@ -111,8 +104,7 @@ struct MobileTabBar: View {
 
             if showsCompose {
                 Button(action: onCompose) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.body.weight(.semibold))
+                    AppIcon(AppIcons.navCreateIssue, size: AppIcon.Size.large, weight: .semibold)
                         .foregroundStyle(.white)
                         .frame(width: 52, height: 52)
                         .background(.ultraThinMaterial, in: Circle())
@@ -132,7 +124,7 @@ struct MobileTabBar: View {
     }
 
     private func tab(
-        glyph: TabGlyph,
+        glyph: String,
         label: String,
         active: Bool,
         badge: Bool = false,
@@ -140,7 +132,8 @@ struct MobileTabBar: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            glyphImage(glyph, active: active)
+            AppIcon(glyph, size: AppIcon.Size.large)
+                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
                 // 44pt (HIG minimum) instead of the old 56pt: up to six tabs
                 // (Support present) + the compose circle must fit a 375pt
                 // screen (SE/mini) — see the spacing/padding trims in `body`.
@@ -158,23 +151,6 @@ struct MobileTabBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-    }
-
-    @ViewBuilder
-    private func glyphImage(_ glyph: TabGlyph, active: Bool) -> some View {
-        switch glyph {
-        case let .system(name):
-            Image(systemName: name)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-        case let .asset(name):
-            Image(name)
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 20, height: 20)
-                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-        }
     }
 }
 

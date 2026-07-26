@@ -491,8 +491,7 @@ struct MainNavigator: View {
         let health = SyncDebug.shared.health(forAccountId: deps.auth.activeAccountId)
         if health != .ok {
             HStack(spacing: 6) {
-                Image(systemName: health == .unauthorized ? "person.crop.circle.badge.exclamationmark" : "wifi.slash")
-                    .font(.caption2)
+                AppIcon(health == .unauthorized ? AppIcons.uiWarning : AppIcons.uiOffline, size: 11)
                 Text(health == .unauthorized
                     ? "Session expired — sign in again to keep syncing"
                     : "Can't reach the server — showing cached data")

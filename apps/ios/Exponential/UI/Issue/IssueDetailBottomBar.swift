@@ -115,8 +115,7 @@ struct IssueDetailBottomBar: View {
         HStack(spacing: 12) {
             if isModerator {
                 circleButton(action: onOpenProperties, accessibilityLabel: "Properties") {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.body.weight(.medium))
+                    AppIcon(AppIcons.uiProperties, size: AppIcon.Size.medium, weight: .medium)
                         .foregroundStyle(.white)
                 }
             }
@@ -125,8 +124,7 @@ struct IssueDetailBottomBar: View {
                 expand()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.medium))
+                    AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium, weight: .medium)
                     Text("Comment")
                         .font(.subheadline)
                     Spacer(minLength: 0)
@@ -165,14 +163,12 @@ struct IssueDetailBottomBar: View {
             .accessibilityLabel("Coding session")
         case .start:
             circleButton(action: onStartCoding, accessibilityLabel: "Start coding") {
-                Image(systemName: "play.fill")
-                    .font(.body.weight(.medium))
+                AppIcon(AppIcons.actionRun, size: AppIcon.Size.medium, weight: .medium)
                     .foregroundStyle(.white)
             }
         case .noDevices:
             circleButton(action: { showNoDeviceAlert = true }, accessibilityLabel: "Start coding") {
-                Image(systemName: "play.fill")
-                    .font(.body.weight(.medium))
+                AppIcon(AppIcons.actionRun, size: AppIcon.Size.medium, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.quaternary))
             }
         case .sending:
@@ -244,8 +240,7 @@ struct IssueDetailBottomBar: View {
                 Button {
                     showPhotoPicker = true
                 } label: {
-                    Image(systemName: "photo")
-                        .font(.body)
+                    AppIcon(AppIcons.editorImage, size: AppIcon.Size.medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(width: 36, height: 36)
                         .contentShape(Rectangle())
@@ -257,8 +252,7 @@ struct IssueDetailBottomBar: View {
                     Button {
                         composerEditor.insertTextAtCaret("@")
                     } label: {
-                        Image(systemName: "at")
-                            .font(.body)
+                        AppIcon(AppIcons.editorMention, size: AppIcon.Size.medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .frame(width: 36, height: 36)
                             .contentShape(Rectangle())
@@ -270,8 +264,7 @@ struct IssueDetailBottomBar: View {
                 Button {
                     composerEditor.insertTextAtCaret("#")
                 } label: {
-                    Image(systemName: "number")
-                        .font(.body)
+                    AppIcon(AppIcons.editorIssueRef, size: AppIcon.Size.medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(width: 36, height: 36)
                         .contentShape(Rectangle())
@@ -284,8 +277,7 @@ struct IssueDetailBottomBar: View {
                 Button {
                     Task { await submit() }
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 28))
+                    AppIcon(AppIcons.uiSend, size: 28)
                         .foregroundStyle(
                             submitting || !composerHasText
                                 ? Color.white.opacity(0.3)

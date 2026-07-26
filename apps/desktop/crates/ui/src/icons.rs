@@ -21,8 +21,19 @@ use domain::options::{ColorToken, IconGlyph, IssueOption};
 use domain::rows::Board;
 
 // Generates `pub enum ExpIcon { CalendarDays, Circle, CircleCheck, … }` from
-// the SVG files (path relative to this crate's CARGO_MANIFEST_DIR).
+// the SVG files (path relative to this crate's CARGO_MANIFEST_DIR). `build.rs`
+// declares a `rerun-if-changed` on that directory so a newly generated icon
+// re-expands this macro instead of silently missing its variant.
 icon_named!(ExpIcon, "../../assets/icons");
+
+/// EXP-273: the shared icon registry (`packages/icons/icons.json`), projected
+/// into Rust. `registry::icon_by_name` resolves a stored `boards.icon` /
+/// `actions.icon` value, and the `registry::<CONCEPT>` consts name the nav /
+/// status / editor glyphs every client now shares.
+#[allow(dead_code)] // shared by four clients; not every concept is used here
+pub mod registry {
+    include!("icons.generated.rs");
+}
 
 impl gpui::RenderOnce for ExpIcon {
     fn render(self, _: &mut Window, _cx: &mut App) -> impl IntoElement {
@@ -71,30 +82,13 @@ pub fn option_icon<V: 'static>(option: &IssueOption<V>, cx: &App) -> Icon {
 }
 
 /// One curated icon name (`domain::contract::BOARD_ICON_VALUES`) → its glyph.
-/// The bundled Lucide set doesn't ship every curated name, so several map to the
-/// closest available glyph (collisions are fine — the stored name is the source
-/// of truth). An unknown/uncurated name yields `None`.
+/// EXP-273: every curated name now ships its REAL Lucide SVG, generated into
+/// `assets/icons` from the shared registry, so this is a straight lookup —
+/// the old table substituted 11 of 16 names (and collided `terminal` with
+/// `code`, `lightbulb` with `star`) because those glyphs were never bundled.
+/// An unknown/uncurated name still yields `None` for the caller's fallback.
 fn board_icon_glyph(name: &str) -> Option<ExpIcon> {
-    let glyph = match name {
-        "code" => ExpIcon::Code,
-        "square-kanban" => ExpIcon::SquareKanban,
-        "megaphone" => ExpIcon::Megaphone,
-        "bug" => ExpIcon::CircleDot,
-        "rocket" => ExpIcon::Rocket,
-        "book-open" => ExpIcon::List,
-        "globe" => ExpIcon::Globe,
-        "heart" => ExpIcon::Circle,
-        "star" => ExpIcon::Sparkles,
-        "zap" => ExpIcon::SignalHigh,
-        "wrench" => ExpIcon::Pencil,
-        "shield" => ExpIcon::CircleCheck,
-        "package" => ExpIcon::Square,
-        "terminal" => ExpIcon::Code,
-        "lightbulb" => ExpIcon::Sparkles,
-        "message-circle" => ExpIcon::MessageSquare,
-        _ => return None,
-    };
-    Some(glyph)
+    registry::icon_by_name(name)
 }
 
 /// The glyph of a raw curated icon name, falling back to the code glyph for an
@@ -116,6 +110,16 @@ fn board_fallback_glyph(board: &Board) -> ExpIcon {
     } else {
         ExpIcon::SquareKanban
     }
+}
+
+/// EXP-273: an action's rendered glyph — the stored curated `icon` when
+/// present and known, else the registry's generic action glyph. Mirrors web's
+/// `getActionIcon`; the builtins set their own icon explicitly, so the
+/// fallback only covers actions authored before the column existed.
+pub fn action_icon(icon: Option<&str>) -> Icon {
+    icon.and_then(board_icon_glyph)
+        .map(Icon::from)
+        .unwrap_or_else(|| Icon::from(registry::ACTION_DEFAULT))
 }
 
 /// A board row's rendered glyph: the stored curated `icon` when present and

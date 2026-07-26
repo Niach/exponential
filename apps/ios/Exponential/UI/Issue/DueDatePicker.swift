@@ -30,8 +30,7 @@ struct DueDatePicker: View {
                 }
             } label: {
                 HStack {
-                    Image(systemName: "calendar")
-                        .font(.body)
+                    AppIcon(AppIcons.uiDueDate, size: AppIcon.Size.medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(width: 22)
                     Text("Due date")
@@ -46,8 +45,7 @@ struct DueDatePicker: View {
                             date = nil
                             expanded = false
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.body)
+                            AppIcon(AppIcons.uiClear, size: AppIcon.Size.medium)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
                         .buttonStyle(.plain)
@@ -56,8 +54,7 @@ struct DueDatePicker: View {
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.caption2)
+                    AppIcon(expanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .padding(.horizontal, 16)

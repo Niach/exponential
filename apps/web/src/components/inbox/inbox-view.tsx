@@ -1,17 +1,12 @@
 import { useMemo } from "react"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
-import {
-  Bell,
-  CheckCircle2,
-  CircleDot,
-  GitMerge,
-  GitPullRequest,
-  LifeBuoy,
-  MessageSquare,
-  MessageSquarePlus,
-  UserPlus,
-} from "lucide-react"
+import { Bell, CheckCircle2 } from "lucide-react"
+import type { NotificationType } from "@exp/db-schema/domain"
+import { notificationTypeValues } from "@exp/db-schema/domain"
+import { conceptIcon } from "@/lib/icons.generated"
+
+const SupportIcon = conceptIcon(`nav-support`)
 import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { EmptyState } from "@/components/empty-state"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
@@ -24,16 +19,18 @@ import {
 } from "@/lib/collections"
 import { cn } from "@/lib/utils"
 
-const typeIcon: Record<string, typeof Bell> = {
-  issue_assigned: UserPlus,
-  issue_created: MessageSquarePlus,
-  issue_comment: MessageSquare,
-  issue_mention: MessageSquare,
-  issue_status_changed: CircleDot,
-  pr_opened: GitPullRequest,
-  pr_merged: GitMerge,
-  support_reply: LifeBuoy,
-}
+// EXP-273: derived from the shared registry rather than hand-listed, so the
+// inbox can't drift from the other three clients (it had: `issue_mention`
+// drawing the same glyph as `issue_comment`, and `issue_created` on a
+// comment-plus mark). `notification_type` values map 1:1 onto
+// `notification-<kebab>` concepts, so a new enum value fails the build here
+// until the registry gains its concept.
+const typeIcon = Object.fromEntries(
+  notificationTypeValues.map((type) => [
+    type,
+    conceptIcon(`notification-${type.replace(/_/g, `-`)}` as never),
+  ])
+) as Record<NotificationType, typeof Bell>
 
 function relativeTime(value: Date | string): string {
   const d = value instanceof Date ? value : new Date(value)
@@ -200,7 +197,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                   )}
                 >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                    <LifeBuoy className="h-3.5 w-3.5 text-muted-foreground" />
+                    <SupportIcon className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

@@ -5,6 +5,7 @@
 
 import {
   MAX_ACTION_INPUT_TEXT,
+  boardIconValues,
   type ActionInputDef,
 } from "@exp/db-schema/domain"
 
@@ -108,6 +109,27 @@ export async function resolveActionInputs(
       }
       if (raw.includes(`\u0000`)) {
         return { ok: false, message: `Input "${def.key}" contains NUL bytes` }
+      }
+      inputs.push({
+        key: def.key,
+        label: def.label,
+        type: def.type,
+        value: raw,
+        display: raw,
+      })
+      continue
+    }
+
+    // icon (EXP-273): the only non-id picked value — a curated registry name,
+    // validated against the contract set rather than a team-scoped lookup
+    // (icons are global, so there is nothing to scope). Checked before the
+    // uuid gate below, which it would otherwise fail.
+    if (def.type === `icon`) {
+      if (!(boardIconValues as readonly string[]).includes(raw)) {
+        return {
+          ok: false,
+          message: `Input "${def.key}": pick an icon from the curated set`,
+        }
       }
       inputs.push({
         key: def.key,
