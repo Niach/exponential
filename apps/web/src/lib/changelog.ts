@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-stable-terminals-native-dialogs`,
+    date: `2026-07-26`,
+    title: `Sessions that survive a closed lid`,
+    summary: `A sleeping laptop no longer kills a running coding session, desktop dialogs are real windows, and the IDE's left rail can show its labels.`,
+    body: `- **Your coding session survives sleep** — a laptop that slept (or a network that stalled) for more than 90 seconds used to make the desktop tear down the terminal and kill the agent the moment it woke. The connection dropping is now treated as what it is — a dropped connection — and the session reconnects instead.
+- **Dialogs are real windows** — new issue, start coding, search, create board/team, image preview and every confirm now open as native windows: a sheet on macOS, a proper owner-modal window on Windows and Linux, each with working Escape, Enter and close button.
+- **A rail that can speak** — the desktop's left rail expands to show labels next to the icons, and remembers the choice. Settings take over the tool column as their own screen instead of a cramped panel.
+- **Select text like text** — dragging in an issue description selects from the click that entered the editor, double-click picks a word, triple-click a line, and clicking beside a block puts the caret where you aimed.
+- **Readable terminal colors** — terminal output painted in ANSI black was effectively invisible on the dark background; it now sits well above the contrast floor.
+- **Sharper badges on iOS** — count badges and the selected agent chip use the stronger indigo, so their white text clears the accessibility contrast floor.`,
+  },
+  {
     id: `2026-07-glass-polish`,
     date: `2026-07-26`,
     title: `Glass, second coat`,

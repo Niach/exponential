@@ -1,5 +1,2 @@
-• Coding-session questions now arrive as a real stepper — one question at a time, with descriptions, multi-select and a review step before submitting
-• Answers land as answers, not keystrokes — tapping an option locks the card instantly and the agent confirms it
-• Plans waiting for approval always render as formatted text and keep their approve buttons until you decide
-• Subagent work groups under its own expandable row, and permission prompts show as their own line in the feed
-• "Fix merge conflicts" can now be started from every issue screen, and the PR picker only offers open pull requests
+• Count badges and the selected agent chip use a stronger indigo, so their white text clears the accessibility contrast floor
+• Coding sessions started from your phone are steadier — a desktop that sleeps mid-run reconnects instead of ending the session
