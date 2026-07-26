@@ -56,8 +56,9 @@ pub enum Screen {
     PrDiff { issue_id: String },
     /// One action's full-page detail (EXP-277 — prompt body center + a
     /// properties-style sidebar; opened from the Actions tool window's
-    /// rows). Real synced actions only — the two virtual builtins have no
-    /// stable body and open the start dialog instead.
+    /// rows). EXP-298: the two virtual builtins open here too, read-only —
+    /// the view constructs their row locally and renders the shipped prompt
+    /// preview instead of a fetched body.
     ActionDetail { action_id: String },
 }
 
@@ -140,14 +141,19 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue_tab_title(issue))))
             .unwrap_or_else(|| "Diff".into()),
         // Actions ARE synced (body-less rows carry the name) — no process
-        // global needed, unlike support threads.
-        Screen::ActionDetail { action_id } => Store::global(cx)
-            .collections()
-            .actions
-            .read(cx)
-            .get(action_id)
-            .and_then(|action| action.name.clone())
+        // global needed, unlike support threads. The two builtins are not DB
+        // rows, so their names come from the shipped constants (EXP-298).
+        Screen::ActionDetail { action_id } => api::actions::builtin_action_name(action_id)
             .map(gpui::SharedString::from)
+            .or_else(|| {
+                Store::global(cx)
+                    .collections()
+                    .actions
+                    .read(cx)
+                    .get(action_id)
+                    .and_then(|action| action.name.clone())
+                    .map(gpui::SharedString::from)
+            })
             .unwrap_or_else(|| "Action".into()),
     }
 }

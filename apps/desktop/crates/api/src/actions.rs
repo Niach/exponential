@@ -29,6 +29,20 @@ pub fn is_builtin_action_id(id: &str) -> bool {
     id == BUILTIN_CREATE_ACTION_ID || id == BUILTIN_FIX_CONFLICTS_ID
 }
 
+/// The name each builtin renders under (web `builtinActionName`). `None` =
+/// not a builtin id. EXP-298: the action-detail TAB reads this — builtins
+/// have no synced row for the tab strip to take a title from.
+pub fn builtin_action_name(id: &str) -> Option<&'static str> {
+    match id {
+        BUILTIN_CREATE_ACTION_ID => Some(BUILTIN_CREATE_ACTION_NAME),
+        BUILTIN_FIX_CONFLICTS_ID => Some(BUILTIN_FIX_CONFLICTS_NAME),
+        _ => None,
+    }
+}
+
+const BUILTIN_CREATE_ACTION_NAME: &str = "Create action";
+const BUILTIN_FIX_CONFLICTS_NAME: &str = "Fix merge conflicts";
+
 /// One typed run-time input definition on an action (EXP-257 — filled in the
 /// unified launch dialog, resolved server-side for remote starts).
 ///
@@ -177,6 +191,12 @@ pub struct ActionUpdate {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// EXP-298: the curated registry glyph (`actionIconSchema`, the same set
+    /// as `boards.icon`). Set-only — the detail's picker always lands on a
+    /// real name, and the web editor can't clear it either, so the server's
+    /// `nullable()` half stays unused.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub repository_id: Patch<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -256,7 +276,7 @@ pub fn builtin_create_action(team_id: &str) -> Action {
         id: BUILTIN_CREATE_ACTION_ID.to_string(),
         team_id: team_id.to_string(),
         repository_id: None,
-        name: "Create action".to_string(),
+        name: BUILTIN_CREATE_ACTION_NAME.to_string(),
         description: Some("Describe a new action and let Claude author it for the team".to_string()),
         icon: Some("sparkles".to_string()),
         body: String::new(),
@@ -303,7 +323,7 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
         id: BUILTIN_FIX_CONFLICTS_ID.to_string(),
         team_id: team_id.to_string(),
         repository_id: None,
-        name: "Fix merge conflicts".to_string(),
+        name: BUILTIN_FIX_CONFLICTS_NAME.to_string(),
         description: Some(
             "Pick a conflicted pull request and let Claude rebase, resolve, and merge it"
                 .to_string(),

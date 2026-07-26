@@ -1100,14 +1100,21 @@ pub(crate) fn property_group(
         .w_full()
         .gap_1()
         .items_start()
-        .child(
-            div()
-                .text_size(px(11.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(label.to_uppercase())),
-        )
+        .child(group_label(label, cx))
         .child(control)
+}
+
+/// The group's UPPERCASE micro-label on its own (EXP-298): the action
+/// detail's center-column PROMPT / INPUTS headers sit at a different
+/// horizontal inset than their content (the WYSIWYG slot subtracts its own
+/// block padding), so they can't ride [`property_group`] — but they must read
+/// identically to the sidebar groups.
+pub(crate) fn group_label(label: &str, cx: &App) -> impl IntoElement {
+    div()
+        .text_size(px(11.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(cx.theme().muted_foreground)
+        .child(SharedString::from(label.to_uppercase()))
 }
 
 /// EXP-282: the shared FULL-WIDTH picker trigger (status / priority /

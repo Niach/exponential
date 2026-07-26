@@ -262,10 +262,12 @@ impl ScreensPanel {
         let pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
         let team = active_team_id(&self.nav, cx);
         if team != self.tabs_team {
-            // Dropping the tabs tears the issue detail down without a blur —
-            // flush a pending description edit first (EXP-68).
+            // Dropping the tabs tears the issue / action detail down without a
+            // blur — flush a pending description or prompt edit first (EXP-68).
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
+            self.action_detail
+                .update(cx, |detail, cx| detail.flush_body(cx));
             self.tabs_team = team;
             self.tabs.clear();
             // The sidebar selections are team-scoped too (trunk-relative
@@ -382,10 +384,15 @@ impl ScreensPanel {
         }
         // Closing (or undocking) the active issue tab unmounts the detail's
         // description editor without a blur — flush the pending edit so it
-        // is written before teardown (EXP-68).
+        // is written before teardown (EXP-68). EXP-298: the action detail's
+        // prompt editor is the same story.
         if matches!(self.tabs[ix].screen, Screen::IssueDetail { .. }) {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
+        }
+        if matches!(self.tabs[ix].screen, Screen::ActionDetail { .. }) {
+            self.action_detail
+                .update(cx, |detail, cx| detail.flush_body(cx));
         }
         let closed = self.tabs.remove(ix);
         let active = resolved_screen(&self.nav, cx);
@@ -408,7 +415,7 @@ impl ScreensPanel {
         }
         let keep = self.tabs[ix].screen.clone();
         // Same EXP-68 flush as `close_tab`: a closing issue tab may hold a
-        // pending description edit.
+        // pending description edit, an action tab a pending prompt edit.
         if self
             .tabs
             .iter()
@@ -416,6 +423,14 @@ impl ScreensPanel {
         {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
+        }
+        if self
+            .tabs
+            .iter()
+            .any(|tab| tab.screen != keep && matches!(tab.screen, Screen::ActionDetail { .. }))
+        {
+            self.action_detail
+                .update(cx, |detail, cx| detail.flush_body(cx));
         }
         self.tabs.retain(|tab| tab.screen == keep);
         set_screen(window, cx, Some(keep));
@@ -434,6 +449,14 @@ impl ScreensPanel {
         {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
+        }
+        if self
+            .tabs
+            .iter()
+            .any(|tab| matches!(tab.screen, Screen::ActionDetail { .. }))
+        {
+            self.action_detail
+                .update(cx, |detail, cx| detail.flush_body(cx));
         }
         self.tabs.clear();
         set_screen(window, cx, None);
