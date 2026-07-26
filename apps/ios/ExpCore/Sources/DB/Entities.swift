@@ -525,6 +525,7 @@ extension ActionEntity: Codable {
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
         name = try c.decode(String.self, forKey: .name)
         description = try c.decodeIfPresent(String.self, forKey: .description)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
