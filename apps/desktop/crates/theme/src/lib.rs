@@ -507,14 +507,15 @@ pub fn glass_sidebar_alpha() -> f32 {
 /// EXP-293: how opaque the page paints under the MAIN CONTENT — everything
 /// right of the rail (issue list, tabs, detail sidebar, terminal dock) and
 /// every standalone window (undocked views, dialogs, the login/update
-/// surfaces). Only a tenth of the blurred backdrop bleeds through, so the
-/// surfaces that carry body text, code and diffs keep their contrast while
-/// still reading as glass.
+/// surfaces). Far less of the blurred backdrop bleeds through than under the
+/// sidebar (EXP-303 nudged this from 0.90 to the 0.85 contrast floor — the
+/// content should read a LITTLE glassy, not solid), so the surfaces that carry
+/// body text, code and diffs keep their contrast while still reading as glass.
 ///
 /// 1.0 without a real blur backdrop ([`blur_backdrop_available`]).
 pub fn glass_content_alpha() -> f32 {
     if blur_backdrop_available() {
-        0.90
+        0.85
     } else {
         1.0
     }
