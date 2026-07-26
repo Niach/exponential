@@ -18,6 +18,13 @@
 //! double-click zoom, the Windows `WindowControlArea` hitboxes that drive
 //! Snap Layouts, the macOS traffic-light gutter — is upstream's behavior,
 //! carried over as-is.
+//!
+//! One consequence worth knowing (EXP-294): the Linux window-menu overlay
+//! fires for EVERY right press over the bar, including one that landed on
+//! bar content, and the WM menu takes a pointer grab that buries anything we
+//! popped ourselves. Content with its own right-click menu — the EXP-277 tab
+//! strip — must therefore swallow the press, which
+//! [`crate::app_title_bar::interactive`] does for everything it wraps.
 
 use std::rc::Rc;
 
@@ -346,6 +353,12 @@ impl RenderOnce for TitleBar {
                             this.window_control_area(WindowControlArea::Drag)
                                 .when(window.is_fullscreen(), |this| this.pl_3())
                                 .when(is_linux && is_client_decorated, |this| {
+                                    // Painted BEFORE `self.children`, so gpui's
+                                    // reverse-bubble order runs it LAST: bar
+                                    // content that stops right-button
+                                    // propagation (EXP-294 — the `interactive`
+                                    // wrapper) keeps its own menu, and the
+                                    // remaining dead space keeps the WM one.
                                     this.child(
                                         div()
                                             .top_0()

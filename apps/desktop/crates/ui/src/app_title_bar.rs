@@ -46,12 +46,26 @@ pub(crate) fn client_chrome(window: &Window) -> bool {
 /// drag — the story-app pattern: swallow the bar's own mouse-down listener.
 /// (Windows forwards non-client clicks through gpui first, so a handled
 /// click never falls through to a caption drag there either.)
+///
+/// EXP-294: the RIGHT button is swallowed for the same reason. On Linux
+/// client decorations the bar pops the WM window menu (minimize/maximize/…)
+/// for ANY right press that reaches it — see [`crate::title_bar`] — and that
+/// menu takes a pointer grab, so it buried the tab strip's own context menu.
+/// Suppression rides paint order: gpui registers a parent's mouse listeners
+/// before painting its children and dispatches the bubble phase in REVERSE
+/// paint order, so this wrapper runs before the bar's window-menu overlay
+/// (which paints first) and after everything nested inside it — including
+/// the handler `ContextMenuExt` installs, which it registers *after* painting
+/// the element it wraps. Nested menus still open; only the WM menu is lost,
+/// and only where interactive content actually sits (the bar's remaining dead
+/// space keeps drag, double-click zoom, and the window menu).
 pub(crate) fn interactive(children: impl IntoElement) -> impl IntoElement {
     h_flex()
         .items_center()
         .gap_2()
         .min_w_0()
         .on_mouse_down(MouseButton::Left, |_, _, cx: &mut App| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Right, |_, _, cx: &mut App| cx.stop_propagation())
         .child(children)
 }
 
@@ -213,5 +227,100 @@ impl Render for AppTitleBar {
                     bar.child(h_flex().flex_1().min_w_0().child(interactive(strip)))
                 }),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::{
+        div, point, px, Context, InteractiveElement as _, IntoElement, MouseButton,
+        ParentElement as _, Render, Styled as _, TestApp, Window,
+    };
+
+    /// Mirrors the shape of the Linux client-decoration branch in
+    /// [`crate::title_bar`]: an absolutely-positioned overlay painted BEFORE
+    /// the bar's content, whose right-press handler is the one that calls
+    /// `Window::show_window_menu` in the real bar (the test platform's
+    /// `show_window_menu` is `unimplemented!()`, so a flag stands in for it).
+    struct Bar {
+        window_menu: Rc<Cell<bool>>,
+        content_menu: Rc<Cell<bool>>,
+        /// Whether the content goes through [`super::interactive`] — the
+        /// wrapper every interactive titlebar element (incl. the EXP-277 tab
+        /// strip) is mounted with.
+        wrapped: bool,
+    }
+
+    impl Render for Bar {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let window_menu = self.window_menu.clone();
+            let content_menu = self.content_menu.clone();
+            // Stands in for a tab chip's `.context_menu()`: a right-press
+            // listener nested inside the bar's content.
+            let content = div()
+                .w(px(120.))
+                .h(px(34.))
+                .on_mouse_down(MouseButton::Right, move |_, _, _| content_menu.set(true));
+
+            div()
+                .relative()
+                .w(px(400.))
+                .h(px(34.))
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .on_mouse_down(MouseButton::Right, move |_, _, _| window_menu.set(true)),
+                )
+                .child(if self.wrapped {
+                    super::interactive(content).into_any_element()
+                } else {
+                    content.into_any_element()
+                })
+        }
+    }
+
+    fn right_press_on_content(wrapped: bool) -> (bool, bool) {
+        let window_menu = Rc::new(Cell::new(false));
+        let content_menu = Rc::new(Cell::new(false));
+        let mut app = TestApp::new();
+        let mut window = app.open_window({
+            let window_menu = window_menu.clone();
+            let content_menu = content_menu.clone();
+            move |_, _| Bar {
+                window_menu,
+                content_menu,
+                wrapped,
+            }
+        });
+
+        window.simulate_mouse_down(point(px(20.), px(10.)), MouseButton::Right);
+        (window_menu.get(), content_menu.get())
+    }
+
+    /// EXP-294: a right press on titlebar content must reach the content's
+    /// own menu and NOT the Linux window menu — the WM menu grabs the
+    /// pointer, so both firing means ours is buried.
+    #[test]
+    fn interactive_content_keeps_its_menu_and_suppresses_the_window_menu() {
+        let (window_menu, content_menu) = right_press_on_content(true);
+        assert!(content_menu, "the content's own right-press listener must run");
+        assert!(!window_menu, "the Linux window menu must not be popped");
+    }
+
+    /// The counterfactual: bare content (what the tab strip effectively was
+    /// for the right button before EXP-294) lets the press through to the
+    /// overlay, which is exactly the reported bug. Also proves the harness
+    /// wires the overlay the way the real bar does.
+    #[test]
+    fn bare_content_still_falls_through_to_the_window_menu() {
+        let (window_menu, content_menu) = right_press_on_content(false);
+        assert!(content_menu, "the content's own right-press listener must run");
+        assert!(window_menu, "the overlay must fire without the wrapper");
     }
 }
