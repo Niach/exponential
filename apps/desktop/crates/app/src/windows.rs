@@ -34,6 +34,10 @@ pub fn open_shell_window(cx: &mut App) {
     let default_size =
         ui::window_size::load_last_size().unwrap_or(ui::window_size::DEFAULT_SIZE);
     let min_size = ui::window_size::MIN_SIZE;
+    // EXP-276/EXP-278: the size observer needs the number we asked for so it
+    // can tell a launch echo (which Linux CSD reports back off by the 24px
+    // shadow, in opposite directions on X11 and Wayland) from a real resize.
+    ui::window_size::note_launch_size(default_size);
 
     let mut bounds = Bounds::centered(None, default_size, cx);
     let cascade = px(CASCADE_STEP * (ordinal.min(8)) as f32);

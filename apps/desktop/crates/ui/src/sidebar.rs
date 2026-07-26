@@ -1083,6 +1083,13 @@ impl Render for RailView {
             // look) — section wash in BOTH states, full height, while every
             // other pane sits bare on the page gradient.
             .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+            // EXP-269 corners: the wash runs flush into the window's LEFT
+            // edge, top to bottom, so it must round its two left corners with
+            // the frame (see `window_frame::frame_radii` — gpui's content
+            // mask is rectangular and cannot clip it). The right corners stay
+            // square: they sit in the middle of the window.
+            .rounded_tl(crate::window_frame::frame_radii(window).top_left)
+            .rounded_bl(crate::window_frame::frame_radii(window).bottom_left)
             .map(|this| {
                 if expanded {
                     this.px_2()

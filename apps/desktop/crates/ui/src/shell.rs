@@ -45,6 +45,7 @@ use crate::{
     sidebar::{RailView, SidebarPanel},
     terminal_dock::TerminalDockPanel,
     update::{self, UpdatePhase, UpdateState},
+    window_size::SizeFrame,
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
@@ -108,6 +109,10 @@ pub struct Shell {
     /// EXP-263: this window's min-size clamp budget (see
     /// [`crate::window_size::MinSizeClamp`]).
     min_size_clamp: crate::window_size::MinSizeClamp,
+    /// EXP-276/EXP-278: the launch ↔ persist round trip for the main
+    /// window's size (see [`crate::window_size::WindowSizeTracker`]). Only
+    /// ordinal 0 observes bounds, so it is inert on further windows.
+    size_tracker: crate::window_size::WindowSizeTracker,
 }
 
 impl Shell {
@@ -223,27 +228,38 @@ impl Shell {
         // Restore-bounds, not the viewport, so a maximized session saves the
         // pre-maximize size; `load_last_size` feeds the next launch's
         // `open_shell_window`. Local file only — never synced.
+        //
+        // EXP-269/EXP-276/EXP-278: what we persist is the VISIBLE frame size
+        // (the outer surface minus the Linux CSD shadow), but the two Linux
+        // backends disagree about what the number we hand back to
+        // `WindowOptions.window_bounds` means — Wayland's compositor echo
+        // re-adds the inset, X11's `ConfigureNotify` does not. So the decision
+        // lives in `WindowSizeTracker`, which suppresses launch echoes under
+        // EITHER convention and asks for one compensating resize when the
+        // window opened 24px short. See its docs for the full mechanism.
         if ordinal == 0 {
             cx.observe_window_bounds(window, |this, window, cx| {
-                let bounds = window.window_bounds().get_bounds().size;
-                // EXP-269 Linux CSD: persist the VISIBLE frame size, not the
-                // outer surface — the 12px client inset per side grows the
-                // outer bounds after the first render, and persisting the raw
-                // outer size would creep the window +24px per launch
-                // (`compute_outer_size` re-adds the inset on restore).
-                // `window_paddings` is zero under server decorations, so
-                // macOS/Windows are untouched.
-                let pad = gpui_component::window_paddings(window);
-                let last = Size {
-                    width: bounds.width - pad.left - pad.right,
-                    height: bounds.height - pad.top - pad.bottom,
+                let outer = window.window_bounds().get_bounds().size;
+                let edges = gpui_component::window_paddings(window);
+                let pad = Size {
+                    width: edges.left + edges.right,
+                    height: edges.top + edges.bottom,
                 };
-                // Skip degenerate frames (minimize / teardown can report 0).
-                if last.width >= px(1.) && last.height >= px(1.)
-                    && this.pending_window_size != Some(last)
-                {
-                    this.pending_window_size = Some(last);
-                    this.queue_save_window_size(cx);
+                let wm_sized = window.is_fullscreen() || window.is_maximized();
+                match this.size_tracker.observe(outer, pad, wm_sized) {
+                    SizeFrame::Ignore => {}
+                    SizeFrame::Persist(last) => {
+                        if this.pending_window_size != Some(last) {
+                            this.pending_window_size = Some(last);
+                            this.queue_save_window_size(cx);
+                        }
+                    }
+                    SizeFrame::ResizeTo(target) => {
+                        // Deferred for the same reason as `enforce_min_size`:
+                        // resizing from inside a bounds observer re-enters the
+                        // platform resize path mid-dispatch.
+                        window.defer(cx, move |window, _cx| window.resize(target));
+                    }
                 }
             })
             .detach();
@@ -265,6 +281,9 @@ impl Shell {
             pending_window_size: None,
             _size_save_task: None,
             min_size_clamp: Default::default(),
+            size_tracker: crate::window_size::WindowSizeTracker::new(
+                crate::window_size::launch_size(),
+            ),
         }
     }
 
@@ -457,7 +476,11 @@ impl Render for Shell {
             // undraggable/unclosable on Windows/Linux (no native chrome).
             return crate::window_frame::window_frame()
                 .child(
-                    div()
+                    // EXP-269 corners: see `window_frame::frame_radii` — the
+                    // page gradient paints to the window edge, so it carries
+                    // the frame's radii itself (a rectangular content mask
+                    // cannot clip it).
+                    crate::window_frame::round_to_frame(div(), window)
                         .size_full()
                         .bg(theme::background_gradient())
                         .text_color(cx.theme().foreground)
@@ -530,7 +553,12 @@ impl Render for Shell {
         // INSIDE it so overlays clip to the visible window.
         crate::window_frame::window_frame()
             .child(
-                div()
+                // EXP-269 corners: the gradient paints to the window edge and
+                // must carry the frame's radii — gpui clips children with a
+                // RECTANGULAR content mask, so without this its square
+                // corners fill the notch outside the frame's arc
+                // (`window_frame::frame_radii`).
+                crate::window_frame::round_to_frame(div(), window)
                     .size_full()
                     // EXP-269: the glass page gradient — every panel above it
                     // is transparent or a white-alpha fill so the ramp shows

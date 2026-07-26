@@ -7,7 +7,7 @@
 //! [`MIN_SIZE`] — the floor below which page layouts break — which is also
 //! the `window_min_size` every shell window is opened with.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::OnceLock};
 
 use anyhow::{anyhow, Context as _, Result};
 use gpui::{px, size, App, Pixels, Size, Window};
@@ -116,6 +116,168 @@ pub fn enforce_min_size(clamp: &mut MinSizeClamp, window: &mut Window, cx: &mut 
     window.defer(cx, move |window, _cx| window.resize(clamped));
 }
 
+/// The outer size the main window was opened with (`open_shell_window`), so
+/// the size observer can tell a launch echo from a real user resize. Set
+/// once per process, before the first window exists.
+static LAUNCH_SIZE: OnceLock<Size<Pixels>> = OnceLock::new();
+
+/// Record the size handed to `WindowOptions.window_bounds` for the MAIN
+/// window (EXP-276/EXP-278). Later windows are ignored — only ordinal 0
+/// persists its size, and every window opens at the same computed size
+/// anyway.
+pub fn note_launch_size(requested: Size<Pixels>) {
+    let _ = LAUNCH_SIZE.set(requested);
+}
+
+/// The size the main window was opened at, if it was recorded.
+pub fn launch_size() -> Option<Size<Pixels>> {
+    LAUNCH_SIZE.get().copied()
+}
+
+/// Tolerance for "is this frame the size we asked for?". Scale-factor round
+/// trips (logical → device → logical) can land a hair off an integral value;
+/// the smallest thing we must still tell apart is the 24px client inset, so
+/// half a pixel is comfortably inside the noise floor.
+const ECHO_EPSILON: Pixels = px(0.5);
+
+fn approx_eq(a: Size<Pixels>, b: Size<Pixels>) -> bool {
+    (f32::from(a.width) - f32::from(b.width)).abs() <= f32::from(ECHO_EPSILON)
+        && (f32::from(a.height) - f32::from(b.height)).abs() <= f32::from(ECHO_EPSILON)
+}
+
+/// What [`WindowSizeTracker::observe`] wants done with one observed frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SizeFrame {
+    /// Nothing to do — a degenerate frame, or a launch echo (the platform
+    /// merely reporting back the size we opened the window with).
+    Ignore,
+    /// A genuine size (user resize / WM resize): persist it as the next
+    /// launch's size. Always the VISIBLE frame size, never the outer surface.
+    Persist(Size<Pixels>),
+    /// Linux X11 CSD only: ask the platform for this OUTER size so the
+    /// VISIBLE frame ends up at the size we were asked to restore. Nothing to
+    /// persist — this is still the launch echo.
+    ResizeTo(Size<Pixels>),
+}
+
+/// The launch ↔ persist round trip for the main window's size
+/// (EXP-210 persistence, EXP-269 CSD insets, EXP-276/EXP-278 the asymmetry).
+///
+/// # Why this is not just `bounds - padding`
+///
+/// `WindowOptions.window_bounds` is an OUTER size, and under Linux
+/// client-side decorations the outer surface is the visible frame plus a
+/// 12px shadow margin per side. The two Linux backends then disagree about
+/// what the value we passed in ends up meaning, so the same subtraction
+/// cannot be right on both:
+///
+/// - **Wayland CSD**: gpui shrinks the xdg window geometry by the inset and
+///   the compositor echoes that geometry back in its configure;
+///   `compute_outer_size` re-adds the inset, so `bounds` settles at
+///   `requested + inset` and the VISIBLE frame is exactly `requested`.
+///   Persisting `bounds` raw would grow the window +24px per launch — the
+///   unbounded creep EXP-269 fixed by persisting the visible size.
+/// - **X11 CSD**: `bounds` is the raw `ConfigureNotify` size and
+///   `set_client_inset` only publishes `_GTK_FRAME_EXTENTS` (gpui's own
+///   `inner_window_bounds` subtracts them from `bounds`, which is the proof
+///   that `bounds` is the outer surface). Nothing re-adds the inset, so the
+///   VISIBLE frame comes out `requested - 24` and persisting it shrank the
+///   window 24px per launch until it hit [`MIN_SIZE`] (EXP-276/EXP-278).
+/// - **Server decorations / macOS / Windows**: the padding is zero, so outer
+///   and visible are the same number and neither drift exists.
+///
+/// # How this fixes it without picking a backend
+///
+/// Both drifts are launch echoes being mistaken for user resizes, so the
+/// tracker never persists a frame that merely reports back the size we
+/// opened with — under EITHER convention (`bounds == launched`, the X11
+/// reading, or `bounds - padding == launched`, the Wayland one). That alone
+/// removes the per-launch recurrence on every platform.
+///
+/// On top of that, an X11-shaped echo (the visible frame came out short
+/// because the platform took our number as the outer surface) gets ONE
+/// compensating resize to `launched + padding`, so the window actually opens
+/// at the remembered size instead of 24px under it. It is a no-op wherever
+/// the visible frame already matches, and it is never sent for a
+/// fullscreen/maximized frame (the compositor owns that size — same rule as
+/// [`MinSizeClamp`]). If the WM refuses it, the echo is still suppressed, so
+/// the worst case is a one-time 24px discrepancy rather than a drift. (Even
+/// if a Wayland compositor ever emitted an X11-shaped frame before
+/// `compute_outer_size` kicked in, `launched + padding` is exactly the outer
+/// size that backend settles at anyway.)
+///
+/// Measured on X11 + CSD (Cinnamon/muffin, scale 2, EXP-276): a window
+/// restored to a 1000×700 visible frame reports `bounds` 1024×724 with
+/// `_GTK_FRAME_EXTENTS` 12 per side, i.e. X11 geometry INCLUDES the shadow —
+/// so the persist side was right and the restore side was the broken half.
+pub struct WindowSizeTracker {
+    /// The size the window was opened at; `None` once a genuine frame has
+    /// landed (or if the launch size was never recorded), after which every
+    /// frame is a real resize.
+    launched: Option<Size<Pixels>>,
+    /// One compensating resize per window — a WM that refuses ours must not
+    /// be asked again every frame.
+    compensated: bool,
+}
+
+impl WindowSizeTracker {
+    /// `launched` is [`launch_size`] — `None` degrades to "persist every
+    /// frame", i.e. the pre-EXP-276 behavior.
+    pub fn new(launched: Option<Size<Pixels>>) -> Self {
+        Self {
+            launched,
+            compensated: false,
+        }
+    }
+
+    /// Classify one observed frame. `outer` is
+    /// `window.window_bounds().get_bounds().size`, `pad` the TOTAL client
+    /// inset per axis (`window_paddings` left+right / top+bottom — zero
+    /// under server decorations), and `wm_sized` whether the frame is
+    /// fullscreen or maximized.
+    pub fn observe(
+        &mut self,
+        outer: Size<Pixels>,
+        pad: Size<Pixels>,
+        wm_sized: bool,
+    ) -> SizeFrame {
+        let visible = size(outer.width - pad.width, outer.height - pad.height);
+        // Minimize/teardown can report a zero (or sub-pixel) frame.
+        if visible.width < px(1.) || visible.height < px(1.) {
+            return SizeFrame::Ignore;
+        }
+
+        let Some(launched) = self.launched else {
+            return SizeFrame::Persist(visible);
+        };
+
+        // Wayland CSD / server decorations / macOS / Windows: the window
+        // opened at exactly the size we asked for. Nothing to persist, and
+        // nothing to fix.
+        if approx_eq(visible, launched) {
+            return SizeFrame::Ignore;
+        }
+
+        // X11 CSD: our number became the OUTER surface, so the visible frame
+        // is `pad` short of what we were asked to restore. Still an echo —
+        // never persist it — but ask for the size that makes it right.
+        if approx_eq(outer, launched) {
+            if self.compensated || wm_sized {
+                return SizeFrame::Ignore;
+            }
+            self.compensated = true;
+            return SizeFrame::ResizeTo(size(
+                launched.width + pad.width,
+                launched.height + pad.height,
+            ));
+        }
+
+        // Neither convention matches: a genuine resize. The launch is over.
+        self.launched = None;
+        SizeFrame::Persist(visible)
+    }
+}
+
 /// The persisted last-used size, clamped to [`MIN_SIZE`]; `None` on first
 /// launch or an unreadable/garbled file (callers fall back to
 /// [`DEFAULT_SIZE`]).
@@ -204,5 +366,234 @@ mod tests {
         // dip below the floor gets clamped again.
         assert_eq!(clamp.next(size(px(1280.), px(820.)), false, false), None);
         assert_eq!(clamp.next(BELOW, false, false), Some(MIN_SIZE));
+    }
+
+    // ---- EXP-276/EXP-278: the launch ↔ persist round trip ------------------
+
+    /// The 12px-per-side gpui-component shadow, as a per-axis total.
+    const CSD_PAD: Size<Pixels> = Size {
+        width: px(24.),
+        height: px(24.),
+    };
+    const NO_PAD: Size<Pixels> = Size {
+        width: px(0.),
+        height: px(0.),
+    };
+    const LAUNCHED: Size<Pixels> = Size {
+        width: px(1280.),
+        height: px(820.),
+    };
+
+    #[test]
+    fn wayland_csd_launch_echo_is_never_persisted() {
+        // The compositor echoes the geometry we set and `compute_outer_size`
+        // re-adds the inset, so `bounds` settles at launched + 24 and the
+        // visible frame is exactly what we asked for. Persisting the raw
+        // outer size here is the +24px-per-launch creep EXP-269 fixed.
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        let outer = size(LAUNCHED.width + px(24.), LAUNCHED.height + px(24.));
+        assert_eq!(tracker.observe(outer, CSD_PAD, false), SizeFrame::Ignore);
+        // Repeat configures (a window move re-fires the observer) stay quiet.
+        assert_eq!(tracker.observe(outer, CSD_PAD, false), SizeFrame::Ignore);
+    }
+
+    #[test]
+    fn x11_csd_launch_echo_is_compensated_not_persisted() {
+        // X11 takes our number as the outer surface and never re-adds the
+        // inset, so the visible frame lands 24px short. Persisting that is
+        // the -24px-per-launch shrink (EXP-276/EXP-278).
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        assert_eq!(
+            tracker.observe(LAUNCHED, CSD_PAD, false),
+            SizeFrame::ResizeTo(size(px(1304.), px(844.)))
+        );
+        // The WM honors it: the visible frame is now the remembered size,
+        // and there is still nothing to persist.
+        let grown = size(px(1304.), px(844.));
+        assert_eq!(tracker.observe(grown, CSD_PAD, false), SizeFrame::Ignore);
+    }
+
+    #[test]
+    fn a_refused_compensation_is_asked_for_only_once_and_never_persisted() {
+        // A WM that ignores the resize keeps re-reporting the short frame.
+        // Suppressing the echo is what actually stops the drift — the
+        // compensation is only the cosmetic half.
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        assert!(matches!(
+            tracker.observe(LAUNCHED, CSD_PAD, false),
+            SizeFrame::ResizeTo(_)
+        ));
+        for _ in 0..5 {
+            assert_eq!(tracker.observe(LAUNCHED, CSD_PAD, false), SizeFrame::Ignore);
+        }
+    }
+
+    #[test]
+    fn server_decorations_are_untouched() {
+        // macOS/Windows/X11-without-a-compositor: padding is zero, outer ==
+        // visible, and the launch echo is simply ignored.
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        assert_eq!(tracker.observe(LAUNCHED, NO_PAD, false), SizeFrame::Ignore);
+        assert_eq!(
+            tracker.observe(size(px(1000.), px(700.)), NO_PAD, false),
+            SizeFrame::Persist(size(px(1000.), px(700.)))
+        );
+    }
+
+    #[test]
+    fn a_maximized_launch_frame_is_never_fought() {
+        // The compositor owns a maximized/fullscreen size — same rule as
+        // `MinSizeClamp`. (Padding is zero there in practice; the guard is
+        // what keeps us from requesting a resize if it is not.)
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        assert_eq!(tracker.observe(LAUNCHED, CSD_PAD, true), SizeFrame::Ignore);
+    }
+
+    #[test]
+    fn a_genuine_resize_persists_the_visible_size() {
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        let outer = size(px(1024.), px(724.));
+        assert_eq!(
+            tracker.observe(outer, CSD_PAD, false),
+            SizeFrame::Persist(size(px(1000.), px(700.)))
+        );
+        // The launch is over: every later frame persists, including one that
+        // happens to land back on the launch size.
+        assert_eq!(
+            tracker.observe(LAUNCHED, CSD_PAD, false),
+            SizeFrame::Persist(size(px(1256.), px(796.)))
+        );
+    }
+
+    #[test]
+    fn an_unrecorded_launch_size_persists_every_frame() {
+        // Degrades to the pre-EXP-276 behavior rather than going quiet.
+        let mut tracker = WindowSizeTracker::new(None);
+        assert_eq!(
+            tracker.observe(LAUNCHED, CSD_PAD, false),
+            SizeFrame::Persist(size(px(1256.), px(796.)))
+        );
+    }
+
+    #[test]
+    fn degenerate_frames_are_ignored() {
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        assert_eq!(
+            tracker.observe(size(px(0.), px(0.)), CSD_PAD, false),
+            SizeFrame::Ignore
+        );
+        // A frame smaller than its own shadow (teardown) must not underflow
+        // into a persisted negative size either.
+        assert_eq!(
+            tracker.observe(size(px(10.), px(10.)), CSD_PAD, false),
+            SizeFrame::Ignore
+        );
+    }
+
+    #[test]
+    fn a_scale_factor_rounding_wobble_still_reads_as_an_echo() {
+        let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+        let wobbly = size(LAUNCHED.width + px(24.3), LAUNCHED.height + px(23.8));
+        assert_eq!(tracker.observe(wobbly, CSD_PAD, false), SizeFrame::Ignore);
+    }
+
+    // ---- Multi-launch round trip -------------------------------------------
+
+    /// Which convention a backend applies to `WindowOptions.window_bounds`.
+    #[derive(Clone, Copy, Debug)]
+    enum Backend {
+        /// `bounds` is the raw outer surface: visible = requested - inset.
+        X11Csd,
+        /// The compositor echoes the inset back: visible = requested.
+        WaylandCsd,
+        /// No client inset at all (macOS/Windows/server decorations).
+        Server,
+    }
+
+    impl Backend {
+        fn pad(self) -> Size<Pixels> {
+            match self {
+                Backend::X11Csd | Backend::WaylandCsd => CSD_PAD,
+                Backend::Server => NO_PAD,
+            }
+        }
+
+        /// The outer bounds the backend reports for a window opened at
+        /// `requested`.
+        fn outer_for(self, requested: Size<Pixels>) -> Size<Pixels> {
+            match self {
+                Backend::X11Csd | Backend::Server => requested,
+                Backend::WaylandCsd => {
+                    size(requested.width + px(24.), requested.height + px(24.))
+                }
+            }
+        }
+    }
+
+    /// One launch: open at `requested`, feed the backend's frames through the
+    /// tracker (honoring a compensating resize like an ordinary WM would),
+    /// and report the visible size the user ends up looking at plus whatever
+    /// got persisted for the next launch.
+    fn simulate_launch(
+        backend: Backend,
+        requested: Size<Pixels>,
+    ) -> (Size<Pixels>, Option<Size<Pixels>>) {
+        let mut tracker = WindowSizeTracker::new(Some(requested));
+        let pad = backend.pad();
+        let mut outer = backend.outer_for(requested);
+        let mut persisted = None;
+        // A handful of frames: the launch echo, the compensation echo, and
+        // some idle re-configures (X11 re-fires the observer on moves).
+        for _ in 0..4 {
+            match tracker.observe(outer, pad, false) {
+                SizeFrame::Ignore => {}
+                SizeFrame::Persist(last) => persisted = Some(last),
+                SizeFrame::ResizeTo(target) => outer = backend.outer_for(target),
+            }
+        }
+        let visible = size(outer.width - pad.width, outer.height - pad.height);
+        (visible, persisted)
+    }
+
+    #[test]
+    fn the_window_size_survives_repeated_launches_on_every_backend() {
+        // The regression this pins: EXP-269 fixed the Wayland +24px creep by
+        // subtracting the inset on the persist side, which turned into a
+        // -24px-per-launch shrink on X11 (EXP-276/EXP-278) because only
+        // Wayland re-adds it. Neither backend may drift.
+        for backend in [Backend::X11Csd, Backend::WaylandCsd, Backend::Server] {
+            let mut stored = LAUNCHED;
+            for launch in 0..5 {
+                let (visible, persisted) = simulate_launch(backend, stored);
+                assert_eq!(
+                    visible, LAUNCHED,
+                    "{backend:?} launch {launch}: window opened at {visible:?}, wanted {LAUNCHED:?}"
+                );
+                assert_eq!(
+                    persisted, None,
+                    "{backend:?} launch {launch}: a launch echo was persisted"
+                );
+                stored = persisted.unwrap_or(stored);
+            }
+        }
+    }
+
+    #[test]
+    fn a_user_resize_round_trips_on_every_backend() {
+        // Resize to a 1000x700 VISIBLE frame, quit, relaunch: the window must
+        // come back at 1000x700 visible, not 24px under it.
+        for backend in [Backend::X11Csd, Backend::WaylandCsd, Backend::Server] {
+            let pad = backend.pad();
+            let mut tracker = WindowSizeTracker::new(Some(LAUNCHED));
+            let dragged = size(px(1000.) + pad.width, px(700.) + pad.height);
+            let stored = match tracker.observe(dragged, pad, false) {
+                SizeFrame::Persist(last) => last,
+                other => panic!("{backend:?}: a user resize was not persisted ({other:?})"),
+            };
+            assert_eq!(stored, size(px(1000.), px(700.)), "{backend:?}");
+
+            let (visible, _) = simulate_launch(backend, stored);
+            assert_eq!(visible, size(px(1000.), px(700.)), "{backend:?}");
+        }
     }
 }

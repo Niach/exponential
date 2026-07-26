@@ -2,9 +2,9 @@ ui — vendored third-party code (EXP-269)
 ========================================
 
 The `ui` crate is Exponential's own source, covered by the repository's
-Exponential Small Team License (see /LICENSE at the repo root) — WITH ONE
-EXCEPTION, listed below. The exception is licensed under the Apache License
-2.0 (see the LICENSE-APACHE-2.0 file in this directory) and is NOT covered by
+Exponential Small Team License (see /LICENSE at the repo root) — WITH THE
+EXCEPTIONS listed below. The exceptions are licensed under the Apache License
+2.0 (see the LICENSE-APACHE-2.0 file in this directory) and are NOT covered by
 the repository's licence.
 
 src/window_frame.rs
@@ -30,3 +30,31 @@ Local modifications (Exponential, EXP-269)
 - `window_paddings` is deliberately NOT copied. The public
   `gpui_component::window_paddings` stays the single source of truth for the
   client-inset math (it is radius-independent).
+- `frame_radii` / `round_to_frame` are Exponential additions: gpui clips
+  children with a RECTANGULAR content mask, so every layer that paints to the
+  window edge has to apply the frame's radii itself.
+
+src/title_bar.rs
+----------------
+
+Provenance
+
+- Upstream: gpui-component `crates/ui/src/title_bar.rs`
+  (https://github.com/longbridge/gpui-component, same rev
+  a9a7341c35b62f27ff512371c62419342264710c), Apache-2.0,
+  Copyright the gpui-component authors (Longbridge and contributors).
+
+Local modifications (Exponential, EXP-269)
+
+- The close button's hover/active fill rounds its top-right corner with
+  `window_frame::frame_radii`, and the strip itself rounds both top corners.
+  Upstream paints plain squares, which land in the notch outside the rounded
+  window frame — the red close hover flashed a square corner back over the
+  window. `ControlIcon` and `WindowControls` are private upstream and
+  `TitleBar` always renders them, so there is no hook short of owning the file.
+- `title_bar_options()` is deliberately NOT copied — it returns plain
+  `TitlebarOptions` with no styling, so the public
+  `gpui_component::TitleBar::title_bar_options()` stays the single source of
+  truth for every `WindowOptions` site.
+- `SmallVec` children became a plain `Vec` (avoids a `smallvec` dependency
+  purely for this file).

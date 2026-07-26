@@ -75,6 +75,7 @@ mod support_thread;
 mod terminal_dock;
 mod trunk_sync;
 mod timeline;
+mod title_bar;
 mod undock;
 mod undocked_terminal;
 mod update;

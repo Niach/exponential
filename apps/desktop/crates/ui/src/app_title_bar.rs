@@ -15,8 +15,13 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon, IconName, Sizable as _, TitleBar,
+    h_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
+
+// EXP-269: the vendored TitleBar (rounded window controls — see
+// `crate::title_bar`), not gpui-component's, whose close-button hover fill is
+// a square that lands in the window's rounded top-right corner.
+use crate::title_bar::TitleBar;
 use sync::{SessionPhase, Store};
 
 use crate::icons::ExpIcon;
