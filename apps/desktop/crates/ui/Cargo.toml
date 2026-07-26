@@ -48,6 +48,10 @@ chrono = { version = "0.4.38", default-features = false, features = ["std", "clo
 anyhow.workspace = true
 dirs.workspace = true
 log = "0.4"
+# EXP-295 session_registry: `kill(pid, 0)` liveness probe — the startup
+# reconcile must not end sessions a SECOND live instance on this machine still
+# owns (an agent testing the app off a copied data dir).
+libc = { workspace = true }
 # EXP-22 self-update engine (download/verify/swap); ui owns the state machine
 # and banner on top of it.
 updater = { path = "../updater" }

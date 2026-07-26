@@ -19,14 +19,32 @@
 //! Safety: the reconcile only ends ids NOT currently in `LocalSessions`, and
 //! `KillWatch` only watches locally launched (i.e. `LocalSessions`-tracked)
 //! sessions — so a reconcile-driven `ended` flip can never kill live local
-//! work, here or on another device (each device only watches its own ids). A
-//! swept-then-resurrected row now owned by a teammate makes our `end` 403 —
-//! entry dropped, nobody killed. Everything is best-effort with the server
-//! sweep as the backstop: file errors are logged and swallowed.
+//! work IN THIS PROCESS. A swept-then-resurrected row now owned by a teammate
+//! makes our `end` 403 — entry dropped, nobody killed. Everything is
+//! best-effort with the server sweep as the backstop: file errors are logged
+//! and swallowed.
+//!
+//! EXP-295 — that in-process reasoning had a hole ACROSS processes on ONE
+//! machine. `LocalSessions` is per-process, so a second instance sees no live
+//! sessions at all, while the `end` it issues is global: a cold start off a
+//! COPIED data dir (an agent testing the app under an isolated
+//! `XDG_DATA_HOME`, a staging build, a restored backup — the single-instance
+//! socket lives in the data dir, so a copy never collides) inherited the live
+//! instance's registry entries, called them orphans, and ended them. The real
+//! instance then saw its own rows flip to `ended`, which IS its kill-switch
+//! (`sync::kill_watch`), and tore down live agents mid-run.
+//!
+//! The fix is [`entry_is_owned_by_live_instance`]: entries record the PID that
+//! launched them, and the reconcile skips any whose PID is another process
+//! still alive on this machine. Deliberately asymmetric — a false "alive"
+//! (recycled PID, a data dir carried to another machine) only defers the
+//! orphan to the server's staleness sweep, i.e. degrades to pre-EXP-229
+//! behavior, while a false "dead" kills a running agent.
 //!
 //! File format: `{data_dir}/coding-session-registry.json`, a JSON array of
-//! `{"id", "accountId"}` — one file for all accounts (precedent:
-//! `accounts.json`), filtered per account at reconcile time.
+//! `{"id", "accountId", "pid"}` — one file for all accounts (precedent:
+//! `accounts.json`), filtered per account at reconcile time. `pid` is absent
+//! in files written before EXP-295 and reconciles unconditionally, as before.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,13 +55,17 @@ use gpui::App;
 use crate::coding_flow::LocalSessions;
 use crate::session::AuthContext;
 
-/// One recorded session: the synced `coding_sessions` row id plus the local
-/// account that started it (only that account's token can end it).
+/// One recorded session: the synced `coding_sessions` row id, the local
+/// account that started it (only that account's token can end it), and the
+/// PID of the instance that launched it (EXP-295 — the cross-instance
+/// ownership signal; `None` in pre-EXP-295 files).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RegistryEntry {
     id: String,
     account_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pid: Option<u32>,
 }
 
 /// Serializes every read-modify-write across threads (foreground
@@ -102,6 +124,7 @@ pub(crate) fn record(data_dir: &Path, session_id: &str, account_id: &str) {
     entries.push(RegistryEntry {
         id: session_id.to_string(),
         account_id: account_id.to_string(),
+        pid: Some(std::process::id()),
     });
     save(data_dir, &entries);
 }
@@ -118,14 +141,101 @@ pub(crate) fn remove(data_dir: &Path, session_id: &str) {
     }
 }
 
-/// The recorded session ids belonging to `account_id`.
-pub(crate) fn entries_for_account(data_dir: &Path, account_id: &str) -> Vec<String> {
+/// The recorded entries belonging to `account_id`.
+fn entries_for_account(data_dir: &Path, account_id: &str) -> Vec<RegistryEntry> {
     let _guard = LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     load(data_dir)
         .into_iter()
         .filter(|entry| entry.account_id == account_id)
+        .collect()
+}
+
+/// The recorded session ids belonging to `account_id`.
+#[cfg(test)]
+fn session_ids_for_account(data_dir: &Path, account_id: &str) -> Vec<String> {
+    entries_for_account(data_dir, account_id)
+        .into_iter()
         .map(|entry| entry.id)
         .collect()
+}
+
+/// EXP-295's cross-instance ownership test: is this entry's session still
+/// owned by a DIFFERENT instance that is alive on this machine? Such an entry
+/// is not an orphan — ending it would flip a live row to `ended`, which the
+/// owning instance reads as its kill-switch.
+///
+/// Pure (the liveness probe is injected) so the matrix is unit-testable:
+/// - no recorded PID (pre-EXP-295 file) → reconcile, as before;
+/// - our OWN pid → reconcile (same process; `LocalSessions` already filtered
+///   out everything actually live here);
+/// - another pid, still alive → SKIP (a second instance owns it);
+/// - another pid, gone → reconcile (the crash/forced-logout case EXP-229 exists
+///   for).
+fn entry_is_owned_by_live_instance(
+    entry_pid: Option<u32>,
+    own_pid: u32,
+    process_alive: impl Fn(u32) -> bool,
+) -> bool {
+    match entry_pid {
+        Some(pid) if pid != own_pid => process_alive(pid),
+        _ => false,
+    }
+}
+
+/// The reconcile's selection, lifted out of the gpui path so the whole matrix
+/// is testable: recorded entries minus (a) what THIS process still has live in
+/// `LocalSessions` and (b) what another live instance on this machine owns.
+fn stale_ids(
+    entries: Vec<RegistryEntry>,
+    live_ids: &[String],
+    own_pid: u32,
+    process_alive: impl Fn(u32) -> bool,
+) -> Vec<String> {
+    entries
+        .into_iter()
+        .filter(|entry| {
+            if live_ids.contains(&entry.id) {
+                return false;
+            }
+            if entry_is_owned_by_live_instance(entry.pid, own_pid, &process_alive) {
+                log::info!(
+                    "[session-registry] leaving coding session {} to live instance pid {:?}",
+                    entry.id,
+                    entry.pid
+                );
+                return false;
+            }
+            true
+        })
+        .map(|entry| entry.id)
+        .collect()
+}
+
+/// Is `pid` a live process on this machine? `kill(pid, 0)` delivers no signal
+/// and only reports reachability: `Ok` = alive, `EPERM` = alive but owned by
+/// another user, `ESRCH` = gone. Windows has no cheap equivalent without a new
+/// dependency and reports "not alive", i.e. keeps the pre-EXP-295 behavior
+/// there (the second-instance case is a Unix dev/test workflow).
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    // `kill` reads a SIGNED pid: 0 means "our whole process group" and any
+    // negative value means "that process group", so only values that survive
+    // the round-trip into a positive `pid_t` may be probed. A recorded pid
+    // outside that range is corrupt — treat it as gone.
+    if pid == 0 || pid > i32::MAX as u32 {
+        return false;
+    }
+    // SAFETY: `kill` with signal 0 has no side effects beyond setting errno.
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn process_is_alive(_pid: u32) -> bool {
+    false
 }
 
 /// Whether an end attempt's outcome RESOLVES the registry entry (drop it) or
@@ -149,6 +259,11 @@ pub(crate) fn end_outcome_resolves(
 /// (empty `LocalSessions`) treats every recorded id as an orphan. Runs on a
 /// fire-and-forget plain thread (`spawn_tracked_end` style); the token
 /// provider is call-time, so it survives a token refresh mid-loop.
+///
+/// EXP-295: `LocalSessions` only knows THIS process, so entries launched by
+/// another instance that is still alive on this machine are filtered out
+/// first ([`entry_is_owned_by_live_instance`]) — they are that instance's
+/// live work, not orphans.
 pub(crate) fn reconcile_stale_sessions(account: &api::Account, cx: &mut App) {
     let Some(auth) = cx.try_global::<AuthContext>() else {
         return;
@@ -157,10 +272,12 @@ pub(crate) fn reconcile_stale_sessions(account: &api::Account, cx: &mut App) {
     let live_ids: Vec<String> = LocalSessions::global_ref(cx)
         .map(|sessions| sessions.read(cx).session_ids())
         .unwrap_or_default();
-    let stale: Vec<String> = entries_for_account(&data_dir, &account.id)
-        .into_iter()
-        .filter(|id| !live_ids.contains(id))
-        .collect();
+    let stale = stale_ids(
+        entries_for_account(&data_dir, &account.id),
+        &live_ids,
+        std::process::id(),
+        process_is_alive,
+    );
     if stale.is_empty() {
         return;
     }
@@ -214,7 +331,7 @@ mod tests {
     #[test]
     fn missing_file_reads_empty() {
         let dir = TempDir::new("missing");
-        assert!(entries_for_account(&dir.path, "acct-1").is_empty());
+        assert!(session_ids_for_account(&dir.path, "acct-1").is_empty());
     }
 
     #[test]
@@ -225,19 +342,19 @@ mod tests {
         // Re-recording dedupes.
         record(&dir.path, "sess-1", "acct-1");
         assert_eq!(
-            entries_for_account(&dir.path, "acct-1"),
+            session_ids_for_account(&dir.path, "acct-1"),
             vec!["sess-1".to_string(), "sess-2".to_string()]
         );
 
         remove(&dir.path, "sess-1");
         assert_eq!(
-            entries_for_account(&dir.path, "acct-1"),
+            session_ids_for_account(&dir.path, "acct-1"),
             vec!["sess-2".to_string()]
         );
         // Unknown-id remove is a no-op.
         remove(&dir.path, "sess-unknown");
         assert_eq!(
-            entries_for_account(&dir.path, "acct-1"),
+            session_ids_for_account(&dir.path, "acct-1"),
             vec!["sess-2".to_string()]
         );
     }
@@ -248,11 +365,11 @@ mod tests {
         record(&dir.path, "sess-a", "acct-1");
         record(&dir.path, "sess-b", "acct-2");
         assert_eq!(
-            entries_for_account(&dir.path, "acct-1"),
+            session_ids_for_account(&dir.path, "acct-1"),
             vec!["sess-a".to_string()]
         );
         assert_eq!(
-            entries_for_account(&dir.path, "acct-2"),
+            session_ids_for_account(&dir.path, "acct-2"),
             vec!["sess-b".to_string()]
         );
     }
@@ -261,11 +378,11 @@ mod tests {
     fn corrupt_file_reads_empty_and_next_record_heals_it() {
         let dir = TempDir::new("corrupt");
         fs::write(registry_path(&dir.path), "{not json").unwrap();
-        assert!(entries_for_account(&dir.path, "acct-1").is_empty());
+        assert!(session_ids_for_account(&dir.path, "acct-1").is_empty());
 
         record(&dir.path, "sess-1", "acct-1");
         assert_eq!(
-            entries_for_account(&dir.path, "acct-1"),
+            session_ids_for_account(&dir.path, "acct-1"),
             vec!["sess-1".to_string()]
         );
         // The file is valid JSON again.
@@ -287,10 +404,93 @@ mod tests {
         for handle in handles {
             handle.join().unwrap();
         }
-        let mut ids = entries_for_account(&dir.path, "acct-1");
+        let mut ids = session_ids_for_account(&dir.path, "acct-1");
         ids.sort();
         let expected: Vec<String> = (0..8).map(|n| format!("sess-{n}")).collect();
         assert_eq!(ids, expected);
+    }
+
+    #[test]
+    fn record_stamps_the_owning_pid_and_legacy_entries_stay_readable() {
+        let dir = TempDir::new("pid");
+        record(&dir.path, "sess-1", "acct-1");
+        let entries = entries_for_account(&dir.path, "acct-1");
+        assert_eq!(entries[0].pid, Some(std::process::id()));
+
+        // A pre-EXP-295 file (no `pid` key) still loads — and reconciles
+        // unconditionally, exactly as it did before.
+        fs::write(
+            registry_path(&dir.path),
+            r#"[{"id":"sess-old","accountId":"acct-1"}]"#,
+        )
+        .unwrap();
+        let legacy = entries_for_account(&dir.path, "acct-1");
+        assert_eq!(legacy[0].pid, None);
+        assert!(!entry_is_owned_by_live_instance(
+            legacy[0].pid,
+            std::process::id(),
+            |_| true
+        ));
+    }
+
+    #[test]
+    fn live_sibling_instance_owns_its_entries() {
+        let own = std::process::id();
+        // EXP-295: a second instance started from a COPIED data dir inherits
+        // the live instance's entries — its cold-start reconcile must leave
+        // them alone (ending them flips rows to `ended`, which the owning
+        // instance reads as its kill-switch).
+        assert!(entry_is_owned_by_live_instance(Some(own + 1), own, |_| true));
+        // Owner gone (the crash / forced-logout orphan EXP-229 exists for).
+        assert!(!entry_is_owned_by_live_instance(
+            Some(own + 1),
+            own,
+            |_| false
+        ));
+        // Our own entries are never "another instance's" — the reconcile's
+        // LocalSessions filter is what protects the live ones in-process.
+        assert!(!entry_is_owned_by_live_instance(Some(own), own, |_| true));
+    }
+
+    #[test]
+    fn reconcile_selects_only_real_orphans() {
+        let own = std::process::id();
+        let sibling = own + 1; // "alive" per the injected probe below.
+        let entry = |id: &str, pid: Option<u32>| RegistryEntry {
+            id: id.to_string(),
+            account_id: "acct-1".to_string(),
+            pid,
+        };
+        let entries = vec![
+            entry("live-here", Some(own)),      // running in THIS process
+            entry("orphan-here", Some(own)),    // ours, child already gone
+            entry("live-sibling", Some(sibling)), // the EXP-295 case
+            entry("orphan-sibling", Some(own + 2)), // sibling that crashed
+            entry("legacy", None),              // pre-EXP-295 file
+        ];
+        let live_ids = vec!["live-here".to_string()];
+
+        let stale = stale_ids(entries, &live_ids, own, |pid| pid == sibling);
+        assert_eq!(
+            stale,
+            vec![
+                "orphan-here".to_string(),
+                "orphan-sibling".to_string(),
+                "legacy".to_string()
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_liveness_probe() {
+        // This test's own process is trivially alive.
+        assert!(process_is_alive(std::process::id()));
+        // PID 0 signals our own process group, and anything past pid_t's
+        // positive range would wrap into a process-group probe — neither is a
+        // session owner, both read as gone.
+        assert!(!process_is_alive(0));
+        assert!(!process_is_alive(u32::MAX - 1));
     }
 
     #[test]
