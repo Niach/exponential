@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -90,5 +91,9 @@ fun <T> GlassSegmentedControl(
     }
 }
 
-/** The brand indigo (#6366f1) — iOS `Accent.indigo`, the count-badge fill. */
-private val BadgeIndigo = Color(0xFF6366F1)
+/**
+ * The count-badge fill. EXP-280: white text on the raw brand indigo (#6366f1)
+ * lands at 4.28:1, under the AA floor — the badge takes `brandStrong` (#4f46e5)
+ * like its iOS counterpart, which clears it.
+ */
+private val BadgeIndigo = DesignTokens.Semantic.BrandStrong
