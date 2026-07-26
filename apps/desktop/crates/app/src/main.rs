@@ -73,9 +73,19 @@ fn main() {
         let _ = url_tx.send(urls);
     });
 
-    // macOS: clicking the dock icon with no windows open reopens one.
+    // macOS: clicking the dock icon with no SHELL window open reopens one.
+    //
+    // EXP-287: `cx.windows()` counts EVERY window, so a lingering native
+    // dialog or undocked terminal swallows the dock click and the app looks
+    // dead. `windows_open` counts only `ui::Shell` windows, which is what
+    // "reopen the app" actually means. The global is absent until
+    // `Store::open` runs inside `app.run` below — before that there is
+    // nothing to reopen anyway.
     app.on_reopen(|cx| {
-        if cx.windows().is_empty() {
+        let shells_open = cx
+            .try_global::<sync::Store>()
+            .is_some_and(|store| store.state().read(cx).windows_open > 0);
+        if !shells_open {
             windows::open_shell_window(cx);
         }
     });
@@ -97,6 +107,15 @@ fn main() {
         // Panel-name → constructor registry for DockAreaState rehydration
         // (§3.3), before any window can load a persisted layout.
         ui::init(cx);
+
+        // EXP-287: `ui` opens windows of its own (native dialogs, undocked
+        // terminals) long after launch, and on X11 each of those now carries
+        // its own taskbar button — which reads `_NET_WM_ICON`, a property the
+        // launch-time stamping thread is far too short-lived to have set. Give
+        // `ui` a way back here to re-run the (idempotent) pass. No-op
+        // elsewhere; `install()` self-skips on Wayland.
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        ui::set_window_opened_hook(x11_window_icon::install, cx);
 
         actions::init(cx);
         #[cfg(target_os = "macos")]

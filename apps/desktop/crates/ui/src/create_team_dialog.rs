@@ -47,7 +47,6 @@ pub fn open(window: &mut Window, cx: &mut App) {
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
-            .header("Create team")
             .can_close(move |cx| !busy.read(cx).submitting)
             .on_enter(move |window, cx| {
                 submit.update(cx, |view, cx| view.submit(window, cx));

@@ -5,7 +5,8 @@
 //! Structure (the web desktop branch shape: pinned header/footer,
 //! scrollable body — never the old all-scrolling dialog):
 //!
-//! - header row: board pill (color dot + prefix) · `›` · "New issue" · ✕
+//! - titlebar strip: board pill (color dot + prefix) · `›` · "New issue"
+//!   (EXP-287 — the window's own chrome carries it; see `native_dialog`)
 //! - borderless title `Input` (text-lg, web `border-none focus-visible:ring-0`)
 //! - the §4.5 [`crate::markdown::MarkdownEditor`] in a `flex_1` scroll region
 //!   — clipboard-image paste stages `draft://` blocks; submit
@@ -26,9 +27,9 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, size, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
-    Subscription, Window, WindowControlArea,
+    div, px, size, AnyElement, App, AppContext as _, Entity, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -91,22 +92,18 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
     let spec = DialogSpec::new("New issue", size(px(640.), height))
         .resizable(size(px(560.), px(300.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let bar_prefix = board.prefix.clone().unwrap_or_default();
+        let bar_color = board.color.clone();
         let view = cx.new(|cx| {
-            CreateIssueDialogView::new(
-                board.id.clone(),
-                board.team_id.clone(),
-                board.prefix.clone().unwrap_or_default(),
-                board.color.clone(),
-                max_height,
-                window,
-                cx,
-            )
+            CreateIssueDialogView::new(board.id.clone(), board.team_id.clone(), max_height, window, cx)
         });
         let busy = view.clone();
         let submit = view.clone();
-        // The view draws its own header (board pill · › · "New issue" · ✕).
         DialogContent::new(view)
             .padless()
+            // EXP-287: the board-pill breadcrumb rides the window's titlebar
+            // strip (the shell owns the chrome now — see `native_dialog`).
+            .title_content(move |_, cx| title_breadcrumb(&bar_prefix, bar_color.as_deref(), cx))
             .can_close(move |cx| !busy.read(cx).submitting)
             // Enter anywhere in the dialog submits (web form submit).
             .on_enter(move |window, cx| {
@@ -115,11 +112,40 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
     });
 }
 
+/// EXP-287: the titlebar label — board pill · › · "New issue". Lives in the
+/// window's `TitleBar` strip now that the shell owns the dialog chrome; the
+/// pill markup is unchanged from the header row it replaced.
+fn title_breadcrumb(prefix: &str, color: Option<&str>, cx: &App) -> AnyElement {
+    let pill_color = color
+        .and_then(parse_hex_color)
+        .unwrap_or(cx.theme().muted_foreground);
+    h_flex()
+        .gap_1p5()
+        .items_center()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(
+            h_flex()
+                .gap_1p5()
+                .items_center()
+                .rounded(cx.theme().radius)
+                .bg(cx.theme().accent.opacity(0.5))
+                .px_2()
+                .py_0p5()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().foreground)
+                .child(div().size_2p5().rounded_full().bg(pill_color))
+                .child(SharedString::from(prefix.to_string())),
+        )
+        .child(Icon::new(IconName::ChevronRight).xsmall())
+        .child("New issue")
+        .into_any_element()
+}
+
 pub struct CreateIssueDialogView {
     board_id: String,
     team_id: String,
-    board_prefix: String,
-    board_color: Option<String>,
 
     title: Entity<InputState>,
     /// The §4.5 block editor in create-dialog (staging) mode: pasted images
@@ -145,9 +171,6 @@ pub struct CreateIssueDialogView {
     submitting: bool,
     error: Option<SharedString>,
     focused_once: bool,
-    /// Header drag state (the titlebar `should_move` pattern, EXP-285 —
-    /// the dialog is a floating window with no other draggable chrome).
-    should_move: bool,
     /// EXP-288: the description scroll container's tracked handle — handed
     /// to the vendored editor for caret-follow, and read in render as the
     /// content-overflow sensor for the grow-while-typing window resize.
@@ -167,8 +190,6 @@ impl CreateIssueDialogView {
     fn new(
         board_id: String,
         team_id: String,
-        board_prefix: String,
-        board_color: Option<String>,
         max_height: gpui::Pixels,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -252,8 +273,6 @@ impl CreateIssueDialogView {
         Self {
             board_id,
             team_id,
-            board_prefix,
-            board_color,
             title,
             description,
             status: IssueStatus::Backlog,
@@ -271,7 +290,6 @@ impl CreateIssueDialogView {
             submitting: false,
             error: None,
             focused_once: false,
-            should_move: false,
             desc_scroll,
             max_height,
             last_requested_height: None,
@@ -880,85 +898,6 @@ impl Render for CreateIssueDialogView {
         // the cap) before the caret-follow scrolling takes over.
         self.grow_with_content(window, cx);
 
-        let pill_color = self
-            .board_color
-            .as_deref()
-            .and_then(parse_hex_color)
-            .unwrap_or(cx.theme().muted_foreground);
-        let closable = !self.submitting;
-
-        // Header: board pill · › · "New issue" · ✕ (web px-5 pt-4 pb-2).
-        // EXP-285: also the window-drag region (floating window, no other
-        // draggable chrome), inset past the macOS traffic lights.
-        let header = h_flex()
-            .px_5()
-            .pt_4()
-            .pb_2()
-            .items_center()
-            .justify_between()
-            .pl(native_dialog::macos_chrome_inset().max(px(20.)))
-            .window_control_area(WindowControlArea::Drag)
-            .on_mouse_down_out(cx.listener(|this, _, _, _| this.should_move = false))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, _| this.should_move = true),
-            )
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, _| this.should_move = false),
-            )
-            .on_mouse_move(cx.listener(|this, _, window, _| {
-                if this.should_move {
-                    this.should_move = false;
-                    window.start_window_move();
-                }
-            }))
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .items_center()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(
-                        h_flex()
-                            .gap_1p5()
-                            .items_center()
-                            .rounded(cx.theme().radius)
-                            .bg(cx.theme().accent.opacity(0.5))
-                            .px_2()
-                            .py_0p5()
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(cx.theme().foreground)
-                            .child(div().size_2p5().rounded_full().bg(pill_color))
-                            .child(SharedString::from(self.board_prefix.clone())),
-                    )
-                    .child(Icon::new(IconName::ChevronRight).xsmall())
-                    .child("New issue"),
-            )
-            // EXP-288: on macOS the traffic lights are the mouse dismissal —
-            // no redundant ✕ (this dialog always carries native chrome;
-            // Windows/Linux keep it).
-            .when(!cfg!(target_os = "macos"), |header| {
-                header.child(crate::app_title_bar::interactive(
-                    Button::new("create-issue-close")
-                        .ghost()
-                        .xsmall()
-                        .icon(
-                            Icon::new(IconName::Close)
-                                .xsmall()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .disabled(!closable)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if this.submitting {
-                                return;
-                            }
-                            native_dialog::close_dialog_window(window, cx);
-                        })),
-                ))
-            });
-
         // Chip row (web px-4 py-2 border-t): status · priority · assignee ·
         // labels · due.
         let chips = h_flex()
@@ -981,7 +920,6 @@ impl Render for CreateIssueDialogView {
 
         v_flex()
             .size_full()
-            .child(header)
             .child(
                 // Borderless title (web text-lg font-medium px-5).
                 //
@@ -994,6 +932,9 @@ impl Render for CreateIssueDialogView {
                 // consumes the keystroke before Root's binding runs.
                 div()
                     .px_3()
+                    // EXP-287: the deleted header row's `pb_2` used to supply
+                    // this gap under the chrome.
+                    .pt_2()
                     .on_action(cx.listener(
                         |this, _: &gpui_component::input::IndentInline, window, cx| {
                             this.description

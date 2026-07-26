@@ -856,7 +856,7 @@ pub(crate) fn open_duplicate_picker(issue_id: String, window: &mut Window, cx: &
     );
     crate::native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let picker = cx.new(|cx| DuplicatePicker::new(issue_id, window, cx));
-        crate::native_dialog::DialogContent::new(picker).header("Mark as duplicate")
+        crate::native_dialog::DialogContent::new(picker)
     });
 }
 

@@ -56,7 +56,7 @@ pub(crate) fn open_image_preview(
         let preview = cx.new(|cx| ImagePreview::new(url, open_url, images, cx));
         // The header's ✕ is the only mouse dismissal a lightbox has (there is
         // no Cancel footer) — without it the modal window is a dead end.
-        DialogContent::new(preview).header(label)
+        DialogContent::new(preview).chromeless_header(label)
     });
 }
 
