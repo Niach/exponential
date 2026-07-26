@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react"
 import { TRPCClientError } from "@trpc/client"
+import type { BoardIcon } from "@exp/db-schema/domain"
 import type { SyncedAction } from "@/db/schema"
+import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
+import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
 import type { BuiltinAction } from "@/lib/builtin-actions"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
@@ -58,6 +61,8 @@ export function ActionEditorDialog({
   const [name, setName] = useState(``)
   const [description, setDescription] = useState(``)
   const [repoValue, setRepoValue] = useState(NO_REPO)
+  // EXP-273: the action's display glyph, from the same curated set as boards.
+  const [icon, setIcon] = useState<BoardIcon>(BOARD_ICON_OPTIONS[0].name)
   const [body, setBody] = useState(``)
   // Synced rows carry no body (EXP-268) — fetched on open; the prompt field
   // stays disabled until it lands so a save can never blank it.
@@ -74,6 +79,9 @@ export function ActionEditorDialog({
     setName(action.name)
     setDescription(action.description ?? ``)
     setRepoValue(action.repositoryId ?? NO_REPO)
+    setIcon(
+      (action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name
+    )
     setBody(``)
     setBodyLoading(true)
     setSubmitting(false)
@@ -112,6 +120,7 @@ export function ActionEditorDialog({
           id: action.id,
           name: name.trim(),
           description: description.trim() === `` ? null : description.trim(),
+          icon,
           repositoryId: repoValue === NO_REPO ? null : repoValue,
           body,
         },
@@ -176,6 +185,10 @@ export function ActionEditorDialog({
               />
             </div>
 
+            <div className="space-y-2">
+              <Label>Icon</Label>
+              <IconSwatchGrid value={icon} onChange={setIcon} />
+            </div>
             <div className="space-y-2">
               <Label htmlFor="action-repository">Repository (optional)</Label>
               <Select value={repoValue} onValueChange={setRepoValue}>

@@ -9,12 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.GithubPickerRepo
 import com.exponential.app.data.api.BoardRepositoryChoice
 import com.exponential.app.data.api.TeamRepo
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -119,7 +114,7 @@ fun RepositorySelector(
                 .clickable { showPicker = true }
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+            Icon(ExpIcons.uiAdd, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
             Spacer(Modifier.width(6.dp))
             Text(
                 if (repos.isEmpty() && addedRepo == null) "Add a repository from GitHub…" else "Add another repository…",
@@ -166,13 +161,13 @@ private fun RepoRow(
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Icon(
-            if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = if (selected) MaterialTheme.colorScheme.primary else tertiary,
         )
         Spacer(Modifier.width(10.dp))
-        Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+        Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
         Spacer(Modifier.width(8.dp))
         Text(
             fullName,
@@ -184,7 +179,7 @@ private fun RepoRow(
             modifier = Modifier.weight(1f),
         )
         if (isPrivate) {
-            Icon(Icons.Filled.Lock, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = tertiary)
+            Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = tertiary)
         }
     }
 }

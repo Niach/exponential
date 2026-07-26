@@ -14,9 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
@@ -127,7 +125,7 @@ fun ShareBoardSelector(
                     }
                     Spacer(Modifier.width(8.dp))
                     Icon(
-                        Icons.Filled.UnfoldMore,
+                        ExpIcons.uiSelector,
                         contentDescription = "Change board",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -191,7 +189,7 @@ fun ShareBoardPickerSheet(
                             )
                         },
                         trailingContent = if (isSelected) {
-                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                            { Icon(ExpIcons.uiCheck, contentDescription = "Selected") }
                         } else null,
                         modifier = Modifier
                             .fillMaxWidth()

@@ -144,15 +144,13 @@ impl ActionsPanel {
                         // like the web's ActionCard) — real actions keep Zap.
                         // EXP-282: every leading/trailing ornament sits in a
                         // `flex_shrink_0` box so only the NAME gives way.
-                        div().flex_shrink_0().child(if builtin {
-                            Icon::new(IconName::Plus)
+                        // EXP-273: the action's own curated glyph (builtins
+                        // carry one too), not a builtin/non-builtin split.
+                        div().flex_shrink_0().child(
+                            crate::icons::action_icon(action.icon.as_deref())
                                 .xsmall()
-                                .text_color(theme.muted_foreground)
-                        } else {
-                            Icon::from(ExpIcon::Zap)
-                                .xsmall()
-                                .text_color(theme.muted_foreground)
-                        }),
+                                .text_color(theme.muted_foreground),
+                        ),
                     )
                     .child(
                         div()

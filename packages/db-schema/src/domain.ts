@@ -31,10 +31,14 @@ export const teamRoleValues = [`owner`, `member`] as const
 // "Feedback widget" author label off this value.
 export const issueSourceValues = [`user`, `widget`] as const
 
-// Curated board icon set (boards.icon) — lucide names on the web; the
-// native clients carry their own per-platform glyph mapping keyed by these
-// values (via the domain contract). NULL icon = clients derive a fallback
-// from repo presence. Mirrors packages/domain-contract/contract.json.
+// Curated board icon set (boards.icon) — Lucide names. EXP-273: every client
+// now renders the SAME Lucide art for these, generated from
+// packages/icons/icons.json (`pickable`), so there is no per-platform glyph
+// mapping any more. This list must stay byte-equal to that file's `pickable`
+// and to contract.json's boardIcon.values (locked by the @exp/icons drift
+// test); it is APPEND-ONLY — reordering or removing a name orphans stored
+// boards.icon values. NULL icon = clients derive a fallback from repo
+// presence. The same set backs the action icon picker.
 export const boardIconValues = [
   `code`,
   `square-kanban`,
@@ -52,6 +56,50 @@ export const boardIconValues = [
   `terminal`,
   `lightbulb`,
   `message-circle`,
+  `palette`,
+  `pen-tool`,
+  `database`,
+  `server`,
+  `cloud`,
+  `cpu`,
+  `layers`,
+  `boxes`,
+  `folder`,
+  `file-text`,
+  `calendar`,
+  `clock`,
+  `users`,
+  `user`,
+  `flag`,
+  `target`,
+  `trophy`,
+  `lock`,
+  `key`,
+  `mail`,
+  `phone`,
+  `bell`,
+  `git-branch`,
+  `bot`,
+  `sparkles`,
+  `flask-conical`,
+  `shopping-cart`,
+  `credit-card`,
+  `map-pin`,
+  `compass`,
+  `briefcase`,
+  `graduation-cap`,
+  `puzzle`,
+  `gamepad-2`,
+  `coffee`,
+  `plane`,
+  `house`,
+  `building`,
+  `leaf`,
+  `sun`,
+  `activity`,
+  `chart-line`,
+  `scale`,
+  `car`,
 ] as const
 
 // How long a soft-deleted (trashed) board is retained before the purge sweep
@@ -188,6 +236,10 @@ export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const issueSourceSchema = z.enum(issueSourceValues)
 export const teamRoleSchema = z.enum(teamRoleValues)
 export const boardIconSchema = z.enum(boardIconValues)
+// EXP-273: actions.icon draws from the SAME curated registry set as
+// boards.icon — one picker component, one contract enum, one generated art set
+// on every client. Aliased rather than duplicated so the two can never drift.
+export const actionIconSchema = boardIconSchema
 export const commentKindSchema = z.enum(commentKindValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
@@ -200,9 +252,18 @@ export const issueEventTypeSchema = z.enum(issueEventTypeValues)
 // the resolved values are injected into the prompt at launch. `repo`/`board`
 // values are the picked ids (resolved to display names server-side); `pr`
 // (EXP-259) values are the representative ISSUE id of an issue-linked open
-// pull request (a batch PR's picker rows dedupe by prUrl).
+// pull request (a batch PR's picker rows dedupe by prUrl); `icon` (EXP-273)
+// values are a curated icon NAME from the shared registry — the one input kind
+// whose value is not an id, so it validates against the contract enum instead
+// of a team-scoped lookup.
 
-export const actionInputTypeValues = [`text`, `repo`, `board`, `pr`] as const
+export const actionInputTypeValues = [
+  `text`,
+  `repo`,
+  `board`,
+  `pr`,
+  `icon`,
+] as const
 export type ActionInputType = (typeof actionInputTypeValues)[number]
 
 export const MAX_ACTION_INPUTS = 10

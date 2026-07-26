@@ -17,12 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,6 +38,7 @@ import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.formatDueDate
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
@@ -107,7 +102,7 @@ fun PropertiesSheet(
                             )
                         } else {
                             Icon(
-                                Icons.Filled.PersonOff,
+                                ExpIcons.uiUnassigned,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                                 tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -127,7 +122,7 @@ fun PropertiesSheet(
                 label = "Due date",
                 leading = {
                     Icon(
-                        Icons.Filled.CalendarMonth,
+                        ExpIcons.uiDueDate,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                         tint = if (issue.dueDate != null) dueDateColor(issue.dueDate)
@@ -185,7 +180,7 @@ fun PropertiesSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Filled.Add,
+                        ExpIcons.uiAdd,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -205,7 +200,7 @@ fun PropertiesSheet(
                     label = "Board",
                     leading = {
                         Icon(
-                            Icons.Filled.Folder,
+                            ExpIcons.navBoards,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = Color.White.copy(alpha = TextEmphasis.Secondary),
@@ -230,7 +225,7 @@ private fun ValueWithChevron(value: String) {
         )
         Spacer(Modifier.width(2.dp))
         Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            ExpIcons.uiChevronRight,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = Color.White.copy(alpha = TextEmphasis.Tertiary),

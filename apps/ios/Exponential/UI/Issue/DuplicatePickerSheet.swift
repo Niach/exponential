@@ -31,8 +31,7 @@ struct DuplicatePickerSheet: View {
                 // Inline search field. NOT system .searchable — on iOS 26+ it
                 // renders as a bottom-edge glass bar (see IssueListView).
                 HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.caption)
+                    AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
                         .foregroundStyle(.secondary)
                     TextField("Search issues", text: $searchText)
                         .textFieldStyle(.plain)
@@ -41,8 +40,7 @@ struct DuplicatePickerSheet: View {
                         Button {
                             searchText = ""
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption)
+                            AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -77,11 +75,15 @@ struct DuplicatePickerSheet: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if filtered.isEmpty {
-                    ContentUnavailableView(
-                        "No matching issues",
-                        systemImage: "doc.on.doc",
-                        description: Text("Pick the canonical issue this one duplicates.")
-                    )
+                    ContentUnavailableView {
+                        Label {
+                            Text("No matching issues")
+                        } icon: {
+                            AppIcon(AppIcons.statusDuplicate, size: AppIcon.Size.xlarge)
+                        }
+                    } description: {
+                        Text("Pick the canonical issue this one duplicates.")
+                    }
                 } else {
                     List {
                         ForEach(filtered, id: \.id) { issue in
@@ -90,8 +92,7 @@ struct DuplicatePickerSheet: View {
                                 dismiss()
                             } label: {
                                 HStack(spacing: 10) {
-                                    Image(systemName: IssueStatus.from(issue.status).sfSymbol)
-                                        .font(.caption)
+                                    AppIcon(IssueStatus.from(issue.status).iconName, size: AppIcon.Size.small)
                                         .foregroundStyle(IssueStatus.from(issue.status).color)
                                     if let identifier = issue.identifier {
                                         Text(identifier)

@@ -40,7 +40,7 @@ pub fn is_builtin_action_id(id: &str) -> bool {
 pub struct ActionInput {
     pub key: String,
     pub label: String,
-    /// `text` | `repo` | `board` | `pr` (contract `actionInputType`). An
+    /// `text` | `repo` | `board` | `pr` | `icon` (contract `actionInputType`). An
     /// UNKNOWN value must block the run with "needs a newer app version" —
     /// never a silent text fallback.
     #[serde(rename = "type")]
@@ -67,6 +67,10 @@ pub struct Action {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// EXP-273: curated registry icon name (same set as `boards.icon`);
+    /// `None` = the generic action glyph.
+    #[serde(default)]
+    pub icon: Option<String>,
     /// The markdown prompt the run executes — EMPTY on shape-synced rows
     /// (EXP-268: the proxy excludes it); [`get`] returns the real body.
     #[serde(default)]
@@ -233,6 +237,7 @@ pub fn from_row(row: &domain::rows::ActionRow) -> Action {
         repository_id: row.repository_id.clone(),
         name: row.name.clone().unwrap_or_default(),
         description: row.description.clone(),
+        icon: row.icon.clone(),
         body: String::new(),
         builtin: false,
         inputs,
@@ -253,6 +258,7 @@ pub fn builtin_create_action(team_id: &str) -> Action {
         repository_id: None,
         name: "Create action".to_string(),
         description: Some("Describe a new action and let Claude author it for the team".to_string()),
+        icon: Some("sparkles".to_string()),
         body: String::new(),
         builtin: true,
         inputs: vec![
@@ -267,6 +273,15 @@ pub fn builtin_create_action(team_id: &str) -> Action {
                 key: "repo".to_string(),
                 label: "Repository".to_string(),
                 input_type: "repo".to_string(),
+                required: false,
+                placeholder: None,
+            },
+            // EXP-273: the author picks the new action's glyph up front and
+            // the creator prompt passes it to `exponential_actions_create`.
+            ActionInput {
+                key: "icon".to_string(),
+                label: "Icon".to_string(),
+                input_type: "icon".to_string(),
                 required: false,
                 placeholder: None,
             },
@@ -293,6 +308,7 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
             "Pick a conflicted pull request and let Claude rebase, resolve, and merge it"
                 .to_string(),
         ),
+        icon: Some("git-branch".to_string()),
         body: String::new(),
         builtin: true,
         inputs: vec![ActionInput {
@@ -533,9 +549,13 @@ mod tests {
         assert!(builtin.builtin);
         assert!(builtin.body.is_empty());
         assert_eq!(builtin.name, "Create action");
-        assert_eq!(builtin.inputs.len(), 2);
+        // EXP-273 appended the optional `icon` picker after description+repo.
+        assert_eq!(builtin.inputs.len(), 3);
         assert!(builtin.inputs[0].required);
         assert_eq!(builtin.inputs[1].input_type, "repo");
+        assert_eq!(builtin.inputs[2].input_type, "icon");
+        assert!(!builtin.inputs[2].required);
+        assert_eq!(builtin.icon.as_deref(), Some("sparkles"));
         // Pinned first by flag; the huge sortOrder only keeps naive
         // sortOrder-asc renderers from interleaving it.
         assert_eq!(builtin.sort_order, 1e9);
@@ -555,6 +575,7 @@ mod tests {
         assert_eq!(builtin.inputs[0].key, "pr");
         assert_eq!(builtin.inputs[0].input_type, "pr");
         assert!(builtin.inputs[0].required);
+        assert_eq!(builtin.icon.as_deref(), Some("git-branch"));
         // Sorts right after "Create action" (web parity: 1e9 + 1).
         assert_eq!(builtin.sort_order, 1e9 + 1.0);
     }

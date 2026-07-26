@@ -120,8 +120,7 @@ struct IssuesHomeView: View {
                     .font(.headline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2.weight(.semibold))
+                AppIcon(AppIcons.navTeamSwitcher, size: 11, weight: .semibold)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .contentShape(Rectangle())
@@ -134,8 +133,7 @@ struct IssuesHomeView: View {
 
     private var settingsButton: some View {
         NavigationLink(value: AppRoute.settings) {
-            Image(systemName: "gearshape")
-                .font(.body)
+            AppIcon(AppIcons.navSettings, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 32, height: 32)
                 .contentShape(Circle())
@@ -160,8 +158,7 @@ struct IssuesHomeView: View {
     private var emptyStateHint: some View {
         if hasNoTeam {
             VStack(spacing: 12) {
-                Image(systemName: "person.2")
-                    .font(.title2)
+                AppIcon(AppIcons.settingsMembers, size: 22)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 Text("No team yet")
                     .font(.subheadline)
@@ -175,8 +172,7 @@ struct IssuesHomeView: View {
                     showTeamSetup = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "plus")
-                            .font(.caption.weight(.semibold))
+                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .semibold)
                         Text("Create or join a team")
                             .font(.subheadline.weight(.medium))
                     }
@@ -190,8 +186,7 @@ struct IssuesHomeView: View {
             .padding(.horizontal, 40)
         } else {
             VStack(spacing: 12) {
-                Image(systemName: "tray")
-                    .font(.title2)
+                AppIcon(AppIcons.navBoards, size: 22)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 Text("No boards yet")
                     .font(.subheadline)
@@ -208,8 +203,7 @@ struct IssuesHomeView: View {
                         if preparingCreate {
                             ProgressView().controlSize(.small).tint(.white)
                         } else {
-                            Image(systemName: "plus")
-                                .font(.caption.weight(.semibold))
+                            AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .semibold)
                         }
                         Text("Create board")
                             .font(.subheadline.weight(.medium))

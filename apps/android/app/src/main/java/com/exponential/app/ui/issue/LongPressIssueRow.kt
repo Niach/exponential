@@ -6,9 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -27,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.ui.icons.ExpIcons
 
 /**
  * Wraps [IssueRow] with a long-press gesture that opens a [ModalBottomSheet]
@@ -78,7 +76,7 @@ fun LongPressIssueRow(
                 )
                 ListItem(
                     headlineContent = { Text("Mark done") },
-                    leadingContent = { Icon(Icons.Filled.Check, contentDescription = null) },
+                    leadingContent = { Icon(ExpIcons.statusDone, contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
@@ -88,7 +86,7 @@ fun LongPressIssueRow(
                 )
                 ListItem(
                     headlineContent = { Text("Move to backlog") },
-                    leadingContent = { Icon(Icons.Outlined.Circle, contentDescription = null) },
+                    leadingContent = { Icon(ExpIcons.statusBacklog, contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {

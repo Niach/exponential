@@ -13,10 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,6 +33,7 @@ import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.formatDueDate
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
@@ -99,7 +96,7 @@ fun IssuePropertyChips(
                     ChipLabel(name)
                 } else {
                     Icon(
-                        Icons.Filled.PersonOff,
+                        ExpIcons.uiUnassigned,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = Color.White.copy(alpha = TextEmphasis.Tertiary),
@@ -112,7 +109,7 @@ fun IssuePropertyChips(
         if (issue.dueDate != null) {
             PropertyChip(enabled = isModerator, onClick = onOpenDueDate) {
                 Icon(
-                    Icons.Filled.CalendarMonth,
+                    ExpIcons.uiDueDate,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = dueDateColor(issue.dueDate),
@@ -140,7 +137,7 @@ fun IssuePropertyChips(
         if (isModerator) {
             PropertyChip(enabled = true, onClick = onOpenProperties) {
                 Icon(
-                    Icons.Filled.Add,
+                    ExpIcons.uiAdd,
                     contentDescription = "Edit properties",
                     modifier = Modifier.size(14.dp),
                     tint = Color.White.copy(alpha = TextEmphasis.Secondary),

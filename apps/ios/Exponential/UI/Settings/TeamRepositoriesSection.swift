@@ -70,8 +70,7 @@ struct TeamRepositoriesSection: View {
                         showAddRepo = true
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(.caption2.weight(.semibold))
+                            AppIcon(AppIcons.uiAdd, size: 11, weight: .semibold)
                             Text("Add repository")
                                 .font(.caption.weight(.medium))
                         }
@@ -167,8 +166,7 @@ struct TeamRepositoriesSection: View {
     private func repoRow(_ repo: TeamRepo) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.caption)
+                AppIcon(AppIcons.uiRepository, size: AppIcon.Size.small)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(repo.fullName)
                     .font(.subheadline.monospaced())
@@ -180,16 +178,14 @@ struct TeamRepositoriesSection: View {
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 if repo.isPrivate {
-                    Image(systemName: "lock.fill")
-                        .font(.caption2)
+                    AppIcon(AppIcons.uiPrivate, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 if isOwner && !protectedRepositoryIds.contains(repo.id) {
                     Button {
                         removeTarget = repo
                     } label: {
-                        Image(systemName: "trash")
-                            .font(.caption)
+                        AppIcon(AppIcons.uiDelete, size: AppIcon.Size.small)
                             .foregroundStyle(.red.opacity(0.5))
                     }
                     .buttonStyle(.plain)
@@ -251,10 +247,8 @@ struct TeamRepositoriesSection: View {
                         openConnect(github)
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: needsReauth
-                                ? "arrow.triangle.2.circlepath"
-                                : "chevron.left.forwardslash.chevron.right")
-                                .font(.caption2.weight(.semibold))
+                            AppIcon(needsReauth ? AppIcons.uiRefresh : AppIcons.uiGithub,
+                                    size: 11, weight: .semibold)
                             Text(needsReauth ? "Reconnect" : "Connect GitHub")
                                 .font(.caption.weight(.medium))
                         }
@@ -267,8 +261,7 @@ struct TeamRepositoriesSection: View {
                 } else if isOwner, let url = webRepositoriesURL {
                     Link(destination: url) {
                         HStack(spacing: 4) {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.caption2)
+                            AppIcon(AppIcons.uiExternalLink, size: 11)
                             Text("Connect on the web")
                                 .font(.caption.weight(.medium))
                         }
@@ -291,16 +284,14 @@ struct TeamRepositoriesSection: View {
                 FlowLayout(spacing: 6) {
                     ForEach(github.installations) { inst in
                         HStack(spacing: 6) {
-                            Image(systemName: inst.accountType == "Organization" ? "building.2" : "person")
-                                .font(.caption2)
+                            AppIcon(inst.accountType == "Organization" ? AppIcons.uiOrganization : AppIcons.uiAssignee, size: 11)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             Text(inst.accountLogin ?? "Installation \(inst.installationId)")
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                             if inst.needsReauth {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.caption2)
+                                AppIcon(AppIcons.uiWarning, size: 11)
                                     .foregroundStyle(.yellow.opacity(0.8))
                             }
                         }
@@ -316,8 +307,7 @@ struct TeamRepositoriesSection: View {
             if isOwner, needsReauth {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.caption)
+                        AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                             .foregroundStyle(.yellow.opacity(0.8))
                         Text("GitHub needs to be reconnected")
                             .font(.caption.weight(.semibold))

@@ -120,33 +120,32 @@ struct TeamMembersSection: View {
                         Button {
                             confirm = .changeRole(member, to: DomainContract.teamRoleOwner)
                         } label: {
-                            Label("Make owner", systemImage: "crown")
+                            Label("Make owner", appIcon: AppIcons.uiOwner)
                         }
                     }
                     if canMakeMember {
                         Button {
                             confirm = .changeRole(member, to: DomainContract.teamRoleMember)
                         } label: {
-                            Label("Make member", systemImage: "shield")
+                            Label("Make member", appIcon: AppIcons.uiMember)
                         }
                     }
                     if canLeave {
                         Button(role: .destructive) {
                             confirm = .remove(member, isSelf: true)
                         } label: {
-                            Label("Leave", systemImage: "xmark")
+                            Label("Leave", appIcon: AppIcons.uiClose)
                         }
                     }
                     if canRemove {
                         Button(role: .destructive) {
                             confirm = .remove(member, isSelf: false)
                         } label: {
-                            Label("Remove", systemImage: "xmark")
+                            Label("Remove", appIcon: AppIcons.uiClose)
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.body)
+                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .padding(6)
                 }

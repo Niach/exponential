@@ -84,8 +84,7 @@ struct SettingsView: View {
                     showAddServer = true
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "plus.circle")
-                            .font(.body)
+                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .frame(width: 22)
                         Text("Add server")
@@ -111,8 +110,7 @@ struct SettingsView: View {
             && account.token != nil
             && !(account.userEmail ?? "").isEmpty
         HStack(spacing: 12) {
-            Image(systemName: "server.rack")
-                .font(.body)
+            AppIcon(AppIcons.settingsServers, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
@@ -130,8 +128,7 @@ struct SettingsView: View {
                 }
             }
             Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption)
+            AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
         }
         .padding(.horizontal, 14)
@@ -180,8 +177,7 @@ struct SettingsView: View {
                                 .font(.body)
                                 .foregroundStyle(.white)
                             Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
+                            AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
                                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                         }
                         .padding(.horizontal, 14)
@@ -202,7 +198,7 @@ struct SettingsView: View {
         sectionStack(title: "General") {
             VStack(spacing: 6) {
                 NavigationLink(value: AppRoute.syncDebug) {
-                    settingsRow(icon: "arrow.triangle.2.circlepath", title: "Sync diagnostics")
+                    settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
                 }
                 .buttonStyle(.plain)
             }
@@ -222,16 +218,14 @@ struct SettingsView: View {
 
     private func settingsRow(icon: String, title: String) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.body)
+            AppIcon(icon, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 22)
             Text(title)
                 .font(.body)
                 .foregroundStyle(.white)
             Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption)
+            AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
         }
         .padding(.horizontal, 14)

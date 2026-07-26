@@ -22,16 +22,14 @@ struct IssuePropertyChipsBox: View {
         let priority = IssuePriority.from(issue.priority)
         FlowLayout(spacing: 6) {
             chip(target: .status) {
-                Image(systemName: status.sfSymbol)
-                    .font(.caption)
+                AppIcon(status.iconName, size: AppIcon.Size.small)
                     .foregroundStyle(status.color)
                 Text(status.label)
                     .font(.caption)
                     .foregroundStyle(.white)
             }
             chip(target: .priority) {
-                Image(systemName: priority.sfSymbol)
-                    .font(.caption)
+                AppIcon(priority.iconName, size: AppIcon.Size.small)
                     .foregroundStyle(priority.color)
                 Text(priority.label)
                     .font(.caption)
@@ -45,8 +43,7 @@ struct IssuePropertyChipsBox: View {
                             .font(.caption)
                             .foregroundStyle(.white)
                     } else {
-                        Image(systemName: "person.crop.circle.badge.xmark")
-                            .font(.caption)
+                        AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.small)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         Text("Unassigned")
                             .font(.caption)
@@ -57,8 +54,7 @@ struct IssuePropertyChipsBox: View {
             if let dueDate = issue.dueDate {
                 let tint = dueDateUrgencyColor(dueDate)
                 chip(target: .dueDate) {
-                    Image(systemName: "calendar")
-                        .font(.caption)
+                    AppIcon(AppIcons.uiDueDate, size: AppIcon.Size.small)
                         .foregroundStyle(tint)
                     Text(dueDateChipLabel(dueDate))
                         .font(.caption)
@@ -77,8 +73,7 @@ struct IssuePropertyChipsBox: View {
             }
             if isModerator {
                 chip(target: .properties) {
-                    Image(systemName: "plus")
-                        .font(.caption.weight(.medium))
+                    AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
             }

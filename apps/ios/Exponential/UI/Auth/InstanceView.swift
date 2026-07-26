@@ -101,6 +101,7 @@ struct InstanceView: View {
             // Apple leads (App Store guideline 4.8 / HIG prominence).
             if vm.appleAvailable {
                 oauthButton(label: "Continue with Apple", action: { vm.startCloudApple() }) {
+                    // Apple's brand mark, not a registry glyph (see LoginView).
                     Image(systemName: "apple.logo")
                         .font(.body.weight(.medium))
                 }
@@ -122,23 +123,20 @@ struct InstanceView: View {
             } label: {
                 HStack(spacing: 8) {
                     if AppConstants.isStaging {
-                        Image(systemName: "flask")
-                            .font(.body)
+                        AppIcon(AppIcons.uiStaging, size: AppIcon.Size.medium)
                             .foregroundStyle(.orange)
                         Text("Use Staging Cloud")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                     } else {
-                        Image(systemName: "cloud")
-                            .font(.body)
+                        AppIcon(AppIcons.uiCloud, size: AppIcon.Size.medium)
                             .foregroundStyle(.white)
                         Text("Use Exponential Cloud")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                     }
                     Spacer()
-                    Image(systemName: "arrow.right")
-                        .font(.caption.weight(.semibold))
+                    AppIcon(AppIcons.uiArrowRight, size: AppIcon.Size.small, weight: .semibold)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
                 .frame(maxWidth: .infinity)

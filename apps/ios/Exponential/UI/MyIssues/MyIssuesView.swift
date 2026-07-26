@@ -46,8 +46,7 @@ struct MyIssuesListContent: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "person.crop.circle")
-                .font(.title2)
+            AppIcon(AppIcons.navAccount, size: 22)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("No issues assigned to you")
                 .font(.subheadline)
@@ -98,8 +97,7 @@ struct MyIssuesListContent: View {
     @ViewBuilder
     private func statusHeader(status: IssueStatus, count: Int) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: status.sfSymbol)
-                .font(.caption)
+            AppIcon(status.iconName, size: AppIcon.Size.small)
                 .foregroundStyle(status.color)
 
             Text(status.label)
@@ -122,8 +120,7 @@ struct MyIssuesListContent: View {
         NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
             HStack(spacing: 10) {
                 // Priority icon (16pt column, IssueListView/Android parity)
-                Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
-                    .font(.caption)
+                AppIcon(IssuePriority.from(issue.priority).iconName, size: AppIcon.Size.small)
                     .foregroundStyle(IssuePriority.from(issue.priority).color)
                     .frame(width: 16)
 
@@ -138,8 +135,7 @@ struct MyIssuesListContent: View {
                     .lineLimit(1)
                     .frame(minWidth: identifierMinWidth, alignment: .leading)
 
-                Image(systemName: IssueStatus.from(issue.status).sfSymbol)
-                    .font(.caption)
+                AppIcon(IssueStatus.from(issue.status).iconName, size: AppIcon.Size.small)
                     .foregroundStyle(IssueStatus.from(issue.status).color)
                     .frame(width: 16)
 
@@ -159,8 +155,7 @@ struct MyIssuesListContent: View {
 
                 if let dueDate = issue.dueDate {
                     HStack(spacing: 3) {
-                        Image(systemName: "calendar")
-                            .font(.caption2)
+                        AppIcon(AppIcons.uiDueDate, size: 11)
                         Text(formatDueDate(dueDate))
                             .font(.caption)
                     }

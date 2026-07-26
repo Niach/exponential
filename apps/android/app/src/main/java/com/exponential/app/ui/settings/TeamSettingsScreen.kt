@@ -20,19 +20,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Business
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -73,6 +60,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.parseColor
@@ -214,7 +202,7 @@ fun TeamSettingsScreen(
                 title = { Text(state.team?.name ?: "Team") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -277,7 +265,7 @@ private fun BoardsSection(
                     // affordance to anyone; the server rejects it regardless.
                     if (isOwner && !board.isProtected) {
                         IconButton(onClick = { onConfirm(SettingsConfirm.DeleteBoard(board)) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete board")
+                            Icon(ExpIcons.uiDelete, contentDescription = "Delete board")
                         }
                     }
                 }
@@ -288,7 +276,7 @@ private fun BoardsSection(
         // target the user's default team via getDefault).
         if (isOwner) {
             OutlinedButton(onClick = { showCreateBoard = true }) {
-                Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                Icon(ExpIcons.uiAdd, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("New board")
             }
@@ -329,7 +317,7 @@ private fun DangerZone(
                 onClick = { confirmDelete = true },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
+                Icon(ExpIcons.uiDelete, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Delete team", color = MaterialTheme.colorScheme.error)
             }
@@ -423,7 +411,7 @@ private fun RepositoriesSection(
             if (isOwner && installations.isNotEmpty()) {
                 GlassPillButton(
                     label = "Add repository",
-                    icon = Icons.Filled.Add,
+                    icon = ExpIcons.uiAdd,
                     onClick = { showAddRepo = true },
                 )
             }
@@ -484,7 +472,7 @@ private fun RepositoriesSection(
                         if (configured) {
                             GlassPillButton(
                                 label = if (needsReauth) "Reconnect" else "Connect GitHub",
-                                icon = if (needsReauth) Icons.Filled.Refresh else Icons.Filled.Code,
+                                icon = if (needsReauth) ExpIcons.uiRefresh else ExpIcons.uiRepository,
                                 enabled = connectUrl != null,
                                 onClick = {
                                     connectUrl?.let {
@@ -509,7 +497,7 @@ private fun RepositoriesSection(
                                 enabled = webSettingsUrl != null,
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text("Connect on the web", style = MaterialTheme.typography.labelMedium)
                             }
@@ -528,7 +516,7 @@ private fun RepositoriesSection(
                                 modifier = Modifier.glassButton().padding(horizontal = 10.dp, vertical = 6.dp),
                             ) {
                                 Icon(
-                                    if (inst.accountType == "Organization") Icons.Filled.Business else Icons.Filled.Person,
+                                    if (inst.accountType == "Organization") ExpIcons.settingsGeneral else ExpIcons.uiAssignee,
                                     contentDescription = null,
                                     modifier = Modifier.size(14.dp),
                                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -540,7 +528,7 @@ private fun RepositoriesSection(
                                 )
                                 if (inst.needsReauth) {
                                     Icon(
-                                        Icons.Filled.Warning,
+                                        ExpIcons.uiWarning,
                                         contentDescription = "Needs reconnect",
                                         modifier = Modifier.size(14.dp),
                                         tint = Color(0xFFEAB308),
@@ -574,7 +562,7 @@ private fun RepositoriesSection(
                         },
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Manage repositories on GitHub", style = MaterialTheme.typography.labelMedium)
                     }
@@ -619,7 +607,7 @@ private fun RepositoryRow(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+            Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
             Spacer(Modifier.width(8.dp))
             Text(
                 repo.fullName,
@@ -633,11 +621,11 @@ private fun RepositoryRow(
             Text(repo.defaultBranch, style = MaterialTheme.typography.labelSmall, color = tertiary)
             if (repo.isPrivate) {
                 Spacer(Modifier.width(6.dp))
-                Icon(Icons.Filled.Lock, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
+                Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
             }
             if (isOwner && !usedByProtected) {
                 IconButton(onClick = { viewModel.removeRepo(repo.id) }) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Remove repository")
+                    Icon(ExpIcons.uiDelete, contentDescription = "Remove repository")
                 }
             }
         }
@@ -701,7 +689,7 @@ private fun RepositoryRow(
                             otherRepos.forEach { target ->
                                 DropdownMenuItem(
                                     text = { Text(target.fullName, fontFamily = FontFamily.Monospace) },
-                                    leadingIcon = { Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                                    leadingIcon = { Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(14.dp)) },
                                     onClick = {
                                         retargetMenu = false
                                         viewModel.setBoardRepository(ref.id, target.id)
@@ -790,7 +778,7 @@ private fun MembersSection(
                         var rowMenu by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { rowMenu = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "Member actions")
+                                Icon(ExpIcons.uiMoreVertical, contentDescription = "Member actions")
                             }
                             DropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
                                 // Role changes + removing others are owner-only.
@@ -856,7 +844,7 @@ private fun LabelsSection(
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             SectionHeader("Labels", modifier = Modifier.weight(1f))
             OutlinedButton(onClick = { showCreate = true }) {
-                Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                Icon(ExpIcons.uiAdd, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("New label")
             }
@@ -910,10 +898,10 @@ private fun LabelRow(
         Spacer(Modifier.width(10.dp))
         Text(label.name, modifier = Modifier.weight(1f))
         IconButton(onClick = { editing = true }) {
-            Icon(Icons.Filled.MoreVert, contentDescription = "Edit label")
+            Icon(ExpIcons.uiMoreVertical, contentDescription = "Edit label")
         }
         IconButton(onClick = { onDelete(label) }) {
-            Icon(Icons.Filled.Delete, contentDescription = "Delete label")
+            Icon(ExpIcons.uiDelete, contentDescription = "Delete label")
         }
     }
 
@@ -972,7 +960,7 @@ private fun LabelEditorDialog(
                         ) {
                             if (selected) {
                                 Icon(
-                                    Icons.Filled.Check,
+                                    ExpIcons.uiCheck,
                                     contentDescription = null,
                                     tint = Color.White,
                                     modifier = Modifier.size(16.dp),

@@ -116,9 +116,12 @@ import androidx.room.RoomDatabase
     //      Electric shape (columns WITHOUT the ≤64KB `body`, which stays
     //      tRPC-only). Consumers list actions from the local flow now instead
     //      of `actions.list`. Destructive fallback wipes + resyncs.
+    // v29 (EXP-273): actions.icon — the action's curated registry glyph, the
+    //      same set boards.icon draws from. Additive column on the existing
+    //      actions shape; destructive fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 28,
+    version = 29,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

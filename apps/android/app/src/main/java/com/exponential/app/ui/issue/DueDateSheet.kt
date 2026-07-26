@@ -8,9 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +29,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -92,7 +90,7 @@ fun DueDateSheet(
                 enabled = hasDate,
                 leading = {
                     Icon(
-                        Icons.Filled.Schedule,
+                        ExpIcons.uiClock,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                         tint = Color.White.copy(alpha = if (hasDate) TextEmphasis.Secondary else TextEmphasis.Quaternary),
@@ -106,7 +104,7 @@ fun DueDateSheet(
                 enabled = hasDate,
                 leading = {
                     Icon(
-                        Icons.Filled.Schedule,
+                        ExpIcons.uiClock,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                         tint = Color.White.copy(alpha = if (hasDate) TextEmphasis.Secondary else TextEmphasis.Quaternary),
@@ -121,7 +119,7 @@ fun DueDateSheet(
                     labelColor = MaterialTheme.colorScheme.error,
                     leading = {
                         Icon(
-                            Icons.Filled.Close,
+                            ExpIcons.uiClose,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.error,

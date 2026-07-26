@@ -7,7 +7,7 @@ pub const ISSUE_PRIORITY_VALUES: &[&str] = &["none", "urgent", "high", "medium",
 pub const ISSUE_PRIORITY_DISPLAY_ORDER: &[&str] = &["urgent", "high", "medium", "low", "none"];
 pub const ISSUE_SOURCE_VALUES: &[&str] = &["user", "widget"];
 pub const TEAM_ROLE_VALUES: &[&str] = &["owner", "member"];
-pub const BOARD_ICON_VALUES: &[&str] = &["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"];
+pub const BOARD_ICON_VALUES: &[&str] = &["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car"];
 pub const COMMENT_KIND_VALUES: &[&str] = &["regular"];
 pub const NOTIFICATION_TYPE_VALUES: &[&str] = &["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply"];
 pub const PR_STATE_VALUES: &[&str] = &["open", "closed", "merged", "draft"];
@@ -21,7 +21,7 @@ pub const CODEX_MODEL_VALUES: &[&str] = &["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5
 pub const CODEX_EFFORT_VALUES: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
 pub const PI_MODEL_VALUES: &[&str] = &["fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5"];
 pub const PI_THINKING_VALUES: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-pub const ACTION_INPUT_TYPE_VALUES: &[&str] = &["text", "repo", "board", "pr"];
+pub const ACTION_INPUT_TYPE_VALUES: &[&str] = &["text", "repo", "board", "pr", "icon"];
 
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;
 pub const BUILTIN_CREATE_ACTION_ID: &str = "builtin:create-action";

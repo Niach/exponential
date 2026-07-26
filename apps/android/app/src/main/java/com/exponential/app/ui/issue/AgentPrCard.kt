@@ -19,10 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.AltRoute
-import androidx.compose.material.icons.automirrored.filled.CallMerge
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,6 +38,7 @@ import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -173,7 +170,7 @@ private fun SessionRow(
             )
             if (watchable) {
                 Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    ExpIcons.uiChevronRight,
                     contentDescription = "Watch live",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -215,7 +212,7 @@ private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.CallMerge,
+                ExpIcons.prOpen,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = tint,
@@ -255,7 +252,7 @@ private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.AltRoute,
+                ExpIcons.uiBranch,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = AccentIndigo,

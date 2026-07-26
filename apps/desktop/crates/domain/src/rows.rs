@@ -405,6 +405,9 @@ pub struct ActionRow {
     pub name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// EXP-273: curated registry icon name; `None` = the generic action glyph.
+    #[serde(default)]
+    pub icon: Option<String>,
     /// jsonb `ActionInputDef[]` — TEXT-stored (§5.5), re-parsed at hydrate
     /// like `issue_events.payload`.
     #[serde(default, deserialize_with = "tolerant_opt_json")]

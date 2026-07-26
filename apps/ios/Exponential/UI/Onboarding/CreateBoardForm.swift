@@ -26,6 +26,9 @@ struct CreateBoardForm: View {
     @State private var prefixEdited = false
     @State private var color = DEFAULT_LABEL_COLOR
     @State private var icon = "square-kanban"
+    // The registry ships 60 pickable glyphs (EXP-273) — too many to scan at a
+    // glance, so the grid is filtered by a name query.
+    @State private var iconQuery = ""
     @State private var repository: BoardRepositoryChoice?
     @State private var saving = false
     @State private var errorText: String?
@@ -83,9 +86,10 @@ struct CreateBoardForm: View {
                 }
             }
 
-            // Icon (curated glyphs) — grid of the 16 supported names.
+            // Icon (curated glyphs) — the shared registry's pickable set.
             VStack(alignment: .leading, spacing: 8) {
                 fieldLabel("Icon")
+                iconSearchField
                 iconGrid
             }
 
@@ -108,8 +112,7 @@ struct CreateBoardForm: View {
             }
             if let limitText {
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.caption)
+                    AppIcon(AppIcons.navGettingStarted, size: AppIcon.Size.small)
                         .foregroundStyle(DesignTokens.Semantic.blue)
                     Text(limitText)
                         .font(.caption)
@@ -146,16 +149,54 @@ struct CreateBoardForm: View {
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
     }
 
-    // Grid of the 16 curated glyphs (DomainContract.boardIconValues).
+    /// Name filter over the pickable set. The selected icon always stays in the
+    /// grid (see `filteredIcons`) so narrowing the query can never hide it.
+    private var iconSearchField: some View {
+        HStack(spacing: 8) {
+            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            TextField("Search icons", text: $iconQuery)
+                .font(.subheadline)
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .foregroundStyle(.white)
+            if !iconQuery.isEmpty {
+                Button {
+                    iconQuery = ""
+                } label: {
+                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear icon search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// The pickable names matching the query, with the current selection pinned
+    /// in so it never disappears from under the user.
+    private var filteredIcons: [String] {
+        let query = iconQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !query.isEmpty else { return AppIcons.pickable }
+        return AppIcons.pickable.filter { $0.contains(query) || $0 == icon }
+    }
+
+    // Grid of the registry's pickable glyphs (AppIcons.pickable — byte-equal to
+    // DomainContract.boardIconValues, so every name here is a storable
+    // `boards.icon`).
     private var iconGrid: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 8), spacing: 8) {
-            ForEach(DomainContract.boardIconValues, id: \.self) { name in
+            ForEach(filteredIcons, id: \.self) { name in
                 let selected = icon == name
                 Button {
                     icon = name
                 } label: {
-                    Image(systemName: BoardTypeDisplay.iconSymbol(for: name) ?? "square")
-                        .font(.subheadline)
+                    AppIcon(name, size: AppIcon.Size.medium)
                         .foregroundStyle(.white.opacity(selected ? 1 : TextOpacity.secondary))
                         .frame(maxWidth: .infinity)
                         .frame(height: 32)
@@ -167,6 +208,7 @@ struct CreateBoardForm: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(name)
             }
         }
     }

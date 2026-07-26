@@ -102,7 +102,7 @@ struct AgentSessionView: View {
                     Button {
                         showKillConfirm = true
                     } label: {
-                        Image(systemName: "stop.circle")
+                        AppIcon(AppIcons.codingStop, size: AppIcon.Size.large)
                             .foregroundStyle(DesignTokens.Semantic.red)
                     }
                     .accessibilityLabel("Kill session")
@@ -473,8 +473,7 @@ struct AgentSessionView: View {
             showDiffSheet = true
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "plus.forwardslash.minus")
-                    .font(.caption)
+                AppIcon(AppIcons.codingDiff, size: AppIcon.Size.small)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text("Latest changes")
                     .font(.caption.weight(.medium))
@@ -486,8 +485,7 @@ struct AgentSessionView: View {
                 Text("−\(stats.deletions)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.red)
-                Image(systemName: "chevron.up")
-                    .font(.caption2)
+                AppIcon(AppIcons.uiChevronUp, size: 11)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 12)
@@ -522,8 +520,7 @@ struct AgentSessionView: View {
             Button {
                 sendMessage(model)
             } label: {
-                Image(systemName: "arrow.up")
-                    .font(.subheadline.weight(.semibold))
+                AppIcon(AppIcons.uiSend, size: 15, weight: .semibold)
                     .foregroundStyle(.white)
                     .padding(9)
             }
@@ -550,8 +547,7 @@ private struct NarrationBubble: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "sparkles")
-                .font(.caption2)
+            AppIcon(AppIcons.codingAssistant, size: 11)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .padding(.top, 4)
             Text(text)
@@ -688,8 +684,7 @@ private struct QuestionCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: question.planMode ? "checklist" : "questionmark.circle")
-                .font(.caption)
+            AppIcon(question.planMode ? AppIcons.codingPlan : AppIcons.uiHelp, size: AppIcon.Size.small)
                 .foregroundStyle(
                     question.planMode ? DesignTokens.Semantic.blue : DesignTokens.Semantic.yellow
                 )
@@ -736,8 +731,7 @@ private struct QuestionCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(priorSteps) { step in
                     HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "checkmark")
-                            .font(.caption2)
+                        AppIcon(AppIcons.uiCheck, size: 11)
                             .foregroundStyle(DesignTokens.Semantic.green)
                             .padding(.top, 2)
                         Text(step.answerSummary ?? "Answered")
@@ -768,8 +762,7 @@ private struct QuestionCard: View {
     @ViewBuilder
     private var resolution: some View {
         HStack(alignment: .top, spacing: 6) {
-            Image(systemName: question.dismissed ? "xmark" : "checkmark")
-                .font(.caption2)
+            AppIcon(question.dismissed ? AppIcons.uiClose : AppIcons.uiCheck, size: 11)
                 .foregroundStyle(
                     question.dismissed
                         ? Color.white.opacity(TextOpacity.tertiary)
@@ -834,8 +827,7 @@ private struct QuestionCard: View {
                 } else {
                     // Confirmed injected — the card stays locked until the
                     // desktop retires it with `question_resolved`.
-                    Image(systemName: "checkmark")
-                        .font(.caption2)
+                    AppIcon(AppIcons.uiCheck, size: 11)
                         .foregroundStyle(DesignTokens.Semantic.green)
                 }
                 Text(pending ? "Sending…" : "Answer sent")
@@ -939,8 +931,7 @@ private struct ToolRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "wrench.and.screwdriver")
-                .font(.caption2)
+            AppIcon(AppIcons.codingTool, size: 11)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text(name)
                 .font(.caption.weight(.medium))
@@ -984,11 +975,9 @@ private struct ToolGroupRow: View {
                 expanded.toggle()
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2)
+                    AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    Image(systemName: "wrench.and.screwdriver")
-                        .font(.caption2)
+                    AppIcon(AppIcons.codingTool, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     Text("\(items.count) tool calls")
                         .font(.caption.weight(.medium))
@@ -1040,11 +1029,9 @@ private struct SubagentGroupRow: View {
                 expanded.toggle()
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2)
+                    AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    Image(systemName: "person.2")
-                        .font(.caption2)
+                    AppIcon(AppIcons.codingSubagent, size: 11)
                         .foregroundStyle(DesignTokens.Semantic.blue)
                     Text(title)
                         .font(.caption.weight(.medium))
@@ -1101,8 +1088,7 @@ private struct SubagentRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "person.2")
-                .font(.caption2)
+            AppIcon(AppIcons.codingSubagent, size: 11)
                 .foregroundStyle(DesignTokens.Semantic.blue)
             Text(status == .completed ? "\(agentType) finished" : "\(agentType) started")
                 .font(.caption.weight(.medium))
@@ -1129,8 +1115,7 @@ private struct PermissionRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "lock.shield")
-                .font(.caption2)
+            AppIcon(AppIcons.uiPermission, size: 11)
                 .foregroundStyle(DesignTokens.Semantic.orange)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {

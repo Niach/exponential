@@ -19,16 +19,6 @@ public enum IssuePriority: String, CaseIterable, Codable, Identifiable, Sendable
         }
     }
 
-    public var sfSymbol: String {
-        switch self {
-        case .none: "minus"
-        case .urgent: "exclamationmark.triangle.fill"
-        case .high: "chevron.up"
-        case .medium: "equal"
-        case .low: "chevron.down"
-        }
-    }
-
     public static let displayOrder: [IssuePriority] = [.urgent, .high, .medium, .low, .none]
 
     public static func from(_ wire: String?) -> IssuePriority {

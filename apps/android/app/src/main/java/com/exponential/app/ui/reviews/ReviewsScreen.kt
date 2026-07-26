@@ -17,11 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallMerge
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -97,7 +93,7 @@ private fun ReviewsListContent(
         !state.loaded -> LoadingState(modifier = modifier)
         state.groups.isEmpty() -> EmptyState(
             message = "No open pull requests",
-            icon = Icons.AutoMirrored.Filled.CallMerge,
+            icon = ExpIcons.navReviews,
             modifier = modifier,
         )
         else -> LazyColumn(
@@ -178,7 +174,7 @@ private fun ReviewRow(
     ) {
         // PR glyph — green like the iOS/web review rows (EXP-248).
         Icon(
-            Icons.AutoMirrored.Filled.CallMerge,
+            ExpIcons.prOpen,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = DesignTokens.Semantic.Green,
@@ -253,7 +249,7 @@ private fun ReviewRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.CallMerge,
+                ExpIcons.prMerged,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSurface,
@@ -268,7 +264,7 @@ private fun ReviewRow(
         }
         Spacer(Modifier.width(6.dp))
         Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            ExpIcons.uiChevronRight,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -300,7 +296,7 @@ private fun ReviewRow(
                 // moves here — the representative issue for a batch entry.
                 ListItem(
                     headlineContent = { Text("Open issue") },
-                    leadingContent = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+                    leadingContent = { Icon(ExpIcons.navMyIssues, contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
@@ -310,7 +306,7 @@ private fun ReviewRow(
                 )
                 ListItem(
                     headlineContent = { Text("Merge pull request") },
-                    leadingContent = { Icon(Icons.AutoMirrored.Filled.CallMerge, contentDescription = null) },
+                    leadingContent = { Icon(ExpIcons.prOpen, contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
@@ -321,7 +317,7 @@ private fun ReviewRow(
                 if (entry.prUrl != null) {
                     ListItem(
                         headlineContent = { Text("Open PR") },
-                        leadingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+                        leadingContent = { Icon(ExpIcons.uiExternalLink, contentDescription = null) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {

@@ -16,11 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +45,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.GithubPickerRepo
 import com.exponential.app.data.api.GithubReposResult
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -218,12 +214,12 @@ private fun ConnectPrompt(
             enabled = connectUrl != null,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(16.dp))
+            Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text(buttonLabel)
         }
         OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text("I've connected — refresh")
         }
@@ -266,7 +262,7 @@ private fun LazyListScope.installedRepoItems(
                     )
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+                Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "Reconnect GitHub to load more repositories — we only list repos you can access.",
@@ -283,7 +279,7 @@ private fun LazyListScope.installedRepoItems(
             onValueChange = onQueryChange,
             singleLine = true,
             placeholder = { Text("Search repositories…") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            leadingIcon = { Icon(ExpIcons.navSearch, contentDescription = null, modifier = Modifier.size(18.dp)) },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -309,7 +305,7 @@ private fun LazyListScope.installedRepoItems(
                 .clickable { onPick(repo) }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+            Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
             Spacer(Modifier.width(10.dp))
             Text(
                 repo.fullName,
@@ -321,7 +317,7 @@ private fun LazyListScope.installedRepoItems(
                 modifier = Modifier.weight(1f),
             )
             if (repo.isPrivate) {
-                Icon(Icons.Filled.Lock, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = tertiary)
+                Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = tertiary)
             }
         }
     }
@@ -341,7 +337,7 @@ private fun LazyListScope.installedRepoItems(
             enabled = connectUrl != null,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text("Refresh from GitHub")
         }

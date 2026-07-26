@@ -35,8 +35,7 @@ struct SyncDebugView: View {
     private var fatalSection: some View {
         if let fatal = debug.lastFatalError {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption)
+                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                     .foregroundStyle(.red)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Sync stopped")
@@ -151,8 +150,7 @@ struct SyncDebugView: View {
                 }
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption)
+                    AppIcon(AppIcons.settingsSync, size: AppIcon.Size.small)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     Text(resyncing ? "Resyncing…" : "Resync now")
                         .font(.caption.weight(.medium))

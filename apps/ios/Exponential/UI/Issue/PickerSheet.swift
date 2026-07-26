@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import GRDB
 import SwiftUI
 
@@ -37,8 +38,7 @@ struct PickerSheet<Item, ID: Hashable, Row: View>: View {
                             row(wrapped.value)
                             Spacer()
                             if let selectedID, wrapped.id == selectedID {
-                                Image(systemName: "checkmark")
-                                    .font(.subheadline.weight(.semibold))
+                                AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
                                     .foregroundStyle(.tint)
                             }
                         }

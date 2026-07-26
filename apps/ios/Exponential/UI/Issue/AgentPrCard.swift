@@ -123,8 +123,7 @@ struct AgentPrCard: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             if chevron {
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
+                AppIcon(AppIcons.uiChevronRight, size: 11)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
@@ -161,8 +160,7 @@ struct AgentPrCard: View {
     private var prChip: some View {
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.pull")
-                    .font(.caption.weight(.semibold))
+                AppIcon(AppIcons.prOpen, size: AppIcon.Size.small, weight: .semibold)
                     .foregroundStyle(prTint)
                 Text(prLabel)
                     .font(.caption.weight(.medium))
@@ -184,8 +182,7 @@ struct AgentPrCard: View {
     private func branchChip(_ branch: String) -> some View {
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.caption)
+                AppIcon(AppIcons.actionRepository, size: AppIcon.Size.small)
                     .foregroundStyle(Accent.indigo)
                 Text(branch)
                     .font(.caption.monospaced())

@@ -49,6 +49,8 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
     public let repositoryId: String?
     public let name: String
     public let description: String?
+    /// EXP-273: curated registry icon name; nil = the generic action glyph.
+    public let icon: String?
     public let body: String
     public let sortOrder: Double
     public let createdAt: String
@@ -62,6 +64,7 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         repositoryId: String?,
         name: String,
         description: String?,
+        icon: String? = nil,
         body: String,
         sortOrder: Double,
         createdAt: String,
@@ -74,6 +77,7 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         self.repositoryId = repositoryId
         self.name = name
         self.description = description
+        self.icon = icon
         self.body = body
         self.sortOrder = sortOrder
         self.createdAt = createdAt
@@ -101,6 +105,7 @@ public extension ActionDto {
             repositoryId: nil,
             name: "Create action",
             description: "Describe a new action and let Claude author it for the team",
+            icon: "sparkles",
             body: "",
             sortOrder: 1e9,
             createdAt: "1970-01-01T00:00:00.000Z",
@@ -114,6 +119,8 @@ public extension ActionDto {
                     placeholder: "What should this action do?"
                 ),
                 ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
+                // EXP-273: the author picks the new action's glyph up front.
+                ActionInputDto(key: "icon", label: "Icon", type: "icon", required: false),
             ],
             builtin: true
         )
@@ -132,6 +139,7 @@ public extension ActionDto {
             repositoryId: nil,
             name: "Fix merge conflicts",
             description: "Pick a conflicted pull request and let Claude rebase, resolve, and merge it",
+            icon: "git-branch",
             body: "",
             sortOrder: 1e9 + 1,
             createdAt: "1970-01-01T00:00:00.000Z",
@@ -166,6 +174,7 @@ public extension ActionDto {
             repositoryId: entity.repositoryId,
             name: entity.name,
             description: entity.description,
+            icon: entity.icon,
             body: "",
             sortOrder: entity.sortOrder ?? 0,
             createdAt: entity.createdAt,

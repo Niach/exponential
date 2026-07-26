@@ -672,10 +672,13 @@ private struct BlockImageView: View {
 
                 if !isReadOnly {
                     Button(action: onDelete) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white.opacity(0.8), .black.opacity(0.5))
+                        // Lucide's circle-x is a stroke glyph with no palette
+                        // fill, so the legibility the filled symbol got for
+                        // free comes from a scrim behind it instead.
+                        AppIcon(AppIcons.uiClear, size: 22)
+                            .foregroundStyle(.white.opacity(0.9))
+                            .padding(2)
+                            .background(Circle().fill(.black.opacity(0.5)))
                     }
                     .padding(8)
                 }
@@ -709,8 +712,7 @@ private struct BlockImageView: View {
             placeholderTile {
                 Button(action: onRetry) {
                     VStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 24))
+                        AppIcon(AppIcons.uiRefresh, size: 24)
                         Text("Tap to retry")
                             .font(.caption)
                     }
@@ -748,8 +750,7 @@ private struct BlockImageView: View {
     private func uploadFailedOverlay(_ reason: ImageUploadFailureReason) -> some View {
         Button(action: onRetry) {
             HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.caption)
+                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                 Text(reason == .storageFull
                     ? "Team storage is full — tap to retry"
                     : "Upload failed — tap to retry")

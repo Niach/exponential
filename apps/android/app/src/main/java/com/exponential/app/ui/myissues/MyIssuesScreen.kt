@@ -12,10 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +31,7 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.LongPressIssueRow
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -57,7 +54,7 @@ fun MyIssuesListContent(
         !state.loaded -> LoadingState(modifier = modifier)
         state.groups.isEmpty() -> EmptyState(
             message = "Nothing assigned to you",
-            icon = Icons.Filled.Person,
+            icon = ExpIcons.uiAssignee,
             modifier = modifier,
         )
         else -> LazyColumn(
@@ -118,7 +115,7 @@ private fun GroupHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Filled.KeyboardArrowDown,
+            if (collapsed) ExpIcons.uiChevronRight else ExpIcons.uiChevronDown,
             contentDescription = if (collapsed) "Expand" else "Collapse",
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),

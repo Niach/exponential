@@ -25,12 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -75,6 +69,7 @@ import com.exponential.app.domain.statusIcon
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.MarkdownEditor
@@ -253,7 +248,7 @@ fun CreateIssueScreen(
                     title = { Text("New Issue") },
                     navigationIcon = {
                         IconButton(onClick = ::attemptClose, enabled = !isCreating) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancel")
+                            Icon(ExpIcons.uiBack, contentDescription = "Cancel")
                         }
                     },
                     actions = {
@@ -358,7 +353,7 @@ fun CreateIssueScreen(
                     if (!isSoloTeam) {
                         MetaDivider()
                         MetaRow(label = "Assignee", enabled = isModerator, onClick = { assigneeMenuOpen = true }) {
-                            Icon(Icons.Filled.Person, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+                            Icon(ExpIcons.uiAssignee, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 assigneeUser?.name ?: assigneeUser?.email ?: "Unassigned",
@@ -373,7 +368,7 @@ fun CreateIssueScreen(
                     // (EXP-247), the time rows only appearing with a due date.
                     MetaDivider()
                     MetaRow(label = "Due date", enabled = isModerator, onClick = { datePickerOpen = true }) {
-                        Icon(Icons.Filled.CalendarMonth, null, modifier = Modifier.size(14.dp), tint = dueDate?.let { dueDateColor(it) } ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
+                        Icon(ExpIcons.uiDueDate, null, modifier = Modifier.size(14.dp), tint = dueDate?.let { dueDateColor(it) } ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
                         Spacer(Modifier.width(6.dp))
                         Text(
                             dueDate?.let { formatDueDate(it) } ?: "—",
@@ -384,13 +379,13 @@ fun CreateIssueScreen(
                     if (dueDate != null) {
                         MetaDivider()
                         MetaRow(label = "Start time", enabled = isModerator, onClick = { dueTimePickerOpen = true }) {
-                            Icon(Icons.Filled.Schedule, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+                            Icon(ExpIcons.uiClock, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
                             Spacer(Modifier.width(6.dp))
                             Text(dueTime ?: "—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dueTime != null) TextEmphasis.Primary else TextEmphasis.Tertiary))
                         }
                         MetaDivider()
                         MetaRow(label = "End time", enabled = isModerator, onClick = { endTimePickerOpen = true }) {
-                            Icon(Icons.Filled.Schedule, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+                            Icon(ExpIcons.uiClock, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
                             Spacer(Modifier.width(6.dp))
                             Text(endTime ?: "—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (endTime != null) TextEmphasis.Primary else TextEmphasis.Tertiary))
                         }
@@ -441,7 +436,7 @@ fun CreateIssueScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                Icons.Filled.Add,
+                                ExpIcons.uiAdd,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),

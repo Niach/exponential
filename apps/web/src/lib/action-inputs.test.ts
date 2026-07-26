@@ -174,4 +174,57 @@ describe(`resolveActionInputs`, () => {
       message: `Input "pr": pick an open pull request of the team`,
     })
   })
+
+  // EXP-273: `icon` is the only picked value that is NOT an id — it validates
+  // against the curated contract set instead of a team-scoped lookup, so it
+  // must bypass the uuid gate the repo/board/pr branches share.
+  const iconDefs: ActionInputDef[] = [
+    { key: `glyph`, label: `Icon`, type: `icon`, required: false },
+  ]
+
+  it(`resolves a curated icon name without hitting a lookup`, async () => {
+    const result = await resolveActionInputs(
+      iconDefs,
+      { glyph: `rocket` },
+      `ws-1`,
+      lookups
+    )
+    expect(result).toEqual({
+      ok: true,
+      inputs: [
+        {
+          key: `glyph`,
+          label: `Icon`,
+          type: `icon`,
+          value: `rocket`,
+          display: `rocket`,
+        },
+      ],
+    })
+  })
+
+  it(`rejects an icon name outside the curated set`, async () => {
+    const result = await resolveActionInputs(
+      iconDefs,
+      { glyph: `not-a-real-icon` },
+      `ws-1`,
+      lookups
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      message: `Input "glyph": pick an icon from the curated set`,
+    })
+  })
+
+  it(`rejects a uuid as an icon value`, async () => {
+    // The uuid gate is skipped for icons, so the curated-set check is the only
+    // thing standing between a stray id and the prompt.
+    const result = await resolveActionInputs(
+      iconDefs,
+      { glyph: BOARD_ID },
+      `ws-1`,
+      lookups
+    )
+    expect(result).toMatchObject({ ok: false })
+  })
 })

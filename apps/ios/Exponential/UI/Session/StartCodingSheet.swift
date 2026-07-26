@@ -342,8 +342,7 @@ struct StartCodingSheet: View {
         // Inline search field. NOT system .searchable — same rationale as
         // DuplicatePickerSheet (iOS 26 renders it as a bottom-edge glass bar).
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.caption)
+            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
                 .foregroundStyle(.secondary)
             TextField("Search issues", text: $searchText)
                 .textFieldStyle(.plain)
@@ -352,8 +351,7 @@ struct StartCodingSheet: View {
                 Button {
                     searchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
+                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -370,14 +368,12 @@ struct StartCodingSheet: View {
                 // Selection state must be unmissable (EXP-241): body-size
                 // glyph swap plus a tinted row background below — the old
                 // caption-size circle alone read as decoration, not a control.
-                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
-                    .font(.body)
+                AppIcon(isChecked ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
                     .foregroundStyle(isChecked ? Accent.indigo : .secondary)
 
                 // Issue-list row anatomy (EXP-173): priority icon, mono
                 // identifier, status icon, title.
-                Image(systemName: IssuePriority.from(option.priority).sfSymbol)
-                    .font(.caption)
+                AppIcon(IssuePriority.from(option.priority).iconName, size: AppIcon.Size.small)
                     .foregroundStyle(IssuePriority.from(option.priority).color)
                     .frame(width: 16)
 
@@ -386,8 +382,7 @@ struct StartCodingSheet: View {
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 60, alignment: .leading)
 
-                Image(systemName: IssueStatus.from(option.status).sfSymbol)
-                    .font(.caption)
+                AppIcon(IssueStatus.from(option.status).iconName, size: AppIcon.Size.small)
                     .foregroundStyle(IssueStatus.from(option.status).color)
                     .frame(width: 16)
 
@@ -537,8 +532,7 @@ struct StartCodingSheet: View {
 
     private var actionSearchField: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.caption)
+            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
                 .foregroundStyle(.secondary)
             TextField("Search actions", text: $actionSearchText)
                 .textFieldStyle(.plain)
@@ -547,8 +541,7 @@ struct StartCodingSheet: View {
                 Button {
                     actionSearchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
+                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -562,14 +555,12 @@ struct StartCodingSheet: View {
             selectAction(action)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.body)
+                AppIcon(isSelected ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
                     .foregroundStyle(isSelected ? Accent.indigo : .secondary)
 
                 // The builtin "Create action" wears the create affordance;
                 // real actions keep the bolt (the Actions surface glyph).
-                Image(systemName: action.isBuiltin ? "plus.circle" : "bolt")
-                    .font(.caption)
+                AppIcon(action.isBuiltin ? AppIcons.actionCreate : AppIcons.actionDefault, size: AppIcon.Size.small)
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
 
@@ -580,8 +571,7 @@ struct StartCodingSheet: View {
                             .lineLimit(1)
                         if action.repositoryId != nil {
                             // Small repo indicator: this action clones its repo.
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.caption2)
+                            AppIcon(AppIcons.actionRepository, size: 11)
                                 .foregroundStyle(.secondary)
                                 .accessibilityLabel("Runs in a repository")
                         }

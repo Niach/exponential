@@ -149,8 +149,7 @@ struct ActionsListView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "bolt")
-                .font(.title2)
+            AppIcon(AppIcons.actionDefault, size: 22)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("No actions yet")
                 .font(.subheadline)
@@ -165,8 +164,7 @@ struct ActionsListView: View {
 
     private func errorState(_ message: String) -> some View {
         VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.title2)
+            AppIcon(AppIcons.uiWarning, size: 22)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text(message)
                 .font(.caption)
@@ -180,8 +178,9 @@ struct ActionsListView: View {
         HStack(spacing: 12) {
             // The builtin "Create action" row (EXP-257) wears the create
             // affordance; real actions keep the bolt.
-            Image(systemName: action.isBuiltin ? "plus.circle" : "bolt")
-                .font(.body)
+            // EXP-273: the action's own curated glyph (the builtins set one too),
+            // falling back to the generic action mark.
+            AppIcon(action.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
             VStack(alignment: .leading, spacing: 3) {
@@ -192,8 +191,7 @@ struct ActionsListView: View {
                         .lineLimit(1)
                     if action.repositoryId != nil {
                         // Small repo indicator: this action clones its repo.
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.caption2)
+                        AppIcon(AppIcons.actionRepository, size: 11)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .accessibilityLabel("Runs in a repository")
                     }

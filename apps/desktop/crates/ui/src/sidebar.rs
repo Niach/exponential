@@ -53,7 +53,7 @@ use crate::actions::{CreateTeam, JoinTeam, SignOut, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::trunk_sync::TrunkSync;
-use crate::icons::ExpIcon;
+use crate::icons::{self, ExpIcon};
 use crate::issue_list::IssueQuery;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
@@ -841,7 +841,7 @@ impl Render for RailView {
             let support_badge = support_unread.then(|| cx.theme().warning);
             self.rail_tool_icon(
                 "rail-support",
-                Icon::from(ExpIcon::MessageSquare),
+                Icon::from(icons::registry::NAV_SUPPORT),
                 ToolWindow::Support,
                 "Support",
                 "Support",
@@ -1139,7 +1139,7 @@ impl Render for RailView {
                     .children(support_icon)
                     .child(self.rail_tool_icon(
                         "rail-actions",
-                        Icon::from(ExpIcon::Zap),
+                        Icon::from(icons::registry::NAV_AGENTS),
                         ToolWindow::Actions,
                         "Actions",
                         "Actions",

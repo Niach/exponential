@@ -25,19 +25,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.DriveFileMove
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Feedback
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -86,6 +73,7 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.MarkdownEditor
@@ -240,7 +228,7 @@ fun IssueDetailScreen(
                 title = { Text("Issue") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -261,12 +249,12 @@ fun IssueDetailScreen(
                                     )
                                 }
                             }) {
-                                Icon(Icons.Filled.Share, contentDescription = "Share issue")
+                                Icon(ExpIcons.uiShare, contentDescription = "Share issue")
                             }
                         }
                         IconButton(onClick = { viewModel.toggleSubscribe() }) {
                             Icon(
-                                if (isSubscribed) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                                if (isSubscribed) ExpIcons.uiSubscribe else ExpIcons.uiUnsubscribe,
                                 contentDescription = if (isSubscribed) "Unsubscribe" else "Subscribe",
                                 tint = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -277,7 +265,7 @@ fun IssueDetailScreen(
                         if (isModerator) {
                             Box {
                                 IconButton(onClick = { overflowOpen = true }) {
-                                    Icon(Icons.Filled.MoreVert, contentDescription = "Issue actions")
+                                    Icon(ExpIcons.uiMoreVertical, contentDescription = "Issue actions")
                                 }
                                 DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                                     // Duplicate = status interception (L27): marking a
@@ -286,7 +274,7 @@ fun IssueDetailScreen(
                                     // unmark action lives here.
                                     if (issue.duplicateOfId != null) {
                                         DropdownMenuItem(
-                                            leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                                            leadingIcon = { Icon(ExpIcons.uiCopy, contentDescription = null) },
                                             text = { Text("Unmark duplicate") },
                                             onClick = {
                                                 overflowOpen = false
@@ -299,7 +287,7 @@ fun IssueDetailScreen(
                                     // only board (web parity: 2+ boards).
                                     if (moveTargets.isNotEmpty()) {
                                         DropdownMenuItem(
-                                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
+                                            leadingIcon = { Icon(ExpIcons.eventBoardMoved, contentDescription = null) },
                                             text = { Text("Move to board") },
                                             onClick = {
                                                 overflowOpen = false
@@ -308,7 +296,7 @@ fun IssueDetailScreen(
                                         )
                                     }
                                     DropdownMenuItem(
-                                        leadingIcon = { Icon(Icons.Filled.DeleteOutline, contentDescription = null) },
+                                        leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                                         text = { Text("Delete issue") },
                                         onClick = {
                                             overflowOpen = false
@@ -468,7 +456,7 @@ fun IssueDetailScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Filled.ContentCopy,
+                        ExpIcons.statusDuplicate,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -773,7 +761,7 @@ fun IssueDetailScreen(
             selected = null,
             keyOf = { it.id },
             labelOf = { it.name },
-            iconOf = { Icons.Filled.Folder },
+            iconOf = { ExpIcons.navBoards },
             onSelect = { moveTarget = it },
             onDismiss = { activeSheet = null },
         )
@@ -851,7 +839,7 @@ private fun RemoteEditBanner(onReload: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(
-            Icons.Filled.Refresh,
+            ExpIcons.uiRefresh,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -875,7 +863,7 @@ private fun FeedbackWidgetChip() {
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
         Icon(
-            Icons.Filled.Feedback,
+            ExpIcons.uiWidget,
             contentDescription = null,
             modifier = Modifier.size(12.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -900,7 +888,7 @@ private fun RepoChip(fullName: String) {
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
         Icon(
-            Icons.Filled.Code,
+            ExpIcons.uiRepository,
             contentDescription = null,
             modifier = Modifier.size(12.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),

@@ -28,23 +28,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Difference
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,6 +63,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.PatchLines
 import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
@@ -160,7 +144,7 @@ fun AgentSessionScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -173,7 +157,7 @@ fun AgentSessionScreen(
                     ) {
                         IconButton(onClick = { killDialogOpen = true }) {
                             Icon(
-                                Icons.Filled.StopCircle,
+                                ExpIcons.codingStop,
                                 contentDescription = "Kill session",
                                 tint = MaterialTheme.colorScheme.error,
                             )
@@ -325,7 +309,7 @@ fun AgentSessionScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Icon(
-                        Icons.Filled.Difference,
+                        ExpIcons.codingDiff,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -349,7 +333,7 @@ fun AgentSessionScreen(
                         style = MaterialTheme.typography.labelSmall,
                     )
                     Icon(
-                        Icons.Filled.ExpandLess,
+                        ExpIcons.uiChevronUp,
                         contentDescription = "Show diff",
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -579,7 +563,7 @@ private fun NarrationBubble(text: String) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            Icons.Filled.AutoAwesome,
+            ExpIcons.codingAssistant,
             contentDescription = null,
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -701,7 +685,7 @@ private fun AnsweredAskCard(steps: List<AgentFeedItem.Question>) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            Icons.AutoMirrored.Filled.HelpOutline,
+            ExpIcons.uiHelp,
             contentDescription = null,
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -784,7 +768,7 @@ private fun QuestionCard(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            if (item.planMode) Icons.Filled.Checklist else Icons.AutoMirrored.Filled.HelpOutline,
+            if (item.planMode) ExpIcons.codingPlan else ExpIcons.uiHelp,
             contentDescription = null,
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
             tint = if (item.planMode) PlanAccent else ConnectingYellow,
@@ -919,7 +903,7 @@ private fun QuestionCard(
                         )
                     } else {
                         Icon(
-                            Icons.Filled.Check,
+                            ExpIcons.uiCheck,
                             contentDescription = null,
                             modifier = Modifier.size(12.dp),
                             tint = LiveGreen,
@@ -958,7 +942,7 @@ private fun AnsweredRow(answer: String?) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Icon(
-            Icons.Filled.Check,
+            ExpIcons.uiCheck,
             contentDescription = null,
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
             tint = LiveGreen,
@@ -982,7 +966,7 @@ private fun RowScope.QuestionOptionLabel(
 ) {
     if (checked != null) {
         Icon(
-            if (checked) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+            if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
             contentDescription = null,
             modifier = Modifier.size(14.dp).padding(top = 1.dp),
             tint = if (checked) {
@@ -1029,7 +1013,7 @@ private fun PermissionRow(tool: String, detail: String?) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            Icons.Filled.Lock,
+            ExpIcons.uiPrivate,
             contentDescription = null,
             modifier = Modifier.size(12.dp),
             tint = ConnectingYellow,
@@ -1072,13 +1056,13 @@ private fun SubagentGroupRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
-                if (expanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
                 contentDescription = if (expanded) "Collapse" else "Expand",
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
             Icon(
-                Icons.Filled.AccountTree,
+                ExpIcons.codingSubagent,
                 contentDescription = null,
                 modifier = Modifier.size(12.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -1090,7 +1074,7 @@ private fun SubagentGroupRow(
             )
             if (subagent.completed) {
                 Icon(
-                    Icons.Filled.Check,
+                    ExpIcons.uiCheck,
                     contentDescription = null,
                     modifier = Modifier.size(12.dp),
                     tint = LiveGreen,
@@ -1140,7 +1124,7 @@ private fun ToolRow(name: String, detail: String?) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            Icons.Filled.Build,
+            ExpIcons.codingTool,
             contentDescription = null,
             modifier = Modifier.size(12.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -1180,13 +1164,13 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
-                if (expanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
                 contentDescription = if (expanded) "Collapse" else "Expand",
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
             Icon(
-                Icons.Filled.Build,
+                ExpIcons.codingTool,
                 contentDescription = null,
                 modifier = Modifier.size(12.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -1260,7 +1244,7 @@ private fun MessageInputRow(active: Boolean, onSend: (String) -> Unit) {
             enabled = field.isNotBlank(),
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.Send,
+                ExpIcons.uiSend,
                 contentDescription = "Send",
                 tint = if (field.isNotBlank()) {
                     MaterialTheme.colorScheme.onSurface

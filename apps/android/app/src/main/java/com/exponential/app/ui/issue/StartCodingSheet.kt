@@ -22,16 +22,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -77,6 +67,7 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -500,7 +491,7 @@ fun StartCodingSheet(
                             },
                             leadingIcon = {
                                 Icon(
-                                    Icons.Filled.Search,
+                                    ExpIcons.navSearch,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                                 )
@@ -512,7 +503,7 @@ fun StartCodingSheet(
                                 {
                                     IconButton(onClick = { query = "" }) {
                                         Icon(
-                                            Icons.Filled.Cancel,
+                                            ExpIcons.uiClose,
                                             contentDescription = "Clear search",
                                             modifier = Modifier.size(16.dp),
                                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -610,7 +601,7 @@ fun StartCodingSheet(
                             },
                             leadingIcon = {
                                 Icon(
-                                    Icons.Filled.Search,
+                                    ExpIcons.navSearch,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                                 )
@@ -622,7 +613,7 @@ fun StartCodingSheet(
                                 {
                                     IconButton(onClick = { actionQuery = "" }) {
                                         Icon(
-                                            Icons.Filled.Cancel,
+                                            ExpIcons.uiClose,
                                             contentDescription = "Clear search",
                                             modifier = Modifier.size(16.dp),
                                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -892,7 +883,7 @@ private fun IssueCheckRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (checked) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
             tint = if (checked) {
@@ -969,7 +960,7 @@ private fun ActionSelectRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
             tint = if (selected) {
@@ -980,7 +971,7 @@ private fun ActionSelectRow(
         )
         Spacer(Modifier.width(10.dp))
         Icon(
-            if (action.isBuiltin) Icons.Filled.Add else Icons.Filled.Bolt,
+            if (action.isBuiltin) ExpIcons.actionCreate else ExpIcons.actionDefault,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -998,7 +989,7 @@ private fun ActionSelectRow(
                 if (action.repositoryId != null) {
                     Spacer(Modifier.width(6.dp))
                     Icon(
-                        Icons.Filled.AccountTree,
+                        ExpIcons.actionRepository,
                         contentDescription = "Runs in a repository",
                         modifier = Modifier.size(12.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -1187,7 +1178,7 @@ private fun PickerRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Icon(
-                Icons.Filled.ArrowDropDown,
+                ExpIcons.uiChevronDown,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(
@@ -1202,7 +1193,7 @@ private fun PickerRow(
                     trailingIcon = if (option == selected) {
                         {
                             Icon(
-                                Icons.Filled.Check,
+                                ExpIcons.uiCheck,
                                 contentDescription = "Selected",
                                 modifier = Modifier.size(16.dp),
                             )

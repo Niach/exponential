@@ -16,9 +16,7 @@ import {
   MoreHorizontal,
   Pencil,
   Play,
-  Plus,
   Trash2,
-  Zap,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { SectionLabel, SessionRow } from "@/components/agent-session-row"
@@ -56,6 +54,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { getActionIcon } from "@/lib/board-icons"
 
 // Team Agents view (EXP-257 — absorbed the old Actions route): the caller's
 // online desktops (remote-start entry point) plus the team's actions. On
@@ -147,7 +146,7 @@ function ActionCard({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const CardIcon = action.builtin ? Plus : Zap
+  const CardIcon = getActionIcon(action)
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
       <div className="flex min-w-0 items-center gap-2">
@@ -206,7 +205,7 @@ function ActionRow({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const RowIcon = action.builtin ? Plus : Zap
+  const RowIcon = getActionIcon(action)
   return (
     <div className="flex items-center gap-2 border-b border-border/30 px-3 py-2">
       <RowIcon className="size-4 shrink-0 text-muted-foreground" />

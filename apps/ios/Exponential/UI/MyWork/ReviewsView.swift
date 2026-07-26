@@ -80,8 +80,7 @@ struct ReviewsListContent: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: IssueStatus.inReview.sfSymbol)
-                .font(.title2)
+            AppIcon(AppIcons.prOpen, size: 22)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("No open pull requests")
                 .font(.subheadline)
@@ -146,8 +145,7 @@ struct ReviewsListContent: View {
             HStack(alignment: .center, spacing: 10) {
                 // PR glyph — the in_review status icon, green, vertically
                 // centered like the Android row (EXP-248).
-                Image(systemName: IssueStatus.inReview.sfSymbol)
-                    .font(.caption)
+                AppIcon(AppIcons.prOpen, size: AppIcon.Size.small)
                     .foregroundStyle(IssueStatus.inReview.color)
                     .frame(width: 16)
 
@@ -200,8 +198,7 @@ struct ReviewsListContent: View {
                 // contentShape + onTapGesture pattern as IssueListView's
                 // inline status/priority glyphs.
                 HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.merge")
-                        .font(.caption2)
+                    AppIcon(AppIcons.prMerged, size: 11)
                     Text("Merge")
                         .font(.caption.weight(.medium))
                 }
@@ -222,7 +219,7 @@ struct ReviewsListContent: View {
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing) {
             Button { mergeTarget = entry } label: {
-                Label("Merge", systemImage: "arrow.triangle.merge")
+                Label("Merge", appIcon: AppIcons.prMerged)
             }
             .tint(DesignTokens.Semantic.green)
         }
@@ -230,18 +227,18 @@ struct ReviewsListContent: View {
             Button {
                 deps.deepLinkBus.navigateToIssue(entry.representative.id)
             } label: {
-                Label("Open issue", systemImage: "doc.text")
+                Label("Open issue", appIcon: AppIcons.uiIssue)
             }
             Button {
                 mergeTarget = entry
             } label: {
-                Label("Merge PR", systemImage: "arrow.triangle.merge")
+                Label("Merge PR", appIcon: AppIcons.prMerged)
             }
             if let url = prURL(entry) {
                 Button {
                     openURL(url)
                 } label: {
-                    Label("Open PR on GitHub", systemImage: "arrow.up.right.square")
+                    Label("Open PR on GitHub", appIcon: AppIcons.uiExternalLink)
                 }
             }
         }

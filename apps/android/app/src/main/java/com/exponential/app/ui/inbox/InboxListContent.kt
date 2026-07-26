@@ -16,16 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.MergeType
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Adjust
-import androidx.compose.material.icons.filled.Feedback
-import androidx.compose.material.icons.filled.Inbox
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -77,7 +68,7 @@ fun InboxListContent(
     if (state.groups.isEmpty() && state.supportGroups.isEmpty()) {
         EmptyState(
             message = "You're all caught up.",
-            icon = Icons.Filled.Inbox,
+            icon = ExpIcons.navInbox,
             modifier = modifier,
         )
     } else {
@@ -169,7 +160,7 @@ private fun SupportInboxRow(group: SupportGroup, onClick: () -> Unit) {
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TypeIconBadge(Icons.Filled.SupportAgent)
+        TypeIconBadge(ExpIcons.navSupport)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -242,16 +233,15 @@ private fun TrailingTimeAndDot(time: String, unread: Int) {
     }
 }
 
-// Locked type → icon mapping (closest Material glyphs to the shared table).
+// Locked type → icon mapping, straight off the shared icon registry (EXP-273).
 private fun notificationTypeIcon(type: String): ImageVector = when (type) {
-    DomainContract.notificationTypeIssueAssigned -> Icons.Filled.PersonAdd
-    DomainContract.notificationTypeIssueComment,
-    DomainContract.notificationTypeIssueMention,
-    -> Icons.AutoMirrored.Filled.Chat
-    DomainContract.notificationTypeIssueStatusChanged -> Icons.Filled.Adjust
-    DomainContract.notificationTypeIssueCreated -> Icons.Filled.Feedback
-    DomainContract.notificationTypePrOpened -> Icons.Filled.AccountTree
-    DomainContract.notificationTypePrMerged -> Icons.AutoMirrored.Filled.MergeType
-    DomainContract.notificationTypeSupportReply -> Icons.Filled.SupportAgent
-    else -> Icons.Filled.Notifications
+    DomainContract.notificationTypeIssueAssigned -> ExpIcons.notificationIssueAssigned
+    DomainContract.notificationTypeIssueComment -> ExpIcons.notificationIssueComment
+    DomainContract.notificationTypeIssueMention -> ExpIcons.notificationIssueMention
+    DomainContract.notificationTypeIssueStatusChanged -> ExpIcons.notificationIssueStatusChanged
+    DomainContract.notificationTypeIssueCreated -> ExpIcons.notificationIssueCreated
+    DomainContract.notificationTypePrOpened -> ExpIcons.notificationPrOpened
+    DomainContract.notificationTypePrMerged -> ExpIcons.notificationPrMerged
+    DomainContract.notificationTypeSupportReply -> ExpIcons.notificationSupportReply
+    else -> ExpIcons.navNotifications
 }

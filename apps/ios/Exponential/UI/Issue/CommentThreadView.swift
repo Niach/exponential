@@ -152,8 +152,7 @@ struct CommentThreadView: View {
             topPadding: 5,
             bottomPadding: 5,
             marker: {
-                Image(systemName: "ellipsis")
-                    .font(.caption2)
+                AppIcon(AppIcons.uiMore, size: 11)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         ) {
@@ -428,8 +427,7 @@ private struct RegularCommentRow: View {
                         Button("Edit", action: onEdit)
                         Button("Delete", role: .destructive, action: onDelete)
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.caption)
+                        AppIcon(AppIcons.uiMore, size: AppIcon.Size.small)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .frame(width: 32, height: 32)
                             .contentShape(Rectangle())

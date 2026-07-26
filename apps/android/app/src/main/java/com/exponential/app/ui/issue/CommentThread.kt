@@ -18,8 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,6 +39,7 @@ import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.commentKindOf
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -238,7 +237,7 @@ private fun CollapsedRunRow(
             lineBelow = lineBelow,
             marker = {
                 Icon(
-                    Icons.Filled.MoreHoriz,
+                    ExpIcons.uiMore,
                     contentDescription = null,
                     modifier = Modifier.align(Alignment.Center).size(14.dp),
                     tint = CommentMeta,

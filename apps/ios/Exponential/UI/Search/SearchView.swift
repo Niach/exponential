@@ -70,8 +70,7 @@ struct SearchView: View {
     // iPhone, colliding with the floating tab bar.
     private var searchField: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.caption)
+            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             TextField("Search issues", text: $query)
                 .textFieldStyle(.plain)
@@ -83,8 +82,7 @@ struct SearchView: View {
                 Button {
                     query = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
+                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .buttonStyle(.plain)
@@ -100,8 +98,7 @@ struct SearchView: View {
     private var searchHint: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "magnifyingglass")
-                .font(.title2)
+            AppIcon(AppIcons.navSearch, size: 22)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("Search issues across all your boards.")
                 .font(.subheadline)
@@ -121,8 +118,7 @@ struct SearchView: View {
     private var noResults: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "magnifyingglass")
-                .font(.title2)
+            AppIcon(AppIcons.uiEmptySearch, size: 22)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("No issues match")
                 .font(.subheadline)
@@ -192,8 +188,7 @@ struct SearchView: View {
         NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
             HStack(spacing: 10) {
                 // Priority icon (16pt column, IssueListView/Android parity)
-                Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
-                    .font(.caption)
+                AppIcon(IssuePriority.from(issue.priority).iconName, size: AppIcon.Size.small)
                     .foregroundStyle(IssuePriority.from(issue.priority).color)
                     .frame(width: 16)
 
@@ -206,8 +201,7 @@ struct SearchView: View {
                     .lineLimit(1)
                     .frame(minWidth: identifierMinWidth, alignment: .leading)
 
-                Image(systemName: IssueStatus.from(issue.status).sfSymbol)
-                    .font(.caption)
+                AppIcon(IssueStatus.from(issue.status).iconName, size: AppIcon.Size.small)
                     .foregroundStyle(IssueStatus.from(issue.status).color)
                     .frame(width: 16)
 

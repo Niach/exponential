@@ -173,8 +173,7 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             Spacer().frame(height: 64)
 
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 44))
+            AppIcon(AppIcons.uiSuccess, size: AppIcon.Size.xlarge)
                 .foregroundStyle(DesignTokens.Semantic.green)
 
             Spacer().frame(height: 20)

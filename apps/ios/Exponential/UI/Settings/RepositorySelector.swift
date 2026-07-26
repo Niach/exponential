@@ -78,10 +78,9 @@ struct RepositorySelector: View {
                     showAddByName = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: repos.isEmpty && addedRepo == nil
-                            ? "chevron.left.forwardslash.chevron.right"
-                            : "plus")
-                            .font(.caption2)
+                        AppIcon(repos.isEmpty && addedRepo == nil
+                            ? AppIcons.uiRepository
+                            : AppIcons.uiAdd, size: 11)
                         Text(repos.isEmpty && addedRepo == nil
                             ? "Connect GitHub…"
                             : "Add another repository…")
@@ -126,11 +125,9 @@ struct RepositorySelector: View {
     private func repoRow(fullName: String, isPrivate: Bool, selected: Bool, tap: @escaping () -> Void) -> some View {
         Button(action: tap) {
             HStack(spacing: 10) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.caption)
+                AppIcon(selected ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.small)
                     .foregroundStyle(selected ? DesignTokens.Semantic.blue : .white.opacity(TextOpacity.tertiary))
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.caption2)
+                AppIcon(AppIcons.uiRepository, size: 11)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(fullName)
                     .font(.subheadline.monospaced())
@@ -139,8 +136,7 @@ struct RepositorySelector: View {
                     .truncationMode(.middle)
                 Spacer()
                 if isPrivate {
-                    Image(systemName: "lock.fill")
-                        .font(.caption2)
+                    AppIcon(AppIcons.uiPrivate, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }

@@ -189,7 +189,7 @@ struct IssueListView: View {
                                                     Button {
                                                         Task { await vm.setStatus(issueId: issue.id, status: .done) }
                                                     } label: {
-                                                        Label("Done", systemImage: "checkmark.circle.fill")
+                                                        Label("Done", appIcon: AppIcons.statusDone)
                                                     }
                                                     // Track done's status color (EXP-120: now blue).
                                                     .tint(IssueStatus.done.color)
@@ -197,7 +197,7 @@ struct IssueListView: View {
                                                     Button {
                                                         Task { await vm.setStatus(issueId: issue.id, status: .cancelled) }
                                                     } label: {
-                                                        Label("Cancel", systemImage: "xmark.circle.fill")
+                                                        Label("Cancel", appIcon: AppIcons.statusCancelled)
                                                     }
                                                     .tint(.gray)
                                                 }
@@ -207,7 +207,7 @@ struct IssueListView: View {
                                                     Button {
                                                         Task { await vm.setStatus(issueId: issue.id, status: .backlog) }
                                                     } label: {
-                                                        Label("Backlog", systemImage: "circle.dashed")
+                                                        Label("Backlog", appIcon: AppIcons.statusBacklog)
                                                     }
                                                     .tint(.orange)
                                                 }
@@ -277,8 +277,7 @@ struct IssueListView: View {
         Button {
             showFilterSheet = true
         } label: {
-            Image(systemName: "line.3.horizontal.decrease")
-                .font(.body)
+            AppIcon(AppIcons.navFilter, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(vm.filters.isEmpty ? TextOpacity.secondary : 1.0))
                 .frame(width: 32, height: 32)
                 .contentShape(Circle())
@@ -306,12 +305,12 @@ struct IssueListView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(IssueStatus.displayOrder.filter { vm.filters.statuses.contains($0) }, id: \.self) { status in
-                    filterPill(icon: status.sfSymbol, iconColor: status.color, text: status.label) {
+                    filterPill(icon: status.iconName, iconColor: status.color, text: status.label) {
                         vm.toggleStatus(status)
                     }
                 }
                 ForEach(IssuePriority.displayOrder.filter { vm.filters.priorities.contains($0) }, id: \.self) { priority in
-                    filterPill(icon: priority.sfSymbol, iconColor: priority.color, text: priority.label) {
+                    filterPill(icon: priority.iconName, iconColor: priority.color, text: priority.label) {
                         vm.togglePriority(priority)
                     }
                 }
@@ -349,8 +348,7 @@ struct IssueListView: View {
         Button(action: onRemove) {
             HStack(spacing: 5) {
                 if let icon {
-                    Image(systemName: icon)
-                        .font(.caption2)
+                    AppIcon(icon, size: 11)
                         .foregroundStyle(iconColor)
                 }
                 if let dotColor {
@@ -361,8 +359,7 @@ struct IssueListView: View {
                 Text(text)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .semibold))
+                AppIcon(AppIcons.uiClose, size: 8, weight: .semibold)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 10)
@@ -378,13 +375,12 @@ struct IssueListView: View {
             vm.toggleStatusCollapsed(status)
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: vm.collapsedStatuses.contains(status) ? "chevron.right" : "chevron.down")
-                    .font(.caption2.weight(.medium))
+                AppIcon(vm.collapsedStatuses.contains(status) ? AppIcons.uiChevronRight : AppIcons.uiChevronDown,
+                        size: 11, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(width: 12)
 
-                Image(systemName: status.sfSymbol)
-                    .font(.caption)
+                AppIcon(status.iconName, size: AppIcon.Size.small)
                     .foregroundStyle(status.color)
 
                 Text(status.label)
@@ -457,13 +453,12 @@ struct IssueListView: View {
                 // Multi-select indicator (EXP-239) — same glyphs as the
                 // Start-coding picker so "selected" reads identically.
                 if let selected {
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                        .font(.body)
+                    AppIcon(selected ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
                         .foregroundStyle(selected ? DesignTokens.Palette.primary : .white.opacity(TextOpacity.tertiary))
                 }
                 // Priority icon (16pt column, Android parity)
                 inlineEditableIcon(
-                    systemName: IssuePriority.from(issue.priority).sfSymbol,
+                    iconName: IssuePriority.from(issue.priority).iconName,
                     color: IssuePriority.from(issue.priority).color,
                     onTap: onTapPriority.map { tap in { tap(issue) } },
                     onLongPress: onIconLongPress
@@ -481,7 +476,7 @@ struct IssueListView: View {
 
                 // Status icon
                 inlineEditableIcon(
-                    systemName: IssueStatus.from(issue.status).sfSymbol,
+                    iconName: IssueStatus.from(issue.status).iconName,
                     color: IssueStatus.from(issue.status).color,
                     onTap: onTapStatus.map { tap in { tap(issue) } },
                     onLongPress: onIconLongPress
@@ -511,8 +506,7 @@ struct IssueListView: View {
                 // intrinsic width and the title truncates instead (EXP-55).
                 if let dueDate = issue.dueDate {
                     HStack(spacing: 3) {
-                        Image(systemName: "calendar")
-                            .font(.caption2)
+                        AppIcon(AppIcons.uiDueDate, size: 11)
                         Text(formatDueDate(dueDate))
                             .font(.caption)
                             .lineLimit(1)
@@ -562,13 +556,12 @@ struct IssueListView: View {
     /// enters selection despite the tap gesture.
     @ViewBuilder
     private func inlineEditableIcon(
-        systemName: String,
+        iconName: String,
         color: Color,
         onTap: (() -> Void)?,
         onLongPress: (() -> Void)?
     ) -> some View {
-        let glyph = Image(systemName: systemName)
-            .font(.caption)
+        let glyph = AppIcon(iconName, size: AppIcon.Size.small)
             .foregroundStyle(color)
             .frame(width: 16)
         if let onTap {
@@ -639,8 +632,7 @@ struct IssueListView: View {
             Button {
                 exitSelection()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.subheadline.weight(.semibold))
+                AppIcon(AppIcons.uiClose, size: 15, weight: .semibold)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
@@ -659,7 +651,7 @@ struct IssueListView: View {
             // Status — the shared status glyph when the selection agrees,
             // else a neutral checklist mark.
             barIconButton(
-                systemName: sharedStatus(vm)?.sfSymbol ?? "checklist",
+                iconName: sharedStatus(vm)?.iconName ?? AppIcons.uiChecklist,
                 color: sharedStatus(vm)?.color ?? .white.opacity(TextOpacity.secondary),
                 accessibility: "Set status"
             ) {
@@ -669,7 +661,7 @@ struct IssueListView: View {
             // Priority — shared priority glyph, else the neutral "no priority"
             // glyph.
             barIconButton(
-                systemName: sharedPriority(vm)?.sfSymbol ?? IssuePriority.none.sfSymbol,
+                iconName: sharedPriority(vm)?.iconName ?? IssuePriority.none.iconName,
                 color: sharedPriority(vm)?.color ?? .white.opacity(TextOpacity.secondary),
                 accessibility: "Set priority"
             ) {
@@ -679,7 +671,7 @@ struct IssueListView: View {
             // Assignee — only meaningful on multi-member teams.
             if !vm.singleMemberTeam {
                 barIconButton(
-                    systemName: "person.circle",
+                    iconName: AppIcons.uiAssignee,
                     color: .white.opacity(TextOpacity.secondary),
                     accessibility: "Set assignee"
                 ) {
@@ -689,7 +681,7 @@ struct IssueListView: View {
 
             // Labels — tri-state toggle sheet that stays open.
             barIconButton(
-                systemName: "tag",
+                iconName: AppIcons.settingsLabels,
                 color: .white.opacity(TextOpacity.secondary),
                 accessibility: "Edit labels"
             ) {
@@ -708,8 +700,7 @@ struct IssueListView: View {
                                 .controlSize(.small)
                                 .tint(DesignTokens.Palette.primaryForeground)
                         } else {
-                            Image(systemName: "play.fill")
-                                .font(.caption)
+                            AppIcon(AppIcons.actionRun, size: AppIcon.Size.small)
                         }
                         Text("Start coding")
                             .font(.subheadline.weight(.medium))
@@ -733,14 +724,13 @@ struct IssueListView: View {
     /// One 32pt property button in the selection bar (EXP-247).
     @ViewBuilder
     private func barIconButton(
-        systemName: String,
+        iconName: String,
         color: Color,
         accessibility: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.body)
+            AppIcon(iconName, size: AppIcon.Size.medium)
                 .foregroundStyle(color)
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
@@ -789,7 +779,7 @@ struct IssueListView: View {
                 Label {
                     Text(status.label)
                 } icon: {
-                    Image(systemName: status.sfSymbol)
+                    AppIcon(status.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(status.color)
                 }
             }
@@ -804,7 +794,7 @@ struct IssueListView: View {
                 Label {
                     Text(priority.label)
                 } icon: {
-                    Image(systemName: priority.sfSymbol)
+                    AppIcon(priority.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(priority.color)
                 }
             }
@@ -855,7 +845,7 @@ struct IssueListView: View {
                 Label {
                     Text(status.label)
                 } icon: {
-                    Image(systemName: status.sfSymbol)
+                    AppIcon(status.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(status.color)
                 }
             }
@@ -872,7 +862,7 @@ struct IssueListView: View {
                 Label {
                     Text(priority.label)
                 } icon: {
-                    Image(systemName: priority.sfSymbol)
+                    AppIcon(priority.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(priority.color)
                 }
             }
@@ -1077,12 +1067,10 @@ private struct BulkLabelsSheet: View {
                                 Spacer(minLength: 0)
                                 switch state {
                                 case .all:
-                                    Image(systemName: "checkmark")
-                                        .font(.subheadline.weight(.semibold))
+                                    AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
                                         .foregroundStyle(Accent.indigo)
                                 case .some:
-                                    Image(systemName: "minus")
-                                        .font(.subheadline.weight(.semibold))
+                                    AppIcon(AppIcons.uiMinus, size: 15, weight: .semibold)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 case .none:
                                     EmptyView()

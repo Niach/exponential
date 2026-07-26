@@ -101,8 +101,7 @@ struct SupportThreadView: View {
     private func header(_ vm: SupportThreadViewModel, thread: SupportThreadInfo) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: vm.isOpen ? "envelope.open" : "checkmark.circle")
-                    .font(.caption)
+                AppIcon(vm.isOpen ? AppIcons.supportOpen : AppIcons.supportResolved, size: AppIcon.Size.small)
                 Text(vm.isOpen ? "Open" : "Resolved")
                     .font(.caption.weight(.medium))
                 Text(reporterLabel(thread))
@@ -116,8 +115,7 @@ struct SupportThreadView: View {
             if let issue = vm.linkedIssue {
                 NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
                     HStack(spacing: 6) {
-                        Image(systemName: "arrow.up.forward.square")
-                            .font(.caption)
+                        AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.small)
                         if let identifier = issue.identifier {
                             Text(identifier)
                                 .font(.caption.monospaced())
@@ -150,8 +148,7 @@ struct SupportThreadView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if message.isInternal {
                     HStack(spacing: 4) {
-                        Image(systemName: "lock")
-                            .font(.caption2)
+                        AppIcon(AppIcons.uiPrivate, size: 11)
                         Text("Internal")
                             .font(.caption2.weight(.semibold))
                     }
@@ -215,8 +212,7 @@ struct SupportThreadView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 26))
+                    AppIcon(AppIcons.uiSend, size: 26)
                         .foregroundStyle(
                             sendDisabled(vm)
                                 ? Color.white.opacity(0.3)
@@ -280,24 +276,24 @@ struct SupportThreadView: View {
                         }
                     }
                 } label: {
-                    Label("Escalate to issue", systemImage: "arrow.up.forward.square")
+                    Label("Escalate to issue", appIcon: AppIcons.uiExternalLink)
                 }
             }
             if vm.isOpen {
                 Button {
                     Task { await vm.close() }
                 } label: {
-                    Label("Close ticket", systemImage: "checkmark.circle")
+                    Label("Close ticket", appIcon: AppIcons.supportResolved)
                 }
             } else {
                 Button {
                     Task { await vm.reopen() }
                 } label: {
-                    Label("Reopen ticket", systemImage: "envelope.open")
+                    Label("Reopen ticket", appIcon: AppIcons.supportOpen)
                 }
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            AppIcon(AppIcons.uiMore, size: AppIcon.Size.large)
         }
     }
 

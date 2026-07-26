@@ -89,8 +89,7 @@ struct SupportInboxListContent: View {
 
     private func threadRow(_ thread: SupportThreadRow) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.caption)
+            AppIcon(AppIcons.navSupport, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 28, height: 28)
                 .background(Color.white.opacity(0.08), in: Circle())

@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.model.PendingImage
 import kotlinx.coroutines.launch
 
@@ -86,7 +84,7 @@ fun BlockImageEditView(
                 modifier = Modifier.padding(4.dp),
             ) {
                 Icon(
-                    Icons.Filled.Cancel,
+                    ExpIcons.uiClose,
                     contentDescription = "Remove image",
                     tint = Color.White.copy(alpha = 0.85f),
                     modifier = Modifier.size(24.dp),
@@ -125,7 +123,7 @@ private fun RetryBadge(modifier: Modifier, error: String?, onRetry: () -> Unit) 
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         IconButton(onClick = onRetry) {
-            Icon(Icons.Filled.Refresh, contentDescription = "Retry upload", tint = Color.White.copy(alpha = 0.8f))
+            Icon(ExpIcons.uiRefresh, contentDescription = "Retry upload", tint = Color.White.copy(alpha = 0.8f))
         }
         Text("Upload failed — tap to retry", color = Color.White.copy(alpha = 0.7f), style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.75f))
         if (error != null) {

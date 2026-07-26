@@ -3,8 +3,11 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Check } from "lucide-react"
 import {
   type ActionInputDef,
+  type BoardIcon,
   MAX_ACTION_INPUT_TEXT,
 } from "@exp/db-schema/domain"
+import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
+import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
 import type { Board, Issue } from "@/db/schema"
 import { boardCollection, issueCollection } from "@/lib/collections"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
@@ -37,9 +40,11 @@ import {
 // MobilePopover + Command picker over the synced boards (the board-picker
 // pattern), pr (EXP-259) → the same picker over the team's OPEN issue-linked
 // pull requests (deduped by prUrl — a batch PR shows once, its value is the
-// representative issue's id). Values live in the dialog shell as a flat
-// Record<key, string> — repo/board/pr store the picked id, blank = unset
-// (dropped from the payload by buildInputsPayload).
+// representative issue's id), icon (EXP-273) → the curated swatch grid shared
+// with the board form. Values live in the dialog shell as a flat
+// Record<key, string> — repo/board/pr store the picked id and icon stores the
+// registry NAME, blank = unset (dropped from the payload by
+// buildInputsPayload).
 
 // Radix Select forbids an empty-string item value; the unset optional repo
 // rides this sentinel inside the dialog only.
@@ -117,6 +122,22 @@ export function ActionInputFields({
                 value={values[def.key] ?? ``}
                 required={def.required}
                 onChange={(value) => onChange(def.key, value)}
+              />
+            </div>
+          )
+        }
+        if (def.type === `icon`) {
+          // EXP-273: the same curated swatch grid the board form uses — the
+          // value is a registry icon NAME, not an id, so there is nothing to
+          // scope to the team. Optional inputs start unset; the grid always
+          // shows a selection, so seed it with the first pickable name only
+          // once the user actually picks.
+          return (
+            <div key={def.key} className="space-y-2">
+              <Label>{label}</Label>
+              <IconSwatchGrid
+                value={(values[def.key] as BoardIcon) || BOARD_ICON_OPTIONS[0].name}
+                onChange={(icon) => onChange(def.key, icon)}
               />
             </div>
           )

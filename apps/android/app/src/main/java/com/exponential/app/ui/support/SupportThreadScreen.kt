@@ -20,10 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -55,6 +51,7 @@ import com.exponential.app.data.api.SupportLinkedIssue
 import com.exponential.app.data.api.SupportMessage
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -127,7 +124,7 @@ fun SupportThreadScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -293,7 +290,7 @@ private fun LinkedIssueChip(issue: SupportLinkedIssue, onClick: () -> Unit) {
             modifier = Modifier.weight(1f, fill = false),
         )
         Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            ExpIcons.uiChevronRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
@@ -398,7 +395,7 @@ private fun Composer(
                 enabled = draft.isNotBlank() && !sending,
             ) {
                 Icon(
-                    Icons.AutoMirrored.Filled.Send,
+                    ExpIcons.uiSend,
                     contentDescription = if (internalMode) "Add note" else "Send reply",
                     tint = MaterialTheme.colorScheme.onSurface.copy(
                         alpha = if (draft.isNotBlank() && !sending) 1f else TextEmphasis.Quaternary,

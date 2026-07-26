@@ -1,20 +1,8 @@
 package com.exponential.app.domain
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallMerge
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.HourglassTop
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.RadioButtonChecked
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.ui.icons.ExpIcons
 import java.time.LocalDate
 
 enum class IssueStatus(val wire: String, val label: String) {
@@ -51,13 +39,13 @@ val issueStatusOrder: List<IssueStatus> = listOf(
 )
 
 fun statusIcon(status: IssueStatus): ImageVector = when (status) {
-    IssueStatus.Backlog -> Icons.Filled.RadioButtonUnchecked
-    IssueStatus.Todo -> Icons.Filled.RadioButtonUnchecked
-    IssueStatus.InProgress -> Icons.Filled.HourglassTop
-    IssueStatus.InReview -> Icons.AutoMirrored.Filled.CallMerge
-    IssueStatus.Done -> Icons.Filled.CheckCircle
-    IssueStatus.Cancelled -> Icons.Filled.Cancel
-    IssueStatus.Duplicate -> Icons.Filled.ContentCopy
+    IssueStatus.Backlog -> ExpIcons.statusBacklog
+    IssueStatus.Todo -> ExpIcons.statusTodo
+    IssueStatus.InProgress -> ExpIcons.statusInProgress
+    IssueStatus.InReview -> ExpIcons.statusInReview
+    IssueStatus.Done -> ExpIcons.statusDone
+    IssueStatus.Cancelled -> ExpIcons.statusCancelled
+    IssueStatus.Duplicate -> ExpIcons.statusDuplicate
 }
 
 enum class IssuePriority(val wire: String, val label: String) {
@@ -82,11 +70,11 @@ val issuePriorityOrder: List<IssuePriority> = listOf(
 )
 
 fun priorityIcon(priority: IssuePriority): ImageVector = when (priority) {
-    IssuePriority.None -> Icons.Filled.Remove
-    IssuePriority.Urgent -> Icons.Filled.Warning
-    IssuePriority.High -> Icons.Filled.KeyboardArrowUp
-    IssuePriority.Medium -> Icons.Filled.DragHandle
-    IssuePriority.Low -> Icons.Filled.KeyboardArrowDown
+    IssuePriority.None -> ExpIcons.priorityNone
+    IssuePriority.Urgent -> ExpIcons.priorityUrgent
+    IssuePriority.High -> ExpIcons.priorityHigh
+    IssuePriority.Medium -> ExpIcons.priorityMedium
+    IssuePriority.Low -> ExpIcons.priorityLow
 }
 
 // ---------------------------------------------------------------------------

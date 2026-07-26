@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,6 +23,7 @@ import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -92,7 +91,7 @@ private fun FilterPill(onRemove: () -> Unit, content: @Composable () -> Unit) {
     ) {
         content()
         Icon(
-            Icons.Filled.Close,
+            ExpIcons.uiClose,
             contentDescription = "Remove filter",
             modifier = Modifier.size(13.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),

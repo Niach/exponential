@@ -46,6 +46,10 @@ const CREATE_ACTION_INPUTS: ActionInputDef[] = [
     placeholder: `What should this action do?`,
   },
   { key: `repo`, label: `Repository`, type: `repo`, required: false },
+  // EXP-273: the user picks the new action's glyph up front and the
+  // action-creator prompt passes it to `exponential_actions_create`, so a
+  // team's action list is visually scannable from the moment it is authored.
+  { key: `icon`, label: `Icon`, type: `icon`, required: false },
 ]
 
 const FIX_CONFLICTS_INPUTS: ActionInputDef[] = [
@@ -58,6 +62,8 @@ export interface BuiltinAction {
   repositoryId: null
   name: string
   description: string
+  /** Curated registry icon name (EXP-273); null = the generic action glyph. */
+  icon: string | null
   body: string
   inputs: ActionInputDef[]
   sortOrder: number
@@ -76,6 +82,7 @@ export function builtinCreateAction(teamId: string): BuiltinAction {
     repositoryId: null,
     name: BUILTIN_CREATE_ACTION_NAME,
     description: `Describe a new action and let Claude author it for the team`,
+    icon: `sparkles`,
     body: ``,
     inputs: CREATE_ACTION_INPUTS,
     sortOrder: 1e9,
@@ -96,6 +103,7 @@ export function builtinFixConflictsAction(teamId: string): BuiltinAction {
     repositoryId: null,
     name: BUILTIN_FIX_CONFLICTS_NAME,
     description: `Pick a conflicted pull request and let Claude rebase, resolve, and merge it`,
+    icon: `git-branch`,
     body: ``,
     inputs: FIX_CONFLICTS_INPUTS,
     sortOrder: 1e9 + 1,

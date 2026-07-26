@@ -17,9 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -41,8 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
-import com.exponential.app.ui.components.BoardIconGlyphs
 import com.exponential.app.ui.components.RepositorySelector
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
@@ -93,6 +90,7 @@ fun CreateBoardForm(
     var prefixEdited by remember { mutableStateOf(false) }
     var color by remember { mutableStateOf(DEFAULT_COLOR) }
     var iconName by remember { mutableStateOf("square-kanban") }
+    var iconQuery by remember { mutableStateOf("") }
     var repository by remember { mutableStateOf<BoardRepositoryChoice?>(null) }
 
     LaunchedEffect(teamId) {
@@ -150,7 +148,7 @@ fun CreateBoardForm(
                             contentAlignment = Alignment.Center,
                         ) {
                             if (selected) {
-                                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Icon(ExpIcons.uiCheck, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -160,11 +158,31 @@ fun CreateBoardForm(
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Icon", style = MaterialTheme.typography.labelMedium, color = secondary)
+            OutlinedTextField(
+                value = iconQuery,
+                onValueChange = { iconQuery = it },
+                singleLine = true,
+                placeholder = { Text("Search icons") },
+                leadingIcon = {
+                    Icon(ExpIcons.navSearch, contentDescription = null, modifier = Modifier.size(18.dp), tint = secondary)
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            // The shared registry's 60 icons (EXP-273) no longer fit a
+            // glanceable grid, so the query filters by name — the selected one
+            // stays in the grid regardless, so a filter can never hide the
+            // current choice.
+            val glyphNames = remember(iconQuery, iconName) {
+                val query = iconQuery.trim().lowercase()
+                if (query.isEmpty()) ExpIcons.pickable
+                else ExpIcons.pickable.filter { it.contains(query) || it == iconName }
+            }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                BoardIconGlyphs.forEach { (glyphName, glyph) ->
+                glyphNames.forEach { glyphName ->
+                    val glyph = ExpIcons.byName(glyphName) ?: return@forEach
                     val selected = glyphName == iconName
                     Box(
                         modifier = Modifier
@@ -187,6 +205,9 @@ fun CreateBoardForm(
                         )
                     }
                 }
+            }
+            if (glyphNames.isEmpty()) {
+                Text("No icons match", style = MaterialTheme.typography.bodySmall, color = secondary)
             }
         }
 
@@ -229,7 +250,7 @@ fun CreateBoardForm(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Icon(ExpIcons.uiInfo, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                 Text(message, style = MaterialTheme.typography.bodySmall, color = secondary)
             }
         }

@@ -1,4 +1,4 @@
-import { Check, Github, Plus, Search, Zap } from "lucide-react"
+import { Check, Github, Search } from "lucide-react"
 import type {
   ActionRepoOption,
   TeamAction,
@@ -7,6 +7,7 @@ import { ActionInputFields } from "@/components/launch-dialog/action-input-field
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { getActionIcon } from "@/lib/board-icons"
 
 // The Actions tab of the unified launch dialog (EXP-257): search + a
 // single-select list (the builtin "Create action" pinned first by its
@@ -70,7 +71,7 @@ export function ActionsPane({
         ) : (
           rows.map((action) => {
             const selected = action.id === selectedActionId
-            const RowIcon = action.builtin ? Plus : Zap
+            const RowIcon = getActionIcon(action)
             const repoName = action.repositoryId
               ? repoNameById.get(action.repositoryId)
               : undefined

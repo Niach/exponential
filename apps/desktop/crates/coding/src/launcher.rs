@@ -1146,7 +1146,14 @@ fn prepare_action(
                         input.display.as_deref().unwrap_or(input.value.as_str()),
                     )
                 });
-            create_action_prompt(&req.team_id, description, repo_input)
+            // EXP-273: the icon the author picked in the run form, passed
+            // through so the created action lands with its glyph already set.
+            let icon_input = req
+                .inputs
+                .iter()
+                .find(|input| input.key == "icon" && !input.value.trim().is_empty())
+                .map(|input| input.value.trim());
+            create_action_prompt(&req.team_id, description, repo_input, icon_input)
         }
         ActionRunKind::FixConflicts {
             branch,

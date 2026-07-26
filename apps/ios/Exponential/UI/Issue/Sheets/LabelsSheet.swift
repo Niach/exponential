@@ -79,8 +79,7 @@ struct LabelsSheet: View {
                                 searchText = ""
                             }
                         ) {
-                            Image(systemName: "plus")
-                                .font(.caption.weight(.semibold))
+                            AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .semibold)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
                     }

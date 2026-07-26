@@ -12,13 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Login
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,6 +44,7 @@ import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -173,7 +167,7 @@ fun ServerDetailScreen(
                 title = { Text(account?.displayName ?: "Server") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -200,7 +194,7 @@ fun ServerDetailScreen(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
                     Icon(
-                        Icons.Filled.Dns,
+                        ExpIcons.settingsServers,
                         contentDescription = null,
                         modifier = Modifier.size(22.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -238,7 +232,7 @@ fun ServerDetailScreen(
             Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
                 if (account?.token != null) {
                     ActionRow(
-                        icon = Icons.AutoMirrored.Filled.Logout,
+                        icon = ExpIcons.navSignOut,
                         title = "Sign out",
                         onClick = {
                             viewModel.signOut(accountId)
@@ -249,7 +243,7 @@ fun ServerDetailScreen(
                     // Store policy (Play "Delete account" / App Store
                     // 5.1.1(v)): account deletion must be initiable in-app.
                     ActionRow(
-                        icon = Icons.Filled.PersonOff,
+                        icon = ExpIcons.uiDeleteAccount,
                         title = if (viewModel.deletingAccount) "Deleting account…" else "Delete account",
                         tint = MaterialTheme.colorScheme.error,
                         enabled = !viewModel.deletingAccount,
@@ -258,7 +252,7 @@ fun ServerDetailScreen(
                 } else {
                     val url = account?.instanceUrl
                     ActionRow(
-                        icon = Icons.AutoMirrored.Filled.Login,
+                        icon = ExpIcons.uiSignIn,
                         title = "Reauthenticate",
                         enabled = url != null,
                         onClick = {
@@ -271,7 +265,7 @@ fun ServerDetailScreen(
                 }
                 CardDivider()
                 ActionRow(
-                    icon = Icons.Filled.Delete,
+                    icon = ExpIcons.uiDelete,
                     title = "Remove server",
                     tint = MaterialTheme.colorScheme.error,
                     onClick = { showRemoveConfirm = true },

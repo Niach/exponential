@@ -33,8 +33,7 @@ struct TeamBoardsSection: View {
                         showCreate = true
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(.caption2.weight(.semibold))
+                            AppIcon(AppIcons.uiAdd, size: 11, weight: .semibold)
                             Text("New board")
                                 .font(.caption.weight(.medium))
                         }
@@ -84,8 +83,7 @@ struct TeamBoardsSection: View {
                             Button {
                                 repoTarget = board
                             } label: {
-                                Image(systemName: "arrow.left.arrow.right")
-                                    .font(.caption)
+                                AppIcon(AppIcons.uiSwap, size: AppIcon.Size.small)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
                             .buttonStyle(.plain)
@@ -99,8 +97,7 @@ struct TeamBoardsSection: View {
                             Button {
                                 onDelete(board)
                             } label: {
-                                Image(systemName: "trash")
-                                    .font(.caption)
+                                AppIcon(AppIcons.uiDelete, size: AppIcon.Size.small)
                                     .foregroundStyle(.red.opacity(0.5))
                             }
                             .buttonStyle(.plain)
@@ -166,9 +163,11 @@ private struct ChangeRepositorySheet: View {
                                     Task { await setRepo(repo) }
                                 } label: {
                                     HStack(spacing: 10) {
-                                        Image(systemName: repo.id == board.repositoryId
-                                            ? "checkmark.circle.fill" : "circle")
-                                            .font(.caption)
+                                        AppIcon(
+                                            repo.id == board.repositoryId
+                                                ? AppIcons.uiSelected : AppIcons.uiUnselected,
+                                            size: AppIcon.Size.small
+                                        )
                                             .foregroundStyle(repo.id == board.repositoryId
                                                 ? DesignTokens.Semantic.blue
                                                 : .white.opacity(TextOpacity.tertiary))
@@ -179,8 +178,7 @@ private struct ChangeRepositorySheet: View {
                                             .truncationMode(.middle)
                                         Spacer()
                                         if repo.isPrivate {
-                                            Image(systemName: "lock.fill")
-                                                .font(.caption2)
+                                            AppIcon(AppIcons.uiPrivate, size: 11)
                                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                         }
                                     }

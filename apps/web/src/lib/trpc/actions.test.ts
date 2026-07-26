@@ -95,6 +95,8 @@ describe(`actions.list — builtin injection (EXP-257)`, () => {
       inputs: [
         { key: `description`, type: `text`, required: true },
         { key: `repo`, type: `repo`, required: false },
+        // EXP-273: the author picks the new action's glyph up front.
+        { key: `icon`, type: `icon`, required: false },
       ],
     })
     // EXP-259: the second builtin — "Fix merge conflicts" with its required
