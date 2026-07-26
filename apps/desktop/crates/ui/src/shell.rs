@@ -39,7 +39,11 @@ use sync::{SessionPhase, Store};
 
 use crate::{
     debug_board::DebugBoardPanel, icons::ExpIcon, login::LoginView, navigation,
-    screens::ScreensPanel, sidebar::{RailView, SidebarPanel}, terminal_dock::TerminalDockPanel,
+    navigation::{nav_for_window, resolved_screen, Navigation, Screen},
+    screens::ScreensPanel,
+    settings::{SettingsNavPanel, SETTINGS_NAV_WIDTH},
+    sidebar::{RailView, SidebarPanel},
+    terminal_dock::TerminalDockPanel,
     update::{self, UpdatePhase, UpdateState},
 };
 
@@ -863,6 +867,13 @@ pub struct CenterPanel {
     focus_handle: FocusHandle,
     sidebar: Entity<SidebarPanel>,
     screens: Entity<ScreensPanel>,
+    /// EXP-282: the settings navigation — it REPLACES the tool column
+    /// (`sidebar`) while a settings screen is up, so settings own the whole
+    /// window right of the rail instead of nesting a second nav inside the
+    /// center pane.
+    settings_nav: Entity<SettingsNavPanel>,
+    nav: Entity<Navigation>,
+    _subscriptions: Vec<gpui::Subscription>,
 }
 
 /// Stable serialization name (§3.3) — present in dumps even though the center
@@ -871,10 +882,17 @@ pub(crate) const CENTER_PANEL_NAME: &str = "Center";
 
 impl CenterPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = nav_for_window(window, cx);
+        // The left column swaps on the ACTIVE SCREEN (EXP-282) — this panel
+        // must re-render when navigation moves, not just its children.
+        let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         Self {
             focus_handle: cx.focus_handle(),
             sidebar: cx.new(|cx| SidebarPanel::new(window, cx)),
             screens: cx.new(|cx| ScreensPanel::new(window, cx)),
+            settings_nav: cx.new(|cx| SettingsNavPanel::new(window, cx)),
+            nav,
+            _subscriptions: subscriptions,
         }
     }
 }
@@ -908,19 +926,57 @@ impl Focusable for CenterPanel {
 }
 
 impl Render for CenterPanel {
-    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        div().size_full().child(
-            h_resizable("center-split")
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-282: settings take over the whole area right of the rail — the
+        // fixed nav column replaces the tool column (no resizable split: the
+        // nav is a fixed-width list, and the detail column caps itself), and
+        // the settings detail fills the rest.
+        let in_settings = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::Settings) | Some(Screen::Account)
+        );
+        if in_settings {
+            return div()
+                .size_full()
                 .child(
-                    resizable_panel()
-                        .size(SIDEBAR_WIDTH)
-                        // Max must stay clear of the default (EXP-109: 520px)
-                        // or the sidebar starts grow-locked at its own cap.
-                        .size_range(px(180.)..px(880.))
-                        .child(self.sidebar.clone()),
+                    h_flex()
+                        .size_full()
+                        .min_h_0()
+                        .child(
+                            // The explicit sized wrapper is load-bearing for
+                            // entity children (the dock wrapper's flex-child
+                            // rule).
+                            div()
+                                .w(px(SETTINGS_NAV_WIDTH))
+                                .flex_shrink_0()
+                                .h_full()
+                                .child(self.settings_nav.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .h_full()
+                                .child(self.screens.clone()),
+                        ),
                 )
-                .child(resizable_panel().child(self.screens.clone())),
-        )
+                .into_any_element();
+        }
+        div()
+            .size_full()
+            .child(
+                h_resizable("center-split")
+                    .child(
+                        resizable_panel()
+                            .size(SIDEBAR_WIDTH)
+                            // Max must stay clear of the default (EXP-109: 520px)
+                            // or the sidebar starts grow-locked at its own cap.
+                            .size_range(px(180.)..px(880.))
+                            .child(self.sidebar.clone()),
+                    )
+                    .child(resizable_panel().child(self.screens.clone())),
+            )
+            .into_any_element()
     }
 }
 

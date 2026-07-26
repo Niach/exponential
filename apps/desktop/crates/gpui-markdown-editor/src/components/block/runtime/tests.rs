@@ -2891,3 +2891,40 @@ async fn focused_inline_link_stays_rendered_when_expansion_is_off_exp261(cx: &mu
         });
     });
 }
+
+// EXP-282 vendoring: word runs for double-click selection.
+#[gpui::test]
+async fn word_range_at_picks_word_and_gap_runs_exp282(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::plain("alpha beta, gamma"),
+            ),
+        )
+    });
+
+    block.read_with(cx, |block, _cx| {
+        assert_eq!(block.word_range_at(0), 0..5);
+        assert_eq!(block.word_range_at(3), 0..5);
+        // The caret index a click on the right half of a word's last glyph
+        // produces still selects THAT word, not the run after it.
+        assert_eq!(block.word_range_at(5), 0..5);
+        assert_eq!(block.word_range_at(6), 6..10);
+        assert_eq!(block.word_range_at(10), 6..10);
+        // `, ` is a run of its own — double-clicking inside it selects it,
+        // exactly like a browser.
+        assert_eq!(block.word_range_at(11), 10..12);
+        assert_eq!(block.word_range_at(12), 12..17);
+        assert_eq!(block.word_range_at(17), 12..17);
+        // Past the end clamps onto the last run.
+        assert_eq!(block.word_range_at(99), 12..17);
+    });
+
+    let empty = cx.new(|cx| Block::with_record(cx, BlockRecord::paragraph("")));
+    empty.read_with(cx, |block, _cx| {
+        assert_eq!(block.word_range_at(0), 0..0);
+    });
+}

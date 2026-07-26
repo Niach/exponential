@@ -40,6 +40,7 @@ pub(crate) fn interactive(children: impl IntoElement) -> impl IntoElement {
     h_flex()
         .items_center()
         .gap_2()
+        .min_w_0()
         .on_mouse_down(MouseButton::Left, |_, _, cx: &mut App| cx.stop_propagation())
         .child(children)
 }
@@ -104,8 +105,11 @@ impl Render for AppTitleBar {
                 // The strip content swallows its own mouse-downs (interactive
                 // wrapper) so tab presses never start a window drag; the empty
                 // remainder of the flex_1 container stays a drag/zoom zone.
+                // EXP-282: this wrapper must be a FLEX container — a plain
+                // `div()` is display:block, which stretched the interactive
+                // strip to 100% width and swallowed every drag on the bar.
                 .when_some(strip, |bar, strip| {
-                    bar.child(div().flex_1().min_w_0().child(interactive(strip)))
+                    bar.child(h_flex().flex_1().min_w_0().child(interactive(strip)))
                 }),
         )
     }

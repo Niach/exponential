@@ -171,7 +171,7 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, {
         let list = list.clone();
         move |dialog, _window, _cx| {
-            dialog
+            crate::surface::glass_dialog(dialog)
                 .close_button(false)
                 .w(px(DIALOG_WIDTH))
                 .margin_top(margin_top)

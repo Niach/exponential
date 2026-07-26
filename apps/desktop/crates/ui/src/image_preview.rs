@@ -49,7 +49,7 @@ pub(crate) fn open_image_preview(
     let width = (window.viewport_size().width * 0.8).min(px(1100.));
     window.open_dialog(cx, move |dialog, _, _| {
         let preview = preview.clone();
-        dialog
+        crate::surface::glass_dialog(dialog)
             .w(width)
             .margin_top(px(48.))
             .content(move |content, _, _| content.child(preview.clone()))

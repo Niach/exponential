@@ -31,7 +31,12 @@ pub fn is_builtin_action_id(id: &str) -> bool {
 
 /// One typed run-time input definition on an action (EXP-257 — filled in the
 /// unified launch dialog, resolved server-side for remote starts).
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+///
+/// EXP-282: also `Serialize` — the desktop's action detail edits the input
+/// DEFINITIONS and sends them back through [`ActionUpdate::inputs`] as a
+/// whole-array replace (the server's `actionInputsSchema` contract: snake_case
+/// `key`, ≤10 entries, unique keys).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ActionInput {
     pub key: String,
     pub label: String,
@@ -43,8 +48,9 @@ pub struct ActionInput {
     /// Absent on the wire = optional (the contract's `required` default).
     #[serde(default)]
     pub required: bool,
-    /// Text-field placeholder, when the owner set one.
-    #[serde(default)]
+    /// Text-field placeholder, when the owner set one. Skipped when absent:
+    /// the server schema is `.optional()`, and a literal `null` would 400.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<String>,
 }
 
@@ -171,6 +177,12 @@ pub struct ActionUpdate {
     pub repository_id: Patch<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// EXP-282: the typed run-time input DEFINITIONS, as a whole-array
+    /// replace (the server patches nothing here — `inputs` is small and
+    /// orderful). `None` omits the field and leaves the schema untouched;
+    /// `Some(vec![])` deliberately CLEARS it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<Vec<ActionInput>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
 }
@@ -387,6 +399,41 @@ mod tests {
         let omitted = ActionUpdate::new("act-1");
         let json = serde_json::to_string(&omitted).unwrap();
         assert!(!json.contains("repositoryId"));
+    }
+
+    #[test]
+    fn update_serializes_the_inputs_whole_array() {
+        // EXP-282: the action detail edits the input DEFINITIONS — the array
+        // rides `actions.update` verbatim (`type` on the wire, absent
+        // placeholder OMITTED so the server's `.optional()` accepts it).
+        let mut input = ActionUpdate::new("act-1");
+        input.inputs = Some(vec![
+            ActionInput {
+                key: "scope".to_string(),
+                label: "Scope".to_string(),
+                input_type: "text".to_string(),
+                required: true,
+                placeholder: Some("e.g. backlog".to_string()),
+            },
+            ActionInput {
+                key: "repo".to_string(),
+                label: "Repository".to_string(),
+                input_type: "repo".to_string(),
+                required: false,
+                placeholder: None,
+            },
+        ]);
+        let json = serde_json::to_string(&input).unwrap();
+        assert!(json.contains(r#""inputs":[{"key":"scope","label":"Scope","type":"text","required":true,"placeholder":"e.g. backlog"}"#));
+        assert!(json.contains(r#"{"key":"repo","label":"Repository","type":"repo","required":false}"#));
+        // An omitted array leaves the schema untouched; an empty one clears it.
+        let untouched = ActionUpdate::new("act-1");
+        assert!(!serde_json::to_string(&untouched).unwrap().contains("inputs"));
+        let mut cleared = ActionUpdate::new("act-1");
+        cleared.inputs = Some(Vec::new());
+        assert!(serde_json::to_string(&cleared)
+            .unwrap()
+            .contains(r#""inputs":[]"#));
     }
 
     #[test]

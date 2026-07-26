@@ -26,7 +26,7 @@ use sync::Store;
 use crate::navigation::Navigation;
 
 use super::{
-    active_team, card, card_header, is_owner, show_team_chrome, spawn_trpc,
+    active_team, section, card_header, is_owner, show_team_chrome, spawn_trpc,
 };
 
 /// Snapshot of the synced fields the pane mirrors — resync happens whenever
@@ -178,7 +178,7 @@ impl GeneralPane {
             let team_id = team_id.clone();
             let content_input = delete_input.clone();
             let ok_input = delete_input.clone();
-            alert
+            crate::surface::glass_dialog(alert)
                 .overlay_closable(true)
                 .close_button(true)
                 .title("Delete team")
@@ -246,7 +246,7 @@ impl Render for GeneralPane {
         let dirty = self.dirty(cx);
         let saving = self.saving;
 
-        let mut general = card(cx)
+        let mut general = section(cx)
             .child(card_header("General", "Team name", cx))
             .child(
                 v_flex()

@@ -31,7 +31,7 @@ use domain::rows::Label;
 
 use crate::navigation::{active_team_id, Navigation};
 
-use super::{card, card_header, parse_hex_color, spawn_trpc};
+use super::{section, card_header, parse_hex_color, spawn_trpc};
 
 /// Web `LABEL_COLORS` (lib/label-colors.ts) — verbatim.
 pub(crate) const LABEL_COLORS: [&str; 20] = [
@@ -306,7 +306,7 @@ impl LabelsPane {
             .py_1p5()
             .rounded(cx.theme().radius)
             .border_1()
-            .border_color(cx.theme().border)
+            .border_color(super::row_stroke(cx))
             // Color swatch popover (web `Popover` + `ColorSwatchGrid`).
             .child(
                 Popover::new(row_id("label-color", &label.id))
@@ -319,7 +319,7 @@ impl LabelsPane {
                                     .size_4()
                                     .rounded_full()
                                     .border_1()
-                                    .border_color(cx.theme().border)
+                                    .border_color(super::row_stroke(cx))
                                     .bg(swatch_color),
                             ),
                     )
@@ -446,7 +446,7 @@ impl Render for LabelsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let labels = self.scoped_labels(cx);
 
-        let mut body = card(cx).child(card_header(
+        let mut body = section(cx).child(card_header(
             "Labels",
             format!(
                 "{} label{} in this team. Deleting a label removes it from all issues.",
@@ -488,7 +488,7 @@ impl Render for LabelsPane {
                     .p_3()
                     .rounded(cx.theme().radius)
                     .border_1()
-                    .border_color(cx.theme().border)
+                    .border_color(super::row_stroke(cx))
                     .child(Input::new(&self.new_name).small())
                     .when_some(form_error, |col, message| {
                         col.child(

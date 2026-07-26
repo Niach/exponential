@@ -42,7 +42,7 @@ use coding::git_worktree::{sanitize_branch_for_path, worktrees_dir};
 
 use crate::coding_flow::CodingHub;
 
-use super::{card, card_header};
+use super::{section, card_header};
 
 // ---------------------------------------------------------------------------
 // Background scan model
@@ -228,7 +228,7 @@ impl LocalReposPane {
             let full_name = full_name.clone();
             let clone = clone.clone();
             let pane = pane.clone();
-            alert
+            crate::surface::glass_dialog(alert)
                 .overlay_closable(true)
                 .close_button(true)
                 .title("Remove local copy")
@@ -355,7 +355,7 @@ impl LocalReposPane {
             .py_2()
             .rounded(cx.theme().radius)
             .border_1()
-            .border_color(cx.theme().border)
+            .border_color(super::row_stroke(cx))
             .child(
                 h_flex()
                     .gap_3()
@@ -400,7 +400,7 @@ impl Render for LocalReposPane {
             _ => 0,
         };
 
-        let mut body = card(cx).child(card_header(
+        let mut body = section(cx).child(card_header(
             format!("Local repositories · {count}"),
             "Trunk clones under your repos root. Disk usage is scanned in the background; \
              actions are per machine and never synced.",
@@ -434,7 +434,7 @@ impl Render for LocalReposPane {
                         .py_2()
                         .rounded(cx.theme().radius)
                         .border_1()
-                        .border_color(cx.theme().border)
+                        .border_color(super::row_stroke(cx))
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
                         .child("No repositories cloned locally yet."),

@@ -72,6 +72,19 @@ pub(crate) const DETAIL_COLUMN_W: f32 = 768.;
 /// wrapper (gpui's div default) the same `max_w` + `mx_auto` resolves like
 /// CSS block flow — width = min(container, max), auto margins split the
 /// rest — with no content-measure pass above the wrapping text.
+/// The ONE left edge of the detail body (EXP-282): the title row, the
+/// description slot, the activity section and the comment composer all
+/// resolve to this inset inside [`centered_column`] — `px_4` on every plain
+/// block, and `DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X` on the slot that
+/// hosts the self-padding WYSIWYG editor.
+pub(crate) const DETAIL_GUTTER: f32 = 16.;
+
+/// The vendored WYSIWYG editor's own per-block horizontal padding
+/// (`gpui-markdown-editor` `dimensions.block_padding_x`, unchanged by the
+/// theme bridge). Subtracted from [`DETAIL_GUTTER`] so the editor's text
+/// lands on the shared edge instead of 12px past it.
+const WYSIWYG_BLOCK_PADDING_X: f32 = 12.;
+
 pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
     div()
         .w_full()
@@ -601,8 +614,13 @@ impl IssueDetailView {
             // (EXP-268): the embedded WYSIWYG editor contributes no height of
             // its own, so an empty description otherwise collapses to a
             // one-line input instead of reading as a textarea.
+            //
+            // EXP-282 alignment: the vendored editor pads every block by its
+            // own `block_padding_x` (12px), so a `px_4` slot pushed the
+            // description text 28px in — 12px past the title/timeline edge.
+            // The slot contributes the REMAINDER of the shared 16px gutter.
             return div()
-                .px_4()
+                .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
                 .min_h(px(96.))
                 .child(editor.element(window, cx))
                 .into_any_element();
@@ -622,7 +640,13 @@ impl IssueDetailView {
             .px_4()
             .py_2()
             .text_sm()
-            .child(TextView::markdown("issue-description", SharedString::from(source)).selectable(true))
+            .child(
+                // EXP-282: glass code blocks instead of the component's
+                // opaque `muted` panel.
+                TextView::markdown("issue-description", SharedString::from(source))
+                    .style(crate::surface::markdown_style())
+                    .selectable(true),
+            )
             .into_any_element()
     }
 
@@ -632,11 +656,11 @@ impl IssueDetailView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        // Borderless 2xl title (web `titleField`). px_4 = the one shared left
-        // edge for the detail body (breadcrumb / tabs / title / description all
-        // align on it — §8.3).
+        // Borderless 2xl title (web `titleField`). [`DETAIL_GUTTER`] = the one
+        // shared left edge for the detail body (title / description / activity
+        // / composer all align on it — §8.3, EXP-282).
         let title = div()
-            .px_4()
+            .px(px(DETAIL_GUTTER))
             .pt_3()
             .pb_1()
             // Tab jumps from the title into the description editor (web
@@ -683,10 +707,11 @@ impl IssueDetailView {
             .child(title)
             .child(self.render_description(issue, window, cx));
 
-        // The timeline sits OUTSIDE the centered column: its top border runs
-        // full-bleed across the detail body (EXP-67 — one line splitting the
-        // description+images section from the comment section); the
-        // timeline's own content re-centers to the same column width.
+        // The timeline sits OUTSIDE the centered column and re-centers its own
+        // content to the same column width. It used to carry a full-bleed top
+        // border (EXP-67) splitting description from comments — EXP-282 drops
+        // that line: the sections are separated by whitespace alone, matching
+        // the blended chrome everywhere else.
         v_flex()
             .w_full()
             .child(centered_column(column))
@@ -698,9 +723,11 @@ impl Render for IssueDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Terminal-dock pattern: key context + tracked focus. (The bare-letter
         // J/K switcher bindings are gone — EXP-268; the header arrows remain.)
+        // EXP-282: no base fill — the view sits directly on the window's page
+        // gradient (`colors.list` is transparent since EXP-269, so the old
+        // `.bg()` was a no-op that only obscured the intent).
         let base = v_flex()
             .size_full()
-            .bg(cx.theme().colors.list)
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle);
 
@@ -813,7 +840,7 @@ pub(crate) fn open_duplicate_picker(issue_id: String, window: &mut Window, cx: &
     let picker = cx.new(|cx| DuplicatePicker::new(issue_id, window, cx));
     window.open_dialog(cx, move |dialog, _, _| {
         let picker = picker.clone();
-        dialog
+        crate::surface::glass_dialog(dialog)
             .title("Mark as duplicate")
             .w(px(480.))
             .button_props(

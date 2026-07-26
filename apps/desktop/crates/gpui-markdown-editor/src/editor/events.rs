@@ -839,8 +839,15 @@ impl Editor {
         // EXP-277 vendoring: rendered-mode clicks in the gaps around a
         // standalone image place a caret (insert/focus an empty paragraph) —
         // the mouse path for typing above/below/between images.
-        if event.button == MouseButton::Left && self.view_mode == super::ViewMode::Rendered {
-            self.handle_image_gap_click(event.position, cx);
+        if event.button == MouseButton::Left
+            && self.view_mode == super::ViewMode::Rendered
+            && !self.handle_image_gap_click(event.position, cx)
+        {
+            // EXP-282 vendoring: every OTHER gap (and the empty area above the
+            // first / below the last block) now routes the caret to the
+            // nearest block instead of swallowing the click — same precedent,
+            // still non-dirtying.
+            self.handle_gap_click_caret(event.position, cx);
         }
     }
 

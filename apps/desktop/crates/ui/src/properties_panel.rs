@@ -21,19 +21,23 @@
 use chrono::NaiveDate;
 
 use gpui::{
-    div, px, App, AppContext as _, ClipboardItem, Entity, FontWeight, IntoElement, ParentElement,
-    Render, SharedString, Styled, Subscription, Window,
+    div, px, App, AppContext as _, ClipboardItem, ElementId, Entity, Focusable as _, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     calendar::{Calendar, CalendarEvent, CalendarState, Date},
+    checkbox::Checkbox,
     h_flex,
+    input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, Side,
 };
 use serde::Serialize;
 use sync::Store;
+use theme::tokens as t;
 
 use domain::board::format_short_date;
 use domain::options::{
@@ -48,11 +52,13 @@ use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of};
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, replace_screen, Screen};
 use crate::queries;
+use crate::surface;
 
-/// Detail sidebar width — narrower than the web's `w-72` (288px): the
-/// desktop panel holds compact chip controls, so 288px left it mostly
-/// empty (EXP-144).
-const PANEL_WIDTH: f32 = 240.;
+/// Inner content width of the sidebar: [`surface::DETAIL_SIDEBAR_WIDTH`]
+/// minus `glass_sidebar`'s `px_3` (12px) gutters. EXP-282: every picker
+/// trigger spans it and every dropdown/popover is matched to it, so the panel
+/// reads as ONE stack of full-width controls instead of ragged chips.
+const SIDEBAR_INNER_WIDTH: f32 = surface::DETAIL_SIDEBAR_WIDTH - 24.;
 
 /// EXP-48 switcher position: where the displayed issue sits in the active
 /// issue list's flattened visible ordering. (Moved here with the toolbar
@@ -68,6 +74,10 @@ struct SwitcherState {
 pub struct PropertiesPanel {
     issue_id: Option<String>,
     due_calendar: Entity<CalendarState>,
+    /// Search query of the Labels popover (EXP-282 — the searchable picker
+    /// follows `filter_popover::labels_view`: the OWNING view holds the
+    /// `InputState`, the popover only renders it).
+    label_query: Entity<InputState>,
     /// The window's shared rail state — the EXP-48 switcher reads the active
     /// issue board's query + filters from it (EXP-277: the switcher lives in
     /// this panel's toolbar row now).
@@ -101,8 +111,12 @@ impl PropertiesPanel {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
+        let label_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels..."));
 
         let mut subscriptions = Vec::new();
+        // Live label search re-filters the popover's rows (EXP-282).
+        subscriptions.push(cx.observe(&label_query, |_, _, cx| cx.notify()));
         // User picked a due date in the popover → immediate mutation (the
         // popover stays open, web parity — shadcn's Calendar doesn't
         // auto-close either).
@@ -156,6 +170,7 @@ impl PropertiesPanel {
         Self {
             issue_id: None,
             due_calendar,
+            label_query,
             rail_shared,
             subscribe_busy: false,
             link_copied: false,
@@ -294,56 +309,60 @@ impl PropertiesPanel {
         let config = get_issue_status_config(issue.status);
         let current = issue.status;
         let issue_id = issue.id.clone();
-        Button::new("prop-status")
-            .ghost()
-            .xsmall()
-            .icon(option_icon(config, cx))
-            .label(SharedString::from(config.label))
-            .dropdown_menu(move |menu, _, cx| {
-                let mut menu = menu.check_side(Side::Right);
-                for option in &ISSUE_STATUS_OPTIONS {
-                    menu = menu.item(option_item(option, option.value == current, cx, {
-                        let issue_id = issue_id.clone();
-                        let value = option.value;
-                        // L27: `duplicate` opens the picker; every other status writes.
-                        move |window, cx| {
-                            crate::issue_detail::apply_status_selection(
-                                issue_id.clone(),
-                                value,
-                                window,
-                                cx,
-                            );
-                        }
-                    }));
-                }
-                menu
-            })
+        picker_trigger(
+            "prop-status",
+            Some(option_icon(config, cx)),
+            SharedString::from(config.label),
+            false,
+            cx,
+        )
+        .dropdown_menu(move |menu, _, cx| {
+            let mut menu = menu.min_w(px(SIDEBAR_INNER_WIDTH)).check_side(Side::Right);
+            for option in &ISSUE_STATUS_OPTIONS {
+                menu = menu.item(option_item(option, option.value == current, cx, {
+                    let issue_id = issue_id.clone();
+                    let value = option.value;
+                    // L27: `duplicate` opens the picker; every other status writes.
+                    move |window, cx| {
+                        crate::issue_detail::apply_status_selection(
+                            issue_id.clone(),
+                            value,
+                            window,
+                            cx,
+                        );
+                    }
+                }));
+            }
+            menu
+        })
     }
 
     fn priority_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let config = get_issue_priority_config(issue.priority);
         let current = issue.priority;
         let issue_id = issue.id.clone();
-        Button::new("prop-priority")
-            .ghost()
-            .xsmall()
-            .icon(option_icon(config, cx))
-            .label(SharedString::from(config.label))
-            .dropdown_menu(move |menu, _, cx| {
-                let mut menu = menu.check_side(Side::Right);
-                for option in &ISSUE_PRIORITY_OPTIONS {
-                    menu = menu.item(option_item(option, option.value == current, cx, {
-                        let issue_id = issue_id.clone();
-                        let value = option.value;
-                        move |_window, cx| {
-                            let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                            input.priority = Some(value);
-                            spawn_issue_update(cx, input);
-                        }
-                    }));
-                }
-                menu
-            })
+        picker_trigger(
+            "prop-priority",
+            Some(option_icon(config, cx)),
+            SharedString::from(config.label),
+            false,
+            cx,
+        )
+        .dropdown_menu(move |menu, _, cx| {
+            let mut menu = menu.min_w(px(SIDEBAR_INNER_WIDTH)).check_side(Side::Right);
+            for option in &ISSUE_PRIORITY_OPTIONS {
+                menu = menu.item(option_item(option, option.value == current, cx, {
+                    let issue_id = issue_id.clone();
+                    let value = option.value;
+                    move |_window, cx| {
+                        let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                        input.priority = Some(value);
+                        spawn_issue_update(cx, input);
+                    }
+                }));
+            }
+            menu
+        })
     }
 
     /// Web `AssigneePicker`: avatar + name when assigned, `User` glyph +
@@ -361,22 +380,32 @@ impl PropertiesPanel {
         let trigger = match issue.assignee_id.as_deref() {
             // Assigned — render the member's name, falling back to `Member
             // <LAST4>` when the co-member's user row didn't sync.
-            Some(id) => Button::new("prop-assignee").ghost().xsmall().label(
-                SharedString::from(crate::comments::user_label(id, selected.as_ref())),
-            ),
-            None => Button::new("prop-assignee")
-                .ghost()
-                .xsmall()
-                .icon(
+            Some(id) => picker_trigger(
+                "prop-assignee",
+                Some(
                     Icon::new(gpui_component::IconName::User)
                         .text_color(cx.theme().muted_foreground),
-                )
-                .label("Assignee"),
+                ),
+                SharedString::from(crate::comments::user_label(id, selected.as_ref())),
+                false,
+                cx,
+            ),
+            None => picker_trigger(
+                "prop-assignee",
+                Some(
+                    Icon::new(gpui_component::IconName::User)
+                        .text_color(cx.theme().muted_foreground),
+                ),
+                "Assignee".into(),
+                true,
+                cx,
+            ),
         };
 
         trigger.dropdown_menu(move |menu, _, _| {
             // Member lists grow with the team — cap + scroll (EXP-46a).
             let mut menu = menu
+                .min_w(px(SIDEBAR_INNER_WIDTH))
                 .check_side(Side::Right)
                 .scrollable(true)
                 .max_h(px(320.));
@@ -408,9 +437,12 @@ impl PropertiesPanel {
         })
     }
 
-    /// Web `LabelPicker`: toggle menu over the team's labels (colored
-    /// dot + name + check). Label creation stays in team settings on
-    /// desktop v1.
+    /// Web `LabelPicker`, EXP-282 as a SEARCHABLE popover (the board filter
+    /// popover's `labels_view` pattern): "Filter labels..." input on top, live
+    /// `contains()` filtering, checkbox + color-dot rows that toggle
+    /// `issueLabels.add|remove` without closing, and the empty state. The
+    /// popover matches the sidebar's inner width. Label creation stays in team
+    /// settings on desktop v1.
     fn labels_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let labels = self.team_labels(issue, cx);
         let selected = self.selected_label_ids(&issue.id, cx);
@@ -426,22 +458,66 @@ impl PropertiesPanel {
                 .collect();
             names.join(", ")
         };
+        let trigger = picker_trigger(
+            "prop-labels",
+            Some(Icon::from(ExpIcon::Tag).text_color(cx.theme().muted_foreground)),
+            SharedString::from(trigger_label),
+            selected.is_empty(),
+            cx,
+        );
 
-        Button::new("prop-labels")
-            .ghost()
-            .xsmall()
-            .icon(Icon::from(ExpIcon::Tag).text_color(cx.theme().muted_foreground))
-            .label(SharedString::from(trigger_label))
-            .dropdown_menu(move |menu, _, _| {
-                // Label lists grow with the team — cap + scroll (EXP-46a).
-                let mut menu = menu
-                    .check_side(Side::Right)
-                    .scrollable(true)
-                    .max_h(px(320.));
-                if labels.is_empty() {
-                    return menu.item(PopupMenuItem::label("No labels in this team"));
+        let query_state = self.label_query.clone();
+        Popover::new("prop-labels-popover")
+            .w(px(SIDEBAR_INNER_WIDTH))
+            .p_1()
+            .trigger(trigger)
+            .on_open_change({
+                let query_state = query_state.clone();
+                move |open, window, cx| {
+                    // Fresh search per open; the input takes focus like the
+                    // web CommandInput.
+                    query_state.update(cx, |input, cx| input.set_value("", window, cx));
+                    if *open {
+                        query_state.read(cx).focus_handle(cx).focus(window, cx);
+                    }
                 }
-                for label in &labels {
+            })
+            .content(move |_, _, cx| {
+                let query = query_state.read(cx).value().trim().to_lowercase();
+                let visible: Vec<&Label> = labels
+                    .iter()
+                    .filter(|label| {
+                        query.is_empty() || label.name.to_lowercase().contains(&query)
+                    })
+                    .collect();
+
+                let mut column = v_flex().w_full().child(
+                    Input::new(&query_state)
+                        .small()
+                        .appearance(false)
+                        .cleanable(true),
+                );
+                if labels.is_empty() {
+                    return column.child(empty_picker_row("No labels in this team", cx));
+                }
+                column = column.child(
+                    div()
+                        .h(px(1.))
+                        .w_full()
+                        .my_1()
+                        .bg(cx.theme().border.opacity(0.5)),
+                );
+                if visible.is_empty() {
+                    return column.child(empty_picker_row("No labels found.", cx));
+                }
+
+                // Label lists grow with the team — cap + scroll (EXP-46a).
+                let mut rows = v_flex()
+                    .id("prop-labels-rows")
+                    .w_full()
+                    .max_h(px(240.))
+                    .overflow_y_scroll();
+                for label in visible {
                     let checked = selected.contains(&label.id);
                     let issue_id = issue_id.clone();
                     let label_id = label.id.clone();
@@ -450,32 +526,43 @@ impl PropertiesPanel {
                         .as_deref()
                         .and_then(parse_hex_color)
                         .unwrap_or(gpui::opaque_grey(0.5, 1.0));
-                    let name = SharedString::from(label.name.clone());
-                    menu = menu.item(
-                        PopupMenuItem::element(move |_, cx| {
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .child(
-                                    div()
-                                        .size_2()
-                                        .rounded_full()
-                                        .flex_shrink_0()
-                                        .bg(dot_color),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(cx.theme().popover_foreground)
-                                        .child(name.clone()),
-                                )
-                        })
-                        .checked(checked)
+                    rows = rows.child(
+                        picker_row(
+                            ElementId::Name(SharedString::from(format!(
+                                "prop-label-{label_id}"
+                            ))),
+                            cx,
+                        )
+                        // The row owns the click — a handler on the checkbox
+                        // too would double-toggle (filter_popover pattern).
+                        .child(
+                            Checkbox::new(ElementId::Name(SharedString::from(format!(
+                                "prop-label-check-{label_id}"
+                            ))))
+                            .checked(checked),
+                        )
+                        .child(
+                            div()
+                                .size_2p5()
+                                .rounded_full()
+                                .flex_shrink_0()
+                                .bg(dot_color),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .whitespace_nowrap()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(SharedString::from(label.name.clone())),
+                        )
                         .on_click(move |_, _, cx| {
                             toggle_label(cx, issue_id.clone(), label_id.clone(), checked);
                         }),
                     );
                 }
-                menu
+                column.child(rows)
             })
     }
 
@@ -489,23 +576,33 @@ impl PropertiesPanel {
             Some(date) => format_short_date(date).into(),
             None => "Due date".into(),
         };
-        let trigger = Button::new("prop-due")
-            .ghost()
-            .xsmall()
-            .icon(Icon::from(ExpIcon::CalendarDays).text_color(cx.theme().muted_foreground))
-            .label(label);
+        let has_due = due.is_some();
+        let trigger = picker_trigger(
+            "prop-due",
+            Some(Icon::from(ExpIcon::CalendarDays).text_color(cx.theme().muted_foreground)),
+            label,
+            !has_due,
+            cx,
+        );
 
         let calendar = self.due_calendar.clone();
         let panel = cx.entity();
-        let has_due = due.is_some();
+        // No width pin here (unlike the other pickers): the calendar grid has
+        // its own intrinsic width, wider than the sidebar column.
         Popover::new("prop-due-popover")
             .trigger(trigger)
             .content(move |_, _, cx| {
                 let panel = panel.clone();
-                let mut content = v_flex()
-                    .p_2()
-                    .gap_2()
-                    .child(Calendar::new(&calendar));
+                // EXP-282: the Calendar paints its OWN card (border + radius +
+                // p_3) inside the popover's card — de-card it (its `Styled`
+                // refinement runs after its defaults) and drop the extra
+                // padded wrapper so the picker sits in ONE card.
+                let mut content = v_flex().gap_1().child(
+                    Calendar::new(&calendar)
+                        .border_0()
+                        .rounded_none()
+                        .p_0(),
+                );
                 if has_due {
                     content = content.child(
                         Button::new("prop-due-clear")
@@ -532,12 +629,15 @@ impl PropertiesPanel {
             return None;
         }
         Some(
+            // EXP-282: full-width glass chip (was an `accent/0.4` pill sized
+            // to its text).
             h_flex()
+                .w_full()
                 .gap_1p5()
                 .px_2()
                 .py_1()
-                .rounded_md()
-                .bg(cx.theme().accent.opacity(0.4))
+                .rounded(px(t::radius::SM))
+                .bg(t::glass::FILL_CARD.to_hsla())
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
                 .items_center()
@@ -985,6 +1085,12 @@ impl PropertiesPanel {
         row
     }
 
+    /// The Board control (EXP-282): the board's own glyph tinted with its
+    /// color (the rail's `rail_board_icon` treatment — the anonymous color dot
+    /// is gone) + its name, as a full-width row. With another board in the
+    /// team the row becomes a PICKER over the shared move-to-board menu (the
+    /// same `issues.move` the row context menu and the `…` actions menu
+    /// already offer); a single-board team keeps a static glass chip.
     fn board_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
         let board: Board = Store::global(cx)
             .collections()
@@ -992,23 +1098,45 @@ impl PropertiesPanel {
             .read(cx)
             .get(&issue.board_id)
             .cloned()?;
-        let color = board
+        let tint = board
             .color
             .as_deref()
             .and_then(parse_hex_color)
             .unwrap_or(cx.theme().muted_foreground);
+        let icon = crate::icons::board_icon(&board).text_color(tint);
+        let name = SharedString::from(board.name.clone());
+
+        if crate::issue_list::move_target_boards(cx, &issue.board_id).is_empty() {
+            return Some(
+                h_flex()
+                    .w_full()
+                    .gap_1p5()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(t::radius::SM))
+                    .bg(t::glass::FILL_CARD.to_hsla())
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .items_center()
+                    .child(icon.xsmall())
+                    .child(name)
+                    .into_any_element(),
+            );
+        }
+
+        let issue_id = issue.id.clone();
+        let board_id = issue.board_id.clone();
         Some(
-            h_flex()
-                .gap_1p5()
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .bg(cx.theme().accent.opacity(0.4))
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .items_center()
-                .child(div().size_2p5().rounded_full().flex_shrink_0().bg(color))
-                .child(SharedString::from(board.name)),
+            picker_trigger("prop-board", Some(icon), name, false, cx)
+                .dropdown_menu(move |menu, _, cx| {
+                    crate::issue_list::move_to_board_menu(
+                        menu.min_w(px(SIDEBAR_INNER_WIDTH)),
+                        &issue_id,
+                        &board_id,
+                        cx,
+                    )
+                })
+                .into_any_element(),
         )
     }
 }
@@ -1016,15 +1144,11 @@ impl PropertiesPanel {
 impl Render for PropertiesPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // EXP-277: no left hairline — whitespace separates the sidebar from
-        // the centered detail column (blended chrome).
-        let base = v_flex()
-            .w(px(PANEL_WIDTH))
-            .flex_shrink_0()
-            .h_full()
-            .px_3()
-            .py_3()
-            .gap_3()
-            .text_sm();
+        // the centered detail column (blended chrome). EXP-282: the shared
+        // `glass_sidebar` shape (220px + a glass section fill) replaced the
+        // hand-rolled 240px column, so the panel reads as a distinct pane over
+        // the page gradient like the left tool column.
+        let base = surface::glass_sidebar();
 
         let Some(issue) = self.issue(cx) else {
             return base;
@@ -1087,6 +1211,9 @@ pub(crate) fn property_group(
     cx: &App,
 ) -> impl IntoElement {
     v_flex()
+        // EXP-282: the group spans the sidebar's inner width so the
+        // full-width picker rows inside it can resolve their `w_full`.
+        .w_full()
         .gap_1()
         .items_start()
         .child(
@@ -1097,6 +1224,90 @@ pub(crate) fn property_group(
                 .child(SharedString::from(label.to_uppercase())),
         )
         .child(control)
+}
+
+/// EXP-282: the shared FULL-WIDTH picker trigger (status / priority /
+/// assignee / labels / due date / board).
+///
+/// gpui-component's `Button` hardwires `justify_center` on its inner label
+/// row and `refine_style` only reaches the outer box, so a `.w_full()` button
+/// built from `.icon()` + `.label()` centers its content. The row content
+/// therefore rides ONE `w_full` child that owns the layout — the established
+/// hand-rolled-row workaround — while the button keeps its ghost chrome,
+/// hover/active states and dropdown/popover plumbing. `muted` renders the
+/// placeholder ("Labels", "Assignee", "Due date") in the muted tone.
+fn picker_trigger(
+    id: &'static str,
+    icon: Option<Icon>,
+    label: SharedString,
+    muted: bool,
+    cx: &App,
+) -> Button {
+    let text_color = if muted {
+        cx.theme().muted_foreground
+    } else {
+        cx.theme().foreground
+    };
+    Button::new(id)
+        .ghost()
+        .xsmall()
+        .w_full()
+        // Release the xsmall 20px box — a full-width row reads better at the
+        // token control height.
+        .h(px(t::size::CONTROL_SM))
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .items_center()
+                .children(icon.map(|icon| icon.xsmall().flex_shrink_0()))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .text_color(text_color)
+                        .child(label),
+                )
+                .child(
+                    Icon::new(IconName::ChevronDown)
+                        .size_3()
+                        .flex_shrink_0()
+                        .text_color(cx.theme().muted_foreground),
+                ),
+        )
+}
+
+/// A shadcn `CommandItem`-style popover row (the `filter_popover` recipe,
+/// re-rolled here because that module's helper is private): px-2 py-1 text-sm,
+/// glass row fill on hover.
+fn picker_row(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .w_full()
+        .px_2()
+        .py_1()
+        .gap_2()
+        .rounded(cx.theme().radius)
+        .text_sm()
+        .cursor_pointer()
+        .hover(|style| style.bg(t::glass::FILL_ROW.to_hsla()))
+}
+
+/// The `CommandEmpty` fallback of a searchable picker.
+fn empty_picker_row(message: &'static str, cx: &App) -> impl IntoElement {
+    div()
+        .py_4()
+        .w_full()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .text_center()
+        .child(message)
 }
 
 /// One option row (same as the board's): table icon + label + right-side

@@ -34,7 +34,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
-use super::{card, card_header, error_notice, open_url};
+use super::{section, card_header, error_notice, open_url};
 
 // ---------------------------------------------------------------------------
 // Server-only reads (typed mirrors of the web loader results)
@@ -225,7 +225,7 @@ impl Render for RepositoriesPane {
             _ => 0,
         };
 
-        let mut body = card(cx).child(card_header(
+        let mut body = section(cx).child(card_header(
             format!("Repositories · {repo_count}"),
             "Connect GitHub repos so issues in this team can be coded on. Link a repo \
              to a board to make it the clone target for \u{201c}Start coding\u{201d}.",
@@ -298,7 +298,7 @@ impl Render for RepositoriesPane {
                                 .py_2()
                                 .rounded(cx.theme().radius)
                                 .border_1()
-                                .border_color(cx.theme().border)
+                                .border_color(super::row_stroke(cx))
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
                                 .child(
@@ -341,7 +341,7 @@ impl Render for RepositoriesPane {
                             .rounded(cx.theme().radius)
                             .border_1()
                             .border_dashed()
-                            .border_color(cx.theme().border)
+                            .border_color(super::row_stroke(cx))
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child(Icon::new(IconName::Github).xsmall())
@@ -397,7 +397,7 @@ impl Render for RepositoriesPane {
                                 .py_2()
                                 .rounded(cx.theme().radius)
                                 .border_1()
-                                .border_color(cx.theme().border)
+                                .border_color(super::row_stroke(cx))
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
                                 .child("No repositories connected yet."),
@@ -475,7 +475,7 @@ fn render_repo_row(repo: &RepoRow, cx: &gpui::App) -> impl IntoElement {
                     .items_center()
                     .rounded(cx.theme().radius)
                     .border_1()
-                    .border_color(cx.theme().border)
+                    .border_color(super::row_stroke(cx))
                     .text_xs()
                     .child(SharedString::from(board.name.clone())),
             );
@@ -488,7 +488,7 @@ fn render_repo_row(repo: &RepoRow, cx: &gpui::App) -> impl IntoElement {
         .py_2()
         .rounded(cx.theme().radius)
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(super::row_stroke(cx))
         .child(head)
         .child(links)
 }
@@ -500,7 +500,7 @@ fn chip(label: SharedString, cx: &gpui::App) -> impl IntoElement {
         .py_0p5()
         .rounded(cx.theme().radius)
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(super::row_stroke(cx))
         .text_xs()
         .font_family(theme::terminal::FONT_FAMILY)
         .text_color(cx.theme().muted_foreground)

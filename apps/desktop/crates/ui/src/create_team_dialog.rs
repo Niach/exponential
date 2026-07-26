@@ -41,7 +41,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
     let view = cx.new(|cx| CreateTeamDialogView::new(window, cx));
     window.open_dialog(cx, move |dialog, _window, cx| {
         let busy = view.read(cx).submitting;
-        dialog
+        crate::surface::glass_dialog(dialog)
             .w(px(416.)) // web sm:max-w-[26rem]
             .title("Create team")
             .overlay_closable(!busy)

@@ -224,12 +224,19 @@ impl Render for FileViewerView {
                 // (gpui::list) so large files stay cheap.
                 let id: SharedString =
                     format!("file-view-{}", self.path.as_deref().unwrap_or("")).into();
+                // EXP-282: the code block's own chrome (opaque `tokens.muted`
+                // panel, radius, `p_3`) is stripped — the file sits directly
+                // on the page gradient. The block's padding moves to this
+                // wrapper so the code keeps its inset off the pane edges.
                 div()
                     .size_full()
+                    .px_3()
+                    .py_2()
                     .child(
                         TextView::markdown(id, source.clone())
                             .selectable(true)
-                            .scrollable(true),
+                            .scrollable(true)
+                            .style(crate::surface::bare_code_markdown_style()),
                     )
                     .into_any_element()
             }

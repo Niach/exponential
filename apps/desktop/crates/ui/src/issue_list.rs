@@ -41,6 +41,7 @@ use gpui_component::{
     VirtualListScrollHandle,
 };
 use sync::Store;
+use theme::tokens as t;
 
 use domain::board::format_short_date;
 use domain::options::{
@@ -339,7 +340,9 @@ impl IssueListView {
     }
 
     /// Web group header: chevron trigger + status icon + label + count on the
-    /// per-status tinted background.
+    /// shared glass section band (EXP-282: the per-status rgba washes are
+    /// gone — the status COLOR now lives only in the header's icon, so the
+    /// list reads as one surface over the page gradient).
     fn render_group_header(
         &self,
         status: IssueStatus,
@@ -360,7 +363,9 @@ impl IssueListView {
             .px_3()
             .gap_1p5()
             .items_center()
-            .bg(status_header_bg(status))
+            // EXP-282: `list_head` == the glass section fill (theme::init),
+            // the same band the skeleton header paints.
+            .bg(cx.theme().colors.list_head)
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.5))
             .child(
@@ -549,11 +554,7 @@ impl IssueListView {
         let count = ids.len();
         let busy = self.bulk_busy;
         let list = cx.entity().downgrade();
-        let border = cx.theme().border;
-        let popover_bg = cx.theme().popover;
-        let popover_fg = cx.theme().popover_foreground;
         let danger = cx.theme().danger;
-        let radius = cx.theme().radius;
 
         let status_menu = {
             let ids = ids.clone();
@@ -865,17 +866,18 @@ impl IssueListView {
             .pb_2()
             .flex()
             .child(
+                // EXP-282: glass card instead of the opaque popover fill — the
+                // bar is an in-flow strip over the gradient, not an overlay.
                 h_flex()
                     .id("bulk-action-bar")
                     .gap_2()
                     .px_3()
                     .py_2()
                     .items_center()
-                    .rounded(radius)
+                    .rounded(px(t::radius::XL))
                     .border_1()
-                    .border_color(border)
-                    .bg(popover_bg)
-                    .text_color(popover_fg)
+                    .border_color(t::glass::STROKE_CARD.to_hsla())
+                    .bg(t::glass::FILL_CARD.to_hsla())
                     .child(
                         div()
                             .px_1()
@@ -968,12 +970,13 @@ impl Render for IssueListView {
         // (the whole list is one team) so no per-row membership query runs.
         self.solo_team = self.is_solo_team(cx);
 
-        // Base surface: the REAL list token (web page background),
-        // never a card color. Key context + tracked focus scope the
-        // select-all/clear bindings here (terminal-dock pattern).
+        // Base surface: NONE — the list sits directly on the window's page
+        // gradient (EXP-282; `colors.list` has been transparent since the
+        // EXP-269 glass pass, so the old `.bg()` was a dead no-op). Key
+        // context + tracked focus scope the select-all/clear bindings here
+        // (terminal-dock pattern).
         let base = v_flex()
             .size_full()
-            .bg(cx.theme().colors.list)
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this, _: &SelectAll, _, cx| {
@@ -1657,9 +1660,10 @@ pub(crate) fn move_target_boards(cx: &App, board_id: &str) -> Vec<Board> {
 }
 
 /// The shared move-to-board menu body (row context submenu + the detail's
-/// actions menu, EXP-57): colored dot + name per board (the Labels submenu
-/// row pattern), current board checked + disabled; picking another fires
-/// `issues.move`.
+/// actions menu + the properties panel's Board picker, EXP-57): the board's
+/// own glyph tinted with its color + name (EXP-282 — same treatment as the
+/// rail's board icons; it replaced the anonymous color dot), current board
+/// checked + disabled; picking another fires `issues.move`.
 pub(crate) fn move_to_board_menu(
     menu: PopupMenu,
     issue_id: &str,
@@ -1669,11 +1673,12 @@ pub(crate) fn move_to_board_menu(
     let mut menu = menu.check_side(Side::Right);
     for board in move_target_boards(cx, board_id) {
         let is_current = board.id == board_id;
-        let dot = board
+        let tint = board
             .color
             .as_deref()
             .and_then(parse_hex_color)
             .unwrap_or(gpui::opaque_grey(0.5, 1.0));
+        let icon = crate::icons::board_icon(&board).text_color(tint);
         let name = SharedString::from(board.name.clone());
         let issue_id = issue_id.to_string();
         let target_id = board.id.clone();
@@ -1682,7 +1687,7 @@ pub(crate) fn move_to_board_menu(
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(div().size_2().rounded_full().flex_shrink_0().bg(dot))
+                    .child(icon.clone().xsmall())
                     .child(
                         div()
                             .text_color(cx.theme().popover_foreground)
@@ -1831,25 +1836,11 @@ fn due_cell(issue: &Issue, cx: &App) -> impl IntoElement {
 // Chrome bits
 // ---------------------------------------------------------------------------
 
-/// Web `statusHeaderBg` — fixed rgba tints per status group (copied verbatim
-/// from `issue-list.tsx`; they are literals there too, not theme tokens).
-fn status_header_bg(status: IssueStatus) -> gpui::Hsla {
-    let (r, g, b, a) = match status {
-        IssueStatus::Todo => (212, 212, 216, 0.08),
-        IssueStatus::InProgress => (234, 179, 8, 0.10),
-        IssueStatus::InReview => (34, 197, 94, 0.10),
-        IssueStatus::Done => (59, 130, 246, 0.10),
-        // backlog / cancelled / duplicate / unknown share the zinc tint.
-        _ => (113, 113, 122, 0.08),
-    };
-    gpui::Rgba {
-        r: r as f32 / 255.,
-        g: g as f32 / 255.,
-        b: b as f32 / 255.,
-        a,
-    }
-    .into()
-}
+// EXP-282: `status_header_bg` (the verbatim web `statusHeaderBg` rgba tints —
+// zinc / yellow / green / blue washes per status) is GONE. Those literals were
+// the one thing in the list that stood out from the page gradient; group
+// headers now paint the shared glass section band (`colors.list_head`) and the
+// status hue survives in the header's option icon.
 
 /// Web `IssueListSkeleton`: one header row + five body rows of placeholders.
 fn list_skeleton(cx: &App) -> impl IntoElement {
