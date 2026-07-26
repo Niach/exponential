@@ -630,9 +630,19 @@ impl ScreensPanel {
         // EXP-288: the hidden tabs collapse into a "+N" dropdown; clicking
         // one activates it (origin re-selection included via activate_tab).
         if !hidden.is_empty() {
-            let hidden_entries: Vec<(usize, gpui::SharedString)> = hidden
+            // Keyed by SCREEN, not by index: the menu's closures run at click
+            // time, and a tab closed while the dropdown is open (middle-click
+            // on a visible chip, a team switch) shifts every index after it,
+            // which would activate the wrong tab. Tabs are deduped by screen,
+            // so it is a stable identity.
+            let hidden_entries: Vec<(Screen, gpui::SharedString)> = hidden
                 .iter()
-                .map(|&ix| (ix, screen_title(&self.tabs[ix].screen, cx)))
+                .map(|&ix| {
+                    (
+                        self.tabs[ix].screen.clone(),
+                        screen_title(&self.tabs[ix].screen, cx),
+                    )
+                })
                 .collect();
             let panel = panel.clone();
             strip = strip.child(
@@ -643,12 +653,19 @@ impl ScreensPanel {
                     .tooltip("More tabs")
                     .dropdown_menu(move |mut menu, _window, _cx| {
                         menu = menu.scrollable(true).max_h(px(320.));
-                        for (ix, title) in &hidden_entries {
+                        for (screen, title) in &hidden_entries {
                             let panel = panel.clone();
-                            let ix = *ix;
+                            let screen = screen.clone();
                             menu = menu.item(PopupMenuItem::new(title.clone()).on_click(
                                 move |_, window, cx| {
                                     let _ = panel.update(cx, |this, cx| {
+                                        let Some(ix) = this
+                                            .tabs
+                                            .iter()
+                                            .position(|tab| tab.screen == screen)
+                                        else {
+                                            return;
+                                        };
                                         this.activate_tab(ix, window, cx);
                                     });
                                 },

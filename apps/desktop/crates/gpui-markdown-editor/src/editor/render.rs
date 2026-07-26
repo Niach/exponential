@@ -257,7 +257,20 @@ impl Editor {
         }
 
         if !has_bounds {
-            self.schedule_scroll_recheck(cx);
+            // Only a target that EXISTS but has not been laid out yet is worth
+            // retrying. With no focused edit target there is nothing to scroll
+            // to, and rescheduling would spin a 16ms notify -> render ->
+            // reschedule loop for as long as the editor stays blurred — armed
+            // by any host-viewport size change (`sync_scroll_viewport`), so in
+            // embedded mode a window resize, a rail expand or the create
+            // dialog's auto-grow starts it while the caret is elsewhere. Leave
+            // the request armed instead: whatever gives a block focus renders
+            // again, and this runs then.
+            if self.focused_edit_target(window, cx).is_some() {
+                self.schedule_scroll_recheck(cx);
+            } else {
+                self.scroll_recheck_task = None;
+            }
             return;
         }
 

@@ -668,8 +668,10 @@ impl Render for DialogShell {
             crate::window_frame::round_to_frame(div(), window)
                 .size_full()
                 // The glass dialog surface — the same page gradient as the
-                // main window (EXP-285), opaque: there is no dimmed
-                // in-window content behind a native window.
+                // main window (EXP-285). It carries EXP-290's 0.92 alpha like
+                // every other window root, so the blurred backdrop shows
+                // through; there is never dimmed in-window content behind a
+                // native window, only the desktop.
                 .bg(theme::background_gradient())
                 .border_1()
                 .border_color(t::glass::STROKE_CARD.to_hsla())
