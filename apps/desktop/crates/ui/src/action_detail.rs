@@ -1,30 +1,48 @@
 //! Full-page action detail (EXP-277) — the Actions tool-window rows' center
-//! screen, mirroring the issue detail's shape: the markdown prompt in a
-//! centered column and a properties-style right sidebar.
+//! screen, built on the ISSUE DETAIL's shape: one centered column (title,
+//! one-line description, the markdown prompt, the typed input definitions)
+//! plus a properties-style right sidebar.
 //!
 //! Data model: the synced `actions` shape carries the body-less row (name,
-//! description, inputs, repo binding); the prompt body is tRPC-only
+//! description, icon, inputs, repo binding); the prompt body is tRPC-only
 //! (`actions.get` — EXP-268), fetched per [`ActionDetailView::set_action`]
 //! and refetched when the synced row's `updated_at` moves (covers remote/MCP
-//! edits). Builtins never navigate here (no stable body — their rows open the
-//! start dialog instead); a builtin or unknown id renders the not-found state.
+//! edits).
 //!
 //! **EXP-282 — this screen IS the action editor.** The raw editor dialog is
 //! gone; owners edit everything in place, each field mutating on its own
 //! through `actions.update` (the issue-detail contract — no submit button, no
 //! dirty dialog): name and description are borderless inputs saved on
-//! blur/Enter, the prompt toggles between rendered markdown and a markdown
-//! SOURCE editor, and the sidebar's Repository picker + Inputs definition
-//! rows save immediately. Non-owners get the same screen read-only.
+//! blur/Enter, and the icon picker, the Repository picker and the input
+//! definition rows save immediately. Non-owners get the same screen read-only.
 //!
-//! Editor choice for the prompt: a plain multi-line `Input` over the WYSIWYG
-//! description editor. An action body is agent-facing SOURCE — the vendored
-//! WYSIWYG normalizes render-equivalent markdown (setext→ATX, `_i_`→`*i*`,
-//! `1)`→`1.`) on every save, silently rewriting a hand-tuned prompt, and its
-//! no-image mode stages pastes as `draft://` that the save path strips. A
-//! source field is lossless and honest about what the agent will receive.
+//! **EXP-298 — the prompt uses the SAME editor as an issue description** (the
+//! vendored WYSIWYG, [`crate::wysiwyg`]), inline and always live for owners;
+//! the Edit/Done source-field toggle is gone. Two consequences of that choice,
+//! both accepted deliberately:
+//!   * the vendored serializer normalizes render-equivalent markdown on save
+//!     (setext→ATX, `_i_`→`*i*`, `1)`→`1.`, intra-word `*` escaping, and
+//!     defensive escapes like `## 0. Scope` → `## 0\. Scope`), so an edited
+//!     prompt can come back a few bytes different. Everything in the GFM
+//!     contract — tables, fences, task lists included — round-trips byte-exact
+//!     (`markdown/wysiwyg_parity.rs` is the gate), so the agent still receives
+//!     the same program. A no-edit visit never writes: the save path is gated
+//!     on the editor's revision counter, not on a byte diff.
+//!   * an action owns no attachments, so the editor runs in staging mode
+//!     (`upload_issue: None`) and a pasted IMAGE is stripped by
+//!     `markdown_for_save` instead of being uploaded. Prompts are agent-facing
+//!     text; images have no meaning in them.
+//!
+//! **EXP-298 — builtins open here too, fully read-only.** The two virtual
+//! builtins are not DB rows (`actions.get/update/delete` reject their ids), so
+//! this view constructs them locally like every other client surface does and
+//! renders `coding::action_prompt::builtin_prompt_preview` as the prompt — the
+//! REAL shipped prompt with placeholder tokens where the runner substitutes
+//! run-time values, so the screen can never drift from what a run sends.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -36,8 +54,9 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{self, Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
+    popover::Popover,
     skeleton::Skeleton,
     text::TextView,
     v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
@@ -46,9 +65,12 @@ use sync::Store;
 
 use crate::action_run::{fetch_repositories, ActionRepoRow};
 use crate::icons::ExpIcon;
-use crate::issue_detail::centered_column;
-use crate::properties_panel::property_group;
+use crate::issue_detail::{centered_column, DETAIL_GUTTER, WYSIWYG_BLOCK_PADDING_X};
+use crate::navigation::{active_team_id, nav_for_window, Navigation};
+use crate::pickers::picker_trigger;
+use crate::properties_panel::{group_label, property_group};
 use crate::queries;
+use crate::wysiwyg::WysiwygDescription;
 
 /// The server's `MAX_ACTION_INPUTS` cap (`@exp/db-schema/domain`). The label
 /// fields are a fixed pool of this size: [`ActionDetailView::set_action`] has
@@ -70,8 +92,11 @@ struct InputDraft {
 }
 
 pub struct ActionDetailView {
+    /// The window's navigation — the team scope the two builtins are
+    /// constructed against (they carry no synced row to read it from).
+    nav: Entity<Navigation>,
     action_id: Option<String>,
-    /// The fetched prompt body (`None` = in flight).
+    /// The prompt body (`None` = in flight; a builtin's is the local preview).
     body: Option<SharedString>,
     body_error: Option<SharedString>,
     /// The synced row's `updated_at` at fetch time — a moved value on the
@@ -87,16 +112,20 @@ pub struct ActionDetailView {
     // -- EXP-282 inline editing ------------------------------------------
     name_input: Entity<InputState>,
     description_input: Entity<InputState>,
-    body_input: Entity<InputState>,
-    /// What was last PUSHED into each field from the row/fetch (`None` = not
-    /// seeded yet for this action). The echo guard: re-seeding only when the
-    /// server value moves is what keeps a remote echo from clobbering the
-    /// characters the owner is typing.
+    /// What was last PUSHED into each field from the row (`None` = not seeded
+    /// yet for this action). The echo guard: re-seeding only when the server
+    /// value moves is what keeps a remote echo from clobbering the characters
+    /// the owner is typing.
     seeded_name: Option<String>,
     seeded_description: Option<String>,
-    seeded_body: Option<String>,
-    /// The prompt source editor is up (owner toggled it from the header).
-    editing_body: bool,
+    /// EXP-298: the WYSIWYG prompt editor, built once per EDITABLE action
+    /// (`None` for read-only viewers and builtins — they render the prompt as
+    /// markdown). Mirrors `IssueDetailView`'s editor/editor_issue pair.
+    body_editor: Option<Entity<WysiwygDescription>>,
+    editor_action: Option<String>,
+    /// Last prompt bytes we saved or synced — dedupes echoes (the issue
+    /// detail's `last_saved_description`).
+    last_saved_body: Rc<RefCell<String>>,
     /// Label fields for the input definitions — index-aligned with
     /// [`Self::input_drafts`], sized to [`MAX_ACTION_INPUTS`].
     input_labels: Vec<Entity<InputState>>,
@@ -118,19 +147,19 @@ impl ActionDetailView {
                 .auto_grow(1, 3)
                 .submit_on_enter(true)
         });
+        // EXP-298: auto-grow so a long one-liner WRAPS — it used to clip at
+        // the column edge mid-sentence.
         let description_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Add a one-line description…")
-        });
-        let body_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .multi_line(true)
-                .rows(16)
-                .placeholder("The markdown prompt this action runs…")
+                .placeholder("Add a one-line description…")
+                .auto_grow(1, 3)
+                .submit_on_enter(true)
         });
         let input_labels: Vec<Entity<InputState>> = (0..MAX_ACTION_INPUTS)
             .map(|_| cx.new(|cx| InputState::new(window, cx).placeholder("Label")))
             .collect();
 
+        let nav = nav_for_window(window, cx);
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe_in(
             &name_input,
@@ -147,17 +176,6 @@ impl ActionDetailView {
             |this, _, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
                     this.save_description(cx);
-                }
-            },
-        ));
-        // The prompt saves on blur and leaves edit mode with it (clicking
-        // "Done" blurs the field first, so one path covers both).
-        subscriptions.push(cx.subscribe_in(
-            &body_input,
-            window,
-            |this, _, event: &InputEvent, _window, cx| {
-                if matches!(event, InputEvent::Blur) {
-                    this.save_body(cx);
                 }
             },
         ));
@@ -179,8 +197,11 @@ impl ActionDetailView {
                 cx.notify();
             }));
         }
+        // A team switch re-scopes the locally constructed builtins.
+        subscriptions.push(cx.observe(&nav, |_, _, cx| cx.notify()));
 
         Self {
+            nav,
             action_id: None,
             body: None,
             body_error: None,
@@ -190,11 +211,11 @@ impl ActionDetailView {
             body_scroll: gpui::ScrollHandle::new(),
             name_input,
             description_input,
-            body_input,
             seeded_name: None,
             seeded_description: None,
-            seeded_body: None,
-            editing_body: false,
+            body_editor: None,
+            editor_action: None,
+            last_saved_body: Rc::new(RefCell::new(String::new())),
             input_labels,
             input_drafts: Vec::new(),
             drafts_source: None,
@@ -214,10 +235,11 @@ impl ActionDetailView {
         // so the characters would just be dropped when the seeds reset below.
         self.save_name(cx);
         self.save_description(cx);
-        self.save_body(cx);
+        self.flush_body(cx);
         self.save_inputs(cx);
-        self.action_id = Some(action_id);
-        self.body = None;
+        self.action_id = Some(action_id.clone());
+        // A builtin has no fetchable body — its prompt is the shipped preview.
+        self.body = coding::action_prompt::builtin_prompt_preview(&action_id).map(SharedString::from);
         self.body_error = None;
         self.fetched_updated_at = None;
         self.repos = Vec::new();
@@ -227,8 +249,9 @@ impl ActionDetailView {
         // has no `Window`, so the actual `set_value`s happen in `render`).
         self.seeded_name = None;
         self.seeded_description = None;
-        self.seeded_body = None;
-        self.editing_body = false;
+        self.body_editor = None;
+        self.editor_action = None;
+        *self.last_saved_body.borrow_mut() = String::new();
         self.input_drafts = Vec::new();
         self.drafts_source = None;
         self.error = None;
@@ -241,11 +264,19 @@ impl ActionDetailView {
         cx.notify();
     }
 
-    /// The synced row, if visible in this team.
+    /// The action this screen shows. Real actions come from the synced shape;
+    /// the two builtins are constructed locally against the window's team
+    /// (EXP-298 — they are not DB rows, exactly like every other client's
+    /// action list does it).
     fn action(&self, cx: &App) -> Option<api::actions::Action> {
         let action_id = self.action_id.as_deref()?;
         if api::actions::is_builtin_action_id(action_id) {
-            return None;
+            let team_id = active_team_id(&self.nav, cx)?;
+            return Some(if action_id == api::actions::BUILTIN_FIX_CONFLICTS_ID {
+                api::actions::builtin_fix_conflicts_action(&team_id)
+            } else {
+                api::actions::builtin_create_action(&team_id)
+            });
         }
         Store::global(cx)
             .collections()
@@ -253,6 +284,18 @@ impl ActionDetailView {
             .read(cx)
             .get(action_id)
             .map(api::actions::from_row)
+    }
+
+    /// The action if the current viewer may WRITE it: a real synced row in a
+    /// team they own. EVERY save path goes through this, so a read-only
+    /// screen (member, or a product-shipped builtin) cannot mutate anything
+    /// even through a stale field blur.
+    fn editable_action(&self, cx: &App) -> Option<api::actions::Action> {
+        let action = self.action(cx)?;
+        if action.builtin {
+            return None;
+        }
+        crate::settings::is_owner(cx, &action.team_id).then_some(action)
     }
 
     /// Refetch the body when the synced row's `updated_at` moved past the
@@ -279,9 +322,7 @@ impl ActionDetailView {
             return;
         };
         self.body_error = None;
-        self.fetched_updated_at = self
-            .action(cx)
-            .and_then(|action| action.updated_at.clone());
+        self.fetched_updated_at = self.action(cx).and_then(|action| action.updated_at.clone());
         let fetch_id = action_id.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -362,7 +403,7 @@ impl ActionDetailView {
     }
 
     fn save_name(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(action) = self.action(cx) else {
+        let Some(action) = self.editable_action(cx) else {
             return;
         };
         // A name is one logical line; pasted newlines collapse (the issue
@@ -384,7 +425,7 @@ impl ActionDetailView {
     }
 
     fn save_description(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(action) = self.action(cx) else {
+        let Some(action) = self.editable_action(cx) else {
             return;
         };
         let description = self
@@ -403,26 +444,30 @@ impl ActionDetailView {
         self.spawn_update(input, cx);
     }
 
-    /// Save the prompt source and leave edit mode. A blank body is refused
-    /// locally (the server's `bodySchema` rejects it) instead of round-
-    /// tripping a 400 the owner can't act on.
-    fn save_body(&mut self, cx: &mut gpui::Context<Self>) {
-        // Only the open source editor can have unsaved prompt bytes. Without
-        // this gate a blur/navigation while the body is still loading would
-        // compare an EMPTY field against `None` and raise the empty-prompt
-        // error out of nowhere.
-        if !self.editing_body {
-            return;
-        }
-        self.editing_body = false;
-        let Some(action) = self.action(cx) else {
+    /// EXP-273/EXP-298: the curated glyph, saved the moment it is picked.
+    fn save_icon(&mut self, icon: &str, cx: &mut gpui::Context<Self>) {
+        let Some(action) = self.editable_action(cx) else {
             return;
         };
-        // Deliberately NOT trimmed — leading/trailing markdown whitespace is
-        // prompt content (the server takes the same stance).
-        let body = self.body_input.read(cx).value().to_string();
-        if Some(body.as_str()) == self.body.as_deref() {
-            cx.notify();
+        if action.icon.as_deref() == Some(icon) {
+            return;
+        }
+        let mut input = api::actions::ActionUpdate::new(action.id);
+        input.icon = Some(icon.to_string());
+        self.spawn_update(input, cx);
+    }
+
+    /// The prompt editor's save hook (blur, or an explicit editor save).
+    /// A blank body is refused locally (the server's `bodySchema` rejects it)
+    /// instead of round-tripping a 400 the owner can't act on.
+    ///
+    /// Deliberately NOT trimmed — leading/trailing markdown whitespace is
+    /// prompt content, and the server takes the same stance.
+    fn save_body(&mut self, body: String, cx: &mut gpui::Context<Self>) {
+        let Some(action) = self.editable_action(cx) else {
+            return;
+        };
+        if body == *self.last_saved_body.borrow() {
             return;
         }
         if body.trim().is_empty() {
@@ -430,15 +475,37 @@ impl ActionDetailView {
             cx.notify();
             return;
         }
+        *self.last_saved_body.borrow_mut() = body.clone();
         self.body = Some(SharedString::from(body.clone()));
-        self.seeded_body = Some(body.clone());
         let mut input = api::actions::ActionUpdate::new(action.id);
         input.body = Some(body);
         self.spawn_update(input, cx);
     }
 
+    /// Flush a pending (un-blurred) prompt edit (the issue detail's EXP-68
+    /// `flush_description`): the editor saves on blur, but a tab close / view
+    /// re-point / team switch tears its element out of the tree without a blur
+    /// ever firing. Every such path routes through here first; a clean editor
+    /// is a no-op.
+    pub(crate) fn flush_body(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(editor) = self.body_editor.clone() else {
+            return;
+        };
+        // EXP-261: no user edit → nothing to flush. The serializer normalizes
+        // render-equivalent markdown, so a byte diff alone proves nothing.
+        if !editor.read(cx).is_dirty(cx) {
+            return;
+        }
+        // EXP-261: a paste still uploading when the tab closes must not
+        // persist its `draft://` placeholder.
+        let body =
+            crate::markdown::image_paste::markdown_for_save(editor.read(cx).markdown(cx));
+        editor.update(cx, |editor, cx| editor.mark_clean(cx));
+        self.save_body(body, cx);
+    }
+
     fn save_repository(&mut self, repository_id: Option<String>, cx: &mut gpui::Context<Self>) {
-        let Some(action) = self.action(cx) else {
+        let Some(action) = self.editable_action(cx) else {
             return;
         };
         if repository_id == action.repository_id {
@@ -491,7 +558,7 @@ impl ActionDetailView {
 
     /// Whole-array replace (EXP-282 — the server patches nothing here).
     fn save_inputs(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(action) = self.action(cx) else {
+        let Some(action) = self.editable_action(cx) else {
             return;
         };
         let pairs = self.collect_inputs(cx);
@@ -563,6 +630,7 @@ impl ActionDetailView {
     fn sync_editors(
         &mut self,
         action: &api::actions::Action,
+        editable: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -577,18 +645,6 @@ impl ActionDetailView {
             self.seeded_description = Some(description.clone());
             self.description_input
                 .update(cx, |state, cx| state.set_value(description, window, cx));
-        }
-        // The prompt field only refills while the source editor is CLOSED —
-        // a refetch landing mid-edit must not overwrite the owner's typing.
-        if !self.editing_body {
-            let body = self.body.as_ref().map(|body| body.to_string());
-            if self.seeded_body != body {
-                self.seeded_body = body.clone();
-                if let Some(body) = body {
-                    self.body_input
-                        .update(cx, |state, cx| state.set_value(body, window, cx));
-                }
-            }
         }
         if self.drafts_source.as_ref() != Some(&action.inputs) {
             self.drafts_source = Some(action.inputs.clone());
@@ -611,6 +667,69 @@ impl ActionDetailView {
                 .collect();
             self.write_label_fields(&labels, window, cx);
         }
+        self.sync_body_editor(action, editable, window, cx);
+    }
+
+    /// Build the prompt editor for an editable action once its body landed,
+    /// and forward later remote echoes into it (the issue detail's
+    /// `ensure_editor` + `sync_from_issue` pair, fused: this is the only place
+    /// with a `Window`).
+    fn sync_body_editor(
+        &mut self,
+        action: &api::actions::Action,
+        editable: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if !editable {
+            // Read-only viewers render markdown; drop an editor left over
+            // from a previous action so nothing can save through it.
+            self.body_editor = None;
+            self.editor_action = None;
+            return;
+        }
+        let Some(body) = self.body.as_ref().map(|body| body.to_string()) else {
+            return;
+        };
+        if self.editor_action.as_deref() != Some(action.id.as_str()) {
+            *self.last_saved_body.borrow_mut() = body.clone();
+            let view = cx.entity().downgrade();
+            let on_save: crate::wysiwyg::OnSave =
+                Rc::new(move |markdown: String, _window, cx: &mut App| {
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |this, cx| this.save_body(markdown, cx));
+                    }
+                });
+            let editor = crate::description_editor::build_wysiwyg_editor(
+                Some(action.team_id.clone()),
+                // No attachment owner for an action — staging mode (see the
+                // module docs on pasted images).
+                None,
+                "The markdown prompt this action runs…",
+                &body,
+                Some(on_save),
+                window,
+                cx,
+            );
+            // EXP-288: the detail body's scroll container follows the caret.
+            let scroll = self.body_scroll.clone();
+            editor.update(cx, |editor, cx| editor.set_scroll_handle(scroll, cx));
+            self.body_editor = Some(editor);
+            self.editor_action = Some(action.id.clone());
+            return;
+        }
+        // A refetch landed (our own save's echo, or a remote/MCP edit): push
+        // it in only while the owner is not typing in the editor.
+        if body != *self.last_saved_body.borrow() {
+            let Some(editor) = self.body_editor.clone() else {
+                return;
+            };
+            if editor.read(cx).is_focused(window, cx) {
+                return;
+            }
+            *self.last_saved_body.borrow_mut() = body.clone();
+            editor.update(cx, |editor, cx| editor.set_markdown(&body, window, cx));
+        }
     }
 
     fn not_found(&self, cx: &gpui::Context<Self>) -> gpui::AnyElement {
@@ -627,17 +746,286 @@ impl ActionDetailView {
             .into_any_element()
     }
 
+    // -- center column ------------------------------------------------------
+
+    /// The prompt: the WYSIWYG editor for owners, rendered markdown for
+    /// everyone else (and for the builtins' shipped preview).
+    fn render_prompt(&self, editable: bool, cx: &gpui::Context<Self>) -> gpui::AnyElement {
+        if let Some(error) = self.body_error.clone() {
+            return div()
+                .px(px(DETAIL_GUTTER))
+                .text_xs()
+                .text_color(cx.theme().danger)
+                .child(error)
+                .into_any_element();
+        }
+        if editable {
+            if let Some(editor) = self.body_editor.clone() {
+                // Issue-detail parity (EXP-282/EXP-285): the vendored editor
+                // pads every block by its own 12px, so the slot contributes
+                // only the REMAINDER of the shared gutter; the 96px floor
+                // keeps a short prompt reading as a text area, and the flex
+                // column lets the editor's filler strip absorb the leftover
+                // (clicking below the text places the caret at the end).
+                return div()
+                    .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
+                    .min_h(px(96.))
+                    .flex()
+                    .flex_col()
+                    .child(editor.clone())
+                    .into_any_element();
+            }
+        }
+        let Some(body) = self.body.clone() else {
+            return div()
+                .px(px(DETAIL_GUTTER))
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child("Loading prompt…")
+                .into_any_element();
+        };
+        div()
+            .px(px(DETAIL_GUTTER))
+            .text_sm()
+            .child(
+                TextView::markdown("action-body", body)
+                    .style(crate::surface::markdown_style())
+                    .selectable(true),
+            )
+            .into_any_element()
+    }
+
+    /// Inputs: editable definition rows for the owner (label field + type
+    /// picker + required toggle + remove, plus "Add input"), read-only
+    /// `label · type · required` lines otherwise. EXP-298: this lives in the
+    /// CENTER column — the 192px sidebar could not fit one row on a line.
+    fn render_inputs(
+        &self,
+        action: &api::actions::Action,
+        editable: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let muted = cx.theme().muted_foreground;
+        if !editable {
+            if action.inputs.is_empty() {
+                return None;
+            }
+            let mut lines = v_flex().w_full().gap_1();
+            for input in &action.inputs {
+                lines = lines.child(
+                    h_flex()
+                        .w_full()
+                        .gap_1()
+                        .items_center()
+                        .text_sm()
+                        // No `truncate` on the label: a gpui ellipsis needs a
+                        // DEFINITE width all the way down (EXP-175), and in
+                        // this content-sized row it collapsed the label to a
+                        // bare "…". Labels are short; a long one wraps.
+                        .child(div().child(SharedString::from(input.label.clone())))
+                        .child(
+                            div().flex_shrink_0().text_xs().text_color(muted).child(
+                                SharedString::from(format!(
+                                    "· {}{}",
+                                    input.input_type,
+                                    if input.required { " · required" } else { "" }
+                                )),
+                            ),
+                        )
+                        // Soaks the remaining width so the pair stays left.
+                        .child(div().flex_1()),
+                );
+            }
+            return Some(lines.into_any_element());
+        }
+
+        let mut rows = v_flex().w_full().gap_1p5();
+        for (ix, draft) in self.input_drafts.iter().enumerate() {
+            let Some(field) = self.input_labels.get(ix) else {
+                break;
+            };
+            let type_label: SharedString = draft.input_type.clone().into();
+            let required = draft.required;
+            rows = rows.child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap_2()
+                    // A label is a couple of words — a full-width field read
+                    // as a giant box next to the tiny type/required controls.
+                    .child(Input::new(field).xsmall().flex_1().min_w_0().max_w(px(280.)))
+                    .child(
+                        // Picker-shaped chip (`picker_trigger`'s look at
+                        // content width — that helper is full-width only).
+                        Button::new(("action-input-type", ix))
+                            .ghost()
+                            .xsmall()
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .child(div().text_xs().child(type_label))
+                                    .child(
+                                        Icon::new(IconName::ChevronDown)
+                                            .size_3()
+                                            .text_color(muted),
+                                    ),
+                            )
+                            .dropdown_menu({
+                                let view = cx.entity().downgrade();
+                                move |mut menu, _window, _cx| {
+                                    for value in domain::contract::ACTION_INPUT_TYPE_VALUES {
+                                        let view = view.clone();
+                                        menu = menu.item(PopupMenuItem::new(*value).on_click(
+                                            move |_, _, cx| {
+                                                let Some(view) = view.upgrade() else {
+                                                    return;
+                                                };
+                                                view.update(cx, |view, cx| {
+                                                    if let Some(draft) =
+                                                        view.input_drafts.get_mut(ix)
+                                                    {
+                                                        draft.input_type = value.to_string();
+                                                    }
+                                                    view.save_inputs(cx);
+                                                    cx.notify();
+                                                });
+                                            },
+                                        ));
+                                    }
+                                    menu
+                                }
+                            }),
+                    )
+                    .child(
+                        Checkbox::new(("action-input-required", ix))
+                            .label("Required")
+                            .checked(required)
+                            .on_click(cx.listener(move |this, on: &bool, _, cx| {
+                                if let Some(draft) = this.input_drafts.get_mut(ix) {
+                                    draft.required = *on;
+                                }
+                                this.save_inputs(cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(("action-input-remove", ix))
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(IconName::Close).text_color(muted))
+                            .tooltip("Remove input")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.remove_input(ix, window, cx);
+                            })),
+                    ),
+            );
+        }
+        if self.input_drafts.len() < MAX_ACTION_INPUTS {
+            rows = rows.child(
+                Button::new("action-input-add")
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Plus)
+                    .label("Add input")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.add_input(window, cx);
+                    })),
+            );
+        }
+        Some(rows.into_any_element())
+    }
+
     // -- sidebar controls ---------------------------------------------------
 
+    /// Icon: a full-width picker row over the curated grid for owners (the
+    /// label-color swatch popover pattern), a static glyph chip otherwise.
+    /// EXP-298: a sidebar PROPERTY, not a title ornament — the detail column's
+    /// title has to keep the one shared left edge the description, the prompt
+    /// and the section labels resolve to.
+    fn render_icon(
+        &self,
+        action: &api::actions::Action,
+        editable: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let glyph = crate::icons::action_icon(action.icon.as_deref());
+        let name: SharedString = action
+            .icon
+            .clone()
+            .unwrap_or_else(|| "Default".to_string())
+            .into();
+        if !editable {
+            return h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .items_center()
+                .text_xs()
+                .child(
+                    div().flex_shrink_0().child(
+                        glyph
+                            .xsmall()
+                            .text_color(cx.theme().muted_foreground),
+                    ),
+                )
+                .child(div().min_w_0().truncate().child(name))
+                .into_any_element();
+        }
+        let selected = action.icon.clone().unwrap_or_default();
+        let view = cx.entity().downgrade();
+        Popover::new("action-detail-icon")
+            .trigger(picker_trigger(
+                "action-detail-icon-trigger",
+                Some(glyph),
+                name,
+                action.icon.is_none(),
+                cx,
+            ))
+            .content(move |_, _, cx| {
+                let popover = cx.entity();
+                let view = view.clone();
+                // The grid is a `flex_wrap` row: it only wraps inside a
+                // DEFINITE width, and a popover's content box is unconstrained
+                // — without this it paints all 60 glyphs as one clipped strip
+                // across the window. 8 × 28px cells + 7 × 6px gaps.
+                div().w(px(266.)).p_1().child(
+                    crate::board_form::icon_swatch_grid(
+                        "action-detail",
+                        &selected,
+                        move |name, window, cx| {
+                            if let Some(view) = view.upgrade() {
+                                view.update(cx, |view, cx| view.save_icon(name, cx));
+                            }
+                            popover.update(cx, |state, cx| state.dismiss(window, cx));
+                        },
+                        cx,
+                    ),
+                )
+            })
+            .into_any_element()
+    }
+
     /// Repository: an owner picker over the team's repos (plus the repo-less
-    /// scratch option) once the fetch landed; a read-only chip otherwise.
+    /// scratch option) once the fetch landed; a read-only chip otherwise. A
+    /// builtin resolves its own context per run (the creator's `repo` input,
+    /// the PR's repo for fix-conflicts), so it says so instead of claiming a
+    /// scratch run.
     fn render_repository(
         &self,
         action: &api::actions::Action,
-        owner: bool,
+        editable: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
+        if action.builtin {
+            return div()
+                .text_xs()
+                .text_color(muted)
+                .child("Chosen when you run it")
+                .into_any_element();
+        }
         let current = action.repository_id.as_deref().map(|repo_id| {
             self.repos
                 .iter()
@@ -646,7 +1034,7 @@ impl ActionDetailView {
                 .unwrap_or_else(|| "Repository".to_string())
         });
 
-        if !owner || !self.repos_loaded {
+        if !editable || !self.repos_loaded {
             return match current {
                 Some(name) => h_flex()
                     .w_full()
@@ -669,190 +1057,50 @@ impl ActionDetailView {
             };
         }
 
+        // EXP-298: the shared full-width picker row (issue-properties
+        // parity) — a hand-rolled `w_full` Button centers its own label.
+        let bound = current.is_some();
         let label: SharedString = match current {
             Some(name) => name.into(),
             None => "No repository (scratch run)".into(),
         };
         let repos = self.repos.clone();
         let view = cx.entity().downgrade();
-        Button::new("action-detail-repo")
-            .ghost()
-            .xsmall()
-            .w_full()
-            .label(label)
-            .dropdown_menu(move |mut menu, _window, _cx| {
-                let none_view = view.clone();
+        picker_trigger(
+            "action-detail-repo",
+            bound.then(|| Icon::from(ExpIcon::GitMerge)),
+            label,
+            !bound,
+            cx,
+        )
+        .dropdown_menu(move |mut menu, _window, _cx| {
+            let none_view = view.clone();
+            menu = menu.item(
+                PopupMenuItem::new("No repository (scratch run)").on_click(move |_, _, cx| {
+                    if let Some(view) = none_view.upgrade() {
+                        view.update(cx, |view, cx| view.save_repository(None, cx));
+                    }
+                }),
+            );
+            for repo in &repos {
+                let view = view.clone();
+                let repo_id = repo.id.clone();
                 menu = menu.item(
-                    PopupMenuItem::new("No repository (scratch run)").on_click(
+                    PopupMenuItem::new(SharedString::from(repo.full_name.clone())).on_click(
                         move |_, _, cx| {
-                            if let Some(view) = none_view.upgrade() {
-                                view.update(cx, |view, cx| view.save_repository(None, cx));
+                            if let Some(view) = view.upgrade() {
+                                let repo_id = repo_id.clone();
+                                view.update(cx, |view, cx| {
+                                    view.save_repository(Some(repo_id), cx)
+                                });
                             }
                         },
                     ),
                 );
-                for repo in &repos {
-                    let view = view.clone();
-                    let repo_id = repo.id.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(repo.full_name.clone())).on_click(
-                            move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let repo_id = repo_id.clone();
-                                    view.update(cx, |view, cx| {
-                                        view.save_repository(Some(repo_id), cx)
-                                    });
-                                }
-                            },
-                        ),
-                    );
-                }
-                menu
-            })
-            .into_any_element()
-    }
-
-    /// Inputs: editable definition rows for the owner (label field + type
-    /// picker + required toggle + remove, plus "Add input"), read-only
-    /// `label · type · required` lines otherwise.
-    fn render_inputs(
-        &self,
-        action: &api::actions::Action,
-        owner: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        let muted = cx.theme().muted_foreground;
-        if !owner {
-            if action.inputs.is_empty() {
-                return None;
             }
-            let mut lines = v_flex().w_full().gap_1();
-            for input in &action.inputs {
-                lines = lines.child(
-                    h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .gap_1()
-                        .items_center()
-                        .text_xs()
-                        .child(
-                            div()
-                                .min_w_0()
-                                .truncate()
-                                .child(SharedString::from(input.label.clone())),
-                        )
-                        .child(
-                            div().flex_shrink_0().text_color(muted).child(
-                                SharedString::from(format!(
-                                    "· {}{}",
-                                    input.input_type,
-                                    if input.required { " · required" } else { "" }
-                                )),
-                            ),
-                        ),
-                );
-            }
-            return Some(lines.into_any_element());
-        }
-
-        let mut rows = v_flex().w_full().gap_2();
-        for (ix, draft) in self.input_drafts.iter().enumerate() {
-            let Some(field) = self.input_labels.get(ix) else {
-                break;
-            };
-            let type_label: SharedString = draft.input_type.clone().into();
-            let required = draft.required;
-            rows = rows.child(
-                v_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1()
-                    .child(Input::new(field).xsmall())
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .items_center()
-                            .gap_1()
-                            .child(
-                                Button::new(("action-input-type", ix))
-                                    .ghost()
-                                    .xsmall()
-                                    .label(type_label)
-                                    .dropdown_menu({
-                                        let view = cx.entity().downgrade();
-                                        move |mut menu, _window, _cx| {
-                                            for value in
-                                                domain::contract::ACTION_INPUT_TYPE_VALUES
-                                            {
-                                                let view = view.clone();
-                                                menu = menu.item(
-                                                    PopupMenuItem::new(*value).on_click(
-                                                        move |_, _, cx| {
-                                                            let Some(view) = view.upgrade()
-                                                            else {
-                                                                return;
-                                                            };
-                                                            view.update(cx, |view, cx| {
-                                                                if let Some(draft) = view
-                                                                    .input_drafts
-                                                                    .get_mut(ix)
-                                                                {
-                                                                    draft.input_type =
-                                                                        value.to_string();
-                                                                }
-                                                                view.save_inputs(cx);
-                                                                cx.notify();
-                                                            });
-                                                        },
-                                                    ),
-                                                );
-                                            }
-                                            menu
-                                        }
-                                    }),
-                            )
-                            .child(
-                                Checkbox::new(("action-input-required", ix))
-                                    .label("Required")
-                                    .checked(required)
-                                    .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                                        if let Some(draft) = this.input_drafts.get_mut(ix) {
-                                            draft.required = *on;
-                                        }
-                                        this.save_inputs(cx);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(div().flex_1().min_w_0())
-                            .child(
-                                Button::new(("action-input-remove", ix))
-                                    .ghost()
-                                    .xsmall()
-                                    .icon(Icon::new(IconName::Close).text_color(muted))
-                                    .tooltip("Remove input")
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, window, cx| {
-                                            this.remove_input(ix, window, cx);
-                                        },
-                                    )),
-                            ),
-                    ),
-            );
-        }
-        if self.input_drafts.len() < MAX_ACTION_INPUTS {
-            rows = rows.child(
-                Button::new("action-input-add")
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::Plus)
-                    .label("Add input")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.add_input(window, cx);
-                    })),
-            );
-        }
-        Some(rows.into_any_element())
+            menu
+        })
+        .into_any_element()
     }
 }
 
@@ -882,33 +1130,41 @@ fn slug_key(label: &str) -> String {
 
 impl Render for ActionDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let ready = Store::global(cx).collections().actions.read(cx).is_ready();
-        if !ready {
-            // §4.1: never render "not found" off an unsynced snapshot.
-            return v_flex()
-                .size_full()
-                .p_4()
-                .gap_2()
-                .child(Skeleton::new().h_4().w_48())
-                .child(Skeleton::new().h_4().w_64())
-                .child(Skeleton::new().h_4().w_56())
-                .into_any_element();
-        }
+        let collections = Store::global(cx).collections();
+        // The builtins are constructed against the window's TEAM, so their
+        // resolution waits on the teams shape, not just on actions.
+        let ready = collections.actions.read(cx).is_ready() && collections.teams.read(cx).is_ready();
         let Some(action) = self.action(cx) else {
+            if !ready {
+                // §4.1: never render "not found" off an unsynced snapshot.
+                return v_flex()
+                    .size_full()
+                    .p_4()
+                    .gap_2()
+                    .child(Skeleton::new().h_4().w_48())
+                    .child(Skeleton::new().h_4().w_64())
+                    .child(Skeleton::new().h_4().w_56())
+                    .into_any_element();
+            }
             return self.not_found(cx);
         };
 
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
-        // Builtins never resolve through `action()`, so an editable row here
-        // is always a real DB row — ownership is the only gate.
-        let owner = crate::settings::is_owner(cx, &action.team_id);
-        self.sync_editors(&action, window, cx);
+        // Owners edit real rows in place; members and the product-shipped
+        // builtins read the same screen.
+        let editable = !action.builtin && crate::settings::is_owner(cx, &action.team_id);
+        self.sync_editors(&action, editable, window, cx);
 
-        // ---- center column: name, description, prompt ----------------------
-        let name: gpui::AnyElement = if owner {
+        // ---- center column: icon + name, description, prompt, inputs -------
+        // [`DETAIL_GUTTER`] is the ONE left edge every block resolves to
+        // (issue-detail §8.3): the title row, the description, the section
+        // labels and the prompt slot all align on it.
+        let name: gpui::AnyElement = if editable {
             // Borderless title input (issue-detail parity): looks like the
-            // heading, saves on blur/Enter.
+            // heading, saves on blur/Enter. `flex_1` goes ON the Input — its
+            // root sizes itself with a percent width, which collapses to
+            // content width inside a flex-basis-0 wrapper.
             Input::new(&self.name_input)
                 .appearance(false)
                 .text_2xl()
@@ -925,14 +1181,45 @@ impl Render for ActionDetailView {
                 .into_any_element()
         };
 
-        let description: Option<gpui::AnyElement> = if owner {
+        let title = div()
+            .px(px(DETAIL_GUTTER))
+            .pt_3()
+            .pb_1()
+            // Tab jumps from the name into the prompt editor (issue-detail /
+            // web EXP-10 parity). Capture runs before the InputState's own Tab
+            // handling; Shift+Tab is a different action and keeps its default.
+            .capture_action(cx.listener(
+                |this, _: &input::IndentInline, window, cx: &mut gpui::Context<Self>| {
+                    if let Some(editor) = this.body_editor.clone() {
+                        cx.stop_propagation();
+                        editor.update(cx, |editor, cx| editor.focus(window, cx));
+                    }
+                },
+            ))
+            // Shift+Enter would insert a newline in the auto-grow input
+            // (`submit_on_enter` only intercepts plain Enter) — swallow it so
+            // no keyboard path can put a newline in a name (EXP-230).
+            .capture_action(cx.listener(
+                |_, action: &input::Enter, _window, cx: &mut gpui::Context<Self>| {
+                    if action.shift {
+                        cx.stop_propagation();
+                    }
+                },
+            ))
+            .child(name);
+
+        let description: Option<gpui::AnyElement> = if editable {
             Some(
-                Input::new(&self.description_input)
-                    .appearance(false)
-                    .text_sm()
-                    .text_color(muted)
-                    .px_0()
-                    .h_auto()
+                div()
+                    .px(px(DETAIL_GUTTER))
+                    .child(
+                        Input::new(&self.description_input)
+                            .appearance(false)
+                            .text_sm()
+                            .text_color(muted)
+                            .px_0()
+                            .h_auto(),
+                    )
                     .into_any_element(),
             )
         } else {
@@ -942,6 +1229,7 @@ impl Render for ActionDetailView {
                 .filter(|text| !text.trim().is_empty())
                 .map(|text| {
                     div()
+                        .px(px(DETAIL_GUTTER))
                         .text_sm()
                         .text_color(muted)
                         .child(SharedString::from(text))
@@ -949,90 +1237,85 @@ impl Render for ActionDetailView {
                 })
         };
 
-        // EXP-282: PROMPT header carries the owner's Edit/Done toggle. A
-        // click-to-edit card was the alternative, but the read view is
-        // selectable markdown — a click after a drag-select would swap the
-        // editor in and throw the selection away.
-        let prompt_header = h_flex()
-            .w_full()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(muted)
-                    .child("PROMPT"),
-            )
-            .when(owner && self.body.is_some(), |this| {
-                let editing = self.editing_body;
+        // The PROMPT label is the only cue separating the one-line
+        // description above from the markdown body below.
+        let prompt_header = v_flex()
+            .px(px(DETAIL_GUTTER))
+            .pt_3()
+            .pb_1()
+            .gap_0p5()
+            .child(group_label("Prompt", cx))
+            .when(action.builtin, |this| {
                 this.child(
-                    Button::new("action-body-edit")
-                        .ghost()
-                        .xsmall()
-                        .label(if editing { "Done" } else { "Edit" })
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            if editing {
-                                // Blur commits through the field's own
-                                // subscription; this is the belt for a
-                                // click that never moved focus.
-                                this.save_body(cx);
-                            } else {
-                                this.editing_body = true;
-                                this.body_input
-                                    .update(cx, |state, cx| state.focus(window, cx));
-                            }
-                            cx.notify();
-                        })),
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("Built-in action — shipped with the app, not editable."),
                 )
             });
+        let prompt = self.render_prompt(editable, cx);
 
-        let prompt: gpui::AnyElement = if let Some(error) = self.body_error.clone() {
-            div()
-                .text_xs()
-                .text_color(danger)
-                .child(error)
-                .into_any_element()
-        } else if owner && self.editing_body {
-            crate::surface::glass_card()
-                .p_2()
-                .child(Input::new(&self.body_input).appearance(false))
-                .into_any_element()
-        } else if let Some(body) = self.body.clone() {
-            crate::surface::glass_card()
-                .p_4()
-                .child(
-                    TextView::markdown("action-body", body)
-                        .style(crate::surface::markdown_style())
-                        .selectable(true),
-                )
-                .into_any_element()
-        } else {
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("Loading prompt…")
-                .into_any_element()
-        };
-
-        let mut column = v_flex()
-            .w_full()
-            .px_4()
-            .pt_3()
-            .pb_6()
-            .gap_3()
-            .child(name);
+        let mut column = v_flex().w_full().pb_6().child(title);
         if let Some(description) = description {
             column = column.child(description);
         }
         column = column.child(prompt_header).child(prompt);
+        if let Some(inputs) = self.render_inputs(&action, editable, cx) {
+            column = column
+                .child(
+                    div()
+                        .px(px(DETAIL_GUTTER))
+                        .pt_4()
+                        .pb_1()
+                        .child(group_label("Inputs", cx)),
+                )
+                .child(div().px(px(DETAIL_GUTTER)).child(inputs));
+        }
 
         // ---- sidebar --------------------------------------------------------
+        let mut sidebar = crate::surface::glass_sidebar();
+
+        // EXP-298: the destructive verb rides a compact `…` toolbar row (the
+        // issue properties panel's shape) instead of the full-width red button
+        // it used to shout with directly under Run.
+        if editable {
+            let delete_id = action.id.clone();
+            let delete_name = action.name.clone();
+            sidebar = sidebar.child(
+                h_flex()
+                    .w_full()
+                    .gap_0p5()
+                    .items_center()
+                    .min_w_0()
+                    .child(div().flex_1().min_w_0())
+                    .child(
+                        Button::new("action-detail-menu")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(IconName::Ellipsis).text_color(muted))
+                            .dropdown_menu(move |menu, _window, _cx| {
+                                let id = delete_id.clone();
+                                let name = delete_name.clone();
+                                menu.item(
+                                    PopupMenuItem::new("Delete action…")
+                                        .icon(Icon::new(IconName::Delete))
+                                        .on_click(move |_, window, cx| {
+                                            crate::actions_panel::prompt_delete_action(
+                                                window,
+                                                cx,
+                                                id.clone(),
+                                                name.clone(),
+                                            );
+                                        }),
+                                )
+                            }),
+                    ),
+            );
+        }
+
         let run_id = action.id.clone();
         let run_team = action.team_id.clone();
-        // EXP-282: Run then Delete lead the sidebar (the two whole-action
-        // verbs), both full-width; everything below is a property group.
-        let mut sidebar = crate::surface::glass_sidebar().child(
+        sidebar = sidebar.child(
             Button::new("action-detail-run")
                 .primary()
                 .small()
@@ -1049,30 +1332,12 @@ impl Render for ActionDetailView {
                 }),
         );
 
-        if owner {
-            let delete_id = action.id.clone();
-            let delete_name = action.name.clone();
-            sidebar = sidebar.child(
-                Button::new("action-detail-delete")
-                    .danger()
-                    .small()
-                    .w_full()
-                    .label("Delete action…")
-                    .on_click(move |_: &ClickEvent, window, cx| {
-                        crate::actions_panel::prompt_delete_action(
-                            window,
-                            cx,
-                            delete_id.clone(),
-                            delete_name.clone(),
-                        );
-                    }),
-            );
-        }
-
-        let repository = self.render_repository(&action, owner, cx);
+        let repository = self.render_repository(&action, editable, cx);
         sidebar = sidebar.child(property_group("Repository", repository, cx));
-        if let Some(inputs) = self.render_inputs(&action, owner, cx) {
-            sidebar = sidebar.child(property_group("Inputs", inputs, cx));
+        // A builtin's glyph is product-shipped like the rest of it.
+        if !action.builtin {
+            let icon = self.render_icon(&action, editable, cx);
+            sidebar = sidebar.child(property_group("Icon", icon, cx));
         }
         if let Some(error) = self.error.clone() {
             sidebar = sidebar.child(div().text_xs().text_color(danger).child(error));

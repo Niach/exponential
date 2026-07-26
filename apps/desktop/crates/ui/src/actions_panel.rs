@@ -15,7 +15,9 @@
 //! container lost its padding, the row carries `px_3` and the hover spans
 //! edge to edge) with real overflow discipline, and the raw editor DIALOG is
 //! gone: editing an action is inline on [`crate::action_detail`], so the
-//! owner menu only opens the detail or deletes.
+//! owner menu only opens the detail or deletes. EXP-298: a builtin row opens
+//! that detail too (read-only — the shipped prompt), instead of jumping
+//! straight into the launch dialog; ▶ stays the direct-run path everywhere.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -103,8 +105,10 @@ impl ActionsPanel {
         let menu_action = action.clone();
         let repo_backed = action.repository_id.is_some();
         let builtin = action.builtin;
-        // EXP-277: the row itself navigates — real actions open the detail
-        // screen; builtins (no stable body) open the start dialog directly.
+        // EXP-298: EVERY row navigates to the detail screen — the builtins
+        // included (they used to jump straight into the launch dialog). Their
+        // detail is read-only and renders the shipped prompt; ▶ is still the
+        // direct-run path on every row.
         let click_id = action.id.clone();
 
         gpui_component::v_flex()
@@ -120,18 +124,14 @@ impl ActionsPanel {
             .py_1p5()
             .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                if builtin {
-                    this.run(click_id.clone(), window, cx);
-                } else {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::ActionDetail {
-                            action_id: click_id.clone(),
-                        },
-                    );
-                }
+            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::ActionDetail {
+                        action_id: click_id.clone(),
+                    },
+                );
             }))
             .child(
                 gpui_component::h_flex()
@@ -170,8 +170,9 @@ impl ActionsPanel {
                             ),
                         )
                     })
-                    // No owner menu on the builtin — it is server-defined,
-                    // non-editable and non-deletable.
+                    // No owner menu on the builtin — it is product-shipped,
+                    // non-editable and non-deletable (its row click still
+                    // opens the read-only detail).
                     .when(owner && !builtin, |this| {
                         let panel = cx.entity().downgrade();
                         this.child(

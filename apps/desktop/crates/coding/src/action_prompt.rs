@@ -135,6 +135,29 @@ rebase instead."
     )
 }
 
+/// The read-only prompt an action-detail screen shows for a BUILTIN
+/// (EXP-298). Builtins are not DB rows, so `actions.get` has no body to
+/// return — but the detail screen must show what the run will actually send.
+/// This renders the REAL prompt with placeholder tokens standing in for the
+/// values the launcher substitutes per run, so the screen can never drift
+/// from the shipped program. `None` = not a builtin id.
+pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
+    match action_id {
+        domain::contract::BUILTIN_CREATE_ACTION_ID => Some(create_action_prompt(
+            "<this team>",
+            "<the description you type when you run it>",
+            None,
+            None,
+        )),
+        domain::contract::BUILTIN_FIX_CONFLICTS_ID => Some(fix_pr_conflicts_prompt(
+            "<the issue you pick>",
+            "<its PR branch>",
+            "<the repo's default branch>",
+        )),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +305,24 @@ rebase instead."
         // Belt-and-braces alongside the launcher's ensure_branch_at_origin:
         // the agent re-verifies the checkout matches origin before pushing.
         assert!(prompt.contains("git rev-parse origin/exp/EXP-42"));
+    }
+
+    /// EXP-298: the builtin detail screens render these — they must resolve
+    /// for both reserved ids, carry the run's real MCP tool, and stay
+    /// placeholder-only (no fake team id or branch a reader could mistake for
+    /// a real target).
+    #[test]
+    fn builtin_previews_render_the_real_prompts_with_placeholders() {
+        let create = builtin_prompt_preview(domain::contract::BUILTIN_CREATE_ACTION_ID)
+            .expect("create-action preview");
+        assert!(create.contains("exponential_actions_create"));
+        assert!(create.contains("<this team>"));
+
+        let fix = builtin_prompt_preview(domain::contract::BUILTIN_FIX_CONFLICTS_ID)
+            .expect("fix-conflicts preview");
+        assert!(fix.contains("exponential_pr_merge"));
+        assert!(fix.contains("<its PR branch>"));
+
+        assert_eq!(builtin_prompt_preview("not-a-builtin"), None);
     }
 }
