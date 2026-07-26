@@ -19,7 +19,14 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(|_: &Quit, cx| {
+        // EXP-300: arm before `quit()` — this is the earliest point on the
+        // path, ahead of any of the blocking teardown work. The `on_app_quit`
+        // observer arms too, covering the macOS menu/Dock quits that never
+        // reach this action.
+        ui::arm_quit_watchdog();
+        cx.quit();
+    });
     cx.on_action(|_: &NewWindow, cx| crate::windows::open_shell_window(cx));
     // Phase-2 session wiring: the sidebar footer's Sign out flips the §5
     // state machine (pipeline stop + token delete + route to login).
