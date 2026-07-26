@@ -130,7 +130,7 @@
     "coding-subagent": "bot",
     "coding-diff": "file-diff",
 
-    "notification-issue-assigned": "circle-user",
+    "notification-issue-assigned": "user-plus",
     "notification-issue-comment": "message-square",
     "notification-issue-status-changed": "circle-check",
     "notification-issue-mention": "at-sign",

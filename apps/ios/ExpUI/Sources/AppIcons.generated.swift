@@ -356,7 +356,7 @@ public enum AppIcons {
     /// Concept `nav-terminal`.
     public static let navTerminal: String = "square-terminal"
     /// Concept `notification-issue-assigned`.
-    public static let notificationIssueAssigned: String = "circle-user"
+    public static let notificationIssueAssigned: String = "user-plus"
     /// Concept `notification-issue-comment`.
     public static let notificationIssueComment: String = "message-square"
     /// Concept `notification-issue-created`.

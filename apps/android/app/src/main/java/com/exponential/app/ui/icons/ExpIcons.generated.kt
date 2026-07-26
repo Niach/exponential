@@ -5659,7 +5659,7 @@ public object ExpIcons {
     /** Concept `nav-terminal`. */
     public val navTerminal: ImageVector get() = `square-terminal`
     /** Concept `notification-issue-assigned`. */
-    public val notificationIssueAssigned: ImageVector get() = `circle-user`
+    public val notificationIssueAssigned: ImageVector get() = `user-plus`
     /** Concept `notification-issue-comment`. */
     public val notificationIssueComment: ImageVector get() = `message-square`
     /** Concept `notification-issue-created`. */

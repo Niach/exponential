@@ -119,6 +119,41 @@ describe(`icon registry`, () => {
     expect(contract.actionInputType.values).toContain(`icon`)
   })
 
+  it(`covers every enum value that clients render an icon for`, () => {
+    // The inbox derives its icons from `notification-<kebab>` concepts, and
+    // the status/priority tables from `status-*`/`priority-*`. A new enum
+    // value with no concept would render blank on one client and fall back on
+    // another — which is the exact drift this registry exists to remove.
+    const kebab = (v: string) => v.replace(/_/g, `-`)
+    for (const type of contract.notificationType.values) {
+      expect(
+        SEMANTIC_ICONS,
+        `notification type "${type}" has no registry concept`
+      ).toHaveProperty(`notification-${kebab(type)}`)
+    }
+    for (const status of contract.issueStatus.values) {
+      expect(SEMANTIC_ICONS).toHaveProperty(`status-${kebab(status)}`)
+    }
+    for (const priority of contract.issuePriority.values) {
+      expect(SEMANTIC_ICONS).toHaveProperty(`priority-${kebab(priority)}`)
+    }
+    for (const state of contract.prState.values) {
+      expect(SEMANTIC_ICONS).toHaveProperty(`pr-${kebab(state)}`)
+    }
+  })
+
+  it(`gives each notification type a distinct glyph`, () => {
+    // The web inbox used to draw `issue_mention` and `issue_comment` with the
+    // same speech bubble, so a mention was indistinguishable from a comment.
+    const glyphs = contract.notificationType.values.map(
+      (t) =>
+        SEMANTIC_ICONS[
+          `notification-${t.replace(/_/g, `-`)}` as keyof typeof SEMANTIC_ICONS
+        ]
+    )
+    expect(new Set(glyphs).size).toBe(glyphs.length)
+  })
+
   it(`narrowing guards agree with the generated lists`, () => {
     expect(isIconName(`bug`)).toBe(true)
     expect(isIconName(`definitely-not-an-icon`)).toBe(false)

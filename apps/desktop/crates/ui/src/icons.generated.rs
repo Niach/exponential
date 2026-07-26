@@ -357,8 +357,8 @@ pub const NAV_SUPPORT: ExpIcon = ExpIcon::LifeBuoy;
 pub const NAV_TEAM_SWITCHER: ExpIcon = ExpIcon::ChevronsUpDown;
 /// Registry concept `nav-terminal` -> Lucide `square-terminal`.
 pub const NAV_TERMINAL: ExpIcon = ExpIcon::SquareTerminal;
-/// Registry concept `notification-issue-assigned` -> Lucide `circle-user`.
-pub const NOTIFICATION_ISSUE_ASSIGNED: ExpIcon = ExpIcon::CircleUser;
+/// Registry concept `notification-issue-assigned` -> Lucide `user-plus`.
+pub const NOTIFICATION_ISSUE_ASSIGNED: ExpIcon = ExpIcon::UserPlus;
 /// Registry concept `notification-issue-comment` -> Lucide `message-square`.
 pub const NOTIFICATION_ISSUE_COMMENT: ExpIcon = ExpIcon::MessageSquare;
 /// Registry concept `notification-issue-created` -> Lucide `circle-dot`.
