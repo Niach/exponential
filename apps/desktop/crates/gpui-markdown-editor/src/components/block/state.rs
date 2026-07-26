@@ -872,6 +872,12 @@ pub enum BlockEvent {
     RequestBlockDown,
     /// This block should be deleted (empty and backspace/delete pressed).
     RequestDelete,
+    /// EXP-285: text was typed while a rendered standalone image block was
+    /// focused. The image source must never receive it (a caret-less block
+    /// was writing into the raw `![alt](src)` at a stale offset) — the
+    /// editor routes the text into the paragraph below the image, reusing an
+    /// empty neighbor or inserting one.
+    RequestTypeBelowStructural { text: String },
     /// The user clicked this block; notify siblings so they re-render
     /// in display mode.
     RequestFocus,

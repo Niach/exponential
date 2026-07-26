@@ -21,6 +21,12 @@ use gpui_markdown_editor::{FormatCommand, FormatState};
 use super::description::WysiwygDescription;
 use crate::ExpIcon;
 
+/// EXP-285: horizontal toolbar inset — the editor's `block_padding_x` (12)
+/// minus the xsmall icon-button's own glyph inset ((20px button − 12px icon)
+/// / 2 = 4), so the first glyph lines up with the title/description text in
+/// BOTH host slots (issue detail and the create-issue dialog).
+const TOOLBAR_GLYPH_ALIGN_PX: f32 = super::WYSIWYG_BLOCK_PADDING_X - 4.;
+
 fn separator(cx: &App) -> impl IntoElement {
     div().w_px().h_4().bg(cx.theme().border)
 }
@@ -58,6 +64,7 @@ impl WysiwygDescription {
                 .flex_wrap()
                 .gap_0p5()
                 .py_0p5()
+                .px(gpui::px(TOOLBAR_GLYPH_ALIGN_PX))
                 .child(Self::format_button(
                     "wysiwyg-h1",
                     ExpIcon::Heading1,

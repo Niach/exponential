@@ -141,8 +141,11 @@ fn open(
     // picker left, options right); the launched terminal tab lands back in
     // the OPENER window (EXP-284: the dialog is its own native window).
     let opener = window.window_handle();
-    let height = (window.viewport_size().height * 0.85).min(px(640.));
-    let spec = DialogSpec::new("Start coding", size(px(760.), height));
+    // EXP-285: trimmed 640 → 560 and user-resizable — the two-column layout
+    // tolerates it (both lists are max_h-capped).
+    let height = (window.viewport_size().height * 0.85).min(px(560.));
+    let spec = DialogSpec::new("Start coding", size(px(760.), height))
+        .resizable(size(px(640.), px(480.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
             StartCodingDialogView::new(team_id, preselected, preselect_action, opener, window, cx)

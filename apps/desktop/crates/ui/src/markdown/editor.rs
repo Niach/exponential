@@ -675,7 +675,7 @@ pub(crate) fn placeholder_box(label: &str, cx: &App) -> gpui::AnyElement {
     div()
         .h(px(80.))
         .rounded(px(4.))
-        .bg(cx.theme().muted)
+        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
         .flex()
         .items_center()
         .justify_center()

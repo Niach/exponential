@@ -31,8 +31,9 @@ use std::collections::{HashMap, HashSet};
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
-    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window, WindowId,
+    FontWeight, Hsla, InteractiveElement as _, IntoElement, MouseButton, ParentElement, Render,
+    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    WindowControlArea, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -40,7 +41,8 @@ use gpui_component::{
     menu::DropdownMenu as _,
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, InteractiveElementExt as _,
+    Selectable as _, Sizable as _,
 };
 use sync::Store;
 
@@ -66,7 +68,8 @@ pub(crate) const RAIL_W: f32 = 44.;
 
 /// EXP-282: width of the EXPANDED rail (the Cursor-style labelled rail) —
 /// wide enough for a board name at `text_sm` without eating the tool column.
-pub(crate) const RAIL_EXPANDED_W: f32 = 184.;
+/// EXP-285: trimmed 184 → 164 per feedback.
+pub(crate) const RAIL_EXPANDED_W: f32 = 164.;
 
 /// Default tool-window width (EXP-109: doubled from the original 260px web
 /// parity — the issue lists inside the tool window were too cramped).
@@ -209,6 +212,13 @@ pub(crate) fn toggle_rail_expanded(window: &mut Window, cx: &mut App) {
     }
 }
 
+/// EXP-285: the rail's expanded state for this window — read by
+/// `AppTitleBar` (traffic-light padding compensation + the collapsed-state
+/// expand toggle live in the main titlebar now).
+pub(crate) fn rail_expanded(window: &mut Window, cx: &mut App) -> bool {
+    rail_shared_for_window(window, cx).read(cx).rail_expanded
+}
+
 /// Select `section` in the settings nav (EXP-282 — the nav column lives
 /// outside the settings screen now, so the selection is window state).
 pub(crate) fn select_settings_section(
@@ -260,13 +270,14 @@ pub(crate) fn rail_shared_for_window(
     let file_tree = cx.new(|cx| crate::file_tree::FileTreeView::new(window, cx));
     let board_active = cx.new(|cx| BoardView::new(window, cx));
     let board_my = cx.new(|cx| BoardView::new(window, cx));
-    // EXP-282: the persisted rail state (absent = collapsed, the historical
-    // icon rail). Read through the coding hub — it owns `settings.json`.
+    // EXP-282: the persisted rail state. Read through the coding hub — it
+    // owns `settings.json`. EXP-285: absent = EXPANDED (the labelled rail is
+    // the default look now); an explicit user collapse still sticks.
     let rail_expanded = coding_flow::CodingHub::global(cx)
         .read(cx)
         .settings
         .rail_expanded
-        .unwrap_or(false);
+        .unwrap_or(true);
     let shared = cx.new(|_| RailShared {
         // Issues-first default: the active board's issue list.
         tool: ToolWindow::BoardIssues,
@@ -442,6 +453,9 @@ pub struct RailView {
     /// Scroll position of the rail's middle zone (tools + board icons) —
     /// small windows with many boards must not push Settings/Account off.
     rail_scroll: ScrollHandle,
+    /// EXP-285: the rail spans the titlebar strip now — its top 34px are a
+    /// window-drag region (the vendored `TitleBar` `should_move` pattern).
+    should_move: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -470,6 +484,7 @@ impl RailView {
             shared,
             last_branch: None,
             rail_scroll: ScrollHandle::new(),
+            should_move: false,
             _subscriptions: subscriptions,
         }
     }
@@ -861,8 +876,10 @@ impl Render for RailView {
             }
         };
 
-        // EXP-282: the expand/collapse toggle — top of the rail, pushed to
-        // the trailing edge while expanded (the Cursor/VS Code position).
+        // EXP-282: the expand/collapse toggle. EXP-285: it sits in the rail's
+        // titlebar strip while expanded (the Cursor position); collapsed under
+        // client chrome it moves into the main titlebar (`AppTitleBar`) —
+        // the 44px strip is narrower than the macOS traffic-light cluster.
         let toggle = Button::new("rail-toggle")
             .ghost()
             .small()
@@ -881,6 +898,64 @@ impl Render for RailView {
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 toggle_rail_expanded(window, cx);
             }));
+
+        // EXP-285: the rail spans the full window height — its top 34px sit
+        // in the window-decoration band as a drag/zoom region (the vendored
+        // `TitleBar` `should_move` pattern; on macOS the native traffic
+        // lights float over the strip's left).
+        let client_chrome = crate::app_title_bar::client_chrome(window);
+        let top_strip = h_flex()
+            .id("rail-titlebar-strip")
+            .w_full()
+            .h(gpui_component::TITLE_BAR_HEIGHT)
+            .flex_shrink_0()
+            .items_center()
+            .when(client_chrome, |strip| {
+                strip
+                    .window_control_area(WindowControlArea::Drag)
+                    .map(|strip| {
+                        if cfg!(target_os = "macos") {
+                            strip.on_double_click(|_, window, _| window.titlebar_double_click())
+                        } else if cfg!(target_os = "linux") {
+                            strip.on_double_click(|_, window, _| window.zoom_window())
+                        } else {
+                            strip
+                        }
+                    })
+                    .on_mouse_down_out(cx.listener(|this, _, _, _| this.should_move = false))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.should_move = true),
+                    )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.should_move = false),
+                    )
+                    .on_mouse_move(cx.listener(|this, _, window, _| {
+                        if this.should_move {
+                            this.should_move = false;
+                            window.start_window_move();
+                        }
+                    }))
+            })
+            .map(|strip| {
+                if expanded {
+                    strip
+                        .justify_end()
+                        .child(crate::app_title_bar::interactive(toggle))
+                } else if !client_chrome {
+                    // Linux SSD: no in-app titlebar to host the expand
+                    // toggle — keep it centered in the strip.
+                    strip
+                        .justify_center()
+                        .child(crate::app_title_bar::interactive(toggle))
+                } else {
+                    // Collapsed under client chrome: the strip stays empty
+                    // (traffic lights float here on macOS); the expand
+                    // toggle lives in the main titlebar.
+                    strip
+                }
+            });
 
         // Search — opens the ⌘K sheet. Call the opener directly via
         // cx.listener (like the rail tool icons below) rather than
@@ -952,29 +1027,23 @@ impl Render for RailView {
             .w(px(if expanded { RAIL_EXPANDED_W } else { RAIL_W }))
             .flex_shrink_0()
             .h_full()
-            .py_2()
+            // EXP-285: top padding comes from the 34px titlebar strip — the
+            // rail spans the full window height, flush at y=0.
+            .pb_2()
             .gap_1()
-            // EXP-269: collapsed, no fill — the rail floats on the page
-            // gradient. EXP-277: no hairline either — the tool column's
-            // section wash provides the soft boundary (blended chrome).
-            // EXP-282: EXPANDED it takes that same section wash, because at
-            // 184px a bare gradient strip reads as part of the center.
+            // EXP-285: the rail is the ONE lighter column of the app (Cursor
+            // look) — section wash in BOTH states, full height, while every
+            // other pane sits bare on the page gradient.
+            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
             .map(|this| {
                 if expanded {
                     this.px_2()
-                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
                 } else {
                     this.items_center()
                 }
             })
             .text_color(cx.theme().sidebar_foreground)
-            .child(
-                h_flex()
-                    .w_full()
-                    .flex_shrink_0()
-                    .when(expanded, |this| this.justify_end())
-                    .child(toggle),
-            )
+            .child(top_strip)
             .child(search)
             .child(self.divider(expanded, cx))
             // Middle zone — scrollable so many boards never push the pinned
@@ -3012,10 +3081,11 @@ impl Render for SidebarPanel {
             .size_full()
             .min_w_0()
             .overflow_hidden()
-            // EXP-269: glass section wash — differentiates the tool column
-            // from the center while letting the gradient show through.
-            // EXP-277: the wash edge IS the boundary — no hairline.
-            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+            // EXP-285: no section wash — every pane sits on the ONE page
+            // gradient; only the icon rail keeps a lighter tint. A hairline
+            // marks the boundary to the center.
+            .border_r_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .text_color(cx.theme().sidebar_foreground)
             .child(match tool {
                 ToolWindow::Inbox => self.render_inbox_tool(cx),

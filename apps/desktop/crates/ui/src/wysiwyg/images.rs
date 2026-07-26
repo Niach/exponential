@@ -42,6 +42,20 @@ pub(crate) fn cache_key(src: &str) -> &str {
     src.split(['?', '#']).next().unwrap_or(src)
 }
 
+/// EXP-285: header-only probe of an image's natural pixel size. Without a
+/// known natural size the vendored editor renders a max-height Contain box —
+/// a 420px letterbox with huge empty bands around wide screenshots. Synced
+/// `attachments` rows carry probed dimensions, but `draft://` pastes and
+/// dimension-less rows don't; this fills the gap from the bytes we already
+/// hold (imagesize parses only the header — no full decode).
+pub(crate) fn probe_natural_size(bytes: &[u8]) -> Option<(f32, f32)> {
+    let size = imagesize::blob_size(bytes).ok()?;
+    if size.width == 0 || size.height == 0 {
+        return None;
+    }
+    Some((size.width as f32, size.height as f32))
+}
+
 /// Whether the wrapper owns fetching for this src (vs the vendored default
 /// local/remote classification).
 pub(crate) fn is_hosted_src(src: &str) -> bool {
@@ -108,6 +122,14 @@ impl ImagePasteHandler for WysiwygPasteHandler {
         ));
         if let Ok(mut resolutions) = self.state.resolutions.lock() {
             resolutions.insert(draft_url.clone(), ImageSourceResolution::Decoded(image));
+        }
+        // EXP-285: size the paste on its very first frame — the wrapper's
+        // sync re-derives (and memoizes) this, but the first render happens
+        // before any sync runs.
+        if let Some(size) = probe_natural_size(&bytes) {
+            if let Ok(mut sizes) = self.state.natural_sizes.lock() {
+                sizes.insert(draft_url.clone(), size);
+            }
         }
         let alt = filename
             .rsplit_once('.')

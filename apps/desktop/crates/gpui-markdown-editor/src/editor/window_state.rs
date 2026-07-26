@@ -392,6 +392,37 @@ impl Editor {
         cx.notify();
     }
 
+    /// EXP-285: place the caret at the very end of the document — the
+    /// textarea "click the empty area below" affordance. When the document
+    /// ends on a structure the caret cannot enter (standalone image, table,
+    /// code block, …), a trailing paragraph is ensured first (no
+    /// `mark_dirty` — an untyped paragraph must never phantom-save, the
+    /// EXP-277 precedent).
+    pub fn focus_document_end(&mut self, cx: &mut Context<Self>) {
+        let Some(last) = self
+            .document
+            .flatten_visible_blocks()
+            .last()
+            .map(|visible| visible.entity.clone())
+        else {
+            return;
+        };
+        self.ensure_trailing_paragraph_after_structural(&last, cx);
+        // Re-flatten: the ensure above may have appended a paragraph.
+        let Some(target) = self
+            .document
+            .flatten_visible_blocks()
+            .last()
+            .map(|visible| visible.entity.clone())
+        else {
+            return;
+        };
+        let offset = target.read(cx).visible_len();
+        self.focus_block(target.entity_id());
+        target.update(cx, |block, cx| block.move_to(offset, cx));
+        cx.notify();
+    }
+
     pub fn replace_markdown(&mut self, markdown: impl Into<String>, cx: &mut Context<Self>) {
         let normalized = markdown.into().replace("\r\n", "\n").replace('\r', "\n");
         let mut roots = if self.view_mode == ViewMode::Source {

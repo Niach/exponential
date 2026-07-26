@@ -363,9 +363,8 @@ impl IssueListView {
             .px_3()
             .gap_1p5()
             .items_center()
-            // EXP-282: `list_head` == the glass section fill (theme::init),
-            // the same band the skeleton header paints.
-            .bg(cx.theme().colors.list_head)
+            // EXP-285: no header band — one glassy surface; the hairline
+            // below is the only group separator.
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.5))
             .child(
@@ -1837,10 +1836,10 @@ fn due_cell(issue: &Issue, cx: &App) -> impl IntoElement {
 // ---------------------------------------------------------------------------
 
 // EXP-282: `status_header_bg` (the verbatim web `statusHeaderBg` rgba tints —
-// zinc / yellow / green / blue washes per status) is GONE. Those literals were
-// the one thing in the list that stood out from the page gradient; group
-// headers now paint the shared glass section band (`colors.list_head`) and the
-// status hue survives in the header's option icon.
+// zinc / yellow / green / blue washes per status) is GONE. EXP-285 flattened
+// the remaining glass section band too — group headers sit directly on the
+// page gradient (hairline-separated) and the status hue survives in the
+// header's option icon.
 
 /// Web `IssueListSkeleton`: one header row + five body rows of placeholders.
 fn list_skeleton(cx: &App) -> impl IntoElement {
@@ -1850,7 +1849,6 @@ fn list_skeleton(cx: &App) -> impl IntoElement {
         .px_3()
         .gap_2()
         .items_center()
-        .bg(cx.theme().colors.list_head)
         .border_b_1()
         .border_color(cx.theme().border.opacity(0.5))
         .child(Skeleton::new().size_3p5().rounded_full())

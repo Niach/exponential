@@ -104,6 +104,18 @@ impl EntityInputHandler for Block {
             return;
         }
 
+        // EXP-285: a focused rendered image has no caret — typed text used to
+        // land inside the raw `![alt](src)` source at a stale offset,
+        // silently corrupting it. Route it into the paragraph below instead.
+        if self.showing_rendered_image() {
+            if !new_text.is_empty() {
+                cx.emit(BlockEvent::RequestTypeBelowStructural {
+                    text: new_text.to_string(),
+                });
+            }
+            return;
+        }
+
         self.prepare_undo_capture(UndoCaptureKind::CoalescibleText, cx);
         let visible_range = range_utf16
             .as_ref()
@@ -154,6 +166,18 @@ impl EntityInputHandler for Block {
                 mark_inserted_text: !new_text.is_empty(),
                 undo_kind: UndoCaptureKind::CoalescibleText,
             });
+            return;
+        }
+
+        // EXP-285: same guard as `replace_text_in_range` — IME composition
+        // over a rendered image routes below it as plain text (the mark is
+        // deliberately dropped; strictly better than corrupting the source).
+        if self.showing_rendered_image() {
+            if !new_text.is_empty() {
+                cx.emit(BlockEvent::RequestTypeBelowStructural {
+                    text: new_text.to_string(),
+                });
+            }
             return;
         }
 

@@ -219,11 +219,12 @@ pub fn exponential_dark() -> ThemeColor {
 
     // ---- Lists — glass surfaces (EXP-269, GlassTheme parity). Transparent
     //      rows sit directly on the page gradient (the opaque
-    //      `.bg(colors.list)` panel paints become no-ops); header = section
-    //      fill, hover = row fill, selection = active fill + active stroke —
-    //      the exact mobile row/section/active alphas. ------------------------
+    //      `.bg(colors.list)` panel paints become no-ops); hover = row fill,
+    //      selection = active fill + active stroke — the exact mobile
+    //      row/section/active alphas. EXP-285: headers are transparent too —
+    //      ONE glassy surface, no grey band between groups and content. -------
     c.list = transparent;
-    c.list_head = t::glass::FILL_SECTION.to_hsla();
+    c.list_head = transparent;
     c.list_hover = t::glass::FILL_ROW.to_hsla();
     c.list_even = transparent; // web has no row striping
     c.list_active = t::glass::FILL_ACTIVE.to_hsla();
@@ -505,11 +506,12 @@ mod tests {
 
     #[test]
     fn list_surfaces_are_glass_fills() {
-        // EXP-269: transparent rows on the gradient, section-fill header,
-        // row-fill hover, active-fill selection — the mobile glass alphas.
+        // EXP-269: transparent rows on the gradient, row-fill hover,
+        // active-fill selection — the mobile glass alphas. EXP-285 flattened
+        // the section header band to transparent: one glassy surface.
         let c = exponential_dark();
         assert!(approx(c.list.a, 0.0), "list rows are transparent: {:?}", c.list);
-        assert_hsla_eq(c.list_head, tokens::glass::FILL_SECTION.to_hsla(), "list_head");
+        assert!(approx(c.list_head.a, 0.0), "list_head is transparent (EXP-285): {:?}", c.list_head);
         assert_hsla_eq(c.list_hover, tokens::glass::FILL_ROW.to_hsla(), "list_hover");
         assert_hsla_eq(c.list_active, tokens::glass::FILL_ACTIVE.to_hsla(), "list_active");
         assert_hsla_eq(c.table, c.list, "table mirrors list");

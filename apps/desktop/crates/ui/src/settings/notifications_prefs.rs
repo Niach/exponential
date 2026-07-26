@@ -216,42 +216,25 @@ impl Render for NotificationsPrefsPane {
         };
 
         // EXP-282: section header — title/description + the master switch.
-        // The 40px opaque icon tile is gone: with the card frame removed it
-        // was a lone box floating in a flat pane.
-        let mut body = section(cx).child(
-            h_flex()
-                .gap_3()
-                .items_start()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Email notifications"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(
-                                    "Email is the catch-up channel: notifications still unread \
-                                     an hour after the push are bundled into one digest email, \
-                                     with deep links straight to each issue.",
-                                ),
-                        ),
-                )
-                .child(
-                    Switch::new("email-enabled")
-                        .checked(email_enabled)
-                        .disabled(!transport || !have_prefs)
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.set_email_enabled(*checked, cx);
-                        })),
-                ),
-        );
+        // EXP-285: the shared `pref_row` shape — capped hint measure,
+        // vertically centered control, hairline rhythm.
+        let mut body = section(cx).child(super::pref_row(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Email notifications"),
+            "Email is the catch-up channel: notifications still unread an hour \
+             after the push are bundled into one digest email, with deep links \
+             straight to each issue.",
+            Switch::new("email-enabled")
+                .checked(email_enabled)
+                .disabled(!transport || !have_prefs)
+                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.set_email_enabled(*checked, cx);
+                })),
+            true,
+            cx,
+        ));
 
         match &self.load {
             Load::Idle | Load::Loading => {
@@ -307,35 +290,24 @@ impl Render for NotificationsPrefsPane {
 
                 let controls_disabled = !transport || !prefs.email_enabled;
 
-                let mut rows = v_flex().gap_3();
+                // EXP-285: the hairlines between the `pref_row`s carry the
+                // rhythm — no extra gap inside the stack.
+                let mut rows = v_flex();
                 for (kind, label, hint) in TYPE_ROWS {
                     // Web: `typePrefs[type] !== false` — missing means ON.
                     let checked = prefs.type_prefs.get(kind).copied() != Some(false);
-                    rows = rows.child(
-                        h_flex()
-                            .gap_3()
-                            .items_center()
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .gap_0p5()
-                                    .child(div().text_sm().child(label))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(hint),
-                                    ),
-                            )
-                            .child(
-                                Switch::new(SharedString::from(format!("type-{kind}")))
-                                    .checked(checked)
-                                    .disabled(controls_disabled)
-                                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                                        this.toggle_type(kind, *checked, cx);
-                                    })),
-                            ),
-                    );
+                    rows = rows.child(super::pref_row(
+                        div().text_sm().child(label),
+                        hint,
+                        Switch::new(SharedString::from(format!("type-{kind}")))
+                            .checked(checked)
+                            .disabled(controls_disabled)
+                            .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                                this.toggle_type(kind, *checked, cx);
+                            })),
+                        false,
+                        cx,
+                    ));
                 }
                 body = body.child(rows);
 
@@ -345,59 +317,40 @@ impl Render for NotificationsPrefsPane {
                 } else {
                     "Hourly digest".into()
                 };
-                body = body.child(
-                    h_flex()
-                        .gap_3()
-                        .items_center()
-                        .pt_3()
-                        .border_t_1()
-                        .border_color(super::row_stroke(cx))
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .gap_0p5()
-                                .child(div().text_sm().child("Delivery"))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(
-                                            "How often unread notifications are bundled into \
-                                             one email.",
-                                        ),
-                                ),
-                        )
-                        .child(
-                            Button::new("digest-select")
-                                .outline()
-                                .small()
-                                .label(digest_label)
-                                .icon(IconName::ChevronDown)
-                                .disabled(controls_disabled)
-                                .dropdown_menu({
-                                    let entity = cx.entity();
-                                    let current = digest.clone();
-                                    move |mut menu, _, _| {
-                                        for (value, label) in [
-                                            (DIGEST_OFF, "Hourly digest"),
-                                            (DIGEST_DAILY, "Daily digest"),
-                                        ] {
-                                            let entity = entity.clone();
-                                            menu = menu.item(
-                                                PopupMenuItem::new(label)
-                                                    .checked(current == value)
-                                                    .on_click(move |_, _, cx| {
-                                                        entity.update(cx, |this, cx| {
-                                                            this.set_digest(value, cx);
-                                                        });
-                                                    }),
-                                            );
-                                        }
-                                        menu
-                                    }
-                                }),
-                        ),
-                );
+                body = body.child(super::pref_row(
+                    div().text_sm().child("Delivery"),
+                    "How often unread notifications are bundled into one email.",
+                    Button::new("digest-select")
+                        .outline()
+                        .small()
+                        .label(digest_label)
+                        .icon(IconName::ChevronDown)
+                        .disabled(controls_disabled)
+                        .dropdown_menu({
+                            let entity = cx.entity();
+                            let current = digest.clone();
+                            move |mut menu, _, _| {
+                                for (value, label) in [
+                                    (DIGEST_OFF, "Hourly digest"),
+                                    (DIGEST_DAILY, "Daily digest"),
+                                ] {
+                                    let entity = entity.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::new(label)
+                                            .checked(current == value)
+                                            .on_click(move |_, _, cx| {
+                                                entity.update(cx, |this, cx| {
+                                                    this.set_digest(value, cx);
+                                                });
+                                            }),
+                                    );
+                                }
+                                menu
+                            }
+                        }),
+                    false,
+                    cx,
+                ));
             }
         }
 

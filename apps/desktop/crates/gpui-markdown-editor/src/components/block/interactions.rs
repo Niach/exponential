@@ -461,6 +461,15 @@ impl Block {
             return;
         }
 
+        // EXP-285: Backspace on a focused rendered image deletes the image
+        // block (web parity: a selected image node deletes) — the old
+        // fall-through merged the raw `![alt](src)` source into the previous
+        // paragraph at offset 0.
+        if self.showing_rendered_image() {
+            cx.emit(BlockEvent::RequestDelete);
+            return;
+        }
+
         if self.selected_range.is_empty() && self.cursor_offset() == 0 {
             if self.kind() == BlockKind::Paragraph && self.is_direct_list_child() && self.is_empty()
             {
@@ -548,6 +557,13 @@ impl Block {
                 self.select_to(self.next_boundary(self.cursor_offset()), cx);
             }
             self.replace_text_in_range(None, "", window, cx);
+            return;
+        }
+
+        // EXP-285: Delete on a focused rendered image deletes the image
+        // block — same guard as Backspace above.
+        if self.showing_rendered_image() {
+            cx.emit(BlockEvent::RequestDelete);
             return;
         }
 

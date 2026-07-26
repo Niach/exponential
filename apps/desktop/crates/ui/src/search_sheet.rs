@@ -158,7 +158,9 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
     // Web: max-h-[60vh] — the native window is that cap; the List grows into
     // it (its `Infer` sizing keeps the empty prompt short).
     let height = window.viewport_size().height * 0.6;
-    let spec = DialogSpec::new("Search", size(px(DIALOG_WIDTH), height));
+    // EXP-285: chromeless — macOS traffic lights would overlap the search
+    // input of a palette.
+    let spec = DialogSpec::new("Search", size(px(DIALOG_WIDTH), height)).chromeless();
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let list = cx.new(|cx| {
             ListState::new(
@@ -732,7 +734,10 @@ impl ListDelegate for SearchDelegate {
             .px_3()
             .items_center()
             .justify_between()
-            .bg(cx.theme().muted.opacity(0.4))
+            // EXP-285: hairline-separated headers on the one glassy surface,
+            // matching the issue list (no opaque band).
+            .border_b_1()
+            .border_color(cx.theme().border.opacity(0.5))
             .child(
                 div()
                     .text_xs()
