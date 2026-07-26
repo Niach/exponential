@@ -539,21 +539,38 @@ impl Render for Shell {
             SessionPhase::Synced { .. } => h_flex()
                 .size_full()
                 .min_h_0()
-                .child(self.rail.clone())
+                .child(
+                    // EXP-303: the rail column paints its OWN sidebar-alpha
+                    // ramp; the rail's white wash sits on top (a solid quad
+                    // over one gradient — the combination that provably
+                    // composites). Same look as EXP-293's rail, different
+                    // layering: the Shell root no longer paints a full-window
+                    // base ramp, because a second translucent GRADIENT stacked
+                    // on it never composited to the intended alpha — the
+                    // content read fully opaque at any top-up value (the
+                    // EXP-293 "not verified visually" gap).
+                    div()
+                        .h_full()
+                        .flex_shrink_0()
+                        .bg(theme::sidebar_background_gradient())
+                        // EXP-269 corners, left half — the ramp runs flush
+                        // into the window's left edge (the rail rounds its
+                        // wash the same way).
+                        .rounded_tl(crate::window_frame::frame_radii(window).top_left)
+                        .rounded_bl(crate::window_frame::frame_radii(window).bottom_left)
+                        .child(self.rail.clone()),
+                )
                 .child(
                     v_flex()
                         .flex_1()
                         .min_w_0()
                         .h_full()
-                        // EXP-293 glass swap: the root below paints the SIDEBAR
-                        // ramp (the app's most transparent region — the rail
-                        // sits on it bare), and this column tops it up to
-                        // `theme::glass_content_alpha()` so everything right of
-                        // the rail — list, tabs, detail sidebar, terminal dock —
-                        // reads as the near-solid surface. Same stops as the
-                        // base and the same y span (full window height), so the
-                        // two ramps align exactly and only alpha adds up.
-                        .bg(theme::content_topup_gradient())
+                        // EXP-303: the content column paints ONE gradient at
+                        // `theme::glass_content_alpha()` — the EXP-290
+                        // single-layer mechanism that demonstrably frosted
+                        // the main content. The list, tabs, detail sidebar
+                        // and terminal dock all sit bare on it.
+                        .bg(theme::background_gradient())
                         // EXP-269 corners, right half: this layer paints to the
                         // window's right edge, and gpui's content mask is
                         // rectangular, so it must round with the frame itself
@@ -565,11 +582,11 @@ impl Render for Shell {
                         .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
                 )
                 .into_any_element(),
-            // No rail here, so the whole window is content: top the sidebar
-            // base up on all four corners (EXP-293).
+            // No rail here, so the whole window is content: one content-alpha
+            // gradient on all four corners (EXP-303 single-layer rule).
             _ => crate::window_frame::round_to_frame(v_flex(), window)
                 .size_full()
-                .bg(theme::content_topup_gradient())
+                .bg(theme::background_gradient())
                 .when(client_chrome, |body| body.child(self.title_bar.clone()))
                 .children(self.render_update_banner(cx))
                 .child(div().flex_1().min_h_0().child(self.login.clone()))
@@ -597,14 +614,13 @@ impl Render for Shell {
                 // (`window_frame::frame_radii`).
                 crate::window_frame::round_to_frame(div(), window)
                     .size_full()
-                    // EXP-269: the glass page gradient — every panel above it
-                    // is transparent or a white-alpha fill so the ramp shows
-                    // through. EXP-293: the Shell paints the SIDEBAR ramp as
-                    // its base (the rail's alpha) because alpha compositing can
-                    // only ADD opacity — the most transparent region has to be
-                    // the bottom layer, and the content column above tops it up
-                    // (`theme::content_topup_gradient`).
-                    .bg(theme::sidebar_background_gradient())
+                    // EXP-303: the root paints NO page gradient — each region
+                    // (rail column / content column, see `body` above) paints
+                    // its own single-layer ramp at its own alpha. Stacking a
+                    // second translucent gradient over a full-window base never
+                    // composited to the intended alpha (the content stayed
+                    // opaque at any top-up value), so the base+top-up layering
+                    // EXP-293 introduced is gone.
                     .text_color(cx.theme().foreground)
                     .child(body)
                     .children(sheet_layer)

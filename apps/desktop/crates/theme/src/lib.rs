@@ -504,21 +504,24 @@ pub fn glass_sidebar_alpha() -> f32 {
     }
 }
 
-/// EXP-293: how opaque the page paints under the MAIN CONTENT — everything
-/// right of the rail (issue list, tabs, detail sidebar, terminal dock) and
-/// every standalone window (undocked views, dialogs, the login/update
-/// surfaces). EXP-303: BOTH regions read glassy — the EXP-293 flip had left
-/// the content near-solid (0.90, invisible over a dark wallpaper), and the
-/// ask is the EXP-290 frosted-content look back WITHOUT giving up the flip.
-/// 0.80 lets a fifth of the blurred backdrop through — clearly frosted even
-/// over a dark desktop, still visibly less than the sidebar's 0.72 (which
-/// EXP-303 does not touch: the sidebar must not get any more transparent).
+/// How opaque the page paints under the MAIN CONTENT — everything right of
+/// the rail (issue list, tabs, detail sidebar, terminal dock) and every
+/// standalone window (undocked views, dialogs, the login/update surfaces).
+/// 0.92 is EXP-290's proven `GLASS_BACKGROUND_ALPHA`: the lightly frosted
+/// content the EXP-293 flip accidentally LOST — its base+top-up layering
+/// stacked two translucent gradients, which never composite to the intended
+/// alpha (the content rendered fully opaque at every top-up value; the
+/// commit's own "not verified visually" note). EXP-303 restored the EXP-290
+/// mechanism — each region paints ONE gradient at its own alpha
+/// ([`background_gradient`] for content, [`sidebar_background_gradient`] for
+/// the rail column) — so this value reaches the screen again. The sidebar
+/// stays 0.72, deliberately the glassier region.
 ///
 /// 1.0 without a real blur backdrop ([`blur_backdrop_available`]) — Windows
 /// and non-KDE-Wayland Linux have no glassy blur and stay fully opaque.
 pub fn glass_content_alpha() -> f32 {
     if blur_backdrop_available() {
-        0.80
+        0.92
     } else {
         1.0
     }
@@ -532,9 +535,10 @@ pub fn glass_content_alpha() -> f32 {
 /// desktop's top stop (see [`blended_background_top`]) so the titlebar band no
 /// longer steps hard against the content panels.
 ///
-/// The Shell window is the exception: it splits the page into the rail and the
-/// content column, so it paints [`sidebar_background_gradient`] as its base and
-/// tops the content column up with [`content_topup_gradient`].
+/// The Shell window splits the page into the rail column
+/// ([`sidebar_background_gradient`]) and the content column (this gradient),
+/// painted SIDE BY SIDE — never stacked (EXP-303: stacked translucent
+/// gradients do not composite to the intended alpha).
 ///
 /// EXP-290/EXP-293: the stops carry the region's alpha — the ONE place the
 /// window turns translucent. It pairs with
@@ -547,37 +551,15 @@ pub fn background_gradient() -> gpui::Background {
     gradient_at_alpha(glass_content_alpha())
 }
 
-/// The page gradient under the sidebar/rail, at [`glass_sidebar_alpha`]. The
-/// Shell paints this as its base layer — under the rail AND under the content
-/// column, because alpha compositing can only ADD opacity: the most
-/// transparent region has to be the bottom layer, and the content column then
-/// paints [`content_topup_gradient`] on top of it.
+/// The page gradient under the sidebar/rail column, at
+/// [`glass_sidebar_alpha`]. EXP-303: the Shell paints this on the RAIL COLUMN
+/// ONLY (the rail's white wash sits on top of it), side by side with the
+/// content column's [`background_gradient`] — never stacked. The EXP-293
+/// base+top-up layering (this gradient full-window, a second "top-up"
+/// gradient over the content) is gone: two stacked translucent gradients do
+/// not composite to the intended alpha, which left the content fully opaque.
 pub fn sidebar_background_gradient() -> gpui::Background {
     gradient_at_alpha(glass_sidebar_alpha())
-}
-
-/// The layer the Shell's content column paints OVER
-/// [`sidebar_background_gradient`] so the composite lands exactly on
-/// [`glass_content_alpha`]. Same stop colors as the base, so stacking the two
-/// only adds alpha — the ramp's hue/lightness at any y is unchanged.
-pub fn content_topup_gradient() -> gpui::Background {
-    gradient_at_alpha(content_topup_alpha())
-}
-
-/// The `over` alpha that composites [`glass_sidebar_alpha`] up to
-/// [`glass_content_alpha`]: from `out = over + under·(1 - over)`,
-/// `over = (out - under) / (1 - under)`.
-///
-/// Returns 1.0 when the base is already fully opaque (the no-blur path — the
-/// division would be 0/0), which paints a harmless opaque layer over an opaque
-/// one instead of a NaN alpha.
-pub fn content_topup_alpha() -> f32 {
-    let under = glass_sidebar_alpha();
-    let out = glass_content_alpha();
-    if under >= 1.0 {
-        return 1.0;
-    }
-    ((out - under) / (1.0 - under)).clamp(0., 1.)
 }
 
 fn gradient_at_alpha(alpha: f32) -> gpui::Background {
@@ -764,49 +746,28 @@ mod tests {
     }
 
     #[test]
-    fn content_topup_composites_the_sidebar_base_up_to_the_content_alpha() {
-        // EXP-293: the Shell paints the sidebar (most transparent) ramp as its
-        // base and this layer over it in the content column — alpha
-        // compositing can only ADD opacity, so the math has to land exactly on
-        // glass_content_alpha() or the content column drifts off its contrast
-        // budget.
-        let under = glass_sidebar_alpha();
-        let over = content_topup_alpha();
-        let composite = over + under * (1.0 - over);
-        assert!(
-            approx(composite, glass_content_alpha()),
-            "sidebar {under} ⊕ topup {over} = {composite}, want {}",
-            glass_content_alpha()
-        );
-        assert!((0. ..=1.0).contains(&over), "topup alpha in range: {over}");
-        let bg = format!("{:?}", content_topup_gradient());
-        assert!(bg.contains("LinearGradient"), "{bg}");
-    }
-
-    #[test]
-    fn glass_alphas_swap_the_sidebar_and_content_weighting() {
-        // EXP-293: the rail is the GLASS column and the content next to it is
-        // nearly solid (the issue's swap). Guard rails: the sidebar never goes
-        // below 0.7 (its own labels must stay legible over a bright blurred
-        // backdrop) and the content never below 0.80 (body text, code, diffs
-        // — EXP-303 lowered the old 0.85 floor one notch for the frosted
-        // content look; near-white foreground still clears AA contrast there).
+    fn glass_alphas_keep_the_sidebar_the_glassier_region() {
+        // EXP-293 flip + EXP-303 restore: the rail is the GLASS column
+        // (untouched at 0.72) and the content next to it is lightly frosted
+        // (EXP-290's 0.92). Guard rails: the sidebar never goes below 0.7
+        // (its own labels must stay legible over a bright blurred backdrop)
+        // and the content never below 0.85 (body text, code, diffs).
         let (sidebar, content) = (glass_sidebar_alpha(), glass_content_alpha());
         assert!(sidebar <= content, "sidebar {sidebar} must be the more transparent region");
         assert!((0.7..=1.0).contains(&sidebar), "sidebar alpha: {sidebar}");
-        assert!((0.80..=1.0).contains(&content), "content alpha: {content}");
+        assert!((0.85..=1.0).contains(&content), "content alpha: {content}");
         if blur_backdrop_available() {
-            // A real blurred backdrop exists — the page must actually be
-            // see-through, and the two regions must differ visibly.
-            assert!(content < 1.0, "the page must actually be see-through");
-            assert!(sidebar < content - 0.05, "the swap must be perceptible");
+            // A real blurred backdrop exists — BOTH regions must actually be
+            // see-through (EXP-303: the content is glassy too), and the two
+            // must differ visibly.
+            assert!(content < 1.0, "the content must actually be see-through");
+            assert!(sidebar < content - 0.05, "the regions must differ perceptibly");
         } else {
             // EXP-293: no blur means translucency would be a sharp ghost of the
             // desktop (the Linux/X11 report), so the page is FULLY opaque and
             // the glass reduces to the ramp itself.
             assert!(approx(sidebar, 1.0), "no-blur sidebar must be opaque: {sidebar}");
             assert!(approx(content, 1.0), "no-blur content must be opaque: {content}");
-            assert!(approx(content_topup_alpha(), 1.0), "no NaN on the opaque path");
         }
     }
 
