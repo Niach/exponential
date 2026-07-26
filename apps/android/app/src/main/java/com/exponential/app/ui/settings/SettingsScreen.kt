@@ -19,20 +19,26 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.PlayStore
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
@@ -49,6 +55,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -94,6 +101,9 @@ fun SettingsScreen(
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val serverGroups by viewModel.serverGroups.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     AppBackground {
         Scaffold(
@@ -110,6 +120,7 @@ fun SettingsScreen(
                     ),
                 )
             },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = Color.Transparent,
         ) { padding ->
             Column(
@@ -179,6 +190,26 @@ fun SettingsScreen(
                             title = "Sync diagnostics",
                             subtitle = "Live Electric shape status",
                             onClick = onOpenSyncDiagnostics,
+                        )
+                        CardDivider()
+                        // EXP-260 — Android is the only client with a store
+                        // listing so far, so this row is Android-only.
+                        SettingsRow(
+                            icon = ExpIcons.settingsRate,
+                            title = "Rate our app",
+                            subtitle = "Leave a review on Google Play",
+                            trailingIcon = ExpIcons.uiExternalLink,
+                            onClick = {
+                                // Neither Play nor a browser: say so rather
+                                // than leave the row looking inert.
+                                if (!PlayStore.openListing(context)) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            "Couldn't open Google Play",
+                                        )
+                                    }
+                                }
+                            },
                         )
                     }
                 }

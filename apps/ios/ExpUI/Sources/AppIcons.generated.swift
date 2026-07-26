@@ -407,6 +407,8 @@ public enum AppIcons {
     public static let settingsLocalRepos: String = "hard-drive"
     /// Concept `settings-members`.
     public static let settingsMembers: String = "users"
+    /// Concept `settings-rate`.
+    public static let settingsRate: String = "star"
     /// Concept `settings-repositories`.
     public static let settingsRepositories: String = "github"
     /// Concept `settings-servers`.

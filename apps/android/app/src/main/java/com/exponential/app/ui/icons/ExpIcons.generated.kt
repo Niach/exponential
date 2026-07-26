@@ -5710,6 +5710,8 @@ public object ExpIcons {
     public val settingsLocalRepos: ImageVector get() = `hard-drive`
     /** Concept `settings-members`. */
     public val settingsMembers: ImageVector get() = `users`
+    /** Concept `settings-rate`. */
+    public val settingsRate: ImageVector get() = `star`
     /** Concept `settings-repositories`. */
     public val settingsRepositories: ImageVector get() = `github`
     /** Concept `settings-servers`. */

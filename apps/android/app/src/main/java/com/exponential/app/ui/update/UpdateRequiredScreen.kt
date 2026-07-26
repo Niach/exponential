@@ -1,11 +1,8 @@
 package com.exponential.app.ui.update
 
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +28,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import com.exponential.app.AppConstants
+import com.exponential.app.PlayStore
 import com.exponential.app.R
 import com.exponential.app.data.api.UpdateGate
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
@@ -145,19 +143,7 @@ private fun startUpdate(context: Context) {
 }
 
 private fun openStorePage(context: Context) {
-    // Strip the staging suffix so the link targets the published production app.
-    val appId = context.packageName.removeSuffix(".staging")
-    val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$appId"))
-    try {
-        context.startActivity(marketIntent)
-    } catch (_: ActivityNotFoundException) {
-        context.startActivity(
-            Intent(
-                Intent.ACTION_VIEW,
-                Uri.parse("https://play.google.com/store/apps/details?id=$appId"),
-            ),
-        )
-    }
+    PlayStore.openListing(context)
 }
 
 private fun Context.findActivity(): Activity? {

@@ -314,6 +314,7 @@ export const SEMANTIC_ICONS = {
   "settings-labels": `tag`,
   "settings-local-repos": `hard-drive`,
   "settings-members": `users`,
+  "settings-rate": `star`,
   "settings-repositories": `github`,
   "settings-servers": `server`,
   "settings-sync": `refresh-cw`,
