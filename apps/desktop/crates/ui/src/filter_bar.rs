@@ -63,6 +63,10 @@ impl IssueFilterBar {
 impl RenderOnce for IssueFilterBar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         // Title row (web: flex items-center justify-between py-3, compacted).
+        // Height is `py_2` + the tallest control — 44px since EXP-289 bumped
+        // the two controls one step; the owning `BoardView` floats the issue
+        // list's bulk-action bar (a 34px pill) over exactly this row, so keep
+        // the two in step when touching either.
         let title_row = h_flex()
             .py_2()
             .items_center()
@@ -93,10 +97,14 @@ impl RenderOnce for IssueFilterBar {
                             // pinned ButtonCustomVariant cannot render a
                             // solid fill). Dispatches the typed action
                             // (§3.6) — the create-issue dialog's handler
-                            // picks it up.
+                            // picks it up. EXP-289: one step bigger here only
+                            // (h_6 → h_7 + roomier padding) — the shared
+                            // helper keeps its dialog-footer geometry.
                             indigo_button("filter-bar-new-issue", false, cx)
                                 .ml_1()
-                                .child(Icon::new(IconName::Plus).xsmall())
+                                .h_7()
+                                .px_3()
+                                .child(Icon::new(IconName::Plus).small())
                                 .child("New Issue")
                                 .on_click(|_, window, cx| {
                                     window.dispatch_action(Box::new(NewIssue), cx)
