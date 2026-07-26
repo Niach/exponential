@@ -4,7 +4,8 @@ import SwiftUI
 /// Full-width glass-pill segmented control — the My Work Inbox/My Issues tab
 /// language (EXP-192): one `.ultraThinMaterial` capsule container holding
 /// equal-width segments, the active one filled white-0.12. Optional
-/// per-segment count badge (indigo capsule, the Inbox unread count).
+/// per-segment count badge (indigo capsule, the Inbox unread count — the
+/// text-bearing `indigoStrong` fill, not the raw accent).
 struct GlassSegmentedControl<Option: Hashable>: View {
     let options: [Option]
     let selection: Option
@@ -55,7 +56,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Accent.indigo, in: Capsule())
+                        .background(Accent.indigoStrong, in: Capsule())
                 }
             }
             .frame(maxWidth: .infinity)

@@ -24,10 +24,15 @@ const stylesCss = readFileSync(
   `utf8`
 )
 
-// Pull the `--var: value;` declarations out of the `.dark { … }` block.
-function parseDarkVars(css: string): Record<string, string> {
-  const block = css.match(/\.dark\s*\{([^}]*)\}/)
-  if (!block) throw new Error(`Could not find .dark block in styles.css`)
+// Pull the `--var: value;` declarations out of a top-level `<selector> { … }`
+// block. Neither block nests braces, so `[^}]*` stops at the right place.
+function parseBlockVars(
+  css: string,
+  selector: RegExp,
+  label: string
+): Record<string, string> {
+  const block = css.match(selector)
+  if (!block) throw new Error(`Could not find ${label} block in styles.css`)
   const vars: Record<string, string> = {}
   for (const line of block[1].split(`\n`)) {
     const m = line.match(/^\s*--([\w-]+):\s*(.+?);\s*$/)
@@ -36,12 +41,26 @@ function parseDarkVars(css: string): Record<string, string> {
   return vars
 }
 
+// The brand + glass tokens are theme-invariant (the app is dark-only) and are
+// deliberately duplicated into BOTH :root and .dark. Only .dark is parity-
+// checked against tokens.json, so this is the set the two blocks must agree on.
+function themeInvariantVars(
+  vars: Record<string, string>
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(vars).filter(
+      ([k]) => k.startsWith(`brand`) || k.startsWith(`glass-`)
+    )
+  )
+}
+
 function kebab(camel: string): string {
   return camel.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
 }
 
 describe(`design-tokens parity with web styles.css`, () => {
-  const darkVars = parseDarkVars(stylesCss)
+  const darkVars = parseBlockVars(stylesCss, /\.dark\s*\{([^}]*)\}/, `.dark`)
+  const rootVars = parseBlockVars(stylesCss, /:root\s*\{([^}]*)\}/, `:root`)
 
   it(`every palette token matches the corresponding .dark CSS variable`, () => {
     for (const [key, value] of Object.entries(tokens.palette)) {
@@ -67,5 +86,27 @@ describe(`design-tokens parity with web styles.css`, () => {
 
   it(`the brand accent matches --brand`, () => {
     expect(darkVars.brand).toBe(tokens.semantic.brand)
+  })
+
+  // EXP-280: --brand-strong is the fill every client must use for a solid
+  // brand surface carrying text (white on --brand is 4.28:1, under AA). It was
+  // web-only until it landed in tokens.json; keep the two in lockstep so the
+  // native clients can't drift back onto the raw accent.
+  it(`the text-bearing brand fill matches --brand-strong`, () => {
+    expect(darkVars[`brand-strong`]).toBe(tokens.semantic.brandStrong)
+  })
+
+  // EXP-269 duplicated the brand + glass vars into :root as well, but only the
+  // .dark copy is parity-checked above — so nothing kept the two in sync.
+  it(`the :root and .dark brand + glass blocks are identical`, () => {
+    const rootInvariant = themeInvariantVars(rootVars)
+    expect(
+      Object.keys(rootInvariant).length,
+      `expected :root to carry the brand + glass vars`
+    ).toBeGreaterThan(0)
+    expect(
+      rootInvariant,
+      `the theme-invariant brand/glass vars must be byte-identical in :root and .dark`
+    ).toEqual(themeInvariantVars(darkVars))
   })
 })
