@@ -68,3 +68,9 @@ sha2 = "0.10"
 # #[gpui::test]; it only widens the TEST build's gpui variant (same package
 # id — a compile-time cost, not an identity split).
 gpui = { workspace = true, features = ["test-support"] }
+
+# EXP-300 quit watchdog (`quit.rs`): leaves via `_exit`, deliberately skipping
+# the atexit/`__cxa_finalize` pass — that chain is itself a candidate for the
+# hang the watchdog exists to escape. Already in the tree via gpui.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
