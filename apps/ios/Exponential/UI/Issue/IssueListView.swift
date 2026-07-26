@@ -291,7 +291,7 @@ struct IssueListView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(minWidth: 15, minHeight: 15)
-                    .background(Accent.indigo, in: Circle())
+                    .background(Accent.indigoStrong, in: Circle())
                     .offset(x: 2, y: -2)
                     // The badge sits above the button; it must not swallow
                     // taps meant for the filter control underneath it.

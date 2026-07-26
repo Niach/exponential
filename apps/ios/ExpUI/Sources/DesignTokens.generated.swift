@@ -39,6 +39,7 @@ public enum DesignTokens {
         public static let orange: Color = Color(red: 0.9765, green: 0.4510, blue: 0.0863, opacity: 1.0000)
         public static let blue: Color = Color(red: 0.2314, green: 0.5098, blue: 0.9647, opacity: 1.0000)
         public static let brand: Color = Color(red: 0.3882, green: 0.4000, blue: 0.9451, opacity: 1.0000)
+        public static let brandStrong: Color = Color(red: 0.3098, green: 0.2745, blue: 0.8980, opacity: 1.0000)
     }
 
     // Glass surfaces (EXP-269) — mobile UI keeps its hand-written

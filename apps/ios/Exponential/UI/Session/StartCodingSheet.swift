@@ -833,7 +833,7 @@ struct StartCodingSheet: View {
             .foregroundStyle(selected ? .white : .white.opacity(TextOpacity.secondary))
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(selected ? Accent.indigo : Color.white.opacity(0.06), in: Capsule())
+            .background(selected ? Accent.indigoStrong : Color.white.opacity(0.06), in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
