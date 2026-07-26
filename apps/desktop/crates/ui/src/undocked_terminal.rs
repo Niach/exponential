@@ -20,8 +20,11 @@ use gpui::{
 use gpui::AnyElement;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _, TitleBar,
+    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _,
 };
+// EXP-269: the vendored TitleBar — rounded window controls
+// (`crate::title_bar`).
+use crate::title_bar::TitleBar;
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
 use crate::undock;
@@ -237,7 +240,9 @@ impl Render for UndockedTerminalWindow {
         }
 
         crate::window_frame::window_frame().child(
-            div()
+            // EXP-269 corners: see `window_frame::frame_radii` — an
+            // edge-painting layer must round itself.
+            crate::window_frame::round_to_frame(div(), window)
                 .size_full()
                 .bg(theme::background_gradient())
                 .text_color(cx.theme().foreground)

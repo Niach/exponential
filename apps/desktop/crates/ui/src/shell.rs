@@ -476,7 +476,11 @@ impl Render for Shell {
             // undraggable/unclosable on Windows/Linux (no native chrome).
             return crate::window_frame::window_frame()
                 .child(
-                    div()
+                    // EXP-269 corners: see `window_frame::frame_radii` — the
+                    // page gradient paints to the window edge, so it carries
+                    // the frame's radii itself (a rectangular content mask
+                    // cannot clip it).
+                    crate::window_frame::round_to_frame(div(), window)
                         .size_full()
                         .bg(theme::background_gradient())
                         .text_color(cx.theme().foreground)
@@ -549,7 +553,12 @@ impl Render for Shell {
         // INSIDE it so overlays clip to the visible window.
         crate::window_frame::window_frame()
             .child(
-                div()
+                // EXP-269 corners: the gradient paints to the window edge and
+                // must carry the frame's radii — gpui clips children with a
+                // RECTANGULAR content mask, so without this its square
+                // corners fill the notch outside the frame's arc
+                // (`window_frame::frame_radii`).
+                crate::window_frame::round_to_frame(div(), window)
                     .size_full()
                     // EXP-269: the glass page gradient — every panel above it
                     // is transparent or a white-alpha fill so the ramp shows

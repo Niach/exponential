@@ -18,9 +18,9 @@
 //! truth for inset math (it is radius-independent).
 
 use gpui::{
-    div, point, prelude::FluentBuilder as _, px, AnyElement, App, CursorStyle, Decorations, Edges,
-    Hsla, InteractiveElement as _, IntoElement, MouseButton, ParentElement, Pixels, Point,
-    RenderOnce, ResizeEdge, Size, Styled as _, Tiling, Window,
+    div, point, prelude::FluentBuilder as _, px, AnyElement, App, Corners, CursorStyle, Decorations,
+    Edges, Hsla, InteractiveElement as _, IntoElement, MouseButton, ParentElement, Pixels, Point,
+    RenderOnce, ResizeEdge, Size, Styled, Tiling, Window,
 };
 
 use gpui_component::ActiveTheme;
@@ -45,6 +45,44 @@ pub(crate) fn window_frame() -> WindowFrame {
 #[derive(IntoElement, Default)]
 pub(crate) struct WindowFrame {
     children: Vec<AnyElement>,
+}
+
+/// The visible frame's per-corner radius — zero on every corner the frame
+/// itself renders square (server decorations, or a tiled edge).
+///
+/// **Every layer that paints to the window EDGE must apply these radii to
+/// itself.** gpui's `ContentMask` is a plain rectangle (`ContentMask { bounds }`
+/// at the pinned rev), so the `overflow_hidden` on the frame does NOT clip a
+/// child's background quad to the rounded corner: the child keeps painting
+/// its square corner into the 12px notch outside the arc, and on Linux CSD
+/// that reads as an opaque "black corner" sticking out from behind the
+/// rounded frame. Only the element that actually paints can round itself —
+/// hence this is a shared helper rather than something the frame can enforce.
+pub(crate) fn frame_radii(window: &Window) -> Corners<Pixels> {
+    let Decorations::Client { tiling } = window.window_decorations() else {
+        return Corners::all(px(0.0));
+    };
+    let radius = |rounded: bool| if rounded { FRAME_RADIUS } else { px(0.0) };
+    Corners {
+        top_left: radius(!(tiling.top || tiling.left)),
+        top_right: radius(!(tiling.top || tiling.right)),
+        bottom_right: radius(!(tiling.bottom || tiling.right)),
+        bottom_left: radius(!(tiling.bottom || tiling.left)),
+    }
+}
+
+/// Apply [`frame_radii`] to a layer that paints to ALL FOUR window edges —
+/// the full-size page-gradient background every `window_frame()` host puts
+/// directly inside the frame. A no-op off Linux CSD (all radii zero).
+pub(crate) fn round_to_frame<E: Styled>(el: E, window: &Window) -> E {
+    apply_radii(el, frame_radii(window))
+}
+
+fn apply_radii<E: Styled>(el: E, radii: Corners<Pixels>) -> E {
+    el.rounded_tl(radii.top_left)
+        .rounded_tr(radii.top_right)
+        .rounded_br(radii.bottom_right)
+        .rounded_bl(radii.bottom_left)
 }
 
 /// Per-side inset of the visible frame from the outer window bounds.
@@ -90,27 +128,20 @@ impl RenderOnce for WindowFrame {
             window.set_client_inset(platform_inset);
         }
         let window_size = window.window_bounds().get_bounds().size;
+        let radii = frame_radii(window);
 
         div()
             .id("window-backdrop")
             .bg(gpui::transparent_black())
             .map(|div| match decorations {
                 Decorations::Server => div,
-                Decorations::Client { tiling, .. } => div
-                    .flex()
-                    .flex_col()
-                    .overflow_hidden()
-                    .bg(gpui::transparent_black())
-                    .when(!(tiling.top || tiling.right), |div| {
-                        div.rounded_tr(FRAME_RADIUS)
-                    })
-                    .when(!(tiling.top || tiling.left), |div| div.rounded_tl(FRAME_RADIUS))
-                    .when(!(tiling.bottom || tiling.right), |div| {
-                        div.rounded_br(FRAME_RADIUS)
-                    })
-                    .when(!(tiling.bottom || tiling.left), |div| {
-                        div.rounded_bl(FRAME_RADIUS)
-                    })
+                Decorations::Client { tiling, .. } => apply_radii(
+                    div.flex()
+                        .flex_col()
+                        .overflow_hidden()
+                        .bg(gpui::transparent_black()),
+                    radii,
+                )
                     .when(!tiling.top, |div| div.pt(visual_shadow))
                     .when(!tiling.bottom, |div| div.pb(visual_shadow))
                     .when(!tiling.left, |div| div.pl(visual_shadow))
@@ -139,23 +170,10 @@ impl RenderOnce for WindowFrame {
                     .cursor(CursorStyle::default())
                     .map(|div| match decorations {
                         Decorations::Server => div.size_full(),
-                        Decorations::Client { tiling } => div
-                            .flex_1()
-                            .min_h_0()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .when(!(tiling.top || tiling.right), |div| {
-                                div.rounded_tr(FRAME_RADIUS)
-                            })
-                            .when(!(tiling.top || tiling.left), |div| {
-                                div.rounded_tl(FRAME_RADIUS)
-                            })
-                            .when(!(tiling.bottom || tiling.right), |div| {
-                                div.rounded_br(FRAME_RADIUS)
-                            })
-                            .when(!(tiling.bottom || tiling.left), |div| {
-                                div.rounded_bl(FRAME_RADIUS)
-                            })
+                        Decorations::Client { tiling } => apply_radii(
+                            div.flex_1().min_h_0().min_w_0().overflow_hidden(),
+                            radii,
+                        )
                             .border_color(cx.theme().window_border)
                             .when(!tiling.top, |div| div.border_t(BORDER_SIZE))
                             .when(!tiling.bottom, |div| div.border_b(BORDER_SIZE))

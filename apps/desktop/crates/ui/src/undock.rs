@@ -31,8 +31,11 @@ use gpui::{
 use gpui::AnyElement;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Root, Sizable as _, TitleBar,
+    h_flex, ActiveTheme as _, Root, Sizable as _,
 };
+// EXP-269: the vendored TitleBar — rounded window controls
+// (`crate::title_bar`).
+use crate::title_bar::TitleBar;
 use terminal::{TabId, TerminalManager};
 
 use crate::navigation::{self, Screen};
@@ -422,7 +425,11 @@ impl Render for UndockedScreenWindow {
         let notification_layer = Root::render_notification_layer(window, cx);
 
         crate::window_frame::window_frame().child(
-            div()
+            // EXP-269 corners: the page gradient paints to the window edge,
+            // so it must carry the frame's radii — gpui's content mask is
+            // rectangular and would leave opaque square corners under the
+            // rounded frame (`window_frame::frame_radii`).
+            crate::window_frame::round_to_frame(div(), window)
                 .size_full()
                 .bg(theme::background_gradient())
                 .text_color(cx.theme().foreground)

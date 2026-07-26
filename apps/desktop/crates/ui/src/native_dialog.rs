@@ -597,7 +597,10 @@ impl Render for DialogShell {
         let notification_layer = Root::render_notification_layer(window, cx);
 
         crate::window_frame::window_frame().child(
-            div()
+            // EXP-269 corners: see `window_frame::frame_radii` — an
+            // edge-painting layer must round itself (this one carries the
+            // dialog's own border, which follows the same arc).
+            crate::window_frame::round_to_frame(div(), window)
                 .size_full()
                 // The glass dialog surface — the same page gradient as the
                 // main window (EXP-285), opaque: there is no dimmed
