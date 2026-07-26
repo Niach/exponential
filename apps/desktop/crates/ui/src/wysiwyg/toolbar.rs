@@ -25,7 +25,10 @@ use crate::ExpIcon;
 /// minus the xsmall icon-button's own glyph inset ((20px button − 12px icon)
 /// / 2 = 4), so the first glyph lines up with the title/description text in
 /// BOTH host slots (issue detail and the create-issue dialog).
-const TOOLBAR_GLYPH_ALIGN_PX: f32 = super::WYSIWYG_BLOCK_PADDING_X - 4.;
+/// EXP-288: +2px optical compensation — the lucide glyphs' strokes start a
+/// hair inside their 12px SVG box while text glyphs sit on the pen origin,
+/// so the box-perfect alignment still READ as slightly left of the text.
+const TOOLBAR_GLYPH_ALIGN_PX: f32 = super::WYSIWYG_BLOCK_PADDING_X - 4. + 2.;
 
 fn separator(cx: &App) -> impl IntoElement {
     div().w_px().h_4().bg(cx.theme().border)

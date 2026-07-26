@@ -384,6 +384,13 @@ impl Editor {
         block.read(cx).active_range_or_cursor_bounds()
     }
 
+    /// EXP-288: hand the editor the HOST's tracked scroll handle (embedded
+    /// mode only) — re-enables the caret-follow machinery against the host's
+    /// scroll container, so typing/pasting keeps the caret visible.
+    pub fn set_external_scroll_handle(&mut self, handle: gpui::ScrollHandle) {
+        self.external_scroll_handle = Some(handle);
+    }
+
     /// EXP-261 vendoring: move keyboard focus to the first focusable block on
     /// the next frame (`apply_pending_focus` completes it during render).
     pub fn focus_first_block(&mut self, cx: &mut Context<Self>) {

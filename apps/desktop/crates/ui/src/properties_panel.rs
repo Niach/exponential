@@ -18,36 +18,33 @@
 //! desktop shows no time inputs — date edits leave any server-side times
 //! untouched except through that cascade.
 
+use std::rc::Rc;
+
 use chrono::NaiveDate;
 
 use gpui::{
-    div, px, App, AppContext as _, ClipboardItem, ElementId, Entity, Focusable as _, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, App, AppContext as _, ClipboardItem, Entity, FontWeight, IntoElement, ParentElement,
+    Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    calendar::{Calendar, CalendarEvent, CalendarState, Date},
-    checkbox::Checkbox,
+    calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
-    input::{Input, InputState},
+    input::InputState,
     menu::{DropdownMenu as _, PopupMenuItem},
-    popover::Popover,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, Side,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 use serde::Serialize;
 use sync::Store;
 use theme::tokens as t;
 
 use domain::board::format_short_date;
-use domain::options::{
-    get_issue_priority_config, get_issue_status_config, IssueOption, ISSUE_PRIORITY_OPTIONS,
-    ISSUE_STATUS_OPTIONS,
-};
+use domain::options::{get_issue_priority_config, get_issue_status_config};
 use domain::rows::{Issue, Label, Board, User};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, ExpIcon};
+use crate::pickers::picker_trigger;
 use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of};
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, replace_screen, Screen};
@@ -317,23 +314,21 @@ impl PropertiesPanel {
             cx,
         )
         .dropdown_menu(move |menu, _, cx| {
-            let mut menu = menu.min_w(px(SIDEBAR_INNER_WIDTH)).check_side(Side::Right);
-            for option in &ISSUE_STATUS_OPTIONS {
-                menu = menu.item(option_item(option, option.value == current, cx, {
-                    let issue_id = issue_id.clone();
-                    let value = option.value;
-                    // L27: `duplicate` opens the picker; every other status writes.
-                    move |window, cx| {
-                        crate::issue_detail::apply_status_selection(
-                            issue_id.clone(),
-                            value,
-                            window,
-                            cx,
-                        );
-                    }
-                }));
-            }
-            menu
+            let issue_id = issue_id.clone();
+            crate::pickers::status_menu(
+                menu.min_w(px(SIDEBAR_INNER_WIDTH)),
+                current,
+                // L27: `duplicate` opens the picker; every other status writes.
+                Rc::new(move |value, window, cx| {
+                    crate::issue_detail::apply_status_selection(
+                        issue_id.clone(),
+                        value,
+                        window,
+                        cx,
+                    );
+                }),
+                cx,
+            )
         })
     }
 
@@ -349,19 +344,17 @@ impl PropertiesPanel {
             cx,
         )
         .dropdown_menu(move |menu, _, cx| {
-            let mut menu = menu.min_w(px(SIDEBAR_INNER_WIDTH)).check_side(Side::Right);
-            for option in &ISSUE_PRIORITY_OPTIONS {
-                menu = menu.item(option_item(option, option.value == current, cx, {
-                    let issue_id = issue_id.clone();
-                    let value = option.value;
-                    move |_window, cx| {
-                        let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                        input.priority = Some(value);
-                        spawn_issue_update(cx, input);
-                    }
-                }));
-            }
-            menu
+            let issue_id = issue_id.clone();
+            crate::pickers::priority_menu(
+                menu.min_w(px(SIDEBAR_INNER_WIDTH)),
+                current,
+                Rc::new(move |value, _window, cx| {
+                    let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                    input.priority = Some(value);
+                    spawn_issue_update(cx, input);
+                }),
+                cx,
+            )
         })
     }
 
@@ -403,37 +396,20 @@ impl PropertiesPanel {
         };
 
         trigger.dropdown_menu(move |menu, _, _| {
-            // Member lists grow with the team — cap + scroll (EXP-46a).
-            let mut menu = menu
-                .min_w(px(SIDEBAR_INNER_WIDTH))
-                .check_side(Side::Right)
-                .scrollable(true)
-                .max_h(px(320.));
-            if current_id.is_some() {
-                let issue_id = issue_id.clone();
-                menu = menu.item(PopupMenuItem::new("Unassign").on_click(move |_, _, cx| {
+            let issue_id = issue_id.clone();
+            crate::pickers::assignee_menu(
+                menu.min_w(px(SIDEBAR_INNER_WIDTH)),
+                &users,
+                current_id.as_deref(),
+                Rc::new(move |picked, _window, cx| {
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                    input.assignee_id = api::Patch::Null;
+                    input.assignee_id = match picked {
+                        Some(user_id) => api::Patch::Set(user_id),
+                        None => api::Patch::Null,
+                    };
                     spawn_issue_update(cx, input);
-                }));
-            }
-            for user in &users {
-                let name = crate::comments::author_label(Some(user));
-                let checked = current_id.as_deref() == Some(user.id.as_str());
-                let issue_id = issue_id.clone();
-                let user_id = user.id.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(name))
-                        .checked(checked)
-                        .on_click(move |_, _, cx| {
-                            let mut input =
-                                api::issues::IssuesUpdateInput::new(issue_id.clone());
-                            input.assignee_id = api::Patch::Set(user_id.clone());
-                            spawn_issue_update(cx, input);
-                        }),
-                );
-            }
-            menu
+                }),
+            )
         })
     }
 
@@ -466,104 +442,19 @@ impl PropertiesPanel {
             cx,
         );
 
-        let query_state = self.label_query.clone();
-        Popover::new("prop-labels-popover")
-            .w(px(SIDEBAR_INNER_WIDTH))
-            .p_1()
-            .trigger(trigger)
-            .on_open_change({
-                let query_state = query_state.clone();
-                move |open, window, cx| {
-                    // Fresh search per open; the input takes focus like the
-                    // web CommandInput.
-                    query_state.update(cx, |input, cx| input.set_value("", window, cx));
-                    if *open {
-                        query_state.read(cx).focus_handle(cx).focus(window, cx);
-                    }
-                }
-            })
-            .content(move |_, _, cx| {
-                let query = query_state.read(cx).value().trim().to_lowercase();
-                let visible: Vec<&Label> = labels
-                    .iter()
-                    .filter(|label| {
-                        query.is_empty() || label.name.to_lowercase().contains(&query)
-                    })
-                    .collect();
-
-                let mut column = v_flex().w_full().child(
-                    Input::new(&query_state)
-                        .small()
-                        .appearance(false)
-                        .cleanable(true),
-                );
-                if labels.is_empty() {
-                    return column.child(empty_picker_row("No labels in this team", cx));
-                }
-                column = column.child(
-                    div()
-                        .h(px(1.))
-                        .w_full()
-                        .my_1()
-                        .bg(cx.theme().border.opacity(0.5)),
-                );
-                if visible.is_empty() {
-                    return column.child(empty_picker_row("No labels found.", cx));
-                }
-
-                // Label lists grow with the team — cap + scroll (EXP-46a).
-                let mut rows = v_flex()
-                    .id("prop-labels-rows")
-                    .w_full()
-                    .max_h(px(240.))
-                    .overflow_y_scroll();
-                for label in visible {
-                    let checked = selected.contains(&label.id);
-                    let issue_id = issue_id.clone();
-                    let label_id = label.id.clone();
-                    let dot_color = label
-                        .color
-                        .as_deref()
-                        .and_then(parse_hex_color)
-                        .unwrap_or(gpui::opaque_grey(0.5, 1.0));
-                    rows = rows.child(
-                        picker_row(
-                            ElementId::Name(SharedString::from(format!(
-                                "prop-label-{label_id}"
-                            ))),
-                            cx,
-                        )
-                        // The row owns the click — a handler on the checkbox
-                        // too would double-toggle (filter_popover pattern).
-                        .child(
-                            Checkbox::new(ElementId::Name(SharedString::from(format!(
-                                "prop-label-check-{label_id}"
-                            ))))
-                            .checked(checked),
-                        )
-                        .child(
-                            div()
-                                .size_2p5()
-                                .rounded_full()
-                                .flex_shrink_0()
-                                .bg(dot_color),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .whitespace_nowrap()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(SharedString::from(label.name.clone())),
-                        )
-                        .on_click(move |_, _, cx| {
-                            toggle_label(cx, issue_id.clone(), label_id.clone(), checked);
-                        }),
-                    );
-                }
-                column.child(rows)
-            })
+        crate::pickers::label_picker_popover(
+            "prop-labels-popover",
+            trigger,
+            crate::pickers::LabelPickerParams {
+                labels,
+                selected_ids: selected,
+                query: self.label_query.clone(),
+                on_toggle: Rc::new(move |label_id, was_selected, _window, cx| {
+                    toggle_label(cx, issue_id.clone(), label_id.to_string(), was_selected);
+                }),
+                width: Some(px(SIDEBAR_INNER_WIDTH)),
+            },
+        )
     }
 
     /// The due-date control (web `DueDateControl`, sidebar layout): a ghost
@@ -585,40 +476,33 @@ impl PropertiesPanel {
             cx,
         );
 
-        let calendar = self.due_calendar.clone();
         let panel = cx.entity();
         // No width pin here (unlike the other pickers): the calendar grid has
-        // its own intrinsic width, wider than the sidebar column.
-        Popover::new("prop-due-popover")
-            .trigger(trigger)
-            .content(move |_, _, cx| {
+        // its own intrinsic width, wider than the sidebar column. The Clear
+        // button rides as the shared popover's `extra` row.
+        let extra: Option<crate::pickers::DueExtra> = has_due.then(|| {
+            Rc::new(move |_window: &mut Window, cx: &mut App| {
                 let panel = panel.clone();
-                // EXP-282: the Calendar paints its OWN card (border + radius +
-                // p_3) inside the popover's card — de-card it (its `Styled`
-                // refinement runs after its defaults) and drop the extra
-                // padded wrapper so the picker sits in ONE card.
-                let mut content = v_flex().gap_1().child(
-                    Calendar::new(&calendar)
-                        .border_0()
-                        .rounded_none()
-                        .p_0(),
-                );
-                if has_due {
-                    content = content.child(
-                        Button::new("prop-due-clear")
-                            .ghost()
-                            .xsmall()
-                            .label("Clear due date")
-                            .text_color(cx.theme().muted_foreground)
-                            .on_click(move |_, _, cx| {
-                                panel.update(cx, |panel, cx| {
-                                    panel.commit_due_date(None, cx);
-                                });
-                            }),
-                    );
-                }
-                content.into_any_element()
-            })
+                Button::new("prop-due-clear")
+                    .ghost()
+                    .xsmall()
+                    .label("Clear due date")
+                    .text_color(cx.theme().muted_foreground)
+                    .on_click(move |_, _, cx| {
+                        panel.update(cx, |panel, cx| {
+                            panel.commit_due_date(None, cx);
+                        });
+                    })
+                    .into_any_element()
+            }) as crate::pickers::DueExtra
+        });
+        crate::pickers::due_date_popover(
+            "prop-due-popover",
+            trigger,
+            self.due_calendar.clone(),
+            None,
+            extra,
+        )
     }
 
     /// Origin chip for widget-filed issues (web keys a "Feedback widget"
@@ -1236,94 +1120,6 @@ pub(crate) fn property_group(
 /// hand-rolled-row workaround — while the button keeps its ghost chrome,
 /// hover/active states and dropdown/popover plumbing. `muted` renders the
 /// placeholder ("Labels", "Assignee", "Due date") in the muted tone.
-fn picker_trigger(
-    id: &'static str,
-    icon: Option<Icon>,
-    label: SharedString,
-    muted: bool,
-    cx: &App,
-) -> Button {
-    let text_color = if muted {
-        cx.theme().muted_foreground
-    } else {
-        cx.theme().foreground
-    };
-    Button::new(id)
-        .ghost()
-        .xsmall()
-        .w_full()
-        // Release the xsmall 20px box — a full-width row reads better at the
-        // token control height.
-        .h(px(t::size::CONTROL_SM))
-        .child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1p5()
-                .items_center()
-                .children(icon.map(|icon| icon.xsmall().flex_shrink_0()))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .whitespace_nowrap()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .text_color(text_color)
-                        .child(label),
-                )
-                .child(
-                    Icon::new(IconName::ChevronDown)
-                        .size_3()
-                        .flex_shrink_0()
-                        .text_color(cx.theme().muted_foreground),
-                ),
-        )
-}
-
-/// A shadcn `CommandItem`-style popover row (the `filter_popover` recipe,
-/// re-rolled here because that module's helper is private): px-2 py-1 text-sm,
-/// glass row fill on hover.
-fn picker_row(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .w_full()
-        .px_2()
-        .py_1()
-        .gap_2()
-        .rounded(cx.theme().radius)
-        .text_sm()
-        .cursor_pointer()
-        .hover(|style| style.bg(t::glass::FILL_ROW.to_hsla()))
-}
-
-/// The `CommandEmpty` fallback of a searchable picker.
-fn empty_picker_row(message: &'static str, cx: &App) -> impl IntoElement {
-    div()
-        .py_4()
-        .w_full()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .text_center()
-        .child(message)
-}
-
-/// One option row (same as the board's): table icon + label + right-side
-/// check.
-fn option_item<V: Copy + 'static>(
-    option: &'static IssueOption<V>,
-    checked: bool,
-    cx: &App,
-    on_select: impl Fn(&mut Window, &mut App) + 'static,
-) -> PopupMenuItem {
-    PopupMenuItem::new(SharedString::from(option.label))
-        .icon(option_icon(option, cx))
-        .checked(checked)
-        .on_click(move |_, window, cx| on_select(window, cx))
-}
-
 /// Web `issueLabels.add` / `issueLabels.remove` toggle. `pub(crate)` — shared
 /// with the issue-row context menu's Labels submenu (§4.2).
 pub(crate) fn toggle_label(

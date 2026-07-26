@@ -55,6 +55,7 @@ mod wysiwyg;
 mod native_dialog;
 mod navigation;
 mod oauth;
+mod pickers;
 mod pr_diff;
 mod properties_panel;
 mod queries;

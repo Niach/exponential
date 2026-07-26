@@ -339,6 +339,14 @@ impl WysiwygDescription {
         self.external_toolbar = true;
     }
 
+    /// EXP-288: hand the HOST's tracked scroll handle to the vendored
+    /// editor so its caret-follow machinery keeps the caret visible inside
+    /// the host's scroll container while typing/pasting.
+    pub fn set_scroll_handle(&mut self, handle: gpui::ScrollHandle, cx: &mut Context<Self>) {
+        self.editor
+            .update(cx, |editor, _| editor.set_external_scroll_handle(handle));
+    }
+
     /// The toolbar row for [`Self::use_external_toolbar`] hosts — called via
     /// `entity.update` from the host's render (the `render_tab_strip`
     /// precedent: safe outside this view's own render pass).

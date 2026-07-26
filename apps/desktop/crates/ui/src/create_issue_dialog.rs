@@ -22,6 +22,8 @@
 //! on, fields reset immediately (web parity) and the Electric echo fills the
 //! board.
 
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, size, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
@@ -30,17 +32,15 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    calendar::{Calendar, CalendarEvent, CalendarState, Date},
+    calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
     input::{Input, InputEvent, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
-    popover::Popover,
+    menu::DropdownMenu as _,
     switch::Switch,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Side, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 use sync::Store;
 
-use domain::options::{ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_OPTIONS};
 use domain::rows::{Label, User};
 use domain::{IssuePriority, IssueStatus};
 
@@ -80,13 +80,16 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
         return;
     };
 
-    // Web: sm:max-w-[40rem] p-0 max-h-[85vh]. EXP-285: much shorter (620 →
-    // 460 — a modest textarea, not a tower) and user-resizable with a sane
-    // floor; the editor region flexes to fill and scrolls past the cap, with
-    // header/chips/footer pinned (the view's own layout).
-    let height = (window.viewport_size().height * 0.85).min(px(460.));
+    // Web: sm:max-w-[40rem] p-0 max-h-[85vh]. EXP-288: the dialog OPENS
+    // compact (~3 description rows) and GROWS with the content up to the
+    // pre-EXP-288 height (460 / 85% viewport — computed from the OPENER's
+    // viewport now, the dialog can't read it later); still user-resizable
+    // with a floor matching the compact start. Past the cap the editor
+    // region scrolls with caret-follow, header/chips/footer pinned.
+    let max_height = (window.viewport_size().height * 0.85).min(px(460.));
+    let height = px(300.).min(max_height);
     let spec = DialogSpec::new("New issue", size(px(640.), height))
-        .resizable(size(px(560.), px(400.)));
+        .resizable(size(px(560.), px(300.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
             CreateIssueDialogView::new(
@@ -94,6 +97,7 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
                 board.team_id.clone(),
                 board.prefix.clone().unwrap_or_default(),
                 board.color.clone(),
+                max_height,
                 window,
                 cx,
             )
@@ -131,6 +135,8 @@ pub struct CreateIssueDialogView {
     solo_member_id: Option<String>,
     assignee_id: Option<String>,
     selected_label_ids: Vec<String>,
+    /// EXP-288: the shared label picker's search input (host-owned).
+    label_query: Entity<InputState>,
     due_date: Option<chrono::NaiveDate>,
     due_calendar: Entity<CalendarState>,
     due_time: Entity<InputState>,
@@ -142,6 +148,18 @@ pub struct CreateIssueDialogView {
     /// Header drag state (the titlebar `should_move` pattern, EXP-285 —
     /// the dialog is a floating window with no other draggable chrome).
     should_move: bool,
+    /// EXP-288: the description scroll container's tracked handle — handed
+    /// to the vendored editor for caret-follow, and read in render as the
+    /// content-overflow sensor for the grow-while-typing window resize.
+    desc_scroll: gpui::ScrollHandle,
+    /// The height cap the dialog grows toward (the pre-EXP-288 fixed open
+    /// height, computed from the OPENER's viewport at open time).
+    max_height: gpui::Pixels,
+    /// Grow-only bookkeeping: the last height this dialog requested via
+    /// `window.resize`. An observed height meaningfully BELOW it means the
+    /// user resized by hand — auto-grow then stops fighting them.
+    last_requested_height: Option<gpui::Pixels>,
+    user_resized: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -151,6 +169,7 @@ impl CreateIssueDialogView {
         team_id: String,
         board_prefix: String,
         board_color: Option<String>,
+        max_height: gpui::Pixels,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -169,9 +188,17 @@ impl CreateIssueDialogView {
         // EXP-285: the dialog pins the formatting bar ABOVE its scroll
         // region (a long description must not scroll the toolbar away).
         description.update(cx, |description, _| description.use_external_toolbar());
+        // EXP-288: hand the scroll container's handle to the editor so the
+        // caret stays visible while typing/pasting ("we always wanna see
+        // what we type").
+        let desc_scroll = gpui::ScrollHandle::new();
+        description.update(cx, |description, cx| {
+            description.set_scroll_handle(desc_scroll.clone(), cx);
+        });
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
         let due_time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM"));
         let end_time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM"));
+        let label_query = cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels…"));
 
         let mut subscriptions = Vec::new();
         // Enter in the (single-line) title submits, like the web form.
@@ -235,6 +262,7 @@ impl CreateIssueDialogView {
             assignee_id: solo_member_id.clone(),
             solo_member_id,
             selected_label_ids: Vec::new(),
+            label_query,
             due_date: None,
             due_calendar,
             due_time,
@@ -244,8 +272,46 @@ impl CreateIssueDialogView {
             error: None,
             focused_once: false,
             should_move: false,
+            desc_scroll,
+            max_height,
+            last_requested_height: None,
+            user_resized: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-288: grow the dialog window with the description content, up to
+    /// [`Self::max_height`] — the dialog opens compact and expands while
+    /// typing/pasting instead of starting tall. Grow-only (never shrinks on
+    /// deletion), and a manual shrink by the user latches auto-grow off.
+    /// The overflow sensor is the description scroll container's last-frame
+    /// layout, so this runs at render time with a one-frame lag.
+    fn grow_with_content(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.user_resized {
+            return;
+        }
+        let current = window.viewport_size();
+        if let Some(requested) = self.last_requested_height {
+            if current.height < requested - px(2.) {
+                // The user dragged the window smaller than we grew it —
+                // stop fighting them for this dialog's lifetime.
+                self.user_resized = true;
+                return;
+            }
+        }
+        let overflow = self.desc_scroll.max_offset().y;
+        if overflow <= px(1.) || current.height >= self.max_height - px(1.) {
+            return;
+        }
+        let target = (current.height + overflow).min(self.max_height);
+        if target <= current.height + px(1.) {
+            return;
+        }
+        self.last_requested_height = Some(target);
+        let new_size = gpui::size(current.width, target);
+        // Deferred: resizing mid-render would re-enter the platform path
+        // (the window_size.rs EXP-263 precedent).
+        window.defer(cx, move |window, _cx| window.resize(new_size));
     }
 
     /// Web `resetFields`: clear everything except "Create more".
@@ -261,6 +327,8 @@ impl CreateIssueDialogView {
         // EXP-50: the solo-member default survives "Create more" resets.
         self.assignee_id = self.solo_member_id.clone();
         self.selected_label_ids.clear();
+        self.label_query
+            .update(cx, |state, cx| state.set_value("", window, cx));
         self.due_date = None;
         self.due_calendar.update(cx, |state, cx| {
             state.set_date(Date::Single(None), window, cx);
@@ -448,23 +516,18 @@ impl CreateIssueDialogView {
             .icon(option_icon(config, cx))
             .label(SharedString::from(config.label))
             .dropdown_menu(move |menu, _window, cx| {
-                let mut menu = menu.check_side(Side::Right);
-                for option in &ISSUE_STATUS_OPTIONS {
-                    let view = view.clone();
-                    let value = option.value;
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(option.label))
-                            .icon(option_icon(option, cx))
-                            .checked(option.value == current)
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    this.status = value;
-                                    cx.notify();
-                                });
-                            }),
-                    );
-                }
-                menu
+                let view = view.clone();
+                crate::pickers::status_menu(
+                    menu,
+                    current,
+                    Rc::new(move |value, _window, cx| {
+                        view.update(cx, |this, cx| {
+                            this.status = value;
+                            cx.notify();
+                        });
+                    }),
+                    cx,
+                )
             })
     }
 
@@ -476,23 +539,18 @@ impl CreateIssueDialogView {
             .icon(option_icon(config, cx))
             .label(SharedString::from(config.label))
             .dropdown_menu(move |menu, _window, cx| {
-                let mut menu = menu.check_side(Side::Right);
-                for option in &ISSUE_PRIORITY_OPTIONS {
-                    let view = view.clone();
-                    let value = option.value;
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(option.label))
-                            .icon(option_icon(option, cx))
-                            .checked(option.value == current)
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    this.priority = value;
-                                    cx.notify();
-                                });
-                            }),
-                    );
-                }
-                menu
+                let view = view.clone();
+                crate::pickers::priority_menu(
+                    menu,
+                    current,
+                    Rc::new(move |value, _window, cx| {
+                        view.update(cx, |this, cx| {
+                            this.priority = value;
+                            cx.notify();
+                        });
+                    }),
+                    cx,
+                )
             })
     }
 
@@ -517,47 +575,25 @@ impl CreateIssueDialogView {
                     .text_color(cx.theme().muted_foreground),
             )
             .label(label)
-            .dropdown_menu(move |menu, _window, cx| {
-                // Member lists grow with the team — cap + scroll (EXP-46a).
-                let mut menu = menu
-                    .check_side(Side::Right)
-                    .scrollable(true)
-                    .max_h(px(320.));
-                if current.is_some() {
-                    let view = view.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new("Unassign")
-                            .icon(Icon::new(IconName::Close).text_color(cx.theme().muted_foreground))
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    this.assignee_id = None;
-                                    cx.notify();
-                                });
-                            }),
-                    );
-                }
-                for user in &users {
-                    let view = view.clone();
-                    let id = user.id.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(display_name(user)))
-                            .icon(Icon::new(IconName::CircleUser))
-                            .checked(current.as_deref() == Some(user.id.as_str()))
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    this.assignee_id = Some(id.clone());
-                                    cx.notify();
-                                });
-                            }),
-                    );
-                }
-                menu
+            .dropdown_menu(move |menu, _window, _cx| {
+                let view = view.clone();
+                crate::pickers::assignee_menu(
+                    menu,
+                    &users,
+                    current.as_deref(),
+                    Rc::new(move |picked, _window, cx| {
+                        view.update(cx, |this, cx| {
+                            this.assignee_id = picked;
+                            cx.notify();
+                        });
+                    }),
+                )
             })
     }
 
-    /// Web `LabelPicker` trigger: "Label" or up-to-3 color dots + joined
-    /// names; the menu toggles membership (the web popover multi-toggles
-    /// without closing — a dropdown reopens per toggle in v1).
+    /// Web `LabelPicker` trigger: "Label" or the joined selected names.
+    /// EXP-288: the shared SEARCHABLE multi-toggle popover (the properties
+    /// panel recipe) — toggles no longer close/reopen the picker per pick.
     fn labels_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let labels = queries::team_labels(cx, &self.team_id);
         let selected: Vec<&Label> = labels
@@ -574,55 +610,36 @@ impl CreateIssueDialogView {
                 .join(", ")
                 .into()
         };
-        let selected_ids = self.selected_label_ids.clone();
         let view = cx.entity().clone();
 
-        chip_button("create-labels-chip", cx)
+        let trigger = chip_button("create-labels-chip", cx)
             .icon(
                 Icon::from(ExpIcon::Tag)
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
             )
-            .label(label)
-            .dropdown_menu(move |menu, _window, cx| {
-                // Label lists grow with the team — cap + scroll (EXP-46a).
-                let mut menu = menu
-                    .check_side(Side::Right)
-                    .scrollable(true)
-                    .max_h(px(320.));
-                if labels.is_empty() {
-                    return menu.label("No labels in this team");
-                }
-                for label in &labels {
-                    let view = view.clone();
-                    let id = label.id.clone();
-                    let dot = label
-                        .color
-                        .as_deref()
-                        .and_then(parse_hex_color)
-                        .unwrap_or(cx.theme().muted_foreground);
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(label.name.clone()))
-                            .icon(Icon::from(ExpIcon::Tag).text_color(dot))
-                            .checked(selected_ids.contains(&label.id))
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    if let Some(ix) = this
-                                        .selected_label_ids
-                                        .iter()
-                                        .position(|existing| existing == &id)
-                                    {
-                                        this.selected_label_ids.remove(ix);
-                                    } else {
-                                        this.selected_label_ids.push(id.clone());
-                                    }
-                                    cx.notify();
-                                });
-                            }),
-                    );
-                }
-                menu
-            })
+            .label(label);
+        crate::pickers::label_picker_popover(
+            "create-labels-popover",
+            trigger,
+            crate::pickers::LabelPickerParams {
+                labels,
+                selected_ids: self.selected_label_ids.clone(),
+                query: self.label_query.clone(),
+                on_toggle: Rc::new(move |label_id, was_selected, _window, cx| {
+                    let label_id = label_id.to_string();
+                    view.update(cx, |this, cx| {
+                        if was_selected {
+                            this.selected_label_ids.retain(|existing| existing != &label_id);
+                        } else {
+                            this.selected_label_ids.push(label_id);
+                        }
+                        cx.notify();
+                    });
+                }),
+                width: Some(px(260.)),
+            },
+        )
     }
 
     /// Web due chip: `CalendarDays` + "Jul 3 · HH:MM" or "Due date"; the
@@ -639,69 +656,73 @@ impl CreateIssueDialogView {
             None => "Due date".into(),
         };
 
-        let calendar = self.due_calendar.clone();
         let due_time = self.due_time.clone();
         let end_time = self.end_time.clone();
         let view = cx.entity().clone();
 
-        Popover::new("create-due-popover")
-            .trigger(
-                chip_button("create-due-chip", cx)
-                    .icon(
-                        Icon::from(ExpIcon::CalendarDays)
+        // The time row rides as the shared popover's `extra` (EXP-288 — the
+        // shared popover also de-cards the Calendar, fixing the old
+        // card-in-card look this dialog had).
+        let extra: crate::pickers::DueExtra = Rc::new(move |_window, cx| {
+            let has_date = view.read(cx).due_date.is_some();
+            if !has_date {
+                return gpui::Empty.into_any_element();
+            }
+            let has_start = valid_time(&due_time.read(cx).value()).is_some();
+            let has_any_time = has_start || !end_time.read(cx).value().trim().is_empty();
+            let due_time = due_time.clone();
+            let end_time = end_time.clone();
+            h_flex()
+                .gap_2()
+                .items_center()
+                .border_t_1()
+                .border_color(cx.theme().border)
+                .px_1()
+                .pt_2()
+                .mt_2()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child("Time")
+                .child(div().w(px(64.)).child(Input::new(&due_time).xsmall()))
+                .child("–")
+                .child(
+                    div()
+                        .w(px(64.))
+                        .child(Input::new(&end_time).xsmall().disabled(!has_start)),
+                )
+                .when(has_any_time, |this| {
+                    let due_time = due_time.clone();
+                    let end_time = end_time.clone();
+                    this.child(
+                        Button::new("create-due-all-day")
+                            .ghost()
                             .xsmall()
-                            .text_color(cx.theme().muted_foreground),
+                            .label("All day")
+                            .on_click(move |_, window, cx| {
+                                due_time.update(cx, |state, cx| {
+                                    state.set_value("", window, cx)
+                                });
+                                end_time.update(cx, |state, cx| {
+                                    state.set_value("", window, cx)
+                                });
+                            }),
                     )
-                    .label(label),
-            )
-            .content(move |_, _window, cx| {
-                let has_date = view.read(cx).due_date.is_some();
-                let has_start = valid_time(&due_time.read(cx).value()).is_some();
-                let has_any_time = has_start || !end_time.read(cx).value().trim().is_empty();
-                v_flex()
-                    .w(px(280.))
-                    .child(Calendar::new(&calendar))
-                    .when(has_date, |this| {
-                        this.child(
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .border_t_1()
-                                .border_color(cx.theme().border)
-                                .px_1()
-                                .pt_2()
-                                .mt_2()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("Time")
-                                .child(div().w(px(64.)).child(Input::new(&due_time).xsmall()))
-                                .child("–")
-                                .child(
-                                    div().w(px(64.)).child(
-                                        Input::new(&end_time).xsmall().disabled(!has_start),
-                                    ),
-                                )
-                                .when(has_any_time, |this| {
-                                    let due_time = due_time.clone();
-                                    let end_time = end_time.clone();
-                                    this.child(
-                                        Button::new("create-due-all-day")
-                                            .ghost()
-                                            .xsmall()
-                                            .label("All day")
-                                            .on_click(move |_, window, cx| {
-                                                due_time.update(cx, |state, cx| {
-                                                    state.set_value("", window, cx)
-                                                });
-                                                end_time.update(cx, |state, cx| {
-                                                    state.set_value("", window, cx)
-                                                });
-                                            }),
-                                    )
-                                }),
-                        )
-                    })
-            })
+                })
+                .into_any_element()
+        });
+        crate::pickers::due_date_popover(
+            "create-due-popover",
+            chip_button("create-due-chip", cx)
+                .icon(
+                    Icon::from(ExpIcon::CalendarDays)
+                        .xsmall()
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .label(label),
+            self.due_calendar.clone(),
+            Some(px(280.)),
+            Some(extra),
+        )
     }
 
     // -- footer ----------------------------------------------------------------
@@ -855,6 +876,9 @@ impl Render for CreateIssueDialogView {
             self.focused_once = true;
             self.title.update(cx, |state, cx| state.focus(window, cx));
         }
+        // EXP-288: expand the window with the description content (up to
+        // the cap) before the caret-follow scrolling takes over.
+        self.grow_with_content(window, cx);
 
         let pill_color = self
             .board_color
@@ -912,23 +936,28 @@ impl Render for CreateIssueDialogView {
                     .child(Icon::new(IconName::ChevronRight).xsmall())
                     .child("New issue"),
             )
-            .child(crate::app_title_bar::interactive(
-                Button::new("create-issue-close")
-                    .ghost()
-                    .xsmall()
-                    .icon(
-                        Icon::new(IconName::Close)
-                            .xsmall()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .disabled(!closable)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        if this.submitting {
-                            return;
-                        }
-                        native_dialog::close_dialog_window(window, cx);
-                    })),
-            ));
+            // EXP-288: on macOS the traffic lights are the mouse dismissal —
+            // no redundant ✕ (this dialog always carries native chrome;
+            // Windows/Linux keep it).
+            .when(!cfg!(target_os = "macos"), |header| {
+                header.child(crate::app_title_bar::interactive(
+                    Button::new("create-issue-close")
+                        .ghost()
+                        .xsmall()
+                        .icon(
+                            Icon::new(IconName::Close)
+                                .xsmall()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .disabled(!closable)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if this.submitting {
+                                return;
+                            }
+                            native_dialog::close_dialog_window(window, cx);
+                        })),
+                ))
+            });
 
         // Chip row (web px-4 py-2 border-t): status · priority · assignee ·
         // labels · due.
@@ -989,22 +1018,30 @@ impl Render for CreateIssueDialogView {
                 ),
             )
             .child(
-                // Only this region scrolls; header/chips/footer
-                // pinned. The 56px floor mirrors web's `.tiptap-content
-                // { min-height: 3.5rem }` so an empty dialog still shows a
-                // description area. EXP-285: a flex column so the editor
-                // view's trailing filler stretches — clicking anywhere below
-                // the last line places the caret at the end (textarea
-                // behavior).
+                // Only this region scrolls; header/chips/footer pinned.
+                // The 96px floor is ~3 text rows (EXP-288 — the compact
+                // dialog opens with a real textarea, not a single line).
+                // EXP-288: `track_scroll` powers the editor's caret-follow
+                // AND the grow-while-typing sensor; the `min_h_full` inner
+                // column makes the editor view's trailing click-filler
+                // stretch to the container bottom even inside the scroll
+                // container (children of a scroll area lay out against
+                // content height) — clicking anywhere below the last line
+                // places the caret at the end (textarea behavior).
                 div()
                     .id("create-issue-description")
                     .flex_1()
-                    .min_h(px(56.))
+                    .min_h(px(96.))
                     .px_3()
                     .overflow_y_scroll()
-                    .flex()
-                    .flex_col()
-                    .child(self.description.clone()),
+                    .track_scroll(&self.desc_scroll)
+                    .child(
+                        div()
+                            .min_h_full()
+                            .flex()
+                            .flex_col()
+                            .child(self.description.clone()),
+                    ),
             )
             .child(chips)
             .child(self.footer(cx))
