@@ -507,18 +507,38 @@ pub fn glass_sidebar_alpha() -> f32 {
 /// EXP-293: how opaque the page paints under the MAIN CONTENT — everything
 /// right of the rail (issue list, tabs, detail sidebar, terminal dock) and
 /// every standalone window (undocked views, dialogs, the login/update
-/// surfaces). Far less of the blurred backdrop bleeds through than under the
-/// sidebar (EXP-303 nudged this from 0.90 to the 0.85 contrast floor — the
-/// content should read a LITTLE glassy, not solid), so the surfaces that carry
-/// body text, code and diffs keep their contrast while still reading as glass.
+/// surfaces). Only a tenth of the blurred backdrop bleeds through, so the
+/// surfaces that carry body text, code and diffs keep their contrast while
+/// still reading as glass.
+///
+/// EXP-303 tried lowering this to 0.85 to make the content "a little glassy"
+/// and it read WRONG — more desktop/behind-window ghosting, not glassiness.
+/// The content's glass comes from [`content_glass_wash`] instead; this alpha
+/// stays put.
 ///
 /// 1.0 without a real blur backdrop ([`blur_backdrop_available`]).
 pub fn glass_content_alpha() -> f32 {
     if blur_backdrop_available() {
-        0.85
+        0.90
     } else {
         1.0
     }
+}
+
+/// EXP-303: the faint white-alpha wash the Shell paints over the main-content
+/// column's page ramp — the "little bit glassy" the issue asks for. Glassiness
+/// here is the app's OWN glass idiom (the white-alpha `t::glass::FILL_*`
+/// ladder every list row/card uses), not more window translucency: lowering
+/// [`glass_content_alpha`] was tried first and just ghosted whatever sat
+/// behind the window through the body text. A frosted lightening wash reads as
+/// a glass pane on every platform — including the no-blur ones, so it is
+/// deliberately NOT gated on [`blur_backdrop_available`].
+///
+/// Sits well below the rail's old white-4% `FILL_SECTION` wash ("not as much
+/// as the sidebar but a very small amount") and far below `FILL_ROW`/`FILL_CARD`,
+/// so hover/selection fills painted on top keep their contrast against it.
+pub fn content_glass_wash() -> Hsla {
+    gpui::hsla(0., 0., 1., 0.03)
 }
 
 /// The glass page background (EXP-269): the mobile `AppBackground` gradient —
@@ -803,6 +823,22 @@ mod tests {
             assert!(approx(content, 1.0), "no-blur content must be opaque: {content}");
             assert!(approx(content_topup_alpha(), 1.0), "no NaN on the opaque path");
         }
+    }
+
+    #[test]
+    fn content_glass_wash_is_a_subtle_white_fill() {
+        // EXP-303: the content's glass is a frosted WASH, not translucency —
+        // white (the glass FILL_* family's hue), and quieter than every
+        // interactive glass fill so hover/selection still read against it.
+        // It must also stay below the rail's old white-4% FILL_SECTION wash
+        // ("not as much as the sidebar but a very small amount").
+        let wash = content_glass_wash();
+        assert!(approx(wash.s, 0.) && approx(wash.l, 1.), "white: {wash:?}");
+        assert!(wash.a > 0., "the wash must be visible: {wash:?}");
+        assert!(
+            wash.a < tokens::glass::FILL_SECTION.to_hsla().a,
+            "quieter than FILL_SECTION: {wash:?}"
+        );
     }
 
     #[test]

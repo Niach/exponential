@@ -541,7 +541,7 @@ impl Render for Shell {
                 .min_h_0()
                 .child(self.rail.clone())
                 .child(
-                    v_flex()
+                    div()
                         .flex_1()
                         .min_w_0()
                         .h_full()
@@ -560,9 +560,22 @@ impl Render for Shell {
                         // (the rail does the same for the two LEFT corners).
                         .rounded_tr(crate::window_frame::frame_radii(window).top_right)
                         .rounded_br(crate::window_frame::frame_radii(window).bottom_right)
-                        .when(client_chrome, |col| col.child(self.title_bar.clone()))
-                        .children(self.render_update_banner(cx))
-                        .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
+                        .child(
+                            v_flex()
+                                .size_full()
+                                .min_w_0()
+                                // EXP-303: the content column's OWN glass — a
+                                // faint frosted wash over the ramp, not more
+                                // window translucency. Carries the same right
+                                // radii as the layer under it (rectangular
+                                // content mask again).
+                                .bg(theme::content_glass_wash())
+                                .rounded_tr(crate::window_frame::frame_radii(window).top_right)
+                                .rounded_br(crate::window_frame::frame_radii(window).bottom_right)
+                                .when(client_chrome, |col| col.child(self.title_bar.clone()))
+                                .children(self.render_update_banner(cx))
+                                .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
+                        ),
                 )
                 .into_any_element(),
             // No rail here, so the whole window is content: top the sidebar
