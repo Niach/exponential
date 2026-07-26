@@ -99,6 +99,7 @@
     "settings-account": "circle-user",
     "settings-servers": "server",
     "settings-sync": "refresh-cw",
+    "settings-rate": "star",
 
     "status-backlog": "circle-dashed",
     "status-todo": "circle",

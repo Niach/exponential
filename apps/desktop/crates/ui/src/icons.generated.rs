@@ -409,6 +409,8 @@ pub const SETTINGS_LABELS: ExpIcon = ExpIcon::Tag;
 pub const SETTINGS_LOCAL_REPOS: ExpIcon = ExpIcon::HardDrive;
 /// Registry concept `settings-members` -> Lucide `users`.
 pub const SETTINGS_MEMBERS: ExpIcon = ExpIcon::Users;
+/// Registry concept `settings-rate` -> Lucide `star`.
+pub const SETTINGS_RATE: ExpIcon = ExpIcon::Star;
 /// Registry concept `settings-repositories` -> Lucide `github`.
 pub const SETTINGS_REPOSITORIES: ExpIcon = ExpIcon::Github;
 /// Registry concept `settings-servers` -> Lucide `server`.
