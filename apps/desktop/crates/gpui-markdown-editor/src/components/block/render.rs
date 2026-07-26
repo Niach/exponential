@@ -3369,17 +3369,9 @@ fn inline_word_chunks(text: &str, code: bool, has_background: bool) -> Vec<&str>
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "html-native")]
-    use super::{HtmlComputedStyle, html_node_visual_style};
     use super::{column_axis_gutter_visible, inline_word_chunks};
-    #[cfg(feature = "html-native")]
-    use crate::components::parse_html_document;
     use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree};
     use crate::components::{TableAxisKind, TableAxisMarker};
-    #[cfg(feature = "html-native")]
-    use crate::theme::Theme;
-    #[cfg(feature = "html-native")]
-    use gpui::{Hsla, Rgba};
     use gpui::{TestAppContext, px};
 
     #[test]
@@ -3408,18 +3400,6 @@ mod tests {
         ));
     }
 
-    // Only the `html-native` style tests below assert colors — without the
-    // feature this helper has no callers, so it carries the same gate.
-    #[cfg(feature = "html-native")]
-    fn assert_color_near(color: Hsla, red: u8, green: u8, blue: u8, alpha: u8) {
-        let color = Rgba::from(color);
-        let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as i16;
-        assert!((channel(color.r) - red as i16).abs() <= 1);
-        assert!((channel(color.g) - green as i16).abs() <= 1);
-        assert!((channel(color.b) - blue as i16).abs() <= 1);
-        assert!((channel(color.a) - alpha as i16).abs() <= 1);
-    }
-
     #[test]
     fn inline_word_chunks_split_text_runs_for_wrapping() {
         // Plain runs split per word so the flex-wrap row can break between
@@ -3444,51 +3424,6 @@ mod tests {
             inline_word_chunks("highlighted text", false, true),
             vec!["highlighted text"],
         );
-    }
-
-    #[cfg(feature = "html-native")]
-    #[test]
-    fn html_render_style_inherits_color_and_font_size() {
-        let theme = Theme::default_theme();
-        let doc = parse_html_document(
-            "<div style=\"color:blue; font-size:20px\"><span style=\"font-size:120%\">x</span></div>",
-        );
-        let root = HtmlComputedStyle::root(&theme);
-        let parent = html_node_visual_style(&doc.nodes[0], root, &theme);
-        let child = html_node_visual_style(&doc.nodes[0].children[0], parent.computed, &theme);
-
-        assert_color_near(parent.computed.color, 0, 0, 255, 255);
-        assert_color_near(child.computed.color, 0, 0, 255, 255);
-        assert!((child.computed.font_size - 24.0).abs() < 0.01);
-    }
-
-    #[cfg(feature = "html-native")]
-    #[test]
-    fn html_render_style_overrides_link_and_mark_defaults() {
-        let theme = Theme::default_theme();
-        let link_doc = parse_html_document("<a style=\"color:red\">x</a>");
-        let link_style =
-            html_node_visual_style(&link_doc.nodes[0], HtmlComputedStyle::root(&theme), &theme);
-        assert_color_near(link_style.computed.color, 255, 0, 0, 255);
-
-        let mark_doc = parse_html_document("<mark style=\"background-color:#123\">x</mark>");
-        let mark_style =
-            html_node_visual_style(&mark_doc.nodes[0], HtmlComputedStyle::root(&theme), &theme);
-        assert_color_near(mark_style.background.unwrap(), 0x11, 0x22, 0x33, 0xff);
-    }
-
-    #[cfg(feature = "html-native")]
-    #[test]
-    fn html_render_style_does_not_inherit_background_color() {
-        let theme = Theme::default_theme();
-        let doc =
-            parse_html_document("<div style=\"background-color:#112233\"><span>child</span></div>");
-        let root = HtmlComputedStyle::root(&theme);
-        let parent = html_node_visual_style(&doc.nodes[0], root, &theme);
-        let child = html_node_visual_style(&doc.nodes[0].children[0], parent.computed, &theme);
-
-        assert_color_near(parent.background.unwrap(), 0x11, 0x22, 0x33, 0xff);
-        assert!(child.background.is_none());
     }
 
     #[gpui::test]

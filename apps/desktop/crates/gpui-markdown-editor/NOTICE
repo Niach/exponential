@@ -23,9 +23,15 @@ Cargo.toml
   instead of the unrelated crates.io `gpui 0.2.2` package; `publish = false`.
 - Removed dependencies: `ratex-parser`, `ratex-layout`, `ratex-svg`,
   `mermaid-rs-renderer`, `directories`, `base64`, `futures`, and all
-  `tree-sitter*` grammar crates. The four feature names remain as empty shells
-  so their `#[cfg(feature = ...)]` gates stay known; enabling them is
-  unsupported.
+  `tree-sitter*` grammar crates. Three `code-highlight*` feature names remain
+  as empty shells so their `#[cfg(feature = ...)]` gates stay known; enabling
+  them is unsupported.
+- (EXP-302) The fourth shell, `html-native`, was removed outright rather than
+  left declared: it gated a single `tree-sitter-html` validator call plus the
+  tests that depended on it, so `--features html-native` named a build that
+  could not compile. `src/components/markdown/html.rs` now carries a
+  documented always-true `html_fragment_is_unverifiable` guard in its place,
+  and asking cargo for the feature is an immediate error instead.
 
 Feature excision (the GFM interchange contract has no LaTeX/Mermaid)
 - src/components/latex/mod.rs: RaTeX SVG rendering + on-disk cache removed;
@@ -322,10 +328,17 @@ Whole-line caret placement (EXP-282 — clicking empty space snapped to offset 0
 Tests
 - Deleted the math/mermaid/underline/superscript/subscript behavior tests;
   added replacements asserting the excised syntax stays plain text and
-  round-trips verbatim (`*_exp261` tests). Feature-dependent HTML-native and
-  code-highlight tests are now gated behind their (empty, unsupported)
-  feature names. `test.md` fixture retained; its `<details>` assertion accepts
-  the RawMarkdown classification the disabled html-native feature produces.
+  round-trips verbatim (`*_exp261` tests). Feature-dependent code-highlight
+  tests are gated behind their (empty, unsupported) feature names. `test.md`
+  fixture retained.
+- (EXP-302) The html-native-gated tests were resolved rather than left gated:
+  those covering the LIVE inline-HTML style path now build their `HtmlNode`
+  input directly, the way `inline.rs::inline_html_style` does at runtime; those
+  covering the unreachable semantic document/render path were deleted; and two
+  replacements assert what the crate now actually does — every fragment
+  classifies raw, and raw HTML imports as RawMarkdown and round-trips
+  byte-identical. `test.md`'s `<details>` assertion tightened from
+  "HtmlBlock or RawMarkdown" to exactly RawMarkdown.
 
 (This list is kept current as further vendoring changes land; see git history
 of this directory for the precise diffs.)

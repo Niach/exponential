@@ -17,15 +17,19 @@ publish = false
 
 [features]
 default = []
-# EXP-261 vendoring: the tree-sitter code-highlight and native-HTML feature
-# implementations were stripped together with their grammar dependencies —
-# these names remain declared only so the `#[cfg(feature = ...)]` gates in
-# code_highlight.rs / html.rs stay known to rustc. Do NOT enable them; the
-# gated code no longer has its dependencies.
+# EXP-261 vendoring: the tree-sitter code-highlight implementations were
+# stripped together with their grammar dependencies — these names remain
+# declared only so the `#[cfg(feature = ...)]` gates in code_highlight.rs stay
+# known to rustc. Do NOT enable them; the gated code no longer has its
+# dependencies.
+#
+# The fourth shell, `html-native`, was removed outright in EXP-302: it gated
+# only a tree-sitter-html validator call and the tests that depended on it, so
+# unlike these three it cost more than it documented — `--features html-native`
+# was a build that could not compile. See html.rs for what replaced the gate.
 code-highlight-core = []
 code-highlight-official = ["code-highlight-core"]
 code-highlight-config = ["code-highlight-core"]
-html-native = []
 
 [dependencies]
 anyhow = "1"
