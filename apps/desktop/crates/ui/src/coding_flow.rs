@@ -672,7 +672,7 @@ pub fn window_terminal_manager(window: &Window, cx: &App) -> Option<Entity<Termi
 
 /// Walk a `DockItem` tree for the terminal dock panel (the bottom dock is a
 /// single `Tabs` today, but a user-rearranged layout may nest it in splits).
-fn find_terminal_dock(item: &DockItem) -> Option<Entity<TerminalDockPanel>> {
+pub(crate) fn find_terminal_dock(item: &DockItem) -> Option<Entity<TerminalDockPanel>> {
     match item {
         DockItem::Tabs { items, .. } => items
             .iter()

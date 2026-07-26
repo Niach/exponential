@@ -13,17 +13,19 @@
 //!   actions panel call the same `TerminalManager::open_tab`.
 //! - close buttons per tab (and cmd-w / ctrl-shift-w), ctrl-tab /
 //!   ctrl-shift-tab to switch;
-//! - empty state: "No terminal sessions" + a New-shell action;
+//! - no empty state: expanding an empty dock spawns a shell right away
+//!   (`render` defers into `new_shell_tab`);
 //! - the dock **expands when a tab is created** (`TabOpened` →
 //!   `Dock::set_open`, §4's dock open/close) and the new tab's terminal is
 //!   focused; the grid element resizes with the dock (§6.10);
 //! - a dead tab **stays open** with its final scrollback and shows the
 //!   JetBrains "Process finished with exit code N" strip + a green-0 /
 //!   red-non-zero badge on the tab (§7.5's exit-code strip);
-//! - persistence (§6.13): `{ kind, cwd }` per tab — never
-//!   scrollback. On restore, `Shell` tabs re-open cold; `Claude`/`Action`
-//!   tabs are not respawned (a coding session is bound to a live server row;
-//!   §07 decides resumability).
+//! - persistence (EXP-301): **nothing terminal-side is persisted**. A launch
+//!   never opens a terminal in the user's face — no tab is respawned, and the
+//!   bottom dock always comes up collapsed (see `Shell::install_fixed_chrome`).
+//!   Terminals only ever appear from an explicit user action: the "+" / cmd-t,
+//!   expanding the dock, a Start-coding run, or an action run.
 //!
 //! **Phase-5 deferral (§6.7):** "child exit ends the `coding_sessions` row"
 //! is the launcher's wiring — it passes an `ExitHook` into `open_tab`; the
@@ -36,12 +38,11 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dock::{register_panel, DockArea, Panel, PanelControl, PanelEvent, PanelInfo, PanelState},
+    dock::{register_panel, DockArea, Panel, PanelControl, PanelEvent, PanelState},
     h_flex, v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
+use terminal::{TabId, TerminalManager, TerminalManagerEvent, TerminalView};
 
 use crate::coding_flow::CodingHub;
 use crate::icons::ExpIcon;
@@ -82,8 +83,10 @@ pub(crate) fn init(cx: &mut App) {
     // `$SHELL -lic` on the gpui foreground.
     terminal::prewarm_login_path();
 
-    register_panel(cx, PANEL_NAME, |dock_area, state, _info, window, cx| {
-        Box::new(cx.new(|cx| TerminalDockPanel::from_state(dock_area, state, window, cx)))
+    // EXP-301: the rehydration path builds an EMPTY panel — a restored layout
+    // never brings terminals back (nothing tab-side is persisted anymore).
+    register_panel(cx, PANEL_NAME, |dock_area, _state, _info, window, cx| {
+        Box::new(cx.new(|cx| TerminalDockPanel::new(dock_area, window, cx)))
     });
 
     #[cfg(target_os = "macos")]
@@ -100,23 +103,6 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("ctrl-tab", NextTerminalTab, Some(KEY_CONTEXT)),
         KeyBinding::new("ctrl-shift-tab", PrevTerminalTab, Some(KEY_CONTEXT)),
     ]);
-}
-
-/// §6.13 persistence unit: `{ kind, cwd }` — never scrollback. (Pre-EXP-253
-/// dumps also carried a `run_config_id`; serde ignores it on read.)
-#[derive(Debug, Serialize, Deserialize)]
-struct PersistedTab {
-    kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    cwd: Option<PathBuf>,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct PersistedDock {
-    #[serde(default)]
-    tabs: Vec<PersistedTab>,
-    #[serde(default)]
-    active: usize,
 }
 
 /// The bottom-dock terminal panel: one per window, owning that window's
@@ -143,64 +129,14 @@ impl TerminalDockPanel {
         &self.manager
     }
 
+    /// The only constructor — fresh AND rehydrated panels start with zero
+    /// tabs (EXP-301: launching the app must never spawn a terminal).
     pub fn new(
         dock_area: WeakEntity<DockArea>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        Self::build(dock_area, PersistedDock::default(), window, cx)
-    }
-
-    /// Registry rehydration path (§3.3): restore `Shell` tabs cold from the
-    /// persisted `{ kind, cwd }` list; never auto-respawn `Claude` sessions
-    /// (§6.13).
-    fn from_state(
-        dock_area: WeakEntity<DockArea>,
-        state: &PanelState,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Self {
-        let persisted = match &state.info {
-            PanelInfo::Panel(value) => {
-                serde_json::from_value::<PersistedDock>(value.clone()).unwrap_or_default()
-            }
-            _ => PersistedDock::default(),
-        };
-        Self::build(dock_area, persisted, window, cx)
-    }
-
-    fn build(
-        dock_area: WeakEntity<DockArea>,
-        persisted: PersistedDock,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Self {
         let manager = cx.new(|_| TerminalManager::new());
-
-        // Restore BEFORE subscribing so a cold restore neither force-expands
-        // the dock (its open state is persisted separately) nor steals focus.
-        let shell_override = crate::coding_flow::terminal_shell_override(cx);
-        manager.update(cx, |manager, cx| {
-            for tab in persisted
-                .tabs
-                .iter()
-                // Legacy `"run"` tabs (pre-EXP-253 run configs) degrade to a
-                // plain shell at their persisted cwd — a one-release compat
-                // shim; `persisted_kind` never emits `"run"` again.
-                .filter(|tab| {
-                    tab.kind == persisted_kind(&TabKind::Shell) || tab.kind == "run"
-                })
-            {
-                if let Err(error) =
-                    manager.open_shell(tab.cwd.clone(), shell_override.clone(), cx)
-                {
-                    log::warn!("terminal dock: restoring shell tab failed: {error:#}");
-                }
-            }
-            if !manager.is_empty() {
-                manager.activate(persisted.active.min(manager.len() - 1), cx);
-            }
-        });
 
         let subscription = cx.subscribe_in(
             &manager,
@@ -235,11 +171,8 @@ impl TerminalDockPanel {
         // so the §11.4 terminal-dock smoke (tab strip + rendered prompt +
         // expanded dock) is demonstrable headlessly/in CI without
         // synthesizing a `+` click. Dev-only — never document for users.
-        // Runs AFTER the subscription so TabOpened expands the dock, and only
-        // when nothing was restored (no doubling on rehydration).
-        if manager.read(cx).is_empty()
-            && std::env::var("EXP_DEV_OPEN_SHELL").is_ok_and(|value| value == "1")
-        {
+        // Runs AFTER the subscription so TabOpened expands the dock.
+        if std::env::var("EXP_DEV_OPEN_SHELL").is_ok_and(|value| value == "1") {
             let shell_override = crate::coding_flow::terminal_shell_override(cx);
             manager.update(cx, |manager, cx| {
                 if let Err(error) = manager.open_shell(None, shell_override, cx) {
@@ -800,37 +733,12 @@ impl Panel for TerminalDockPanel {
         cx.notify();
     }
 
-    /// §6.13 persistence: `{ kind, cwd }` per tab + the active
-    /// index — never scrollback.
-    fn dump(&self, cx: &App) -> PanelState {
-        let manager = self.manager.read(cx);
-        let persisted = PersistedDock {
-            tabs: manager
-                .tabs()
-                .iter()
-                .map(|tab| PersistedTab {
-                    kind: persisted_kind(&tab.kind).to_owned(),
-                    cwd: tab.cwd.clone(),
-                })
-                .collect(),
-            active: manager.active_index().unwrap_or(0),
-        };
-        let mut state = PanelState::new(self);
-        state.info = PanelInfo::panel(serde_json::to_value(persisted).unwrap_or_default());
-        state
-    }
-}
-
-fn persisted_kind(kind: &TabKind) -> &'static str {
-    match kind {
-        TabKind::Claude => "claude",
-        // v4 §4.9: not issue-bound and not persisted-restorable as a session —
-        // treated like a shell tab for cold-restore (a plain terminal), matching
-        // its shell-like runtime behavior.
-        // EXP-253: an action session is never auto-respawned
-        // — a cold restore yields a plain shell at the action's cwd.
-        TabKind::Action(_) => "shell",
-        TabKind::Shell => "shell",
+    /// EXP-301: the dock persists NOTHING about its tabs — a relaunch must
+    /// never put a terminal in the user's face. `PanelState::new` still carries
+    /// the registry name (+ the default `PanelInfo::Panel`), so a saved layout
+    /// rehydrates an EMPTY dock panel in the right slot.
+    fn dump(&self, _cx: &App) -> PanelState {
+        PanelState::new(self)
     }
 }
 
@@ -940,3 +848,80 @@ impl Render for TerminalDockPanel {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+    use gpui_component::dock::{DockAreaState, PanelInfo};
+
+    use super::*;
+
+    /// A real pre-EXP-301 `window-0.json`: an OPEN bottom dock whose panel
+    /// info still carries a persisted login shell and a claude tab. Old files
+    /// like this stay on disk after the upgrade, so the restore path has to
+    /// stay immune to them — not merely stop writing them.
+    const LEGACY_LAYOUT: &str = r#"{
+      "version": 8,
+      "center": { "panel_name": "Center", "children": [], "info": { "panel": null } },
+      "bottom_dock": {
+        "panel": {
+          "panel_name": "TerminalDock",
+          "children": [],
+          "info": {
+            "panel": {
+              "tabs": [
+                { "kind": "shell", "cwd": "/tmp" },
+                { "kind": "claude", "cwd": "/tmp" }
+              ],
+              "active": 1
+            }
+          }
+        },
+        "placement": "bottom",
+        "size": 547.9297,
+        "open": true
+      }
+    }"#;
+
+    /// EXP-301: opening the app must never put a terminal in the user's face.
+    /// Rehydrating a saved layout builds an EMPTY dock panel — no PTY is
+    /// spawned for a persisted `shell` tab (nor for the legacy `run` kind),
+    /// and the panel re-dumps without any tab payload.
+    #[gpui::test]
+    async fn a_saved_layout_rehydrates_the_dock_with_zero_terminals(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            // Same order as `app::main` — the component/theme globals must
+            // exist before a layout can rehydrate.
+            gpui_component::init(cx);
+            theme::init(cx);
+            init(cx);
+        });
+
+        let state: DockAreaState = serde_json::from_str(LEGACY_LAYOUT).expect("parse layout");
+        let window = cx.add_window(|window, cx| DockArea::new("test-dock", Some(8), window, cx));
+
+        window
+            .update(cx, |dock_area, window, cx| {
+                dock_area.load(state, window, cx).expect("load layout");
+
+                let dock = dock_area
+                    .bottom_dock()
+                    .cloned()
+                    .expect("bottom dock restored");
+                let item = dock.read(cx).panel().clone();
+                let panel = crate::coding_flow::find_terminal_dock(&item)
+                    .expect("terminal dock panel rehydrated");
+
+                assert!(
+                    panel.read(cx).manager().read(cx).is_empty(),
+                    "a restored layout must not respawn terminal tabs"
+                );
+
+                // The dump carries the registry name only — nothing to
+                // resurrect on the NEXT launch either.
+                let dumped = panel.read(cx).dump(cx);
+                assert_eq!(dumped.panel_name, PANEL_NAME);
+                assert_eq!(dumped.info, PanelInfo::Panel(serde_json::Value::Null));
+            })
+            .expect("window update");
+    }
+}

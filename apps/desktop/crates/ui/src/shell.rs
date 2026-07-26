@@ -342,7 +342,8 @@ impl Shell {
     /// - There is deliberately **no left dock** (v6): the sidebar lives
     ///   inside the center split so the bottom terminal dock spans beneath it.
     /// - The **bottom terminal dock** is added if the restored state lacked
-    ///   it; its open/closed state and height persist across restarts.
+    ///   it; its height persists across restarts, but its open state does NOT
+    ///   (EXP-301: every launch starts collapsed, with no terminal tabs).
     /// - Collapsibility: bottom dock collapsible (the terminal toggle).
     fn install_fixed_chrome(
         dock_area: &Entity<DockArea>,
@@ -388,9 +389,8 @@ impl Shell {
                     // wrapped in a `TabPanel` (title row + zoom/menu chrome —
                     // the same "growing the bar back" problem the center
                     // solves by rebuilding fresh). Re-wrap the SAME restored
-                    // panel chrome-less; the dock's persisted open state and
-                    // height are untouched, and the restored shell tabs live
-                    // in the panel entity we keep.
+                    // panel chrome-less; the dock's persisted height is
+                    // untouched.
                     let restored = terminal_panel_view(dock.read(cx).panel(), cx)
                         .unwrap_or_else(|| {
                             Arc::new(
@@ -399,6 +399,13 @@ impl Shell {
                         });
                     dock.update(cx, |dock, cx| {
                         dock.set_panel(DockItem::panel(restored), window, cx);
+                        // EXP-301: the OPEN state is deliberately NOT restored —
+                        // a launch always comes up with the terminal collapsed
+                        // to its 29px strip. The panel restores with zero tabs,
+                        // so an open dock would immediately auto-spawn a shell
+                        // (`TerminalDockPanel::render`) — exactly the "terminals
+                        // in my face on startup" this issue removes.
+                        dock.set_open(false, window, cx);
                     });
                 }
             }
