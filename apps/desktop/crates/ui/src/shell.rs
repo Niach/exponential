@@ -87,20 +87,41 @@ const TERMINAL_DOCK_HEIGHT: Pixels = px(240.);
 const TRAFFIC_TONGUE_W: f32 = 34.;
 
 /// The tongue element: TRUE sidebar material — a flat sample of the sidebar
-/// ramp's top stop plus the rail's `FILL_SECTION` wash. The rounding is the
-/// CONTENT's, not the tongue's: a quarter-disc of the content material
-/// painted over the tongue's bottom-right corner (`rounded_tl(r)` on an r×r
-/// div is exactly the quarter disc around its own bottom-right corner), so
-/// the content canvas reads as having a rounded top-left corner nestled into
-/// the glass. Content-over-glass composites to within ~1% of the strip's own
-/// alpha, so the disc is invisible as a layer — unlike the first attempt's
-/// convex tongue corner, whose content-colored notch filler showed through
-/// the translucent tongue as a dark rectangle. Flat top-stop samples
-/// everywhere: the strip is ~34px at the very top of the window, where both
-/// ramps' drift is invisible — and one translucent layer per region stays
-/// the EXP-303 rule (stacked glass reads as a different material).
+/// ramp's top stop plus the rail's `FILL_SECTION` wash — with a CONVEX
+/// rounded bottom-right corner, so the glass reads as curving around the
+/// lights.
+///
+/// The corner is the hard part: with translucent materials every region must
+/// be painted by exactly one material (stacked glass composites near-opaque
+/// and reads as a different color — the review caught every variant of
+/// this), and the piece OUTSIDE the tongue's convex curve is CONCAVE, which
+/// gpui quads cannot draw (corner radii also clamp to half the quad's min
+/// dimension, so an r×r quad can't even round by r). So the notch is painted
+/// as a PATH via `canvas`: the content hue at a COMPENSATED alpha, chosen so
+/// that composited over the tongue base it lands exactly on the strip's own
+/// content alpha. The base under the notch is the continuous tongue, so the
+/// path's single antialiased arc edge blends tongue↔content with no seam.
+/// The quarter-arc is two quadratic beziers (tangent intersections at
+/// 0°/45°/90°; max deviation ~0.15px at r=10).
+///
+/// Flat top-stop samples everywhere: the strip is ~34px at the very top of
+/// the window, where both ramps' drift is invisible.
 fn traffic_tongue() -> impl IntoElement {
     let radius = px(10.);
+    let sidebar_top = theme::sidebar_background_gradient_stops().0;
+    let wash = theme::tokens::glass::FILL_SECTION.to_hsla();
+    let content_top = theme::background_gradient_stops().0;
+    // Alpha of the tongue base (wash over ramp top), then the overlay alpha
+    // that composites it up to the content strip's alpha: from
+    // `out = over + under·(1 - over)`. Guarded for the (macOS-only in
+    // practice) fully-opaque case.
+    let under = wash.a + sidebar_top.a * (1. - wash.a);
+    let over = if under >= 1. {
+        1.
+    } else {
+        ((content_top.a - under) / (1. - under)).clamp(0., 1.)
+    };
+    let notch_fill = content_top.opacity(over);
     div()
         .w(px(TRAFFIC_TONGUE_W))
         // Explicit height is load-bearing: the strip row is an `h_flex`
@@ -111,7 +132,7 @@ fn traffic_tongue() -> impl IntoElement {
         .h(px(34.))
         .flex_shrink_0()
         .relative()
-        .bg(theme::sidebar_background_gradient_stops().0)
+        .bg(sidebar_top)
         .child(
             div()
                 .absolute()
@@ -119,30 +140,31 @@ fn traffic_tongue() -> impl IntoElement {
                 .bottom_0()
                 .left_0()
                 .right_0()
-                .bg(theme::tokens::glass::FILL_SECTION.to_hsla()),
+                .bg(wash),
         )
         .child(
-            // gpui clamps corner radii to HALF the quad's min dimension
-            // (`Corners::clamp_radii_for_quad_size`), so an r×r quad can
-            // never round a corner by r — the disc rendered as a content
-            // square with a 5px nick (the review's "small rectangle").
-            // Instead clip a 2r×2r rounded quad to its top-left r×r: the
-            // radius survives the clamp and the visible part is exactly the
-            // quarter disc.
-            div()
-                .absolute()
-                .right_0()
-                .bottom_0()
-                .w(radius)
-                .h(radius)
-                .overflow_hidden()
-                .child(
-                    div()
-                        .w(radius * 2.)
-                        .h(radius * 2.)
-                        .rounded_tl(radius)
-                        .bg(theme::background_gradient_stops().0),
-                ),
+            gpui::canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| {
+                    let r = bounds.size.width.min(bounds.size.height);
+                    let o = bounds.origin;
+                    let at = |x: f32, y: f32| gpui::point(o.x + r * x, o.y + r * y);
+                    // Notch: from the arc's top end, along the arc to its
+                    // left end, then out to the corner and back — the region
+                    // between the tongue's curve and the strip.
+                    let mut path = gpui::Path::new(at(1., 0.));
+                    path.curve_to(at(0.7071, 0.7071), at(1., 0.4142));
+                    path.curve_to(at(0., 1.), at(0.4142, 1.));
+                    path.line_to(at(1., 1.));
+                    path.line_to(at(1., 0.));
+                    window.paint_path(path, notch_fill);
+                },
+            )
+            .absolute()
+            .right_0()
+            .bottom_0()
+            .w(radius)
+            .h(radius),
         )
 }
 
