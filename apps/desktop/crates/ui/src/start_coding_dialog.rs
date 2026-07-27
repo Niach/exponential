@@ -59,6 +59,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
+    popover::Popover,
     scroll::{Scrollbar, ScrollbarAxis},
     select::Select,
     tab::{Tab, TabBar, TabVariant},
@@ -94,6 +95,34 @@ const MAX_ISSUES_PER_RUN: usize = 30;
 /// of issues, and the checklist is a plain (non-virtual) list.
 const MAX_UNCHECKED_ROWS: usize = 50;
 
+/// The `pr` input's pick list (EXP-259): the team's OPEN issue-linked pull
+/// requests, deduped by prUrl (a batch PR shows once; its value is the
+/// representative issue's id). Shared by the field's dropdown and the
+/// `open_for_fix_conflicts` preselect (EXP-313).
+fn pr_pick_options(cx: &App, team_id: &str) -> Vec<(String, String)> {
+    crate::queries::review_groups(cx, team_id)
+        .iter()
+        .flat_map(|group| group.entries.iter())
+        .map(|entry| {
+            let issue = entry.representative();
+            let idents = entry
+                .issues
+                .iter()
+                .map(|issue| issue.identifier.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let label = match (issue.pr_number, entry.is_batch()) {
+                (Some(number), true) => format!("#{number} · {idents}"),
+                (Some(number), false) => {
+                    format!("#{number} · {idents} {}", issue.title)
+                }
+                (None, _) => idents,
+            };
+            (issue.id.clone(), label)
+        })
+        .collect()
+}
+
 /// Open the dialog from an issue's Play button: pre-seed that issue checked.
 /// A no-op when the issue row isn't synced (racing a delete).
 pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
@@ -117,7 +146,7 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog: board not synced for {issue_id}");
         return;
     };
-    open(window, cx, team_id, vec![issue.id], None);
+    open(window, cx, team_id, vec![issue.id], None, None);
 }
 
 /// Open the dialog from the bulk bar with the selection pre-checked.
@@ -127,13 +156,33 @@ pub fn open_for_selection(
     team_id: String,
     issue_ids: Vec<String>,
 ) {
-    open(window, cx, team_id, issue_ids, None);
+    open(window, cx, team_id, issue_ids, None, None);
 }
 
 /// Open the dialog on the ACTIONS tab with `action_id` preselected (EXP-257
 /// — the actions panel rows land here).
 pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, action_id: String) {
-    open(window, cx, team_id, Vec::new(), Some(action_id));
+    open(window, cx, team_id, Vec::new(), Some(action_id), None);
+}
+
+/// Open the dialog on the ACTIONS tab with the builtin "Fix merge conflicts"
+/// action AND its `pr` input preselected (EXP-313 — the Reviews-list /
+/// issue-detail "Fix conflicts" buttons land here so agent/model/effort stay
+/// choosable instead of firing the run with settings defaults).
+pub fn open_for_fix_conflicts(
+    window: &mut Window,
+    cx: &mut App,
+    team_id: String,
+    issue_id: String,
+) {
+    open(
+        window,
+        cx,
+        team_id,
+        Vec::new(),
+        Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
+        Some(issue_id),
+    );
 }
 
 fn open(
@@ -142,6 +191,7 @@ fn open(
     team_id: String,
     preselected: Vec<String>,
     preselect_action: Option<String>,
+    preselect_pr: Option<String>,
 ) {
     // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
     // picker left, options right); the launched terminal tab lands back in
@@ -154,7 +204,15 @@ fn open(
         .resizable(size(px(640.), px(480.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
-            StartCodingDialogView::new(team_id, preselected, preselect_action, opener, window, cx)
+            StartCodingDialogView::new(
+                team_id,
+                preselected,
+                preselect_action,
+                preselect_pr,
+                opener,
+                window,
+                cx,
+            )
         });
         let busy = view.clone();
         DialogContent::new(view)
@@ -236,6 +294,10 @@ pub struct StartCodingDialogView {
     selected_action_id: Option<String>,
     /// `open_for_action`'s preselect, applied once the list lands.
     pending_action_preselect: Option<String>,
+    /// `open_for_fix_conflicts`' PR preselect (a representative issue id,
+    /// EXP-313) — applied right after the action preselect, which clears the
+    /// pick maps.
+    pending_pr_preselect: Option<String>,
     action_search: Entity<InputState>,
     action_list_scroll: ScrollHandle,
     action_inputs_scroll: ScrollHandle,
@@ -301,6 +363,7 @@ impl StartCodingDialogView {
         team_id: String,
         preselected: Vec<String>,
         preselect_action: Option<String>,
+        preselect_pr: Option<String>,
         opener: AnyWindowHandle,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -437,6 +500,7 @@ impl StartCodingDialogView {
             actions_load: ActionsLoad::Loading,
             selected_action_id: None,
             pending_action_preselect: preselect_action,
+            pending_pr_preselect: preselect_pr,
             action_search,
             action_list_scroll: ScrollHandle::new(),
             action_inputs_scroll: ScrollHandle::new(),
@@ -508,6 +572,27 @@ impl StartCodingDialogView {
         if ready {
             if let Some(pending) = self.pending_action_preselect.take() {
                 self.select_action(pending, window, cx);
+                // EXP-313: the fix-conflicts entry points preselect their PR
+                // too — applied AFTER `select_action`, which clears the pick
+                // maps. A PR that isn't in the open-reviews list (racing a
+                // merge) is dropped; the user just picks manually.
+                if let Some(issue_id) = self.pending_pr_preselect.take() {
+                    let pick = pr_pick_options(cx, &self.team_id)
+                        .into_iter()
+                        .find(|(id, _)| *id == issue_id);
+                    if let (Some(pick), Some(key)) = (
+                        pick,
+                        self.selected_action().and_then(|action| {
+                            action
+                                .inputs
+                                .iter()
+                                .find(|input| input.input_type == "pr")
+                                .map(|input| input.key.clone())
+                        }),
+                    ) {
+                        self.action_pr_picks.insert(key, pick);
+                    }
+                }
             }
         }
     }
@@ -1552,34 +1637,11 @@ impl StartCodingDialogView {
                     .into_any_element()
             }
             "pr" => {
-                // EXP-259: the team's OPEN issue-linked pull requests,
-                // deduped by prUrl (a batch PR shows once; its value is the
-                // representative issue's id).
                 let pick_label: SharedString = match self.action_pr_picks.get(&input.key) {
                     Some((_, label)) => label.clone().into(),
                     None => "Select pull request…".into(),
                 };
-                let pulls: Vec<(String, String)> = crate::queries::review_groups(cx, &self.team_id)
-                    .iter()
-                    .flat_map(|group| group.entries.iter())
-                    .map(|entry| {
-                        let issue = entry.representative();
-                        let idents = entry
-                            .issues
-                            .iter()
-                            .map(|issue| issue.identifier.clone())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        let label = match (issue.pr_number, entry.is_batch()) {
-                            (Some(number), true) => format!("#{number} · {idents}"),
-                            (Some(number), false) => {
-                                format!("#{number} · {idents} {}", issue.title)
-                            }
-                            (None, _) => idents,
-                        };
-                        (issue.id.clone(), label)
-                    })
-                    .collect();
+                let pulls = pr_pick_options(cx, &self.team_id);
                 let key = input.key.clone();
                 let optional = !input.required;
                 let view = cx.entity().downgrade();
@@ -1632,8 +1694,9 @@ impl StartCodingDialogView {
                     .into_any_element()
             }
             // EXP-273: the curated icon set. Unlike the other pickers the
-            // value is a NAME, not an id, so there is nothing to look up —
-            // the menu is the registry list, each row showing its own glyph.
+            // value is a NAME, not an id. EXP-313: the swatch-grid popover
+            // (the action-detail icon pattern) — the old 60-row name-list
+            // dropdown spilled far past the dialog.
             "icon" => {
                 let picked = self.action_icon_picks.get(&input.key).cloned();
                 let pick_label: SharedString = match &picked {
@@ -1642,46 +1705,61 @@ impl StartCodingDialogView {
                 };
                 let key = input.key.clone();
                 let optional = !input.required;
+                let selected = picked.clone().unwrap_or_default();
                 let view = cx.entity().downgrade();
-                Button::new(("sc-input-icon", ix))
-                    .outline()
-                    .small()
-                    .icon(crate::icons::action_icon(picked.as_deref()))
-                    .label(pick_label)
-                    .dropdown_menu(move |mut menu, _window, _cx| {
+                Popover::new(("sc-input-icon-pop", ix))
+                    .trigger(
+                        Button::new(("sc-input-icon", ix))
+                            .outline()
+                            .small()
+                            .icon(crate::icons::action_icon(picked.as_deref()))
+                            .label(pick_label),
+                    )
+                    .content(move |_, _, cx| {
+                        let popover = cx.entity();
+                        let view = view.clone();
+                        let key = key.clone();
+                        let selected = selected.clone();
+                        // The grid only wraps inside a DEFINITE width — a
+                        // popover's content box is unconstrained (see the
+                        // action-detail icon picker). 8 × 28px cells + gaps.
+                        let mut content = v_flex().w(px(266.)).p_1().gap_1();
                         if optional {
                             let view = view.clone();
                             let key = key.clone();
-                            menu = menu.item(PopupMenuItem::new("None").on_click(
-                                move |_, _, cx| {
-                                    if let Some(view) = view.upgrade() {
-                                        view.update(cx, |view, cx| {
-                                            view.action_icon_picks.remove(&key);
-                                            cx.notify();
-                                        });
-                                    }
-                                },
-                            ));
-                        }
-                        for name in crate::icons::registry::PICKABLE_ICONS {
-                            let view = view.clone();
-                            let key = key.clone();
-                            let name = (*name).to_string();
-                            menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(name.clone()))
-                                    .icon(crate::icons::action_icon(Some(&name)))
-                                    .on_click(move |_, _, cx| {
+                            let popover = popover.clone();
+                            content = content.child(
+                                Button::new("sc-input-icon-none")
+                                    .ghost()
+                                    .xsmall()
+                                    .label("No icon")
+                                    .on_click(move |_, window, cx| {
                                         if let Some(view) = view.upgrade() {
                                             view.update(cx, |view, cx| {
-                                                view.action_icon_picks
-                                                    .insert(key.clone(), name.clone());
+                                                view.action_icon_picks.remove(&key);
                                                 cx.notify();
                                             });
                                         }
+                                        popover
+                                            .update(cx, |state, cx| state.dismiss(window, cx));
                                     }),
                             );
                         }
-                        menu
+                        content.child(crate::board_form::icon_swatch_grid(
+                            "sc-input-icon",
+                            &selected,
+                            move |name, window, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |view, cx| {
+                                        view.action_icon_picks
+                                            .insert(key.clone(), name.to_string());
+                                        cx.notify();
+                                    });
+                                }
+                                popover.update(cx, |state, cx| state.dismiss(window, cx));
+                            },
+                            cx,
+                        ))
                     })
                     .into_any_element()
             }
@@ -1789,8 +1867,12 @@ impl StartCodingDialogView {
                     .label(if self.launching {
                         "Starting…"
                     } else if self.subject_tab == SubjectTab::Actions {
-                        // EXP-257: the builtin's run IS creation.
-                        if self.selected_action().is_some_and(|action| action.builtin) {
+                        // EXP-257: the create builtin's run IS creation. The
+                        // other builtin (fix-conflicts) runs like any action.
+                        if self
+                            .selected_action()
+                            .is_some_and(|action| action.id == api::actions::BUILTIN_CREATE_ACTION_ID)
+                        {
                             "Create action"
                         } else {
                             "Run action"

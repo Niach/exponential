@@ -48,7 +48,11 @@ export function ActionsPane({
     (actions ?? []).find((action) => action.id === selectedActionId) ?? null
 
   return (
-    <div className="flex min-h-0 flex-col gap-2">
+    // `min-h-0` only under `sm:` — in the mobile scroll column it let the
+    // flex layout squash the pane and paint its content over the next
+    // section (EXP-313); mobile lays out at natural height and the shell
+    // scrolls.
+    <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink">
       <Label>Actions</Label>
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

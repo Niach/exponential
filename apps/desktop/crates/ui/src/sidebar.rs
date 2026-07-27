@@ -2324,11 +2324,11 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// The review row's "Fix conflicts" button (EXP-259): start the builtin
-    /// "Fix merge conflicts" action run targeting this PR — rebase onto the
-    /// default branch in the PR's worktree, resolve, force-push, then merge
-    /// via `exponential_pr_merge`. The runner resolves the `pr` input
-    /// against the synced store and surfaces failures as notifications.
+    /// The review row's "Fix conflicts" button (EXP-259): open the Start
+    /// coding dialog with the builtin "Fix merge conflicts" action and this
+    /// PR preselected (EXP-313 — agent/model/effort stay choosable; the run
+    /// only starts when the dialog confirms). The `review_error` caption
+    /// stays — the PR really does still have conflicts until a fix lands.
     fn on_fix_conflicts_click(
         &mut self,
         issue_id: String,
@@ -2338,35 +2338,7 @@ impl SidebarPanel {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return;
         };
-        let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-        // The stale merge error would linger under the running fix.
-        if self
-            .review_error
-            .as_ref()
-            .is_some_and(|(id, _)| *id == issue_id)
-        {
-            self.review_error = None;
-            cx.notify();
-        }
-        crate::action_run::start_action_run(
-            crate::action_run::StartActionArgs {
-                action_id: api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string(),
-                team_id,
-                repo: crate::action_run::ActionRepo::Resolve,
-                options: coding::LaunchOptions::defaults(&settings),
-                origin: coding::LaunchOrigin::Local,
-                inputs: vec![coding::ActionInputValue {
-                    key: "pr".to_string(),
-                    label: "Pull request".to_string(),
-                    input_type: "pr".to_string(),
-                    value: issue_id,
-                    display: None,
-                }],
-                target: Some(window.window_handle()),
-                activate_app: false,
-            },
-            cx,
-        );
+        crate::start_coding_dialog::open_for_fix_conflicts(window, cx, team_id, issue_id);
     }
 
     /// The Merge button's two-click flow: first click arms (auto-disarm after
