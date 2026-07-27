@@ -1,7 +1,7 @@
 // Steer relay tickets — the ONLY credential the relay ever sees.
 //
-// The web app mints a short-lived ticket (steer.mintTicket, after checking the
-// caller's team permission); the relay verifies signature + expiry and
+// The web app mints a short-lived ticket (steer.mintTicket — session tickets
+// are owner-only since EXP-312); the relay verifies signature + expiry and
 // trusts the claims. Compact HS256 format (NOT a full JWT — no header, no alg
 // negotiation): `base64url(JSON claims) + "." + base64url(HMAC-SHA256)`.
 // Shared by apps/web (sign) and apps/steer-relay (verify) so the format can't
@@ -13,6 +13,10 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 // EXP-90 — the relay rejects tickets carrying any unknown role, so stale
 // instances that still mint it get a closed socket, never data.
 export type SteerRole = `control` | `publisher` | `viewer`
+// EXP-312: the view/steer distinction is gone — sessions are owner-only and
+// current servers mint `steer` exclusively. The field stays on the wire
+// because shipped clients decode it for their composer and deployed relays
+// gate input on it; `view` survives only as the value legacy tickets carry.
 export type SteerPerm = `view` | `steer`
 
 export interface SteerTicketClaims {
@@ -20,7 +24,8 @@ export interface SteerTicketClaims {
   sub: string
   /** teamId the ticket is scoped to (empty string for control tickets). */
   team: string
-  /** Display name, shown in viewer presence. */
+  /** Display name — legacy (fed the removed viewer presence); no longer
+   *  minted. */
   name?: string
   /** Human device label (control tickets). */
   deviceLabel?: string

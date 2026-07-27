@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.TrpcException
-import com.exponential.app.data.api.decodeSteerTicketPerm
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
@@ -52,10 +51,11 @@ import kotlinx.serialization.json.putJsonArray
 // {t:'activity', event} frames (narration / tool headlines / questions /
 // subagents / worktree diffs). The PTY mirror is gone (EXP-249) — a stray
 // BINARY frame from an old desktop is ignored. Steering is message-shaped and
-// fully seamless (EXP-312 — no operator claim; the relay gates on the ticket's
-// steer perm): chunked input + a separate \r; answers are semantic
-// {t:'answer'} frames, with the raw-keystroke path kept only for question
-// cards published by pre-EXP-249 desktops (no wire id).
+// fully seamless (EXP-312 — no operator claim, no view/steer perm split; the
+// ticket mint is owner-only, so a live connection just steers): chunked input
+// + a separate \r; answers are semantic {t:'answer'} frames, with the
+// raw-keystroke path kept only for question cards published by pre-EXP-249
+// desktops (no wire id).
 
 // Relay rejects input frames > 8 KiB; chunk pastes well under that.
 private const val INPUT_CHUNK_CHARS = 4096
@@ -716,9 +716,6 @@ class AgentSessionViewModel @Inject constructor(
     private val _phase = MutableStateFlow<AgentPhase>(AgentPhase.Idle)
     val phase: StateFlow<AgentPhase> = _phase
 
-    private val _perm = MutableStateFlow("view")
-    val perm: StateFlow<String> = _perm
-
     // The feed survives reconnects and the session end — only a fresh screen
     // (new VM) or the relay's activity_reset starts it empty (EXP-249).
     private val _activity = MutableStateFlow(ActivityFeedState())
@@ -867,8 +864,6 @@ class AgentSessionViewModel @Inject constructor(
                 // Config state, not a transient failure — retrying can't help.
                 return DialOutcome.Closed("Live sessions are unavailable on this instance.", retryable = false)
             }
-            _perm.value = decodeSteerTicketPerm(minted.ticket!!)
-
             // The server-returned url is the full ws(s)://…/ws?ticket=… dial URL.
             socket = client.webSocketSession(urlString = minted.url!!)
             ws = socket
@@ -1029,7 +1024,7 @@ class AgentSessionViewModel @Inject constructor(
         return true
     }
 
-    // ── Steering (message-shaped; relay gates on the ticket's steer perm) ────
+    // ── Steering (message-shaped; owner-only — the mint refuses others) ──────
 
     /**
      * Send one message to the agent: the text (chunked ≤4 KiB), then a
@@ -1037,7 +1032,7 @@ class AgentSessionViewModel @Inject constructor(
      * trailing return as a paste, which inserts instead of submitting.
      */
     fun sendMessage(text: String) {
-        if (text.isEmpty() || _perm.value != "steer") return
+        if (text.isEmpty()) return
         val socket = ws ?: return
         // Local echo (EXP-78): show the sent message immediately; its
         // transcript-derived `user_message` event is deduped via the FIFO.
@@ -1069,7 +1064,7 @@ class AgentSessionViewModel @Inject constructor(
      * [ANSWER_ACK_TIMEOUT_MS].
      */
     fun sendQuestionAnswer(questionId: String, askId: String?, keys: List<String>) {
-        if (keys.isEmpty() || _perm.value != "steer") return
+        if (keys.isEmpty()) return
         if (_activity.value.answerLocks.containsKey(questionId)) return
         val socket = ws ?: return
         lockAnswer(questionId)
@@ -1094,7 +1089,7 @@ class AgentSessionViewModel @Inject constructor(
      * before [sendSubmit] advances the picker.
      */
     fun sendLegacyAnswer(lockKey: String, key: String, lock: Boolean = true) {
-        if (key.isEmpty() || _perm.value != "steer") return
+        if (key.isEmpty()) return
         if (lock && _activity.value.answerLocks.containsKey(lockKey)) return
         val socket = ws ?: return
         if (lock) lockAnswer(lockKey)

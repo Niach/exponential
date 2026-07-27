@@ -1,16 +1,11 @@
 // Steer relay helpers — the pure core of the `steer` tRPC router (masterplan
-// §3.5). Ticket-claim composition, permission mapping, relay URL derivation,
-// and the secret-authed server-to-server relay HTTP calls live here so they
-// are unit-testable without a DB or a live relay. The wire truth for
-// everything steer is apps/steer-relay/src/protocol.ts + the ticket format in
+// §3.5). Ticket-claim composition, relay URL derivation, and the
+// secret-authed server-to-server relay HTTP calls live here so they are
+// unit-testable without a DB or a live relay. The wire truth for everything
+// steer is apps/steer-relay/src/protocol.ts + the ticket format in
 // packages/steer-ticket.
 
-import {
-  signSteerTicket,
-  type SteerPerm,
-  type SteerTicketClaims,
-} from "@exp/steer-ticket"
-import type { TeamRole } from "@/lib/domain"
+import { signSteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
 import type { SteerStartInput } from "@/lib/action-inputs"
 
 export type { SteerStartInput } from "@/lib/action-inputs"
@@ -68,6 +63,11 @@ export function steerTicketUrl(relayUrl: string, ticket: string): string {
 /** Connect window in seconds; the socket outlives it once established. */
 export const STEER_TICKET_TTL_SECONDS = 60
 
+// EXP-312: there is no view/steer perm distinction anymore — a live session
+// is visible and steerable ONLY by its owner (the account that started it),
+// enforced at mint time in the tRPC router. Every minted ticket carries the
+// legacy wire field `perm: "steer"` because shipped clients decode it to show
+// their composer and deployed relays gate input on it.
 export type SteerTicketSeed =
   | { kind: `control`; userId: string; deviceLabel?: string }
   | {
@@ -81,23 +81,7 @@ export type SteerTicketSeed =
       userId: string
       teamId: string
       sessionId: string
-      role: TeamRole
-      /** Display name (or email), shown in viewer presence. */
-      name: string
-      /** The caller owns the coding_sessions row — grants steer regardless
-       *  of team role (you may always steer your own session). */
-      isSessionOwner?: boolean
     }
-
-// Team owners may steer, and so may the coding session's own starter
-// (isSessionOwner); plain members watch. (The role enum is owner|member only
-// — there is no admin role.)
-export function viewerPermFor(
-  role: TeamRole,
-  isSessionOwner = false
-): SteerPerm {
-  return role === `owner` || isSessionOwner ? `steer` : `view`
-}
 
 export function buildSteerTicketClaims(
   seed: SteerTicketSeed,
@@ -132,9 +116,8 @@ export function buildSteerTicketClaims(
         ...base,
         team: seed.teamId,
         sessionId: seed.sessionId,
-        name: seed.name,
         role: `viewer`,
-        perm: viewerPermFor(seed.role, seed.isSessionOwner),
+        perm: `steer`,
       }
   }
 }

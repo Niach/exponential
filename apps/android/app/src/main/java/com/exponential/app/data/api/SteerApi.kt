@@ -1,17 +1,11 @@
 package com.exponential.app.data.api
 
-import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 // Mirrors apps/web/src/lib/trpc/steer.ts (the ticket-minting router) + the
 // relay wire contract in apps/steer-relay/src/protocol.ts. Android is a pure
@@ -284,23 +278,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
             ),
             inputSerializer = StartActionSessionInput.serializer(),
         )
-    }
-}
-
-/**
- * The relay ticket is `base64url(JSON claims).base64url(sig)`; the claims
- * carry the caller's perm (`view`|`steer`), which decides whether steering
- * controls show. Decoding locally is display-only — the relay enforces perm
- * server-side (mirrors the web viewer's decodeTicketPerm).
- */
-fun decodeSteerTicketPerm(ticket: String): String {
-    return try {
-        val payload = ticket.substringBefore('.')
-        val bytes = Base64.getUrlDecoder().decode(payload)
-        val claims = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
-        if ((claims["perm"] as? JsonPrimitive)?.contentOrNull == "steer") "steer" else "view"
-    } catch (_: Throwable) {
-        "view"
     }
 }
 

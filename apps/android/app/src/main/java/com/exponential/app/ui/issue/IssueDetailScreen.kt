@@ -113,6 +113,7 @@ fun IssueDetailScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
+    val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val isSubscribed by viewModel.isSubscribed.collectAsStateWithLifecycle()
     val runningSession by viewModel.runningSession.collectAsStateWithLifecycle()
     val repoName by viewModel.repoName.collectAsStateWithLifecycle()
@@ -395,11 +396,16 @@ fun IssueDetailScreen(
         // the play glyph (dimmed while no desktop is online — tapping then
         // explains via snackbar).
         val session = runningSession
+        // EXP-312: the start circle deep-links into the live viewer, which is
+        // owner-only — only the caller's OWN session flips it to the state
+        // dot; a teammate's run shows in the AgentPrCard badge and the circle
+        // falls through to Start coding.
+        val ownSession = session?.takeIf { it.userId == currentUserId }
         val devices = steerDevices
         val startAllowed = steerEnabled == true && permissions.isMember && state.board?.repositoryId != null
         val startUi: StartButtonUi? = when {
             !startAllowed -> null
-            session != null -> StartButtonUi.Session(codingSessionDisplayState(session, issue.prState))
+            ownSession != null -> StartButtonUi.Session(codingSessionDisplayState(ownSession, issue.prState))
             startState is SteerStartState.Sending || startState is SteerStartState.Sent -> StartButtonUi.Sending
             devices == null -> null
             else -> StartButtonUi.Start(enabled = devices.isNotEmpty())
@@ -624,7 +630,7 @@ fun IssueDetailScreen(
                     session = session,
                     sessionOwner = session?.let { s -> state.users.firstOrNull { it.id == s.userId } },
                     steerEnabled = steerEnabled,
-                    isMember = permissions.isMember,
+                    currentUserId = currentUserId,
                     onWatch = onOpenSteer,
                     onOpenChanges = onOpenChanges,
                 )
@@ -664,7 +670,7 @@ fun IssueDetailScreen(
                         startButton = startUi,
                         onStartClick = {
                             when {
-                                session != null -> onOpenSteer(session.id)
+                                ownSession != null -> onOpenSteer(ownSession.id)
                                 startState is SteerStartState.Sending || startState is SteerStartState.Sent -> Unit
                                 steerDevices.isNullOrEmpty() -> scope.launch {
                                     snackbarHostState.showSnackbar(

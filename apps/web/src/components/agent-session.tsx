@@ -75,9 +75,10 @@ import { FileDiffList } from "@/components/diff-view"
 // renders structured events — narration bubbles + compact tool rows, a
 // pinned "Latest changes" diff above the composer — never raw PTY bytes.
 // Steering is message-shaped like mobile — chunked input + a SEPARATE `\r`
-// frame, perm-gated by the relay (EXP-312: no operator claim, fully
-// seamless); question answers ride the semantic `answer` frame (steer
-// protocol v2, EXP-249) whenever the desktop publishes question ids.
+// frame (EXP-312: no operator claim, no view/steer perm split — the mint is
+// owner-only, so a live connection just steers); question answers ride the
+// semantic `answer` frame (steer protocol v2, EXP-249) whenever the desktop
+// publishes question ids.
 // Since EXP-106 this view is mounted ONLY by the global agent dock
 // (components/agent-dock) — one at a time — so it always auto-connects and
 // delegates its chrome (title, collapse) to the dock; the "coding now" rows +
@@ -180,20 +181,6 @@ function parseServerFrame(raw: string): ServerFrame | null {
     return json as ServerFrame
   } catch {
     return null
-  }
-}
-
-// The ticket is `base64url(JSON claims).base64url(sig)` — the claims carry the
-// caller's perm (view|steer), which decides whether steering/kill controls
-// show. Decoding locally is display-only; the relay enforces perm server-side.
-function decodeTicketPerm(ticket: string): `view` | `steer` {
-  try {
-    const payload = ticket.slice(0, ticket.indexOf(`.`))
-    const b64 = payload.replace(/-/g, `+`).replace(/_/g, `/`)
-    const claims = JSON.parse(atob(b64)) as { perm?: string }
-    return claims.perm === `steer` ? `steer` : `view`
-  } catch {
-    return `view`
   }
 }
 
@@ -325,7 +312,6 @@ export function AgentSessionView({
   // Always starts at 1 — the dock only mounts this while it should be live.
   const [attempt, setAttempt] = useState(1)
   const [phase, setPhase] = useState<ViewerPhase>({ kind: `idle` })
-  const [perm, setPerm] = useState<`view` | `steer`>(`view`)
   const [feed, setFeed] = useState<FeedItem[]>([])
   /** The most recent worktree diff — each one replaces the previous. */
   const [latestDiff, setLatestDiff] = useState<string | null>(null)
@@ -561,8 +547,7 @@ export function AgentSessionView({
           })
           return
         }
-        const { ticket, url } = minted as { ticket: string; url: string }
-        setPerm(decodeTicketPerm(ticket))
+        const { url } = minted as { ticket: string; url: string }
 
         ws = new WebSocket(url)
         wsRef.current = ws
@@ -664,14 +649,14 @@ export function AgentSessionView({
     }
   }, [attempt, session.id])
 
-  // ── Steering (message-shaped; relay gates on the ticket's steer perm) ─────
+  // ── Steering (message-shaped; owner-only — the mint refuses anyone else) ──
 
   /**
    * Forward raw input (chunked ≤4 KiB, never splitting a surrogate pair).
    */
   const sendInput = (data: string): boolean => {
     const sock = wsRef.current
-    if (perm !== `steer` || sock?.readyState !== WebSocket.OPEN) return false
+    if (sock?.readyState !== WebSocket.OPEN) return false
     for (let i = 0; i < data.length; ) {
       let end = Math.min(i + INPUT_CHUNK_CHARS, data.length)
       const last = end < data.length ? data.charCodeAt(end - 1) : 0
@@ -709,21 +694,20 @@ export function AgentSessionView({
    *  Multi-select taps toggle with the digit alone; Continue sends `\t`. */
   const sendKeystrokes = (keys: string[]): boolean => {
     const sock = wsRef.current
-    if (perm !== `steer` || sock?.readyState !== WebSocket.OPEN) return false
+    if (sock?.readyState !== WebSocket.OPEN) return false
     for (const key of keys) sock.send(JSON.stringify({ t: `input`, data: key }))
     return true
   }
 
   /** Protocol v2 answer: the relay forwards it verbatim to the desktop, which
-   *  drives its own picker and confirms with `answer_ack`. Same perm gating
-   *  as raw input. */
+   *  drives its own picker and confirms with `answer_ack`. */
   const sendAnswerFrame = (
     questionId: string,
     askId: string | undefined,
     keys: string[]
   ): boolean => {
     const sock = wsRef.current
-    if (perm !== `steer` || sock?.readyState !== WebSocket.OPEN) return false
+    if (sock?.readyState !== WebSocket.OPEN) return false
     sock.send(JSON.stringify({ t: `answer`, questionId, askId, keys }))
     return true
   }
@@ -846,14 +830,15 @@ export function AgentSessionView({
 
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
-  const composerVisible = live && perm === `steer` && !sessionEnded
+  // EXP-312: live implies ownership — the mint refuses everyone else.
+  const composerVisible = live && !sessionEnded
 
   /** Identity-scoped questions stay answerable until they resolve; legacy
    *  cards fall back to the trailing-run heuristic, with a plan-approval card
    *  answerable until a real resolution signal — lagged transcript flushes
    *  don't retire a pending picker (EXP-174). */
   const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
-  const canAnswer = live && perm === `steer` && !sessionEnded
+  const canAnswer = live && !sessionEnded
   /** Render rows: consecutive tool calls collapse into "N tool calls" runs
    *  (EXP-97), one ask's questions into a stepper and a subagent's work into
    *  its own group — a projection only, the flat feed stays the state. */
@@ -884,9 +869,8 @@ export function AgentSessionView({
             Reconnect
           </Button>
         )}
-        {/* steer.killSession also authorizes the session owner — a member who
-            remote-started their own session can kill it without steer perm. */}
-        {live && (perm === `steer` || session.userId === currentUserId) && (
+        {/* Owner-only, like everything about a live session (EXP-312). */}
+        {live && session.userId === currentUserId && (
           <Button
             variant="ghost"
             size="icon"
@@ -1083,8 +1067,8 @@ export function AgentSessionView({
             </Collapsible>
           )}
 
-          {/* Steering composer (perm-gated). Steering is fully seamless
-              (EXP-312) — no captions, no operator state. */}
+          {/* Steering composer. Steering is fully seamless (EXP-312) — no
+              captions, no operator state; live implies ownership. */}
           {composerVisible && (
             <div className="border-t border-border p-2">
               <MessageComposer onSend={sendMessage} onEscape={sendEscape} />
@@ -1277,7 +1261,7 @@ function QuestionPrompt({
   item: QuestionItem
   /** Still answerable per the feed — the session is blocked on this card. */
   active: boolean
-  /** Live + steer perm — whether this client may answer at all. */
+  /** Live (and not ended) — whether this client may answer at all. */
   canAnswer: boolean
   answerState?: AnswerState
   onAnswer: AnswerHandler

@@ -258,11 +258,12 @@ struct AgentsView: View {
     @ViewBuilder
     private func sessionRow(_ row: AgentsViewModel.Row) -> some View {
         HStack(spacing: 12) {
-            // With the relay configured, the row jumps straight into the live
-            // agent session; otherwise it opens the issue detail, where the
-            // card shows whatever is available.
+            // With the relay configured, YOUR OWN row jumps straight into the
+            // live agent session (EXP-312: live sessions are owner-only);
+            // otherwise it opens the issue detail, where the card shows
+            // whatever is available.
             Group {
-                if steerEnabled {
+                if steerEnabled, row.session.userId == deps.auth.userId {
                     NavigationLink(value: AppRoute.agentSession(
                         accountId: accountId, sessionId: row.session.id
                     )) {

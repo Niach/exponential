@@ -10,9 +10,10 @@ import GRDB
 /// subagents / permissions / worktree diffs). EXP-249 removed the PTY mirror
 /// from the protocol, so every frame is JSON now — a stray BINARY frame (an old
 /// desktop's 0x01 output) is ignored. Steering is message-shaped and fully
-/// seamless (EXP-312 — no operator claim; the relay gates on the ticket's
-/// steer perm): chunked input + a separate \r for prose, and ONE semantic
-/// `answer` frame per question card. Mirrors the Android AgentSessionViewModel.
+/// seamless (EXP-312 — no operator claim, no view/steer perm split; the mint
+/// is owner-only, so a live connection just steers): chunked input + a
+/// separate \r for prose, and ONE semantic `answer` frame per question card.
+/// Mirrors the Android AgentSessionViewModel.
 @MainActor @Observable
 final class AgentSessionModel {
     enum Phase: Equatable {
@@ -45,9 +46,6 @@ final class AgentSessionModel {
     private(set) var answerTracker = AgentAnswerTracker()
     /// The most recent worktree diff — each one replaces the previous.
     private(set) var latestDiff: String?
-    /// The minted ticket's perm claim (`view`/`steer`), display-gating only —
-    /// the relay enforces it server-side regardless.
-    private(set) var perm = "view"
     /// The synced coding_sessions row — flips to ended via Electric.
     private(set) var session: CodingSessionEntity?
     /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
@@ -55,7 +53,6 @@ final class AgentSessionModel {
     /// `ended` and the view already reacts.
     private(set) var killError: String?
 
-    var canSteer: Bool { perm == "steer" }
     /// Over as far as this client can tell: an explicitly `ended` row, or a
     /// row that VANISHED. The model is always constructed with a real row, so
     /// nil means it was deleted (stale rows get swept) or left this client's
@@ -68,12 +65,11 @@ final class AgentSessionModel {
     }
 
     /// Whether this viewer may kill the session (EXP-268): a live (not-ended)
-    /// synced row, and either the steer perm (session owner / team owner by
-    /// ticket) or the session's own runner. Display gating only — the server
-    /// enforces the same rule again.
+    /// synced row owned by the caller — everything about a live session is
+    /// owner-only (EXP-312). Display gating only — the server enforces the
+    /// same rule again.
     var canKill: Bool {
         guard !sessionEnded else { return false }
-        if canSteer { return true }
         guard let currentUserId else { return false }
         return session?.userId == currentUserId
     }
@@ -256,13 +252,13 @@ final class AgentSessionModel {
         }
     }
 
-    // MARK: - Steering (message-shaped; the relay gates on the steer perm)
+    // MARK: - Steering (message-shaped; owner-only — the mint refuses others)
 
     /// Send one message to the agent: the text (chunked ≤4 KiB), then a
     /// SEPARATE `\r` frame — bundled into one write TUI apps treat the
     /// trailing return as a paste, which inserts instead of submitting.
     func sendMessage(_ text: String) {
-        guard !text.isEmpty, canSteer, connected else { return }
+        guard !text.isEmpty, connected else { return }
         var rest = Substring(text)
         while !rest.isEmpty {
             let chunk = String(rest.prefix(Self.inputChunkChars))
@@ -288,7 +284,7 @@ final class AgentSessionModel {
     /// mapping and confirms the injection with `answer_ack`. The card locks
     /// the moment the frame goes out, so a double tap can never answer twice.
     func sendAnswer(questionId: String, askId: String?, keys: [String]) {
-        guard !questionId.isEmpty, !keys.isEmpty, canSteer, connected else { return }
+        guard !questionId.isEmpty, !keys.isEmpty, connected else { return }
         guard !answerTracker.isLocked(questionId) else { return }
         var frame: [String: Any] = ["t": "answer", "questionId": questionId, "keys": keys]
         if let askId, !askId.isEmpty { frame["askId"] = askId }
@@ -307,7 +303,7 @@ final class AgentSessionModel {
     /// locks the card; multi-select toggles pass nil (each digit only toggles,
     /// `sendLegacyAdvance` submits).
     func sendLegacyKey(_ key: String, lockKey: String? = nil) {
-        guard !key.isEmpty, canSteer, connected else { return }
+        guard !key.isEmpty, connected else { return }
         if let lockKey, answerTracker.isLocked(lockKey) { return }
         let frame: [String: Any] = ["t": "input", "data": key]
         if let data = try? JSONSerialization.data(withJSONObject: frame),
@@ -406,8 +402,6 @@ final class AgentSessionModel {
             phase = .closed(detail: "Live sessions are unavailable on this instance.", reconnecting: false)
             return
         }
-        perm = Self.decodeTicketPerm(ticket.ticket ?? "")
-
         let t = URLSession.shared.webSocketTask(with: url)
         task = t
         connected = true
@@ -772,17 +766,4 @@ final class AgentSessionModel {
         task.send(.string(text)) { _ in }
     }
 
-    /// The ticket is `base64url(JSON claims).base64url(sig)` — decode the perm
-    /// claim for display gating (the relay enforces it server-side regardless).
-    static func decodeTicketPerm(_ ticket: String) -> String {
-        guard let dot = ticket.firstIndex(of: ".") else { return "view" }
-        var b64 = String(ticket[..<dot])
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        while b64.count % 4 != 0 { b64 += "=" }
-        guard let data = Data(base64Encoded: b64),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let perm = obj["perm"] as? String else { return "view" }
-        return perm == "steer" ? "steer" : "view"
-    }
 }

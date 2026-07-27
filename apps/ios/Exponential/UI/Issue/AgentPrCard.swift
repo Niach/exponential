@@ -6,8 +6,9 @@ import SwiftUI
 /// moved the remote-start affordance into the bottom bar's Start-coding
 /// circle; EXP-246 dropped the glass card wrapper (full-width rows, Linear
 /// parity). A pure status glance with up to three coexisting rows:
-///   - Session: a running coding session → "Coding now" + tap-to-watch (members
-///              when the relay is on; an inert note when steering is disabled).
+///   - Session: a running coding session → "Coding now" + tap-to-watch (the
+///              session's own runner when the relay is on — EXP-312: live
+///              sessions are owner-only; an inert note when steering is off).
 ///   - PR:      a linked PR → GitHub-style capsule chip (pull icon tinted by
 ///              state + "PR #n"), tapping opens the diff page.
 ///   - Branch:  a pushed branch, no PR yet → branch icon + mono name chip,
@@ -22,6 +23,9 @@ struct AgentPrCard: View {
     /// Relay config, loaded by the view model's refreshSteer (EXP-240) —
     /// gates tap-to-watch on the session row.
     let config: SteerConfig?
+    /// EXP-312: live sessions are owner-only — tap-to-watch renders only on
+    /// the caller's own session.
+    let currentUserId: String?
 
     @Environment(\.accountId) private var accountId
 
@@ -65,7 +69,10 @@ struct AgentPrCard: View {
 
     @ViewBuilder
     private func sessionRow(_ session: CodingSessionEntity) -> some View {
-        let canWatch = permissions.isMember && config?.enabled == true
+        // EXP-312: only the session's own runner may open it live — teammates
+        // see the status badge + byline, nothing tappable.
+        let ownSession = currentUserId != nil && session.userId == currentUserId
+        let canWatch = ownSession && config?.enabled == true
         VStack(alignment: .leading, spacing: 6) {
             if canWatch {
                 NavigationLink(value: AppRoute.agentSession(
@@ -79,7 +86,7 @@ struct AgentPrCard: View {
             }
             // Relay explicitly off on this instance: the badge stays, steering
             // doesn't. (config?.enabled == false is only true once config loads.)
-            if permissions.isMember, config?.enabled == false {
+            if ownSession, config?.enabled == false {
                 Text("Live steering is unavailable on this instance.")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))

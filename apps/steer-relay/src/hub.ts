@@ -330,8 +330,11 @@ export class Hub {
       case `input`: {
         const room = this.roomFor(conn)
         if (!room || !room.publisher) return
-        // Steering is seamless (EXP-312): any joined steer-perm member's
-        // keystrokes flow — there is no single-operator claim.
+        // Steering is seamless (EXP-312): a joined viewer's keystrokes flow —
+        // no single-operator claim. The perm gate stays as ticket-honoring
+        // hardening: current servers mint viewer tickets owner-only and
+        // always with perm steer, but a legacy `view` ticket from an older
+        // web server must stay read-only.
         if (!room.activityMembers.has(conn)) return
         if (conn.claims.perm !== `steer`) return
         room.publisher.sock.send(frame({ t: `input`, data: msg.data }))

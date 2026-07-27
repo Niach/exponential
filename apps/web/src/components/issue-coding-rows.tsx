@@ -359,6 +359,15 @@ function AgentRow({
       new Date(row.startedAt) > new Date(newest.startedAt) ? row : newest
     )
   }, [sessions])
+  // EXP-312: live sessions are owner-only — the Watch affordance targets the
+  // caller's own most-recent session (teammates see just badge + byline).
+  const ownLatest = useMemo(() => {
+    const own = sessions.filter((s) => s.userId === currentUserId)
+    if (own.length === 0) return null
+    return own.reduce((newest, row) =>
+      new Date(row.startedAt) > new Date(newest.startedAt) ? row : newest
+    )
+  }, [sessions, currentUserId])
 
   if (latest) {
     const owner = users.find((u) => u.id === latest.userId)
@@ -384,17 +393,17 @@ function AgentRow({
               {codingBadge}
               {ownerLabel}
             </div>
-            {isMember && steerEnabled ? (
+            {ownLatest && steerEnabled ? (
               <Button
                 variant="outline"
                 size="sm"
                 className="w-full"
-                onClick={() => dock?.openDock(latest.id)}
+                onClick={() => dock?.openDock(ownLatest.id)}
               >
                 <MonitorPlay />
                 Watch
               </Button>
-            ) : isMember && steerEnabled === false ? (
+            ) : ownLatest && steerEnabled === false ? (
               <p className="text-xs text-muted-foreground">
                 Live steering is unavailable on this instance.
               </p>
@@ -411,17 +420,17 @@ function AgentRow({
       <div className="flex min-w-0 items-center gap-2 border-t border-border px-4 py-3">
         {codingBadge}
         {ownerLabel}
-        {isMember && steerEnabled ? (
+        {ownLatest && steerEnabled ? (
           <Button
             variant="outline"
             size="sm"
             className="ml-auto shrink-0"
-            onClick={() => dock?.openDock(latest.id)}
+            onClick={() => dock?.openDock(ownLatest.id)}
           >
             <MonitorPlay />
             Watch
           </Button>
-        ) : isMember && steerEnabled === false ? (
+        ) : ownLatest && steerEnabled === false ? (
           <span className="ml-auto text-xs text-muted-foreground">
             Live steering is unavailable on this instance.
           </span>

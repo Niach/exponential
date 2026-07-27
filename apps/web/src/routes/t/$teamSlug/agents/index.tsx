@@ -249,7 +249,6 @@ function AgentsPage() {
   // server enforces both at mint time, this only decides whether the
   // interactive affordances render.
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
-  const canWatch = Boolean(currentUserId && steerEnabled)
 
   const remote = useRemoteStart({ enabled: steerEnabled, currentUserId })
   const runBusy = remote.starting || remote.sentTo !== null
@@ -428,7 +427,9 @@ function AgentsPage() {
                 <SessionRow
                   key={row.session.id}
                   row={row}
-                  canWatch={canWatch}
+                  // EXP-312: live sessions are owner-only — Watch renders
+                  // only on the caller's own rows.
+                  canWatch={steerEnabled && row.session.userId === currentUserId}
                   teamSlug={teamSlug}
                   onOpen={() => dock?.openDock(row.session.id)}
                 />

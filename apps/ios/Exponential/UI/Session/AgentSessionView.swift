@@ -95,8 +95,8 @@ struct AgentSessionView: View {
                         .lineLimit(1)
                 }
             }
-            // Kill switch (EXP-268): force-end a live session — shown to the
-            // session owner or anyone holding the steer perm (team owners).
+            // Kill switch (EXP-268): force-end a live session — owner-only,
+            // like everything about a live session (EXP-312).
             ToolbarItem(placement: .topBarTrailing) {
                 if model?.canKill == true {
                     Button {
@@ -402,7 +402,7 @@ struct AgentSessionView: View {
     /// `activeQuestionIds` (EXP-78/EXP-174).
     private var canAnswer: Bool {
         guard let model else { return false }
-        return model.canSteer && model.phase == .live && !model.sessionEnded
+        return model.phase == .live && !model.sessionEnded
     }
 
     // MARK: - Status banners (feed retained above)
@@ -458,7 +458,8 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
-        let inputVisible = model.canSteer && model.phase == .live && !model.sessionEnded
+        // EXP-312: live implies ownership — the ticket mint refuses others.
+        let inputVisible = model.phase == .live && !model.sessionEnded
         if model.latestDiff != nil || inputVisible {
             VStack(alignment: .leading, spacing: 8) {
                 if let diff = model.latestDiff {

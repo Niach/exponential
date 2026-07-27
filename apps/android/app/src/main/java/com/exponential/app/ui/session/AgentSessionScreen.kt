@@ -101,7 +101,6 @@ fun AgentSessionScreen(
     val activity by viewModel.activity.collectAsStateWithLifecycle()
     val feed = activity.feed
     val latestDiff = activity.latestDiff
-    val perm by viewModel.perm.collectAsStateWithLifecycle()
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val killError by viewModel.killError.collectAsStateWithLifecycle()
     val answerStates = activity.answerLocks
@@ -139,13 +138,12 @@ fun AgentSessionScreen(
                     }
                 },
                 actions = {
-                    // Kill switch (EXP-268): only while the synced row is still
-                    // live, for the session owner or a steer-perm viewer (team
-                    // owners — mirrors the server's owner-or-team-owner gate).
+                    // Kill switch (EXP-268): only while the synced row is
+                    // still live, for the session owner — everything about a
+                    // live session is owner-only (EXP-312; server enforces
+                    // too).
                     val row = session
-                    if (row != null && !sessionEnded &&
-                        (perm == "steer" || row.userId == currentUserId)
-                    ) {
+                    if (row != null && !sessionEnded && row.userId == currentUserId) {
                         IconButton(onClick = { killDialogOpen = true }) {
                             Icon(
                                 ExpIcons.codingStop,
@@ -202,11 +200,10 @@ fun AgentSessionScreen(
                     else -> ActivityFeed(
                         feed = feed,
                         live = phase == AgentPhase.Live,
-                        // Question cards are answerable while live + steerable
-                        // (EXP-78); the card itself also checks its own state.
-                        answerEnabled = perm == "steer" &&
-                            phase == AgentPhase.Live &&
-                            !sessionEnded,
+                        // Question cards are answerable while live (EXP-78;
+                        // live implies ownership since EXP-312); the card
+                        // itself also checks its own state.
+                        answerEnabled = phase == AgentPhase.Live && !sessionEnded,
                         answerStates = answerStates,
                         // One place decides semantic vs legacy: a card with a
                         // wire id answers through the `answer` frame, one
@@ -332,9 +329,9 @@ fun AgentSessionScreen(
                 }
             }
 
-            // ── Steering input (perm-gated) — fully seamless (EXP-312): no
-            // captions, no operator state; input just sends.
-            val inputVisible = perm == "steer" && phase == AgentPhase.Live && !sessionEnded
+            // ── Steering input — fully seamless (EXP-312): no captions, no
+            // operator state; live implies ownership, input just sends.
+            val inputVisible = phase == AgentPhase.Live && !sessionEnded
             if (inputVisible) {
                 MessageInputRow(onSend = viewModel::sendMessage)
             }
@@ -731,7 +728,7 @@ private fun QuestionCard(
     item: AgentFeedItem.Question,
     /** Still answerable per the feed — the session is blocked on this card. */
     active: Boolean,
-    /** Live + steer perm — whether this client may answer at all. */
+    /** Live (and not ended) — whether this client may answer at all. */
     answerEnabled: Boolean,
     /** This client's send state — non-null means the card is locked. */
     state: AnswerState?,

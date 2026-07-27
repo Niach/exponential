@@ -10,7 +10,6 @@ import {
   steerHttpBase,
   steerTicketUrl,
   steerWsBase,
-  viewerPermFor,
   STEER_TICKET_TTL_SECONDS,
   type RelayFetch,
 } from "@/lib/steer"
@@ -145,68 +144,28 @@ describe(`ticket claim composition`, () => {
     })
   })
 
-  it(`viewer: team owner may steer, plain member only views`, () => {
-    const owner = buildSteerTicketClaims(
-      {
-        kind: `viewer`,
-        userId: `user-1`,
-        teamId: `ws-1`,
-        sessionId: `session-1`,
-        role: `owner`,
-        name: `Dana`,
-      },
-      NOW
-    )
-    expect(owner).toEqual({
+  it(`viewer: session-bound, always steer perm (EXP-312 — owner-only at mint, no view/steer distinction)`, () => {
+    expect(
+      buildSteerTicketClaims(
+        {
+          kind: `viewer`,
+          userId: `user-1`,
+          teamId: `ws-1`,
+          sessionId: `session-1`,
+        },
+        NOW
+      )
+    ).toEqual({
       sub: `user-1`,
       team: `ws-1`,
       sessionId: `session-1`,
-      name: `Dana`,
       role: `viewer`,
+      // The legacy wire field: shipped clients show their composer on it and
+      // deployed relays gate input on it — always "steer" now.
       perm: `steer`,
       iat: NOW,
       exp: NOW + STEER_TICKET_TTL_SECONDS,
     })
-
-    const member = buildSteerTicketClaims(
-      {
-        kind: `viewer`,
-        userId: `user-2`,
-        teamId: `ws-1`,
-        sessionId: `session-1`,
-        role: `member`,
-        name: `member@example.com`,
-      },
-      NOW
-    )
-    expect(member.perm).toBe(`view`)
-    expect(member.name).toBe(`member@example.com`)
-  })
-
-  it(`viewer: the coding session's own starter steers regardless of role`, () => {
-    const sessionOwner = buildSteerTicketClaims(
-      {
-        kind: `viewer`,
-        userId: `user-2`,
-        teamId: `ws-1`,
-        sessionId: `session-1`,
-        role: `member`,
-        isSessionOwner: true,
-        name: `member@example.com`,
-      },
-      NOW
-    )
-    expect(sessionOwner.perm).toBe(`steer`)
-    expect(sessionOwner.role).toBe(`viewer`)
-  })
-
-  it(`maps roles to perms (owner|member only — there is no admin role)`, () => {
-    expect(viewerPermFor(`owner`)).toBe(`steer`)
-    expect(viewerPermFor(`member`)).toBe(`view`)
-    // Session ownership grants steer independent of team role.
-    expect(viewerPermFor(`member`, true)).toBe(`steer`)
-    expect(viewerPermFor(`member`, false)).toBe(`view`)
-    expect(viewerPermFor(`owner`, false)).toBe(`steer`)
   })
 })
 
@@ -225,8 +184,6 @@ describe(`mintSteerTicket`, () => {
         userId: `user-1`,
         teamId: `ws-1`,
         sessionId: `session-1`,
-        role: `owner`,
-        name: `Dana`,
       },
       NOW
     )
