@@ -35,6 +35,7 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     prMergedAt: null,
     sortOrder: 0,
     status: `backlog`,
+    statusId: null,
     title: `Issue`,
     updatedAt: new Date(`2026-03-06T10:00:00.000Z`),
     ...overrides,

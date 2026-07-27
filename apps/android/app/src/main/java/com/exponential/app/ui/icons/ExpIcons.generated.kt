@@ -3766,6 +3766,139 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `progress-1-4`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "progress-1-4",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(addPathNodes("M12 12 L12 6 A6 6 0 0 1 18 12 Z"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
+    public val `progress-1-5`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "progress-1-5",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(addPathNodes("M12 12 L12 6 A6 6 0 0 1 17.7063 10.1459 Z"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
+    public val `progress-2-4`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "progress-2-4",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(addPathNodes("M12 12 L12 6 A6 6 0 0 1 12 18 Z"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
+    public val `progress-2-5`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "progress-2-5",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(addPathNodes("M12 12 L12 6 A6 6 0 0 1 15.5267 16.8541 Z"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
+    public val `progress-3-4`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "progress-3-4",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(addPathNodes("M12 12 L12 6 A6 6 0 1 1 6 12 Z"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
+    public val `progress-3-5`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "progress-3-5",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(addPathNodes("M12 12 L12 6 A6 6 0 1 1 8.4733 16.8541 Z"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
+    public val `progress-4-5`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "progress-4-5",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(addPathNodes("M12 12 L12 6 A6 6 0 1 1 6.2937 10.1459 Z"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
     public val `puzzle`: ImageVector by lazy {
         ImageVector.Builder(
             name = "puzzle",
@@ -4829,38 +4962,6 @@ public object ExpIcons {
         }.build()
     }
 
-    public val `timer`: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "timer",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f,
-        ).apply {
-            addPath(
-                addPathNodes("M10 2L14 2"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M12 14L15 11"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M4 14A8 8 0 1 0 20 14A8 8 0 1 0 4 14Z"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-        }.build()
-    }
-
     public val `trash-2`: ImageVector by lazy {
         ImageVector.Builder(
             name = "trash-2",
@@ -5511,6 +5612,13 @@ public object ExpIcons {
         "plane" -> `plane`
         "play" -> `play`
         "plus" -> `plus`
+        "progress-1-4" -> `progress-1-4`
+        "progress-1-5" -> `progress-1-5`
+        "progress-2-4" -> `progress-2-4`
+        "progress-2-5" -> `progress-2-5`
+        "progress-3-4" -> `progress-3-4`
+        "progress-3-5" -> `progress-3-5`
+        "progress-4-5" -> `progress-4-5`
         "puzzle" -> `puzzle`
         "quote" -> `quote`
         "refresh-cw" -> `refresh-cw`
@@ -5542,7 +5650,6 @@ public object ExpIcons {
         "tag" -> `tag`
         "target" -> `target`
         "terminal" -> `terminal`
-        "timer" -> `timer`
         "trash-2" -> `trash-2`
         "triangle-alert" -> `triangle-alert`
         "trophy" -> `trophy`
@@ -5735,6 +5842,8 @@ public object ExpIcons {
     public val settingsRepositories: ImageVector get() = `github`
     /** Concept `settings-servers`. */
     public val settingsServers: ImageVector get() = `server`
+    /** Concept `settings-statuses`. */
+    public val settingsStatuses: ImageVector get() = `circle-dot`
     /** Concept `settings-sync`. */
     public val settingsSync: ImageVector get() = `refresh-cw`
     /** Concept `settings-tools`. */
@@ -5748,9 +5857,9 @@ public object ExpIcons {
     /** Concept `status-duplicate`. */
     public val statusDuplicate: ImageVector get() = `copy`
     /** Concept `status-in-progress`. */
-    public val statusInProgress: ImageVector get() = `timer`
+    public val statusInProgress: ImageVector get() = `progress-2-4`
     /** Concept `status-in-review`. */
-    public val statusInReview: ImageVector get() = `git-pull-request`
+    public val statusInReview: ImageVector get() = `progress-3-4`
     /** Concept `status-todo`. */
     public val statusTodo: ImageVector get() = `circle`
     /** Concept `support-open`. */

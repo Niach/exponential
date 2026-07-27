@@ -4,6 +4,8 @@
 // The concrete lucide-react components behind the registry, so a stored icon
 // name or a concept id resolves to a real component without a per-call-site
 // import. Tree-shaking still applies: only these named imports are pulled in.
+// Custom (non-Lucide) glyphs are built with the same `createLucideIcon`
+// factory lucide-react uses internally, so they behave like any other icon.
 
 import {
   Activity,
@@ -149,7 +151,6 @@ import {
   Tag,
   Target,
   Terminal,
-  Timer,
   Trash2,
   TriangleAlert,
   Trophy,
@@ -163,13 +164,22 @@ import {
   Wrench,
   X,
   Zap,
+  createLucideIcon,
 } from "lucide-react"
-import type { LucideIcon } from "lucide-react"
+import type { IconNode, LucideIcon } from "lucide-react"
 import {
   type IconConcept,
   type IconName,
   SEMANTIC_ICONS,
 } from "@exp/icons"
+
+const Progress14 = createLucideIcon(`progress-1-4`, [["circle",{"cx":"12","cy":"12","r":"10","key":"ring"}],["path",{"d":"M12 12 L12 6 A6 6 0 0 1 18 12 Z","fill":"currentColor","stroke":"none","key":"wedge"}]] as IconNode)
+const Progress15 = createLucideIcon(`progress-1-5`, [["circle",{"cx":"12","cy":"12","r":"10","key":"ring"}],["path",{"d":"M12 12 L12 6 A6 6 0 0 1 17.7063 10.1459 Z","fill":"currentColor","stroke":"none","key":"wedge"}]] as IconNode)
+const Progress24 = createLucideIcon(`progress-2-4`, [["circle",{"cx":"12","cy":"12","r":"10","key":"ring"}],["path",{"d":"M12 12 L12 6 A6 6 0 0 1 12 18 Z","fill":"currentColor","stroke":"none","key":"wedge"}]] as IconNode)
+const Progress25 = createLucideIcon(`progress-2-5`, [["circle",{"cx":"12","cy":"12","r":"10","key":"ring"}],["path",{"d":"M12 12 L12 6 A6 6 0 0 1 15.5267 16.8541 Z","fill":"currentColor","stroke":"none","key":"wedge"}]] as IconNode)
+const Progress34 = createLucideIcon(`progress-3-4`, [["circle",{"cx":"12","cy":"12","r":"10","key":"ring"}],["path",{"d":"M12 12 L12 6 A6 6 0 1 1 6 12 Z","fill":"currentColor","stroke":"none","key":"wedge"}]] as IconNode)
+const Progress35 = createLucideIcon(`progress-3-5`, [["circle",{"cx":"12","cy":"12","r":"10","key":"ring"}],["path",{"d":"M12 12 L12 6 A6 6 0 1 1 8.4733 16.8541 Z","fill":"currentColor","stroke":"none","key":"wedge"}]] as IconNode)
+const Progress45 = createLucideIcon(`progress-4-5`, [["circle",{"cx":"12","cy":"12","r":"10","key":"ring"}],["path",{"d":"M12 12 L12 6 A6 6 0 1 1 6.2937 10.1459 Z","fill":"currentColor","stroke":"none","key":"wedge"}]] as IconNode)
 
 export const ICON_COMPONENTS: Record<IconName, LucideIcon> = {
   "activity": Activity,
@@ -284,6 +294,13 @@ export const ICON_COMPONENTS: Record<IconName, LucideIcon> = {
   "plane": Plane,
   "play": Play,
   "plus": Plus,
+  "progress-1-4": Progress14,
+  "progress-1-5": Progress15,
+  "progress-2-4": Progress24,
+  "progress-2-5": Progress25,
+  "progress-3-4": Progress34,
+  "progress-3-5": Progress35,
+  "progress-4-5": Progress45,
   "puzzle": Puzzle,
   "quote": Quote,
   "refresh-cw": RefreshCw,
@@ -315,7 +332,6 @@ export const ICON_COMPONENTS: Record<IconName, LucideIcon> = {
   "tag": Tag,
   "target": Target,
   "terminal": Terminal,
-  "timer": Timer,
   "trash-2": Trash2,
   "triangle-alert": TriangleAlert,
   "trophy": Trophy,

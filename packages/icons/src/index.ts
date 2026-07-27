@@ -11,11 +11,13 @@
 //   desktop  `icons.generated.rs` in crates/ui
 
 export {
+  CUSTOM_ICONS,
   ICON_NAMES,
   PICKABLE_ICONS,
   SEMANTIC_ICONS,
   isIconName,
   isPickableIcon,
+  type CustomIcon,
   type IconConcept,
   type IconName,
   type PickableIcon,

@@ -11,6 +11,7 @@ const ROUTER_NOUNS: Record<string, string> = {
   comments: `the comment`,
   boards: `the board`,
   labels: `the label`,
+  statuses: `the status`,
   issueLabels: `the issue's labels`,
   teams: `the team`,
   teamMembers: `the member`,

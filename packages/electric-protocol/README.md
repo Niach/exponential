@@ -152,7 +152,7 @@ initializer. The Drizzle/tRPC mutation path stays camelCase. See
 | Layer | File | Value |
 | --- | --- | --- |
 | Bun (inbound) | `apps/web/src/server-bun.ts` | `idleTimeout: 255` (max) |
-| Bun (outbound fetch cap) | root `Dockerfile` (web image) | `ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336` — Bun's default of 256 simultaneous outbound fetches saturates at ~17 clients (15 held long-poll proxies each) |
+| Bun (outbound fetch cap) | root `Dockerfile` (web image) | `ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336` — Bun's default of 256 simultaneous outbound fetches saturates at ~16 clients (16 held long-poll proxies each) |
 | Caddy | `Caddyfile` | `transport http { read_timeout 5m; write_timeout 5m; keepalive 5m }`, `flush_interval -1` |
 | Electric upstream | `docker-compose.yaml` `electric` service | defaults are fine |
 | TanStack Start proxy | `apps/web/src/lib/electric-proxy.ts` | forwards `request.signal` (client cancel propagates); buffers body for HTTP/1.1 framing |

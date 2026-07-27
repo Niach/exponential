@@ -5,6 +5,14 @@ package com.exponential.app.domain
 object DomainContract {
     val issueStatusValues: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
     val issueStatusDisplayOrder: List<String> = listOf("in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate")
+    val issueStatusCategoryValues: List<String> = listOf("backlog", "unstarted", "started", "completed", "cancelled", "duplicate")
+    val issueStatusCategoryDisplayOrder: List<String> = listOf("started", "unstarted", "backlog", "completed", "cancelled", "duplicate")
+    val issueStatusCategorySettingsOrder: List<String> = listOf("backlog", "unstarted", "started", "completed", "cancelled", "duplicate")
+    val issueStatusDefaultKeys: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
+    val issueStatusDefaultCategories: List<String> = listOf("backlog", "unstarted", "started", "started", "completed", "cancelled", "duplicate")
+    val issueStatusDefaultNames: List<String> = listOf("Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate")
+    val issueStatusDefaultColors: List<String> = listOf("#A1A1AA", "#FAFAFA", "#EAB308", "#22C55E", "#3B82F6", "#A1A1AA", "#A1A1AA")
+    val issueStatusDefaultSortOrders: List<Int> = listOf(1, 1, 1, 2, 1, 1, 1)
     val issuePriorityValues: List<String> = listOf("none", "urgent", "high", "medium", "low")
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
     val issueSourceValues: List<String> = listOf("user", "widget")
@@ -25,12 +33,19 @@ object DomainContract {
     val piThinkingValues: List<String> = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
     val actionInputTypeValues: List<String> = listOf("text", "repo", "board", "pr", "icon")
 
+    const val issueStatusStartedMax: Int = 4
     const val codingSessionStaleMs: Long = 7200000L
     const val builtinCreateActionId: String = "builtin:create-action"
     const val builtinFixConflictsId: String = "builtin:fix-conflicts"
     const val actionInputsMax: Int = 10
     const val actionInputTextMax: Int = 4096
 
+    const val issueStatusCategoryBacklog: String = "backlog"
+    const val issueStatusCategoryUnstarted: String = "unstarted"
+    const val issueStatusCategoryStarted: String = "started"
+    const val issueStatusCategoryCompleted: String = "completed"
+    const val issueStatusCategoryCancelled: String = "cancelled"
+    const val issueStatusCategoryDuplicate: String = "duplicate"
     const val issueSourceUser: String = "user"
     const val issueSourceWidget: String = "widget"
     const val teamRoleOwner: String = "owner"

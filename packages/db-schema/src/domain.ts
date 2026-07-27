@@ -14,6 +14,84 @@ export const issueStatusValues = [
   `duplicate`,
 ] as const
 
+// Fixed status categories (EXP-314) — every issue_statuses row belongs to
+// one. Hand-mirrors contract.json's issueStatusCategory (parity-locked by
+// apps/web's domain-contract test), the same convention as boardIconValues.
+export const issueStatusCategoryValues = [
+  `backlog`,
+  `unstarted`,
+  `started`,
+  `completed`,
+  `cancelled`,
+  `duplicate`,
+] as const
+
+export type IssueStatusCategory = (typeof issueStatusCategoryValues)[number]
+
+// Issue-list group order (matches the legacy issueStatusOrder for a default
+// team: in_progress, in_review, todo, backlog, done, cancelled, duplicate).
+export const issueStatusCategoryDisplayOrder: IssueStatusCategory[] = [
+  `started`,
+  `unstarted`,
+  `backlog`,
+  `completed`,
+  `cancelled`,
+  `duplicate`,
+]
+
+// Lifecycle order the statuses settings page lists categories in.
+export const issueStatusCategorySettingsOrder: IssueStatusCategory[] = [
+  `backlog`,
+  `unstarted`,
+  `started`,
+  `completed`,
+  `cancelled`,
+  `duplicate`,
+]
+
+// Max `started` statuses per team — the pie-clock fill tables are defined
+// only up to 4 (2 → [2/4, 3/4], 3 → [1/4..3/4], 4 → [1/5..4/5]).
+export const ISSUE_STATUS_STARTED_MAX = 4
+
+// A custom status's dual-written `issues.status` anchor: the builtin enum
+// value its category degrades to. Every enum-keyed subsystem (completedAt
+// derivations, pr-sync eligibility, MCP tools, old clients) keeps working off
+// the anchor while status_id carries the precise row. Builtin rows anchor to
+// their own builtin_key (the in_review builtin is why `started` can't simply
+// be "the category's only enum value").
+export const CATEGORY_ANCHOR: Record<IssueStatusCategory, IssueStatus> = {
+  backlog: `backlog`,
+  unstarted: `todo`,
+  started: `in_progress`,
+  completed: `done`,
+  cancelled: `cancelled`,
+  duplicate: `duplicate`,
+}
+
+// The 7 locked builtin statuses every team is seeded with — the local
+// fallback set clients construct when the issue_statuses shape hasn't synced
+// (builtin-actions pattern). Hand-mirrors contract.json issueStatusDefaults
+// AND the SQL seed in apps/web/src/db/out/custom/0001_triggers.sql; both
+// parity-locked by the web domain-contract test. Colors are seed DATA only —
+// builtin rows render via each client's legacy token colors.
+export interface BuiltinStatusDefault {
+  key: IssueStatus
+  category: IssueStatusCategory
+  name: string
+  color: string
+  sortOrder: number
+}
+
+export const BUILTIN_STATUS_DEFAULTS: BuiltinStatusDefault[] = [
+  { key: `backlog`, category: `backlog`, name: `Backlog`, color: `#A1A1AA`, sortOrder: 1 },
+  { key: `todo`, category: `unstarted`, name: `Todo`, color: `#FAFAFA`, sortOrder: 1 },
+  { key: `in_progress`, category: `started`, name: `In Progress`, color: `#EAB308`, sortOrder: 1 },
+  { key: `in_review`, category: `started`, name: `In Review`, color: `#22C55E`, sortOrder: 2 },
+  { key: `done`, category: `completed`, name: `Done`, color: `#3B82F6`, sortOrder: 1 },
+  { key: `cancelled`, category: `cancelled`, name: `Cancelled`, color: `#A1A1AA`, sortOrder: 1 },
+  { key: `duplicate`, category: `duplicate`, name: `Duplicate`, color: `#A1A1AA`, sortOrder: 1 },
+]
+
 export const issuePriorityValues = [
   `none`,
   `urgent`,
@@ -232,6 +310,7 @@ export type SupportMessageVisibility =
   (typeof supportMessageVisibilityValues)[number]
 
 export const issueStatusSchema = z.enum(issueStatusValues)
+export const issueStatusCategorySchema = z.enum(issueStatusCategoryValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const issueSourceSchema = z.enum(issueSourceValues)
 export const teamRoleSchema = z.enum(teamRoleValues)

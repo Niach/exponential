@@ -9,6 +9,7 @@ import { boardsRouter } from "@/lib/trpc/boards"
 import { issuesRouter } from "@/lib/trpc/issues"
 import { issueLabelsRouter } from "@/lib/trpc/issue-labels"
 import { labelsRouter } from "@/lib/trpc/labels"
+import { statusesRouter } from "@/lib/trpc/statuses"
 import { teamInvitesRouter } from "@/lib/trpc/team-invites"
 import { teamMembersRouter } from "@/lib/trpc/team-members"
 import { usersRouter } from "@/lib/trpc/users"
@@ -35,6 +36,7 @@ export const appRouter = router({
   issues: issuesRouter,
   issueLabels: issueLabelsRouter,
   labels: labelsRouter,
+  statuses: statusesRouter,
   comments: commentsRouter,
   attachments: attachmentsRouter,
   repositories: repositoriesRouter,

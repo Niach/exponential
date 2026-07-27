@@ -1,6 +1,6 @@
 {
   "$schema": "./icons.schema.json",
-  "description": "EXP-273 — the single icon registry for web, iOS, Android and desktop. Every value is a Lucide icon name as shipped by lucide-react (the version in apps/web/package.json); the generator reads that package's `__iconNode` geometry, so all four clients render byte-identical art. `pickable` is the user-facing icon set (board icon picker + action icon picker) and MUST stay byte-equal to contract.json's boardIcon.values — append only, never reorder or remove, or stored boards.icon values are orphaned. `semantic` maps a stable concept id to a Lucide name so re-pointing an icon is a one-line edit here.",
+  "description": "EXP-273 — the single icon registry for web, iOS, Android and desktop. Every value is a Lucide icon name as shipped by lucide-react (the version in apps/web/package.json); the generator reads that package's `__iconNode` geometry, so all four clients render byte-identical art. `pickable` is the user-facing icon set (board icon picker + action icon picker) and MUST stay byte-equal to contract.json's boardIcon.values — append only, never reorder or remove, or stored boards.icon values are orphaned. `semantic` maps a stable concept id to a Lucide name so re-pointing an icon is a one-line edit here. `custom` (EXP-314) holds hand-authored glyphs Lucide does not ship — same IconNode geometry format as lucide's `__iconNode`, flowing through the identical 4-platform emit; names must not collide with a Lucide icon or a hand-maintained desktop brand mark, and glyphs must stay single-color (desktop rasterizes SVGs to a one-tint alpha mask).",
   "pickable": [
     "code",
     "square-kanban",
@@ -91,6 +91,7 @@
     "settings-general": "building-2",
     "settings-members": "users",
     "settings-labels": "tag",
+    "settings-statuses": "circle-dot",
     "settings-boards": "square-kanban",
     "settings-repositories": "github",
     "settings-tools": "square-terminal",
@@ -103,8 +104,8 @@
 
     "status-backlog": "circle-dashed",
     "status-todo": "circle",
-    "status-in-progress": "timer",
-    "status-in-review": "git-pull-request",
+    "status-in-progress": "progress-2-4",
+    "status-in-review": "progress-3-4",
     "status-done": "circle-check",
     "status-cancelled": "circle-x",
     "status-duplicate": "copy",
@@ -241,5 +242,35 @@
 
     "support-open": "mail-open",
     "support-resolved": "circle-check"
+  },
+  "custom": {
+    "progress-1-4": [
+      ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
+      ["path", { "d": "M12 12 L12 6 A6 6 0 0 1 18 12 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+    ],
+    "progress-2-4": [
+      ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
+      ["path", { "d": "M12 12 L12 6 A6 6 0 0 1 12 18 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+    ],
+    "progress-3-4": [
+      ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
+      ["path", { "d": "M12 12 L12 6 A6 6 0 1 1 6 12 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+    ],
+    "progress-1-5": [
+      ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
+      ["path", { "d": "M12 12 L12 6 A6 6 0 0 1 17.7063 10.1459 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+    ],
+    "progress-2-5": [
+      ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
+      ["path", { "d": "M12 12 L12 6 A6 6 0 0 1 15.5267 16.8541 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+    ],
+    "progress-3-5": [
+      ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
+      ["path", { "d": "M12 12 L12 6 A6 6 0 1 1 8.4733 16.8541 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+    ],
+    "progress-4-5": [
+      ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
+      ["path", { "d": "M12 12 L12 6 A6 6 0 1 1 6.2937 10.1459 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+    ]
   }
 }

@@ -21,6 +21,42 @@
       "duplicate"
     ]
   },
+  "issueStatusCategory": {
+    "values": [
+      "backlog",
+      "unstarted",
+      "started",
+      "completed",
+      "cancelled",
+      "duplicate"
+    ],
+    "displayOrder": [
+      "started",
+      "unstarted",
+      "backlog",
+      "completed",
+      "cancelled",
+      "duplicate"
+    ],
+    "settingsOrder": [
+      "backlog",
+      "unstarted",
+      "started",
+      "completed",
+      "cancelled",
+      "duplicate"
+    ],
+    "startedMax": 4
+  },
+  "issueStatusDefaults": [
+    { "key": "backlog", "category": "backlog", "name": "Backlog", "color": "#A1A1AA", "sortOrder": 1 },
+    { "key": "todo", "category": "unstarted", "name": "Todo", "color": "#FAFAFA", "sortOrder": 1 },
+    { "key": "in_progress", "category": "started", "name": "In Progress", "color": "#EAB308", "sortOrder": 1 },
+    { "key": "in_review", "category": "started", "name": "In Review", "color": "#22C55E", "sortOrder": 2 },
+    { "key": "done", "category": "completed", "name": "Done", "color": "#3B82F6", "sortOrder": 1 },
+    { "key": "cancelled", "category": "cancelled", "name": "Cancelled", "color": "#A1A1AA", "sortOrder": 1 },
+    { "key": "duplicate", "category": "duplicate", "name": "Duplicate", "color": "#A1A1AA", "sortOrder": 1 }
+  ],
   "issuePriority": {
     "values": [
       "none",

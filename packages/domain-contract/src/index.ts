@@ -8,6 +8,35 @@ import contractJson from "../contract.json" with { type: "json" }
 
 export interface DomainContract {
   issueStatus: { values: readonly string[]; displayOrder: readonly string[] }
+  /**
+   * Fixed status categories (EXP-314): every issue_statuses row belongs to
+   * one. displayOrder is the issue-list group order (matches the legacy
+   * issueStatus.displayOrder for a default team); settingsOrder is the
+   * lifecycle order the settings page lists categories in; startedMax caps
+   * how many `started` statuses a team may have (the pie-clock fills are
+   * defined only up to 4).
+   */
+  issueStatusCategory: {
+    values: readonly string[]
+    displayOrder: readonly string[]
+    settingsOrder: readonly string[]
+    startedMax: number
+  }
+  /**
+   * The 7 locked builtin statuses every team is seeded with (EXP-314) —
+   * also the fallback set each client constructs locally when the
+   * issue_statuses shape hasn't synced. Mirrored by the SQL seed in
+   * apps/web/src/db/out/custom/0001_triggers.sql (parity-locked by the web
+   * domain-contract test). Colors are seed DATA — builtin rows render via
+   * each client's legacy token colors, not these hexes.
+   */
+  issueStatusDefaults: readonly {
+    key: string
+    category: string
+    name: string
+    color: string
+    sortOrder: number
+  }[]
   issuePriority: { values: readonly string[]; displayOrder: readonly string[] }
   issueSource: { values: readonly string[] }
   teamRole: { values: readonly string[] }

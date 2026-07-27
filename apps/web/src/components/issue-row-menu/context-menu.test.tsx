@@ -121,6 +121,7 @@ function buildIssue(overrides: Partial<Issue> = {}): Issue {
     title: `Ship custom context menu`,
     description: null,
     status: `backlog`,
+    statusId: null,
     priority: `none`,
     assigneeId: null,
     creatorId: `user-1`,

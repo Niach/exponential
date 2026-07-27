@@ -191,6 +191,13 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "plane" => ExpIcon::Plane,
         "play" => ExpIcon::Play,
         "plus" => ExpIcon::Plus,
+        "progress-1-4" => ExpIcon::Progress14,
+        "progress-1-5" => ExpIcon::Progress15,
+        "progress-2-4" => ExpIcon::Progress24,
+        "progress-2-5" => ExpIcon::Progress25,
+        "progress-3-4" => ExpIcon::Progress34,
+        "progress-3-5" => ExpIcon::Progress35,
+        "progress-4-5" => ExpIcon::Progress45,
         "puzzle" => ExpIcon::Puzzle,
         "quote" => ExpIcon::Quote,
         "refresh-cw" => ExpIcon::RefreshCw,
@@ -222,7 +229,6 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "tag" => ExpIcon::Tag,
         "target" => ExpIcon::Target,
         "terminal" => ExpIcon::Terminal,
-        "timer" => ExpIcon::Timer,
         "trash-2" => ExpIcon::Trash2,
         "triangle-alert" => ExpIcon::TriangleAlert,
         "trophy" => ExpIcon::Trophy,
@@ -416,6 +422,8 @@ pub const SETTINGS_RATE: ExpIcon = ExpIcon::Star;
 pub const SETTINGS_REPOSITORIES: ExpIcon = ExpIcon::Github;
 /// Registry concept `settings-servers` -> Lucide `server`.
 pub const SETTINGS_SERVERS: ExpIcon = ExpIcon::Server;
+/// Registry concept `settings-statuses` -> Lucide `circle-dot`.
+pub const SETTINGS_STATUSES: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `settings-sync` -> Lucide `refresh-cw`.
 pub const SETTINGS_SYNC: ExpIcon = ExpIcon::RefreshCw;
 /// Registry concept `settings-tools` -> Lucide `square-terminal`.
@@ -428,10 +436,10 @@ pub const STATUS_CANCELLED: ExpIcon = ExpIcon::CircleX;
 pub const STATUS_DONE: ExpIcon = ExpIcon::CircleCheck;
 /// Registry concept `status-duplicate` -> Lucide `copy`.
 pub const STATUS_DUPLICATE: ExpIcon = ExpIcon::Copy;
-/// Registry concept `status-in-progress` -> Lucide `timer`.
-pub const STATUS_IN_PROGRESS: ExpIcon = ExpIcon::Timer;
-/// Registry concept `status-in-review` -> Lucide `git-pull-request`.
-pub const STATUS_IN_REVIEW: ExpIcon = ExpIcon::GitPullRequest;
+/// Registry concept `status-in-progress` -> Lucide `progress-2-4`.
+pub const STATUS_IN_PROGRESS: ExpIcon = ExpIcon::Progress24;
+/// Registry concept `status-in-review` -> Lucide `progress-3-4`.
+pub const STATUS_IN_REVIEW: ExpIcon = ExpIcon::Progress34;
 /// Registry concept `status-todo` -> Lucide `circle`.
 pub const STATUS_TODO: ExpIcon = ExpIcon::Circle;
 /// Registry concept `support-open` -> Lucide `mail-open`.

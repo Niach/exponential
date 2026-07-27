@@ -97,6 +97,7 @@ const SHAPE_COLUMNS = [
   `title`,
   `description`,
   `status`,
+  `statusId`,
   `priority`,
   `assigneeId`,
   `creatorId`,

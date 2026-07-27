@@ -10,6 +10,7 @@ import {
   selectIssueLabelSchema,
   selectIssueSchema,
   selectIssueSubscriberSchema,
+  selectIssueStatusRowSchema,
   selectLabelSchema,
   selectNotificationSchema,
   selectBoardSchema,
@@ -96,6 +97,21 @@ export const labelCollection = createCollection(
       columnMapper,
     },
     schema: selectLabelSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-314 — per-team issue statuses (the 16th shape); team-scoped like
+// labels. Builtin rows carry builtin_key; customs are member-managed.
+export const issueStatusCollection = createCollection(
+  electricCollectionOptions({
+    id: `issue_statuses`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/issue-statuses`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectIssueStatusRowSchema,
     getKey: (item) => item.id,
   })
 )

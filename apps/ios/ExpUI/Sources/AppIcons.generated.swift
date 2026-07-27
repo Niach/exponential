@@ -186,6 +186,13 @@ public enum AppIcons {
         "plane",
         "play",
         "plus",
+        "progress-1-4",
+        "progress-1-5",
+        "progress-2-4",
+        "progress-2-5",
+        "progress-3-4",
+        "progress-3-5",
+        "progress-4-5",
         "puzzle",
         "quote",
         "refresh-cw",
@@ -217,7 +224,6 @@ public enum AppIcons {
         "tag",
         "target",
         "terminal",
-        "timer",
         "trash-2",
         "triangle-alert",
         "trophy",
@@ -414,6 +420,8 @@ public enum AppIcons {
     public static let settingsRepositories: String = "github"
     /// Concept `settings-servers`.
     public static let settingsServers: String = "server"
+    /// Concept `settings-statuses`.
+    public static let settingsStatuses: String = "circle-dot"
     /// Concept `settings-sync`.
     public static let settingsSync: String = "refresh-cw"
     /// Concept `settings-tools`.
@@ -427,9 +435,9 @@ public enum AppIcons {
     /// Concept `status-duplicate`.
     public static let statusDuplicate: String = "copy"
     /// Concept `status-in-progress`.
-    public static let statusInProgress: String = "timer"
+    public static let statusInProgress: String = "progress-2-4"
     /// Concept `status-in-review`.
-    public static let statusInReview: String = "git-pull-request"
+    public static let statusInReview: String = "progress-3-4"
     /// Concept `status-todo`.
     public static let statusTodo: String = "circle"
     /// Concept `support-open`.

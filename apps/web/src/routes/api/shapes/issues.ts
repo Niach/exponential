@@ -18,6 +18,12 @@ const ISSUE_COLUMNS = [
   `title`,
   `description`,
   `status`,
+  // EXP-314: the precise per-team status row (issue_statuses); `status`
+  // stays the builtin anchor old clients render. Appended column = one-time
+  // benign shape-identity rotation (full resync), NO CLIENT_MIN_VERSION bump
+  // — old native builds drop unknown columns safely (actions `icon`
+  // precedent).
+  `status_id`,
   `priority`,
   `assignee_id`,
   `creator_id`,

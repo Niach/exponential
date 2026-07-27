@@ -8,6 +8,7 @@ import {
   issueEvents,
   issues,
   issueLabels,
+  issueStatuses,
   issueSubscribers,
   labels,
   notifications,
@@ -41,10 +42,12 @@ import {
   applyPrMergeState,
 } from "@/lib/integrations/pr-sync"
 import {
+  CATEGORY_ANCHOR,
   dateOnlySchema,
   getIssueDescriptionText,
   issueDescriptionSchema,
   issuePrioritySchema,
+  type IssueStatus,
   issueStatusSchema,
 } from "@/lib/domain"
 import {
@@ -113,11 +116,73 @@ type Tx = Parameters<
   Parameters<typeof import("@/db/connection").db.transaction>[0]
 >[0]
 
+// The full status_changed payload (EXP-314): the legacy {from,to} anchor
+// enums stay for old readers/rows; ids + display-name snapshots let clients
+// render custom statuses without a lookup that may no longer resolve.
+interface StatusChange {
+  from: string
+  to: string
+  fromStatusId: string | null
+  toStatusId: string | null
+  fromName: string | null
+  toName: string | null
+}
+
+// EXP-314: resolve a client's {status?, statusId?} write into the dual-write
+// form. statusId (new clients) loads the team's issue_statuses row and
+// derives the builtin ANCHOR enum — builtins anchor to their own key (the
+// in_review builtin is why category alone isn't enough), customs to
+// CATEGORY_ANCHOR. A bare enum (old clients, MCP, pr-sync callers) passes
+// through untouched: the populate_issue_status_id trigger re-anchors
+// status_id for it, so this path and the trigger can never disagree.
+// Duplicate-category rows are rejected — the duplicate flow stays on the
+// enum + duplicateOfId lockstep (pairing invariant).
+async function resolveStatusWrite(
+  db: Context[`db`] | Tx,
+  teamId: string,
+  input: { status?: IssueStatus; statusId?: string }
+): Promise<{ status?: IssueStatus; statusId?: string }> {
+  if (input.statusId === undefined) {
+    return input.status !== undefined ? { status: input.status } : {}
+  }
+  const [row] = await db
+    .select({
+      id: issueStatuses.id,
+      teamId: issueStatuses.teamId,
+      category: issueStatuses.category,
+      builtinKey: issueStatuses.builtinKey,
+    })
+    .from(issueStatuses)
+    .where(eq(issueStatuses.id, input.statusId))
+    .limit(1)
+  if (!row || row.teamId !== teamId) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Status must belong to the issue's team`,
+    })
+  }
+  if (row.category === `duplicate`) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Duplicate requires a canonical issue`,
+    })
+  }
+  return {
+    status: row.builtinKey ?? CATEGORY_ANCHOR[row.category],
+    statusId: row.id,
+  }
+}
+
 // Status-derived column management, shared by update and bulkUpdate.
 // Mutates setValues in place. Only applies the duplicate-clear rule when the
 // caller hasn't already decided duplicate linkage (setValues.duplicateOfId
 // === undefined) — update's duplicateOfId input block runs BEFORE this.
-function applyStatusDerivations(
+// setValues.status is always the ANCHOR enum (resolveStatusWrite), so the
+// terminal rules below cover custom statuses too: a custom completed status
+// anchors `done` and stamps completedAt; moving between two same-category
+// customs keeps the anchor stable, deliberately preserving completedAt.
+// Exported for statuses.delete's reassignment writer (EXP-314).
+export function applyStatusDerivations(
   setValues: Record<string, unknown>,
   current: { status: string; duplicateOfId: string | null }
 ): void {
@@ -160,6 +225,7 @@ async function finalizeIssueUpdateInTx(
     actorUserId: string
     current: {
       status: string
+      statusId: string | null
       boardId: string
       title: string
       priority: string
@@ -169,7 +235,7 @@ async function finalizeIssueUpdateInTx(
   }
 ): Promise<{
   issue: typeof issues.$inferSelect
-  statusChange: { from: string; to: string } | null
+  statusChange: StatusChange | null
   previousAssigneeId: string | null
 } | null> {
   const { issueId, teamId, actorUserId, current, setValues } = args
@@ -185,15 +251,42 @@ async function finalizeIssueUpdateInTx(
     return null
   }
 
-  let statusChange: { from: string; to: string } | null = null
-  if (current.status !== issue.status) {
-    statusChange = { from: current.status, to: issue.status }
+  let statusChange: StatusChange | null = null
+  // Compare the (anchor, statusId) PAIR — a move between two custom statuses
+  // of the same category keeps the anchor enum stable and would otherwise
+  // record no event and fire no notification (EXP-314). issue.statusId is the
+  // post-trigger value, so enum-only writes compare their re-anchored row.
+  if (
+    current.status !== issue.status ||
+    current.statusId !== issue.statusId
+  ) {
+    const nameIds = [current.statusId, issue.statusId].filter(
+      (v): v is string => v != null
+    )
+    const nameRows = nameIds.length
+      ? await tx
+          .select({ id: issueStatuses.id, name: issueStatuses.name })
+          .from(issueStatuses)
+          .where(inArray(issueStatuses.id, nameIds))
+      : []
+    const nameById = new Map(nameRows.map((row) => [row.id, row.name]))
+    statusChange = {
+      from: current.status,
+      to: issue.status,
+      fromStatusId: current.statusId ?? null,
+      toStatusId: issue.statusId ?? null,
+      // Display-name snapshots for the timeline; a missing row (deleted
+      // status, pre-backfill NULL) leaves null and renderers fall back to
+      // munging the anchor enum — old event rows keep rendering unchanged.
+      fromName: (current.statusId && nameById.get(current.statusId)) || null,
+      toName: (issue.statusId && nameById.get(issue.statusId)) || null,
+    }
     await recordIssueEvent(tx, {
       issueId,
       teamId,
       actorUserId,
       type: `status_changed`,
-      payload: { from: current.status, to: issue.status },
+      payload: { ...statusChange },
     })
   }
   if (current.assigneeId !== issue.assigneeId) {
@@ -229,6 +322,9 @@ export const issuesRouter = router({
           boardId: z.string().uuid(),
           title: z.string().min(1).max(500),
           status: issueStatusSchema.optional(),
+          // EXP-314: a team status row id — the precise-status alternative to
+          // the anchor enum (resolveStatusWrite derives the enum from it).
+          statusId: z.string().uuid().optional(),
           priority: issuePrioritySchema.optional(),
           assigneeId: z.string().nullable().optional(),
           description: issueDescriptionSchema.optional(),
@@ -238,9 +334,13 @@ export const issuesRouter = router({
         // A brand-new issue has nothing to dedupe, and create has no canonical
         // issue to pair with — status='duplicate' + duplicateOfId=null breaks
         // the pairing invariant every update path enforces (same refusal as
-        // bulkUpdate).
+        // bulkUpdate). The statusId path rejects duplicate-category rows in
+        // resolveStatusWrite.
         .refine((i) => i.status !== `duplicate`, {
           message: `Duplicate requires a canonical issue — create the issue first, then mark it`,
+        })
+        .refine((i) => i.status === undefined || i.statusId === undefined, {
+          message: `Pass status or statusId, not both`,
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -267,9 +367,11 @@ export const issuesRouter = router({
         })
       }
 
-      const status = input.status ?? `backlog`
+      const statusWrite = await resolveStatusWrite(ctx.db, board.teamId, input)
+      const status = statusWrite.status ?? `backlog`
       // Born-terminal issues get the same completedAt the update path stamps
       // on a transition into done/cancelled — the done group sorts on it.
+      // Anchor-keyed, so a custom completed/cancelled statusId counts too.
       const completedAt =
         status === `done` || status === `cancelled` ? new Date() : null
 
@@ -284,6 +386,9 @@ export const issuesRouter = router({
             teamId: board.teamId,
             title: input.title,
             status,
+            // Omitted for enum/default writes — populate_issue_status_id
+            // derives the team's builtin row.
+            statusId: statusWrite.statusId,
             priority: input.priority ?? `none`,
             assigneeId,
             description: input.description ?? null,
@@ -381,20 +486,34 @@ export const issuesRouter = router({
 
   update: authedProcedure
     .input(
-      z.object({
-        id: z.string().uuid(),
-        title: z.string().min(1).max(500).optional(),
-        status: issueStatusSchema.optional(),
-        priority: issuePrioritySchema.optional(),
-        assigneeId: z.string().nullable().optional(),
-        description: issueDescriptionSchema.nullable().optional(),
-        dueDate: dateOnlySchema.nullable().optional(),
-        // Canonical issue this one duplicates. Kept in lockstep with the
-        // 'duplicate' status inside the transaction below: marking forces
-        // status='duplicate'; unmarking (null) restores backlog; moving to any
-        // other status clears the link.
-        duplicateOfId: z.string().uuid().nullable().optional(),
-      })
+      z
+        .object({
+          id: z.string().uuid(),
+          title: z.string().min(1).max(500).optional(),
+          status: issueStatusSchema.optional(),
+          // EXP-314: a team status row id — the precise-status alternative to
+          // the anchor enum (resolveStatusWrite derives the enum from it).
+          statusId: z.string().uuid().optional(),
+          priority: issuePrioritySchema.optional(),
+          assigneeId: z.string().nullable().optional(),
+          description: issueDescriptionSchema.nullable().optional(),
+          dueDate: dateOnlySchema.nullable().optional(),
+          // Canonical issue this one duplicates. Kept in lockstep with the
+          // 'duplicate' status inside the transaction below: marking forces
+          // status='duplicate'; unmarking (null) restores backlog; moving to
+          // any other status clears the link.
+          duplicateOfId: z.string().uuid().nullable().optional(),
+        })
+        .refine((i) => i.status === undefined || i.statusId === undefined, {
+          message: `Pass status or statusId, not both`,
+        })
+        // Marking a duplicate forces status='duplicate' — a simultaneous
+        // precise statusId would write an inconsistent (status, statusId)
+        // pair the trigger can't heal (both columns explicitly changed).
+        // Unmarking (duplicateOfId: null) MAY combine with statusId.
+        .refine((i) => i.statusId === undefined || i.duplicateOfId == null, {
+          message: `Pass duplicateOfId or statusId, not both`,
+        })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
@@ -419,6 +538,7 @@ export const issuesRouter = router({
           .select({
             description: issues.description,
             status: issues.status,
+            statusId: issues.statusId,
             boardId: issues.boardId,
             title: issues.title,
             priority: issues.priority,
@@ -442,6 +562,16 @@ export const issuesRouter = router({
 
         previousAssigneeId = currentIssue.assigneeId
         const setValues: Record<string, unknown> = { ...updates }
+        // Replace the raw status inputs with the resolved dual-write pair —
+        // a raw statusId must never reach drizzle unvalidated.
+        delete setValues.status
+        delete setValues.statusId
+        const statusWrite = await resolveStatusWrite(
+          tx,
+          issueContext.teamId,
+          updates
+        )
+        Object.assign(setValues, statusWrite)
 
         // A bare status='duplicate' write carries no canonical issue: allow it
         // only as a restatement for an already-linked row, never as a way to
@@ -481,10 +611,16 @@ export const issuesRouter = router({
                 message: `Canonical issue must be in the same team`,
               })
             }
+            // Enum-only write (the statusId refine above forbids combining) —
+            // populate_issue_status_id re-anchors status_id to the team's
+            // duplicate builtin.
             setValues.status = `duplicate`
-          } else if ((updates.status ?? currentIssue.status) === `duplicate`) {
+          } else if (
+            (statusWrite.status ?? currentIssue.status) === `duplicate`
+          ) {
             // Unmarking: 'duplicate' no longer applies. The prior status isn't
-            // stored, so restore the neutral default.
+            // stored, so restore the neutral default (unless this same write
+            // already picked a new status/statusId).
             setValues.status = `backlog`
           }
         }
@@ -575,7 +711,7 @@ export const issuesRouter = router({
             .limit(1)
           return {
             issue: existing!,
-            statusChange: null as { from: string; to: string } | null,
+            statusChange: null as StatusChange | null,
           }
         }
 
@@ -620,6 +756,9 @@ export const issuesRouter = router({
           actorUserId: ctx.session.user.id,
           fromStatus: statusChange.from,
           toStatus: statusChange.to,
+          fromStatusId: statusChange.fromStatusId,
+          toStatusId: statusChange.toStatusId,
+          toName: statusChange.toName,
         })
         // One-way helpdesk: closing a widget-reported issue emails the
         // external reporter once (idempotent via resolvedNotifiedAt).
@@ -813,19 +952,27 @@ export const issuesRouter = router({
         .object({
           ids: z.array(z.string().uuid()).min(1).max(200),
           status: issueStatusSchema.optional(),
+          // EXP-314: a team status row id — the precise-status alternative to
+          // the anchor enum (resolveStatusWrite derives the enum from it).
+          statusId: z.string().uuid().optional(),
           priority: issuePrioritySchema.optional(),
           assigneeId: z.string().nullable().optional(),
         })
         .refine(
           (i) =>
             i.status !== undefined ||
+            i.statusId !== undefined ||
             i.priority !== undefined ||
             i.assigneeId !== undefined,
           { message: `Nothing to update` }
         )
+        .refine((i) => i.status === undefined || i.statusId === undefined, {
+          message: `Pass status or statusId, not both`,
+        })
         // Bulk duplicate-marking has no canonical-issue picker, and
         // status='duplicate' with duplicateOfId=null breaks the pairing
-        // invariant every single-issue path intercepts.
+        // invariant every single-issue path intercepts. The statusId path
+        // rejects duplicate-category rows in resolveStatusWrite.
         .refine((i) => i.status !== `duplicate`, {
           message: `Duplicate requires a canonical issue — mark issues individually`,
         })
@@ -865,7 +1012,7 @@ export const issuesRouter = router({
       }
 
       const patch: Record<string, unknown> = {
-        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(await resolveStatusWrite(ctx.db, teamId, input)),
         ...(input.priority !== undefined ? { priority: input.priority } : {}),
         ...(input.assigneeId !== undefined
           ? { assigneeId: input.assigneeId }
@@ -889,6 +1036,7 @@ export const issuesRouter = router({
           .select({
             id: issues.id,
             status: issues.status,
+            statusId: issues.statusId,
             boardId: issues.boardId,
             title: issues.title,
             priority: issues.priority,
@@ -946,6 +1094,9 @@ export const issuesRouter = router({
               actorUserId: ctx.session.user.id,
               fromStatus: result.statusChange.from,
               toStatus: result.statusChange.to,
+              fromStatusId: result.statusChange.fromStatusId,
+              toStatusId: result.statusChange.toStatusId,
+              toName: result.statusChange.toName,
             })
           }
           fireAndForgetReporterResolution({
@@ -1368,6 +1519,7 @@ export const issuesRouter = router({
           title: issues.title,
           description: issues.description,
           status: issues.status,
+          statusId: issues.statusId,
           priority: issues.priority,
           assigneeId: issues.assigneeId,
           creatorId: issues.creatorId,
@@ -1436,6 +1588,7 @@ export const issuesRouter = router({
           i.title,
           i.board_id as "boardId",
           i.status,
+          i.status_id as "statusId",
           i.priority
         from issues i
         join boards p on p.id = i.board_id
@@ -1473,6 +1626,7 @@ export const issuesRouter = router({
         title: row.title as string,
         boardId: row.boardId as string,
         status: row.status as string,
+        statusId: (row.statusId as string | null) ?? null,
         priority: row.priority as string,
       }))
     }),

@@ -52,6 +52,7 @@ import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shapes/issue-subscribers'
+import { Route as ApiShapesIssueStatusesRouteImport } from './routes/api/shapes/issue-statuses'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
 import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
@@ -311,6 +312,11 @@ const ApiShapesIssueSubscribersRoute =
     path: '/api/shapes/issue-subscribers',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiShapesIssueStatusesRoute = ApiShapesIssueStatusesRouteImport.update({
+  id: '/api/shapes/issue-statuses',
+  path: '/api/shapes/issue-statuses',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesIssueLabelsRoute = ApiShapesIssueLabelsRouteImport.update({
   id: '/api/shapes/issue-labels',
   path: '/api/shapes/issue-labels',
@@ -563,6 +569,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -587,8 +594,8 @@ export interface FileRoutesByFullPath {
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
@@ -643,6 +650,7 @@ export interface FileRoutesByTo {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -667,8 +675,8 @@ export interface FileRoutesByTo {
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
@@ -728,6 +736,7 @@ export interface FileRoutesById {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -752,8 +761,8 @@ export interface FileRoutesById {
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
@@ -813,6 +822,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-statuses'
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -837,8 +847,8 @@ export interface FileRouteTypes {
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
-    | '/api/issues/$issueId/images'
     | '/api/issues/$issueId/files'
+    | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
@@ -893,6 +903,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-statuses'
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -917,8 +928,8 @@ export interface FileRouteTypes {
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
-    | '/api/issues/$issueId/images'
     | '/api/issues/$issueId/files'
+    | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
@@ -977,6 +988,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-statuses'
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -1001,8 +1013,8 @@ export interface FileRouteTypes {
     | '/_authenticated/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
-    | '/api/issues/$issueId/images'
     | '/api/issues/$issueId/files'
+    | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
@@ -1055,6 +1067,7 @@ export interface RootRouteChildren {
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesIssueEventsRoute: typeof ApiShapesIssueEventsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
+  ApiShapesIssueStatusesRoute: typeof ApiShapesIssueStatusesRoute
   ApiShapesIssueSubscribersRoute: typeof ApiShapesIssueSubscribersRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
@@ -1073,8 +1086,8 @@ export interface RootRouteChildren {
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
-  ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
+  ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1378,6 +1391,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/issue-subscribers'
       fullPath: '/api/shapes/issue-subscribers'
       preLoaderRoute: typeof ApiShapesIssueSubscribersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issue-statuses': {
+      id: '/api/shapes/issue-statuses'
+      path: '/api/shapes/issue-statuses'
+      fullPath: '/api/shapes/issue-statuses'
+      preLoaderRoute: typeof ApiShapesIssueStatusesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/issue-labels': {
@@ -1800,6 +1820,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesIssueEventsRoute: ApiShapesIssueEventsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
+  ApiShapesIssueStatusesRoute: ApiShapesIssueStatusesRoute,
   ApiShapesIssueSubscribersRoute: ApiShapesIssueSubscribersRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
@@ -1818,8 +1839,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
-  ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
+  ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

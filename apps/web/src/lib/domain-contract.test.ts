@@ -1,7 +1,15 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { contract } from "@exp/domain-contract"
 import {
   issueStatusValues,
+  issueStatusCategoryValues,
+  issueStatusCategoryDisplayOrder,
+  issueStatusCategorySettingsOrder,
+  ISSUE_STATUS_STARTED_MAX,
+  CATEGORY_ANCHOR,
+  BUILTIN_STATUS_DEFAULTS,
   issuePriorityValues,
   issueSourceValues,
   teamRoleValues,
@@ -37,6 +45,50 @@ describe(`domain-contract parity`, () => {
   it(`issue status values + display order match the contract`, () => {
     expect([...issueStatusValues]).toEqual([...contract.issueStatus.values])
     expect([...issueStatusOrder]).toEqual([...contract.issueStatus.displayOrder])
+  })
+
+  // EXP-314: status categories + the locked builtin defaults.
+  it(`issue status category values + orders + cap match the contract`, () => {
+    expect([...issueStatusCategoryValues]).toEqual([
+      ...contract.issueStatusCategory.values,
+    ])
+    expect([...issueStatusCategoryDisplayOrder]).toEqual([
+      ...contract.issueStatusCategory.displayOrder,
+    ])
+    expect([...issueStatusCategorySettingsOrder]).toEqual([
+      ...contract.issueStatusCategory.settingsOrder,
+    ])
+    expect(ISSUE_STATUS_STARTED_MAX).toBe(
+      contract.issueStatusCategory.startedMax
+    )
+  })
+
+  it(`builtin status defaults match the contract`, () => {
+    expect(BUILTIN_STATUS_DEFAULTS).toEqual([...contract.issueStatusDefaults])
+    // Exactly one default per builtin enum value, and the anchor of every
+    // default's category resolves back into the enum.
+    expect(BUILTIN_STATUS_DEFAULTS.map((d) => d.key)).toEqual([
+      ...issueStatusValues,
+    ])
+    for (const d of BUILTIN_STATUS_DEFAULTS) {
+      expect(issueStatusCategoryValues).toContain(d.category)
+      expect(issueStatusValues).toContain(CATEGORY_ANCHOR[d.category])
+    }
+  })
+
+  // The SQL seed trigger must transcribe the contract defaults verbatim —
+  // it's the only writer of builtin rows for NEW teams, and every client's
+  // fallback set assumes these exact values.
+  it(`the seed trigger's builtin rows mirror the contract defaults`, () => {
+    const triggersSql = readFileSync(
+      join(__dirname, `../db/out/custom/0001_triggers.sql`),
+      `utf8`
+    )
+    for (const d of BUILTIN_STATUS_DEFAULTS) {
+      expect(triggersSql).toContain(
+        `(NEW.id, '${d.category}', '${d.name}', '${d.color}', ${d.sortOrder}, '${d.key}')`
+      )
+    }
   })
 
   it(`issue priority values match the contract`, () => {

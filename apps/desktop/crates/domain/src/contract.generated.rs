@@ -3,6 +3,14 @@
 
 pub const ISSUE_STATUS_VALUES: &[&str] = &["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"];
 pub const ISSUE_STATUS_DISPLAY_ORDER: &[&str] = &["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"];
+pub const ISSUE_STATUS_CATEGORY_VALUES: &[&str] = &["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"];
+pub const ISSUE_STATUS_CATEGORY_DISPLAY_ORDER: &[&str] = &["started", "unstarted", "backlog", "completed", "cancelled", "duplicate"];
+pub const ISSUE_STATUS_CATEGORY_SETTINGS_ORDER: &[&str] = &["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"];
+pub const ISSUE_STATUS_DEFAULT_KEYS: &[&str] = &["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"];
+pub const ISSUE_STATUS_DEFAULT_CATEGORIES: &[&str] = &["backlog", "unstarted", "started", "started", "completed", "cancelled", "duplicate"];
+pub const ISSUE_STATUS_DEFAULT_NAMES: &[&str] = &["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"];
+pub const ISSUE_STATUS_DEFAULT_COLORS: &[&str] = &["#A1A1AA", "#FAFAFA", "#EAB308", "#22C55E", "#3B82F6", "#A1A1AA", "#A1A1AA"];
+pub const ISSUE_STATUS_DEFAULT_SORT_ORDERS: &[i32] = &[1, 1, 1, 2, 1, 1, 1];
 pub const ISSUE_PRIORITY_VALUES: &[&str] = &["none", "urgent", "high", "medium", "low"];
 pub const ISSUE_PRIORITY_DISPLAY_ORDER: &[&str] = &["urgent", "high", "medium", "low", "none"];
 pub const ISSUE_SOURCE_VALUES: &[&str] = &["user", "widget"];
@@ -23,12 +31,19 @@ pub const PI_MODEL_VALUES: &[&str] = &["fable", "opus", "sonnet", "gpt-5.6-sol",
 pub const PI_THINKING_VALUES: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 pub const ACTION_INPUT_TYPE_VALUES: &[&str] = &["text", "repo", "board", "pr", "icon"];
 
+pub const ISSUE_STATUS_STARTED_MAX: usize = 4;
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;
 pub const BUILTIN_CREATE_ACTION_ID: &str = "builtin:create-action";
 pub const BUILTIN_FIX_CONFLICTS_ID: &str = "builtin:fix-conflicts";
 pub const ACTION_INPUTS_MAX: usize = 10;
 pub const ACTION_INPUT_TEXT_MAX: usize = 4096;
 
+pub const ISSUE_STATUS_CATEGORY_BACKLOG: &str = "backlog";
+pub const ISSUE_STATUS_CATEGORY_UNSTARTED: &str = "unstarted";
+pub const ISSUE_STATUS_CATEGORY_STARTED: &str = "started";
+pub const ISSUE_STATUS_CATEGORY_COMPLETED: &str = "completed";
+pub const ISSUE_STATUS_CATEGORY_CANCELLED: &str = "cancelled";
+pub const ISSUE_STATUS_CATEGORY_DUPLICATE: &str = "duplicate";
 pub const ISSUE_SOURCE_USER: &str = "user";
 pub const ISSUE_SOURCE_WIDGET: &str = "widget";
 pub const TEAM_ROLE_OWNER: &str = "owner";

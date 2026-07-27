@@ -373,9 +373,20 @@ export function fireAndForgetStatusChangeNotify(args: {
   actorUserId: string
   fromStatus: string
   toStatus: string
+  // EXP-314: the precise status-row pair + display-name snapshot. The ids
+  // keep a custom→custom move within one category (same anchor enum) from
+  // being suppressed as a no-op; toName carries the custom status's name
+  // into the copy.
+  fromStatusId?: string | null
+  toStatusId?: string | null
+  toName?: string | null
 }): void {
   const { issueId, actorUserId, fromStatus, toStatus } = args
-  if (fromStatus === toStatus) return
+  if (
+    fromStatus === toStatus &&
+    (args.fromStatusId ?? null) === (args.toStatusId ?? null)
+  )
+    return
 
   void (async () => {
     try {
@@ -390,7 +401,7 @@ export function fireAndForgetStatusChangeNotify(args: {
         recipientIds: recipients,
         type: `issue_status_changed`,
         pushType: `issue_status_changed`,
-        title: `${name} changed ${issue.identifier} to ${toStatus.replace(/_/g, ` `)}`,
+        title: `${name} changed ${issue.identifier} to ${args.toName ?? toStatus.replace(/_/g, ` `)}`,
         body: issue.title,
       })
     } catch (err) {
