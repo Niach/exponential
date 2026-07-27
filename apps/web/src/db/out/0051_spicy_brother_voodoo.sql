@@ -1,0 +1,1 @@
+ALTER TABLE "github_installations" ADD COLUMN "suspended_at" timestamp with time zone;

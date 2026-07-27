@@ -80,6 +80,10 @@ interface ResolvedInstallation {
   installationId: number
   accountLogin: string | null
   accountType: string | null
+  // Non-null while GitHub has the installation SUSPENDED (REV2-29). The link
+  // survives a suspension — only `installation.deleted` drops it — so this is
+  // the health signal every surface reads, never the claim itself.
+  suspendedAt: Date | null
 }
 
 // The installations a team may browse/connect: exactly its claimed links.
@@ -94,6 +98,7 @@ async function resolveTeamInstallations(
       installationId: githubInstallations.installationId,
       accountLogin: githubInstallations.accountLogin,
       accountType: githubInstallations.accountType,
+      suspendedAt: githubInstallations.suspendedAt,
     })
     .from(githubInstallationLinks)
     .innerJoin(
@@ -210,6 +215,58 @@ export async function invalidateRepoCacheForInstallation(
   for (const row of linked) invalidateRepoCache(row.teamId)
 }
 
+// --- Suspension (REV2-29) ---------------------------------------------------
+// GitHub suspension is reversible and the claim links now survive it, so a
+// suspended installation is INERT (no discovery, no connect) but recoverable:
+// the `unsuspend` webhook clears `suspended_at` and everything resumes. The one
+// way that could get stuck is a missed/failed `unsuspend` delivery — which
+// would leave a perfectly healthy installation inert forever — so every read of
+// a suspended installation probes GitHub at most once a minute and clears the
+// mark itself when the probe succeeds. Minting an installation token IS the
+// definitive test: GitHub 403s a suspended installation ("This installation has
+// been suspended"), and `listAllInstallationRepos` mints one. Bounded by
+// construction: healthy installations never probe.
+const SUSPEND_PROBE_TTL_MS = 60_000
+const suspendProbedAt = new Map<number, number>()
+
+async function healSuspendedInstallations(
+  installs: ResolvedInstallation[]
+): Promise<ResolvedInstallation[]> {
+  const suspended = installs.filter((i) => i.suspendedAt != null)
+  if (suspended.length === 0) return installs
+  const now = Date.now()
+  const cleared = new Set<number>()
+  await Promise.all(
+    suspended.map(async (inst) => {
+      const lastProbe = suspendProbedAt.get(inst.installationId) ?? 0
+      if (now - lastProbe < SUSPEND_PROBE_TTL_MS) return
+      suspendProbedAt.set(inst.installationId, now)
+      try {
+        await listAllInstallationRepos(inst.installationId, { maxPages: 1 })
+        await db
+          .update(githubInstallations)
+          .set({ suspendedAt: null })
+          .where(eq(githubInstallations.installationId, inst.installationId))
+        cleared.add(inst.installationId)
+      } catch {
+        // Still suspended (or GitHub/the heal write hiccuped) — keep the mark.
+      }
+    })
+  )
+  if (cleared.size === 0) return installs
+  return installs.map((inst) =>
+    cleared.has(inst.installationId) ? { ...inst, suspendedAt: null } : inst
+  )
+}
+
+// The suspended installations' account labels, for actionable error copy.
+function suspendedLabel(installs: ResolvedInstallation[]): string {
+  const logins = installs
+    .filter((i) => i.suspendedAt != null)
+    .map((i) => i.accountLogin ?? `installation ${i.installationId}`)
+  return logins.join(`, `)
+}
+
 // Connect-path authorization: connecting a repo (repositories.add /
 // boards.create inline) must resolve to an installation LINKED to the target
 // team — the App JWT itself can reach every installation of the App, so
@@ -223,23 +280,39 @@ export async function invalidateRepoCacheForInstallation(
 // user-scoped grant for this exact repo (assertRepoGrant) — the link alone is
 // installation-granular, and a single-repo collaborator must not connect the
 // rest of the account's repos.
+// A SUSPENDED installation is refused with its own actionable message
+// (REV2-29): it can't mint a token, so connecting through it would register a
+// repo row that fails at the first clone with a misleading "reconnect" error.
 export async function assertRepoInstallationAccess(
   teamId: string,
   fullName: string
 ): Promise<number> {
-  const installs = await resolveTeamInstallations(teamId)
-  if (installs.length === 0) {
+  const linked = await resolveTeamInstallations(teamId)
+  if (linked.length === 0) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
       message: `No GitHub account is connected to this team. Connect one in team settings → Repositories, then try again.`,
     })
   }
+  const healed = await healSuspendedInstallations(linked)
+  const installs = healed.filter((i) => i.suspendedAt == null)
+  if (installs.length === 0) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `GitHub suspended the Exponential app for ${suspendedLabel(healed)}. Unsuspend it on GitHub (team settings → Repositories → Manage), then try again.`,
+    })
+  }
   const repoInstallationId = await installationIdForRepo(fullName)
   if (repoInstallationId != null) {
     if (!installs.some((i) => i.installationId === repoInstallationId)) {
+      const suspendedMatch = healed.find(
+        (i) => i.installationId === repoInstallationId && i.suspendedAt != null
+      )
       throw new TRPCError({
-        code: `FORBIDDEN`,
-        message: `${fullName} belongs to a GitHub App installation that isn't connected to this team. Connect that GitHub account in team settings → Repositories first.`,
+        code: suspendedMatch ? `PRECONDITION_FAILED` : `FORBIDDEN`,
+        message: suspendedMatch
+          ? `GitHub suspended the Exponential app for ${suspendedMatch.accountLogin ?? `installation ${suspendedMatch.installationId}`}, which owns ${fullName}. Unsuspend it on GitHub (team settings → Repositories → Manage), then try again.`
+          : `${fullName} belongs to a GitHub App installation that isn't connected to this team. Connect that GitHub account in team settings → Repositories first.`,
       })
     }
     // The link alone is installation-granular; the grant (captured user-scoped
@@ -272,6 +345,11 @@ export async function assertRepoInstallationAccess(
 // Token-mint gate: is this installation claimed by the repo's team?
 // (repositories.installationToken re-checks the link at mint time so a repo
 // row can't keep minting through an installation the team disconnected.)
+// Deliberately a PURE claim check — `suspended_at` is NOT consulted (REV2-29).
+// Suspension is a health state, not a revoked claim: GitHub itself refuses to
+// mint for a suspended installation, so folding it in here would only swap that
+// honest failure for this gate's "reconnect the account" copy and send owners
+// through a connect flow that cannot fix a suspension.
 export async function isInstallationLinkedToTeam(
   teamId: string,
   installationId: number
@@ -299,6 +377,11 @@ function installationSummary(inst: ResolvedInstallation) {
     accountLogin: inst.accountLogin,
     accountType: inst.accountType,
     manageUrl: installationManageUrl(inst),
+    // REV2-29: GitHub has this installation suspended — the claim link is
+    // intact (it survives suspension) but nothing can mint a token through it.
+    // Every client surfaces this instead of rendering the account/repos as
+    // healthy while the launcher's token mint fails.
+    suspended: inst.suspendedAt != null,
   }
 }
 
@@ -326,7 +409,12 @@ export const integrationsRouter = router({
             >,
           }
         }
-        const installs = await resolveTeamInstallations(teamId)
+        // Suspended links are probed (and self-healed) here too — this is the
+        // settings section's only data source, so a stale mark would strand the
+        // whole GitHub surface behind a suspension banner (REV2-29).
+        const installs = await healSuspendedInstallations(
+          await resolveTeamInstallations(teamId)
+        )
         // Additive UX signal: a linked installation with ZERO grants for this
         // team (e.g. linked before grants existed) yields no repos and
         // refuses connects until a member re-runs the OAuth connect flow —
@@ -397,7 +485,13 @@ export const integrationsRouter = router({
           }
         }
 
-        const installs = await resolveTeamInstallations(teamId)
+        // Probe-heal first (REV2-29) so a stale suspension mark can't hide a
+        // healthy account's repos: `installed` still counts the LINK, but a
+        // still-suspended installation contributes no connectable repos —
+        // connecting through it would register a repo row that can't clone.
+        const installs = await healSuspendedInstallations(
+          await resolveTeamInstallations(teamId)
+        )
         const urls = {
           installUrl: installUrlFor(userId, teamId, { mobile }),
           connectUrl: connectUrlFor(userId, teamId, { mobile }),
@@ -441,6 +535,13 @@ export const integrationsRouter = router({
         const withMeta: Array<
           ResolvedInstallation & { hasMore: boolean; needsReauth: boolean }
         > = []
+        // Suspended installations stay in `installations` (the UI needs to
+        // explain the suspension) but contribute zero repos on either path.
+        const activeIds = new Set(
+          installs
+            .filter((i) => i.suspendedAt == null)
+            .map((i) => i.installationId)
+        )
         if (githubOAuthConfigured()) {
           // Grant path (OAuth configured): the pickers list exactly the repos
           // some member proved USER-SCOPED access to at OAuth time — never the
@@ -450,10 +551,7 @@ export const integrationsRouter = router({
           // hasMore is always false here; re-running the connect flow is the
           // refresh. A linked installation with no grants at all needs exactly
           // that — surfaced as `needsReauth`.
-          const grants = await teamGrantRows(
-            teamId,
-            installs.map((i) => i.installationId)
-          )
+          const grants = await teamGrantRows(teamId, [...activeIds])
           const grantedIds = new Set(grants.map((g) => g.installationId))
           for (const grant of grants) {
             if (seen.has(grant.fullName)) continue
@@ -469,7 +567,11 @@ export const integrationsRouter = router({
             withMeta.push({
               ...inst,
               hasMore: false,
-              needsReauth: !grantedIds.has(inst.installationId),
+              // A suspended installation needs an UNSUSPEND on GitHub, not a
+              // re-auth — never nudge for the wrong fix.
+              needsReauth:
+                inst.suspendedAt == null &&
+                !grantedIds.has(inst.installationId),
             })
           }
         } else {
@@ -477,19 +579,24 @@ export const integrationsRouter = router({
           // single-tenant self-host) — keep the installation-wide listing.
           for (const inst of installs) {
             let instHasMore = false
-            try {
-              const { repos, hasMore: more } = await listAllInstallationRepos(
-                inst.installationId
-              )
-              instHasMore = more
-              if (more) hasMore = true
-              for (const repo of repos) {
-                if (seen.has(repo.fullName)) continue
-                seen.add(repo.fullName)
-                merged.push(repo)
+            // A suspended installation can't mint the token this listing needs
+            // — skip the guaranteed-failing round-trip.
+            if (activeIds.has(inst.installationId)) {
+              try {
+                const { repos, hasMore: more } = await listAllInstallationRepos(
+                  inst.installationId
+                )
+                instHasMore = more
+                if (more) hasMore = true
+                for (const repo of repos) {
+                  if (seen.has(repo.fullName)) continue
+                  seen.add(repo.fullName)
+                  merged.push(repo)
+                }
+              } catch {
+                // A single revoked/404 installation must not fail the whole
+                // list.
               }
-            } catch {
-              // A single revoked/404 installation must not fail the whole list.
             }
             withMeta.push({ ...inst, hasMore: instHasMore, needsReauth: false })
           }

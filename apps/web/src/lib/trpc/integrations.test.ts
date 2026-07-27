@@ -15,6 +15,9 @@ function nextRows(): unknown[] {
 
 const inserted: Record<string, unknown>[] = []
 const deletes: number[] = []
+// Every `db.update(...).set(...)` payload — the suspension probe's self-heal
+// write is the only updater in this router.
+const updates: Record<string, unknown>[] = []
 
 vi.mock(`@/db/connection`, () => ({
   db: {
@@ -49,6 +52,14 @@ vi.mock(`@/db/connection`, () => ({
       }
       return chain
     },
+    update: () => ({
+      set: (v: Record<string, unknown>) => ({
+        where: () => {
+          updates.push(v)
+          return Promise.resolve()
+        },
+      }),
+    }),
     delete: () => ({
       where: () => {
         deletes.push(1)
@@ -155,6 +166,7 @@ beforeEach(() => {
   selectQueue.length = 0
   inserted.length = 0
   deletes.length = 0
+  updates.length = 0
   installUrlStates.length = 0
   connectUrlStates.length = 0
 })
@@ -419,5 +431,101 @@ describe(`integrations.github.unlink`, () => {
       })
     ).rejects.toThrow(/dogfood GitHub connection is protected/)
     expect(deletes).toHaveLength(0)
+  })
+})
+
+// REV2-29: a GitHub suspension no longer destroys the team's claim link — the
+// `suspend` webhook marks `github_installations.suspended_at` instead. The
+// router turns that mark into an INERT-but-recoverable installation: it lists
+// no connectable repos, refuses connects with an unsuspend-shaped message, and
+// stays visible so the settings UI can explain itself. A missed `unsuspend`
+// delivery self-heals — any read probes GitHub (minting an installation token
+// is the definitive suspension test) and clears the mark on success.
+describe(`suspended installations (REV2-29)`, () => {
+  function suspendedRow(installationId: number) {
+    return {
+      installationId,
+      accountLogin: `acme`,
+      accountType: `User`,
+      suspendedAt: new Date(`2026-07-20T00:00:00Z`),
+    }
+  }
+
+  it(`lists no repos and reports suspended when the probe still fails`, async () => {
+    const teamId = freshTeamId()
+    selectQueue.push([suspendedRow(900)])
+    listAllInstallationRepos.mockRejectedValueOnce(
+      new Error(`This installation has been suspended`)
+    )
+
+    const result = await callerFor(`user-susp`).github.repos({ teamId })
+
+    expect(result.installed).toBe(true)
+    expect(result.repos).toEqual([])
+    expect(result.installations[0]).toMatchObject({
+      installationId: 900,
+      suspended: true,
+      // An unsuspend is the fix — never nudge the user into a re-auth.
+      needsReauth: false,
+    })
+    // Only the probe hit GitHub; the guaranteed-failing repo listing is skipped.
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`self-heals the mark when the probe succeeds (missed unsuspend webhook)`, async () => {
+    const teamId = freshTeamId()
+    selectQueue.push([suspendedRow(901)])
+
+    // The default listAllInstallationRepos mock resolves → GitHub says the
+    // installation is fine → the mark is cleared and the repos list normally.
+    const result = await callerFor(`user-heal`).github.repos({ teamId })
+
+    expect(updates).toEqual([{ suspendedAt: null }])
+    expect(result.installations[0]).toMatchObject({
+      installationId: 901,
+      suspended: false,
+    })
+    expect(result.repos.map((r) => r.fullName)).toEqual([`acme/repo`])
+  })
+
+  it(`surfaces the suspension on github.status (the settings section's source)`, async () => {
+    const teamId = freshTeamId()
+    selectQueue.push([suspendedRow(902)])
+    listAllInstallationRepos.mockRejectedValueOnce(new Error(`suspended`))
+
+    const result = await callerFor(`user-status`).github.status({ teamId })
+
+    // Still "installed" — the claim survives a suspension — but flagged, so the
+    // UI can't render repos as healthy while every token mint fails.
+    expect(result.installed).toBe(true)
+    expect(result.installations[0]).toMatchObject({
+      installationId: 902,
+      suspended: true,
+    })
+  })
+
+  it(`refuses a connect through a suspended installation with an unsuspend message`, async () => {
+    selectQueue.push([suspendedRow(903)])
+    listAllInstallationRepos.mockRejectedValueOnce(new Error(`suspended`))
+
+    await expect(
+      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
+    ).rejects.toThrow(/GitHub suspended the Exponential app for acme/)
+    // Refused before any per-repo resolution — nothing to resolve through.
+    expect(installationIdForRepo).not.toHaveBeenCalled()
+  })
+
+  it(`names the suspended owner when another installation is still healthy`, async () => {
+    selectQueue.push([
+      { installationId: 1, accountLogin: `other`, accountType: `User`, suspendedAt: null },
+      suspendedRow(904),
+    ])
+    listAllInstallationRepos.mockRejectedValueOnce(new Error(`suspended`))
+    installationIdForRepo.mockResolvedValueOnce(904)
+
+    await expect(
+      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
+    ).rejects.toThrow(/suspended the Exponential app for acme, which owns acme\/repo/)
   })
 })

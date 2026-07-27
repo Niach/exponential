@@ -620,6 +620,18 @@ export const githubInstallations = pgTable(`github_installations`, {
     .unique(),
   accountLogin: text(`account_login`),
   accountType: varchar(`account_type`, { length: 20 }),
+  // GitHub-side SUSPENSION marker (REV2-29). Suspension is REVERSIBLE — GitHub
+  // keeps the installation, just refuses to mint tokens for it — so the
+  // `suspend` webhook marks this column instead of deleting the row. Deleting
+  // it CASCADE-dropped every team's claim link, and `unsuspend` re-inserted a
+  // row with a FRESH uuid PK, so the links (which reference that uuid) were
+  // unrecoverable by construction: a suspend→unsuspend cycle silently cost
+  // every claiming team its coding/PR/token features until an owner re-ran the
+  // connect flow by hand. Row deletion is now reserved for the terminal
+  // `deleted` action. A marked installation is inert but recoverable —
+  // discovery/connect refuse it, `unsuspend` (or the probe heal in
+  // lib/trpc/integrations.ts) clears the mark and everything resumes.
+  suspendedAt: timestamp(`suspended_at`, { withTimezone: true }),
   ...timestamps,
 })
 
@@ -628,8 +640,11 @@ export const githubInstallations = pgTable(`github_installations`, {
 // Created by the OAuth claim flow (or the install-page round-trip fallback) —
 // both prove control of the GitHub account before linking. Many-to-many: one
 // org install can serve several teams, one team can link several
-// GitHub accounts. CASCADE on the installation FK: when an uninstall webhook
-// deletes the github_installations row, its links vanish with it.
+// GitHub accounts. CASCADE on the installation FK: when the UNINSTALL webhook
+// (`installation.deleted` — the only terminal action) deletes the
+// github_installations row, its links vanish with it. A mere `suspend` must
+// never take this path (REV2-29): it marks `suspended_at` instead, so an
+// `unsuspend` restores every claim without a manual reconnect.
 export const githubInstallationLinks = pgTable(
   `github_installation_links`,
   {

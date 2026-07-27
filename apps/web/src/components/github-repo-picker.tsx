@@ -27,9 +27,14 @@ type ReposResult = {
   repos: PickerRepo[]
   hasMore: boolean
   // A linked GitHub account whose user-scoped repo grants haven't been captured
-  // yet (or need refreshing). `needsReauth` is optional so the not-configured
-  // return branches (which omit it) stay assignable.
-  installations?: Array<{ needsReauth?: boolean }>
+  // yet (or need refreshing), and whether GitHub has the installation suspended
+  // (REV2-29 — it lists no repos until it's unsuspended). Both optional so the
+  // not-configured return branches (which omit them) stay assignable.
+  installations?: Array<{
+    needsReauth?: boolean
+    suspended?: boolean
+    accountLogin?: string | null
+  }>
 }
 
 // Repo-first connect surface shared by team settings → Repositories, the
@@ -162,10 +167,28 @@ export function GithubRepoPicker({
   // created or shared AFTER the last connect won't appear until "Refresh from
   // GitHub" (a re-auth) re-captures the set. `needsReauth` flags a linked
   // account whose grants haven't been captured at all.
-  const needsReauth = (data.installations ?? []).some((i) => i.needsReauth)
+  const suspendedAccounts = (data.installations ?? [])
+    .filter((i) => i.suspended)
+    .map((i) => i.accountLogin || `a connected account`)
+  const needsReauth = (data.installations ?? []).some(
+    (i) => i.needsReauth && !i.suspended
+  )
   const empty = data.repos.length === 0
   return (
     <div className="space-y-2">
+      {/* Suspended installations list no repos at all — say why, or the empty
+          state reads as "you have no repositories" (REV2-29). */}
+      {suspendedAccounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <Github className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            GitHub suspended the Exponential app for{` `}
+            {suspendedAccounts.join(`, `)} — its repositories can’t be
+            connected until you unsuspend it on GitHub.
+          </span>
+        </div>
+      )}
+
       {needsReauth && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">
           <Github className="h-4 w-4 shrink-0" />
@@ -205,7 +228,7 @@ export function GithubRepoPicker({
         </Command>
       )}
 
-      {empty && !needsReauth && (
+      {empty && !needsReauth && suspendedAccounts.length === 0 && (
         <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
           No repositories found for your connected GitHub accounts.
         </div>
