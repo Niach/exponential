@@ -495,6 +495,10 @@ pub(crate) fn open_dialog_window(
                 root
             })
         });
+        // EXP-303: give the new Blurred window a working frosted backdrop
+        // (gpui's own BlurredView renders none on current macOS).
+        #[cfg(target_os = "macos")]
+        crate::macos_blur::ensure_window_blur();
         // Drop the in-flight marker either way: on success `DialogShell::new`
         // has already registered the real row (the build closure runs
         // synchronously), on failure nothing may stay latched.

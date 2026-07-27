@@ -168,12 +168,13 @@ impl Render for AppTitleBar {
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .when(rail, |bar| {
-                let pl = if cfg!(target_os = "macos") && !window.is_fullscreen() && !expanded {
-                    px(80. - crate::sidebar::RAIL_W)
-                } else {
-                    px(8.)
-                };
-                bar.pl(pl)
+                // EXP-303: with the rail present the vendored 80px macOS
+                // traffic-light reserve is wrong in every state — expanded,
+                // the rail (164px) clears the cluster; collapsed, the Shell
+                // renders the sidebar-material tongue segment LEFT of this
+                // bar (`shell::traffic_tongue`), which consumes the reserve.
+                // Either way the bar itself only needs its normal inset.
+                bar.pl(px(8.))
             });
 
         // Collapsed rail: the 44px strip can't host the expand toggle (the

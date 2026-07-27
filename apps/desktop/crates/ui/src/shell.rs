@@ -79,6 +79,116 @@ const SIDEBAR_WIDTH: Pixels = px(crate::sidebar::DEFAULT_DOCK_WIDTH);
 /// Default (closed) terminal-dock height when first opened.
 const TERMINAL_DOCK_HEIGHT: Pixels = px(240.);
 
+/// EXP-303: width of the traffic-light tongue — the sidebar glass extended
+/// into the titlebar strip under the rest of the macOS traffic-light cluster
+/// when the rail is collapsed (the rail is 44px, the cluster ends ~68px, so
+/// 44 + 34 = 78 leaves a small margin after the green light — the review
+/// asked for minimal right padding).
+const TRAFFIC_TONGUE_W: f32 = 34.;
+
+/// The tongue element: TRUE sidebar material — a flat sample of the sidebar
+/// ramp's top stop plus the rail's `FILL_SECTION` wash — with a CONVEX
+/// rounded bottom-right corner, so the glass reads as curving around the
+/// lights.
+///
+/// The corner is the hard part: with translucent materials every region must
+/// be painted by exactly one material (stacked glass composites near-opaque
+/// and reads as a different color — the review caught every variant of
+/// this), and the piece OUTSIDE the tongue's convex curve is CONCAVE, which
+/// gpui quads cannot draw (corner radii also clamp to half the quad's min
+/// dimension, so an r×r quad can't even round by r). So the notch is painted
+/// as a PATH via `canvas`: the content hue at a COMPENSATED alpha, chosen so
+/// that composited over the tongue base it lands exactly on the strip's own
+/// content alpha. The base under the notch is the continuous tongue, so the
+/// path's single antialiased arc edge blends tongue↔content with no seam.
+/// The quarter-arc is two quadratic beziers (tangent intersections at
+/// 0°/45°/90°; max deviation ~0.15px at r=10).
+///
+/// Flat top-stop samples everywhere: the strip is ~34px at the very top of
+/// the window, where both ramps' drift is invisible.
+fn traffic_tongue() -> impl IntoElement {
+    let radius = px(10.);
+    let sidebar_top = theme::sidebar_background_gradient_stops().0;
+    let wash = theme::tokens::glass::FILL_SECTION.to_hsla();
+    let content_top = theme::background_gradient_stops().0;
+    // Alpha of the tongue base (wash over ramp top), then the overlay alpha
+    // that composites it up to the content strip's alpha: from
+    // `out = over + under·(1 - over)`. Guarded for the (macOS-only in
+    // practice) fully-opaque case.
+    let under = wash.a + sidebar_top.a * (1. - wash.a);
+    let over = if under >= 1. {
+        1.
+    } else {
+        ((content_top.a - under) / (1. - under)).clamp(0., 1.)
+    };
+    let notch_fill = content_top.opacity(over);
+    div()
+        .w(px(TRAFFIC_TONGUE_W))
+        // Explicit height is load-bearing: the strip row is an `h_flex`
+        // (items-center), and this div's children are all ABSOLUTE — without
+        // a definite height it collapses to 0px and paints nothing (the
+        // tongue region showed the raw window backdrop). 34px = the vendored
+        // TitleBar strip height.
+        .h(px(34.))
+        .flex_shrink_0()
+        .relative()
+        .bg(sidebar_top)
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left_0()
+                .right_0()
+                .bg(wash),
+        )
+        .child(
+            gpui::canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| {
+                    let r = bounds.size.width.min(bounds.size.height);
+                    let o = bounds.origin;
+                    let at = |x: f32, y: f32| gpui::point(o.x + r * x, o.y + r * y);
+                    // Notch: from the arc's top end, along the tongue's convex
+                    // arc to its left end, then out to the corner and close —
+                    // the region between the curve and the strip. Built with
+                    // the lyon-backed PathBuilder: the raw scene Path fans its
+                    // fill triangles from the start vertex and rendered this
+                    // concave shape as a straight-edged triangle.
+                    let mut builder = gpui::PathBuilder::fill();
+                    builder.move_to(at(1., 0.));
+                    builder.arc_to(gpui::point(r, r), px(0.), false, true, at(0., 1.));
+                    builder.line_to(at(1., 1.));
+                    builder.close();
+                    if let Ok(path) = builder.build() {
+                        window.paint_path(path, notch_fill);
+                    }
+                },
+            )
+            .absolute()
+            .right_0()
+            .bottom_0()
+            .w(radius)
+            .h(radius),
+        )
+        .child(
+            // EXP-303: the strip's bottom hairline (the TitleBar's
+            // `border_b`, same STROKE_ROW token) continues through the notch
+            // until it meets the curve — without this it stopped at the
+            // strip's left edge and left a small gap beside the corner. Not
+            // the full notch width: within the hairline's 1px bottom band the
+            // arc sits ~3-4px in from the notch's left edge (x = √(2r−1) from
+            // the tongue side), so a full-width line overshot into the glass.
+            div()
+                .absolute()
+                .right_0()
+                .bottom_0()
+                .w(px(7.))
+                .h(px(1.))
+                .bg(theme::tokens::glass::STROKE_ROW.to_hsla()),
+        )
+}
+
 /// Debounce for persisting layout changes (`DockEvent::LayoutChanged` fires on
 /// every drag tick).
 const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
@@ -145,6 +255,13 @@ impl Shell {
         // navigation.
         let update_state = UpdateState::global(cx);
         cx.observe(&update_state, |_, _, cx| cx.notify()).detach();
+
+        // EXP-303: the traffic-light tongue follows the rail's expanded
+        // state — the Shell renders the tongue segment itself now, so it
+        // must re-render when the toggle flips (the rail and titlebar
+        // observe this entity on their own).
+        let rail_shared = crate::sidebar::rail_shared_for_window(window, cx);
+        cx.observe(&rail_shared, |_, _, cx| cx.notify()).detach();
         shared.update(cx, |state, cx| {
             state.windows_open += 1;
             cx.notify();
@@ -539,37 +656,93 @@ impl Render for Shell {
             SessionPhase::Synced { .. } => h_flex()
                 .size_full()
                 .min_h_0()
-                .child(self.rail.clone())
+                .child(
+                    // EXP-303: the rail column paints its OWN sidebar-alpha
+                    // ramp; the rail's white wash sits on top (a solid quad
+                    // over one gradient — the combination that provably
+                    // composites). Same look as EXP-293's rail, different
+                    // layering: the Shell root no longer paints a full-window
+                    // base ramp, because a second translucent GRADIENT stacked
+                    // on it never composited to the intended alpha — the
+                    // content read fully opaque at any top-up value (the
+                    // EXP-293 "not verified visually" gap).
+                    div()
+                        .h_full()
+                        .flex_shrink_0()
+                        .bg(theme::sidebar_background_gradient())
+                        // EXP-269 corners, left half — the ramp runs flush
+                        // into the window's left edge (the rail rounds its
+                        // wash the same way).
+                        .rounded_tl(crate::window_frame::frame_radii(window).top_left)
+                        .rounded_bl(crate::window_frame::frame_radii(window).bottom_left)
+                        .child(self.rail.clone()),
+                )
                 .child(
                     v_flex()
                         .flex_1()
                         .min_w_0()
                         .h_full()
-                        // EXP-293 glass swap: the root below paints the SIDEBAR
-                        // ramp (the app's most transparent region — the rail
-                        // sits on it bare), and this column tops it up to
-                        // `theme::glass_content_alpha()` so everything right of
-                        // the rail — list, tabs, detail sidebar, terminal dock —
-                        // reads as the near-solid surface. Same stops as the
-                        // base and the same y span (full window height), so the
-                        // two ramps align exactly and only alpha adds up.
-                        .bg(theme::content_topup_gradient())
-                        // EXP-269 corners, right half: this layer paints to the
-                        // window's right edge, and gpui's content mask is
-                        // rectangular, so it must round with the frame itself
-                        // (the rail does the same for the two LEFT corners).
-                        .rounded_tr(crate::window_frame::frame_radii(window).top_right)
-                        .rounded_br(crate::window_frame::frame_radii(window).bottom_right)
-                        .when(client_chrome, |col| col.child(self.title_bar.clone()))
-                        .children(self.render_update_banner(cx))
-                        .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
+                        // EXP-303: the titlebar strip and the body below paint
+                        // their own single-layer content material (never
+                        // stacked gradients), so the traffic-light tongue can
+                        // be carved OUT of the strip: the tongue must be the
+                        // TRUE sidebar material, not wash stacked over the
+                        // content gradient — stacked glass passes less
+                        // backdrop and reads as a different color than the
+                        // rail (the review caught exactly that).
+                        .when(client_chrome, |col| {
+                            let tongue = cfg!(target_os = "macos")
+                                && !window.is_fullscreen()
+                                && !crate::sidebar::rail_expanded(window, cx);
+                            col.child(
+                                h_flex()
+                                    .flex_shrink_0()
+                                    .when(tongue, |row| row.child(traffic_tongue()))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            // Flat sample of the content
+                                            // ramp's top stop — the strip is
+                                            // ~34px at the very top of the
+                                            // window, where the ramp's drift
+                                            // is invisible.
+                                            .bg(theme::background_gradient_stops().0)
+                                            // EXP-269 corners, top-right: this
+                                            // segment reaches the window's
+                                            // right edge (rectangular content
+                                            // mask — must round itself).
+                                            .rounded_tr(
+                                                crate::window_frame::frame_radii(window).top_right,
+                                            )
+                                            .child(self.title_bar.clone()),
+                                    ),
+                            )
+                        })
+                        .child(
+                            // EXP-303: the content body paints ONE gradient at
+                            // `theme::glass_content_alpha()` — the EXP-290
+                            // single-layer mechanism that demonstrably frosted
+                            // the main content. The banner, list, tabs, detail
+                            // sidebar and terminal dock all sit bare on it.
+                            v_flex()
+                                .flex_1()
+                                .min_h_0()
+                                .bg(theme::background_gradient())
+                                // EXP-269 corners, bottom-right (see above).
+                                .rounded_br(
+                                    crate::window_frame::frame_radii(window).bottom_right,
+                                )
+                                .children(self.render_update_banner(cx))
+                                .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
+                        ),
                 )
                 .into_any_element(),
-            // No rail here, so the whole window is content: top the sidebar
-            // base up on all four corners (EXP-293).
+            // No rail here, so the whole window is content: one content-alpha
+            // gradient on all four corners (EXP-303 single-layer rule).
             _ => crate::window_frame::round_to_frame(v_flex(), window)
                 .size_full()
-                .bg(theme::content_topup_gradient())
+                .bg(theme::background_gradient())
                 .when(client_chrome, |body| body.child(self.title_bar.clone()))
                 .children(self.render_update_banner(cx))
                 .child(div().flex_1().min_h_0().child(self.login.clone()))
@@ -597,14 +770,13 @@ impl Render for Shell {
                 // (`window_frame::frame_radii`).
                 crate::window_frame::round_to_frame(div(), window)
                     .size_full()
-                    // EXP-269: the glass page gradient — every panel above it
-                    // is transparent or a white-alpha fill so the ramp shows
-                    // through. EXP-293: the Shell paints the SIDEBAR ramp as
-                    // its base (the rail's alpha) because alpha compositing can
-                    // only ADD opacity — the most transparent region has to be
-                    // the bottom layer, and the content column above tops it up
-                    // (`theme::content_topup_gradient`).
-                    .bg(theme::sidebar_background_gradient())
+                    // EXP-303: the root paints NO page gradient — each region
+                    // (rail column / content column, see `body` above) paints
+                    // its own single-layer ramp at its own alpha. Stacking a
+                    // second translucent gradient over a full-window base never
+                    // composited to the intended alpha (the content stayed
+                    // opaque at any top-up value), so the base+top-up layering
+                    // EXP-293 introduced is gone.
                     .text_color(cx.theme().foreground)
                     .child(body)
                     .children(sheet_layer)

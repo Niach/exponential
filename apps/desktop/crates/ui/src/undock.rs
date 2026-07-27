@@ -278,6 +278,10 @@ pub(crate) fn open_undocked_screen(screen: Screen, origin: AnyWindowHandle, cx: 
             // the dialog/notification overlay layers issue detail relies on.
             cx.new(|cx| undocked_root(view, window, cx))
         })?;
+        // EXP-303: give the new Blurred window a working frosted backdrop
+        // (gpui's own BlurredView renders none on current macOS).
+        #[cfg(target_os = "macos")]
+        crate::macos_blur::ensure_window_blur();
         let _ = origin_id;
         window.update(cx, |_, window, cx| {
             window.set_window_title(&title);
@@ -489,6 +493,9 @@ pub(crate) fn open_undocked_terminal_tab(
             });
             cx.new(|cx| undocked_root(view, window, cx))
         })?;
+        // EXP-303: working frosted backdrop (see the sibling call above).
+        #[cfg(target_os = "macos")]
+        crate::macos_blur::ensure_window_blur();
         window.update(cx, |_, window, cx| {
             window.set_window_title(&title);
             window.activate_window();
