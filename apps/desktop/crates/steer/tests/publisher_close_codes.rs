@@ -128,7 +128,6 @@ fn idle_close_4001_reconnects_and_never_fires_the_kill_hook() {
         PublisherHooks {
             write_input: Arc::new(|_| {}),
             kill: Arc::new(move |signal| kills_in_hook.lock().unwrap().push(signal)),
-            presence: Arc::new(|_| {}),
             error: Arc::new(|_| {}),
             answers: None,
         },

@@ -1,7 +1,7 @@
 //! EXP-72 manual e2e harness: boots the REAL steer relay (bun), publishes a
 //! REAL PTY child through the production publisher, then steers it over a
-//! viewer WebSocket with the exact Android frame sequence — steal-claim,
-//! message text, immediate bare `\r` — and prints what the CHILD actually
+//! viewer WebSocket with the exact Android frame sequence — message text,
+//! immediate bare `\r` — and prints what the CHILD actually
 //! received on stdin (`cat -v` renders control bytes visibly: `^[` = ESC,
 //! `^M` = CR).
 //!
@@ -111,7 +111,7 @@ struct HarnessTickets {
 impl PublisherTickets for HarnessTickets {
     fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
         let claims = format!(
-            r#"{{"sub":"desk-user","team":"team-72","sessionId":"{SESSION_ID}","role":"publisher","perm":"steer"}}"#
+            r#"{{"sub":"desk-user","team":"team-72","sessionId":"{SESSION_ID}","role":"publisher"}}"#
         );
         let ticket = mint_ticket(&claims);
         Ok(Some(MintedTicket {
@@ -144,7 +144,6 @@ fn main() {
     let hooks = PublisherHooks {
         write_input: pty_writer_input_hook(terminal.writer(), terminal.term()),
         kill: Arc::new(|_| {}),
-        presence: Arc::new(|_| {}),
         error: Arc::new(|message| println!("[publisher error] {message}")),
         answers: None,
     };
@@ -172,11 +171,12 @@ fn main() {
         terminal::bracketed_paste_enabled(&terminal.term())
     );
 
-    // The Android viewer: steal-claim + text + IMMEDIATE bare `\r`
-    // (apps/android AgentSessionViewModel.sendMessage — no client-side delay).
+    // The Android viewer: text + IMMEDIATE bare `\r` (apps/android
+    // AgentSessionViewModel.sendMessage — no client-side delay; EXP-312
+    // removed the claim prelude).
     let viewer_rt = tokio::runtime::Runtime::new().unwrap();
     let viewer_ticket = mint_ticket(&format!(
-        r#"{{"sub":"phone-user","team":"team-72","name":"Phone","sessionId":"{SESSION_ID}","role":"viewer","perm":"steer"}}"#
+        r#"{{"sub":"phone-user","team":"team-72","sessionId":"{SESSION_ID}","role":"viewer"}}"#
     ));
     let url = format!("ws://127.0.0.1:{port}/ws?ticket={viewer_ticket}");
     let _viewer = viewer_rt.spawn(async move {
@@ -185,18 +185,17 @@ fn main() {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await; // joined; now "Send" is tapped
-        ws.send(Message::Text(r#"{"t":"claim","steal":true}"#.into())).await.unwrap();
         ws.send(Message::Text(r#"{"t":"input","data":"fix the login bug"}"#.into()))
             .await
             .unwrap();
         ws.send(Message::Text(r#"{"t":"input","data":"\r"}"#.into())).await.unwrap();
-        println!("[viewer] claim + text + \\r sent back-to-back");
+        println!("[viewer] text + \\r sent back-to-back");
         // The Escape interrupt (sendEscape on all clients) must land raw.
         tokio::time::sleep(Duration::from_millis(700)).await;
         ws.send(Message::Text(r#"{"t":"input","data":"\u001b"}"#.into())).await.unwrap();
         println!("[viewer] escape interrupt sent");
         // Hold the socket open while the harness observes the child, and
-        // print everything the relay sends back (presence/errors).
+        // print everything the relay sends back (errors etc.).
         use futures_util::StreamExt;
         let hold = tokio::time::sleep(Duration::from_secs(6));
         tokio::pin!(hold);

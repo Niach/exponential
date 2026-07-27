@@ -74,9 +74,11 @@ import { FileDiffList } from "@/components/diff-view"
 // ({"t":"join","channel":"activity"}, apps/steer-relay/src/protocol.ts) and
 // renders structured events — narration bubbles + compact tool rows, a
 // pinned "Latest changes" diff above the composer — never raw PTY bytes.
-// Steering is message-shaped like mobile: a steal-claim + chunked input + a
-// SEPARATE `\r` frame; question answers ride the semantic `answer` frame
-// (steer protocol v2, EXP-249) whenever the desktop publishes question ids.
+// Steering is message-shaped like mobile — chunked input + a SEPARATE `\r`
+// frame (EXP-312: no operator claim, no view/steer perm split — the mint is
+// owner-only, so a live connection just steers); question answers ride the
+// semantic `answer` frame (steer protocol v2, EXP-249) whenever the desktop
+// publishes question ids.
 // Since EXP-106 this view is mounted ONLY by the global agent dock
 // (components/agent-dock) — one at a time — so it always auto-connects and
 // delegates its chrome (title, collapse) to the dock; the "coding now" rows +
@@ -86,8 +88,6 @@ import { FileDiffList } from "@/components/diff-view"
 
 // Relay rejects input frames > 8 KiB; chunk pastes well under that.
 const INPUT_CHUNK_CHARS = 4096
-/** Auto-release the steer claim after this long with no sends. */
-const IDLE_RELEASE_MS = 60_000
 /** Redial backoff while the desktop's publisher socket is still starting:
  *  3s doubling to 30s. Each redial mints a fresh ticket and opens a fresh
  *  relay socket, so a fixed cadence across many waiting viewers would eat the
@@ -103,12 +103,6 @@ function startingRetryDelay(retries: number): number {
     STARTING_RETRY_MAX_MS
   )
   return capped / 2 + Math.random() * (capped / 2)
-}
-
-interface PresenceViewer {
-  userId: string
-  name: string
-  perm: `view` | `steer`
 }
 
 interface QuestionOption {
@@ -171,7 +165,6 @@ type ActivityEvent =
   | { kind: `permission`; tool: string; detail?: string; at?: number }
 
 type ServerFrame =
-  | { t: `presence`; viewers: PresenceViewer[]; steererId: string | null }
   | { t: `activity`; event: ActivityEvent }
   // Protocol v2: "clear your feed now" — sent before every join replay and
   // whenever the desktop re-publishes its full history.
@@ -188,20 +181,6 @@ function parseServerFrame(raw: string): ServerFrame | null {
     return json as ServerFrame
   } catch {
     return null
-  }
-}
-
-// The ticket is `base64url(JSON claims).base64url(sig)` — the claims carry the
-// caller's perm (view|steer), which decides whether steering/kill controls
-// show. Decoding locally is display-only; the relay enforces perm server-side.
-function decodeTicketPerm(ticket: string): `view` | `steer` {
-  try {
-    const payload = ticket.slice(0, ticket.indexOf(`.`))
-    const b64 = payload.replace(/-/g, `+`).replace(/_/g, `/`)
-    const claims = JSON.parse(atob(b64)) as { perm?: string }
-    return claims.perm === `steer` ? `steer` : `view`
-  } catch {
-    return `view`
   }
 }
 
@@ -333,8 +312,6 @@ export function AgentSessionView({
   // Always starts at 1 — the dock only mounts this while it should be live.
   const [attempt, setAttempt] = useState(1)
   const [phase, setPhase] = useState<ViewerPhase>({ kind: `idle` })
-  const [perm, setPerm] = useState<`view` | `steer`>(`view`)
-  const [steererId, setSteererId] = useState<string | null>(null)
   const [feed, setFeed] = useState<FeedItem[]>([])
   /** The most recent worktree diff — each one replaces the previous. */
   const [latestDiff, setLatestDiff] = useState<string | null>(null)
@@ -347,20 +324,15 @@ export function AgentSessionView({
   const [answerStates, setAnswerStates] = useState<AnswerStates>({})
 
   const wsRef = useRef<WebSocket | null>(null)
-  const steeringRef = useRef(false)
   const nextIdRef = useRef(0)
   /** Locally-echoed sent messages awaiting their transcript-derived event. */
   const recentEchoesRef = useRef<EchoEntry[]>([])
-  const idleReleaseRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Per-card `answer_ack` deadlines (see ANSWER_ACK_TIMEOUT_MS). */
   const ackTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // The synced row is the truth for "still running" inside the redial loop.
   const sessionStatusRef = useRef(session.status)
   sessionStatusRef.current = session.status
-
-  const steering = steererId === currentUserId
-  steeringRef.current = steering
 
   const clearAckTimer = (key: string) => {
     const timer = ackTimersRef.current.get(key)
@@ -392,13 +364,6 @@ export function AgentSessionView({
     // Consecutive `starting` redials — drives the backoff; a live connection
     // resets it so the next stall starts fast again.
     let startingRetries = 0
-
-    const clearIdleRelease = () => {
-      if (idleReleaseRef.current) {
-        clearTimeout(idleReleaseRef.current)
-        idleReleaseRef.current = null
-      }
-    }
 
     const markLive = () => {
       startingRetries = 0
@@ -563,7 +528,6 @@ export function AgentSessionView({
       // Hold the `starting` phase steady across auto-retry redials — flipping
       // to `connecting` per attempt makes the header flicker on every redial.
       if (!retrying) setPhase({ kind: `connecting` })
-      setSteererId(null)
 
       // `bye` / no_such_session must win over the generic close handler.
       let sawEnd = false
@@ -583,8 +547,7 @@ export function AgentSessionView({
           })
           return
         }
-        const { ticket, url } = minted as { ticket: string; url: string }
-        setPerm(decodeTicketPerm(ticket))
+        const { url } = minted as { ticket: string; url: string }
 
         ws = new WebSocket(url)
         wsRef.current = ws
@@ -596,7 +559,7 @@ export function AgentSessionView({
           ws?.send(JSON.stringify({ t: `join`, channel: `activity` }))
           // NOT live yet — the relay may answer the join with no_such_session
           // (desktop still starting). The phase flips to live on the first
-          // confirming server frame instead (the relay sends presence
+          // confirming server frame instead (the relay sends activity_reset
           // immediately on a successful join).
         }
         ws.onmessage = (event) => {
@@ -604,12 +567,6 @@ export function AgentSessionView({
           const frame = parseServerFrame(event.data)
           if (!frame) return
           switch (frame.t) {
-            case `presence`: {
-              const f = frame as Extract<ServerFrame, { t: `presence` }>
-              setSteererId(f.steererId)
-              markLive()
-              return
-            }
             case `activity`: {
               const f = frame as Extract<ServerFrame, { t: `activity` }>
               handleActivity(f.event)
@@ -653,8 +610,6 @@ export function AgentSessionView({
         ws.onclose = () => {
           if (disposed) return
           wsRef.current = null
-          clearIdleRelease()
-          setSteererId(null)
           if (sawEnd) {
             setPhase({ kind: `ended`, detail: detail ?? undefined })
             return
@@ -689,46 +644,19 @@ export function AgentSessionView({
     return () => {
       disposed = true
       if (retryTimer) clearTimeout(retryTimer)
-      clearIdleRelease()
-      // Best-effort prompt claim release — closing the socket releases it
-      // relay-side anyway.
-      const sock = wsRef.current
-      if (sock && steeringRef.current && sock.readyState === WebSocket.OPEN) {
-        try {
-          sock.send(JSON.stringify({ t: `release` }))
-        } catch {
-          // closing anyway
-        }
-      }
       wsRef.current = null
       ws?.close()
     }
   }, [attempt, session.id])
 
-  // ── Steering (message-shaped; relay enforces the single claim) ────────────
-
-  /** Auto-release the claim after 60s of no sends (timer resets per send). */
-  const scheduleIdleRelease = () => {
-    if (idleReleaseRef.current) clearTimeout(idleReleaseRef.current)
-    idleReleaseRef.current = setTimeout(() => {
-      const sock = wsRef.current
-      if (steeringRef.current && sock?.readyState === WebSocket.OPEN) {
-        sock.send(JSON.stringify({ t: `release` }))
-      }
-    }, IDLE_RELEASE_MS)
-  }
+  // ── Steering (message-shaped; owner-only — the mint refuses anyone else) ──
 
   /**
-   * Steal the claim and forward raw input (chunked ≤4 KiB, never splitting a
-   * surrogate pair). The claim is ALWAYS sent: the relay tracks the steerer
-   * per CONNECTION while presence only carries a user id, so `steering` can't
-   * tell this socket from the same user's second-device claim — skipping the
-   * claim there would make the relay silently drop every input frame.
+   * Forward raw input (chunked ≤4 KiB, never splitting a surrogate pair).
    */
   const sendInput = (data: string): boolean => {
     const sock = wsRef.current
-    if (perm !== `steer` || sock?.readyState !== WebSocket.OPEN) return false
-    sock.send(JSON.stringify({ t: `claim`, steal: true }))
+    if (sock?.readyState !== WebSocket.OPEN) return false
     for (let i = 0; i < data.length; ) {
       let end = Math.min(i + INPUT_CHUNK_CHARS, data.length)
       const last = end < data.length ? data.charCodeAt(end - 1) : 0
@@ -736,7 +664,6 @@ export function AgentSessionView({
       sock.send(JSON.stringify({ t: `input`, data: data.slice(i, end) }))
       i = end
     }
-    scheduleIdleRelease()
     return true
   }
 
@@ -767,26 +694,21 @@ export function AgentSessionView({
    *  Multi-select taps toggle with the digit alone; Continue sends `\t`. */
   const sendKeystrokes = (keys: string[]): boolean => {
     const sock = wsRef.current
-    if (perm !== `steer` || sock?.readyState !== WebSocket.OPEN) return false
-    sock.send(JSON.stringify({ t: `claim`, steal: true }))
+    if (sock?.readyState !== WebSocket.OPEN) return false
     for (const key of keys) sock.send(JSON.stringify({ t: `input`, data: key }))
-    scheduleIdleRelease()
     return true
   }
 
   /** Protocol v2 answer: the relay forwards it verbatim to the desktop, which
-   *  drives its own picker and confirms with `answer_ack`. Same steal-claim
-   *  gating as raw input. */
+   *  drives its own picker and confirms with `answer_ack`. */
   const sendAnswerFrame = (
     questionId: string,
     askId: string | undefined,
     keys: string[]
   ): boolean => {
     const sock = wsRef.current
-    if (perm !== `steer` || sock?.readyState !== WebSocket.OPEN) return false
-    sock.send(JSON.stringify({ t: `claim`, steal: true }))
+    if (sock?.readyState !== WebSocket.OPEN) return false
     sock.send(JSON.stringify({ t: `answer`, questionId, askId, keys }))
-    scheduleIdleRelease()
     return true
   }
 
@@ -908,14 +830,15 @@ export function AgentSessionView({
 
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
-  const composerVisible = live && perm === `steer` && !sessionEnded
+  // EXP-312: live implies ownership — the mint refuses everyone else.
+  const composerVisible = live && !sessionEnded
 
   /** Identity-scoped questions stay answerable until they resolve; legacy
    *  cards fall back to the trailing-run heuristic, with a plan-approval card
    *  answerable until a real resolution signal — lagged transcript flushes
    *  don't retire a pending picker (EXP-174). */
   const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
-  const canAnswer = live && perm === `steer` && !sessionEnded
+  const canAnswer = live && !sessionEnded
   /** Render rows: consecutive tool calls collapse into "N tool calls" runs
    *  (EXP-97), one ask's questions into a stepper and a subagent's work into
    *  its own group — a projection only, the flat feed stays the state. */
@@ -946,9 +869,8 @@ export function AgentSessionView({
             Reconnect
           </Button>
         )}
-        {/* steer.killSession also authorizes the session owner — a member who
-            remote-started their own session can kill it without steer perm. */}
-        {live && (perm === `steer` || session.userId === currentUserId) && (
+        {/* Owner-only, like everything about a live session (EXP-312). */}
+        {live && session.userId === currentUserId && (
           <Button
             variant="ghost"
             size="icon"
@@ -1145,16 +1067,11 @@ export function AgentSessionView({
             </Collapsible>
           )}
 
-          {/* Steering composer (perm-gated; sending steals the claim). No
-              steering captions — steering is seamless (EXP-268); the composer
-              tint is the only signal. */}
+          {/* Steering composer. Steering is fully seamless (EXP-312) — no
+              captions, no operator state; live implies ownership. */}
           {composerVisible && (
             <div className="border-t border-border p-2">
-              <MessageComposer
-                steering={steering}
-                onSend={sendMessage}
-                onEscape={sendEscape}
-              />
+              <MessageComposer onSend={sendMessage} onEscape={sendEscape} />
             </div>
           )}
       </div>
@@ -1344,7 +1261,7 @@ function QuestionPrompt({
   item: QuestionItem
   /** Still answerable per the feed — the session is blocked on this card. */
   active: boolean
-  /** Live + steer perm — whether this client may answer at all. */
+  /** Live (and not ended) — whether this client may answer at all. */
   canAnswer: boolean
   answerState?: AnswerState
   onAnswer: AnswerHandler
@@ -1850,11 +1767,9 @@ function ToolGroupRow({
 }
 
 function MessageComposer({
-  steering,
   onSend,
   onEscape,
 }: {
-  steering: boolean
   onSend: (text: string) => void
   onEscape: () => void
 }) {
@@ -1881,9 +1796,8 @@ function MessageComposer({
         rows={1}
         className={cn(
           `max-h-32 min-h-9 flex-1 resize-none border-none shadow-none focus-visible:ring-0`,
-          // Subtle active tint while we hold the steer claim (dark: variant
-          // included so it beats the base dark:bg-input/30).
-          steering ? `bg-muted/70 dark:bg-muted/70` : `bg-muted/40 dark:bg-muted/40`
+          // dark: variant included so it beats the base dark:bg-input/30.
+          `bg-muted/40 dark:bg-muted/40`
         )}
       />
       <Button

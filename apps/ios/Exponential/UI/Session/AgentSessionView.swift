@@ -40,7 +40,7 @@ struct AgentSessionRouteView: View {
 /// session over the relay's scrubbed activity channel. NO terminal rendering:
 /// narration bubbles, compact tool rows, collapsible subagent runs, question
 /// cards, and a pinned "Latest changes" diff chip above the input bar. Steering
-/// is message-shaped (steal-claim + text + \r) and questions answer through the
+/// is message-shaped (text + \r, perm-gated by the relay) and questions answer through the
 /// semantic `answer` frame (EXP-249).
 /// Identical UX to the Android AgentSessionScreen (glass design system).
 /// Pushed onto the NavigationStack (EXP-221) — status lives in the native
@@ -95,8 +95,8 @@ struct AgentSessionView: View {
                         .lineLimit(1)
                 }
             }
-            // Kill switch (EXP-268): force-end a live session — shown to the
-            // session owner or anyone holding the steer perm (team owners).
+            // Kill switch (EXP-268): force-end a live session — owner-only,
+            // like everything about a live session (EXP-312).
             ToolbarItem(placement: .topBarTrailing) {
                 if model?.canKill == true {
                     Button {
@@ -143,7 +143,7 @@ struct AgentSessionView: View {
             }
         }
         .onDisappear {
-            // Auto-release the steer claim + close the socket when dismissed.
+            // Close the socket when dismissed.
             model?.shutdown()
         }
         .sheet(isPresented: $showDiffSheet) {
@@ -402,7 +402,7 @@ struct AgentSessionView: View {
     /// `activeQuestionIds` (EXP-78/EXP-174).
     private var canAnswer: Bool {
         guard let model else { return false }
-        return model.canSteer && model.phase == .live && !model.sessionEnded
+        return model.phase == .live && !model.sessionEnded
     }
 
     // MARK: - Status banners (feed retained above)
@@ -458,17 +458,16 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
-        let inputVisible = model.canSteer && model.phase == .live && !model.sessionEnded
+        // EXP-312: live implies ownership — the ticket mint refuses others.
+        let inputVisible = model.phase == .live && !model.sessionEnded
         if model.latestDiff != nil || inputVisible {
             VStack(alignment: .leading, spacing: 8) {
                 if let diff = model.latestDiff {
                     diffChip(diff)
                 }
                 if inputVisible {
-                    // No steering captions at all — steering should feel
-                    // seamless (EXP-197/EXP-268); the composer tint
-                    // (model.isSteering) is the only remaining signal. Input
-                    // stays enabled — sending steals the claim.
+                    // Steering is fully seamless (EXP-312) — no captions, no
+                    // operator state; input just sends.
                     inputRow(model)
                 }
             }
@@ -523,12 +522,11 @@ struct AgentSessionView: View {
                 .focused($inputFocused)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                // Subtle active tint while we hold the steer claim.
-                .background(Color.white.opacity(model.isSteering ? 0.10 : 0.06))
+                .background(Color.white.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(model.isSteering ? 0.2 : 0.1), lineWidth: 0.5)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
                 )
             Button {
                 sendMessage(model)
@@ -643,7 +641,7 @@ private struct QuestionCard: View {
     var priorSteps: [AgentQuestion] = []
     /// Still answerable per the feed — the session is blocked on this card.
     let active: Bool
-    /// Live + steer perm — whether this client may answer at all.
+    /// Live (and not ended) — whether this client may answer at all.
     let canAnswer: Bool
     /// An answer is already out (or confirmed) for this card — every control
     /// stays dead until the desktop resolves it or the lock expires.

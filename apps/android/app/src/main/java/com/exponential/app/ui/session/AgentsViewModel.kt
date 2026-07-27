@@ -69,6 +69,10 @@ class AgentsViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
+    /** EXP-312: live sessions are owner-only — the screen only opens the
+     *  live viewer for rows whose userId matches this. */
+    val currentUserId: StateFlow<String?> = auth.userId
+
     val state: StateFlow<AgentsState> = combine(
         dbFlow.scopedQuery(emptyList()) {
             it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)

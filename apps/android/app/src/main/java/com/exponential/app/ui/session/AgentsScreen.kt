@@ -60,9 +60,10 @@ import com.exponential.app.ui.theme.glassRow
 /**
  * The Agents tab: a remote-start launcher over the caller's online desktops
  * (EXP-156) plus the coding sessions currently running across the active
- * account. Tapping a running row jumps straight into the live steer viewer when
- * the relay is configured; otherwise it falls back to the issue detail. The
- * trailing info button always opens the issue detail.
+ * account. Tapping YOUR OWN running row jumps straight into the live steer
+ * viewer when the relay is configured (EXP-312: live sessions are owner-only);
+ * anything else falls back to the issue detail. The trailing info button
+ * always opens the issue detail.
  */
 @Composable
 fun AgentsScreen(
@@ -72,6 +73,7 @@ fun AgentsScreen(
     viewModel: AgentsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
@@ -171,7 +173,12 @@ fun AgentsScreen(
                                 session = row.session,
                                 issue = row.issue,
                                 onClick = {
-                                    if (state.steerEnabled == true) {
+                                    // EXP-312: only YOUR OWN session opens the
+                                    // live viewer; teammates' rows fall back to
+                                    // the issue detail.
+                                    if (state.steerEnabled == true &&
+                                        row.session.userId == currentUserId
+                                    ) {
                                         onOpenSteer(row.session.id)
                                     } else {
                                         // Batch multi-issue sessions carry no issue.

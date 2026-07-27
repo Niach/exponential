@@ -204,7 +204,8 @@ struct IssueDetailView: View {
                             runningSessions: vm.runningSessions,
                             permissions: vm.permissions,
                             users: vm.users,
-                            config: vm.steerConfig
+                            config: vm.steerConfig,
+                            currentUserId: deps.auth.userId
                         )
 
                         // Error
@@ -572,8 +573,11 @@ struct IssueDetailView: View {
               vm.permissions.isMember,
               vm.board?.repositoryId != nil else { return .hidden }
         // Multi-window desktops can run several sessions on one issue —
-        // surface the most recent.
-        if let session = vm.runningSessions.max(by: { $0.startedAt < $1.startedAt }) {
+        // surface the caller's most recent OWN session (EXP-312: live
+        // sessions are owner-only; a teammate's run shows in the AgentPrCard
+        // badge, and the circle falls through to Start coding instead).
+        let ownSessions = vm.runningSessions.filter { $0.userId == deps.auth.userId }
+        if let session = ownSessions.max(by: { $0.startedAt < $1.startedAt }) {
             return .session(
                 CodingSessionDisplayState.of(session: session, prState: issue.prState),
                 sessionId: session.id

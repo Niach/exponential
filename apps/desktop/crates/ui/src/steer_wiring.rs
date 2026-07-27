@@ -63,7 +63,7 @@ use coding::{
 use steer::publisher::pty_writer_input_hook;
 use steer::{
     spawn_activity_emitter, spawn_control_channel, AnswerLink, ControlApi, ControlChannelHandle,
-    DeviceIdentity, EmitterConfig, HookEvent, HookServer, Presence, PublishSpec, PublisherHandle,
+    DeviceIdentity, EmitterConfig, HookEvent, HookServer, PublishSpec, PublisherHandle,
     PublisherHooks, PublisherTickets, Steering, SteerRuntime, TrpcControlApi, TrpcPublisherTickets,
 };
 use sync::{KillWatch, Store};
@@ -745,15 +745,13 @@ fn remote_batch_start(
 
 struct PublisherEntry {
     handle: PublisherHandle,
-    /// The current remote steerer's display name, if any (§8.5 banner state).
-    steerer: Option<String>,
     /// §P7: the activity emitter's run flag (members-only activity channel);
     /// flipping it `false` stops the thread on teardown.
     activity_active: Arc<AtomicBool>,
 }
 
 /// Session-keyed publisher handles — parallels `coding_flow::LocalSessions`
-/// but holds the steer side (the publisher task handle + banner state).
+/// but holds the steer side (the publisher task handle).
 #[derive(Default)]
 pub struct PublisherRegistry {
     entries: HashMap<String, PublisherEntry>,
@@ -779,8 +777,6 @@ impl PublisherRegistry {
 
 /// Marshaled from the publisher task (steer runtime) to the gpui foreground.
 enum SteerUiEvent {
-    /// A `presence` broadcast → update the §8.5 banner state.
-    Presence(Presence),
     /// A surfaced publisher error (clock skew, repeated rejects — §8.7).
     Error(String),
     /// End the session: a relay `kill` frame OR the own-row Electric kill
@@ -827,7 +823,6 @@ pub fn attach_publisher(
 
     // The foreground-marshal channel for the non-`Send`-handle hooks.
     let (ui_tx, ui_rx) = flume::unbounded::<SteerUiEvent>();
-    let presence_tx = ui_tx.clone();
     let error_tx = ui_tx.clone();
     let kill_tx = ui_tx.clone();
 
@@ -845,9 +840,6 @@ pub fn attach_publisher(
         // The rest marshal to the foreground (they touch the gpui-held term).
         kill: Arc::new(move |_signal| {
             let _ = kill_tx.send(SteerUiEvent::Teardown);
-        }),
-        presence: Arc::new(move |presence| {
-            let _ = presence_tx.send(SteerUiEvent::Presence(presence));
         }),
         error: Arc::new(move |message| {
             let _ = error_tx.send(SteerUiEvent::Error(message));
@@ -939,14 +931,13 @@ pub fn attach_publisher(
         activity_active.clone(),
     );
 
-    // Register the session (banner state + take-over + teardown).
+    // Register the session (teardown bookkeeping).
     let registry = PublisherRegistry::global(cx);
     registry.update(cx, |registry, _| {
         registry.entries.insert(
             session_id.to_string(),
             PublisherEntry {
                 handle,
-                steerer: None,
                 activity_active,
             },
         );
@@ -998,28 +989,6 @@ fn apply_steer_event(
     cx: &mut App,
 ) -> bool {
     match event {
-        SteerUiEvent::Presence(presence) => {
-            let name = presence.steerer_id.as_ref().and_then(|steerer_id| {
-                presence
-                    .viewers
-                    .iter()
-                    .find(|viewer| &viewer.user_id == steerer_id)
-                    .map(|viewer| viewer.name.clone())
-            });
-            if let Some(registry) = PublisherRegistry::global_ref(cx) {
-                registry.update(cx, |registry, cx| {
-                    if let Some(entry) = registry.entries.get_mut(session_id) {
-                        // Notify only on a real change so the §8.5 banner
-                        // repaints exactly when the remote steerer flips.
-                        if entry.steerer != name {
-                            entry.steerer = name;
-                            cx.notify();
-                        }
-                    }
-                });
-            }
-            false
-        }
         SteerUiEvent::Error(message) => {
             log::warn!("steer publisher [{session_id}]: {message}");
             false
@@ -1076,8 +1045,7 @@ pub fn detach_publisher(session_id: &str, outcome: Option<String>, cx: &mut App)
     if let Some(registry) = PublisherRegistry::global_ref(cx) {
         registry.update(cx, |registry, cx| {
             if let Some(entry) = registry.entries.remove(session_id) {
-                // Stop the publisher (idempotent) and notify so any §8.5
-                // banner watching this registry clears itself.
+                // Stop the publisher (idempotent).
                 entry.handle.shutdown(outcome);
                 // §P7: stop the activity emitter thread promptly.
                 entry.activity_active.store(false, Ordering::SeqCst);
@@ -1091,56 +1059,4 @@ pub fn detach_publisher(session_id: &str, outcome: Option<String>, cx: &mut App)
         kill_watch.update(cx, |watch, _| watch.unwatch(session_id));
     }
 }
-
-// ---------------------------------------------------------------------------
-// The §8.5 "Remote steering" surface — consumed by the terminal-tab banner
-// ---------------------------------------------------------------------------
-
-/// The remote steerer's display name for a published session, if one is
-/// steering right now (§8.5). Drives the terminal-tab "Remote steering — {name}"
-/// banner; the LOCAL user is never gated (they type straight to the PTY).
-pub fn remote_steerer(session_id: &str, cx: &App) -> Option<String> {
-    PublisherRegistry::global_ref(cx)?
-        .read(cx)
-        .entries
-        .get(session_id)
-        .and_then(|entry| entry.steerer.clone())
-}
-
-/// The §8.5 banner's per-tab entry point: resolve the coding session shown in
-/// `tab` and, if a remote viewer holds the claim right now, return its
-/// `(session_id, name)` — the session id keys the "Take over" button. `None`
-/// when the tab is not a live coding session this process is publishing, or
-/// nobody remote is steering it. The LOCAL user is never gated (§8.5).
-pub fn remote_steerer_for_tab(tab: TabId, cx: &App) -> Option<(String, String)> {
-    let sessions = coding_flow::LocalSessions::global_ref(cx)?;
-    let session_id = sessions.read(cx).session_id_for_tab(tab)?.to_string();
-    let name = remote_steerer(&session_id, cx)?;
-    Some((session_id, name))
-}
-
-/// Observe the §8.5 publisher registry so a surface (the terminal-dock banner)
-/// repaints when a `presence` frame changes the remote steerer. Returns `None`
-/// (no subscription) when steer isn't installed — e.g. headless tests — so the
-/// caller degrades to a static, never-shown banner. The registry global is
-/// materialized in [`install`], before any window/dock exists.
-pub fn observe_steer_presence<T: 'static>(
-    cx: &mut gpui::Context<T>,
-    mut on_change: impl FnMut(&mut T, &mut gpui::Context<T>) + 'static,
-) -> Option<gpui::Subscription> {
-    let registry = PublisherRegistry::global_ref(cx)?;
-    Some(cx.observe(&registry, move |this, _registry, cx| on_change(this, cx)))
-}
-
-/// The §8.5 "Take over" button: send a publisher `claim`, which the relay's
-/// publisher-branch turns into `publisherTakeover` (force-clears the remote
-/// steerer). A no-op for a session we are not publishing.
-pub fn take_over(session_id: &str, cx: &App) {
-    if let Some(registry) = PublisherRegistry::global_ref(cx) {
-        if let Some(entry) = registry.read(cx).entries.get(session_id) {
-            entry.handle.take_over();
-        }
-    }
-}
-
 

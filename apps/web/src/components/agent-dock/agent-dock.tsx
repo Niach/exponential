@@ -17,10 +17,12 @@ import {
   writeAgentDockHeight,
 } from "@/lib/agent-dock-height"
 
-// The global agent-coding dock (EXP-106) — an IDE-style bottom strip of every
-// running session in the team, with at most one expanded live viewer. It's
-// the SOLE mount point for AgentSessionView; issue detail and the Agents page
-// only call openDock(). Renders nothing when there's nothing to show.
+// The global agent-coding dock (EXP-106) — an IDE-style bottom strip of the
+// current user's OWN running sessions (EXP-312: live sessions are owner-only;
+// teammates' runs surface as status badges elsewhere, never here), with at
+// most one expanded live viewer. It's the SOLE mount point for
+// AgentSessionView; issue detail and the Agents page only call openDock().
+// Renders nothing when there's nothing to show.
 // Desktop-only chrome (EXP-193): on mobile there is no bottom strip — an
 // opened session takes over the viewport like the native apps' pushed
 // Agent-session screen, and running sessions are reached from the Agents tab
@@ -45,7 +47,13 @@ export function AgentDock({
   currentUserId: string
 }) {
   const dock = useAgentDock()
-  const { running } = useAgentsData(teamId)
+  const { running: allRunning } = useAgentsData(teamId)
+  // EXP-312: only the caller's own sessions get dock tabs — a teammate's
+  // session can't be opened live (the ticket mint refuses non-owners).
+  const running = useMemo(
+    () => allRunning.filter((row) => row.session.userId === currentUserId),
+    [allRunning, currentUserId]
+  )
   const boards = useTeamBoards(teamId)
   const isMobile = useIsMobile()
 

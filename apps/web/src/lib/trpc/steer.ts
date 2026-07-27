@@ -36,8 +36,10 @@ import {
 
 // Remote start + live terminal steer (masterplan §3.5). The web app is the
 // only place that holds STEER_RELAY_SECRET: it mints short-lived HS256 relay
-// tickets after checking the caller's team permission, and talks to the
-// relay's secret-authed admin HTTP for device presence / remote start / kill.
+// tickets after checking authorization (EXP-312: session tickets are
+// OWNER-ONLY — a live session is visible and steerable only by the account
+// that started it), and talks to the relay's secret-authed admin HTTP for
+// device presence / remote start / kill.
 // The relay itself never sees raw credentials and holds no DB — all
 // authorization is decided here at mint time. STEER_RELAY_URL unset ⇒ the
 // whole subsystem reports disabled and every proc degrades gracefully.
@@ -84,7 +86,7 @@ const mintTicketInput = z.discriminatedUnion(`kind`, [
     kind: z.literal(`publisher`),
     codingSessionId: z.string().uuid(),
   }),
-  // Web/mobile watcher (perm view) or steerer (perm steer) of a session.
+  // Web/mobile live view of a session — owner-only (EXP-312).
   z.object({
     kind: z.literal(`viewer`),
     codingSessionId: z.string().uuid(),
@@ -137,18 +139,19 @@ export const steerRouter = router({
         })
       }
 
-      // Viewers must be members of the session's team; team owners
-      // may steer, and so may the session's own starter — plain members watch
-      // (viewerPermFor).
-      const member = await assertTeamMember(userId, session.teamId)
+      // EXP-312: a live session is visible and steerable ONLY by its owner —
+      // there is no view/steer distinction and no teammate access at all.
+      if (session.userId !== userId) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the session owner can open a live session`,
+        })
+      }
       return mintSteerTicket(config, {
         kind: `viewer`,
         userId,
         teamId: session.teamId,
         sessionId: session.id,
-        role: member.role,
-        isSessionOwner: session.userId === userId,
-        name: ctx.session.user.name || ctx.session.user.email,
       })
     }),
 
@@ -673,9 +676,12 @@ export const steerRouter = router({
       const session = await loadCodingSession(input.codingSessionId)
       const userId = ctx.session.user.id
 
-      // Permission: the session owner, or a team owner.
+      // EXP-312: owner-only, like every other live-session control.
       if (session.userId !== userId) {
-        await assertTeamMember(userId, session.teamId, [`owner`])
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the session owner can kill it`,
+        })
       }
 
       // Idempotent: killing an already-ended session leaves the row alone.

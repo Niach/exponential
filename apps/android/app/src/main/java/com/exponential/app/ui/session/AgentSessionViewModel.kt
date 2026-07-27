@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.TrpcException
-import com.exponential.app.data.api.decodeSteerTicketPerm
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
@@ -34,8 +33,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -53,10 +50,12 @@ import kotlinx.serialization.json.putJsonArray
 // joins with {"t":"join","channel":"activity"} and receives scrubbed
 // {t:'activity', event} frames (narration / tool headlines / questions /
 // subagents / worktree diffs). The PTY mirror is gone (EXP-249) — a stray
-// BINARY frame from an old desktop is ignored. Steering is message-shaped
-// (steal-claim + chunked input + a separate \r); answers are semantic
-// {t:'answer'} frames, with the raw-keystroke path kept only for question
-// cards published by pre-EXP-249 desktops (no wire id).
+// BINARY frame from an old desktop is ignored. Steering is message-shaped and
+// fully seamless (EXP-312 — no operator claim, no view/steer perm split; the
+// ticket mint is owner-only, so a live connection just steers): chunked input
+// + a separate \r; answers are semantic {t:'answer'} frames, with the
+// raw-keystroke path kept only for question cards published by pre-EXP-249
+// desktops (no wire id).
 
 // Relay rejects input frames > 8 KiB; chunk pastes well under that.
 private const val INPUT_CHUNK_CHARS = 4096
@@ -68,9 +67,6 @@ const val FEED_CAP = 2000
  *  desktop confirms injection with `answer_ack`, and a silently dropped frame
  *  must not strand the card as un-answerable forever. */
 private const val ANSWER_ACK_TIMEOUT_MS = 5_000L
-
-/** Auto-release the steer claim after this long with no sends. */
-private const val IDLE_RELEASE_MS = 60_000L
 
 /** Redial cadence while the desktop's publisher socket is still starting. */
 private const val STARTING_RETRY_MS = 3_000L
@@ -91,13 +87,6 @@ private const val SESSION_GONE_DETAIL = "This session is no longer available."
  *  message sent much later. */
 private const val ECHO_CAP = 8
 private const val ECHO_TTL_MS = 300_000L
-
-@Serializable
-data class PresenceViewer(
-    val userId: String,
-    val name: String = "",
-    val perm: String = "view",
-)
 
 /** One answer choice of a [AgentFeedItem.Question] — `key` is the raw
  *  keystroke that selects it in the desktop TUI picker (mapped desktop-side)
@@ -727,15 +716,6 @@ class AgentSessionViewModel @Inject constructor(
     private val _phase = MutableStateFlow<AgentPhase>(AgentPhase.Idle)
     val phase: StateFlow<AgentPhase> = _phase
 
-    private val _perm = MutableStateFlow("view")
-    val perm: StateFlow<String> = _perm
-
-    private val _viewers = MutableStateFlow<List<PresenceViewer>>(emptyList())
-    val viewers: StateFlow<List<PresenceViewer>> = _viewers
-
-    private val _steererId = MutableStateFlow<String?>(null)
-    val steererId: StateFlow<String?> = _steererId
-
     // The feed survives reconnects and the session end — only a fresh screen
     // (new VM) or the relay's activity_reset starts it empty (EXP-249).
     private val _activity = MutableStateFlow(ActivityFeedState())
@@ -753,7 +733,6 @@ class AgentSessionViewModel @Inject constructor(
     private val recentEchoes = ArrayDeque<Pair<String, Long>>()
     private var ws: DefaultClientWebSocketSession? = null
     private var connectJob: Job? = null
-    private var idleReleaseJob: Job? = null
 
     /** Consecutive failed reconnect dials — indexes the backoff curve; reset
      *  on a successful (live) connection and on an explicit connect(). */
@@ -868,8 +847,6 @@ class AgentSessionViewModel @Inject constructor(
         if (held != AgentPhase.Starting && !(held is AgentPhase.Closed && held.reconnecting)) {
             _phase.value = AgentPhase.Connecting
         }
-        _viewers.value = emptyList()
-        _steererId.value = null
 
         // `bye` / no_such_session must win over the generic close handler.
         var sawEnd = false
@@ -887,8 +864,6 @@ class AgentSessionViewModel @Inject constructor(
                 // Config state, not a transient failure — retrying can't help.
                 return DialOutcome.Closed("Live sessions are unavailable on this instance.", retryable = false)
             }
-            _perm.value = decodeSteerTicketPerm(minted.ticket!!)
-
             // The server-returned url is the full ws(s)://…/ws?ticket=… dial URL.
             socket = client.webSocketSession(urlString = minted.url!!)
             ws = socket
@@ -901,7 +876,7 @@ class AgentSessionViewModel @Inject constructor(
             socket.send(Frame.Text("""{"t":"join","channel":"activity"}"""))
             // NOT Live yet — the relay may answer the join with no_such_session
             // (desktop still starting). The phase flips to Live on the first
-            // confirming server frame instead (the relay sends presence
+            // confirming server frame instead (the relay sends activity_reset
             // immediately on a successful join), so the Starting retry loop
             // never flashes the Live header/composer/empty state.
 
@@ -948,12 +923,9 @@ class AgentSessionViewModel @Inject constructor(
             }
         } finally {
             ws = null
-            idleReleaseJob?.cancel()
             runCatching { socket?.cancel() }
         }
 
-        _viewers.value = emptyList()
-        _steererId.value = null
         terminal?.let { return it }
         return when {
             sawEnd -> DialOutcome.Ended(detail)
@@ -976,16 +948,6 @@ class AgentSessionViewModel @Inject constructor(
     private fun handleControlFrame(raw: String): FrameResult? {
         val obj = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
         return when ((obj["t"] as? JsonPrimitive)?.contentOrNull) {
-            "presence" -> {
-                _viewers.value = runCatching {
-                    json.decodeFromJsonElement(
-                        ListSerializer(PresenceViewer.serializer()),
-                        obj["viewers"] ?: return@runCatching emptyList(),
-                    )
-                }.getOrDefault(emptyList())
-                _steererId.value = (obj["steererId"] as? JsonPrimitive)?.contentOrNull
-                FrameResult(live = true)
-            }
             "activity" -> {
                 handleActivityEvent(obj["event"] as? JsonObject)
                 FrameResult(live = true)
@@ -1026,7 +988,7 @@ class AgentSessionViewModel @Inject constructor(
                     )
                 }
             }
-            else -> null // input/answer/kill — not activity-viewer-relevant
+            else -> null // input/answer/kill/legacy presence — not activity-viewer-relevant
         }
     }
 
@@ -1062,22 +1024,15 @@ class AgentSessionViewModel @Inject constructor(
         return true
     }
 
-    // ── Steering (message-shaped; relay enforces the single claim) ───────────
-
-    val isSteering: Boolean
-        get() = _steererId.value != null && _steererId.value == currentUserId.value
+    // ── Steering (message-shaped; owner-only — the mint refuses others) ──────
 
     /**
-     * Send one message to the agent: steal the claim, forward the text
-     * (chunked ≤4 KiB), then a SEPARATE `\r` frame — bundled into one write
-     * TUI apps treat the trailing return as a paste, which inserts instead of
-     * submitting. The claim is ALWAYS sent: the relay tracks the steerer per
-     * CONNECTION while presence only carries a user id, so `isSteering` can't
-     * tell this socket from the same user's web/second-device claim — skipping
-     * the claim there made the relay silently drop every input frame.
+     * Send one message to the agent: the text (chunked ≤4 KiB), then a
+     * SEPARATE `\r` frame — bundled into one write TUI apps treat the
+     * trailing return as a paste, which inserts instead of submitting.
      */
     fun sendMessage(text: String) {
-        if (text.isEmpty() || _perm.value != "steer") return
+        if (text.isEmpty()) return
         val socket = ws ?: return
         // Local echo (EXP-78): show the sent message immediately; its
         // transcript-derived `user_message` event is deduped via the FIFO.
@@ -1086,7 +1041,6 @@ class AgentSessionViewModel @Inject constructor(
         _activity.value = _activity.value.appendUserMessage(text)
         viewModelScope.launch {
             runCatching {
-                socket.send(Frame.Text("""{"t":"claim","steal":true}"""))
                 var i = 0
                 while (i < text.length) {
                     val chunk = text.substring(i, minOf(i + INPUT_CHUNK_CHARS, text.length))
@@ -1099,25 +1053,23 @@ class AgentSessionViewModel @Inject constructor(
                 }
                 socket.send(Frame.Text("""{"t":"input","data":"\r"}"""))
             }
-            scheduleIdleRelease()
         }
     }
 
     /**
-     * Answer a question card that carries a wire id (EXP-249): steal-claim,
-     * then ONE semantic `answer` frame — the desktop owns the mapping onto its
-     * TUI and confirms the injection with `answer_ack`. The card locks the
-     * moment the frame goes out (no double-tap) and unlocks only if nothing
-     * comes back within [ANSWER_ACK_TIMEOUT_MS].
+     * Answer a question card that carries a wire id (EXP-249): ONE semantic
+     * `answer` frame — the desktop owns the mapping onto its TUI and confirms
+     * the injection with `answer_ack`. The card locks the moment the frame
+     * goes out (no double-tap) and unlocks only if nothing comes back within
+     * [ANSWER_ACK_TIMEOUT_MS].
      */
     fun sendQuestionAnswer(questionId: String, askId: String?, keys: List<String>) {
-        if (keys.isEmpty() || _perm.value != "steer") return
+        if (keys.isEmpty()) return
         if (_activity.value.answerLocks.containsKey(questionId)) return
         val socket = ws ?: return
         lockAnswer(questionId)
         viewModelScope.launch {
             runCatching {
-                socket.send(Frame.Text("""{"t":"claim","steal":true}"""))
                 val frame = buildJsonObject {
                     put("t", "answer")
                     put("questionId", questionId)
@@ -1126,32 +1078,29 @@ class AgentSessionViewModel @Inject constructor(
                 }
                 socket.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame)))
             }
-            scheduleIdleRelease()
         }
     }
 
     /**
      * Answer a question card published by a pre-EXP-249 desktop (no wire id):
-     * steal-claim + the option's raw TUI keystroke. The digit ALONE — bundling
+     * the option's raw TUI keystroke. The digit ALONE — bundling
      * a `\r` submitted the picker AND cascaded into whatever picker claude
      * opened next. [lock] is off for multi-select toggles, which tap repeatedly
      * before [sendSubmit] advances the picker.
      */
     fun sendLegacyAnswer(lockKey: String, key: String, lock: Boolean = true) {
-        if (key.isEmpty() || _perm.value != "steer") return
+        if (key.isEmpty()) return
         if (lock && _activity.value.answerLocks.containsKey(lockKey)) return
         val socket = ws ?: return
         if (lock) lockAnswer(lockKey)
         viewModelScope.launch {
             runCatching {
-                socket.send(Frame.Text("""{"t":"claim","steal":true}"""))
                 val frame = buildJsonObject {
                     put("t", "input")
                     put("data", key)
                 }
                 socket.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame)))
             }
-            scheduleIdleRelease()
         }
     }
 
@@ -1193,28 +1142,7 @@ class AgentSessionViewModel @Inject constructor(
      *  card (EXP-197). */
     fun sendSubmit() = sendLegacyAnswer("", "\t", lock = false)
 
-    /** Auto-release the claim after 60s of no sends (timer resets per send). */
-    private fun scheduleIdleRelease() {
-        idleReleaseJob?.cancel()
-        idleReleaseJob = viewModelScope.launch {
-            delay(IDLE_RELEASE_MS)
-            releaseNow()
-        }
-    }
-
-    /**
-     * Best-effort synchronous release — safe from onCleared/onDispose where
-     * suspending is impossible (`outgoing.trySend` never blocks). Closing the
-     * socket also releases the claim relay-side; this just makes it prompt.
-     */
-    fun releaseNow() {
-        idleReleaseJob?.cancel()
-        if (!isSteering) return
-        ws?.outgoing?.trySend(Frame.Text("""{"t":"release"}"""))
-    }
-
     override fun onCleared() {
-        releaseNow()
         connectJob?.cancel()
         super.onCleared()
     }

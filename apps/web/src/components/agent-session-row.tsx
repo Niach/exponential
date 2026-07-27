@@ -66,7 +66,8 @@ export function SessionRow({
   onOpen,
 }: {
   row: AgentSessionRow
-  /** Whether the Watch button shows at all (member + relay on). */
+  /** Whether the Watch button shows at all (own session + relay on —
+   *  EXP-312: live sessions are owner-only). */
   canWatch: boolean
   teamSlug: string
   onOpen: () => void

@@ -2,14 +2,6 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// One watcher in the relay room (relay `presence` frames).
-struct AgentPresenceViewer: Identifiable, Equatable {
-    let userId: String
-    let name: String
-    let perm: String
-    var id: String { userId }
-}
-
 /// Viewer side of the steer relay's ACTIVITY channel (EXP-32 — the chat-style
 /// "Agent session" screen; apps/steer-relay/src/protocol.ts). Mints a viewer
 /// ticket over tRPC, dials the returned ws(s) URL with URLSessionWebSocketTask,
@@ -17,9 +9,11 @@ struct AgentPresenceViewer: Identifiable, Equatable {
 /// {t:'activity', event} frames (narration / tool headlines / questions /
 /// subagents / permissions / worktree diffs). EXP-249 removed the PTY mirror
 /// from the protocol, so every frame is JSON now — a stray BINARY frame (an old
-/// desktop's 0x01 output) is ignored. Steering is message-shaped: a steal-claim
-/// + chunked input + a separate \r for prose, and ONE semantic `answer` frame
-/// per question card. Mirrors the Android AgentSessionViewModel.
+/// desktop's 0x01 output) is ignored. Steering is message-shaped and fully
+/// seamless (EXP-312 — no operator claim, no view/steer perm split; the mint
+/// is owner-only, so a live connection just steers): chunked input + a
+/// separate \r for prose, and ONE semantic `answer` frame per question card.
+/// Mirrors the Android AgentSessionViewModel.
 @MainActor @Observable
 final class AgentSessionModel {
     enum Phase: Equatable {
@@ -52,11 +46,6 @@ final class AgentSessionModel {
     private(set) var answerTracker = AgentAnswerTracker()
     /// The most recent worktree diff — each one replaces the previous.
     private(set) var latestDiff: String?
-    private(set) var viewers: [AgentPresenceViewer] = []
-    private(set) var steererId: String?
-    /// The minted ticket's perm claim (`view`/`steer`), display-gating only —
-    /// the relay enforces it server-side regardless.
-    private(set) var perm = "view"
     /// The synced coding_sessions row — flips to ended via Electric.
     private(set) var session: CodingSessionEntity?
     /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
@@ -64,12 +53,6 @@ final class AgentSessionModel {
     /// `ended` and the view already reacts.
     private(set) var killError: String?
 
-    var canSteer: Bool { perm == "steer" }
-    var isSteering: Bool { steererId != nil && steererId == currentUserId }
-    var remoteSteererName: String? {
-        guard let steererId, steererId != currentUserId else { return nil }
-        return viewers.first { $0.userId == steererId }?.name ?? "Someone"
-    }
     /// Over as far as this client can tell: an explicitly `ended` row, or a
     /// row that VANISHED. The model is always constructed with a real row, so
     /// nil means it was deleted (stale rows get swept) or left this client's
@@ -82,12 +65,11 @@ final class AgentSessionModel {
     }
 
     /// Whether this viewer may kill the session (EXP-268): a live (not-ended)
-    /// synced row, and either the steer perm (session owner / team owner by
-    /// ticket) or the session's own runner. Display gating only — the server
-    /// enforces the same rule again.
+    /// synced row owned by the caller — everything about a live session is
+    /// owner-only (EXP-312). Display gating only — the server enforces the
+    /// same rule again.
     var canKill: Bool {
         guard !sessionEnded else { return false }
-        if canSteer { return true }
         guard let currentUserId else { return false }
         return session?.userId == currentUserId
     }
@@ -144,7 +126,6 @@ final class AgentSessionModel {
     /// fired backoff retry, EXP-243) can't install a second socket or stomp
     /// the winner's phase.
     private var dialGeneration = 0
-    private var idleReleaseTask: Task<Void, Never>?
     private var sessionObservationTask: Task<Void, Never>?
     private var answerExpiryTask: Task<Void, Never>?
 
@@ -155,8 +136,6 @@ final class AgentSessionModel {
     /// short enough that a lost frame doesn't strand the card. Web/Android
     /// parity (ANSWER_ACK_TIMEOUT_MS, EXP-249).
     private static let answerLockSeconds: Double = 5
-    /// Auto-release the steer claim after this long with no sends.
-    private static let idleReleaseSeconds: Double = 60
     /// Redial cadence while the desktop's publisher socket is still starting.
     private static let startingRetrySeconds: Double = 3
     /// Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
@@ -239,13 +218,10 @@ final class AgentSessionModel {
         connect()
     }
 
-    /// Tear everything down (view dismissed): best-effort claim release, then
-    /// close. Closing the socket also releases the claim relay-side.
+    /// Tear everything down (view dismissed).
     func shutdown() {
         stopped = true
-        releaseNow()
         retryTask?.cancel()
-        idleReleaseTask?.cancel()
         answerExpiryTask?.cancel()
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
@@ -276,20 +252,13 @@ final class AgentSessionModel {
         }
     }
 
-    // MARK: - Steering (message-shaped; the relay enforces the single claim)
+    // MARK: - Steering (message-shaped; owner-only — the mint refuses others)
 
-    /// Send one message to the agent: ALWAYS steal-claim first (the relay
-    /// gates input per CONNECTION while presence only exposes the steerer's
-    /// USER id — if this user holds the claim on another socket, e.g. the web
-    /// steer terminal or a second phone, skipping the claim would make the
-    /// relay silently drop every frame; the claim is idempotent for the
-    /// current holder and last-writer-wins by design), then forward the text
-    /// (chunked ≤4 KiB), then a SEPARATE `\r` frame — bundled into one write
-    /// TUI apps treat the trailing return as a paste, which inserts instead
-    /// of submitting.
+    /// Send one message to the agent: the text (chunked ≤4 KiB), then a
+    /// SEPARATE `\r` frame — bundled into one write TUI apps treat the
+    /// trailing return as a paste, which inserts instead of submitting.
     func sendMessage(_ text: String) {
-        guard !text.isEmpty, canSteer, connected else { return }
-        sendText(#"{"t":"claim","steal":true}"#)
+        guard !text.isEmpty, connected else { return }
         var rest = Substring(text)
         while !rest.isEmpty {
             let chunk = String(rest.prefix(Self.inputChunkChars))
@@ -301,7 +270,6 @@ final class AgentSessionModel {
             }
         }
         sendText(#"{"t":"input","data":"\r"}"#)
-        scheduleIdleRelease()
         // Local echo (EXP-78): show the sent message immediately; its
         // transcript-derived `user_message` event is deduped via the FIFO.
         recentEchoes.append((text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date()))
@@ -311,15 +279,13 @@ final class AgentSessionModel {
         append(.userMessage(id: takeEventId(), text: text))
     }
 
-    /// Answer a protocol-v2 question card (EXP-249): steal-claim first (same
-    /// per-CONNECTION reason as sendMessage), then ONE semantic `answer` frame
-    /// carrying every chosen key — the desktop owns the keystroke mapping and
-    /// confirms the injection with `answer_ack`. The card locks the moment the
-    /// frame goes out, so a double tap can never answer twice.
+    /// Answer a protocol-v2 question card (EXP-249): ONE semantic `answer`
+    /// frame carrying every chosen key — the desktop owns the keystroke
+    /// mapping and confirms the injection with `answer_ack`. The card locks
+    /// the moment the frame goes out, so a double tap can never answer twice.
     func sendAnswer(questionId: String, askId: String?, keys: [String]) {
-        guard !questionId.isEmpty, !keys.isEmpty, canSteer, connected else { return }
+        guard !questionId.isEmpty, !keys.isEmpty, connected else { return }
         guard !answerTracker.isLocked(questionId) else { return }
-        sendText(#"{"t":"claim","steal":true}"#)
         var frame: [String: Any] = ["t": "answer", "questionId": questionId, "keys": keys]
         if let askId, !askId.isEmpty { frame["askId"] = askId }
         if let data = try? JSONSerialization.data(withJSONObject: frame),
@@ -327,27 +293,24 @@ final class AgentSessionModel {
             sendText(json)
         }
         lockAnswer(questionId)
-        scheduleIdleRelease()
     }
 
     /// Answer a LEGACY question card (a desktop that publishes no question ids,
-    /// so there is nothing to address a semantic `answer` frame to): steal-claim
-    /// + the raw TUI keystroke, which the desktop passes to the PTY unwrapped.
+    /// so there is nothing to address a semantic `answer` frame to): the raw
+    /// TUI keystroke, which the desktop passes to the PTY unwrapped.
     /// NOTHING follows the digit — the old trailing `\r` submitted the picker a
     /// second time and cascaded into the NEXT question (EXP-249). `lockKey`
     /// locks the card; multi-select toggles pass nil (each digit only toggles,
     /// `sendLegacyAdvance` submits).
     func sendLegacyKey(_ key: String, lockKey: String? = nil) {
-        guard !key.isEmpty, canSteer, connected else { return }
+        guard !key.isEmpty, connected else { return }
         if let lockKey, answerTracker.isLocked(lockKey) { return }
-        sendText(#"{"t":"claim","steal":true}"#)
         let frame: [String: Any] = ["t": "input", "data": key]
         if let data = try? JSONSerialization.data(withJSONObject: frame),
            let json = String(data: data, encoding: .utf8) {
             sendText(json)
         }
         if let lockKey { lockAnswer(lockKey) }
-        scheduleIdleRelease()
     }
 
     /// Advance a legacy multi-select picker. Tab, NOT Enter: with the cursor on
@@ -368,24 +331,6 @@ final class AgentSessionModel {
             try? await Task.sleep(for: .seconds(Self.answerLockSeconds))
             guard let self, !Task.isCancelled else { return }
             self.answerTracker.expire(timeout: Self.answerLockSeconds)
-        }
-    }
-
-    /// Best-effort claim release — closing the socket also releases it
-    /// relay-side; this just makes it prompt.
-    func releaseNow() {
-        idleReleaseTask?.cancel()
-        guard isSteering else { return }
-        sendText(#"{"t":"release"}"#)
-    }
-
-    /// Auto-release the claim after 60s of no sends (timer resets per send).
-    private func scheduleIdleRelease() {
-        idleReleaseTask?.cancel()
-        idleReleaseTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.idleReleaseSeconds))
-            guard !Task.isCancelled else { return }
-            self?.releaseNow()
         }
     }
 
@@ -418,8 +363,6 @@ final class AgentSessionModel {
         sawEnd = false
         retryStarting = false
         endDetail = nil
-        viewers = []
-        steererId = nil
     }
 
     private func dial() async {
@@ -459,8 +402,6 @@ final class AgentSessionModel {
             phase = .closed(detail: "Live sessions are unavailable on this instance.", reconnecting: false)
             return
         }
-        perm = Self.decodeTicketPerm(ticket.ticket ?? "")
-
         let t = URLSession.shared.webSocketTask(with: url)
         task = t
         connected = true
@@ -506,9 +447,10 @@ final class AgentSessionModel {
         if !stopped, connected { receiveLoop() }
     }
 
-    /// A frame the relay only sends AFTER a successful join (presence goes out
-    /// immediately on join; a bad one answers `no_such_session` instead) — the
-    /// single proof the room is really live. An open socket proves nothing:
+    /// A frame the relay only sends AFTER a successful join (`activity_reset`
+    /// goes out immediately on join; a bad one answers `no_such_session`
+    /// instead) — the single proof the room is really live. An open socket
+    /// proves nothing:
     /// `resume()` never fails synchronously, so a refusing relay still opens
     /// one, and flipping to live on connect would zero the backoff on every
     /// attempt and redial at ~3s forever instead of walking up to the 30s cap.
@@ -524,18 +466,6 @@ final class AgentSessionModel {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let t = obj["t"] as? String else { return }
         switch t {
-        case "presence":
-            markLive()
-            let raw = obj["viewers"] as? [[String: Any]] ?? []
-            viewers = raw.compactMap { v in
-                guard let userId = v["userId"] as? String else { return nil }
-                return AgentPresenceViewer(
-                    userId: userId,
-                    name: (v["name"] as? String) ?? userId,
-                    perm: (v["perm"] as? String) ?? "view"
-                )
-            }
-            steererId = obj["steererId"] as? String
         case "activity":
             markLive()
             handleActivityEvent(obj["event"] as? [String: Any])
@@ -543,7 +473,10 @@ final class AgentSessionModel {
             // The ONLY feed wipe (EXP-249): the relay sends one immediately
             // before every join replay, and again whenever a publisher restarts
             // its stream — so a replay rebuilds the feed instead of appending a
-            // duplicate copy of the whole history.
+            // duplicate copy of the whole history. Also the join's success
+            // signal (EXP-312 — the presence frame that used to confirm it is
+            // gone).
+            markLive()
             resetFeed()
         case "bye":
             let outcome = obj["outcome"] as? String
@@ -569,7 +502,7 @@ final class AgentSessionModel {
                 endDetail = (obj["message"] as? String) ?? code
             }
         default:
-            break // input/claim/kill — not activity-viewer-relevant
+            break // input/kill/legacy presence — not activity-viewer-relevant
         }
     }
 
@@ -769,9 +702,6 @@ final class AgentSessionModel {
         guard !stopped else { return }
         connected = false
         task = nil
-        idleReleaseTask?.cancel()
-        viewers = []
-        steererId = nil
         if sawEnd {
             phase = .ended(detail: endDetail)
         } else if retryStarting, session.map({ CodingSessionLiveness.isLive($0) }) == true {
@@ -836,17 +766,4 @@ final class AgentSessionModel {
         task.send(.string(text)) { _ in }
     }
 
-    /// The ticket is `base64url(JSON claims).base64url(sig)` — decode the perm
-    /// claim for display gating (the relay enforces it server-side regardless).
-    static func decodeTicketPerm(_ ticket: String) -> String {
-        guard let dot = ticket.firstIndex(of: ".") else { return "view" }
-        var b64 = String(ticket[..<dot])
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        while b64.count % 4 != 0 { b64 += "=" }
-        guard let data = Data(base64Encoded: b64),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let perm = obj["perm"] as? String else { return "view" }
-        return perm == "steer" ? "steer" : "view"
-    }
 }

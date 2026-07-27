@@ -80,7 +80,9 @@ fun AgentPrCard(
     session: CodingSessionEntity?,
     sessionOwner: UserEntity?,
     steerEnabled: Boolean?,
-    isMember: Boolean,
+    /** EXP-312: live sessions are owner-only — tap-to-watch renders only on
+     *  the caller's own session. */
+    currentUserId: String?,
     onWatch: (String) -> Unit,
     onOpenChanges: () -> Unit,
 ) {
@@ -101,7 +103,7 @@ fun AgentPrCard(
                 prState = issue.prState,
                 sessionOwner = sessionOwner,
                 steerEnabled = steerEnabled,
-                isMember = isMember,
+                currentUserId = currentUserId,
                 onWatch = onWatch,
             )
         }
@@ -123,10 +125,13 @@ private fun SessionRow(
     prState: String?,
     sessionOwner: UserEntity?,
     steerEnabled: Boolean?,
-    isMember: Boolean,
+    currentUserId: String?,
     onWatch: (String) -> Unit,
 ) {
-    val watchable = isMember && steerEnabled == true
+    // EXP-312: only the session's own runner may open it live — teammates see
+    // the status badge + byline, nothing tappable.
+    val ownSession = currentUserId != null && session.userId == currentUserId
+    val watchable = ownSession && steerEnabled == true
     val state = codingSessionDisplayState(session, prState)
     Column {
         Row(
@@ -177,7 +182,7 @@ private fun SessionRow(
                 )
             }
         }
-        if (isMember && steerEnabled == false) {
+        if (ownSession && steerEnabled == false) {
             Spacer(Modifier.height(6.dp))
             Text(
                 "Live steering is unavailable on this instance.",

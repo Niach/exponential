@@ -1974,8 +1974,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     }
 
     // Teardown tidiness: never leave the synced attention flag stuck on a
-    // session whose emitter is gone (the terminal-exit `end` supersedes, but
-    // a steerer takeover only flips `active`).
+    // session whose emitter is gone (the terminal-exit `end` supersedes).
     if needs_input {
         if let Some(on_needs_input) = &config.on_needs_input {
             on_needs_input(false);

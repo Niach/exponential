@@ -124,6 +124,10 @@ class IssueDetailViewModel @Inject constructor(
             else db.teamMemberDao().observeByTeam(board.teamId)
         }
 
+    // EXP-312: live sessions are owner-only — the screen gates tap-to-watch
+    // on the session row's userId matching this.
+    val currentUserId: StateFlow<String?> = auth.userId
+
     // EXP-50: the team's lone member when it has exactly one — else null.
     // A solo team hides the assignee row in the detail editor (mirrors
     // CreateIssueScreen).
