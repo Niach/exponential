@@ -1078,9 +1078,16 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoEleme
         (None, None) => capitalize_first(verb),
     };
 
+    // EXP-309: the pill is a full-width sidebar row like every other EXP-282
+    // control, and its label ellipsizes. A content-sized `flex_shrink_0` pill
+    // spilled past the 220px sidebar as soon as the label carried a name AND a
+    // device ("Danny Strähhuber needs input · MacBook Pro"). Truncation needs
+    // the whole width chain definite: `w_full` + `min_w_0` on the row, then
+    // `flex_1 min_w_0 overflow_hidden` on the text div itself.
     Some(
         h_flex()
-            .flex_shrink_0()
+            .w_full()
+            .min_w_0()
             .gap_1p5()
             .px_2()
             .py_0p5()
@@ -1089,8 +1096,22 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoEleme
             .border_color(tone.to_hsla().opacity(0.4))
             .items_center()
             .text_xs()
-            .child(div().size_1p5().rounded_full().bg(tone.to_hsla()))
-            .child(SharedString::from(label)),
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .size_1p5()
+                    .rounded_full()
+                    .bg(tone.to_hsla()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(SharedString::from(label)),
+            ),
     )
 }
 
