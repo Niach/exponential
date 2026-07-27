@@ -104,6 +104,14 @@ impl AppTitleBar {
     }
 }
 
+/// EXP-303: with the rail collapsed on macOS, the sidebar glass extends this
+/// far from the window's left edge — the rail (44px) plus the wash tongue the
+/// titlebar paints under the rest of the traffic-light cluster (the cluster
+/// ends ~68px; the extra slack keeps the tongue's rounded corner and the
+/// expand toggle from crowding the green light). The titlebar's left padding
+/// derives from the same value so the toggle always starts past the curve.
+const TRAFFIC_TONGUE_TOTAL: f32 = 92.;
+
 /// EXP-285: whether this window renders the full-height rail next to the
 /// titlebar (`Shell`'s Synced branch, not update-blocked). Mirrors the
 /// branch conditions in `Shell::render` — keep the two in sync.
@@ -169,18 +177,19 @@ impl Render for AppTitleBar {
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .when(rail, |bar| {
                 let pl = if cfg!(target_os = "macos") && !window.is_fullscreen() && !expanded {
-                    px(80. - crate::sidebar::RAIL_W)
+                    px(TRAFFIC_TONGUE_TOTAL - crate::sidebar::RAIL_W)
                 } else {
                     px(8.)
                 };
                 bar.pl(pl)
             })
             // EXP-303: collapsed rail — the sidebar glass ends at 44px but the
-            // macOS traffic-light cluster reaches ~80px, so its trailing
+            // macOS traffic-light cluster reaches ~68px, so its trailing
             // buttons sat on the rail/content seam. Extend the rail's wash as
             // a tongue under the remainder of the cluster, rounded on its
             // bottom-right so it reads as the sidebar curving around the
-            // lights. First child on purpose: everything else in the bar
+            // lights; the padding above keeps the expand toggle clear of the
+            // curve. First child on purpose: everything else in the bar
             // (toggle, tabs) paints above it.
             .when(
                 cfg!(target_os = "macos") && rail && !expanded && !window.is_fullscreen(),
@@ -191,7 +200,7 @@ impl Render for AppTitleBar {
                             .top_0()
                             .bottom_0()
                             .left_0()
-                            .w(px(80. - crate::sidebar::RAIL_W))
+                            .w(px(TRAFFIC_TONGUE_TOTAL - crate::sidebar::RAIL_W))
                             .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
                             .rounded_br(px(10.)),
                     )
