@@ -99,6 +99,12 @@ fn traffic_tongue() -> impl IntoElement {
     let radius = px(10.);
     div()
         .w(px(TRAFFIC_TONGUE_W))
+        // Explicit height is load-bearing: the strip row is an `h_flex`
+        // (items-center), and this div's children are all ABSOLUTE — without
+        // a definite height it collapses to 0px and paints nothing (the
+        // tongue region showed the raw window backdrop). 34px = the vendored
+        // TitleBar strip height.
+        .h(px(34.))
         .flex_shrink_0()
         .relative()
         .child(
