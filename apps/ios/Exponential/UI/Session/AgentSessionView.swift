@@ -278,8 +278,17 @@ struct AgentSessionView: View {
                 .overlay(alignment: .bottom) {
                     if !atBottom {
                         Button {
-                            // The scroll re-pins: geometry flips atBottom once
-                            // the animation lands at the bottom.
+                            // Re-arm follow directly (Android parity: the pill
+                            // tap sets follow=true) instead of waiting for the
+                            // scroll geometry to flip atBottom — while the
+                            // agent streams, the animated scrollTo targets the
+                            // bottom as of the tap, the content keeps growing
+                            // underneath it, and the animation lands short of
+                            // the moving max offset, so the pill never
+                            // vanished (EXP-306). With atBottom set here the
+                            // pill hides at once and the growth observer keeps
+                            // chasing the bottom.
+                            atBottom = true
                             withAnimation {
                                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                             }
@@ -1221,7 +1230,7 @@ private struct FollowPinTracker: ViewModifier {
                         || newPhase == .interacting
                         || newPhase == .decelerating
                 }
-                .onScrollGeometryChange(for: Bool.self) { geometry in
+                .onScrollGeometryChange(for: FeedPinMetrics.self) { geometry in
                     // Pinned ⇔ within slack of the MAXIMUM scrollable offset.
                     // The max is clamped to the minimum resting offset
                     // (-contentInsets.top): a feed shorter than the viewport
@@ -1234,16 +1243,25 @@ private struct FollowPinTracker: ViewModifier {
                             - geometry.containerSize.height,
                         minOffset
                     )
-                    return geometry.contentOffset.y >= maxOffset - slack
-                } action: { _, pinned in
+                    return FeedPinMetrics(
+                        pinned: geometry.contentOffset.y >= maxOffset - slack,
+                        offset: geometry.contentOffset.y
+                    )
+                } action: { old, new in
                     // Reaching the bottom always re-arms follow; LEAVING it is
                     // the user's alone (Android parity: only drags flip
                     // `follow`) — content growth un-pins the geometry without
                     // any gesture, and the growth observer below re-pins
-                    // instead (EXP-272).
-                    if pinned {
+                    // instead (EXP-272). "User's alone" additionally requires
+                    // the offset to have moved UP: content growing under a
+                    // finger resting at the bottom un-pins the geometry while
+                    // a scroll phase is active, and treating that as a scroll-
+                    // away stranded the pill on screen at the bottom — the
+                    // growth observer skips repins during user scrolls, and
+                    // once un-pinned nothing ever recovered (EXP-306).
+                    if new.pinned {
                         if !atBottom { atBottom = true }
-                    } else if userScrolling, atBottom {
+                    } else if userScrolling, atBottom, new.offset < old.offset {
                         atBottom = false
                     }
                 }
@@ -1265,6 +1283,15 @@ private struct FollowPinTracker: ViewModifier {
             }
         }
     }
+}
+
+/// Scroll-geometry sample the iOS 18+ pin tracker acts on: pinned-to-bottom
+/// plus the raw offset, so the action can tell a user scroll AWAY from the
+/// bottom (offset moved up) apart from content growth un-pinning the geometry
+/// under a stationary finger (EXP-306).
+private struct FeedPinMetrics: Equatable {
+    var pinned: Bool
+    var offset: CGFloat
 }
 
 /// Points of feed content extending below the visible viewport — 0 when the
