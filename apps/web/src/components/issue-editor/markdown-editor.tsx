@@ -40,6 +40,7 @@ import {
 } from "lucide-react"
 import { MarkdownImage } from "@/lib/markdown-image"
 import { MarkdownParagraph } from "@/components/issue-editor/markdown-paragraph"
+import { ArrowInputRules } from "@/lib/arrow-input-rules"
 import { IssueRefExtension } from "@/lib/issue-ref-extension"
 import { MentionPillExtension } from "@/lib/mention-pill-extension"
 import {
@@ -450,6 +451,7 @@ export const MarkdownEditor = forwardRef<
         MentionPillExtension.configure({
           getResolved: (email) => mentionsRef.current?.resolve(email) ?? null,
         }),
+        ArrowInputRules,
         EditorAutocompleteExtension.configure({
           onStateChange: (active) => {
             setAutocomplete(active)

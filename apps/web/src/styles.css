@@ -527,6 +527,20 @@ html {
   white-space: nowrap;
 }
 
+/* The chip shows the issue title next to the identifier (EXP-307). The title
+   rides a data attribute rendered here, so the editable document text stays
+   exactly the `#IDENTIFIER` token and the markdown round-trip is untouched.
+   The title portion may wrap (long titles must not overflow narrow columns);
+   the mono identifier itself stays unbreakable via the nowrap above. */
+.tiptap-content .issue-ref-pill::after {
+  content: attr(data-issue-title);
+  margin-left: 0.35em;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: normal;
+}
+
 .tiptap-content .issue-ref-pill:hover {
   border-color: var(--ring);
 }

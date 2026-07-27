@@ -108,8 +108,20 @@ export const EditorAutocompleteExtension =
         new Plugin({
           key: new PluginKey(`editorAutocomplete`),
           view: () => ({
-            update: (view) => {
-              emit(view.editable ? findAutocompleteAtCaret(view.state) : null)
+            update: (view, prevState) => {
+              if (!view.editable) {
+                emit(null)
+                return
+              }
+              const next = findAutocompleteAtCaret(view.state)
+              // Only typing may OPEN the menu. A pure caret move (clicking
+              // right after an existing `#EXP-42` token, arrowing onto it)
+              // matches the same at-caret regex, and used to pop the picker
+              // on every click near a pill (EXP-307). An already-open menu
+              // still tracks/dismisses on caret moves.
+              const docChanged = !view.state.doc.eq(prevState.doc)
+              if (next && last === null && !docChanged) return
+              emit(next)
             },
             destroy: () => {
               emit(null)

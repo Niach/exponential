@@ -1255,12 +1255,13 @@ impl Element for BlockTextElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let (focus_handle, hovering_link) = {
+        let (focus_handle, hovering_link, hovering_issue_ref) = {
             let input = self.input.read(cx);
             let text_bounds = source_text_bounds(bounds, prepaint.source_line_number_gutter_width);
-            let hovering_link = !self.is_placeholder
+            let hovering_text = !self.is_placeholder
                 && !input.is_source_raw_mode()
-                && prepaint.hitbox.is_hovered(window)
+                && prepaint.hitbox.is_hovered(window);
+            let hovering_link = hovering_text
                 && link_at_position(
                     input,
                     &prepaint.lines,
@@ -1269,10 +1270,24 @@ impl Element for BlockTextElement {
                     window.mouse_position(),
                 )
                 .is_some();
-            (input.focus_handle.clone(), hovering_link)
+            // EXP-307 vendoring: issue-ref pills open on plain click, so they
+            // advertise it on plain hover (mention pills stay text-cursor —
+            // they only edit).
+            let hovering_issue_ref = hovering_text
+                && reference_at_position(
+                    input,
+                    &prepaint.lines,
+                    text_bounds,
+                    prepaint.line_height,
+                    window.mouse_position(),
+                )
+                .is_some_and(|(kind, _)| kind == crate::host::ReferenceKind::IssueRef);
+            (input.focus_handle.clone(), hovering_link, hovering_issue_ref)
         };
 
-        if hovering_link {
+        if hovering_issue_ref {
+            window.set_cursor_style(CursorStyle::PointingHand, &prepaint.hitbox);
+        } else if hovering_link {
             // The hand cursor only appears while the Cmd/Ctrl follow modifier is
             // held (matching the gesture that opens the link); a plain hover keeps
             // the text cursor. The editor root repaints on follow-modifier
