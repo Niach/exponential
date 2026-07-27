@@ -21,13 +21,17 @@ const makeState = (): WidgetRuntimeState => ({
   bundle: null,
 })
 
-const submit = (state: WidgetRuntimeState) =>
+const submit = (
+  state: WidgetRuntimeState,
+  overrides: { website?: string } = {}
+) =>
   submitFeedback({
     state,
     title: `Broken button`,
     description: ``,
     email: null,
     screenshot: null,
+    website: overrides.website,
     meta: {
       url: `https://host.example/page`,
       viewportWidth: 800,
@@ -38,11 +42,15 @@ const submit = (state: WidgetRuntimeState) =>
     },
   })
 
-const submitSupport = (state: WidgetRuntimeState) =>
+const submitSupport = (
+  state: WidgetRuntimeState,
+  overrides: { website?: string } = {}
+) =>
   submitSupportRequest({
     state,
     message: `Login is broken`,
     email: `user@example.com`,
+    website: overrides.website,
     meta: {
       url: `https://host.example/page`,
       viewportWidth: 800,
@@ -85,6 +93,7 @@ describe(`submitFeedback response parsing`, () => {
       ok: true,
       identifier: `EXP-7`,
       url,
+      emailDelivered: null,
     })
   })
 
@@ -94,6 +103,7 @@ describe(`submitFeedback response parsing`, () => {
       ok: true,
       identifier: `EXP-7`,
       url: null,
+      emailDelivered: null,
     })
   })
 
@@ -103,6 +113,7 @@ describe(`submitFeedback response parsing`, () => {
       ok: true,
       identifier: `EXP-7`,
       url: null,
+      emailDelivered: null,
     })
   })
 
@@ -119,7 +130,61 @@ describe(`submitFeedback response parsing`, () => {
       ok: true,
       identifier: null,
       url: null,
+      emailDelivered: null,
     })
+  })
+})
+
+// REV2-10: the support confirmation email carries the reporter's ONLY
+// credential, so the panel must learn whether it actually went out.
+describe(`submitSupportRequest emailDelivered`, () => {
+  it(`surfaces a failed confirmation email`, async () => {
+    mockFetchJson({ ok: true, issueId: null, identifier: null, url: null, emailDelivered: false })
+    expect(await submitSupport(makeState())).toEqual({
+      ok: true,
+      identifier: null,
+      url: null,
+      emailDelivered: false,
+    })
+  })
+
+  it(`surfaces a delivered confirmation email`, async () => {
+    mockFetchJson({ ok: true, emailDelivered: true })
+    expect(await submitSupport(makeState())).toMatchObject({
+      ok: true,
+      emailDelivered: true,
+    })
+  })
+
+  it(`degrades to null against a server that omits the field`, async () => {
+    mockFetchJson({ ok: true })
+    expect(await submitSupport(makeState())).toMatchObject({
+      ok: true,
+      emailDelivered: null,
+    })
+  })
+})
+
+// REV2-69: the honeypot value must actually reach the server — the check has
+// existed on /api/widget/submit since day one with no client half.
+describe(`honeypot field forwarding`, () => {
+  const bodyOf = (fetchMock: ReturnType<typeof mockFetchJson>): FormData =>
+    ((fetchMock.mock.calls[0] as unknown[])[1] as { body: FormData }).body
+
+  it(`omits website when the honeypot is untouched`, async () => {
+    const fetchMock = mockFetchJson({ ok: true })
+    await submit(makeState())
+    expect(bodyOf(fetchMock).get(`website`)).toBeNull()
+  })
+
+  it(`forwards a filled honeypot on both forms`, async () => {
+    const feedbackFetch = mockFetchJson({ ok: true })
+    await submit(makeState(), { website: `http://spam.example` })
+    expect(bodyOf(feedbackFetch).get(`website`)).toBe(`http://spam.example`)
+
+    const supportFetch = mockFetchJson({ ok: true })
+    await submitSupport(makeState(), { website: `http://spam.example` })
+    expect(bodyOf(supportFetch).get(`website`)).toBe(`http://spam.example`)
   })
 })
 

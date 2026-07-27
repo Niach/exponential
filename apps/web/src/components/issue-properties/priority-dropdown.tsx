@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc-client"
 import {
   getIssuePriorityConfig,
   issuePriorityOptions,
+  ISSUE_PRIORITY_FALLBACK,
   type IssuePriority,
 } from "@/lib/domain"
 
@@ -38,6 +39,7 @@ export function PriorityDropdown({
   return (
     <OptionDropdownMenu
       value={priority}
+      fallbackValue={ISSUE_PRIORITY_FALLBACK}
       disabled={disabled}
       options={priorities}
       mobileTitle="Priority"

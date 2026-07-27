@@ -43,7 +43,12 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         }
         syncManager.start()
         pushTokenManager.start()
-        // Coming back to the foreground, the shape loops may be parked in a
+        // The shape loops only run while the app is visible (REV2-38): the gate
+        // starts closed, ON_START opens it and ON_STOP parks the loops after a
+        // grace window, so a backgrounded (or push-woken) process holds no
+        // shape connections.
+        //
+        // Coming back to the foreground, the loops may also be sitting in a
         // stale backoff or holding a socket the radio killed while we were
         // away — that was the ~10s of stale content on open (EXP-264). Kick
         // them so the first thing the user sees is current. On a cold launch
@@ -51,7 +56,12 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         // makes it a harmless no-op.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
+                syncManager.setForeground(true)
                 syncManager.kick("app-foreground")
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                syncManager.setForeground(false)
             }
         })
     }

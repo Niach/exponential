@@ -24,11 +24,11 @@ import {
 // should be short. Open PRs WITHOUT any link (manual PRs, external
 // contributors) are listed last, grouped by repository, straight from GitHub.
 export const Route = createFileRoute(`/t/$teamSlug/reviews/`)({
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
         to: `/auth/login`,
-        search: { redirect: undefined },
+        search: { redirect: location.href },
       })
     }
   },

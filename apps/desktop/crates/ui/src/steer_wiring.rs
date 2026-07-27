@@ -522,6 +522,19 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         log::info!("steer: remote start for {issue_id} ignored — already coding this issue");
         return;
     }
+    // REV2-24: the cross-device half of the same rule, mirroring the dialog's
+    // blocker. The remote client hides Start when it SEES a live session, but
+    // that view lags the launch (the row only exists once a desktop spins up
+    // and round-trips through Electric), so two devices dispatched inside that
+    // window would both pass the LocalSessions check and push to the same
+    // `exp/<ID>` branch.
+    let now = chrono::Utc::now().timestamp();
+    if let Some(device) = queries::live_session_device_for_issue(cx, &issue_id, now) {
+        log::info!(
+            "steer: remote start for {issue_id} ignored — live session on {device} (one session per issue)"
+        );
+        return;
+    }
 
     let origin = relay_origin(cx);
     // The remote client's Start-coding dialog choices (EXP-149), settings
@@ -591,18 +604,25 @@ fn remote_batch_start(
     start: &steer::RemoteStart,
     cx: &mut App,
 ) {
-    // No dedup (unlike the issue branch): each batch run mints a fresh
-    // `exp/batch-<id8>` branch, so there is never a worktree collision to
-    // guard against.
+    // No worktree dedup (unlike the issue branch): each batch run mints a
+    // fresh `exp/batch-<id8>` branch, so there is never a collision to guard
+    // against — but the EXP-202 one-session-per-issue rule still applies per
+    // MEMBER issue (REV2-24), otherwise a batch duplicates work an agent is
+    // already doing on `exp/<ID>` elsewhere and lands it in a second PR.
 
     // Resolve the checked issues from sync. Unknown ids are skipped; a
     // resolved issue whose board is outside the claimed team aborts the
     // WHOLE batch — a remote client must never steer this desktop into coding
-    // issues from another team than the one it claimed.
+    // issues from another team than the one it claimed. An issue already
+    // being coded (this process or, per the synced rows, any device) aborts
+    // the whole batch too, mirroring the dialog's blocker: silently dropping
+    // it would run a batch the requester never asked for.
+    let now = chrono::Utc::now().timestamp();
     let issues: Vec<BatchIssueSpec> = {
         let store = Store::global(cx);
         let issues_coll = store.collections().issues.read(cx);
         let boards_coll = store.collections().boards.read(cx);
+        let local = coding_flow::LocalSessions::global_ref(cx);
         let mut specs = Vec::new();
         for issue_id in &issue_ids {
             let Some(issue) = issues_coll.get(issue_id) else {
@@ -615,6 +635,23 @@ fn remote_batch_start(
             if issue_ws != Some(team_id.as_str()) {
                 log::warn!(
                     "steer: remote batch start aborted — issue {} is not in team {team_id}",
+                    issue.identifier
+                );
+                return;
+            }
+            if local
+                .as_ref()
+                .is_some_and(|sessions| sessions.read(cx).get(issue_id).is_some())
+            {
+                log::warn!(
+                    "steer: remote batch start aborted — already coding {} on this device",
+                    issue.identifier
+                );
+                return;
+            }
+            if let Some(device) = queries::live_session_device_for_issue(cx, issue_id, now) {
+                log::warn!(
+                    "steer: remote batch start aborted — {} has a live session on {device}",
                     issue.identifier
                 );
                 return;

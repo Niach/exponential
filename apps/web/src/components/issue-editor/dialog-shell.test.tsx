@@ -174,16 +174,18 @@ describe(`IssueEditorDialogShell`, () => {
       target: { value: `Updated title` },
     })
     fireEvent.click(screen.getByLabelText(`Close dialog`))
-    fireEvent.click(screen.getByText(`Select Backlog`))
-    fireEvent.click(screen.getByText(`Select No priority`))
+    // The option tables are display-ordered (REV2-85), so the mock's
+    // options[0] is In Progress / Urgent and its "select" picks options[1].
+    fireEvent.click(screen.getByText(`Select In Progress`))
+    fireEvent.click(screen.getByText(`Select Urgent`))
     fireEvent.click(screen.getByText(`Toggle label`))
     fireEvent.click(screen.getByText(`Pick assignee`))
     fireEvent.click(screen.getByText(`Pick date`))
 
     expect(onTitleChange).toHaveBeenCalledWith(`Updated title`)
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(onStatusChange).toHaveBeenCalledWith(`todo`)
-    expect(onPriorityChange).toHaveBeenCalledWith(`urgent`)
+    expect(onStatusChange).toHaveBeenCalledWith(`in_review`)
+    expect(onPriorityChange).toHaveBeenCalledWith(`high`)
     expect(onToggleLabel).toHaveBeenCalledWith(`label-1`)
     expect(onAssigneeChange).toHaveBeenCalledWith(`user-2`)
     expect(onDueDateSelect).toHaveBeenCalled()

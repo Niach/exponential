@@ -310,6 +310,23 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         return params
     }
 
+    /// Human copy for the `error` reason the server deep-links back on a failed
+    /// OAuth hop (REV2-53 — `exponential://oauth-return?error=…`). Mirrors the
+    /// web's `oauthErrorMessage`; unknown reasons get the generic line.
+    static func oauthErrorMessage(_ reason: String) -> String {
+        switch reason {
+        case "access_denied":
+            return "Sign-in was cancelled."
+        case "state_missing", "state_invalid", "state_mismatch", "state_not_found",
+             "please_restart_the_process":
+            return "That sign-in link expired. Please try again."
+        case "no_session", "session_cookie_missing":
+            return "Sign-in didn't complete on the server. Please try again."
+        default:
+            return "Couldn't complete sign-in. Please try again."
+        }
+    }
+
     private func launchWebAuth(url: URL) {
         logger.info("Starting OAuth: \(url.absoluteString)")
 
@@ -341,6 +358,18 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
                 logger.info("OAuth callback: \(callbackURL.absoluteString)")
 
                 let params = Self.callbackParams(callbackURL)
+
+                // Failure handoff (REV2-53): every failing branch of the web
+                // hop deep-links back with `error=<reason>` so the auth sheet
+                // completes here instead of stranding the user on an https
+                // page they can only dismiss.
+                if let reason = params["error"] {
+                    logger.info("OAuth callback error: \(reason)")
+                    self.pendingPkce = nil
+                    self.error = Self.oauthErrorMessage(reason)
+                    self.webAuthSession = nil
+                    return
+                }
 
                 // PKCE code (REV-13): redeem via /api/mobile-oauth-exchange
                 // with the in-memory verifier — never a raw token on the wire.

@@ -27,7 +27,7 @@ import {
 } from "@/hooks/use-team-data"
 
 export const Route = createFileRoute(`/t/$teamSlug`)({
-  beforeLoad: async ({ params }) => {
+  beforeLoad: async ({ params, location }) => {
     const slug = params.teamSlug
     const sessionData = await fetchSessionOnce()
     const session = sessionData?.session ?? null
@@ -40,7 +40,7 @@ export const Route = createFileRoute(`/t/$teamSlug`)({
       if (!session) {
         throw redirect({
           to: `/auth/login`,
-          search: { redirect: undefined },
+          search: { redirect: location.href },
         })
       }
       const { team } = await trpc.teams.getDefault.query()
@@ -67,11 +67,15 @@ export const Route = createFileRoute(`/t/$teamSlug`)({
       if (!isNotFound) throw e
       // The team either doesn't exist or is private and we can't read it.
       // If we have no session, sending the user to login is the best
-      // recovery — after sign-in they might gain access.
+      // recovery — after sign-in they might gain access. Every board/issue
+      // deep link funnels through here, so carry the destination along:
+      // `location.href` is the full origin-stripped URL of the navigation
+      // (not just this layout segment), and login re-clamps it with
+      // sanitizeRedirectPath.
       if (!session) {
         throw redirect({
           to: `/auth/login`,
-          search: { redirect: undefined },
+          search: { redirect: location.href },
         })
       }
       throw notFound()

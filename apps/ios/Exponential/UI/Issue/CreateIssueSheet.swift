@@ -298,7 +298,9 @@ struct CreateIssueSheet: View {
                     title: "Status",
                     // Duplicate = status interception (L27): a new issue can't be a
                     // duplicate (nothing to link yet), so it's not a create option.
-                    items: IssueStatus.allCases.filter { $0 != .duplicate },
+                    // Contract display order — the ONE picker vocabulary
+                    // (REV2-85), same as the filter sheet.
+                    items: IssueStatus.displayOrder.filter { $0 != .duplicate },
                     selectedID: status.id,
                     idFor: { $0.id },
                     onSelect: { status = $0 }
@@ -314,7 +316,7 @@ struct CreateIssueSheet: View {
             .sheet(isPresented: $showPriorityPicker) {
                 PickerSheet(
                     title: "Priority",
-                    items: IssuePriority.allCases,
+                    items: IssuePriority.displayOrder,
                     selectedID: priority.id,
                     idFor: { $0.id },
                     onSelect: { priority = $0 }

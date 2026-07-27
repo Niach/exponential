@@ -5,6 +5,7 @@ import { getAuthConfig } from "@/lib/auth/config"
 import { captureOAuthResumeUrl } from "@/lib/auth/oauth-resume"
 import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 import { authErrorMessage } from "@/lib/auth/error-messages"
+import { oauthErrorMessage } from "@/lib/deep-link"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,9 +25,12 @@ export const Route = createFileRoute(`/auth/login`)({
   // (client_id, redirect_uri, ...) must survive router normalization.
   validateSearch: (
     search: Record<string, unknown>
-  ): { redirect?: string } & Record<string, unknown> => ({
+  ): { redirect?: string; error?: string } & Record<string, unknown> => ({
     ...search,
     redirect: sanitizeRedirectPath(search.redirect),
+    // The native OAuth hop bounces failures here as `?error=<reason>`
+    // (REV2-53) — kept as a string so the page can render it.
+    error: typeof search.error === `string` ? search.error : undefined,
   }),
 })
 
@@ -35,7 +39,7 @@ export const Route = createFileRoute(`/auth/login`)({
 // open (signupEnabled from buildAuthConfig). /auth/register is a pure
 // redirect here.
 function LoginPage() {
-  const { redirect: redirectTo } = Route.useSearch()
+  const { redirect: redirectTo, error: errorParam } = Route.useSearch()
   const {
     passwordEnabled,
     signupEnabled,
@@ -63,6 +67,13 @@ function LoginPage() {
     signInWithGoogle,
     signInWithApple,
   } = useOAuthSignIn(destination)
+
+  // A failed native OAuth hop lands back here with `?error=<reason>`
+  // (REV2-53). Seed the shared error state so the page explains itself instead
+  // of showing a blank form; any later sign-in attempt clears it as usual.
+  React.useEffect(() => {
+    if (errorParam) setError(oauthErrorMessage(errorParam))
+  }, [errorParam, setError])
 
   const toggleMode = (next: `signin` | `signup`) => {
     setMode(next)

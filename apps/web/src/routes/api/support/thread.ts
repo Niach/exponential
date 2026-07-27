@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { supportMessages, supportThreads, teams } from "@/db/schema"
+import { supportMessages, supportThreads } from "@/db/schema"
 import { jsonResponse } from "@/lib/widget/cors"
 import { clientIpFromRequest } from "@/lib/widget/rate-limit"
 import {
   findThreadByToken,
   getSupportRateLimiters,
+  isSupportThreadFrozen,
 } from "@/lib/helpdesk/service"
 
 // Anonymous read of a helpdesk conversation via the emailed magic-link token
@@ -37,17 +38,12 @@ async function handleThreadRead(request: Request): Promise<Response> {
     return jsonResponse(400, { error: `Missing token` })
   }
 
-  const thread = await findThreadByToken(token)
-  if (!thread) {
+  const resolved = await findThreadByToken(token)
+  if (!resolved) {
     // One indistinguishable answer for unknown and malformed tokens.
     return jsonResponse(404, { error: `Conversation not found` })
   }
-
-  const [context] = await db
-    .select({ teamName: teams.name })
-    .from(teams)
-    .where(eq(teams.id, thread.teamId))
-    .limit(1)
+  const { thread } = resolved
 
   const messages = await db
     .select({
@@ -76,8 +72,10 @@ async function handleThreadRead(request: Request): Promise<Response> {
   return jsonResponse(200, {
     subject: thread.title,
     boardName: null,
-    teamName: context?.teamName ?? null,
-    closed: thread.status === `resolved`,
+    teamName: resolved.teamName,
+    // A helpdesk-off team's threads read as closed (REV2-23) — the page hides
+    // its reply box, matching the 409 the reply endpoint now answers.
+    closed: thread.status === `resolved` || isSupportThreadFrozen(resolved),
     reporterName: thread.reporterName,
     messages: messages
       .filter((m) => m.visibility === `public`)

@@ -53,6 +53,13 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installation
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installation_repo_grants FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON mcp_grants FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_number_counters FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- creem_subscriptions is written from BOTH sides (REV2-70): the app's own seat/
+-- plan/team-binding updates and the Better Auth Creem plugin's webhook
+-- persistence. The plugin's model declares no updatedAt field, so better-auth's
+-- adapter never applies an onUpdate hook to it — app-side stamping alone can
+-- never cover the webhook path, which is exactly the path a billing dispute is
+-- reconstructed from. The trigger covers both writers.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON creem_subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 2. Auto-generate issue number and identifier per board, allocated from the
 --    per-board monotonic counter table issue_number_counters (migration

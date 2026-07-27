@@ -52,8 +52,10 @@ export interface SettingsNavItem {
 }
 
 // Grouped Linear-style — General first (team name on top). Gating mirrors the
-// pre-split page exactly; General additionally hides in solo mode because the
-// section renders nothing there (general-section.tsx).
+// pre-split page exactly. General stays visible in solo mode (REV2-61): only
+// its team-name card hides itself there (general-section.tsx) — the Danger
+// Zone renders unconditionally and is the sole UI path to deleting a team,
+// which owners may do even for their last one (EXP-188).
 export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
   {
     group: `Team`,
@@ -62,8 +64,7 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         label: `General`,
         to: `/t/$teamSlug/settings/general`,
         icon: Settings2,
-        visible: (permissions, context) =>
-          permissions.canManageTeam && !context.solo,
+        visible: (permissions) => permissions.canManageTeam,
       },
       {
         label: `Members`,

@@ -676,48 +676,98 @@ private func extractInlineMarkdown(from attrStr: NSAttributedString, isHeading: 
         }
     }
 
+    var runs: [InlineRun] = []
     attrStr.enumerateAttributes(in: effectiveRange, options: []) { attrs, range, _ in
         let substring = (attrStr.string as NSString).substring(with: range)
+        runs.append(InlineRun(text: substring, attrs: attrs, isHeading: isHeading))
+    }
 
-        if let imageURL = attrs[.markdownImageURL] as? String {
-            let alt = (attrs[.markdownImageAlt] as? String) ?? ""
-            markdown += "![\(alt)](\(imageURL))"
-            return
+    // A link's text carries the emphasis/code attributes of the marks nested
+    // inside it, and enumerateAttributes splits it into one run per attribute
+    // change — so a link must be emitted as ONE `[...](href)` spanning every
+    // consecutive run with the same href, with the inner delimiters composed
+    // INSIDE the brackets. Short-circuiting per run used to strip the inner
+    // formatting, drop the href entirely around inline code, and split
+    // `[**bold** rest](u)` into two adjacent links (REV2-19).
+    var i = 0
+    while i < runs.count {
+        let run = runs[i]
+        if let imageURL = run.imageURL {
+            markdown += "![\(run.imageAlt)](\(imageURL))"
+            i += 1
+            continue
         }
-
-        if attrs[.attachment] is NSTextAttachment {
-            return
+        if run.isAttachment {
+            i += 1
+            continue
         }
-
-        if let isCode = attrs[.markdownInlineCode] as? Bool, isCode {
-            markdown += "`\(substring)`"
-            return
+        guard let href = run.href else {
+            markdown += run.styled
+            i += 1
+            continue
         }
-
-        if let url = attrs[.link] as? URL {
-            markdown += "[\(substring)](\(url.absoluteString))"
-            return
+        // (Image/attachment runs never carry a href, so they break the group.)
+        var inner = ""
+        while i < runs.count, runs[i].href == href {
+            inner += runs[i].styled
+            i += 1
         }
-        if let url = attrs[.link] as? String {
-            markdown += "[\(substring)](\(url))"
-            return
-        }
-
-        let font = attrs[.font] as? PlatformFont
-        let isBold = expFontHasBold(font) && !isHeading
-        let isItalic = expFontHasItalic(font)
-        let isStrike = attrs[.markdownStrikethrough] as? Bool == true
-
-        var text = substring
-        if isStrike { text = "~~\(text)~~" }
-        if isBold && isItalic { text = "***\(text)***" }
-        else if isBold { text = "**\(text)**" }
-        else if isItalic { text = "*\(text)*" }
-
-        markdown += text
+        if !inner.isEmpty { markdown += "[\(inner)](\(href))" }
     }
 
     return markdown
+}
+
+/// One `enumerateAttributes` run, reduced to the inline features the markdown
+/// serializer emits.
+private struct InlineRun {
+    let text: String
+    var imageURL: String?
+    var imageAlt = ""
+    var isAttachment = false
+    var href: String?
+    var isCode = false
+    var isBold = false
+    var isItalic = false
+    var isStrike = false
+
+    init(text: String, attrs: [NSAttributedString.Key: Any], isHeading: Bool) {
+        self.text = text
+        if let imageURL = attrs[.markdownImageURL] as? String {
+            self.imageURL = imageURL
+            imageAlt = (attrs[.markdownImageAlt] as? String) ?? ""
+            return
+        }
+        if attrs[.attachment] is NSTextAttachment {
+            isAttachment = true
+            return
+        }
+        if let url = attrs[.link] as? URL {
+            href = url.absoluteString
+        } else if let url = attrs[.link] as? String {
+            href = url
+        }
+        isCode = attrs[.markdownInlineCode] as? Bool == true
+        let font = attrs[.font] as? PlatformFont
+        isBold = expFontHasBold(font) && !isHeading
+        isItalic = expFontHasItalic(font)
+        isStrike = attrs[.markdownStrikethrough] as? Bool == true
+    }
+
+    /// Inline delimiters for this run, link wrapper excluded. Inline code stays
+    /// exclusive of the emphasis delimiters — the load path swaps in the
+    /// monospace font and loses the bold/italic traits, so there is nothing to
+    /// compose (Android matches, keeping the two native clients byte-identical).
+    var styled: String {
+        if text.isEmpty { return "" }
+        if isCode { return "`\(text)`" }
+        var out = text
+        if isStrike { out = "~~\(out)~~" }
+        if isBold && isItalic { out = "***\(out)***" }
+        else if isBold { out = "**\(out)**" }
+        else if isItalic { out = "*\(out)*" }
+        return out
+    }
 }
 
 /// UTF-16 length of the baked list-item prefix at the start of `string`:

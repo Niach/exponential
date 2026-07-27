@@ -8,6 +8,7 @@ import { parsePollSince } from "@/lib/helpdesk/presence"
 import {
   findThreadByToken,
   getSupportRateLimiters,
+  isSupportThreadFrozen,
 } from "@/lib/helpdesk/service"
 
 // Incremental poll behind the live support chat (EXP-237): the
@@ -42,10 +43,11 @@ async function handlePoll(request: Request): Promise<Response> {
     return jsonResponse(400, { error: `Missing token` })
   }
 
-  const thread = await findThreadByToken(token)
-  if (!thread) {
+  const resolved = await findThreadByToken(token)
+  if (!resolved) {
     return jsonResponse(404, { error: `Conversation not found` })
   }
+  const { thread } = resolved
 
   // gte, not gt: the client's cursor is a JSON ISO string truncated to
   // milliseconds while Postgres stores microseconds, so a strict > could skip
@@ -84,7 +86,9 @@ async function handlePoll(request: Request): Promise<Response> {
   })()
 
   return jsonResponse(200, {
-    closed: thread.status === `resolved`,
+    // Same freeze semantics as thread.ts: a helpdesk-off team's conversation
+    // reads (and renders) as closed (REV2-23).
+    closed: thread.status === `resolved` || isSupportThreadFrozen(resolved),
     messages: messages
       .filter((m) => m.visibility === `public`)
       .map((m) => ({

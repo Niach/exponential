@@ -1,7 +1,12 @@
 import type { ReactNode } from "react"
 import { CalendarDays, MoreHorizontal } from "lucide-react"
 import type { User } from "@/db/schema"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
+import {
+  ISSUE_PRIORITY_FALLBACK,
+  ISSUE_STATUS_FALLBACK,
+  type IssuePriority,
+  type IssueStatus,
+} from "@/lib/domain"
 import { formatDate } from "@/lib/utils"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
@@ -80,6 +85,7 @@ export function IssueEditorChips({
     <>
       <OptionDropdownMenu
         value={status}
+        fallbackValue={ISSUE_STATUS_FALLBACK}
         disabled={disabled || disableStatus}
         options={creatableStatuses}
         onSelect={onStatusChange}
@@ -99,6 +105,7 @@ export function IssueEditorChips({
 
       <OptionDropdownMenu
         value={priority}
+        fallbackValue={ISSUE_PRIORITY_FALLBACK}
         disabled={disabled}
         options={priorities}
         onSelect={onPriorityChange}

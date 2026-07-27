@@ -28,8 +28,10 @@
 
     "dev:marketing": "bun --filter @exp/marketing dev",
     "build:marketing": "bun --filter @exp/marketing build",
-    "studio:video": "bun --filter @exp/video studio",
-    "render:video": "bun --filter @exp/video render",
+    "movie:studio": "cd apps/marketing && remotion studio src/movie/remotion/entry.ts",
+    "movie:render": "cd apps/marketing && remotion render src/movie/remotion/entry.ts ClosedLoop out/closed-loop.mp4 --crf 16",
+    "movie:still": "cd apps/marketing && remotion still src/movie/remotion/entry.ts ClosedLoop",
+    "movie:poster": "cd apps/marketing && remotion still src/movie/remotion/entry.ts ClosedLoop public/posters/loop-poster.webp --frame=0 --image-format=webp",
 
     "dev:widget": "bun --filter @exp/widget dev",
     "build:widget": "bun --filter @exp/widget build",

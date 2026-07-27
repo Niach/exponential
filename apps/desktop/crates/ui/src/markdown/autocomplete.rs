@@ -129,13 +129,7 @@ impl CompletionSource for StoreCompletionSource {
                     .filter_map(|user| {
                         let email = user.email.clone()?;
                         let name = user.name.clone().unwrap_or_else(|| email.clone());
-                        let matches = needle.is_empty()
-                            || email.to_lowercase().starts_with(&needle)
-                            || name
-                                .to_lowercase()
-                                .split_whitespace()
-                                .any(|word| word.starts_with(&needle));
-                        matches.then(|| CompletionItem {
+                        mention_matches(&name, &email, &needle).then(|| CompletionItem {
                             trigger,
                             insert: format!("@{email}"),
                             label: name.into(),
@@ -164,6 +158,17 @@ impl CompletionSource for StoreCompletionSource {
             }
         }
     }
+}
+
+/// Match a `@` candidate the way the web `MentionProvider.search` does (iOS
+/// and Android mirror it): case-insensitive SUBSTRING match on the full name
+/// or the full email, so `@huber` finds `Dennis Straehhuber
+/// <dennis@straehhuber.com>` on every client. `needle` must already be
+/// lowercased.
+fn mention_matches(name: &str, email: &str, needle: &str) -> bool {
+    needle.is_empty()
+        || name.to_lowercase().contains(needle)
+        || email.to_lowercase().contains(needle)
 }
 
 /// Filter + rank `#` candidates the way the web `IssueRefProvider.search`
@@ -255,6 +260,38 @@ mod tests {
     fn cursor_mid_multibyte_char_is_safe() {
         // "é" is 2 bytes; offset 2 is inside it.
         assert_eq!(detect_trigger("@é", 2), None);
+    }
+
+    // -- mention_matches (web MentionProvider.search parity) ----------------
+
+    const NAME: &str = "Dennis Straehhuber";
+    const EMAIL: &str = "dennis@straehhuber.com";
+
+    #[test]
+    fn mentions_match_name_substring_not_just_word_prefix() {
+        assert!(mention_matches(NAME, EMAIL, "huber"));
+        assert!(mention_matches(NAME, EMAIL, "nnis stra"));
+    }
+
+    #[test]
+    fn mentions_match_email_substring() {
+        assert!(mention_matches(NAME, EMAIL, "ehhub"));
+        assert!(mention_matches(NAME, EMAIL, "@straehhuber.com"));
+    }
+
+    #[test]
+    fn mentions_match_case_insensitively() {
+        assert!(mention_matches("Jane Doe", "JANE@EXAMPLE.COM", "example"));
+    }
+
+    #[test]
+    fn mentions_without_match_are_dropped() {
+        assert!(!mention_matches(NAME, EMAIL, "zzz"));
+    }
+
+    #[test]
+    fn mentions_empty_query_matches_everyone() {
+        assert!(mention_matches(NAME, EMAIL, ""));
     }
 
     // -- filter_and_rank_issue_refs (web IssueRefProvider.search parity) ----

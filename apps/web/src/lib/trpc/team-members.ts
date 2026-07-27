@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { issueSubscribers, teamMembers } from "@/db/schema"
+import { issues, issueSubscribers, teamMembers } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
@@ -119,6 +119,13 @@ export const teamMembersRouter = router({
       // starts with a clean slate. (deliver() additionally re-checks live
       // membership, so rows left behind by pre-fix removals are already inert
       // for delivery.)
+      // Membership end = assignment end too (REV2-28): an ex-member's `users`
+      // row stops syncing to the remaining members, so a left-behind
+      // assignee_id renders as the unassigned placeholder on every client —
+      // an invisible ghost assignee no one can see or clear. It is also a
+      // state the write side refuses to create (assertAssigneeInTeam). No
+      // assignee_changed events: this is bulk offboarding hygiene, not an
+      // editorial change by the remover.
       await ctx.db.transaction(async (tx) => {
         await tx.delete(teamMembers).where(eq(teamMembers.id, input.memberId))
         await tx
@@ -127,6 +134,15 @@ export const teamMembersRouter = router({
             and(
               eq(issueSubscribers.teamId, target.teamId),
               eq(issueSubscribers.userId, target.userId)
+            )
+          )
+        await tx
+          .update(issues)
+          .set({ assigneeId: null })
+          .where(
+            and(
+              eq(issues.teamId, target.teamId),
+              eq(issues.assigneeId, target.userId)
             )
           )
       })

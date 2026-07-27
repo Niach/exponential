@@ -58,6 +58,11 @@ interface IssueEditorDialogShellProps {
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onDescriptionBlur?: () => void
   onDescriptionChange: (markdown: string) => void
+  // Called on an accidental dismissal (Escape / backdrop) so the caller can
+  // take one over — return `true` to keep the shell open because the caller
+  // handled it (REV2-60: the create dialog confirms before discarding a
+  // typed draft). The explicit Close button never routes through here.
+  onDismissAttempt?: () => boolean
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
   onOpenChange: (open: boolean) => void
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
@@ -105,6 +110,7 @@ export function IssueEditorDialogShell({
   onAssigneeChange,
   onDescriptionBlur,
   onDescriptionChange,
+  onDismissAttempt,
   onDueDateSelect,
   onOpenChange,
   onPriorityChange,
@@ -303,12 +309,16 @@ export function IssueEditorDialogShell({
           data-testid={dialogTestId}
           aria-describedby={undefined}
           onEscapeKeyDown={(event) => {
-            if (closeBlocked) {
+            if (closeBlocked || onDismissAttempt?.() === true) {
               event.preventDefault()
             }
           }}
           onInteractOutside={(event) => {
-            if (closeBlocked || isEditorAutocompleteInteraction(event)) {
+            if (
+              closeBlocked ||
+              isEditorAutocompleteInteraction(event) ||
+              onDismissAttempt?.() === true
+            ) {
               event.preventDefault()
             }
           }}
@@ -371,12 +381,16 @@ export function IssueEditorDialogShell({
         data-testid={dialogTestId}
         aria-describedby={undefined}
         onEscapeKeyDown={(event) => {
-          if (closeBlocked) {
+          if (closeBlocked || onDismissAttempt?.() === true) {
             event.preventDefault()
           }
         }}
         onInteractOutside={(event) => {
-          if (closeBlocked || isEditorAutocompleteInteraction(event)) {
+          if (
+            closeBlocked ||
+            isEditorAutocompleteInteraction(event) ||
+            onDismissAttempt?.() === true
+          ) {
             event.preventDefault()
           }
         }}

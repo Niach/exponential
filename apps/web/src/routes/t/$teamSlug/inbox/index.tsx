@@ -53,11 +53,11 @@ export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
     priority: validatedCsv(search.priority, PRIORITY_VALUES),
     labels: validatedCsv(search.labels),
   }),
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
         to: `/auth/login`,
-        search: { redirect: undefined },
+        search: { redirect: location.href },
       })
     }
   },

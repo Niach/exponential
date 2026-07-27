@@ -32,6 +32,29 @@ class MarkdownRoundTripTest {
 
     @Test fun relativeLink() = assertStable("See [docs](/help/page) now")
 
+    // --- Regression (REV2-19): formatting INSIDE link text must survive, and a
+    // partly formatted link must stay ONE link. The parser overlaps the Link
+    // mark with the marks nested in its text, so the serializer has to compose
+    // the delimiters inside the brackets instead of picking one. ---
+
+    @Test fun boldInsideLink() = assertStable("A [**bold**](https://example.com) here")
+
+    @Test fun italicInsideLink() = assertStable("A [*it*](https://example.com) here")
+
+    @Test fun strikethroughInsideLink() = assertStable("A [~~gone~~](https://example.com) here")
+
+    @Test fun codeInsideLink() = assertStable("A [`code`](https://example.com) here")
+
+    @Test fun partiallyBoldLinkStaysOneLink() =
+        assertStable("A [**bold** rest](https://example.com) here")
+
+    @Test fun boldItalicInsideLink() = assertStable("A [***both***](https://example.com) here")
+
+    @Test fun formattedLinkIsIdempotent() {
+        val once = roundTrip("[**b** and `c` and *i*](https://example.com)")
+        assertEquals(once, roundTrip(once))
+    }
+
     @Test fun heading1() = assertStable("# Heading 1")
 
     @Test fun heading2() = assertStable("## Heading 2")

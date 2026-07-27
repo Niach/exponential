@@ -215,6 +215,53 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertNil(absentForm.inputs)
     }
 
+    // MARK: - AuthConfig (/api/auth-config)
+
+    func testAuthConfigDecodesSignupAndResetFlags() throws {
+        let config = try decode(AuthConfig.self, #"""
+        {
+          "passwordEnabled": true,
+          "signupEnabled": true,
+          "passwordResetEnabled": true,
+          "oidcProviders": [{ "id": "authentik", "name": "Authentik" }],
+          "googleLoginEnabled": false,
+          "appleLoginEnabled": false,
+          "githubEnabled": true
+        }
+        """#)
+        XCTAssertTrue(config.signupEnabled)
+        XCTAssertTrue(config.passwordResetEnabled)
+        XCTAssertEqual(config.oidcProviders.first?.id, "authentik")
+    }
+
+    func testAuthConfigMissingFlagsDefaultToFalse() throws {
+        // An older self-hosted server may not publish the flags — the login
+        // screen must hide the hand-off rather than offer a dead link.
+        let config = try decode(AuthConfig.self, #"""
+        {
+          "passwordEnabled": true,
+          "oidcProviders": [],
+          "googleLoginEnabled": false
+        }
+        """#)
+        XCTAssertFalse(config.signupEnabled)
+        XCTAssertFalse(config.passwordResetEnabled)
+        XCTAssertFalse(config.appleLoginEnabled)
+    }
+
+    func testAuthWebHandoffUrlsTrimTrailingSlash() {
+        XCTAssertEqual(
+            AuthApi.registerUrl(instanceUrl: "https://app.exponential.at/")?.absoluteString,
+            "https://app.exponential.at/auth/register"
+        )
+        XCTAssertEqual(
+            AuthApi.forgotPasswordUrl(instanceUrl: "https://app.exponential.at")?.absoluteString,
+            "https://app.exponential.at/auth/forgot-password"
+        )
+        XCTAssertNil(AuthApi.registerUrl(instanceUrl: "  "))
+        XCTAssertNil(AuthApi.forgotPasswordUrl(instanceUrl: nil))
+    }
+
     // MARK: - Helper edges
 
     func testWireIntThrowsOnUnparseableString() {

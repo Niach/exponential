@@ -1,6 +1,8 @@
 import { CalendarDays, Megaphone } from "lucide-react"
 import type { User } from "@/db/schema"
 import {
+  ISSUE_PRIORITY_FALLBACK,
+  ISSUE_STATUS_FALLBACK,
   type IssuePriority,
   type IssueSource,
   type IssueStatus,
@@ -162,6 +164,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const statusControl = (
     <OptionDropdownMenu
       value={status}
+      fallbackValue={ISSUE_STATUS_FALLBACK}
       disabled={disabled}
       options={statuses}
       onSelect={onStatusChange}
@@ -187,6 +190,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const priorityControl = (
     <OptionDropdownMenu
       value={priority}
+      fallbackValue={ISSUE_PRIORITY_FALLBACK}
       disabled={disabled}
       options={priorities}
       onSelect={onPriorityChange}

@@ -66,6 +66,10 @@ struct ServerDetailView: View {
                     deps.auth.removeAccount(id: account.id)
                     deps.db.closePool(forAccountId: account.id)
                     DatabaseManager.deleteFiles(forAccountId: account.id)
+                    // The share-extension board mirror lives in app-group
+                    // defaults, not the DB — scrub it here too, since the
+                    // board loader may never have been instantiated.
+                    SharedBoardMirror.remove(accountId: account.id)
                     dismiss()
                 }
             }
@@ -114,6 +118,7 @@ struct ServerDetailView: View {
         deps.auth.removeAccount(id: account.id)
         deps.db.closePool(forAccountId: account.id)
         DatabaseManager.deleteFiles(forAccountId: account.id)
+        SharedBoardMirror.remove(accountId: account.id)
         dismiss()
     }
 
@@ -187,6 +192,7 @@ struct ServerDetailView: View {
                             // no user data at rest (mirrors the Remove-server path).
                             deps.db.closePool(forAccountId: accountId)
                             DatabaseManager.deleteFiles(forAccountId: accountId)
+                            SharedBoardMirror.remove(accountId: accountId)
                             // Re-add the URL so the user can re-auth via the login
                             // flow without losing the entry.
                             if let url {

@@ -13,7 +13,8 @@ import org.junit.Test
 /**
  * Inbox grouping (EXP-180 helpdesk parity): issue-less `support_reply`
  * notifications must form synthetic per-team Support groups instead of being
- * dropped, and totalUnread must include them. NULL/unknown team ids collapse
+ * dropped, interleaved into the one stream by latest activity (web/iOS/desktop
+ * parity), and totalUnread must include them. NULL/unknown team ids collapse
  * into one generic bucket.
  */
 class InboxGroupingTest {
@@ -43,6 +44,12 @@ class InboxGroupingTest {
         id = id, name = name, slug = id, createdAt = ts, updatedAt = ts,
     )
 
+    private val InboxState.issueGroups: List<InboxGroup>
+        get() = entries.filterIsInstance<InboxEntry.Issue>().map { it.group }
+
+    private val InboxState.supportGroups: List<SupportGroup>
+        get() = entries.filterIsInstance<InboxEntry.Support>().map { it.group }
+
     @Test
     fun supportRepliesGroupPerTeamAndCountTowardTotalUnread() {
         val state = buildInboxState(
@@ -57,7 +64,7 @@ class InboxGroupingTest {
             teams = listOf(team("t1", "Acme"), team("t2", "Globex")),
         )
 
-        assertEquals(1, state.groups.size)
+        assertEquals(1, state.issueGroups.size)
         assertEquals(2, state.supportGroups.size)
 
         val acme = state.supportGroups.first { it.teamId == "t1" }
@@ -104,9 +111,34 @@ class InboxGroupingTest {
             issues = emptyList(),
             teams = emptyList(),
         )
-        assertTrue(state.groups.isEmpty())
-        assertTrue(state.supportGroups.isEmpty())
+        assertTrue(state.entries.isEmpty())
         assertEquals(0, state.totalUnread)
+    }
+
+    /**
+     * Web/iOS/desktop parity: Support groups are NOT pinned above the issue
+     * stream — the one feed order (newest-first) decides, so a stale Support
+     * group sinks below fresher issue activity.
+     */
+    @Test
+    fun supportGroupsInterleaveWithIssueGroupsByLatestActivity() {
+        val state = buildInboxState(
+            notifications = listOf(
+                // Newest-first, like the DAO delivers.
+                notification("n1", issueId = "i1", type = DomainContract.notificationTypeIssueComment),
+                notification("n2", teamId = "t1"),
+                notification("n3", issueId = "i2", type = DomainContract.notificationTypeIssueComment),
+                // Older row of an already-seen group: must not re-order it.
+                notification("n4", teamId = "t1", readAt = ts),
+            ),
+            issues = listOf(issue("i1"), issue("i2")),
+            teams = listOf(team("t1", "Acme")),
+        )
+
+        assertEquals(
+            listOf("issue:i1", "support:t1", "issue:i2"),
+            state.entries.map { it.key },
+        )
     }
 
     // Wire contract: notifications now sync a nullable team_id (set on

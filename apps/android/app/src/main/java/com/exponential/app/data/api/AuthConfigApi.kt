@@ -15,11 +15,32 @@ data class OidcProvider(val id: String, val name: String)
 @Serializable
 data class AuthConfig(
     val passwordEnabled: Boolean = true,
+    // Password sign-up is open on this instance — gates the "Create account"
+    // hand-off (server: buildAuthConfig).
+    val signupEnabled: Boolean = false,
+    // The instance can send mail — gates the "Forgot password?" hand-off.
+    // Both default to false: a server that doesn't publish the flag must hide
+    // the affordance, never offer a link the server would dead-end.
+    val passwordResetEnabled: Boolean = false,
     val oidcProviders: List<OidcProvider> = emptyList(),
     val googleLoginEnabled: Boolean = false,
     // Absent from pre-SIWA servers — the default keeps decoding tolerant.
     val appleLoginEnabled: Boolean = false,
 )
+
+/**
+ * Browser hand-off targets for the two password flows the app deliberately
+ * does not host natively (desktop `open_register` parity): registration and
+ * password reset are web flows. The instance URL's trailing slash is trimmed
+ * so the joined path never doubles up.
+ */
+object AuthWebUrls {
+    fun register(instanceUrl: String): String =
+        "${instanceUrl.trimEnd('/')}/auth/register"
+
+    fun forgotPassword(instanceUrl: String): String =
+        "${instanceUrl.trimEnd('/')}/auth/forgot-password"
+}
 
 @Singleton
 class AuthConfigApi @Inject constructor(

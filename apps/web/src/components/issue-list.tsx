@@ -22,7 +22,8 @@ import {
   SearchX,
 } from "lucide-react"
 import { formatDate } from "@/lib/utils"
-import type { IssueStatus } from "@/lib/domain"
+import { formatDateForMutation, type IssueStatus } from "@/lib/domain"
+import { dueDateToneClass } from "@/lib/issue-due-date"
 import type { IssueGroup } from "@/lib/board-view"
 
 // Status-tinted washes for the sticky group headers — the Tailwind palette
@@ -128,6 +129,9 @@ export function IssueList({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // Local-date boundary for the due-date tone — the same one the overdue-first
+  // comparator sorts on (lib/board-view.ts).
+  const today = useMemo(() => formatDateForMutation(new Date())!, [])
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
   const bulkEnabled = Boolean(bulkTeamId) && canModerate
 
@@ -492,12 +496,16 @@ export function IssueList({
                         </div>
                       )}
                       {/* Display-only: due dates are edited in the issue
-                          detail, never inline from the list (EXP-247). */}
+                          detail, never inline from the list (EXP-247). The
+                          tone (red overdue / orange today) is what explains
+                          the overdue-first ordering — REV2-48. */}
                       <div className="flex items-center justify-end">
                         {issue.dueDate && (
-                          <span className="flex items-center gap-1 px-1">
-                            <CalendarDays className="size-3 shrink-0 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          <span
+                            className={`flex items-center gap-1 px-1 ${dueDateToneClass(issue.dueDate, today)}`}
+                          >
+                            <CalendarDays className="size-3 shrink-0" />
+                            <span className="text-xs whitespace-nowrap">
                               {formatDate(issue.dueDate)}
                             </span>
                           </span>

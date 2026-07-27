@@ -64,7 +64,7 @@ public final class IssueImagesApi: Sendable {
         )
         request.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
 
-        let (responseData, response) = try await httpClient.perform(request)
+        let (responseData, response) = try await httpClient.perform(request, accountId: accountId)
         guard (200...299).contains(response.statusCode) else {
             let text = String(data: responseData, encoding: .utf8) ?? ""
             throw IssueImagesError.httpError(response.statusCode, text)

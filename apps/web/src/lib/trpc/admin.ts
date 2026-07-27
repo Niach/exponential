@@ -29,9 +29,9 @@ import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import {
-  captureAppleTokens,
-  revokeAppleTokensBestEffort,
-} from "@/lib/auth/apple-revocation"
+  captureOAuthTokens,
+  revokeOAuthTokensBestEffort,
+} from "@/lib/auth/oauth-revocation"
 import {
   ACTIVE_SUBSCRIPTION_STATUSES,
   cancelCreemSubscriptionsBestEffort,
@@ -154,10 +154,11 @@ export const adminRouter = router({
         }
       }
 
-      // Apple pairing to revoke after the delete (guideline 5.1.1(v)) —
-      // captured now because the accounts row cascades with the users row.
-      // Native-idToken pairings store no tokens (nothing to revoke).
-      const appleTokens = await captureAppleTokens(ctx.db, input.userId)
+      // OAuth grants to revoke after the delete (Apple pairing, guideline
+      // 5.1.1(v); Google/OIDC refresh tokens) — captured now because the
+      // accounts rows cascade with the users row. Rows without tokens
+      // (password logins, native-idToken pairings) are skipped.
+      const oauthTokens = await captureOAuthTokens(ctx.db, input.userId)
 
       let storageKeys: string[] = []
       // Only the subscriptions funding SOLO teams this delete destroys are
@@ -192,8 +193,8 @@ export const adminRouter = router({
       // uploaded into a SURVIVING team are not here: `uploader_id` is `set
       // null`, so those rows (and their blobs) outlive the account.
       await deleteStorageObjects(storageKeys)
-      // Revoke the deleted user's Apple pairing (best-effort).
-      await revokeAppleTokensBestEffort(appleTokens)
+      // Revoke the deleted user's provider grants (best-effort).
+      await revokeOAuthTokensBestEffort(oauthTokens)
 
       return { ok: true }
     }),

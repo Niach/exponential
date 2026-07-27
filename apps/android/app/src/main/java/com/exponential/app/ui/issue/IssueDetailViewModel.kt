@@ -35,6 +35,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.TeamPermissions
+import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
@@ -190,6 +191,24 @@ class IssueDetailViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueDetailState())
 
+    // Probed sizes of this issue's attachments (REV2-79) — read views pre-size
+    // embedded images from them instead of measuring 0-height and jumping when
+    // the bitmap lands. Comment images are attachments of the same issue, so
+    // this one query covers the description AND the whole thread.
+    val attachmentDims: StateFlow<AttachmentDims> =
+        dbFlow.scopedQuery(emptyList()) { it.attachmentDao().observeByIssue(issueId) }
+            .map { rows ->
+                AttachmentDims(
+                    rows.mapNotNull { row ->
+                        val width = row.width
+                        val height = row.height
+                        if (width == null || height == null) null
+                        else row.id to (width to height)
+                    }.toMap()
+                )
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
+
     // Subscription state (separate StateFlow — the main combine is at the 5-arg
     // typed cap). Drives the Bell/BellOff toggle in the detail top bar.
     val isSubscribed: StateFlow<Boolean> = combine(
@@ -206,6 +225,12 @@ class IssueDetailViewModel @Inject constructor(
             runCatching {
                 if (subscribed) subscriptionsApi.unsubscribe(accountId, issueId)
                 else subscriptionsApi.subscribe(accountId, issueId)
+            }.onFailure { t ->
+                reportMutationFailure(
+                    t,
+                    if (subscribed) "You could not be unsubscribed"
+                    else "You could not be subscribed",
+                )
             }
         }
     }
@@ -430,6 +455,23 @@ class IssueDetailViewModel @Inject constructor(
         _labelError.value = null
     }
 
+    // One channel for the fire-and-forget property mutations (REV2-50):
+    // title/status/priority/due date/assignee/labels, subscribe, duplicate,
+    // delete. The screen is driven by Electric sync, which never moves on a
+    // failed write — without this the tap simply did nothing, with no way to
+    // tell "didn't register" from "server refused".
+    private val _mutationError = MutableStateFlow<String?>(null)
+    val mutationError: StateFlow<String?> = _mutationError
+
+    fun consumeMutationError() {
+        _mutationError.value = null
+    }
+
+    private fun reportMutationFailure(t: Throwable, fallback: String) {
+        if (t is CancellationException) throw t
+        _mutationError.value = trpcErrorMessage(t, fallback)
+    }
+
     /**
      * Move the issue to [boardId] via `issues.move` (EXP-57). The issue
      * keeps its id (this screen observes by id, so it stays live) but gets a
@@ -484,6 +526,7 @@ class IssueDetailViewModel @Inject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching { issuesApi.setDuplicateOf(accountId, issueId, canonicalId) }
+                .onFailure { reportMutationFailure(it, "The issue could not be marked duplicate") }
         }
     }
 
@@ -492,6 +535,7 @@ class IssueDetailViewModel @Inject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching { issuesApi.setDuplicateOf(accountId, issueId, null) }
+                .onFailure { reportMutationFailure(it, "The duplicate mark could not be cleared") }
         }
     }
 
@@ -680,7 +724,7 @@ class IssueDetailViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.update(accountId, UpdateIssueInput(id = issueId, title = title.trim()))
-            }
+            }.onFailure { reportMutationFailure(it, "The title could not be saved") }
         }
     }
 
@@ -742,7 +786,7 @@ class IssueDetailViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.update(accountId, UpdateIssueInput(id = issueId, status = status.wire))
-            }
+            }.onFailure { reportMutationFailure(it, "The status could not be changed") }
         }
     }
 
@@ -751,7 +795,7 @@ class IssueDetailViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.update(accountId, UpdateIssueInput(id = issueId, priority = priority.wire))
-            }
+            }.onFailure { reportMutationFailure(it, "The priority could not be changed") }
         }
     }
 
@@ -760,7 +804,7 @@ class IssueDetailViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.update(accountId, UpdateIssueInput(id = issueId, dueDate = date))
-            }
+            }.onFailure { reportMutationFailure(it, "The due date could not be changed") }
         }
     }
 
@@ -772,7 +816,7 @@ class IssueDetailViewModel @Inject constructor(
             // drops nulls — through update() this was a silent no-op.
             runCatching {
                 issuesApi.setAssignee(accountId, issueId, userId)
-            }
+            }.onFailure { reportMutationFailure(it, "The assignee could not be changed") }
         }
     }
 
@@ -782,7 +826,7 @@ class IssueDetailViewModel @Inject constructor(
             runCatching {
                 if (isCurrentlyAssigned) labelsApi.removeLabel(accountId, issueId, labelId)
                 else labelsApi.addLabel(accountId, issueId, labelId)
-            }
+            }.onFailure { reportMutationFailure(it, "The label could not be updated") }
         }
     }
 
@@ -816,7 +860,11 @@ class IssueDetailViewModel @Inject constructor(
     fun delete(onDeleted: () -> Unit) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching { issuesApi.delete(accountId, issueId) }.onSuccess { onDeleted() }
+            runCatching { issuesApi.delete(accountId, issueId) }
+                .onSuccess { onDeleted() }
+                // The confirm dialog is already dismissed: without this a
+                // refused delete looks exactly like a successful one.
+                .onFailure { reportMutationFailure(it, "The issue could not be deleted") }
         }
     }
 

@@ -1,11 +1,15 @@
 import Foundation
 
-/// The single source of truth for the client-version gate (EXP-104). When the
-/// server answers any request with HTTP 426 (`client_upgrade_required`) — the
-/// build is below the configured minimum — the HTTP/shape layers trip this gate
-/// and the SwiftUI root swaps in the blocking Update-required view. Mirrors the
-/// `SyncDebug.shared` singleton-observable pattern (main-actor mutation hop,
-/// `@unchecked Sendable` so the sync loops can call it from any context).
+/// The client-version gate (EXP-104), keyed PER ACCOUNT. When a server answers a
+/// request with HTTP 426 (`client_upgrade_required`) — this build is below THAT
+/// instance's configured minimum — the HTTP/shape layers trip the gate for the
+/// account that made the request, and only that account stops: every other
+/// signed-in server keeps syncing, and the SwiftUI root swaps in the blocking
+/// Update-required view only while the gated account is the ACTIVE one (REV2-43;
+/// a process-global gate let one outdated or misconfigured instance brick the
+/// whole multi-account app with no escape). Mirrors the `SyncDebug.shared`
+/// singleton-observable pattern (main-actor mutation, `@unchecked Sendable` so
+/// the sync loops can reach it from any context).
 @Observable
 public final class UpdateGate: @unchecked Sendable {
     public static let shared = UpdateGate()
@@ -22,22 +26,39 @@ public final class UpdateGate: @unchecked Sendable {
         }
     }
 
-    /// Non-nil once the server has rejected this client version. Set ONCE — the
-    /// first trigger wins — and never cleared for the process lifetime: an
-    /// out-of-date build can't become current without relaunching (with an
-    /// updated binary). Read from the SwiftUI root to gate the whole app.
-    public private(set) var upgrade: UpgradeInfo?
+    /// Gated accounts → what their server reported. An account's entry is set
+    /// ONCE — the first trigger wins, since concurrent shape/tRPC 426s all race
+    /// here on app wake — and is never cleared while the account exists: an
+    /// out-of-date build can't become current without relaunching with an
+    /// updated binary. Mutated on the main actor, read from view bodies.
+    public private(set) var upgrades: [String: UpgradeInfo] = [:]
 
     private init() {}
 
-    /// Record that the server rejected this client version. Hops to the main
-    /// actor (observation state must mutate there) and keeps the FIRST payload —
-    /// concurrent shape/tRPC 426s all race here on app wake.
-    public func trigger(min: String?, latest: String?) {
-        Task { @MainActor in
-            guard self.upgrade == nil else { return }
-            self.upgrade = UpgradeInfo(min: min, latest: latest)
-        }
+    /// What one account's server reported, or nil when it isn't gated. A nil
+    /// accountId (no active account yet) is never gated.
+    public func upgrade(forAccountId accountId: String?) -> UpgradeInfo? {
+        guard let accountId else { return nil }
+        return upgrades[accountId]
+    }
+
+    /// Every account whose server rejected this build. The nav layer blocks only
+    /// the active one and badges the rest.
+    public var gatedAccountIds: Set<String> { Set(upgrades.keys) }
+
+    /// Record that `accountId`'s server rejected this client version.
+    @MainActor
+    public func trigger(accountId: String, min: String?, latest: String?) {
+        guard upgrades[accountId] == nil else { return }
+        upgrades[accountId] = UpgradeInfo(min: min, latest: latest)
+    }
+
+    /// Forget an account's gate — called when the account leaves the device (the
+    /// blocking view's "Remove this server" escape), so re-adding that server on
+    /// a supported build starts clean.
+    @MainActor
+    public func clear(accountId: String) {
+        upgrades.removeValue(forKey: accountId)
     }
 }
 

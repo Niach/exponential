@@ -34,6 +34,7 @@ import {
   issueStatusValues,
   boardIconValues,
 } from "@/lib/domain"
+import { teamColumns } from "@/lib/team-columns"
 import {
   assertTeamMember,
   getAttachmentTeamContext,
@@ -229,8 +230,10 @@ export function registerExponentialTools(
       try {
         assertTeamVisible(access, id)
         await resolveTeamAccess(user.id, id)
+        // Projected, never `select()` — server-only columns (comp_tier) stay
+        // behind the same allowlist the teams shape pins (REV2-67).
         const [row] = await db
-          .select()
+          .select(teamColumns)
           .from(teams)
           .where(eq(teams.id, id))
           .limit(1)

@@ -142,6 +142,7 @@ const config = {
   boardName: `Board`,
   boardDeletedAt: null,
   teamSlug: `acme`,
+  teamName: `Acme`,
   teamHelpdeskEnabled: false,
 } as unknown as WidgetConfigWithBoard
 
@@ -342,10 +343,12 @@ describe(`createWidgetSupportSubmission`, () => {
     })
     expect(h.fireAndForgetNewIssueNotify).not.toHaveBeenCalled()
 
+    // REV2-51: ONE reporter-facing identity — the team name, matching the
+    // conversation page and every member reply email.
     expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: `reporter@example.com`,
-        boardName: `Board`,
+        boardName: `Acme`,
         threadUrl: `https://app.test/support/tok-minted`,
       })
     )
@@ -358,6 +361,29 @@ describe(`createWidgetSupportSubmission`, () => {
     expect(result.issueId).toBeNull()
     expect(result.identifier).toBeNull()
     expect(result.url).toBeNull()
+    // REV2-10: the panel needs to know the magic link actually went out.
+    expect(result.emailDelivered).toBe(true)
+  })
+
+  // REV2-10: the emailed link is the reporter's ONLY credential — a failed
+  // send must reach the panel instead of being logged and dropped.
+  it(`reports emailDelivered false when the transport refuses the send`, async () => {
+    h.sendSupportConfirmationEmail.mockResolvedValue({
+      delivered: false,
+      provider: null,
+      messageId: null,
+    } as never)
+    const result = await createWidgetSupportSubmission({
+      config: supportConfig,
+      formData: supportForm(),
+      userAgent: null,
+    })
+    expect(result.emailDelivered).toBe(false)
+    const delivery = h.dbInserts.find((i) => i.table === emailDeliveries)
+    expect(delivery?.values.status).toBe(`failed`)
+    // The ticket itself still exists and members were still notified.
+    expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
+    expect(h.fireAndForgetSupportThreadNotify).toHaveBeenCalledTimes(1)
   })
 
   it(`rejects when support mode is not enabled on the config`, async () => {
@@ -416,6 +442,8 @@ describe(`createWidgetSupportSubmission`, () => {
       userAgent: null,
     })
     expect(result.identifier).toBeNull()
+    // …but the reporter is told the truth (REV2-10).
+    expect(result.emailDelivered).toBe(false)
     expect(h.fireAndForgetSupportThreadNotify).toHaveBeenCalledTimes(1)
   })
 
@@ -472,15 +500,32 @@ describe(`createWidgetSupportSubmission`, () => {
       })
     ).rejects.toMatchObject({ status: 403 })
 
-    // Its support path works and the confirmation email falls back to the
-    // widget's own name.
+    // Its support path works, branded with the team name like every other
+    // helpdesk email (REV2-51).
     await createWidgetSupportSubmission({
       config: boardless,
       formData: supportForm(),
       userAgent: null,
     })
     expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ boardName: boardless.name })
+      expect.objectContaining({ boardName: `Acme` })
+    )
+  })
+
+  // The team row is only ever missing on a broken join — the brand still
+  // resolves rather than shipping "undefined support".
+  it(`falls back to the board, then the widget name, without a team name`, async () => {
+    const teamless = {
+      ...supportConfig,
+      teamName: null,
+    } as unknown as WidgetConfigWithBoard
+    await createWidgetSupportSubmission({
+      config: teamless,
+      formData: supportForm(),
+      userAgent: null,
+    })
+    expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ boardName: `Board` })
     )
   })
 })

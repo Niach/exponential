@@ -90,6 +90,7 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
     /// `auth.accounts` may have changed (account added / signed-out / removed).
     public func refresh() {
         let desired = Set(auth.accounts.filter { $0.token != nil }.map { $0.id })
+        var pruned = false
 
         // Cancel observations for accounts no longer signed in.
         for accountId in Array(observationTasks.keys) where !desired.contains(accountId) {
@@ -97,6 +98,7 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
             observationTasks[accountId] = nil
             teamsByAccount[accountId] = nil
             boardsByAccount[accountId] = nil
+            pruned = true
         }
 
         // Drop cached entries for accounts that disappeared entirely.
@@ -104,11 +106,21 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
         for cachedId in Array(teamsByAccount.keys) where !allKnown.contains(cachedId) {
             teamsByAccount[cachedId] = nil
             boardsByAccount[cachedId] = nil
+            pruned = true
         }
 
         // Start observations for newly-signed-in accounts.
         for accountId in desired where observationTasks[accountId] == nil {
             startObserving(accountId: accountId)
+        }
+
+        // Only rewrite the shared mirror when an account actually went away:
+        // its observation stream is gone, so nothing else would ever evict its
+        // rows. Writing unconditionally would blank the mirror on init, before
+        // the observations have delivered their first values.
+        if pruned {
+            writeMirror()
+            SharedBoardMirror.pruneLastUsed(signedInAccountIds: desired)
         }
     }
 
@@ -156,7 +168,6 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
     /// Mirror every signed-in account's boards into the shared app-group
     /// container so the Share Extension can populate its picker without
     /// opening the (per-account, non-shared) GRDB database.
-    @MainActor
     private func writeMirror() {
         let signedIn = auth.accounts.filter { $0.token != nil }
         var out: [MirroredBoard] = []

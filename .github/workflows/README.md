@@ -14,6 +14,3 @@ coolify deploy uuid <exponential-web-uuid>
 ```
 
 Or click "Deploy" in the Coolify UI.
-
-The home/Portainer pipeline at `.gitea/workflows/build-release.yml` is
-unrelated and stays untouched.

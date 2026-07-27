@@ -5,6 +5,7 @@ import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import {
   getIssueStatusConfig,
   issueStatusOptions,
+  ISSUE_STATUS_FALLBACK,
   type IssueStatus,
 } from "@/lib/domain"
 
@@ -47,6 +48,7 @@ export function StatusDropdown({
     <>
       <OptionDropdownMenu
         value={status}
+        fallbackValue={ISSUE_STATUS_FALLBACK}
         disabled={disabled}
         options={statuses}
         mobileTitle="Status"

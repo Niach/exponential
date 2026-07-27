@@ -1,20 +1,28 @@
-import { and, eq, isNotNull } from "drizzle-orm"
+import { and, eq, gte, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issues, boards } from "@/db/schema"
+import type { PullState } from "@/lib/integrations/github-pr"
 import { fetchPullState, resolveRepoToken } from "@/lib/integrations/github-pr"
 import {
   applyPrClosedState,
   applyPrMergeState,
+  applyPrReopenedState,
 } from "@/lib/integrations/pr-sync"
 
 const POLL_INTERVAL_MS = 3 * 60 * 1000 // every 3 minutes
 const INITIAL_DELAY_MS = 30 * 1000 // first run ~30s after boot
 
+// How long a closed-without-merge PR keeps being re-checked (REV2-74). A
+// polling instance never receives the `reopened` webhook, so the only way it
+// can learn about a close→reopen→merge sequence is to keep asking — but
+// re-asking about every PR ever closed would grow each pass without bound.
+export const CLOSED_PR_RECHECK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+
 let running = false
 
 // Parse `https://github.com/<owner>/<repo>/pull/<n>` → "owner/repo". Returns
 // null for anything that doesn't match (we skip those rows).
-function parseRepoFromPrUrl(prUrl: string): string | null {
+export function parseRepoFromPrUrl(prUrl: string): string | null {
   const match = prUrl.match(
     /github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/i
   )
@@ -22,36 +30,60 @@ function parseRepoFromPrUrl(prUrl: string): string | null {
   return `${match[1]}/${match[2]}`
 }
 
-// One poll pass: outbound-check every open-PR issue's GitHub state and flip it
-// to merged when it's been merged. This is the SELF-HOSTED merge-detection
-// trigger — works without inbound reachability (no webhook required).
-async function pollOpenPrs(): Promise<void> {
+export type PrPollAction = `merge` | `close` | `reopen` | `none`
+
+// Pure dispatch: what the state GitHub just reported means for a locally
+// `open`/`closed` PR. Both heals matter here — the webhook's close/reopen
+// events never reach a polling instance, and a reopened PR that stays
+// `closed` locally would never have its merge observed either (REV2-74).
+export function decidePrPollAction(
+  localPrState: string | null,
+  state: PullState
+): PrPollAction {
+  if (state.merged) return localPrState === `merged` ? `none` : `merge`
+  if (state.state === `closed`) return localPrState === `open` ? `close` : `none`
+  return localPrState === `closed` ? `reopen` : `none`
+}
+
+// One poll pass: outbound-check every tracked PR's GitHub state and apply the
+// merge/close/reopen transition it implies. This is the SELF-HOSTED
+// merge-detection trigger — works without inbound reachability (no webhook
+// required). Exported for tests; the scheduler below is the only caller.
+export async function runPrPollPass(now: Date = new Date()): Promise<void> {
   if (running) return
   running = true
   try {
+    const closedCutoff = new Date(now.getTime() - CLOSED_PR_RECHECK_WINDOW_MS)
     const rows = await db
       .select({
         issueId: issues.id,
         prUrl: issues.prUrl,
         prNumber: issues.prNumber,
+        prState: issues.prState,
         teamId: boards.teamId,
       })
       .from(issues)
       .innerJoin(boards, eq(boards.id, issues.boardId))
       .where(
         and(
-          eq(issues.prState, `open`),
           isNotNull(issues.prNumber),
-          isNotNull(issues.prUrl)
+          isNotNull(issues.prUrl),
+          or(
+            eq(issues.prState, `open`),
+            // Recently closed and never merged: still worth asking about, so a
+            // reopen (and the merge that may follow it) is seen at all.
+            and(
+              eq(issues.prState, `closed`),
+              isNull(issues.prMergedAt),
+              gte(issues.updatedAt, closedCutoff)
+            )
+          )
         )
       )
 
     // A batch PR is linked to several issues (same prUrl on every row) —
     // fetch each PR's state once per pass.
-    const pullStates = new Map<
-      string,
-      Awaited<ReturnType<typeof fetchPullState>>
-    >()
+    const pullStates = new Map<string, PullState>()
 
     for (const row of rows) {
       if (!row.prUrl || row.prNumber == null) continue
@@ -67,20 +99,29 @@ async function pollOpenPrs(): Promise<void> {
           state = await fetchPullState(repo, row.prNumber, token)
           pullStates.set(row.prUrl, state)
         }
-        if (state.merged) {
-          await applyPrMergeState({
-            issueId: row.issueId,
-            prUrl: row.prUrl,
-            mergedAt: new Date(),
-            actorUserId: null,
-          })
-        } else if (state.state === `closed`) {
-          // Closed without merging — flip to closed, which also drops the
-          // row out of this poller's prState='open' re-fetch set.
-          await applyPrClosedState({
-            issueId: row.issueId,
-            prUrl: row.prUrl,
-          })
+        switch (decidePrPollAction(row.prState, state)) {
+          case `merge`:
+            await applyPrMergeState({
+              issueId: row.issueId,
+              prUrl: row.prUrl,
+              mergedAt: new Date(),
+              actorUserId: null,
+            })
+            break
+          case `close`:
+            await applyPrClosedState({
+              issueId: row.issueId,
+              prUrl: row.prUrl,
+            })
+            break
+          case `reopen`:
+            await applyPrReopenedState({
+              issueId: row.issueId,
+              prUrl: row.prUrl,
+            })
+            break
+          case `none`:
+            break
         }
       } catch (err) {
         // One repo failing must not abort the batch.
@@ -102,9 +143,9 @@ async function pollOpenPrs(): Promise<void> {
 export function bootstrapSelfHosted(): void {
   if (process.env.GITHUB_POLLING !== `true`) return
   setTimeout(() => {
-    void pollOpenPrs()
+    void runPrPollPass()
   }, INITIAL_DELAY_MS)
   setInterval(() => {
-    void pollOpenPrs()
+    void runPrPollPass()
   }, POLL_INTERVAL_MS)
 }

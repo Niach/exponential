@@ -140,6 +140,12 @@ fn open_issue_deep_link(identifier: &str, cx: &mut App) {
     }
 }
 
+/// The login-surface message when the callback lands but the exchange /
+/// session resolve fails (expired one-time code, offline, 401) — same line as
+/// iOS `LoginViewModel` and Android's `reportLoginError`; the cause stays in
+/// the log.
+const COMPLETION_FAILED: &str = "Couldn't verify your sign-in. Please try again.";
+
 /// Adopt an OAuth callback: for a PKCE code, first redeem it via
 /// `POST /api/mobile-oauth-exchange` with the held verifier (REV-13); then
 /// validate the token via `get-session`, persist the account, connect sync —
@@ -210,15 +216,21 @@ fn complete(callback: OAuthCallback, cx: &mut App) {
                     }
                     Err(err) => {
                         log::warn!("[ui] oauth: storing the session failed: {err}");
+                        crate::login::report_oauth_failure(
+                            format!("Could not store the session: {err}"),
+                            cx,
+                        );
                         store.abort_sign_in(cx);
                     }
                 },
                 Ok((_, None)) => {
                     log::warn!("[ui] oauth: callback token does not resolve — login stays");
+                    crate::login::report_oauth_failure(COMPLETION_FAILED, cx);
                     store.abort_sign_in(cx);
                 }
                 Err(err) => {
                     log::warn!("[ui] oauth: sign-in completion failed: {err}");
+                    crate::login::report_oauth_failure(COMPLETION_FAILED, cx);
                     store.abort_sign_in(cx);
                 }
             }

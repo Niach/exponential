@@ -704,9 +704,9 @@ describe(`steer relay end-to-end`, () => {
     desktop.close()
   })
 
-  // Runs LAST: it deliberately drains the shared failed-auth bucket (no
-  // TRUST_PROXY here, so every request keys to the `unknown` fallback), which
-  // would 429 any later bad-ticket assertions.
+  // The last two tests run LAST: they deliberately drain the shared failed-auth
+  // bucket (no TRUST_PROXY here, so every request keys to the `unknown`
+  // fallback), which would 429 any later bad-ticket/bad-secret assertions.
   test(`failed-auth floods never starve ticket-valid connects`, async () => {
     let saw429 = false
     for (let i = 0; i < 150 && !saw429; i++) {
@@ -722,5 +722,24 @@ describe(`steer relay end-to-end`, () => {
     // per-IP bucket (mirrors push-relay's failed-auth-only philosophy).
     const ws = await connect(ticket({ sessionId: `sess-flood` }))
     ws.close()
+  })
+
+  test(`admin endpoints throttle wrong-secret attempts`, async () => {
+    let saw429 = false
+    for (let i = 0; i < 150 && !saw429; i++) {
+      const res = await fetch(`${base}/devices/u1`, {
+        headers: { "x-relay-secret": `wrong-${i}` },
+      })
+      expect([401, 429]).toContain(res.status)
+      saw429 = res.status === 429
+    }
+    expect(saw429).toBe(true)
+
+    // The secret-bearing web server keeps working through the flood — only
+    // failed auth is throttled.
+    const authed = await fetch(`${base}/devices/u1`, {
+      headers: { "x-relay-secret": `integration-secret` },
+    })
+    expect(authed.status).toBe(200)
   })
 })

@@ -8,6 +8,8 @@ import {
 } from "@/lib/trpc"
 import { attachments, teams, teamMembers } from "@/db/schema"
 import { and, asc, eq, ne } from "drizzle-orm"
+import { teamColumns } from "@/lib/team-columns"
+import { emailEnabled } from "@/lib/email-enabled"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { randomBytes } from "crypto"
@@ -88,7 +90,7 @@ export const teamsRouter = router({
     if (!membership) return { team: null }
 
     const [team] = await ctx.db
-      .select()
+      .select(teamColumns)
       .from(teams)
       .where(eq(teams.id, membership.teamId))
       .limit(1)
@@ -119,7 +121,7 @@ export const teamsRouter = router({
             slug,
             iconUrl: input.iconUrl,
           })
-          .returning()
+          .returning(teamColumns)
 
         await tx.insert(teamMembers).values({
           teamId: team.id,
@@ -153,6 +155,16 @@ export const teamsRouter = router({
       await assertTeamOwner(ctx.session.user.id, id)
 
       if (updates.helpdeskEnabled === true) {
+        // REV2-10: the reporter's ONLY credential is the emailed magic link,
+        // so a helpdesk on an instance with no mail transport accepts tickets
+        // into a guaranteed black hole. Refuse at setup time, where the
+        // person flipping the switch can still fix it.
+        if (!emailEnabled) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `Email sending is not configured on this server, and support reporters can only reach their conversation through an emailed link. Set AWS_SES_REGION (Amazon SES) or SMTP_HOST, then enable support.`,
+          })
+        }
         await assertCanUseHelpdesk(id)
       }
 
@@ -162,7 +174,7 @@ export const teamsRouter = router({
           .update(teams)
           .set({ ...updates, updatedAt: new Date() })
           .where(eq(teams.id, id))
-          .returning()
+          .returning(teamColumns)
         return { team, txId }
       })
     }),

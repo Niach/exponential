@@ -8,6 +8,7 @@ import {
   MAX_SUPPORT_MESSAGE_CHARS,
   findThreadByToken,
   getSupportRateLimiters,
+  isSupportThreadFrozen,
 } from "@/lib/helpdesk/service"
 import { fireAndForgetSupportThreadNotify } from "@/lib/integrations/notifications"
 
@@ -59,11 +60,16 @@ async function handleReply(request: Request): Promise<Response> {
     return jsonResponse(400, { error: `Message is too long` })
   }
 
-  const thread = await findThreadByToken(token)
-  if (!thread) {
+  const resolved = await findThreadByToken(token)
+  if (!resolved) {
     return jsonResponse(404, { error: `Conversation not found` })
   }
-  if (thread.tokenRevokedAt !== null) {
+  const { thread } = resolved
+  // Closed by a member, or frozen because the team turned its helpdesk off
+  // (REV2-23) — the reporter used to keep a fully working conversation on a
+  // surface every client hides, pinging members who cannot open it. Both
+  // answer identically; re-enabling the helpdesk thaws the thread.
+  if (isSupportThreadFrozen(resolved)) {
     return jsonResponse(409, { error: `This conversation is closed` })
   }
 

@@ -14,6 +14,8 @@ import io.ktor.http.headersOf
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -85,6 +87,8 @@ class ShapeClientTest {
         // A real advancing clock by default, so kicks behave as in production;
         // the freshness test swaps in a clock it can hold still.
         nowMs: () -> Long = { System.currentTimeMillis() },
+        // App-lifecycle gate — open unless a test drives it (REV2-38).
+        active: StateFlow<Boolean> = MutableStateFlow(true),
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> io.ktor.client.request.HttpResponseData,
     ): ShapeClient<Row> {
         val engine = MockEngine { request -> handler(request) }
@@ -103,6 +107,7 @@ class ShapeClientTest {
             onSuccess = onSuccess,
             onReset = onReset,
             nowMs = nowMs,
+            active = active,
         )
     }
 
@@ -408,6 +413,105 @@ class ShapeClientTest {
         shapeClient.kick()
         withTimeout(10_000) {
             while (started.size < 3) kotlinx.coroutines.delay(10)
+        }
+        job.cancel()
+        job.join()
+    }
+
+    /**
+     * REV2-38: backgrounding the app parks the loop. The in-flight long-poll is
+     * cancelled (the socket is released instead of being held for the rest of
+     * its 90s budget), no further polls go out — not even for a kick, which is
+     * what an FCM push does to a cached process — and none of it is reported as
+     * an error. Foregrounding resumes polling.
+     */
+    @Test
+    fun backgroundingCancelsTheInFlightPollAndParksTheLoop() = runBlocking {
+        val dao = FakeOffsetDao()
+        val clock = FakeClock()
+        val active = MutableStateFlow(true)
+        val started = CopyOnWriteArrayList<Int>()
+        val errors = CopyOnWriteArrayList<String?>()
+        val droppedInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            nowMs = clock,
+            onError = { _, message, _ -> errors.add(message) },
+            active = active,
+            handler = {
+                started.add(started.size + 1)
+                if (started.size == 1) {
+                    // A live long-poll holding open with nothing to say.
+                    try {
+                        kotlinx.coroutines.delay(30_000)
+                    } catch (cancel: CancellationException) {
+                        droppedInFlight.set(true)
+                        throw cancel
+                    }
+                }
+                respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        withTimeout(10_000) {
+            while (started.isEmpty()) kotlinx.coroutines.delay(10)
+        }
+
+        active.value = false
+        withTimeout(10_000) {
+            while (!droppedInFlight.get()) kotlinx.coroutines.delay(10)
+        }
+        val parkedAt = started.size
+        // Step past the construction-seeded freshness window so the kick is
+        // really enqueued (an FCM push into a cached process) instead of being
+        // dropped as redundant — otherwise this leg would prove nothing.
+        clock.advance(KICK_FRESHNESS_MS + 1)
+        shapeClient.kick()
+        kotlinx.coroutines.delay(300)
+        assertEquals("a parked loop must not poll", parkedAt, started.size)
+        assertTrue("parking is not a failure, got $errors", errors.isEmpty())
+
+        active.value = true
+        withTimeout(10_000) {
+            while (started.size <= parkedAt) kotlinx.coroutines.delay(10)
+        }
+        job.cancel()
+        job.join()
+
+        assertTrue("foregrounding must resume polling", errors.isEmpty())
+    }
+
+    /**
+     * A process started headlessly (an FCM push wakes it with no Activity) has
+     * never been in the foreground, so the gate is still closed: the loop must
+     * issue nothing at all until the app is actually opened.
+     */
+    @Test
+    fun aLoopStartedBackgroundedIssuesNoRequestsUntilForeground() = runBlocking {
+        val dao = FakeOffsetDao()
+        val active = MutableStateFlow(false)
+        val started = CopyOnWriteArrayList<Int>()
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            active = active,
+            handler = {
+                started.add(started.size + 1)
+                respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        kotlinx.coroutines.delay(300)
+        assertTrue("a backgrounded process must not poll", started.isEmpty())
+
+        active.value = true
+        withTimeout(10_000) {
+            while (started.isEmpty()) kotlinx.coroutines.delay(10)
         }
         job.cancel()
         job.join()

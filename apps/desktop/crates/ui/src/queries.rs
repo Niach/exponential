@@ -654,6 +654,40 @@ pub(crate) fn coding_session_is_live(
     }
 }
 
+/// REV2-24: the device already coding `issue_id` according to the live SYNCED
+/// rows, or `None` when the issue is free. The cross-device half of the
+/// EXP-202 one-session-per-issue rule — `coding_flow::LocalSessions` knows
+/// only this process, so every launch entry point (the dialog's blocker, the
+/// relay's remote starts) must consult sync as well, or two agents end up
+/// pushing to the same `exp/<ID>` branch from two machines.
+pub(crate) fn live_session_device_for_issue(
+    cx: &App,
+    issue_id: &str,
+    now_epoch: i64,
+) -> Option<String> {
+    let collections = Store::global(cx).collections();
+    let sessions = collections.coding_sessions.read(cx);
+    live_session_device(sessions.iter(), issue_id, now_epoch)
+}
+
+/// Pure core of [`live_session_device_for_issue`]. A live row with no
+/// `device_label` still blocks — the label is only for the message.
+pub(crate) fn live_session_device<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    issue_id: &str,
+    now_epoch: i64,
+) -> Option<String> {
+    sessions
+        .filter(|session| session.issue_id.as_deref() == Some(issue_id))
+        .find(|session| coding_session_is_live(session, now_epoch))
+        .map(|session| {
+            session
+                .device_label
+                .clone()
+                .unwrap_or_else(|| "another device".to_string())
+        })
+}
+
 /// EXP-214: how a LIVE coding session renders. The synced status alone is not
 /// the whole story — `in_review` splits on the linked issue's PR outcome
 /// (merged → the run is done, review otherwise, matching the issue-status
@@ -809,6 +843,81 @@ mod tests {
             &session(Some("running"), Some("not-a-timestamp")),
             now
         ));
+    }
+
+    fn session_on(
+        id: &str,
+        issue_id: Option<&str>,
+        status: &str,
+        updated_at: &str,
+        device_label: Option<&str>,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": id,
+            "issue_id": issue_id,
+            "status": status,
+            "updated_at": updated_at,
+            "device_label": device_label,
+        }))
+        .unwrap()
+    }
+
+    /// REV2-24: a live row on ANOTHER device blocks (and names it); a batch
+    /// row (no `issue_id`) never claims an issue.
+    #[test]
+    fn live_session_device_reports_the_owning_device() {
+        let now = 1784289600_i64;
+        let rows = vec![
+            session_on("s-batch", None, "running", "2026-07-17T11:59:00Z", None),
+            session_on(
+                "s-1",
+                Some("issue-1"),
+                "running",
+                "2026-07-17T11:59:00Z",
+                Some("mac-studio"),
+            ),
+        ];
+        assert_eq!(
+            live_session_device(rows.iter(), "issue-1", now).as_deref(),
+            Some("mac-studio")
+        );
+        assert_eq!(live_session_device(rows.iter(), "issue-2", now), None);
+        // A live row with no label still blocks.
+        let unlabeled = vec![session_on(
+            "s-2",
+            Some("issue-2"),
+            "in_review",
+            "2026-07-17T11:59:00Z",
+            None,
+        )];
+        assert_eq!(
+            live_session_device(unlabeled.iter(), "issue-2", now).as_deref(),
+            Some("another device")
+        );
+    }
+
+    /// Ended and stale rows are absent — a remote start must not be blocked
+    /// forever by a crashed session's leftover row.
+    #[test]
+    fn live_session_device_ignores_dead_rows() {
+        let now = 1784289600_i64;
+        let rows = vec![
+            session_on(
+                "s-1",
+                Some("issue-1"),
+                "ended",
+                "2026-07-17T11:59:00Z",
+                Some("m"),
+            ),
+            session_on(
+                "s-2",
+                Some("issue-1"),
+                "running",
+                "2026-07-17T09:00:00Z",
+                Some("m"),
+            ),
+        ];
+        assert_eq!(live_session_device(rows.iter(), "issue-1", now), None);
     }
 
     #[test]

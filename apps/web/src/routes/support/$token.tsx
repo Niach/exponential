@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { LifeBuoy, Loader2, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -47,40 +48,75 @@ type LoadState =
   | { kind: `loading` }
   | { kind: `notFound` }
   | { kind: `error` }
+  | { kind: `throttled`; retryIn: number }
   | { kind: `ready`; thread: ThreadData }
 
 const POLL_INTERVAL_MS = 5_000
 const POLL_MAX_BACKOFF_MS = 60_000
+const RETRY_AFTER_FALLBACK_S = 5
+const RETRY_AFTER_MAX_S = 60
+
+// The read bucket is keyed per IP, so a whole carrier-grade NAT (i.e. the
+// mail-app-on-phone audience) shares it. Honor the server's Retry-After, but
+// never trust it far enough to strand the reporter on a countdown.
+export function retryAfterSeconds(header: string | null): number {
+  const parsed = Number.parseInt(header ?? ``, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return RETRY_AFTER_FALLBACK_S
+  return Math.min(parsed, RETRY_AFTER_MAX_S)
+}
 
 function SupportConversationPage() {
   const { token } = Route.useParams()
+  return <SupportConversationView token={token} />
+}
+
+export function SupportConversationView({ token }: { token: string }) {
   const [state, setState] = useState<LoadState>({ kind: `loading` })
   const [draft, setDraft] = useState(``)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/support/thread`, {
-        method: `POST`,
-        headers: { "content-type": `application/json` },
-        body: JSON.stringify({ token }),
-      })
-      if (res.status === 404) {
-        setState({ kind: `notFound` })
-        return
-      }
-      if (!res.ok) {
+  // `refresh` = a transcript is already on screen (the post-send reload): a
+  // failed refresh must never replace it with an error page — the live poll
+  // keeps the page current either way.
+  const load = useCallback(
+    async ({ refresh = false }: { refresh?: boolean } = {}) => {
+      try {
+        const res = await fetch(`/api/support/thread`, {
+          method: `POST`,
+          headers: { "content-type": `application/json` },
+          body: JSON.stringify({ token }),
+        })
+        if (res.ok) {
+          const thread = (await res.json()) as ThreadData
+          setState({ kind: `ready`, thread })
+          return
+        }
+        if (refresh) return
+        if (res.status === 404) {
+          setState({ kind: `notFound` })
+          return
+        }
+        if (res.status === 429) {
+          setState({
+            kind: `throttled`,
+            retryIn: retryAfterSeconds(res.headers.get(`retry-after`)),
+          })
+          return
+        }
         setState({ kind: `error` })
-        return
+      } catch {
+        if (!refresh) setState({ kind: `error` })
       }
-      const thread = (await res.json()) as ThreadData
-      setState({ kind: `ready`, thread })
-    } catch {
-      setState({ kind: `error` })
-    }
-  }, [token])
+    },
+    [token]
+  )
+
+  const retry = useCallback(() => {
+    setState({ kind: `loading` })
+    void load()
+  }, [load])
 
   const stateRef = useRef(state)
   stateRef.current = state
@@ -173,6 +209,25 @@ function SupportConversationPage() {
     }
   }, [state.kind, token])
 
+  // A throttled load is a shared-IP hiccup, not a broken page: count the
+  // server's Retry-After down on screen and reload when it lapses (the
+  // "Try again" button is the impatient path).
+  useEffect(() => {
+    if (state.kind !== `throttled`) return
+    if (state.retryIn <= 0) {
+      void load()
+      return
+    }
+    const timer = setTimeout(() => {
+      setState((prev) =>
+        prev.kind === `throttled`
+          ? { ...prev, retryIn: prev.retryIn - 1 }
+          : prev
+      )
+    }, 1_000)
+    return () => clearTimeout(timer)
+  }, [state, load])
+
   // Keyed on the message count (not the whole state) so the 5s poll doesn't
   // yank the scroll position when nothing new arrived.
   const messageCount =
@@ -194,10 +249,10 @@ function SupportConversationPage() {
       })
       if (res.ok) {
         setDraft(``)
-        await load()
+        await load({ refresh: true })
       } else if (res.status === 409) {
         setSendError(`This conversation has been closed.`)
-        await load()
+        await load({ refresh: true })
       } else if (res.status === 404) {
         setSendError(`This conversation no longer exists.`)
       } else if (res.status === 429) {
@@ -220,24 +275,44 @@ function SupportConversationPage() {
     )
   }
 
-  if (state.kind === `notFound` || state.kind === `error`) {
+  if (state.kind === `notFound`) {
     return (
-      <div className="flex min-h-svh flex-col">
-        <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
-          <LifeBuoy className="h-8 w-8 text-muted-foreground" />
-          <h1 className="text-lg font-semibold">
-            {state.kind === `notFound`
-              ? `Conversation not found`
-              : `Something went wrong`}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {state.kind === `notFound`
-              ? `This link doesn't match any conversation. Check that the URL from your email was copied completely.`
-              : `Please try again in a moment.`}
-          </p>
-        </div>
-        <PoweredByFooter />
-      </div>
+      <StatusScreen
+        title="Conversation not found"
+        body="This link doesn't match any conversation. Check that the URL from your email was copied completely."
+      />
+    )
+  }
+
+  if (state.kind === `throttled`) {
+    return (
+      <StatusScreen
+        title="Support is busy right now"
+        body={
+          state.retryIn > 0
+            ? `Too many requests came from your network. Retrying in ${state.retryIn}s…`
+            : `Too many requests came from your network. Retrying…`
+        }
+        action={
+          <Button variant="outline" size="sm" onClick={retry}>
+            Try again
+          </Button>
+        }
+      />
+    )
+  }
+
+  if (state.kind === `error`) {
+    return (
+      <StatusScreen
+        title="Something went wrong"
+        body="We couldn't load this conversation. Please try again in a moment."
+        action={
+          <Button variant="outline" size="sm" onClick={retry}>
+            Try again
+          </Button>
+        }
+      />
     )
   }
 
@@ -297,7 +372,17 @@ function SupportConversationPage() {
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === `Enter` && !event.shiftKey) {
+                  // Enter always inserts a newline here: this page is opened
+                  // from mail apps on phones, whose return key has no Shift —
+                  // Enter-to-send would make multi-line replies impossible and
+                  // burn the strict per-thread reply budget one fragment at a
+                  // time. Sending is the button, or ⌘/Ctrl+Enter on a hardware
+                  // keyboard (never mid-IME-composition).
+                  if (
+                    event.key === `Enter` &&
+                    (event.metaKey || event.ctrlKey) &&
+                    !event.nativeEvent.isComposing
+                  ) {
                     event.preventDefault()
                     void send()
                   }
@@ -327,6 +412,28 @@ function SupportConversationPage() {
         </div>
       </div>
 
+      <PoweredByFooter />
+    </div>
+  )
+}
+
+function StatusScreen({
+  title,
+  body,
+  action,
+}: {
+  title: string
+  body: string
+  action?: ReactNode
+}) {
+  return (
+    <div className="flex min-h-svh flex-col">
+      <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
+        <LifeBuoy className="h-8 w-8 text-muted-foreground" />
+        <h1 className="text-lg font-semibold">{title}</h1>
+        <p className="text-sm text-muted-foreground">{body}</p>
+        {action}
+      </div>
       <PoweredByFooter />
     </div>
   )

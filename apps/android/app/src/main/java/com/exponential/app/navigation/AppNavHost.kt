@@ -3,9 +3,18 @@ package com.exponential.app.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -16,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -31,7 +41,9 @@ import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.WebLinkResolver
 import com.exponential.app.ui.auth.LoginScreen
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomNavBar
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.CreateIssueScreen
@@ -55,6 +67,9 @@ import com.exponential.app.ui.share.buildSharePrefill
 import com.exponential.app.ui.support.SupportScreen
 import com.exponential.app.ui.support.SupportThreadScreen
 import com.exponential.app.ui.theme.AppBackground
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.update.UpdateRequiredScreen
 import dagger.hilt.android.EntryPointAccessors
 
@@ -157,10 +172,16 @@ fun AppNavHost() {
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         val updateRequired = state.updateRequired
         if (updateRequired != null) {
-            // Highest priority: the server has 426'd this build (below its
-            // minimum version, EXP-104). Replace the whole NavHost with the
-            // blocking update screen — no navigation, no authed requests.
-            UpdateRequiredScreen(info = updateRequired)
+            // Highest priority: the ACTIVE account's server has 426'd this
+            // build (below its minimum version, EXP-104). Replace the whole
+            // NavHost with the blocking update screen — no navigation, no
+            // authed requests. Scoped per instance (REV2-18): a background
+            // account's 426 gets the banner below instead of this screen.
+            UpdateRequiredScreen(
+                info = updateRequired,
+                serverLabel = activeAccount?.displayName,
+                onSignOutOfServer = { viewModel.signOutOfGatedServer() },
+            )
         } else if (needsAuth) {
             UnauthenticatedNav(
                 navController = navController,
@@ -191,10 +212,12 @@ fun AppNavHost() {
             val helpdeskEnabled by viewModel.helpdeskEnabled.collectAsStateWithLifecycle()
             val supportUnread by viewModel.supportUnread.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
+            val gatedOtherServers by viewModel.gatedOtherServers.collectAsStateWithLifecycle()
             AuthenticatedNav(
                 navController = navController,
                 cloudAlreadyAdded = cloudAlreadyAdded,
                 activeAccountId = state.activeAccountId,
+                gatedOtherServers = gatedOtherServers,
                 needsOnboarding = needsOnboarding,
                 unreadCount = unreadCount,
                 agentsRunning = agentsRunning,
@@ -244,6 +267,7 @@ private fun AuthenticatedNav(
     navController: NavHostController,
     cloudAlreadyAdded: Boolean,
     activeAccountId: String?,
+    gatedOtherServers: List<String>,
     needsOnboarding: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
@@ -528,6 +552,21 @@ private fun AuthenticatedNav(
         }
     }
 
+    // A background server that 426'd this build (REV2-18): only the ACTIVE
+    // account's gate blocks the app, but that account's sync IS stopped, so
+    // say so rather than let it read as frozen sync. Dismissable for this app
+    // run; sign-out lives on the server's row in Settings.
+    var gatedBannerDismissed by remember(gatedOtherServers) { mutableStateOf(false) }
+    if (gatedOtherServers.isNotEmpty() && !gatedBannerDismissed && !needsOnboarding) {
+        GatedServersBanner(
+            servers = gatedOtherServers,
+            onDismiss = { gatedBannerDismissed = true },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = if (barVisible) BottomBarInset else 0.dp),
+        )
+    }
+
     if (barVisible) {
         BottomNavBar(
             issuesActive = currentRoute == "home",
@@ -590,6 +629,50 @@ private fun AuthenticatedNav(
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
+    }
+}
+
+/** The floating "this server needs a newer app" notice (REV2-18). */
+@Composable
+private fun GatedServersBanner(
+    servers: List<String>,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .glassButton(opaque = true)
+            .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            ExpIcons.uiWarning,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = DesignTokens.Semantic.Yellow,
+        )
+        Spacer(Modifier.width(10.dp))
+        val subject = if (servers.size == 1) {
+            "${servers.first()} needs"
+        } else {
+            "${servers.size} servers need"
+        }
+        Text(
+            "$subject a newer app version — sync there is paused.",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+            Icon(
+                ExpIcons.uiClose,
+                contentDescription = "Dismiss",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
     }
 }
 

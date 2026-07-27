@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq } from "drizzle-orm"
+import { and, desc, eq, lt } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import {
@@ -71,11 +71,19 @@ export const helpdeskRouter = router({
   // The inbox list: one row per ticket in the team, filtered
   // open/resolved by the thread's own status, newest activity first.
   // `unread` = the reporter spoke last — there is no per-member read state.
+  //
+  // Paged (REV2-40): nothing ever purges support threads, so the Resolved tab
+  // grows forever and this runs on a 30s poll from four clients. `limit` +
+  // `cursor` (the oldest loaded row's updatedAt) bound it. The response stays
+  // a plain ARRAY — both inputs are additive, so native builds that send
+  // neither simply get the newest page.
   listThreads: authedProcedure
     .input(
       z.object({
         teamId: z.string().uuid(),
         filter: z.enum([`open`, `resolved`]).default(`open`),
+        limit: z.number().int().min(1).max(100).default(50),
+        cursor: z.coerce.date().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -101,10 +109,14 @@ export const helpdeskRouter = router({
             eq(
               supportThreads.status,
               input.filter === `resolved` ? `resolved` : `open`
-            )
+            ),
+            input.cursor
+              ? lt(supportThreads.updatedAt, input.cursor)
+              : undefined
           )
         )
         .orderBy(desc(supportThreads.updatedAt))
+        .limit(input.limit)
 
       const latest = await latestMessagesByThread(rows.map((row) => row.id))
       return rows.map((row) => {
@@ -125,11 +137,26 @@ export const helpdeskRouter = router({
         ctx.session.user.id,
         input.threadId
       )
-      const messages = await ctx.db
-        .select()
+      // Each message carries the status of the email that delivered it
+      // (REV2-10): the composer promises "emailed to them", so a member must
+      // be able to see when that email never arrived. ADDITIVE field — the
+      // rest of the row is unchanged for the native clients.
+      const rows = await ctx.db
+        .select({
+          message: supportMessages,
+          emailDeliveryStatus: emailDeliveries.status,
+        })
         .from(supportMessages)
+        .leftJoin(
+          emailDeliveries,
+          eq(emailDeliveries.id, supportMessages.emailDeliveryId)
+        )
         .where(eq(supportMessages.threadId, thread.id))
         .orderBy(supportMessages.createdAt)
+      const messages = rows.map((row) => ({
+        ...row.message,
+        emailDeliveryStatus: row.emailDeliveryStatus,
+      }))
       const linkedIssue = await loadLinkedIssue(thread.linkedIssueId)
       // The magic-link token is the reporter's credential — it is never
       // stored (recomputed per outbound email) and must never reach a
@@ -151,6 +178,12 @@ export const helpdeskRouter = router({
         input.threadId
       )
 
+      // Replying to a RESOLVED ticket reopens it (REV2-58). Closing revoked
+      // the magic link, so without this the reply email invited the reporter
+      // to a page that refuses their answer — a one-way dead end they can
+      // only escape by filing a brand-new ticket. Reopening un-revokes the
+      // token, so the link in the email that just went out works.
+      const reopened = thread.status === `resolved`
       const message = await ctx.db.transaction(async (tx) => {
         const [inserted] = await tx
           .insert(supportMessages)
@@ -162,10 +195,14 @@ export const helpdeskRouter = router({
             body: input.body,
           })
           .returning()
-        await tx
-          .update(supportThreads)
-          .set({ updatedAt: new Date() })
-          .where(eq(supportThreads.id, thread.id))
+        if (reopened) {
+          await reopenThreadInTx(tx, thread.id)
+        } else {
+          await tx
+            .update(supportThreads)
+            .set({ updatedAt: new Date() })
+            .where(eq(supportThreads.id, thread.id))
+        }
         return inserted
       })
 
@@ -201,6 +238,9 @@ export const helpdeskRouter = router({
       if (thread.lastReporterSeenAt && !reporterViewing) {
         try {
           const result = await sendSupportReplyEmail({
+            // The team name is the ONE reporter-facing helpdesk identity
+            // (REV2-51) — the confirmation email and the conversation page
+            // use it too, so follow-ups never look like a different sender.
             to: thread.reporterEmail,
             boardName: teamRow?.name ?? `the team`,
             replyText: input.body,
@@ -231,7 +271,7 @@ export const helpdeskRouter = router({
         }
       }
 
-      return { message, reporterEmailed, reporterViewing }
+      return { message, reporterEmailed, reporterViewing, reopened }
     }),
 
   // Internal note: member-only annotation. Never emailed, never visible on

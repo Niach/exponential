@@ -175,7 +175,11 @@ public enum StatusColor {
     public static let inReview = DesignTokens.Semantic.green
     /// Completed (EXP-120): moved from green to blue when in_review took green.
     public static let done = DesignTokens.Semantic.blue
-    public static let cancelled = DesignTokens.Semantic.red
+    /// Cancelled is a muted terminal RESOLUTION, not an error (REV2-85): the
+    /// desktop/web treatment (`text-muted-foreground`) is the shared one, and
+    /// red here made the same issue read as a failure on a phone and as a
+    /// closed one on the desk.
+    public static let cancelled = DesignTokens.Semantic.neutral
     /// Duplicate is a muted terminal resolution (like backlog's neutral gray).
     public static let duplicate = DesignTokens.Semantic.neutral
 }

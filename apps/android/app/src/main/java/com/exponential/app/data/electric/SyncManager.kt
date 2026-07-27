@@ -34,12 +34,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.KSerializer
@@ -71,6 +73,21 @@ class SyncManager @Inject constructor(
     // The "Syncing…" chip measures shape freshness against this.
     private val _lastKickAt = MutableStateFlow(0L)
     val lastKickAt: StateFlow<Long> = _lastKickAt.asStateFlow()
+
+    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 15 shape
+    // loops PER signed-in account must not keep long-polling for a process the
+    // user can't see (Android caches backgrounded processes and only freezes
+    // them ~10min later on 12+, OEM-configurable, never below it). Starts
+    // CLOSED — a process spun up headlessly by an FCM push has no foreground at
+    // all and must not start polling; ExponentialApp's ProcessLifecycleOwner
+    // observer opens it on ON_START.
+    private val _syncActive = MutableStateFlow(false)
+    val syncActive: StateFlow<Boolean> = _syncActive.asStateFlow()
+
+    // Pending park (see setForeground). Cancelled when we come back inside the
+    // grace window, so a quick app switch costs nothing.
+    private val parkLock = Any()
+    private var parkJob: Job? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
     // several pushes can land within the same second, and 15 shapes each
@@ -134,6 +151,45 @@ class SyncManager @Inject constructor(
             })
         }.onFailure {
             android.util.Log.w("SyncManager", "network callback not registered: ${it.message}")
+        }
+    }
+
+    /**
+     * The process moved between foreground and background
+     * (ProcessLifecycleOwner ON_START / ON_STOP, wired in `ExponentialApp`).
+     *
+     * Foreground reopens the gate immediately; background parks the shape loops
+     * after [BACKGROUND_PARK_DELAY_MS], so a quick app switch, a share-sheet
+     * hop or a configuration change never tears down 15 live connections per
+     * account. Parking cancels in-flight long-polls, so the process holds no
+     * shape connections while cached — resume is a catch-up poll from the
+     * per-shape Room offsets, never a re-snapshot.
+     */
+    fun setForeground(foreground: Boolean) {
+        synchronized(parkLock) {
+            parkJob?.cancel()
+            parkJob = if (foreground) {
+                if (!_syncActive.value) android.util.Log.i("SyncManager", "resuming shape loops")
+                _syncActive.value = true
+                null
+            } else {
+                scope.launch {
+                    delay(BACKGROUND_PARK_DELAY_MS)
+                    // Commit the park under the same lock the foreground path
+                    // cancels under, re-checking liveness inside it: once the
+                    // delay has resumed past the dispatcher's own cancellation
+                    // check, a `parkJob?.cancel()` racing at the grace deadline
+                    // can no longer stop this coroutine, and an unsynchronized
+                    // write here would clobber the ON_START `true` and leave
+                    // the gate stuck closed on a visible app (kicks and
+                    // pull-to-refresh would then find nothing to wake).
+                    synchronized(parkLock) {
+                        if (!isActive) return@launch
+                        android.util.Log.i("SyncManager", "parking shape loops (backgrounded)")
+                        _syncActive.value = false
+                    }
+                }
+            }
         }
     }
 
@@ -477,6 +533,8 @@ class SyncManager @Inject constructor(
                     )
                 )
             },
+            // Every loop of every account rides the one app-lifecycle gate.
+            active = syncActive,
             onMessages = { messages ->
                 // Apply each long-poll batch in one transaction (parity with iOS
                 // applyBatch) so a batch is an atomic write and the concurrent
@@ -510,6 +568,12 @@ class SyncManager @Inject constructor(
 // One unforced kick per second at most: app-foreground, network-available and a
 // burst of pushes routinely coincide, and each kick drops 15 live long-polls.
 private const val KICK_DEBOUNCE_MS = 1_000L
+
+// Grace window between ON_STOP and parking the shape loops (REV2-38). Long
+// enough that leaving the app for a moment — a share sheet, the camera, a
+// rotation — costs no reconnects; short enough that a genuinely backgrounded
+// process stops polling long before Android's cached-app freezer would.
+private const val BACKGROUND_PARK_DELAY_MS = 30_000L
 
 /** Per-shape diagnostics callbacks passed from [SyncManager] into [ShapeClient]. */
 private class ShapeReporter(

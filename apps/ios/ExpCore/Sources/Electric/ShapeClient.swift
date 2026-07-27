@@ -108,11 +108,13 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             } catch is CancellationError {
                 throw CancellationError()
             } catch ShapeError.upgradeRequired {
-                // Client-version gate (EXP-104): below the server minimum. Stop
-                // this loop permanently — no backoff, no retry. The blocking
-                // Update-required view is now up; sync restarts on the next app
-                // launch (with, presumably, an updated build). Logged like the
-                // other terminal failures so the timeline shows why it stopped.
+                // Client-version gate (EXP-104): below THIS server's minimum.
+                // Stop this loop permanently — no backoff, no retry. Only this
+                // account's shapes stop (the gate is keyed by accountId,
+                // REV2-43); other signed-in servers keep syncing, and sync here
+                // restarts on the next app launch (with, presumably, an updated
+                // build). Logged like the other terminal failures so the
+                // timeline shows why it stopped.
                 logger.warning("[\(self.shapeName)] stopped: client upgrade required")
                 SyncDebug.shared.log("[\(shapeName)] STOP: client upgrade required")
                 return
@@ -245,12 +247,13 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             throw ShapeError.unauthorized
         }
 
-        // Client-version gate (EXP-104): this build is below the server minimum.
-        // Trip the update gate (defensive decode — min/latest may be absent) and
-        // throw so run() can stop this shape's loop permanently.
+        // Client-version gate (EXP-104): this build is below THIS server's
+        // minimum. Trip the update gate for the owning account only (REV2-43 —
+        // defensive decode, min/latest may be absent) and throw so run() can
+        // stop this shape's loop permanently.
         if httpResponse.statusCode == 426 {
             let info = try? JSONDecoder().decode(ClientUpgradeResponse.self, from: data)
-            UpdateGate.shared.trigger(min: info?.min, latest: info?.latest)
+            await UpdateGate.shared.trigger(accountId: accountId, min: info?.min, latest: info?.latest)
             throw ShapeError.upgradeRequired
         }
 

@@ -5,6 +5,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.R
+import com.exponential.app.data.api.AuthWebUrls
 
 @Composable
 fun LoginScreen(
@@ -210,6 +212,43 @@ fun LoginScreen(
                             .testTag("login-submit-button"),
                     ) {
                         Text(if (state.loading) "Signing in…" else "Sign in")
+                    }
+
+                    // Sign-up and password reset are web flows on every native
+                    // client (desktop parity) — hand off to a Custom Tab, and
+                    // only for what the server publishes as available.
+                    if (config.passwordResetEnabled || config.signupEnabled) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            if (config.passwordResetEnabled) {
+                                TextButton(
+                                    onClick = {
+                                        CustomTabsIntent.Builder().build().launchUrl(
+                                            context,
+                                            Uri.parse(AuthWebUrls.forgotPassword(instanceUrl)),
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("login-forgot-password-link"),
+                                ) {
+                                    Text("Forgot password?")
+                                }
+                            }
+                            if (config.signupEnabled) {
+                                TextButton(
+                                    onClick = {
+                                        CustomTabsIntent.Builder().build().launchUrl(
+                                            context,
+                                            Uri.parse(AuthWebUrls.register(instanceUrl)),
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("login-create-account-link"),
+                                ) {
+                                    Text("Create account")
+                                }
+                            }
+                        }
                     }
                 }
 

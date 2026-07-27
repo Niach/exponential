@@ -38,15 +38,22 @@ async function handle({ request }: { request: Request }) {
   }
 
   const callbackURL = `${originForRequest(request)}/api/mobile-oauth-return`
+  // Failures must come back through the SAME endpoint (REV2-53): Better Auth
+  // otherwise lands provider denials (the user cancelling at Google is the
+  // most common failure of all) on its own https error page, which no native
+  // completion channel recognises — the auth sheet just sits there. Better
+  // Auth appends its reason as `?error=`; the return route turns that into the
+  // `exponential://oauth-return?error=…` handoff.
+  const errorCallbackURL = callbackURL
 
   const response = social
     ? await auth.api.signInSocial({
-        body: { provider: social as never, callbackURL },
+        body: { provider: social as never, callbackURL, errorCallbackURL },
         headers: request.headers,
         asResponse: true,
       })
     : await auth.api.signInWithOAuth2({
-        body: { providerId: providerId!, callbackURL },
+        body: { providerId: providerId!, callbackURL, errorCallbackURL },
         headers: request.headers,
         asResponse: true,
       })

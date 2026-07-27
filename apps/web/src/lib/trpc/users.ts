@@ -8,9 +8,9 @@ import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import {
-  captureAppleTokens,
-  revokeAppleTokensBestEffort,
-} from "@/lib/auth/apple-revocation"
+  captureOAuthTokens,
+  revokeOAuthTokensBestEffort,
+} from "@/lib/auth/oauth-revocation"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import {
   cancelCreemSubscriptionsBestEffort,
@@ -166,11 +166,12 @@ export const usersRouter = router({
         }
       }
 
-      // Sign in with Apple pairing to revoke after the delete (guideline
-      // 5.1.1(v)) — captured now because the accounts row cascades away with
-      // the users row. Web-flow accounts carry tokens; native-idToken pairings
-      // store none (nothing to revoke). See lib/auth/apple-revocation.ts.
-      const appleTokens = await captureAppleTokens(ctx.db, userId)
+      // OAuth grants to revoke after the delete (Apple: guideline 5.1.1(v);
+      // Google/OIDC: the offline refresh token would otherwise stay live at the
+      // provider) — captured now because the accounts rows cascade away with
+      // the users row. Rows without tokens (password logins, native-idToken
+      // Apple pairings) are skipped. See lib/auth/oauth-revocation.ts.
+      const oauthTokens = await captureOAuthTokens(ctx.db, userId)
 
       let storageKeys: string[] = []
       // Subscriptions bound to the SOLO teams this deletion destroys — the
@@ -205,8 +206,9 @@ export const usersRouter = router({
       // uploaded into a SURVIVING team are not here: `uploader_id` is `set
       // null`, so those rows (and their blobs) outlive the account.
       await deleteStorageObjects(storageKeys)
-      // Revoke the Apple pairing so a re-signup delivers the name again.
-      await revokeAppleTokensBestEffort(appleTokens)
+      // Revoke the provider grants: the Apple pairing (so a re-signup delivers
+      // the name again) plus every other provider's stored token.
+      await revokeOAuthTokensBestEffort(oauthTokens)
 
       return { ok: true }
     }),

@@ -2,7 +2,12 @@ import type { ReactNode } from "react"
 import { forwardRef } from "react"
 import { CalendarDays, Tag, User as UserIcon } from "lucide-react"
 import type { Label as LabelRow, User } from "@/db/schema"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
+import {
+  ISSUE_PRIORITY_FALLBACK,
+  ISSUE_STATUS_FALLBACK,
+  type IssuePriority,
+  type IssueStatus,
+} from "@/lib/domain"
 import { formatDate, getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
@@ -99,6 +104,7 @@ export function IssueEditorMobileProperties({
     <div className="mx-3 my-3 divide-y divide-border/40 overflow-hidden rounded-xl border border-border/60 bg-accent/20">
       <OptionDropdownMenu
         value={status}
+        fallbackValue={ISSUE_STATUS_FALLBACK}
         disabled={disabled || disableStatus}
         options={creatableStatuses}
         onSelect={onStatusChange}
@@ -119,6 +125,7 @@ export function IssueEditorMobileProperties({
 
       <OptionDropdownMenu
         value={priority}
+        fallbackValue={ISSUE_PRIORITY_FALLBACK}
         disabled={disabled}
         options={priorities}
         onSelect={onPriorityChange}

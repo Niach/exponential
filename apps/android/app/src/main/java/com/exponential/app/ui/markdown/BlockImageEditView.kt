@@ -41,7 +41,12 @@ fun BlockImageEditView(
 ) {
     val pending: PendingImage? = model.pendingImages[row.url]
     val uploadState = model.uploadState(row.id)
+    // A committed image reserves its REAL ratio from the synced attachment
+    // probe (REV2-79); local picks use their decoded size; anything else falls
+    // back to the 4:3 tile.
     val aspect = aspectRatioOf(pending)
+        ?: LocalAttachmentDims.current.aspectRatioOf(row.url)
+        ?: DEFAULT_IMAGE_ASPECT_RATIO
     val source: Any = pending?.bytes ?: row.url
     val scope = rememberCoroutineScope()
 
@@ -138,8 +143,9 @@ private fun RetryBadge(modifier: Modifier, error: String?, onRetry: () -> Unit) 
     }
 }
 
-private fun aspectRatioOf(pending: PendingImage?): Float {
+/** The locally decoded size of a not-yet-uploaded pick, or null. */
+private fun aspectRatioOf(pending: PendingImage?): Float? {
     val w = pending?.width
     val h = pending?.height
-    return if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else 4f / 3f
+    return if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
 }

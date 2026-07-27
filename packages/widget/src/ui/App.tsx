@@ -27,6 +27,9 @@ type UiPhase =
       flavor: WidgetMode
       identifier: string | null
       url: string | null
+      // Support mode: whether the magic-link confirmation email went out
+      // (null = not applicable / not reported).
+      emailDelivered: boolean | null
     }
 
 // The panel's entry points, from the remote config. Absent / unknown values
@@ -336,6 +339,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       email: string
       name: string
       customValues: Record<string, string>
+      website: string
     }) => {
       // Mirrors the loader's setCustomData cap: the server rejects an
       // oversized blob with an uncoded 400, so fail with a clear message
@@ -366,6 +370,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         name: form.name || identityName,
         customData: mergedCustomData,
         screenshot: screenshotBlob,
+        website: form.website,
         meta: collectEnvMeta(),
       })
       if (result.ok) {
@@ -376,6 +381,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           flavor: `feedback`,
           identifier: result.identifier,
           url: result.url,
+          emailDelivered: null,
         })
         // Leave the success card up longer when it carries a link to the
         // public issue, so the reporter has a chance to click through.
@@ -408,7 +414,12 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   )
 
   const submitSupport = useCallback(
-    async (form: { message: string; email: string; name: string }) => {
+    async (form: {
+      message: string
+      email: string
+      name: string
+      website: string
+    }) => {
       setPhase({ kind: `submitting` })
       // Panel resolves email to identityEmail when hidden, else the typed
       // value — so a match (or empty) means the identity address was used.
@@ -420,6 +431,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         message: form.message,
         email: form.email || identityEmail || ``,
         name: form.name || identityName,
+        website: form.website,
         meta: collectEnvMeta(),
       })
       if (result.ok) {
@@ -428,14 +440,19 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           flavor: `support`,
           identifier: null,
           url: null,
+          emailDelivered: result.emailDelivered ?? null,
         })
         // Longer than the feedback flash: the card tells the reporter to
-        // check their email for the conversation link.
-        window.setTimeout(() => {
-          setPhase((current) =>
-            current.kind === `success` ? { kind: `closed` } : current
-          )
-        }, 6_000)
+        // check their email for the conversation link — longer still when it
+        // has to explain that the email did NOT arrive.
+        window.setTimeout(
+          () => {
+            setPhase((current) =>
+              current.kind === `success` ? { kind: `closed` } : current
+            )
+          },
+          result.emailDelivered === false ? 10_000 : 6_000
+        )
         return null
       }
       if (usedIdentityEmail && isEmailFailure(result)) {
@@ -560,6 +577,9 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           successFlavor={phase.kind === `success` ? phase.flavor : `feedback`}
           successIdentifier={phase.kind === `success` ? phase.identifier : null}
           successUrl={phase.kind === `success` ? phase.url : null}
+          successEmailDelivered={
+            phase.kind === `success` ? phase.emailDelivered : null
+          }
           position={position}
           screenshot={screenshot}
           flattening={flattening}

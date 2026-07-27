@@ -18,6 +18,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -77,6 +80,18 @@ private class ShapeUpgradeException(message: String) : Exception(message)
  */
 private class KickException : Exception("kicked")
 
+/**
+ * Thrown when the app-lifecycle gate closes during a poll (REV2-38): the
+ * process went to the background, so the in-flight long-poll is dropped instead
+ * of holding a socket open for the rest of its 90s budget. Not an error — the
+ * run loop parks at the top of the loop and re-polls from the saved offset once
+ * the app is visible again.
+ */
+private class PausedException : Exception("paused")
+
+/** Default gate for call sites (and tests) with no lifecycle to observe. */
+private val alwaysActive: StateFlow<Boolean> = MutableStateFlow(true)
+
 class ShapeClient<T : Any>(
     private val client: HttpClient,
     private val baseUrlProvider: () -> String?,
@@ -106,6 +121,12 @@ class ShapeClient<T : Any>(
     // JVM unit tests can drive the kick freshness window — the framework class
     // returns a constant 0 under `unitTests.isReturnDefaultValues`.
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
+    // App-lifecycle gate (REV2-38): false once the process has been in the
+    // background past SyncManager's grace window. While closed the loop parks
+    // instead of long-polling, and a poll already in flight is cancelled — a
+    // cached (not yet frozen) process must not keep 15 shape connections per
+    // account alive for data nobody can see.
+    private val active: StateFlow<Boolean> = alwaysActive,
 ) {
     private val rawMessageSerializer = kotlinx.serialization.builtins.ListSerializer(
         kotlinx.serialization.serializer<RawMessage>()
@@ -147,6 +168,15 @@ class ShapeClient<T : Any>(
         var consecutiveSchemaErrors = 0
         var didAutoReset = false
         while (coroutineContext.isActive) {
+            // Park while the app is backgrounded (REV2-38). The per-shape
+            // offsets in Room make the resume a cheap catch-up poll, not a
+            // re-snapshot, so nothing is lost by not polling meanwhile —
+            // background awareness is what push notifications are for.
+            if (!active.value) {
+                active.first { it }
+                backoffMs = 500L
+                continue
+            }
             try {
                 val baseUrl = baseUrlProvider()
                 val token = tokenProvider()
@@ -186,6 +216,10 @@ class ShapeClient<T : Any>(
                 // Not a failure: someone (app foreground, network return, push,
                 // pull-to-refresh) asked for fresh data mid-request. Re-poll
                 // immediately from the saved offset, no error reported.
+                backoffMs = 500L
+            } catch (paused: PausedException) {
+                // The app went to the background mid-poll: not a failure and
+                // not reported. The loop head parks until it comes back.
                 backoffMs = 500L
             } catch (upgrade: ShapeUpgradeException) {
                 // Client is below the server minimum: the update gate is already
@@ -280,6 +314,7 @@ class ShapeClient<T : Any>(
             // interrupted poll leaves the cursor exactly where it was.
             coroutineScope {
                 val kicked = java.util.concurrent.atomic.AtomicBoolean(false)
+                val paused = java.util.concurrent.atomic.AtomicBoolean(false)
                 val call = async {
                     client.get("$baseUrl$urlPath") {
                         // Long-poll budget — overrides the client-wide 30s
@@ -317,6 +352,14 @@ class ShapeClient<T : Any>(
                     kicked.set(true)
                     call.cancel()
                 }
+                // A live hold outlives the ON_STOP that parked us by up to the
+                // full 90s budget, so drop the socket the moment the gate
+                // closes instead of leaving a connection dangling server-side.
+                val pauseWatcher = launch {
+                    active.first { !it }
+                    paused.set(true)
+                    call.cancel()
+                }
                 try {
                     call.await()
                 } catch (cancelled: CancellationException) {
@@ -327,10 +370,12 @@ class ShapeClient<T : Any>(
                     // reports request-level failures as CancellationException
                     // (ktor CIO's engine timeout), and those are real errors
                     // the run loop has to report and back off from (EXP-61).
+                    if (paused.get()) throw PausedException()
                     if (!kicked.get()) throw cancelled
                     throw KickException()
                 } finally {
                     watcher.cancel()
+                    pauseWatcher.cancel()
                 }
             }
         } ?: throw IOException("Shape $shapeName request timed out")

@@ -32,7 +32,7 @@
 //! (never an empty board).
 
 use gpui::{
-    div, App, AppContext as _, ClipboardItem, Entity, FontWeight, InteractiveElement as _,
+    div, App, AppContext as _, ClipboardItem, Entity, FontWeight, Global, InteractiveElement as _,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
@@ -156,6 +156,21 @@ impl LoginView {
         // AuthExpired banner, OAuth completion).
         let state = Store::global(cx).state();
         subscriptions.push(cx.observe(&state, |_, _, cx| cx.notify()));
+        // The OAuth browser round-trip completes on the App (crate::oauth),
+        // with no view in hand — adopt its failures here so a failed callback
+        // can never snap back to a silent, stale-looking form.
+        subscriptions.push(cx.observe_global::<OAuthFailure>(|this, cx| {
+            let Some(message) = cx
+                .try_global::<OAuthFailure>()
+                .and_then(|failure| failure.message.clone())
+            else {
+                return;
+            };
+            // The attempt is over — drop the "Waiting for your browser…" label.
+            this.pending_provider = None;
+            this.error = Some(message);
+            cx.notify();
+        }));
 
         let mut this = Self {
             choice,
@@ -566,6 +581,25 @@ impl LoginView {
                     })),
             )
     }
+}
+
+/// The last OAuth-callback failure. The `crate::oauth` completion runs on the
+/// `App` — the window that started the attempt may be gone by the time the
+/// browser hands the callback back — so the message rides a global that every
+/// live [`LoginView`] adopts through `observe_global`, instead of a view
+/// update. Parity with iOS `LoginViewModel.error` / Android
+/// `reportLoginError`.
+#[derive(Default)]
+pub(crate) struct OAuthFailure {
+    message: Option<SharedString>,
+}
+
+impl Global for OAuthFailure {}
+
+/// Surface `message` on every login surface and reset the pending
+/// "Waiting for your browser…" button (the attempt is over).
+pub(crate) fn report_oauth_failure(message: impl Into<SharedString>, cx: &mut App) {
+    cx.default_global::<OAuthFailure>().message = Some(message.into());
 }
 
 /// Human-readable sign-in failure (a bad credential is an HTTP 401 from the

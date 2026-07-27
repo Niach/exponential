@@ -32,12 +32,12 @@ if (!RELAY_SECRET) {
 
 export const hub = new Hub()
 
-// ── Per-IP rate limiting (WS upgrades; ticket-valid and failed-auth split) ────
+// ── Per-IP rate limiting (WS upgrades + admin calls; valid/failed split) ──────
 
 // Two buckets per IP, mirroring push-relay's failed-auth-only philosophy:
-// failed-auth upgrades (missing/invalid ticket, unknown role) get a small
-// brute-force budget, while ticket-VALID upgrades count against a separate,
-// much larger one — so a garbage flood can never starve legitimate viewers,
+// failed auth (missing/invalid ticket, unknown role, wrong admin secret) gets a
+// small brute-force budget, while ticket-VALID upgrades count against a
+// separate, much larger one — so a garbage flood can never starve viewers,
 // and several teammates behind one NAT egress can't 429 each other, but a
 // leaked-ticket replay flood still hits a ceiling. Without TRUST_PROXY every
 // request keys to the shared `unknown` fallback, which makes the split
@@ -114,6 +114,18 @@ app.use(`*`, async (c, next) => {
   if (c.req.path === `/healthz`) return next()
   if (!RELAY_SECRET) return c.json({ error: `Relay not configured` }, 503)
   if (!secretMatches(c.req.raw.headers.get(`x-relay-secret`))) {
+    // Only failed-auth attempts are throttled (REV2-65), sharing the upgrade
+    // path's brute-force bucket. Secret-bearing traffic is trusted and never
+    // throttled: every admin call arrives from the web server's single egress
+    // IP, so a per-IP budget on it would drop legitimate remote starts.
+    if (
+      !rateLimitHit(
+        `failed:${clientIp(c.req.raw.headers)}`,
+        RATE_LIMIT_FAILED_MAX
+      )
+    ) {
+      return c.json({ error: `Rate limit exceeded` }, 429)
+    }
     return c.json({ error: `Unauthorized` }, 401)
   }
   return next()

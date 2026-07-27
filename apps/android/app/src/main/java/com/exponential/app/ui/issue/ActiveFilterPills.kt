@@ -20,6 +20,8 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.issuePriorityOrder
+import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
@@ -48,13 +50,15 @@ fun ActiveFilterPills(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        filters.statuses.forEach { status ->
+        // Pills read in the contract display order (REV2-85) — the same order
+        // the filter sheet lists them in, not the order they were ticked.
+        issueStatusOrder.filter { it in filters.statuses }.forEach { status ->
             FilterPill(onRemove = { onToggleStatus(status) }) {
                 StatusIcon(status, size = 13.dp)
                 PillLabel(status.label)
             }
         }
-        filters.priorities.forEach { priority ->
+        issuePriorityOrder.filter { it in filters.priorities }.forEach { priority ->
             FilterPill(onRemove = { onTogglePriority(priority) }) {
                 PriorityIcon(priority, size = 13.dp)
                 PillLabel(priority.label)

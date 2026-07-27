@@ -136,6 +136,18 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
 
                 let params = LoginViewModel.callbackParams(callbackURL)
 
+                // Failure handoff (REV2-53): every failing branch of the web
+                // hop deep-links back with `error=<reason>` so the auth sheet
+                // completes here instead of stranding the user on an https
+                // page they can only dismiss.
+                if let reason = params["error"] {
+                    logger.info("Cloud OAuth callback error: \(reason)")
+                    self.pendingPkce = nil
+                    self.error = LoginViewModel.oauthErrorMessage(reason)
+                    self.webAuthSession = nil
+                    return
+                }
+
                 // PKCE code (REV-13): redeem via /api/mobile-oauth-exchange
                 // with the in-memory verifier — never a raw token on the wire.
                 if let code = params["code"] {

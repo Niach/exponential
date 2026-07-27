@@ -226,16 +226,24 @@ async function finalizeIssueUpdateInTx(
 export const issuesRouter = router({
   create: authedProcedure
     .input(
-      z.object({
-        boardId: z.string().uuid(),
-        title: z.string().min(1).max(500),
-        status: issueStatusSchema.optional(),
-        priority: issuePrioritySchema.optional(),
-        assigneeId: z.string().nullable().optional(),
-        description: issueDescriptionSchema.optional(),
-        dueDate: dateOnlySchema.nullable().optional(),
-        labelIds: z.array(z.string().uuid()).optional(),
-      })
+      z
+        .object({
+          boardId: z.string().uuid(),
+          title: z.string().min(1).max(500),
+          status: issueStatusSchema.optional(),
+          priority: issuePrioritySchema.optional(),
+          assigneeId: z.string().nullable().optional(),
+          description: issueDescriptionSchema.optional(),
+          dueDate: dateOnlySchema.nullable().optional(),
+          labelIds: z.array(z.string().uuid()).optional(),
+        })
+        // A brand-new issue has nothing to dedupe, and create has no canonical
+        // issue to pair with — status='duplicate' + duplicateOfId=null breaks
+        // the pairing invariant every update path enforces (same refusal as
+        // bulkUpdate).
+        .refine((i) => i.status !== `duplicate`, {
+          message: `Duplicate requires a canonical issue — create the issue first, then mark it`,
+        })
     )
     .mutation(async ({ ctx, input }) => {
       const board = await getBoardTeamId(input.boardId)
@@ -261,6 +269,12 @@ export const issuesRouter = router({
         })
       }
 
+      const status = input.status ?? `backlog`
+      // Born-terminal issues get the same completedAt the update path stamps
+      // on a transition into done/cancelled — the done group sorts on it.
+      const completedAt =
+        status === `done` || status === `cancelled` ? new Date() : null
+
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [issue] = await tx
@@ -271,11 +285,12 @@ export const issuesRouter = router({
             // truth; passed to satisfy the NOT NULL insert contract.
             teamId: board.teamId,
             title: input.title,
-            status: input.status ?? `backlog`,
+            status,
             priority: input.priority ?? `none`,
             assigneeId,
             description: input.description ?? null,
             dueDate: input.dueDate ?? null,
+            completedAt,
             creatorId: ctx.session.user.id,
           })
           .returning()
@@ -431,6 +446,21 @@ export const issuesRouter = router({
 
         previousAssigneeId = currentIssue.assigneeId
         const setValues: Record<string, unknown> = { ...updates }
+
+        // A bare status='duplicate' write carries no canonical issue: allow it
+        // only as a restatement for an already-linked row, never as a way to
+        // mint an orphaned duplicate (clients render no canonical banner and
+        // no unmark affordance without duplicateOfId).
+        if (
+          updates.status === `duplicate` &&
+          updates.duplicateOfId === undefined &&
+          currentIssue.duplicateOfId === null
+        ) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Duplicate requires a canonical issue`,
+          })
+        }
 
         // Keep duplicateOfId and the 'duplicate' status in lockstep,
         // atomically in this one UPDATE (masterplan §5e).
@@ -820,15 +850,11 @@ export const issuesRouter = router({
         })
     )
     .mutation(async ({ ctx, input }) => {
+      // Eligibility + team resolution only — every value the per-row writes
+      // derive from is re-read under FOR UPDATE inside the transaction below.
       const eligible = await ctx.db
         .select({
           id: issues.id,
-          status: issues.status,
-          boardId: issues.boardId,
-          title: issues.title,
-          priority: issues.priority,
-          assigneeId: issues.assigneeId,
-          duplicateOfId: issues.duplicateOfId,
           teamId: boards.teamId,
         })
         .from(issues)
@@ -865,12 +891,38 @@ export const issuesRouter = router({
           : {}),
       }
 
+      const eligibleIds = eligible.map((row) => row.id)
+
       const { txId, results } = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        // Re-read the batch under FOR UPDATE — the eligibility select above is
+        // unlocked, so its status/assignee/duplicate values can already be
+        // stale (the single-issue path takes the same lock for exactly this
+        // reason). Deriving from the locked rows keeps completedAt from
+        // clobbering a concurrent completion and keeps the recorded
+        // status/assignee event from-values truthful. ORDER BY id gives
+        // overlapping batches one lock order; rows missing from the re-read
+        // were deleted in the window and are silently skipped, like the
+        // eligibility filter promises.
+        const locked = await tx
+          .select({
+            id: issues.id,
+            status: issues.status,
+            boardId: issues.boardId,
+            title: issues.title,
+            priority: issues.priority,
+            assigneeId: issues.assigneeId,
+            duplicateOfId: issues.duplicateOfId,
+          })
+          .from(issues)
+          .where(inArray(issues.id, eligibleIds))
+          .orderBy(issues.id)
+          .for(`update`)
+
         const results: NonNullable<
           Awaited<ReturnType<typeof finalizeIssueUpdateInTx>>
         >[] = []
-        for (const row of eligible) {
+        for (const row of locked) {
           const setValues: Record<string, unknown> = { ...patch }
           applyStatusDerivations(setValues, row)
           const result = await finalizeIssueUpdateInTx(tx, {
@@ -880,37 +932,45 @@ export const issuesRouter = router({
             current: row,
             setValues,
           })
-          // Deleted in the window since the eligibility select — skip, keep
-          // the batch (the eligibility filter promises silent-skip semantics).
+          // Row gone despite the lock — skip, keep the batch (the eligibility
+          // filter promises silent-skip semantics).
           if (result) results.push(result)
         }
         return { txId, results }
       })
 
-      // Fan-out cap: a 200-issue sweep must not fire hundreds of pushes —
-      // skip ALL per-issue notifications past 25 ids.
-      if (input.ids.length <= 25) {
-        for (const result of results) {
-          if (result.previousAssigneeId !== result.issue.assigneeId) {
-            fireAndForgetAssignmentNotify({
-              issueId: result.issue.id,
-              actorUserId: ctx.session.user.id,
-              newAssigneeId: result.issue.assigneeId,
-              previousAssigneeId: result.previousAssigneeId,
-            })
-          }
-          if (result.statusChange) {
+      // Fan-out cap: a 200-issue sweep must not fire hundreds of member
+      // pushes — skip the per-issue member notifications past 25 UPDATED
+      // issues. The widget reporter's resolution email is deliberately NOT
+      // capped: it is the external reporter's only close signal, fires at
+      // most once per issue ever (atomic resolvedNotifiedAt claim) and has no
+      // retry, so a capped bulk close would drop it permanently.
+      const notifyMembers = results.length <= 25
+      for (const result of results) {
+        if (
+          notifyMembers &&
+          result.previousAssigneeId !== result.issue.assigneeId
+        ) {
+          fireAndForgetAssignmentNotify({
+            issueId: result.issue.id,
+            actorUserId: ctx.session.user.id,
+            newAssigneeId: result.issue.assigneeId,
+            previousAssigneeId: result.previousAssigneeId,
+          })
+        }
+        if (result.statusChange) {
+          if (notifyMembers) {
             fireAndForgetStatusChangeNotify({
               issueId: result.issue.id,
               actorUserId: ctx.session.user.id,
               fromStatus: result.statusChange.from,
               toStatus: result.statusChange.to,
             })
-            fireAndForgetReporterResolution({
-              issueId: result.issue.id,
-              toStatus: result.statusChange.to,
-            })
           }
+          fireAndForgetReporterResolution({
+            issueId: result.issue.id,
+            toStatus: result.statusChange.to,
+          })
         }
       }
 

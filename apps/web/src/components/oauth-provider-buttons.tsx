@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { authClient } from "@/lib/auth/client"
+import { authErrorMessage } from "@/lib/auth/error-messages"
 import { Button } from "@/components/ui/button"
 
 export const GOOGLE_PROVIDER_KEY = `__google__`
@@ -45,6 +46,8 @@ export interface OidcProviderOption {
   name: string
 }
 
+type OAuthStartError = { code?: string; message?: string } | null
+
 /**
  * Shared OAuth sign-in state/handlers for the login and register pages.
  * `error` is shared with the page's password form so both surface one message.
@@ -53,44 +56,50 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
   const [pendingProvider, setPendingProvider] = useState<string | null>(null)
   const [error, setError] = useState(``)
 
-  const signInWithOidc = async (providerId: string) => {
-    setPendingProvider(providerId)
+  // Better Auth resolves to `{ data, error }` instead of throwing, so a failed
+  // OAuth start (misconfigured provider, 500, 429) never redirects and must
+  // clear the pending state — otherwise every button stays disabled on
+  // "Redirecting..." with no message and only a reload recovers.
+  const startOAuth = async (
+    providerKey: string,
+    start: () => Promise<{ error?: OAuthStartError }>
+  ) => {
+    setPendingProvider(providerKey)
     setError(``)
     try {
-      await authClient.signIn.oauth2({ providerId, callbackURL: redirectTo || `/` })
+      const { error: startError } = await start()
+      if (startError) {
+        setError(
+          authErrorMessage(startError, `Couldn't sign you in. Try again.`)
+        )
+        setPendingProvider(null)
+      }
     } catch {
       setError(`An unexpected error occurred`)
       setPendingProvider(null)
     }
   }
 
-  const signInWithGoogle = async () => {
-    setPendingProvider(GOOGLE_PROVIDER_KEY)
-    setError(``)
-    try {
-      await authClient.signIn.social({
+  const signInWithOidc = (providerId: string) =>
+    startOAuth(providerId, () =>
+      authClient.signIn.oauth2({ providerId, callbackURL: redirectTo || `/` })
+    )
+
+  const signInWithGoogle = () =>
+    startOAuth(GOOGLE_PROVIDER_KEY, () =>
+      authClient.signIn.social({
         provider: `google`,
         callbackURL: redirectTo || `/`,
       })
-    } catch {
-      setError(`An unexpected error occurred`)
-      setPendingProvider(null)
-    }
-  }
+    )
 
-  const signInWithApple = async () => {
-    setPendingProvider(APPLE_PROVIDER_KEY)
-    setError(``)
-    try {
-      await authClient.signIn.social({
+  const signInWithApple = () =>
+    startOAuth(APPLE_PROVIDER_KEY, () =>
+      authClient.signIn.social({
         provider: `apple`,
         callbackURL: redirectTo || `/`,
       })
-    } catch {
-      setError(`An unexpected error occurred`)
-      setPendingProvider(null)
-    }
-  }
+    )
 
   return {
     pendingProvider,

@@ -457,6 +457,31 @@ describe(`exponential_notifications_list`, () => {
   })
 })
 
+// ── teams_get (direct DB read, projected) ───────────────────────────────
+
+describe(`exponential_teams_get`, () => {
+  // REV2-67: server-only team columns (comp_tier) must stay behind the same
+  // allowlist the teams shape pins — a full-row select() leaked them to every
+  // member and to any team-scoped OAuth token.
+  it(`projects the synced contract columns only`, async () => {
+    dbRows.current = [{ id: WS, name: `Acme`, slug: `acme` }]
+    await tool(`exponential_teams_get`)({ id: WS })
+    const projection = (db.select.mock.calls[0] as unknown[])?.[0] as Record<
+      string,
+      unknown
+    >
+    expect(Object.keys(projection).sort()).toEqual([
+      `createdAt`,
+      `helpdeskEnabled`,
+      `iconUrl`,
+      `id`,
+      `name`,
+      `slug`,
+      `updatedAt`,
+    ])
+  })
+})
+
 // ── members_list (direct DB read, team-gated) ───────────────────────────
 
 describe(`exponential_members_list`, () => {

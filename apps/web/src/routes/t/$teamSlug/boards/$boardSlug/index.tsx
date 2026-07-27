@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { BoardNotFound } from "@/components/board-not-found"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
@@ -93,6 +94,7 @@ function BoardPage() {
     issuesReady,
     labelList,
     board,
+    boardReady,
     totalIssueCount,
     users,
     userMap,
@@ -125,6 +127,16 @@ function BoardPage() {
   }
 
   if (!board || !team) {
+    // `boardReady` implies the team resolved and the boards snapshot landed,
+    // so an absent board here is definitive, not a sync gap (REV2-59).
+    if (boardReady) {
+      return (
+        <BoardNotFound
+          boardSlug={boardSlug}
+          teamSlug={teamSlug}
+        />
+      )
+    }
     return (
       <div className="text-muted-foreground text-sm p-6">
         Loading board...

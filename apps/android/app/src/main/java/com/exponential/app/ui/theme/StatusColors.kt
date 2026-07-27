@@ -13,6 +13,7 @@ import java.time.LocalDate
 // zinc-400 — these restore the color.
 
 private val Neutral = DesignTokens.Semantic.Neutral
+private val Foreground = DesignTokens.Palette.Foreground
 private val Yellow = DesignTokens.Semantic.Yellow
 private val Green = DesignTokens.Semantic.Green
 private val Red = DesignTokens.Semantic.Red
@@ -21,12 +22,18 @@ private val Blue = DesignTokens.Semantic.Blue
 
 fun statusColor(status: IssueStatus): Color = when (status) {
     IssueStatus.Backlog -> Neutral
-    IssueStatus.Todo -> Neutral
+    // REV2-85: todo is the brighter near-white foreground tint on every other
+    // client (web `text-foreground`, desktop `ColorToken::Foreground`, iOS
+    // Zinc._50) — with the same neutral gray it was pixel-identical to backlog
+    // anywhere without a group header.
+    IssueStatus.Todo -> Foreground
     IssueStatus.InProgress -> Yellow
     // EXP-120: PR opened → in_review (green); merged → done (now blue).
     IssueStatus.InReview -> Green
     IssueStatus.Done -> Blue
-    IssueStatus.Cancelled -> Red
+    // Cancelled is a muted terminal RESOLUTION (like duplicate), not an error —
+    // the web/desktop treatment, adopted everywhere by REV2-85.
+    IssueStatus.Cancelled -> Neutral
     IssueStatus.Duplicate -> Neutral
 }
 

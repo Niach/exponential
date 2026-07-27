@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  MailWarning,
   RotateCcw,
   Send,
   StickyNote,
@@ -48,6 +49,10 @@ type WidgetSubmissionRow = Awaited<
 
 const LIST_POLL_MS = 30_000
 const THREAD_POLL_MS = 15_000
+// One page of threads. The poll only ever refreshes the FIRST page; older
+// pages are loaded on demand and merged (REV2-40 — nothing purges resolved
+// threads, so the Resolved tab grows without bound).
+const PAGE_SIZE = 50
 
 function reporterLabel(row: {
   reporterName: string | null
@@ -73,7 +78,14 @@ export function SupportInbox({
   teamSlug: string
 }) {
   const [filter, setFilter] = useState<`open` | `resolved`>(`open`)
-  const [threads, setThreads] = useState<ThreadRow[] | null>(null)
+  const [page, setPage] = useState<ThreadRow[] | null>(null)
+  const [olderPages, setOlderPages] = useState<ThreadRow[]>([])
+  // `pageFull` says the newest page filled up, `exhausted` that a "load
+  // older" fetch hit the end — kept apart so the 30s poll (which always
+  // refetches a full first page) can't resurrect the button.
+  const [pageFull, setPageFull] = useState(false)
+  const [exhausted, setExhausted] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const loadThreads = useCallback(async () => {
@@ -81,19 +93,63 @@ export function SupportInbox({
       const rows = await trpc.helpdesk.listThreads.query({
         teamId,
         filter,
+        limit: PAGE_SIZE,
       })
-      setThreads(rows)
+      setPage(rows)
+      setPageFull(rows.length === PAGE_SIZE)
     } catch (err) {
       console.error(`helpdesk list failed`, err)
     }
   }, [teamId, filter])
 
   useEffect(() => {
-    setThreads(null)
+    setPage(null)
+    setOlderPages([])
+    setPageFull(false)
+    setExhausted(false)
     void loadThreads()
     const timer = setInterval(() => void loadThreads(), LIST_POLL_MS)
     return () => clearInterval(timer)
   }, [loadThreads])
+
+  // Opening the Support surface — and opening any conversation in it —
+  // clears the team's unread support_reply notifications (REV2-13). The badge
+  // sits ON this entry and nothing else can clear it: those rows have no
+  // issue, so markReadByIssue never matches them. Fire-and-forget; a failure
+  // just leaves the badge lit.
+  useEffect(() => {
+    void trpc.notifications.markReadSupport
+      .mutate({ teamId })
+      .catch(() => {})
+  }, [teamId, selectedId])
+
+  const pageRows = page ?? []
+  const pageIds = new Set(pageRows.map((row) => row.id))
+  const threads = page
+    ? [...pageRows, ...olderPages.filter((row) => !pageIds.has(row.id))]
+    : null
+
+  const hasMore = pageFull && !exhausted
+
+  const loadMore = async () => {
+    const last = threads?.[threads.length - 1]
+    if (!last || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const rows = await trpc.helpdesk.listThreads.query({
+        teamId,
+        filter,
+        limit: PAGE_SIZE,
+        cursor: new Date(last.updatedAt).toISOString(),
+      })
+      setOlderPages((current) => [...current, ...rows])
+      if (rows.length < PAGE_SIZE) setExhausted(true)
+    } catch (err) {
+      console.error(`helpdesk list failed`, err)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   // Keep the selection valid as rows move between the Open/Resolved tabs.
   const selected =
@@ -168,6 +224,22 @@ export function SupportInbox({
                 </p>
               </button>
             ))
+          )}
+          {threads !== null && threads.length > 0 && hasMore && (
+            <div className="p-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-full text-xs text-muted-foreground"
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : null}
+                Load older conversations
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -338,6 +410,19 @@ function ConversationPane({
             detail.messages.map((message) => {
               const isInbound = message.direction === `inbound`
               const isInternal = message.visibility === `internal`
+              // REV2-10: the composer promises the reply is "emailed to
+              // them", and the emailed magic link is the reporter's only way
+              // back into the conversation — so a bounced/refused send has to
+              // be visible here. No marker when nothing was attempted (the
+              // engagement gate holds replies until the reporter opens the
+              // link once).
+              const deliveryFailed =
+                !isInbound &&
+                !isInternal &&
+                (message.emailDeliveryStatus === `failed` ||
+                  message.emailDeliveryStatus === `suppressed` ||
+                  message.emailDeliveryStatus === `bounced` ||
+                  message.emailDeliveryStatus === `complained`)
               const author = isInbound
                 ? reporterLabel(thread)
                 : displayUserName(
@@ -378,6 +463,13 @@ function ConversationPane({
                   >
                     {author} · {relativeTime(message.createdAt)}
                   </p>
+                  {deliveryFailed && (
+                    <p className="mt-1 flex items-center gap-1 text-[0.65rem] font-medium text-destructive">
+                      <MailWarning className="h-3 w-3" />
+                      Email delivery failed — the reporter didn&apos;t receive
+                      this
+                    </p>
+                  )}
                 </div>
               )
             })

@@ -1,7 +1,7 @@
-/* The lazy Remotion chunk — the ONLY marketing module that may import
-   remotion or @video (LoopMovie's SSR contract: the prerenderer must never
-   see these imports in the static graph). Loaded via React.lazy when the
-   loop section scrolls near. */
+/* The lazy Remotion chunk — the ONLY site module that may import remotion or
+   the ClosedLoop composition (LoopMovie's SSR contract: the prerenderer must
+   never see these imports in the static graph). Loaded via React.lazy when
+   the loop section scrolls near. */
 import { useEffect, useRef, useState } from "react"
 import { Player, type CallbackListener, type PlayerRef } from "@remotion/player"
 import {
@@ -9,7 +9,7 @@ import {
   ClosedLoop,
   DURATION_IN_FRAMES,
   FPS,
-} from "@video/closedloop"
+} from "./closedloop"
 import type { LoopMovieController } from "./LoopMovie"
 
 const chapterIndexForFrame = (frame: number): number => {

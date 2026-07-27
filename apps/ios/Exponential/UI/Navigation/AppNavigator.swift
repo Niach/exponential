@@ -60,12 +60,14 @@ struct AppNavigator: View {
 
     var body: some View {
         Group {
-            if UpdateGate.shared.upgrade != nil {
-                // Client-version gate (EXP-104): the server 426'd this build.
-                // Blocks the entire app ahead of every other state — sync loops
-                // have already stopped; nothing below is reachable until the
-                // user updates and relaunches.
-                UpdateRequiredView()
+            if let gatedAccountId = activeGatedAccountId {
+                // Client-version gate (EXP-104): the ACTIVE account's server
+                // 426'd this build, so its surfaces are blocked — its sync loops
+                // have already stopped. Scoped to that one account (REV2-43):
+                // other signed-in servers keep syncing, and the view offers
+                // "Remove this server" so a misconfigured instance can never
+                // strand the app.
+                UpdateRequiredView(accountId: gatedAccountId)
             } else if deps.auth.accounts.isEmpty {
                 // First launch — no accounts at all.
                 InstanceView()
@@ -104,6 +106,17 @@ struct AppNavigator: View {
                 .ignoresSafeArea()
         }
         .transaction { $0.animation = nil }
+    }
+
+    /// The active account when ITS server has rejected this build (EXP-104).
+    /// Nil for every other case — including a gate left over from an account
+    /// that has since been removed.
+    private var activeGatedAccountId: String? {
+        guard let id = deps.auth.activeAccountId,
+              deps.auth.accounts.contains(where: { $0.id == id }),
+              UpdateGate.shared.upgrade(forAccountId: id) != nil
+        else { return nil }
+        return id
     }
 
     private func handleDeepLink(_ url: URL) {
@@ -483,9 +496,56 @@ struct MainNavigator: View {
         return nil
     }
 
-    /// Thin status banner when live sync is degraded (offline / expired session).
+    /// Thin status banners: a background account the server has version-gated
+    /// (EXP-104/REV2-43), then the active account's live-sync health.
     @ViewBuilder
     private var syncBanner: some View {
+        VStack(spacing: 0) {
+            updateGateBanner
+            healthBanner
+        }
+    }
+
+    /// Signed-in accounts (other than the active one) whose server rejected this
+    /// build. Their pipelines are stopped, so the app has to say so somewhere —
+    /// the active account is unaffected and keeps working.
+    private var gatedBackgroundAccounts: [ServerAccount] {
+        let gated = UpdateGate.shared.gatedAccountIds
+        guard !gated.isEmpty else { return [] }
+        return deps.auth.accounts.filter {
+            $0.id != deps.auth.activeAccountId && gated.contains($0.id)
+        }
+    }
+
+    /// Non-blocking counterpart to UpdateRequiredView: taps through to the
+    /// server's detail screen, where it can be signed out of or removed.
+    @ViewBuilder
+    private var updateGateBanner: some View {
+        let gated = gatedBackgroundAccounts
+        if let first = gated.first {
+            Button {
+                path.append(.serverDetail(accountId: first.id))
+            } label: {
+                HStack(spacing: 6) {
+                    AppIcon(AppIcons.uiUpdate, size: 11)
+                    Text(gated.count > 1
+                        ? "\(gated.count) servers need a newer app version — their sync is paused"
+                        : "\(first.displayName) needs a newer app version — its sync is paused")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.white.opacity(0.9))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity)
+                .background(.orange.opacity(0.35))
+                .background(.ultraThinMaterial)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var healthBanner: some View {
         // Only the ACTIVE account's health — a signed-out/failing OTHER account
         // must never flash the banner while the active account syncs fine.
         let health = SyncDebug.shared.health(forAccountId: deps.auth.activeAccountId)

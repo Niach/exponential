@@ -337,6 +337,30 @@ export async function resolveRepoDefaultBranch(
   }
 }
 
+// Prune-on-insert bound for the module-level TTL caches below. A read-side TTL
+// check alone never frees anything, so keys that are only ever visited once
+// (every coding run mints a fresh `exp/…` branch) would accumulate their
+// payloads for the process lifetime. Call this BEFORE each insert: past-TTL
+// entries go first, then — if a burst of still-fresh keys is over the cap — the
+// oldest writes, since dropping an entry only costs one extra round-trip.
+// Mirrors the widget rate-limiter's lazy `evictIfNeeded`.
+export function evictStaleEntries<T extends { at: number }>(
+  cache: Map<string, T>,
+  opts: { now: number; ttlMs: number; maxEntries: number }
+): void {
+  if (cache.size < opts.maxEntries) return
+  for (const [key, entry] of cache) {
+    if (opts.now - entry.at >= opts.ttlMs) cache.delete(key)
+  }
+  // Map iteration is insertion order, and the writers below re-insert on
+  // refresh (a plain `set` on an existing key keeps its original slot), so the
+  // head is the oldest write.
+  for (const key of cache.keys()) {
+    if (cache.size < opts.maxEntries) break
+    cache.delete(key)
+  }
+}
+
 // A short in-process cache over `resolveRepoDefaultBranch`, keyed by repo. Fan-out
 // callers (`repositories.list` heals every row on every read) must not hammer
 // GitHub — a ~5 min TTL absorbs the churn while still healing shortly after an
@@ -344,6 +368,7 @@ export async function resolveRepoDefaultBranch(
 // doesn't cost a round-trip per list. `now` is injectable for tests. Mirrors the
 // branch-diff cache's in-process-map style.
 const DEFAULT_BRANCH_TTL_MS = 5 * 60_000
+export const DEFAULT_BRANCH_CACHE_MAX = 500
 const defaultBranchCache = new Map<string, { at: number; value: string | null }>()
 
 export async function resolveRepoDefaultBranchCached(
@@ -353,6 +378,12 @@ export async function resolveRepoDefaultBranchCached(
   const cached = defaultBranchCache.get(repo)
   if (cached && now - cached.at < DEFAULT_BRANCH_TTL_MS) return cached.value
   const value = await resolveRepoDefaultBranch(repo)
+  evictStaleEntries(defaultBranchCache, {
+    now,
+    ttlMs: DEFAULT_BRANCH_TTL_MS,
+    maxEntries: DEFAULT_BRANCH_CACHE_MAX,
+  })
+  defaultBranchCache.delete(repo)
   defaultBranchCache.set(repo, { at: now, value })
   return value
 }
@@ -383,8 +414,11 @@ export type CompareFetch = (
 // of the compare identity — a default-branch change must not serve a stale diff).
 // Only successful compares are cached; a 404 (branch not pushed) is never cached
 // so a manual Refresh re-checks immediately once the branch lands. Mirrors the
-// widget rate-limiter's in-process-map style.
+// widget rate-limiter's in-process-map style, including its lazy eviction: an
+// entry holds up to 100 files of full patch text and the key space grows with
+// every branch ever compared, so inserts prune (see `evictStaleEntries`).
 const BRANCH_DIFF_TTL_MS = 60_000
+export const BRANCH_DIFF_CACHE_MAX = 200
 const branchDiffCache = new Map<string, { at: number; value: BranchDiff }>()
 
 function branchDiffKey(repo: string, base: string, branch: string): string {
@@ -459,7 +493,14 @@ export async function fetchBranchDiff(opts: {
       patch: f.patch,
     })),
   }
-  branchDiffCache.set(branchDiffKey(repo, base, branch), { at: now, value })
+  const key = branchDiffKey(repo, base, branch)
+  evictStaleEntries(branchDiffCache, {
+    now,
+    ttlMs: BRANCH_DIFF_TTL_MS,
+    maxEntries: BRANCH_DIFF_CACHE_MAX,
+  })
+  branchDiffCache.delete(key)
+  branchDiffCache.set(key, { at: now, value })
   return value
 }
 
