@@ -85,6 +85,9 @@ export interface MarkdownEditorRef {
   // indistinguishable from a legitimately empty document.
   getMarkdown: () => string | null
   insertImage: (image: { alt?: string; src: string }) => void
+  // Inserts at the very end of the document instead of the caret — the Files
+  // section's attach button routes images here (EXP-316).
+  appendImage: (image: { alt?: string; src: string }) => void
 }
 
 interface MarkdownEditorProps {
@@ -541,6 +544,9 @@ export const MarkdownEditor = forwardRef<
       },
       insertImage: ({ alt, src }) => {
         editor?.chain().focus().setImage({ alt, src }).run()
+      },
+      appendImage: ({ alt, src }) => {
+        editor?.chain().focus(`end`).setImage({ alt, src }).run()
       },
     }))
 

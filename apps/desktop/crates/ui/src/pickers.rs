@@ -33,7 +33,7 @@ use gpui_component::{
 use theme::tokens as t;
 
 use domain::options::{IssueOption, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_OPTIONS};
-use domain::rows::{Label, User};
+use domain::rows::{Board, Label, User};
 use domain::{IssuePriority, IssueStatus};
 
 use crate::icons::option_icon;
@@ -334,6 +334,130 @@ pub(crate) fn label_picker_popover(
                         on_toggle(&label_id, checked, window, cx);
                     }),
                 );
+            }
+            column.child(rows)
+        })
+}
+
+// ---------------------------------------------------------------------------
+// Searchable move-to-board picker (EXP-316 — web `BoardPicker` parity)
+// ---------------------------------------------------------------------------
+
+pub(crate) struct BoardPickerParams {
+    /// The team's boards, current one included (it renders checked+inert).
+    pub boards: Vec<Board>,
+    pub current_board_id: String,
+    /// HOST-owned search input state (reset + focused on every open).
+    pub query: Entity<InputState>,
+    /// Picked a DIFFERENT board (the current row never fires).
+    pub on_pick: OnPick<String>,
+    /// Popover width; `None` = intrinsic.
+    pub width: Option<gpui::Pixels>,
+}
+
+/// Web `BoardPicker` ("Move to board..." command popover): search input on
+/// top, live `contains()` filtering, board-glyph rows with the current board
+/// checked; picking another board fires `on_pick` and closes the popover.
+pub(crate) fn board_picker_popover(
+    id: impl Into<ElementId>,
+    trigger: Button,
+    params: BoardPickerParams,
+) -> Popover {
+    let id = id.into();
+    let BoardPickerParams {
+        boards,
+        current_board_id,
+        query,
+        on_pick,
+        width,
+    } = params;
+    let rows_id = ElementId::Name(SharedString::from(format!("{id:?}-rows")));
+    let query_for_open = query.clone();
+    let mut popover = Popover::new(id).p_1();
+    if let Some(width) = width {
+        popover = popover.w(width);
+    }
+    popover
+        .trigger(trigger)
+        .on_open_change(move |open, window, cx| {
+            // Fresh search per open; the input takes focus like the web
+            // CommandInput.
+            query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
+            if *open {
+                query_for_open.read(cx).focus_handle(cx).focus(window, cx);
+            }
+        })
+        .content(move |_, _, cx| {
+            let popover_state = cx.entity();
+            let filter = query.read(cx).value().trim().to_lowercase();
+            let visible: Vec<&Board> = boards
+                .iter()
+                .filter(|board| filter.is_empty() || board.name.to_lowercase().contains(&filter))
+                .collect();
+
+            let mut column = v_flex()
+                .w_full()
+                .child(Input::new(&query).small().appearance(false).cleanable(true));
+            column = column.child(
+                div()
+                    .h(px(1.))
+                    .w_full()
+                    .my_1()
+                    .bg(cx.theme().border.opacity(0.5)),
+            );
+            if visible.is_empty() {
+                return column.child(empty_picker_row("No boards found.", cx));
+            }
+
+            use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+            let mut rows = v_flex()
+                .id(rows_id.clone())
+                .w_full()
+                .max_h(px(240.))
+                .overflow_y_scroll();
+            for board in visible {
+                let is_current = board.id == current_board_id;
+                let board_id = board.id.clone();
+                let on_pick = on_pick.clone();
+                let popover_state = popover_state.clone();
+                let tint = board
+                    .color
+                    .as_deref()
+                    .and_then(parse_hex_color)
+                    .unwrap_or(cx.theme().muted_foreground);
+                let mut row = picker_row(
+                    ElementId::Name(SharedString::from(format!("picker-board-{board_id}"))),
+                    cx,
+                )
+                .child(
+                    crate::icons::board_icon(board)
+                        .xsmall()
+                        .text_color(tint)
+                        .flex_shrink_0(),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(SharedString::from(board.name.clone())),
+                );
+                if is_current {
+                    row = row.child(
+                        Icon::new(IconName::Check)
+                            .size_3()
+                            .flex_shrink_0()
+                            .text_color(cx.theme().muted_foreground),
+                    );
+                } else {
+                    row = row.on_click(move |_, window, cx| {
+                        on_pick(board_id.clone(), window, cx);
+                        popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                    });
+                }
+                rows = rows.child(row);
             }
             column.child(rows)
         })

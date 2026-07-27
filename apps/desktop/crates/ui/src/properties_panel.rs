@@ -73,6 +73,9 @@ pub struct PropertiesPanel {
     /// follows `filter_popover::labels_view`: the OWNING view holds the
     /// `InputState`, the popover only renders it).
     label_query: Entity<InputState>,
+    /// Search query of the move-to-board popover (EXP-316 — web
+    /// `BoardPicker` parity, same host-owned-InputState recipe as labels).
+    board_query: Entity<InputState>,
     /// The window's shared rail state — the EXP-48 switcher reads the active
     /// issue board's query + filters from it (EXP-277: the switcher lives in
     /// this panel's toolbar row now).
@@ -108,10 +111,14 @@ impl PropertiesPanel {
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
         let label_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels..."));
+        let board_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Move to board..."));
 
         let mut subscriptions = Vec::new();
         // Live label search re-filters the popover's rows (EXP-282).
         subscriptions.push(cx.observe(&label_query, |_, _, cx| cx.notify()));
+        // Live board search re-filters the move-to-board popover (EXP-316).
+        subscriptions.push(cx.observe(&board_query, |_, _, cx| cx.notify()));
         // User picked a due date in the popover → immediate mutation (the
         // popover stays open, web parity — shadcn's Calendar doesn't
         // auto-close either).
@@ -166,6 +173,7 @@ impl PropertiesPanel {
             issue_id: None,
             due_calendar,
             label_query,
+            board_query,
             rail_shared,
             subscribe_busy: false,
             link_copied: false,
@@ -1051,19 +1059,25 @@ impl PropertiesPanel {
             );
         }
 
+        // EXP-316: the web `BoardPicker` recipe — a searchable "Move to
+        // board..." popover — replaced the plain dropdown menu.
         let issue_id = issue.id.clone();
-        let board_id = issue.board_id.clone();
+        let boards = crate::issue_list::move_target_boards(cx, &issue.board_id);
         Some(
-            picker_trigger("prop-board", Some(icon), name, false, cx)
-                .dropdown_menu(move |menu, _, cx| {
-                    crate::issue_list::move_to_board_menu(
-                        menu.min_w(px(SIDEBAR_INNER_WIDTH)),
-                        &issue_id,
-                        &board_id,
-                        cx,
-                    )
-                })
-                .into_any_element(),
+            crate::pickers::board_picker_popover(
+                "prop-board-popover",
+                picker_trigger("prop-board", Some(icon), name, false, cx),
+                crate::pickers::BoardPickerParams {
+                    boards,
+                    current_board_id: issue.board_id.clone(),
+                    query: self.board_query.clone(),
+                    on_pick: Rc::new(move |board_id: String, _window, cx| {
+                        crate::issue_list::spawn_issue_move(cx, issue_id.clone(), board_id);
+                    }),
+                    width: Some(px(SIDEBAR_INNER_WIDTH)),
+                },
+            )
+            .into_any_element(),
         )
     }
 }

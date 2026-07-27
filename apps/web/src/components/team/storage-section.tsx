@@ -20,14 +20,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,6 +60,7 @@ export function TeamStorageSection({
   const [list, setList] = useState<StorageList | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<StorageRow | null>(null)
+  const [previewRow, setPreviewRow] = useState<StorageRow | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [sweepConfirmOpen, setSweepConfirmOpen] = useState(false)
   const [sweeping, setSweeping] = useState(false)
@@ -221,91 +215,102 @@ export function TeamStorageSection({
           ) : rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">No attachments yet.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>File</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Issue</TableHead>
-                  <TableHead>Uploaded by</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-8" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => {
-                  const Icon = getAttachmentIcon(row.contentType)
-                  const issue = issuesById.get(row.issueId)
-                  const boardSlug = issue
-                    ? boardSlugById.get(issue.boardId)
-                    : undefined
-                  const uploader = row.uploaderId
-                    ? userMap.get(row.uploaderId)
-                    : undefined
+            // IDE-parity flex rows (EXP-316) — the old fixed table overflowed
+            // the settings column and clipped the status + delete controls.
+            <ul className="flex flex-col gap-1">
+              {rows.map((row) => {
+                const Icon = getAttachmentIcon(row.contentType)
+                const issue = issuesById.get(row.issueId)
+                const boardSlug = issue
+                  ? boardSlugById.get(issue.boardId)
+                  : undefined
+                const uploader = row.uploaderId
+                  ? userMap.get(row.uploaderId)
+                  : undefined
 
-                  return (
-                    <TableRow key={row.id}>
-                      <TableCell className="max-w-[16rem]">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <Icon className="size-4 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{row.filename}</span>
-                        </span>
-                      </TableCell>
-                      <TableCell className="tabular-nums text-muted-foreground">
-                        {formatAttachmentSize(row.sizeBytes)}
-                      </TableCell>
-                      <TableCell>
-                        {issue && boardSlug ? (
-                          <Link
-                            to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-                            params={{
-                              teamSlug,
-                              boardSlug,
-                              issueIdentifier: issue.identifier,
-                            }}
-                            className="font-mono text-xs hover:underline"
-                          >
-                            {issue.identifier}
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="max-w-[12rem] truncate text-muted-foreground">
-                        {uploader?.name || uploader?.email || `—`}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(row.createdAt)}
-                      </TableCell>
-                      <TableCell>
-                        {!row.isImage ? (
-                          <Badge variant="outline">File</Badge>
-                        ) : row.referenced ? (
-                          <Badge variant="secondary">In use</Badge>
-                        ) : (
-                          <Badge variant="outline">Unreferenced</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="text-muted-foreground hover:text-destructive"
-                          aria-label={`Delete ${row.filename}`}
-                          onClick={() => setPendingDelete(row)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+                return (
+                  <li
+                    key={row.id}
+                    className="flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5"
+                  >
+                    <Icon className="size-4 shrink-0 text-muted-foreground" />
+                    {row.isImage ? (
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 cursor-pointer truncate text-left text-sm hover:underline"
+                        title={`Preview ${row.filename}`}
+                        onClick={() => setPreviewRow(row)}
+                      >
+                        {row.filename}
+                      </button>
+                    ) : (
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm"
+                        title={row.filename}
+                      >
+                        {row.filename}
+                      </span>
+                    )}
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {formatAttachmentSize(row.sizeBytes)}
+                    </span>
+                    {issue && boardSlug && (
+                      <Link
+                        to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                        params={{
+                          teamSlug,
+                          boardSlug,
+                          issueIdentifier: issue.identifier,
+                        }}
+                        title={issue.title}
+                        className="shrink-0 whitespace-nowrap rounded-full border bg-accent px-1.5 py-px font-mono text-xs text-accent-foreground hover:border-ring"
+                      >
+                        #{issue.identifier}
+                      </Link>
+                    )}
+                    <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground sm:inline">
+                      {uploader?.name || uploader?.email || `—`}
+                    </span>
+                    <span className="hidden shrink-0 text-xs text-muted-foreground md:inline">
+                      {formatDate(row.createdAt)}
+                    </span>
+                    <span className="shrink-0">
+                      {!row.isImage ? (
+                        <Badge variant="outline">File</Badge>
+                      ) : row.referenced ? (
+                        <Badge variant="secondary">In use</Badge>
+                      ) : (
+                        <Badge variant="outline">Unreferenced</Badge>
+                      )}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Delete ${row.filename}`}
+                      onClick={() => setPendingDelete(row)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </li>
+                )
+              })}
+            </ul>
           )}
         </CardContent>
       </Card>
+
+      {previewRow && (
+        <ImagePreviewDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPreviewRow(null)
+          }}
+          src={`/api/attachments/${previewRow.id}`}
+          alt={previewRow.filename}
+          label={previewRow.filename}
+        />
+      )}
 
       <AlertDialog
         open={pendingDelete !== null}

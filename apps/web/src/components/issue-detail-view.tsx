@@ -421,6 +421,28 @@ export function IssueDetailView({
     }
   }
 
+  // Images picked via the Files section's attach button (EXP-316): they belong
+  // in the description, appended at the bottom rather than at the caret.
+  const handleAppendImageFiles = async (files: File[]) => {
+    setAttachmentStatus(null)
+    try {
+      await enqueueUploadTask(async () => {
+        for (const file of files) {
+          const { url } = await uploadIssueImageFile(issue.id, file)
+          editorRef.current?.appendImage({ alt: file.name, src: url })
+          const nextDescription =
+            editorRef.current?.getMarkdown() ?? descriptionRef.current
+          setDescriptionValue(nextDescription)
+          await queueDescriptionSave(nextDescription)
+        }
+      })
+    } catch (error) {
+      setAttachmentStatus(
+        error instanceof Error ? error.message : `Failed to upload image`
+      )
+    }
+  }
+
   // Pasted/dropped files that are NOT inline-embeddable images (EXP-297): they
   // upload to the Files section instead of entering the markdown.
   const handleOtherFiles = async (files: File[]) => {
@@ -742,7 +764,11 @@ export function IssueDetailView({
   // EXP-297 Files rail: non-inline-image attachments straight from the synced
   // shape, plus the "Attach file" affordance for members.
   const filesSection = (
-    <IssueFilesSection issueId={issue.id} readOnly={readOnly} />
+    <IssueFilesSection
+      issueId={issue.id}
+      readOnly={readOnly}
+      onImageFiles={handleAppendImageFiles}
+    />
   )
 
   // PR / pushed-branch link to the review-detail route (EXP-106) — stays in

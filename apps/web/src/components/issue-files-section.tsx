@@ -28,6 +28,12 @@ import {
 interface IssueFilesSectionProps {
   issueId: string
   readOnly?: boolean
+  /**
+   * Receives inline-image files picked via the attach button (EXP-316: they
+   * are inlined into the description instead of living here). When absent,
+   * image picks are rejected with a pointer to the editor's image button.
+   */
+  onImageFiles?: (files: File[]) => void | Promise<void>
 }
 
 /**
@@ -39,6 +45,7 @@ interface IssueFilesSectionProps {
 export function IssueFilesSection({
   issueId,
   readOnly = false,
+  onImageFiles,
 }: IssueFilesSectionProps) {
   const { data } = useLiveQuery(
     (query) =>
@@ -66,21 +73,29 @@ export function IssueFilesSection({
   const handleFiles = async (selected: File[]) => {
     setError(null)
 
-    // Inline-image types are deflected: they would upload fine but never show
-    // anywhere — every client's Files section filters them out and no markdown
-    // references them, so the sweep would silently delete them (EXP-297).
+    // Inline-image types never live in the Files section — every client
+    // filters them out (EXP-297). With an onImageFiles handler they are
+    // inlined into the description instead (EXP-316); without one they are
+    // deflected so the sweep can't silently delete an unreferenced upload.
     const images = selected.filter((file) =>
       isInlineImageAttachment(file.type)
     )
     const uploadable = selected.filter(
       (file) => !isInlineImageAttachment(file.type)
     )
-    const failures: string[] = images.map(
-      (file) =>
-        `${file.name}: images go in the description — add them with the editor's image button`
-    )
+    const failures: string[] = onImageFiles
+      ? []
+      : images.map(
+          (file) =>
+            `${file.name}: images go in the description — add them with the editor's image button`
+        )
 
     setUploading(true)
+    if (onImageFiles && images.length > 0) {
+      // The handler owns its own error surface (the description editor's
+      // upload status) — failures there don't join this section's list.
+      await onImageFiles(images)
+    }
     // Every pick is attempted; failures are collected per file so one oversize
     // upload never silently drops the rest (parity with the native clients).
     for (const file of uploadable) {
@@ -134,9 +149,13 @@ export function IssueFilesSection({
   return (
     <div className="px-5 py-2" data-testid="issue-files-section">
       <div className="flex items-center gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">
-          Files{files.length > 0 ? ` · ${files.length}` : ``}
-        </h3>
+        {/* With no files the section collapses to just the attach button —
+            no "Files" heading (EXP-316). */}
+        {files.length > 0 && (
+          <h3 className="text-xs font-medium text-muted-foreground">
+            Files · {files.length}
+          </h3>
+        )}
         {!readOnly && (
           <div className="ml-auto">
             <IssueEditorAttachmentButton
