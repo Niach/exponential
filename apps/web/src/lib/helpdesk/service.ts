@@ -1,6 +1,6 @@
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { supportMessages, supportThreads } from "@/db/schema"
+import { supportMessages, supportThreads, teams } from "@/db/schema"
 import type { SupportThread } from "@/db/schema"
 import { mintSupportToken, verifySupportToken } from "@/lib/helpdesk/token"
 import { appBaseUrl } from "@/lib/notification-email-policy"
@@ -64,21 +64,52 @@ export async function createSupportThreadInTx(
   return { threadId: thread.id, token: mintSupportToken(thread.id) }
 }
 
+// What the anonymous reporter endpoints need about a thread: the row itself
+// plus its team's display name and live helpdesk switch — one join instead of
+// a follow-up query on every 5s poll.
+export interface ResolvedSupportThread {
+  thread: SupportThread
+  teamName: string | null
+  // REV2-23: turning the team helpdesk OFF freezes its open threads. Reads
+  // (and the transcript) survive — losing them would read as data loss — but
+  // replies are refused like a closed thread and the member fan-out never
+  // fires. Re-enabling thaws every thread; nothing is auto-closed.
+  helpdeskEnabled: boolean
+}
+
 // Resolve a magic-link token to its thread: verify the HMAC by recompute
 // (rejecting garbage before any DB work), then load the thread it names.
 // Returns null for anything that doesn't resolve — callers answer 404 without
 // distinguishing why.
 export async function findThreadByToken(
   token: string
-): Promise<SupportThread | null> {
+): Promise<ResolvedSupportThread | null> {
   const threadId = verifySupportToken(token)
   if (!threadId) return null
-  const [thread] = await db
-    .select()
+  const [row] = await db
+    .select({
+      thread: supportThreads,
+      teamName: teams.name,
+      helpdeskEnabled: teams.helpdeskEnabled,
+    })
     .from(supportThreads)
+    .leftJoin(teams, eq(teams.id, supportThreads.teamId))
     .where(eq(supportThreads.id, threadId))
     .limit(1)
-  return thread ?? null
+  if (!row) return null
+  return {
+    thread: row.thread,
+    teamName: row.teamName,
+    helpdeskEnabled: row.helpdeskEnabled === true,
+  }
+}
+
+// The reporter-facing "this conversation takes no more replies" state: closed
+// by a member (token revoked) OR frozen by the team's helpdesk switch.
+export function isSupportThreadFrozen(resolved: ResolvedSupportThread): boolean {
+  return (
+    resolved.thread.tokenRevokedAt !== null || !resolved.helpdeskEnabled
+  )
 }
 
 // Close: resolve the ticket and revoke the magic link in one write — the
@@ -111,8 +142,15 @@ export async function reopenThreadInTx(
     .where(eq(supportThreads.id, threadId))
 }
 
+// How much of the newest message the inbox list carries. The list renders it
+// as a one-line truncated snippet, so shipping the full body (up to
+// MAX_SUPPORT_MESSAGE_CHARS each) was pure waste.
+export const SUPPORT_SNIPPET_CHARS = 200
+
 // The newest message of each given thread (snippet + unread source for the
-// inbox list). One query, newest-first, first-per-thread picked in JS.
+// inbox list). ONE row per thread via DISTINCT ON, snippet truncated in
+// Postgres (REV2-40) — this used to fetch every public message body of every
+// listed thread and pick first-per-thread in JS, on a 30s poll.
 export async function latestMessagesByThread(
   threadIds: string[]
 ): Promise<
@@ -120,9 +158,9 @@ export async function latestMessagesByThread(
 > {
   if (threadIds.length === 0) return new Map()
   const rows = await db
-    .select({
+    .selectDistinctOn([supportMessages.threadId], {
       threadId: supportMessages.threadId,
-      body: supportMessages.body,
+      body: sql<string>`left(${supportMessages.body}, ${SUPPORT_SNIPPET_CHARS})`,
       direction: supportMessages.direction,
       createdAt: supportMessages.createdAt,
     })
@@ -133,19 +171,19 @@ export async function latestMessagesByThread(
         eq(supportMessages.visibility, `public`)
       )
     )
-    .orderBy(desc(supportMessages.createdAt))
+    // DISTINCT ON demands its expressions lead the ORDER BY; the newest
+    // message per thread is the row Postgres then keeps.
+    .orderBy(supportMessages.threadId, desc(supportMessages.createdAt))
   const latest = new Map<
     string,
     { body: string; direction: string; createdAt: Date }
   >()
   for (const row of rows) {
-    if (!latest.has(row.threadId)) {
-      latest.set(row.threadId, {
-        body: row.body,
-        direction: row.direction,
-        createdAt: row.createdAt,
-      })
-    }
+    latest.set(row.threadId, {
+      body: row.body,
+      direction: row.direction,
+      createdAt: row.createdAt,
+    })
   }
   return latest
 }

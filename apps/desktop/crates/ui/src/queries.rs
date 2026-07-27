@@ -478,13 +478,10 @@ pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
         .collect()
 }
 
-/// The per-issue Reviews predicate: an OPEN pull request on a NON-archived
-/// issue. Archived issues are hidden on every other surface (the boards go
-/// through `issues_in_*`, which filter `archived_at`) — Reviews drops them at
-/// the issue level too, mobile parity: a batch PR entry survives with its
-/// remaining issues and disappears only when ALL of its issues are archived.
+/// The per-issue Reviews predicate: an OPEN pull request. A batch PR entry
+/// groups every issue that shares the `pr_url` (mobile parity).
 fn is_reviewable(issue: &domain::rows::Issue) -> bool {
-    issue.pr_state.as_deref() == Some("open") && issue.archived_at.is_none()
+    issue.pr_state.as_deref() == Some("open")
 }
 
 /// One Reviews entry: the issue(s) behind a single open PR. A plain
@@ -616,9 +613,9 @@ pub fn remove_merged_pull(
     }
 }
 
-/// Every non-archived issue in a team (issues ⨝ boards, shared sort
-/// order) — the add-issues picker's candidate pool (the dialog filters
-/// status/membership on top).
+/// Every issue in a team (issues ⨝ boards, shared sort order) — the
+/// add-issues picker's candidate pool (the dialog filters status/membership
+/// on top).
 pub fn team_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
     Store::global(cx)
         .collections()
@@ -655,6 +652,40 @@ pub(crate) fn coding_session_is_live(
         Some(seen) => now_epoch - seen < domain::contract::CODING_SESSION_STALE_MS / 1000,
         None => true,
     }
+}
+
+/// REV2-24: the device already coding `issue_id` according to the live SYNCED
+/// rows, or `None` when the issue is free. The cross-device half of the
+/// EXP-202 one-session-per-issue rule — `coding_flow::LocalSessions` knows
+/// only this process, so every launch entry point (the dialog's blocker, the
+/// relay's remote starts) must consult sync as well, or two agents end up
+/// pushing to the same `exp/<ID>` branch from two machines.
+pub(crate) fn live_session_device_for_issue(
+    cx: &App,
+    issue_id: &str,
+    now_epoch: i64,
+) -> Option<String> {
+    let collections = Store::global(cx).collections();
+    let sessions = collections.coding_sessions.read(cx);
+    live_session_device(sessions.iter(), issue_id, now_epoch)
+}
+
+/// Pure core of [`live_session_device_for_issue`]. A live row with no
+/// `device_label` still blocks — the label is only for the message.
+pub(crate) fn live_session_device<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    issue_id: &str,
+    now_epoch: i64,
+) -> Option<String> {
+    sessions
+        .filter(|session| session.issue_id.as_deref() == Some(issue_id))
+        .find(|session| coding_session_is_live(session, now_epoch))
+        .map(|session| {
+            session
+                .device_label
+                .clone()
+                .unwrap_or_else(|| "another device".to_string())
+        })
 }
 
 /// EXP-214: how a LIVE coding session renders. The synced status alone is not
@@ -814,6 +845,81 @@ mod tests {
         ));
     }
 
+    fn session_on(
+        id: &str,
+        issue_id: Option<&str>,
+        status: &str,
+        updated_at: &str,
+        device_label: Option<&str>,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": id,
+            "issue_id": issue_id,
+            "status": status,
+            "updated_at": updated_at,
+            "device_label": device_label,
+        }))
+        .unwrap()
+    }
+
+    /// REV2-24: a live row on ANOTHER device blocks (and names it); a batch
+    /// row (no `issue_id`) never claims an issue.
+    #[test]
+    fn live_session_device_reports_the_owning_device() {
+        let now = 1784289600_i64;
+        let rows = vec![
+            session_on("s-batch", None, "running", "2026-07-17T11:59:00Z", None),
+            session_on(
+                "s-1",
+                Some("issue-1"),
+                "running",
+                "2026-07-17T11:59:00Z",
+                Some("mac-studio"),
+            ),
+        ];
+        assert_eq!(
+            live_session_device(rows.iter(), "issue-1", now).as_deref(),
+            Some("mac-studio")
+        );
+        assert_eq!(live_session_device(rows.iter(), "issue-2", now), None);
+        // A live row with no label still blocks.
+        let unlabeled = vec![session_on(
+            "s-2",
+            Some("issue-2"),
+            "in_review",
+            "2026-07-17T11:59:00Z",
+            None,
+        )];
+        assert_eq!(
+            live_session_device(unlabeled.iter(), "issue-2", now).as_deref(),
+            Some("another device")
+        );
+    }
+
+    /// Ended and stale rows are absent — a remote start must not be blocked
+    /// forever by a crashed session's leftover row.
+    #[test]
+    fn live_session_device_ignores_dead_rows() {
+        let now = 1784289600_i64;
+        let rows = vec![
+            session_on(
+                "s-1",
+                Some("issue-1"),
+                "ended",
+                "2026-07-17T11:59:00Z",
+                Some("m"),
+            ),
+            session_on(
+                "s-2",
+                Some("issue-1"),
+                "running",
+                "2026-07-17T09:00:00Z",
+                Some("m"),
+            ),
+        ];
+        assert_eq!(live_session_device(rows.iter(), "issue-1", now), None);
+    }
+
     #[test]
     fn visible_pull_repos_hides_empty_repos() {
         let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[])];
@@ -839,7 +945,7 @@ mod tests {
         assert_eq!(repos[1].pulls.len(), 1);
     }
 
-    fn issue(pr_state: Option<&str>, archived_at: Option<&str>) -> domain::rows::Issue {
+    fn issue(pr_state: Option<&str>) -> domain::rows::Issue {
         serde_json::from_value(json!({
             "id": "i-1",
             "board_id": "p-1",
@@ -848,7 +954,6 @@ mod tests {
             "title": "t",
             "status": "in_review",
             "pr_state": pr_state,
-            "archived_at": archived_at,
         }))
         .unwrap()
     }
@@ -984,17 +1089,11 @@ mod tests {
     }
 
     #[test]
-    fn reviews_exclude_archived_issues() {
-        // Open PR on a live issue → in the queue.
-        assert!(is_reviewable(&issue(Some("open"), None)));
-        // Archived issues are hidden everywhere else (boards, mobile Reviews)
-        // — an open PR must not resurrect one in Reviews.
-        assert!(!is_reviewable(&issue(
-            Some("open"),
-            Some("2026-07-15T08:00:00Z")
-        )));
-        // Non-open PR states never review, archived or not.
-        assert!(!is_reviewable(&issue(Some("merged"), None)));
-        assert!(!is_reviewable(&issue(None, None)));
+    fn reviews_only_include_open_prs() {
+        // Open PR → in the queue.
+        assert!(is_reviewable(&issue(Some("open"))));
+        // Non-open PR states never review.
+        assert!(!is_reviewable(&issue(Some("merged"))));
+        assert!(!is_reviewable(&issue(None)));
     }
 }

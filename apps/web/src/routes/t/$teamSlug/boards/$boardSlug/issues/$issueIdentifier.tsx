@@ -1,12 +1,7 @@
 import { useMemo } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import {
-  issueCollection,
-  issueLabelCollection,
-  boardCollection,
-} from "@/lib/collections"
-import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
+import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import {
@@ -15,7 +10,8 @@ import {
   type IssueFilterSearch,
 } from "@/lib/filters"
 import { findIssuePosition } from "@/lib/board-view"
-import type { Issue, IssueLabel, Board } from "@/db/schema"
+import type { Issue, IssueLabel } from "@/db/schema"
+import { BoardNotFound } from "@/components/board-not-found"
 import { IssueDetailView } from "@/components/issue-detail-view"
 
 export const Route = createFileRoute(
@@ -41,22 +37,22 @@ export const Route = createFileRoute(
 function IssueDetailPage() {
   const { teamSlug, boardSlug, issueIdentifier } = Route.useParams()
   const search = Route.useSearch()
-  const team = useTeamBySlug(teamSlug)
 
-  const { data: boards } = useLiveQuery(
-    (query) =>
-      team
-        ? query
-            .from({ boards: boardCollection })
-            .where(({ boards }) =>
-              and(eq(boards.teamId, team.id), eq(boards.slug, boardSlug))
-            )
-        : undefined,
-    [team?.id, boardSlug]
+  // Same pipeline the board renders from (buildFilteredIssues →
+  // buildVisibleIssueGroups over locally-synced rows — cheap), so the
+  // switcher's ordering can never drift from the list the user came from —
+  // and the team/board/users lookups are the board view's, not a second copy.
+  const filters = useMemo(
+    () => issueFiltersFromSearch(search),
+    [search.status, search.priority, search.labels]
   )
-  const board = (boards?.[0] ?? null) as Board | null
+  const { board, boardReady, team, users, visibleGroups } = useBoardViewData({
+    filters,
+    boardSlug,
+    teamSlug,
+  })
 
-  const { data: issues } = useLiveQuery(
+  const { data: issues, isReady: issuesQueryReady } = useLiveQuery(
     (query) =>
       board
         ? query
@@ -71,6 +67,10 @@ function IssueDetailPage() {
     [board?.id, issueIdentifier]
   )
   const issue = (issues?.[0] ?? null) as Issue | null
+  // A disabled live query reports `isReady: true`, so the board gate rides
+  // along: on a cold deep link the issues snapshot always lands after the
+  // boards one, and claiming "not found" in that window is a lie (REV2-32).
+  const issueReady = Boolean(board) && issuesQueryReady
 
   const { data: issueLabels } = useLiveQuery(
     (query) =>
@@ -85,18 +85,6 @@ function IssueDetailPage() {
     (row) => row.labelId
   )
 
-  // Same pipeline the board renders from (buildFilteredIssues →
-  // buildVisibleIssueGroups over locally-synced rows — cheap), so the
-  // switcher's ordering can never drift from the list the user came from.
-  const filters = useMemo(
-    () => issueFiltersFromSearch(search),
-    [search.status, search.priority, search.labels]
-  )
-  const { visibleGroups } = useBoardViewData({
-    filters,
-    boardSlug,
-    teamSlug,
-  })
   const position = issue ? findIssuePosition(visibleGroups, issue.id) : null
   const switcher = position
     ? {
@@ -107,14 +95,27 @@ function IssueDetailPage() {
       }
     : null
 
-  const { users } = useTeamUsers(team?.id)
   const permissions = useTeamPermissions(team)
 
   if (!team || !board) {
+    // Ready-and-empty boards means the slug is dead (trashed board, rename,
+    // stale bookmark) — same recovery the board route offers (REV2-59).
+    if (boardReady) {
+      return (
+        <BoardNotFound
+          boardSlug={boardSlug}
+          teamSlug={teamSlug}
+        />
+      )
+    }
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
   }
 
   if (!issue) {
+    // Absent-because-still-syncing, not absent-because-gone (REV2-32).
+    if (!issueReady) {
+      return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+    }
     return (
       <div className="flex flex-col items-start gap-3 p-6 text-sm">
         <div className="text-muted-foreground">

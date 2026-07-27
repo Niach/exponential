@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { auth } from "@/lib/auth"
+import { authDbFailureCount } from "@/lib/auth/db-failure-signal"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
 type Session = Awaited<ReturnType<typeof auth.api.getSession>>
@@ -67,12 +68,23 @@ export class SessionResolveError extends Error {}
 
 async function getSessionBearerOnly(request: Request): Promise<Session> {
   let session: Session
+  const failuresBefore = authDbFailureCount()
   try {
     session = await auth.api.getSession({ headers: bearerOnlyHeaders(request) })
   } catch (err) {
     throw new SessionResolveError(`Session lookup failed`, { cause: err })
   }
-  return session?.user ? session : null
+  if (session?.user) return session
+  // REV2-20: null is ambiguous here — Better Auth's customSession plugin
+  // catches a FAILED core lookup and answers null, so "logged out" and "the
+  // session store is down" arrive identically. An auth database failure
+  // recorded while this lookup was in flight breaks the tie (see
+  // db-failure-signal.ts): report it as a failure so callers answer 503
+  // instead of 401 / the anonymous sentinel shape.
+  if (authDbFailureCount() !== failuresBefore) {
+    throw new SessionResolveError(`Session lookup failed (auth database error)`)
+  }
+  return null
 }
 
 // A token-authenticated request (mobile session bearer or `expu_` api key in

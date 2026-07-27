@@ -771,7 +771,7 @@ struct IssueListView: View {
             // No duplicate: bulk marking has no canonical-issue picker (web parity).
             GlassPickerSheet(
                 title: "Status",
-                items: IssueStatus.allCases.filter { $0 != .duplicate },
+                items: IssueStatus.displayOrder.filter { $0 != .duplicate },
                 selectedID: sharedStatus(vm)?.id,
                 idFor: { $0.id },
                 onSelect: { selected in bulkSetStatus(vm, selected) }
@@ -786,7 +786,7 @@ struct IssueListView: View {
         case .priority:
             GlassPickerSheet(
                 title: "Priority",
-                items: IssuePriority.allCases,
+                items: IssuePriority.displayOrder,
                 selectedID: sharedPriority(vm)?.id,
                 idFor: { $0.id },
                 onSelect: { selected in bulkSetPriority(vm, selected) }
@@ -835,7 +835,7 @@ struct IssueListView: View {
         case .status:
             GlassPickerSheet(
                 title: "Status",
-                items: IssueStatus.allCases.filter { $0 != .duplicate },
+                items: IssueStatus.displayOrder.filter { $0 != .duplicate },
                 selectedID: IssueStatus.from(edit.issue.status).id,
                 idFor: { $0.id },
                 onSelect: { selected in
@@ -852,7 +852,7 @@ struct IssueListView: View {
         case .priority:
             GlassPickerSheet(
                 title: "Priority",
-                items: IssuePriority.allCases,
+                items: IssuePriority.displayOrder,
                 selectedID: IssuePriority.from(edit.issue.priority).id,
                 idFor: { $0.id },
                 onSelect: { selected in

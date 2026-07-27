@@ -336,7 +336,7 @@ export const repositoriesRouter = router({
           repositoryId: boards.repositoryId,
         })
         .from(boards)
-        .where(and(eq(boards.teamId, input.teamId), isNull(boards.archivedAt)))
+        .where(eq(boards.teamId, input.teamId))
 
       return repos.map((repo) => ({
         ...repo,

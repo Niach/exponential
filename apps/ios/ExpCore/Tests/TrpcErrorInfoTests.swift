@@ -4,8 +4,10 @@ import XCTest
 
 // Compliance lock (EXP-216 / App Store 3.1.1): server plan-cap messages carry
 // purchase language ("Add seats or upgrade…") that must never render in the
-// app — `trpcUserMessage` swaps them for the neutral copy. Ordinary errors
-// keep passing the server message through verbatim.
+// app — `trpcUserMessage` swaps them for the neutral copy, and the REV2-55
+// team-delete billing gate for copy that names the web instead of a Billing
+// screen this app doesn't have. Ordinary errors keep passing the server
+// message through verbatim.
 final class TrpcErrorInfoTests: XCTestCase {
     private func envelope(message: String, code: String?, batched: Bool = false) -> String {
         let codeJson = code.map { "\"data\": {\"code\": \"\($0)\"}," } ?? ""
@@ -34,6 +36,36 @@ final class TrpcErrorInfoTests: XCTestCase {
         let error = TrpcError.httpError(412, body)
         XCTAssertTrue(error.isPlanLimitError)
         XCTAssertEqual(error.trpcUserMessage, planLimitNeutralMessage)
+    }
+
+    // REV2-55: `teams.delete` refuses a team whose subscription is still live.
+    // The server's copy points at "team settings → Billing" — a web-only
+    // screen — so the app substitutes wording that names the web.
+
+    func testTeamDeleteSubscriptionGateIsRewrittenForNative() {
+        let body = envelope(
+            message: "This team has an active subscription — cancel the subscription in team settings → Billing before deleting the team",
+            code: "PRECONDITION_FAILED"
+        )
+        let error = TrpcError.httpError(412, body)
+        XCTAssertFalse(error.isPlanLimitError)
+        XCTAssertEqual(error.trpcUserMessage, teamDeleteSubscriptionMessage)
+        XCTAssertEqual(error.localizedDescription, teamDeleteSubscriptionMessage)
+        XCTAssertFalse(error.trpcUserMessage.localizedCaseInsensitiveContains("team settings"))
+    }
+
+    func testOtherSubscriptionMessagesPassThroughVerbatim() {
+        // billing.cancelSubscription's "has NO active subscription" is a
+        // different precondition — the prefix must not swallow it.
+        let body = envelope(message: "This team has no active subscription", code: "PRECONDITION_FAILED")
+        let error = TrpcError.httpError(412, body)
+        XCTAssertEqual(error.trpcUserMessage, "This team has no active subscription")
+    }
+
+    func testTeamDeleteGatePrefixWithoutPreconditionCodePassesThrough() {
+        let body = envelope(message: "This team has an active subscription somewhere", code: "BAD_REQUEST")
+        let error = TrpcError.httpError(400, body)
+        XCTAssertEqual(error.trpcUserMessage, "This team has an active subscription somewhere")
     }
 
     func testOrdinaryMessagePassesThroughVerbatim() {

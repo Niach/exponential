@@ -65,7 +65,7 @@ export class WidgetRequestError extends Error {
   }
 }
 
-// The widget config row plus the trash/archive state of its feedback target
+// The widget config row plus the trash state of its feedback target
 // board (nullable — support-only widgets have none) and the team's
 // helpdesk flag, so the submit + config paths can gate each mode on live
 // state.
@@ -73,8 +73,10 @@ export type WidgetConfigWithBoard = typeof widgetConfigs.$inferSelect & {
   boardSlug: string | null
   boardName: string | null
   boardDeletedAt: Date | null
-  boardArchivedAt: Date | null
   teamSlug: string | null
+  // The reporter-facing helpdesk identity (REV2-51): the SAME name the
+  // conversation page and every member reply email carry.
+  teamName: string | null
   teamHelpdeskEnabled: boolean | null
 }
 
@@ -90,8 +92,8 @@ export async function loadWidgetConfigByKey(
       boardSlug: boards.slug,
       boardName: boards.name,
       boardDeletedAt: boards.deletedAt,
-      boardArchivedAt: boards.archivedAt,
       teamSlug: teams.slug,
+      teamName: teams.name,
       teamHelpdeskEnabled: teams.helpdeskEnabled,
     })
     .from(widgetConfigs)
@@ -107,8 +109,8 @@ export async function loadWidgetConfigByKey(
     boardSlug: row.boardSlug,
     boardName: row.boardName,
     boardDeletedAt: row.boardDeletedAt,
-    boardArchivedAt: row.boardArchivedAt,
     teamSlug: row.teamSlug,
+    teamName: row.teamName,
     teamHelpdeskEnabled: row.teamHelpdeskEnabled,
   }
 }
@@ -293,6 +295,12 @@ export interface WidgetSubmitResult {
   issueId: string | null
   identifier: string | null
   url: null
+  // Support submissions only (REV2-10): did the confirmation email carrying
+  // the reporter's magic link — their ONLY way back into the conversation —
+  // actually go out? `null` on feedback submissions, which mail nothing. The
+  // panel degrades its success copy honestly on false; the link is never
+  // returned inline (it is a credential, and this response is anonymous).
+  emailDelivered: boolean | null
 }
 
 // The whole submit pipeline past key/origin/rate gating (which the route owns
@@ -539,6 +547,7 @@ export async function createWidgetSubmission(args: {
         issueId: issue.id,
         identifier: issue.identifier,
         url: null,
+        emailDelivered: null,
       }
     })
 
@@ -669,17 +678,24 @@ export async function createWidgetSupportSubmission(args: {
   fireAndForgetSupportThreadNotify({ threadId, kind: `created` })
 
   // Confirmation email with the magic conversation link (the thread's one
-  // stable URL). A failed send doesn't fail the (already committed) ticket:
-  // every member reply email repeats the same link. The ledger row stores no
-  // thread URL — the token is never persisted, only recomputed per email.
+  // stable URL). A failed send doesn't fail the (already committed) ticket,
+  // but it is NOT invisible either (REV2-10): `emailDelivered` rides the
+  // submit response so the panel can stop promising an email that never
+  // left. The ledger row stores no thread URL — the token is never
+  // persisted, only recomputed per email.
+  let emailDelivered = false
   try {
-    // The product-facing identity: the feedback board's name when the widget
-    // has one, else the widget's own name ("… — Exponential support").
+    // ONE reporter-facing identity for the whole conversation (REV2-51): the
+    // TEAM name — the same brand the /support/$token page shows and every
+    // member reply email carries. (The email helper's parameter is still
+    // called boardName.) Falls back to the widget's board/own name only when
+    // the team row is somehow missing.
     const sendResult = await sendSupportConfirmationEmail({
       to: fields.data.email,
-      boardName: config.boardName ?? config.name,
+      boardName: config.teamName ?? config.boardName ?? config.name,
       threadUrl: supportThreadUrl(token),
     })
+    emailDelivered = sendResult.delivered
     await db.insert(emailDeliveries).values({
       userId: null,
       toEmail: fields.data.email,
@@ -696,7 +712,7 @@ export async function createWidgetSupportSubmission(args: {
 
   // Support tickets carry no issue and no public URL — the magic-link page
   // is the reporter's view of the conversation.
-  return { issueId: null, identifier: null, url: null }
+  return { issueId: null, identifier: null, url: null, emailDelivered }
 }
 
 // The whole GET /api/widget/config pipeline lives here (not in the route

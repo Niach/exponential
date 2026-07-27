@@ -44,7 +44,7 @@ export function useGettingStartedProgress(
 
   const boards = useTeamBoards(teamId)
   const liveBoards = useMemo(
-    () => boards.filter((board) => !board.archivedAt && !board.deletedAt),
+    () => boards.filter((board) => !board.deletedAt),
     [boards]
   )
 

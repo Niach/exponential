@@ -6,7 +6,10 @@ import { comments } from "@/db/schema"
 import { commentBodySchema, getCommentBodyText } from "@/lib/domain"
 import { resolveTeamAccess, getIssueTeamContext } from "@/lib/team-membership"
 import { isUserAdmin } from "@/lib/admin"
-import { fireAndForgetCommentNotify } from "@/lib/integrations/notifications"
+import {
+  fireAndForgetCommentNotify,
+  fireAndForgetIssueMentionNotify,
+} from "@/lib/integrations/notifications"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { resolveMentions } from "@/lib/integrations/mentions"
 
@@ -123,15 +126,60 @@ export const commentsRouter = router({
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        const [previous] = await tx
+          .select({ body: comments.body })
+          .from(comments)
+          .where(eq(comments.id, input.id))
+          .limit(1)
         const [comment] = await tx
           .update(comments)
           .set({ body: input.body, editedAt: new Date() })
           .where(eq(comments.id, input.id))
           .returning()
-        return { txId, comment }
+
+        // Comment @mentions, delta-based (mirrors the description edit path in
+        // issues.update): only members mentioned in the NEW body but not the
+        // old one are subscribed + notified, so re-saving an unchanged comment
+        // never re-pings.
+        const previouslyMentioned = new Set(
+          await resolveMentions(
+            tx,
+            getCommentBodyText(previous?.body),
+            existing.teamId
+          )
+        )
+        const nextMentioned = await resolveMentions(
+          tx,
+          getCommentBodyText(input.body),
+          existing.teamId
+        )
+        const newlyMentionedUserIds = nextMentioned.filter(
+          (userId) => !previouslyMentioned.has(userId)
+        )
+        for (const userId of newlyMentionedUserIds) {
+          await ensureSubscribed(tx, {
+            issueId: existing.issueId,
+            userId,
+            teamId: existing.teamId,
+            source: `mention`,
+          })
+        }
+
+        return { txId, comment, newlyMentionedUserIds }
       })
 
-      return result
+      // Mention-only fan-out: an edit is not a new comment, so subscribers
+      // must not get an issue_comment ping (same reason issues.update uses it
+      // for descriptions).
+      if (result.newlyMentionedUserIds.length > 0) {
+        fireAndForgetIssueMentionNotify({
+          issueId: existing.issueId,
+          actorUserId: ctx.session.user.id,
+          mentionedUserIds: result.newlyMentionedUserIds,
+        })
+      }
+
+      return { txId: result.txId, comment: result.comment }
     }),
 
   delete: authedProcedure

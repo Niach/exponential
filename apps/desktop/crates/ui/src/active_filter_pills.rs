@@ -58,7 +58,14 @@ impl RenderOnce for ActiveFilterPills {
         // INSIDE the bar's own horizontal padding — copied as-is, compacted).
         let mut row = h_flex().flex_wrap().items_center().gap_1p5().px_4().py_1();
 
-        for (ix, status) in self.filters.statuses.iter().copied().enumerate() {
+        // Pills read in the contract display order (REV2-85), not in the order
+        // the user happened to tick the boxes — the same vocabulary order the
+        // popover lists them in.
+        let statuses = IssueStatus::DISPLAY_ORDER
+            .iter()
+            .copied()
+            .filter(|status| self.filters.statuses.contains(status));
+        for (ix, status) in statuses.enumerate() {
             row = row.child(status_pill(
                 ix,
                 status,
@@ -67,7 +74,11 @@ impl RenderOnce for ActiveFilterPills {
                 cx,
             ));
         }
-        for (ix, priority) in self.filters.priorities.iter().copied().enumerate() {
+        let priorities = IssuePriority::DISPLAY_ORDER
+            .iter()
+            .copied()
+            .filter(|priority| self.filters.priorities.contains(priority));
+        for (ix, priority) in priorities.enumerate() {
             row = row.child(priority_pill(
                 ix,
                 priority,

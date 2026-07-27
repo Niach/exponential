@@ -8,11 +8,11 @@ import {
 } from "@/routes/t/$teamSlug/settings/-shared"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings`)({
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
         to: `/auth/login`,
-        search: { redirect: undefined },
+        search: { redirect: location.href },
       })
     }
   },

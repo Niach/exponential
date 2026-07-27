@@ -29,16 +29,16 @@ import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import {
-  captureAppleTokens,
-  revokeAppleTokensBestEffort,
-} from "@/lib/auth/apple-revocation"
+  captureOAuthTokens,
+  revokeOAuthTokensBestEffort,
+} from "@/lib/auth/oauth-revocation"
 import {
   ACTIVE_SUBSCRIPTION_STATUSES,
   cancelCreemSubscriptionsBestEffort,
-  findActiveSubscriptionsForUser,
-  findActiveSubscriptionsForTeams,
   getActiveTeamSubscription,
+  type CancellableSubscription,
 } from "@/lib/billing/creem-subscriptions"
+import { assertTeamDeletableBilling } from "@/lib/billing/billing-handover"
 import type { db as Database } from "@/db/connection"
 
 function bytesToMb(bytes: number): number {
@@ -154,38 +154,30 @@ export const adminRouter = router({
         }
       }
 
-      // Subscriptions the user purchased, captured BEFORE the delete — the
-      // buyer FK cascades with the users row, after which the remote Creem
-      // subscription would keep charging with nothing left to find it by.
-      const doomedSubscriptions = await findActiveSubscriptionsForUser(
-        input.userId
-      )
-
-      // Apple pairing to revoke after the delete (guideline 5.1.1(v)) —
-      // captured now because the accounts row cascades with the users row.
-      // Native-idToken pairings store no tokens (nothing to revoke).
-      const appleTokens = await captureAppleTokens(ctx.db, input.userId)
+      // OAuth grants to revoke after the delete (Apple pairing, guideline
+      // 5.1.1(v); Google/OIDC refresh tokens) — captured now because the
+      // accounts rows cascade with the users row. Rows without tokens
+      // (password logins, native-idToken pairings) are skipped.
+      const oauthTokens = await captureOAuthTokens(ctx.db, input.userId)
 
       let storageKeys: string[] = []
+      // Only the subscriptions funding SOLO teams this delete destroys are
+      // cancelled — the plans of teams that survive the user belong to those
+      // teams (REV2-55, lib/billing/billing-handover.ts).
+      let doomedSubscriptions: CancellableSubscription[] = []
       await ctx.db.transaction(async (tx) => {
         // Same orphan safety as users.deleteAccount (lib/account-deletion.ts):
         // fail closed when the user is the sole owner of a team that
         // still has other members — an admin delete must not silently strand
-        // a team — and delete teams where they are the only member.
+        // a team — delete teams where they are the only member, and scrub the
+        // address out of mentions + email residue.
         const cleanup = await guardAndCleanupTeamsForUserDeletion(
           tx,
           input.userId,
           `admin`
         )
         storageKeys = cleanup.storageKeys
-        // Subscriptions bound to the deleted solo teams but purchased by
-        // SOMEONE ELSE (e.g. after an ownership hand-off) — invisible to the
-        // buyer-scoped capture above, yet their team just vanished.
-        for (const sub of cleanup.doomedTeamSubscriptions) {
-          if (!doomedSubscriptions.some((s) => s.id === sub.id)) {
-            doomedSubscriptions.push(sub)
-          }
-        }
+        doomedSubscriptions = cleanup.doomedTeamSubscriptions
         await tx.delete(users).where(eq(users.id, input.userId))
       })
       // Post-commit: the users-row cascade dropped memberships (and possibly
@@ -196,10 +188,13 @@ export const adminRouter = router({
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the user half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
-      // The users-row cascade dropped attachment rows but not their S3 blobs.
+      // Blobs stranded by the SOLO-TEAM deletes above (their attachment rows
+      // cascaded away, the S3 objects did not). Attachments this user merely
+      // uploaded into a SURVIVING team are not here: `uploader_id` is `set
+      // null`, so those rows (and their blobs) outlive the account.
       await deleteStorageObjects(storageKeys)
-      // Revoke the deleted user's Apple pairing (best-effort).
-      await revokeAppleTokensBestEffort(appleTokens)
+      // Revoke the deleted user's provider grants (best-effort).
+      await revokeOAuthTokensBestEffort(oauthTokens)
 
       return { ok: true }
     }),
@@ -813,11 +808,12 @@ export const adminRouter = router({
         })
       }
 
-      // Capture BEFORE the delete: creem_subscriptions.team_id goes
-      // `set null` when the team row is deleted.
-      const doomedSubscriptions = await findActiveSubscriptionsForTeams([
-        input.teamId,
-      ])
+      // A paying team must have its subscription cancelled FIRST (REV2-55) —
+      // same gate as teams.delete, because `creem_subscriptions.team_id` goes
+      // `set null` on delete and the remote subscription would keep charging
+      // with nothing left to find it by. An admin can cancel it from the
+      // team's billing settings or the Creem dashboard.
+      await assertTeamDeletableBilling(input.teamId)
 
       // Collected inside the tx BEFORE the cascade drops the attachment rows;
       // the cascade never touches S3, so without this the blobs orphan.
@@ -836,9 +832,9 @@ export const adminRouter = router({
       // Post-commit: the cascade dropped every member's teamMembers row.
       invalidateMembershipCaches()
 
-      // Best-effort AFTER commit: a Creem API failure logs loudly but never
-      // leaves the team half-deleted.
-      await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+      // No remote cancellation here: the gate above already proved the
+      // subscription is cancelled (or scheduled to cancel, in which case the
+      // customer keeps the period they paid for).
       await deleteStorageObjects(storageKeys)
 
       return result

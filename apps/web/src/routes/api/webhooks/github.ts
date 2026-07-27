@@ -57,8 +57,9 @@ async function resolveIssuesForPr(args: {
 
 // GitHub webhook receiver — the CLOUD PR-linking + merge-detection trigger
 // (self-hosted uses the outbound cron for merges instead). Acts on
-// `installation` `created`/`unsuspend`/`deleted`/`suspend` (keep
-// github_installations in sync), `installation_repositories` (repo-selection
+// `installation` `created`/`unsuspend` (upsert + clear the suspension mark),
+// `suspend` (mark, never delete — REV2-29) and `deleted` (drop the row and its
+// claim links), `installation_repositories` (repo-selection
 // changes → flag/heal `repositories.inaccessible_at`), `pull_request` `opened`
 // (link an out-of-band PR to its issue) and `closed` (flip prState to merged
 // or, when closed without merging, to closed).
@@ -97,32 +98,53 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         return jsonResponse(200, { ok: true })
       }
       if (payload.action === `created` || payload.action === `unsuspend`) {
+        // `unsuspend` HEALS: the row and every team's claim link survived the
+        // suspension (see the `suspend` branch), so clearing `suspended_at`
+        // restores discovery/connect/token minting with no manual reconnect.
+        // Repo `inaccessible_at` flags stay put — only a VERIFIED access proof
+        // clears those (the token mint, repositories.list's default-branch
+        // heal), and both are reachable again now that the links are intact.
         await db
           .insert(githubInstallations)
           .values({
             installationId: installation.id,
             accountLogin: installation.account?.login ?? null,
             accountType: installation.account?.type ?? null,
+            suspendedAt: null,
           })
           .onConflictDoUpdate({
             target: githubInstallations.installationId,
             set: {
               accountLogin: installation.account?.login ?? null,
               accountType: installation.account?.type ?? null,
+              suspendedAt: null,
               updatedAt: new Date(),
             },
           })
-      } else if (
-        payload.action === `deleted` ||
-        payload.action === `suspend`
-      ) {
-        // A suspended installation can't mint tokens: flag every repo bound to
-        // it as inaccessible (the settings badge + the launcher's 412), then
-        // drop the row — its team links CASCADE away with it. `unsuspend`
-        // re-inserts above; the flag heals on the next successful mint/list.
+      } else if (payload.action === `suspend`) {
+        // REVERSIBLE (REV2-29): GitHub keeps the installation and only refuses
+        // to mint tokens for it, so this must NOT delete the row — that
+        // CASCADE-dropped every team's claim link, and the `unsuspend`
+        // re-insert minted a fresh uuid PK the old links could never point at
+        // again. Mark it suspended instead (discovery/connect go inert) and
+        // flag every bound repo as inaccessible so the settings UI stops
+        // showing them healthy while every token mint fails.
+        await db
+          .update(githubInstallations)
+          .set({ suspendedAt: new Date(), updatedAt: new Date() })
+          .where(eq(githubInstallations.installationId, installation.id))
+        await db
+          .update(repositories)
+          .set({ inaccessibleAt: new Date() })
+          .where(eq(repositories.installationId, installation.id))
+      } else if (payload.action === `deleted`) {
+        // TERMINAL: the App was uninstalled. Flag every repo bound to it as
+        // inaccessible (the settings badge + the launcher's 412), then drop the
+        // row — its team links CASCADE away with it, and a re-install gets a
+        // brand-new installation id anyway, so nothing could have been restored.
         // Invalidate the repo cache BEFORE the delete: the invalidation
-        // resolves the linked teams through the installation links,
-        // which cascade away with the row.
+        // resolves the linked teams through the installation links, which
+        // cascade away with the row.
         await invalidateRepoCacheForInstallation(installation.id)
         await db
           .update(repositories)

@@ -10,8 +10,6 @@ public struct CreateIssueInput: Encodable, Sendable {
     public var assigneeId: String?
     public var description: String?
     public var dueDate: String?
-    public var dueTime: String?
-    public var endTime: String?
     public var labelIds: [String]?
 
     public init(
@@ -22,8 +20,6 @@ public struct CreateIssueInput: Encodable, Sendable {
         assigneeId: String? = nil,
         description: String? = nil,
         dueDate: String? = nil,
-        dueTime: String? = nil,
-        endTime: String? = nil,
         labelIds: [String]? = nil
     ) {
         self.boardId = boardId
@@ -33,8 +29,6 @@ public struct CreateIssueInput: Encodable, Sendable {
         self.assigneeId = assigneeId
         self.description = description
         self.dueDate = dueDate
-        self.dueTime = dueTime
-        self.endTime = endTime
         self.labelIds = labelIds
     }
 }
@@ -47,12 +41,9 @@ public struct UpdateIssueInput: Encodable, Sendable {
     public var assigneeId: String?
     public var description: String?
     public var dueDate: String?
-    public var dueTime: String?
-    public var endTime: String?
     /// Canonical issue this one duplicates — set together with
     /// `status = "duplicate"` in ONE update so the marking is atomic.
     public var duplicateOfId: String?
-    public var archivedAt: String?
 
     // Fields listed here are encoded as JSON null (not omitted).
     // Use this when the server must distinguish "clear this field" from "don't touch it".
@@ -66,10 +57,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         assigneeId: String? = nil,
         description: String? = nil,
         dueDate: String? = nil,
-        dueTime: String? = nil,
-        endTime: String? = nil,
         duplicateOfId: String? = nil,
-        archivedAt: String? = nil,
         explicitNulls: Set<String> = []
     ) {
         self.id = id
@@ -79,17 +67,14 @@ public struct UpdateIssueInput: Encodable, Sendable {
         self.assigneeId = assigneeId
         self.description = description
         self.dueDate = dueDate
-        self.dueTime = dueTime
-        self.endTime = endTime
         self.duplicateOfId = duplicateOfId
-        self.archivedAt = archivedAt
         self.explicitNulls = explicitNulls
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, priority, assigneeId, description
-        case dueDate, dueTime, endTime
-        case duplicateOfId, archivedAt
+        case dueDate
+        case duplicateOfId
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -101,10 +86,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         try encodeNullable(assigneeId, forKey: .assigneeId, in: &c)
         try encodeNullable(description, forKey: .description, in: &c)
         try encodeNullable(dueDate, forKey: .dueDate, in: &c)
-        try encodeNullable(dueTime, forKey: .dueTime, in: &c)
-        try encodeNullable(endTime, forKey: .endTime, in: &c)
         try encodeNullable(duplicateOfId, forKey: .duplicateOfId, in: &c)
-        try encodeNullable(archivedAt, forKey: .archivedAt, in: &c)
     }
 
     private func encodeNullable<T: Encodable>(_ value: T?, forKey key: CodingKeys, in container: inout KeyedEncodingContainer<CodingKeys>) throws {
@@ -312,11 +294,8 @@ public struct FetchedIssue: Decodable, Sendable {
     public let creatorId: String?
     public let source: String?
     public let dueDate: String?
-    public let dueTime: String?
-    public let endTime: String?
     public let sortOrder: Double?
     public let completedAt: String?
-    public let archivedAt: String?
     public let duplicateOfId: String?
     public let prUrl: String?
     public let prNumber: Int?

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -12,7 +13,9 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.sortableTimestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -138,6 +141,23 @@ class ReviewsViewModel @Inject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching { issuesApi.mergePr(accountId, issueId) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    // Conflicts, branch protection and GitHub App errors are the
+                    // COMMON, persistent failures of a squash merge — a silent
+                    // drop left the row sitting there unexplained (REV2-50).
+                    // Same copy as the issue Changes tab's merge.
+                    _mergeError.value =
+                        trpcErrorMessage(t, "The pull request could not be merged")
+                }
         }
+    }
+
+    // Surfaced as a snackbar by ReviewsScreen.
+    private val _mergeError = MutableStateFlow<String?>(null)
+    val mergeError: StateFlow<String?> = _mergeError
+
+    fun consumeMergeError() {
+        _mergeError.value = null
     }
 }

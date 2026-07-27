@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@remotion/cli": "4.0.484",
+    "@remotion/google-fonts": "4.0.484",
     "@remotion/player": "4.0.484",
     "lucide-react": "^0.544.0",
     "motion": "^12.39.0",

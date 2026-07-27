@@ -34,7 +34,6 @@ export function TeamBoardsSection({
 }) {
   const teamId = team.id
   const boards = useTeamBoards(teamId)
-  const visibleBoards = boards.filter((p) => !p.archivedAt)
 
   // The team's connected repos — used to render each board's repo chip
   // (uuid → owner/name) and to feed the settings dialog's repo picker.
@@ -68,7 +67,7 @@ export function TeamBoardsSection({
   // sync (and a concurrently-trashed target closes the dialog).
   const [editTargetId, setEditTargetId] = useState<string | null>(null)
   const editTarget =
-    visibleBoards.find((p) => p.id === editTargetId) ?? null
+    boards.find((p) => p.id === editTargetId) ?? null
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -89,7 +88,7 @@ export function TeamBoardsSection({
           <CardTitle className="flex items-center gap-2 text-base">
             Boards
             <Badge variant="secondary" className="text-xs font-normal">
-              {visibleBoards.length}
+              {boards.length}
             </Badge>
           </CardTitle>
           <CardDescription>
@@ -103,13 +102,13 @@ export function TeamBoardsSection({
           </CardAction>
         </CardHeader>
         <CardContent>
-          {visibleBoards.length === 0 ? (
+          {boards.length === 0 ? (
             <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
               No boards in this team yet.
             </div>
           ) : (
             <div className="divide-y rounded-md border">
-              {visibleBoards.map((board) => {
+              {boards.map((board) => {
                 const repo = board.repositoryId
                   ? repoMap.get(board.repositoryId)
                   : undefined

@@ -1829,24 +1829,48 @@ fn label_chip(label: &Label, cx: &App) -> impl IntoElement {
         .child(SharedString::from(label.name.clone()))
 }
 
+/// Due-date urgency (REV2-48) — the mobile rule ported verbatim (iOS
+/// `dueDateColor`, Android `StatusColors.dueDateColor`): due TODAY wins over
+/// overdue, so a date that is already past local midnight still reads orange.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DueTone {
+    Overdue,
+    Today,
+    Upcoming,
+}
+
+/// `today` is the device-LOCAL `YYYY-MM-DD` boundary the EXP-38 overdue sort
+/// already uses (`queries::today_local`), so the color explains the ordering.
+fn due_tone(due: &str, today: &str) -> DueTone {
+    if due == today {
+        DueTone::Today
+    } else if due < today {
+        DueTone::Overdue
+    } else {
+        DueTone::Upcoming
+    }
+}
+
 /// Web due cell: `CalendarDays` + "Jul 3" when due; an empty slot when not
 /// (the cell stays so the row layout holds; the date Popover is a later step).
 fn due_cell(issue: &Issue, cx: &App) -> impl IntoElement {
     let cell = h_flex().ml_3().gap_1().items_center().flex_shrink_0();
     match issue.due_date.as_deref() {
-        Some(due) => cell
-            .child(
-                Icon::from(ExpIcon::CalendarDays)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .whitespace_nowrap()
-                    .child(SharedString::from(format_short_date(due))),
-            ),
+        Some(due) => {
+            let color = match due_tone(due, &queries::today_local()) {
+                DueTone::Overdue => t::RED.to_hsla(),
+                DueTone::Today => t::ORANGE.to_hsla(),
+                DueTone::Upcoming => cx.theme().muted_foreground,
+            };
+            cell.child(Icon::from(ExpIcon::CalendarDays).xsmall().text_color(color))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(color)
+                        .whitespace_nowrap()
+                        .child(SharedString::from(format_short_date(due))),
+                )
+        }
         None => cell,
     }
 }
@@ -1993,6 +2017,17 @@ mod tests {
         let saturday = chrono::NaiveDate::from_ymd_opt(2026, 7, 4).unwrap();
         let [_, end_of_week, _] = due_date_presets(saturday);
         assert_eq!(end_of_week.1, chrono::NaiveDate::from_ymd_opt(2026, 7, 10).unwrap());
+    }
+
+    #[test]
+    fn due_tone_mirrors_the_mobile_rule() {
+        // REV2-48: due today is its own tone and WINS over overdue; anything
+        // later is muted. Same boundary the overdue-first sort uses.
+        assert_eq!(due_tone("2026-07-27", "2026-07-27"), DueTone::Today);
+        assert_eq!(due_tone("2026-07-26", "2026-07-27"), DueTone::Overdue);
+        assert_eq!(due_tone("2026-07-28", "2026-07-27"), DueTone::Upcoming);
+        // Year/month rollovers compare correctly as ISO strings.
+        assert_eq!(due_tone("2025-12-31", "2026-01-01"), DueTone::Overdue);
     }
 
     #[test]

@@ -1,8 +1,10 @@
+import ExpCore
 import ExpUI
 import SwiftUI
 
 struct LoginView: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.openURL) private var openURL
     @State private var viewModel: LoginViewModel?
     @FocusState private var focusedField: Field?
 
@@ -212,7 +214,35 @@ struct LoginView: View {
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
             )
+
+            // Sign-up and password reset are web flows on every native client
+            // (desktop parity) — hand off to the browser, and only for what the
+            // server publishes as available.
+            if let config = vm.config, config.passwordResetEnabled || config.signupEnabled {
+                let instanceUrl = deps.auth.instanceUrl
+                HStack(spacing: 16) {
+                    if config.passwordResetEnabled,
+                       let url = AuthApi.forgotPasswordUrl(instanceUrl: instanceUrl) {
+                        webLink("Forgot password?", url: url, identifier: "login-forgot-password-link")
+                    }
+                    if config.signupEnabled,
+                       let url = AuthApi.registerUrl(instanceUrl: instanceUrl) {
+                        webLink("Create account", url: url, identifier: "login-create-account-link")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func webLink(_ label: String, url: URL, identifier: String) -> some View {
+        Button(label) {
+            openURL(url)
+        }
+        .font(.footnote)
+        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        .accessibilityIdentifier(identifier)
     }
 
     @ViewBuilder

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { ArrowLeft, Mail } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { authClient } from "@/lib/auth/client"
 import type { NotificationType } from "@/lib/domain"
 import type { DigestCadence } from "@/lib/notification-email-policy"
 import { Button } from "@/components/ui/button"
@@ -69,6 +70,14 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
       label: `Pull request merged`,
       hint: `A PR for an issue you follow is merged.`,
     },
+    // REV2-51: the digest honors this pref generically — the panel just never
+    // offered it, so wanting issue mail but not helpdesk mail meant the
+    // global kill switch.
+    {
+      type: `support_reply`,
+      label: `Support tickets`,
+      hint: `New helpdesk tickets and reporter replies in your teams.`,
+    },
   ]
 
 function AccountNotifications() {
@@ -78,8 +87,30 @@ function AccountNotifications() {
     Partial<Record<NotificationType, boolean>>
   >(emailPrefs.typePrefs ?? {})
   const [digest, setDigest] = useState(emailPrefs.digest)
+  // REV2-52: the digest sweep never mails an unverified address. Signup fires
+  // exactly ONE verification email and nothing else stamps emailVerified, so
+  // a user who missed it configures a channel that silently does nothing —
+  // unless the panel says so and offers a resend.
+  const [verifyState, setVerifyState] = useState<
+    `idle` | `sending` | `sent` | `error`
+  >(`idle`)
 
   const transportConfigured = emailPrefs.transportConfigured
+  const emailVerified = emailPrefs.emailVerified
+
+  const resendVerification = async () => {
+    if (verifyState === `sending`) return
+    setVerifyState(`sending`)
+    try {
+      const { error } = await authClient.sendVerificationEmail({
+        email: emailPrefs.email,
+        callbackURL: `/account/notifications`,
+      })
+      setVerifyState(error ? `error` : `sent`)
+    } catch {
+      setVerifyState(`error`)
+    }
+  }
 
   const handleEmailEnabled = (next: boolean) => {
     setEmailEnabled(next)
@@ -153,6 +184,37 @@ function AccountNotifications() {
                 SMTP_HOST
               </code>
               to enable it.
+            </div>
+          )}
+
+          {transportConfigured && !emailVerified && (
+            <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <div className="flex-1 text-muted-foreground">
+                <p className="font-medium text-foreground">
+                  Verify your email to receive digest emails
+                </p>
+                <p className="mt-0.5 text-xs">
+                  Digests are never sent to an unverified address. In-app and
+                  push notifications are unaffected.
+                  {verifyState === `sent` &&
+                    ` Verification email sent to ${emailPrefs.email}.`}
+                  {verifyState === `error` &&
+                    ` Couldn't send the verification email — try again in a moment.`}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                disabled={verifyState === `sending` || verifyState === `sent`}
+                onClick={() => void resendVerification()}
+              >
+                {verifyState === `sending`
+                  ? `Sending…`
+                  : verifyState === `sent`
+                    ? `Sent`
+                    : `Resend`}
+              </Button>
             </div>
           )}
 

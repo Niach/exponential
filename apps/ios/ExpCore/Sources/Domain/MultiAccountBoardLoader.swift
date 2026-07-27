@@ -18,7 +18,7 @@ public struct TeamBlock: Identifiable, Sendable {
 }
 
 /// One server's block inside the cross-server Home tree: every team the
-/// signed-in user is a member of, with its non-archived boards.
+/// signed-in user is a member of, with its boards.
 public struct ServerBoardGroup: Identifiable, Sendable {
     public let accountId: String
     public let hostname: String
@@ -65,7 +65,6 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
 
             let blocks: [TeamBlock] = teams.compactMap { ws in
                 let wsBoards = (boardsByTeam[ws.id] ?? [])
-                    .filter { $0.archivedAt == nil }
                     .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
                 guard !wsBoards.isEmpty else { return nil }
                 return TeamBlock(team: ws, boards: wsBoards)
@@ -91,6 +90,7 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
     /// `auth.accounts` may have changed (account added / signed-out / removed).
     public func refresh() {
         let desired = Set(auth.accounts.filter { $0.token != nil }.map { $0.id })
+        var pruned = false
 
         // Cancel observations for accounts no longer signed in.
         for accountId in Array(observationTasks.keys) where !desired.contains(accountId) {
@@ -98,6 +98,7 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
             observationTasks[accountId] = nil
             teamsByAccount[accountId] = nil
             boardsByAccount[accountId] = nil
+            pruned = true
         }
 
         // Drop cached entries for accounts that disappeared entirely.
@@ -105,11 +106,21 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
         for cachedId in Array(teamsByAccount.keys) where !allKnown.contains(cachedId) {
             teamsByAccount[cachedId] = nil
             boardsByAccount[cachedId] = nil
+            pruned = true
         }
 
         // Start observations for newly-signed-in accounts.
         for accountId in desired where observationTasks[accountId] == nil {
             startObserving(accountId: accountId)
+        }
+
+        // Only rewrite the shared mirror when an account actually went away:
+        // its observation stream is gone, so nothing else would ever evict its
+        // rows. Writing unconditionally would blank the mirror on init, before
+        // the observations have delivered their first values.
+        if pruned {
+            writeMirror()
+            SharedBoardMirror.pruneLastUsed(signedInAccountIds: desired)
         }
     }
 
@@ -154,10 +165,9 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
         observationTasks[accountId] = [wsTask, projTask]
     }
 
-    /// Mirror every signed-in account's non-archived boards into the shared
-    /// app-group container so the Share Extension can populate its picker
-    /// without opening the (per-account, non-shared) GRDB database.
-    @MainActor
+    /// Mirror every signed-in account's boards into the shared app-group
+    /// container so the Share Extension can populate its picker without
+    /// opening the (per-account, non-shared) GRDB database.
     private func writeMirror() {
         let signedIn = auth.accounts.filter { $0.token != nil }
         var out: [MirroredBoard] = []
@@ -165,7 +175,7 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
             let teamsById = Dictionary(
                 uniqueKeysWithValues: (teamsByAccount[account.id] ?? []).map { ($0.id, $0) }
             )
-            for board in (boardsByAccount[account.id] ?? []) where board.archivedAt == nil {
+            for board in (boardsByAccount[account.id] ?? []) {
                 guard let team = teamsById[board.teamId] else { continue }
                 out.append(MirroredBoard(
                     accountId: account.id,

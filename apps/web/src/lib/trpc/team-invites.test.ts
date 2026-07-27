@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// Two contracts live here:
+// Three contracts live here:
 //
 // 1. REV-4: teamInvites.list is member-visible (and relayed verbatim by the
 //    MCP exponential_invites_list tool), so it must never return the invite
@@ -13,6 +13,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 //    roll back the invite), and `accept` stamps users.onboardingCompletedAt
 //    in-tx — guarded by an IS NULL predicate so an existing timestamp is
 //    never overwritten — on BOTH the fresh-join and alreadyMember paths.
+//
+// 3. REV2-71: `accept` runs the seat gate in-tx on the fresh-join path only,
+//    after the invite-validity checks, the alreadyMember no-op and the
+//    single-use claim.
 //
 // The router runs against ctx.db, so a fake db is enough: `select()` shifts
 // rows off a FIFO queue, `insert()`/`update()` record their target table +
@@ -115,8 +119,10 @@ vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: vi.fn(async () => ({ role: `owner` })),
 }))
 
+const assertCanInviteMember = vi.fn(async (_teamId: string) => {})
 vi.mock(`@/lib/billing`, () => ({
-  assertCanInviteMember: vi.fn(async () => {}),
+  assertCanInviteMember: (...args: unknown[]) =>
+    assertCanInviteMember(...(args as [string])),
 }))
 
 const sendTeamInviteEmail = vi.fn(async () => ({ delivered: true }))
@@ -156,6 +162,8 @@ beforeEach(() => {
   fakeDb.execute.mockClear()
   sendTeamInviteEmail.mockClear()
   sendTeamInviteEmail.mockResolvedValue({ delivered: true })
+  assertCanInviteMember.mockClear()
+  assertCanInviteMember.mockResolvedValue(undefined)
 })
 
 describe(`teamInvites.list selection contract`, () => {
@@ -304,8 +312,6 @@ describe(`teamInvites.accept — onboarding stamp (EXP-188)`, () => {
   }
 
   it(`stamps onboardingCompletedAt (where null) when joining`, async () => {
-    // Pre-tx seat-gate teamId probe.
-    selectQueue.push([{ teamId: WS }])
     // In-tx: invite by token, existing-member check (none), team row.
     selectQueue.push([validInvite])
     selectQueue.push([])
@@ -324,7 +330,6 @@ describe(`teamInvites.accept — onboarding stamp (EXP-188)`, () => {
   })
 
   it(`stamps onboardingCompletedAt on the alreadyMember path too`, async () => {
-    selectQueue.push([{ teamId: WS }])
     selectQueue.push([validInvite])
     // Existing membership — the single-use invite must not be burned.
     selectQueue.push([{ teamId: WS, userId: `user-a` }])
@@ -335,6 +340,58 @@ describe(`teamInvites.accept — onboarding stamp (EXP-188)`, () => {
     expect(result).toMatchObject({ alreadyMember: true })
     expect(updates).toHaveLength(1)
     expectOnboardingStamp(updates[0]!)
+    expect(inserts).toHaveLength(0)
+  })
+})
+
+// REV2-71: the seat gate is a FRESH-JOIN gate. An over-seat team must never
+// lock existing members out (a re-clicked invite link, a second device, the
+// native join-team flows), and a used/expired invite must surface its own
+// error rather than a plan-limit one.
+describe(`teamInvites.accept — seat gate ordering (REV2-71)`, () => {
+  const validInvite = {
+    id: INVITE_ID,
+    teamId: WS,
+    role: `member`,
+    acceptedAt: null,
+    expiresAt: new Date(Date.now() + 60_000),
+  }
+
+  it(`returns the alreadyMember no-op in a team that is at its seat cap`, async () => {
+    assertCanInviteMember.mockRejectedValue(new Error(`up to 1 seat.`))
+    selectQueue.push([validInvite])
+    selectQueue.push([{ teamId: WS, userId: `user-a` }])
+    selectQueue.push([{ id: WS, name: `Acme` }])
+
+    const result = await caller().accept({ token: `tok` })
+
+    expect(result).toMatchObject({ alreadyMember: true })
+    expect(assertCanInviteMember).not.toHaveBeenCalled()
+  })
+
+  it(`reports a used invite as used, not as a plan limit`, async () => {
+    assertCanInviteMember.mockRejectedValue(new Error(`up to 1 seat.`))
+    selectQueue.push([{ ...validInvite, acceptedAt: new Date() }])
+
+    await expect(caller().accept({ token: `tok` })).rejects.toThrow(
+      /already been used/
+    )
+    expect(assertCanInviteMember).not.toHaveBeenCalled()
+  })
+
+  it(`still blocks a fresh join past the seat cap`, async () => {
+    assertCanInviteMember.mockRejectedValue(new Error(`up to 1 seat.`))
+    selectQueue.push([validInvite])
+    selectQueue.push([])
+    selectQueue.push([{ id: WS, name: `Acme` }])
+    updateReturningQueue.push([{ id: INVITE_ID }])
+
+    await expect(caller().accept({ token: `tok` })).rejects.toThrow(
+      /up to 1 seat/
+    )
+    expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
+    // The membership insert never runs (and the claim update rolls back with
+    // the transaction on a real db).
     expect(inserts).toHaveLength(0)
   })
 })

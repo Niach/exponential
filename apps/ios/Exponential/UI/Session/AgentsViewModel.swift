@@ -114,9 +114,9 @@ final class AgentsViewModel {
     /// card minus the current-issue exemption. Reads the already-observed
     /// boards/issues (no DB round-trip).
     func startCandidates(teamId: String?) -> [StartCodingSheet.IssueOption] {
-        // Repo-backed, non-archived boards only — boardId → repositoryId.
+        // Repo-backed boards only — boardId → repositoryId.
         var repoByBoard: [String: String] = [:]
-        for board in boards where board.archivedAt == nil {
+        for board in boards {
             if let teamId, board.teamId != teamId { continue }
             if let repoId = board.repositoryId {
                 repoByBoard[board.id] = repoId
@@ -130,7 +130,6 @@ final class AgentsViewModel {
         return issues
             .filter { row in
                 guard repoByBoard[row.boardId] != nil else { return false }
-                if row.archivedAt != nil { return false }
                 if terminal.contains(row.status) { return false }
                 if row.prState == DomainContract.prStateMerged { return false }
                 return true

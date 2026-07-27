@@ -27,10 +27,18 @@ export function extractMentionEmails(text: string): string[] {
 }
 
 /**
+ * What a deleted account's mentions are rewritten to (REV2-37). Deliberately
+ * NOT an email, so it never re-resolves to anyone and every client renders it
+ * as the plain text it is.
+ */
+export const ANONYMIZED_MENTION_HANDLE = `@former-member`
+
+/**
  * Replace each `@email` mention token with whatever `replace` returns for the
  * lowercase-normalized email; a `null` return keeps the token verbatim. Used
- * to swap mentions of departed members for the anonymized
- * "Member XXXX" handle before the text leaves the server.
+ * by account deletion to swap the departing user's mentions for
+ * ANONYMIZED_MENTION_HANDLE in surviving issue descriptions and comment
+ * bodies (lib/account-deletion.ts).
  */
 export function replaceMentionTokens(
   text: string,

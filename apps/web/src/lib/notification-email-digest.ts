@@ -8,6 +8,7 @@
 // started from server-bun.ts.
 
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import {
   emailDeliveries,
@@ -30,11 +31,17 @@ import {
   DIGEST_MIN_UNREAD_AGE_MS,
   appBaseUrl,
   buildIssueDeepLinkPath,
+  buildSupportDeepLinkPath,
   buildUnsubscribeUrl,
-  isDigestSendable,
+  digestSendability,
+  isTransientSendError,
   planEmailDigest,
   type EmailPrefsLike,
 } from "@/lib/notification-email-policy"
+
+// The row's OWN team (notifications.team_id), distinct from the team reached
+// through its board — issue-less helpdesk rows only have the former.
+const notificationTeams = alias(teams, `notification_teams`)
 
 // Sweep cadence. Every sweep re-evaluates the pending set; the per-user
 // cadence gate inside planEmailDigest keeps actual emails at most ~hourly
@@ -46,6 +53,14 @@ const INITIAL_DELAY_MS = 60 * 1000
 // beyond the cap stay pending and are picked up by the next sweep (oldest
 // first, so nothing starves).
 const SCAN_LIMIT = 2000
+// How many digest emails go out at once (REV2-39). An unbounded Promise.all
+// over up to SCAN_LIMIT per-user batches burst hundreds of concurrent
+// SendEmail calls (SES production default is ~14/s) and hundreds of
+// concurrent non-pooled SMTP connections, then charged every throttled
+// recipient a full day of backoff. A sweep has a 10-minute budget before the
+// next tick and the per-user cadence gates make ordering irrelevant, so a
+// small pool is free.
+const SEND_CONCURRENCY = 5
 
 // One sweep pass, injectable clock for tests/manual runs. Returns counts for
 // the caller's logging. Never throws for per-recipient failures; a thrown
@@ -75,6 +90,10 @@ export async function runEmailDigestSweep(
       issueIdentifier: issues.identifier,
       teamSlug: teams.slug,
       boardSlug: boards.slug,
+      // REV2-51: issue-less helpdesk rows carry their own team_id — the
+      // column that exists so they can be routed to the team's Support
+      // surface. Without it they rendered as unlinked text.
+      notificationTeamSlug: notificationTeams.slug,
       // REV2-14: mirror of the notifications shape's membership scoping —
       // the recipient must still be a member of the row's team (boards.team_id
       // for issue-anchored rows, the app-written notifications.team_id for
@@ -90,6 +109,7 @@ export async function runEmailDigestSweep(
     // diverges from the issue's live board).
     .leftJoin(boards, eq(boards.id, notifications.boardId))
     .leftJoin(teams, eq(teams.id, boards.teamId))
+    .leftJoin(notificationTeams, eq(notificationTeams.id, notifications.teamId))
     .where(
       and(
         isNull(notifications.readAt),
@@ -109,14 +129,16 @@ export async function runEmailDigestSweep(
     .limit(SCAN_LIMIT)
   if (rows.length === 0) return { emailsSent: 0, notificationsClaimed: 0 }
 
-  // Addressless/unverified recipients can never be emailed, and rows whose
-  // recipient lost team access since creation must not be (REV2-14 — the
-  // email-leg twin of REV-8's create-time fan-out recheck: teamMembers.remove
-  // leaves pending unread rows behind, and the shape hides them from the
-  // ex-member, so they can never be marked read in-app). Claim all of these
-  // outright so they don't rescan forever.
-  const unmailable = rows.filter((row) => !isDigestSendable(row))
-  const candidates = rows.filter((row) => isDigestSendable(row))
+  // Addressless recipients can never be emailed, and rows whose recipient
+  // lost team access since creation must not be (REV2-14 — the email-leg twin
+  // of REV-8's create-time fan-out recheck: teamMembers.remove leaves pending
+  // unread rows behind, and the shape hides them from the ex-member, so they
+  // can never be marked read in-app). Claim those outright so they don't
+  // rescan forever. An UNVERIFIED address is different (REV2-52): it is a
+  // one-click-fixable user state, so those rows are left untouched to digest
+  // late if the user verifies inside the 24h backstop.
+  const unmailable = rows.filter((row) => digestSendability(row) === `claim`)
+  const candidates = rows.filter((row) => digestSendability(row) === `send`)
 
   const userIds = [...new Set(candidates.map((row) => row.userId))]
   const prefs = await getEmailPrefsMap(userIds)
@@ -198,99 +220,130 @@ export async function runEmailDigestSweep(
   const base = appBaseUrl()
   let emailsSent = 0
 
-  await Promise.all(
-    plan.batches.map(async (batch) => {
-      const items = batch.items.filter((item) =>
-        claimedIds.has(item.notificationId)
-      )
-      if (items.length === 0) return
-      const recipientPrefs = prefs.get(batch.userId)
-      if (!recipientPrefs) return // unreachable: getEmailPrefsMap mints rows
-      const to = items[0].email
+  const sendBatch = async (batch: (typeof plan.batches)[number]) => {
+    const items = batch.items.filter((item) =>
+      claimedIds.has(item.notificationId)
+    )
+    if (items.length === 0) return
+    const recipientPrefs = prefs.get(batch.userId)
+    if (!recipientPrefs) return // unreachable: getEmailPrefsMap mints rows
+    const to = items[0].email
+
+    try {
+      // Ledger row per digest email (kind='digest', no notification_id —
+      // one email covers many rows; per-notification idempotency is the
+      // emailed_at claim above).
+      const [ledger] = await db
+        .insert(emailDeliveries)
+        .values({
+          userId: batch.userId,
+          toEmail: to,
+          kind: `digest`,
+        })
+        .returning({ id: emailDeliveries.id })
 
       try {
-        // Ledger row per digest email (kind='digest', no notification_id —
-        // one email covers many rows; per-notification idempotency is the
-        // emailed_at claim above).
-        const [ledger] = await db
-          .insert(emailDeliveries)
-          .values({
-            userId: batch.userId,
-            toEmail: to,
-            kind: `digest`,
-          })
-          .returning({ id: emailDeliveries.id })
-
-        try {
-          const digestItems: DigestEmailItem[] = items.map((item) => ({
-            title: item.title,
-            body: item.body,
-            url:
-              item.teamSlug && item.boardSlug && item.issueIdentifier
-                ? `${base}${buildIssueDeepLinkPath({
-                    teamSlug: item.teamSlug,
-                    boardSlug: item.boardSlug,
-                    identifier: item.issueIdentifier,
-                  })}`
+        const digestItems: DigestEmailItem[] = items.map((item) => ({
+          title: item.title,
+          body: item.body,
+          url:
+            item.teamSlug && item.boardSlug && item.issueIdentifier
+              ? `${base}${buildIssueDeepLinkPath({
+                  teamSlug: item.teamSlug,
+                  boardSlug: item.boardSlug,
+                  identifier: item.issueIdentifier,
+                })}`
+              : // Issue-less helpdesk rows link to the team's Support
+                // inbox (REV2-51) — the surface the row's team_id exists
+                // to route to.
+                item.type === `support_reply` && item.notificationTeamSlug
+                ? `${base}${buildSupportDeepLinkPath(item.notificationTeamSlug)}`
                 : null,
-          }))
-          const result = await sendNotificationDigestEmail({
-            to,
-            items: digestItems,
-            appUrl: base,
-            unsubscribeUrl: buildUnsubscribeUrl(
-              base,
-              recipientPrefs.unsubscribeToken
-            ),
+        }))
+        const result = await sendNotificationDigestEmail({
+          to,
+          items: digestItems,
+          appUrl: base,
+          unsubscribeUrl: buildUnsubscribeUrl(
+            base,
+            recipientPrefs.unsubscribeToken
+          ),
+        })
+        await db
+          .update(emailDeliveries)
+          .set({
+            status: deliveryStatus(result),
+            provider: result.provider,
+            providerMessageId: result.messageId,
+            sentAt: result.delivered ? now : null,
+            error: result.delivered
+              ? null
+              : result.suppressed
+                ? `recipient suppressed (bounce/complaint on record)`
+                : `no email transport configured`,
           })
+          .where(eq(emailDeliveries.id, ledger.id))
+        if (result.delivered) emailsSent += 1
+      } catch (sendErr) {
+        if (isTransientSendError(sendErr)) {
+          // A throttle blip or dropped connection is NOT a broken
+          // transport (REV2-39). Dropping the ledger row keeps it out of
+          // the lastFailedAt aggregate, so this user stays eligible for the
+          // next 10-minute sweep instead of losing a full day — which for
+          // rows already ≥2h old meant never being emailed at all (their
+          // retry window would land past the 24h backstop). Nothing was
+          // sent, so no delivery record is lost.
           await db
-            .update(emailDeliveries)
-            .set({
-              status: deliveryStatus(result),
-              provider: result.provider,
-              providerMessageId: result.messageId,
-              sentAt: result.delivered ? now : null,
-              error: result.delivered
-                ? null
-                : result.suppressed
-                  ? `recipient suppressed (bounce/complaint on record)`
-                  : `no email transport configured`,
-            })
+            .delete(emailDeliveries)
             .where(eq(emailDeliveries.id, ledger.id))
-          if (result.delivered) emailsSent += 1
-        } catch (sendErr) {
+        } else {
           await db
             .update(emailDeliveries)
             .set({ status: `failed`, error: String(sendErr).slice(0, 1000) })
             .where(eq(emailDeliveries.id, ledger.id))
-          throw sendErr
         }
-      } catch (err) {
-        console.error(`[digest] email to ${to} failed:`, err)
-        // Un-claim this batch so a later sweep retries — a transient
-        // transport error must not permanently swallow the digest. The failed
-        // ledger row above feeds the failure backoff, so the retry waits a
-        // full day rather than firing at every sweep. Rows read in the
-        // meantime stay claimed (the push did its job late).
-        try {
-          await db
-            .update(notifications)
-            .set({ emailedAt: null })
-            .where(
-              and(
-                inArray(
-                  notifications.id,
-                  items.map((item) => item.notificationId)
-                ),
-                isNull(notifications.readAt)
-              )
-            )
-        } catch (unclaimErr) {
-          console.error(`[digest] un-claim failed:`, unclaimErr)
-        }
+        throw sendErr
       }
-    })
+    } catch (err) {
+      console.error(`[digest] email to ${to} failed:`, err)
+      // Un-claim this batch so a later sweep retries — a transient
+      // transport error must not permanently swallow the digest. A
+      // PERSISTENT failure also left a failed ledger row above, which feeds
+      // the daily backoff so the retry waits a day rather than firing at
+      // every sweep tick. Rows read in the meantime stay claimed (the push
+      // did its job late).
+      try {
+        await db
+          .update(notifications)
+          .set({ emailedAt: null })
+          .where(
+            and(
+              inArray(
+                notifications.id,
+                items.map((item) => item.notificationId)
+              ),
+              isNull(notifications.readAt)
+            )
+          )
+      } catch (unclaimErr) {
+        console.error(`[digest] un-claim failed:`, unclaimErr)
+      }
+    }
+  }
+
+  // Bounded worker pool over the batch queue (REV2-39) — never one in-flight
+  // send per due user.
+  let cursor = 0
+  const workers = Array.from(
+    { length: Math.min(SEND_CONCURRENCY, plan.batches.length) },
+    async () => {
+      while (cursor < plan.batches.length) {
+        const batch = plan.batches[cursor++]
+        await sendBatch(batch)
+      }
+    }
   )
+  await Promise.all(workers)
 
   return { emailsSent, notificationsClaimed: claimedIds.size }
 }

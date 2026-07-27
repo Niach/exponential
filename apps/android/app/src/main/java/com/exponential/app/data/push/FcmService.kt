@@ -37,39 +37,41 @@ class FcmService : FirebaseMessagingService() {
         val data = message.data
         val title = message.notification?.title ?: data["title"] ?: "Exponential"
         val body = message.notification?.body ?: data["body"]
-        val issueId = data["issueId"]
         // support_reply pushes (EXP-180) carry a threadId and NO issue keys —
         // route their taps straight to the ticket conversation.
-        val threadId = if (data["type"] == "support_reply") data["threadId"] else null
+        val target = PushDeepLinks.target(
+            type = data["type"],
+            issueId = data["issueId"],
+            threadId = data["threadId"],
+        )
 
-        // The push carries its recipient's server user id. The issue route is
-        // active-account-scoped, so only deep-link when the push targets the
-        // ACTIVE account — another account's issue id would dead-end in the
-        // wrong local database. Servers that predate the hint omit userId;
-        // keep the link for those. Routing a tap into a non-active account
-        // (switching or an account-scoped route) is still open.
+        // The push carries its recipient's server user id. A push for a
+        // NON-ACTIVE signed-in account keeps its deep link (REV2-81) — the id
+        // rides along and MainActivity switches to that account before
+        // navigating, instead of dropping the tap into the wrong local
+        // database (or, as before, dropping it entirely). Only a push for an
+        // account no longer on this device falls through to a bare launch.
         val targetUserId = data["userId"]
-        val targetsActiveAccount = targetUserId == null || targetUserId == auth.userId.value
+        val account = PushDeepLinks.resolveAccount(
+            accounts = auth.accounts.value,
+            activeAccountId = auth.activeAccountId.value,
+            targetUserId = targetUserId,
+        )
 
-        val intent = when {
-            issueId != null && targetsActiveAccount ->
-                Intent(Intent.ACTION_VIEW, Uri.parse("exponential://issue/$issueId")).apply {
-                    setPackage(packageName)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-            threadId != null && targetsActiveAccount ->
-                Intent(Intent.ACTION_VIEW, Uri.parse("exponential://support/$threadId")).apply {
-                    setPackage(packageName)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-            else -> Intent(this, MainActivity::class.java).apply {
+        val intent = if (target != null && account != PushDeepLinks.Account.Unknown) {
+            Intent(Intent.ACTION_VIEW, Uri.parse(PushDeepLinks.uri(target, targetUserId))).apply {
+                setPackage(packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+        } else {
+            Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
         }
 
         val pendingIntent = PendingIntent.getActivity(
             this,
-            issueId?.hashCode() ?: threadId?.hashCode() ?: 0,
+            target.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -83,8 +85,7 @@ class FcmService : FirebaseMessagingService() {
             .setContentIntent(pendingIntent)
             .build()
 
-        val notificationId = issueId?.hashCode() ?: threadId?.hashCode()
-            ?: System.currentTimeMillis().toInt()
+        val notificationId = target?.hashCode() ?: System.currentTimeMillis().toInt()
         try {
             NotificationManagerCompat.from(this).notify(notificationId, notification)
         } catch (err: SecurityException) {

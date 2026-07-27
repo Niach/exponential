@@ -43,7 +43,7 @@ data class BoardEntity(
     // pre-collapse rows — the client falls back to a shape-derived glyph then.
     val icon: String? = null,
     // Server-owned protection flag (the dogfood board). A protected
-    // board can't be deleted/archived, so clients hide the delete affordance.
+    // board can't be deleted, so clients hide the delete affordance.
     @ColumnInfo(name = "is_protected") @SerialName("is_protected") @JsonNames("isProtected") val isProtected: PgBool = false,
     // Nullable — a repository is optional on every board (EXP-121). Coding/PR
     // affordances gate on its PRESENCE, never on `type`. repository_id rides on
@@ -51,7 +51,6 @@ data class BoardEntity(
     // `repositories` tRPC router on demand.
     @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
-    @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,
     // Soft-delete (trash) marker — part of the boards shape contract. Always
     // NULL inside the shape (the server where-clause excludes trashed rows; a
     // trash arrives as a delete/move-out message), but queries still filter on
@@ -79,11 +78,8 @@ data class IssueEntity(
     @ColumnInfo(name = "creator_id") @SerialName("creator_id") @JsonNames("creatorId") val creatorId: String? = null,
     @ColumnInfo(name = "source") @SerialName("source") @JsonNames("source") val source: String? = null,
     @ColumnInfo(name = "due_date") @SerialName("due_date") @JsonNames("dueDate") val dueDate: String? = null,
-    @ColumnInfo(name = "due_time") @SerialName("due_time") @JsonNames("dueTime") val dueTime: String? = null,
-    @ColumnInfo(name = "end_time") @SerialName("end_time") @JsonNames("endTime") val endTime: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
-    @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,
     @ColumnInfo(name = "duplicate_of_id") @SerialName("duplicate_of_id") @JsonNames("duplicateOfId") val duplicateOfId: String? = null,
     // PR fields stay: merge detection (webhook + polling) still populates these.
     @ColumnInfo(name = "pr_url") @SerialName("pr_url") @JsonNames("prUrl") val prUrl: String? = null,

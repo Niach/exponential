@@ -2,15 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 import { is, Param, SQL } from "drizzle-orm"
 
-// Bulk label writes (one label → many issues) for the multi-select action
-// bar. bulkAdd loads the label, gates on membership in ITS team, keeps
-// only same-team issues in non-trashed boards, and records label_added
-// ONLY for rows the onConflictDoNothing insert actually created (returning())
-// — a half-labelled selection must not double-log the already-labelled
-// issues. bulkRemove deletes by (labelId, issueIds) and records label_removed
-// per actually-deleted row. Fake-db harness mirrors issues-bulk.test.ts.
+// Label writes for the issue editor and the multi-select action bar. Both
+// bulk procedures load the label, gate on membership in ITS team, and keep
+// only same-team issues in non-trashed boards; events are recorded ONLY for
+// rows the writes actually inserted/deleted (returning()), so a half-labelled
+// selection never double-logs the already-labelled issues. The single-issue
+// add/remove follow the same no-op rule — re-adding a label an issue already
+// carries must not write a phantom timeline event. Fake-db harness mirrors
+// issues-bulk.test.ts.
 
 const h = vi.hoisted(() => ({
+  assertIssueLabelTeamMatch: vi.fn(async (..._args: unknown[]) => ({
+    issue: { boardId: `proj-1` },
+    label: { teamId: `11111111-1111-4111-8111-111111111111` },
+  })),
   assertTeamMember: vi.fn(
     async (..._args: unknown[]) => ({ role: `member` }) as unknown
   ),
@@ -23,7 +28,7 @@ vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
 vi.mock(`@/lib/team-membership`, () => ({
-  assertIssueLabelTeamMatch: vi.fn(),
+  assertIssueLabelTeamMatch: h.assertIssueLabelTeamMatch,
   assertTeamMember: h.assertTeamMember,
 }))
 
@@ -133,7 +138,67 @@ beforeEach(() => {
   fakeDb.transaction.mockClear()
   h.assertTeamMember.mockClear()
   h.assertTeamMember.mockResolvedValue({ role: `member` })
+  h.assertIssueLabelTeamMatch.mockClear()
+  h.assertIssueLabelTeamMatch.mockResolvedValue({
+    issue: { boardId: `proj-1` },
+    label: { teamId: WS },
+  })
   h.recordIssueEvent.mockClear()
+})
+
+describe(`issueLabels.add`, () => {
+  it(`records label_added for a newly linked label`, async () => {
+    state.insertReturning = [{ issueId: ISSUE_1 }]
+
+    const result = await caller.add({ issueId: ISSUE_1, labelId: LABEL_ID })
+
+    expect(result).toEqual({ txId: 42 })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toEqual({
+      issueId: ISSUE_1,
+      labelId: LABEL_ID,
+      teamId: WS,
+      boardId: `proj-1`,
+    })
+    const added = eventsOfType(`label_added`)
+    expect(added.map((e) => [e.issueId, e.payload])).toEqual([
+      [ISSUE_1, { labelId: LABEL_ID }],
+    ])
+  })
+
+  it(`records no event when the label was already on the issue`, async () => {
+    state.insertReturning = [] // onConflictDoNothing skipped the row
+
+    const result = await caller.add({ issueId: ISSUE_1, labelId: LABEL_ID })
+
+    expect(result).toEqual({ txId: 42 })
+    expect(h.recordIssueEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe(`issueLabels.remove`, () => {
+  it(`records label_removed for an actually-deleted link`, async () => {
+    state.deleteReturning = [{ issueId: ISSUE_1 }]
+
+    const result = await caller.remove({ issueId: ISSUE_1, labelId: LABEL_ID })
+
+    expect(result).toEqual({ txId: 42 })
+    expect(deletes).toHaveLength(1)
+    expect(collectParams(deletes[0]!.where)).toEqual([ISSUE_1, LABEL_ID])
+    const removed = eventsOfType(`label_removed`)
+    expect(removed.map((e) => [e.issueId, e.payload])).toEqual([
+      [ISSUE_1, { labelId: LABEL_ID }],
+    ])
+  })
+
+  it(`records no event when the label was not on the issue`, async () => {
+    state.deleteReturning = []
+
+    const result = await caller.remove({ issueId: ISSUE_1, labelId: LABEL_ID })
+
+    expect(result).toEqual({ txId: 42 })
+    expect(h.recordIssueEvent).not.toHaveBeenCalled()
+  })
 })
 
 describe(`issueLabels.bulkAdd`, () => {
@@ -201,8 +266,10 @@ describe(`issueLabels.bulkAdd`, () => {
 })
 
 describe(`issueLabels.bulkRemove`, () => {
-  it(`deletes by (labelId, issueIds) and records label_removed per actually-deleted row`, async () => {
+  it(`deletes only eligible issues and records label_removed per actually-deleted row`, async () => {
     selectQueue.push([{ teamId: WS }]) // label lookup
+    // The team + non-trashed-board join drops ISSUE_3.
+    selectQueue.push([{ id: ISSUE_1 }, { id: ISSUE_2 }])
     state.deleteReturning = [{ issueId: ISSUE_1 }, { issueId: ISSUE_2 }]
 
     const result = await caller.bulkRemove({
@@ -217,7 +284,6 @@ describe(`issueLabels.bulkRemove`, () => {
       LABEL_ID,
       ISSUE_1,
       ISSUE_2,
-      ISSUE_3,
     ])
     const removed = eventsOfType(`label_removed`)
     expect(removed.map((e) => [e.issueId, e.payload])).toEqual([
@@ -228,6 +294,7 @@ describe(`issueLabels.bulkRemove`, () => {
 
   it(`records no events when nothing was linked`, async () => {
     selectQueue.push([{ teamId: WS }])
+    selectQueue.push([{ id: ISSUE_1 }])
     state.deleteReturning = []
 
     const result = await caller.bulkRemove({
@@ -237,5 +304,18 @@ describe(`issueLabels.bulkRemove`, () => {
 
     expect(result).toEqual({ txId: 42 })
     expect(h.recordIssueEvent).not.toHaveBeenCalled()
+  })
+
+  it(`throws BAD_REQUEST when every issue sits in a trashed board or another team`, async () => {
+    selectQueue.push([{ teamId: WS }]) // label lookup
+    selectQueue.push([]) // nothing eligible (read in-tx, before the txId probe)
+
+    const error = await rejectionOf(
+      caller.bulkRemove({ labelId: LABEL_ID, issueIds: [ISSUE_1] })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(fakeDb.execute).not.toHaveBeenCalled()
+    expect(deletes).toHaveLength(0)
   })
 })

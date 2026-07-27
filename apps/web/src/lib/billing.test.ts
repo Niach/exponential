@@ -38,6 +38,7 @@ vi.mock(`@/lib/bootstrap-cloud`, () => ({
 }))
 
 import {
+  ACTIVE_STATUSES,
   getPlanLimits,
   planFromSubscription,
   parseCompTier,
@@ -223,6 +224,23 @@ describe(`resolveEffectiveTier — comp floor (effective = max by rank)`, () => 
     expect(resolveEffectiveTier(`pro`, undefined)).toBe(`pro`)
     expect(resolveEffectiveTier(`free`, `gold`)).toBe(`free`)
     expect(resolveEffectiveTier(`free`, `free`)).toBe(`free`)
+  })
+})
+
+describe(`ACTIVE_STATUSES — which statuses still grant entitlements`, () => {
+  // REV2-103: billing.cancelSubscription schedules the cancellation, and
+  // Creem then reports `scheduled_cancel` until the paid period actually
+  // ends. That time is bought and paid for, so the team stays on its plan —
+  // omitting the status here would drop it to Free the second it clicked
+  // Cancel (and, via getActiveTeamSubscription, hide the pending-cancel
+  // banner + Resume button).
+  it(`keeps a scheduled cancellation entitled until the period ends`, () => {
+    expect(ACTIVE_STATUSES).toContain(`scheduled_cancel`)
+  })
+
+  it(`drops a subscription that actually ended`, () => {
+    expect(ACTIVE_STATUSES).not.toContain(`canceled`)
+    expect(ACTIVE_STATUSES).not.toContain(`unpaid`)
   })
 })
 

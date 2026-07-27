@@ -38,28 +38,32 @@ public final class HTTPClient: Sendable {
         return request
     }
 
-    public func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    /// `accountId` is the account the request was authed for — the 426 gate is
+    /// keyed by it (REV2-43), so one instance rejecting this build never blocks
+    /// the other signed-in servers.
+    public func perform(_ request: URLRequest, accountId: String) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw HTTPError.invalidResponse
         }
-        // Client-version gate (EXP-104): a 426 means this build is below the
-        // server minimum. Trip the update gate (defensive decode — min/latest
-        // may be absent, and the decode must never throw) and fall through to
-        // the caller's existing error handling unchanged.
+        // Client-version gate (EXP-104): a 426 means this build is below THIS
+        // server's minimum. Trip the update gate for this account only
+        // (defensive decode — min/latest may be absent, and the decode must
+        // never throw) and fall through to the caller's existing error handling
+        // unchanged.
         if httpResponse.statusCode == 426 {
             let info = try? JSONDecoder().decode(ClientUpgradeResponse.self, from: data)
-            UpdateGate.shared.trigger(min: info?.min, latest: info?.latest)
+            await UpdateGate.shared.trigger(accountId: accountId, min: info?.min, latest: info?.latest)
         }
         return (data, httpResponse)
     }
 
     public func get(_ url: URL, accountId: String) async throws -> (Data, HTTPURLResponse) {
-        try await perform(request(url, accountId: accountId))
+        try await perform(request(url, accountId: accountId), accountId: accountId)
     }
 
     public func post(_ url: URL, accountId: String, body: Data) async throws -> (Data, HTTPURLResponse) {
-        try await perform(request(url, accountId: accountId, method: "POST", body: body))
+        try await perform(request(url, accountId: accountId, method: "POST", body: body), accountId: accountId)
     }
 
     /// POST a single file as `multipart/form-data` under field name `file` (the
@@ -85,7 +89,7 @@ public final class HTTPClient: Sendable {
             contentType: "multipart/form-data; boundary=\(boundary)"
         )
         req.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
-        return try await perform(req)
+        return try await perform(req, accountId: accountId)
     }
 
     // GET with an explicit bearer token — used by AuthApi.fetchSession during

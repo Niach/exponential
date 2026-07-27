@@ -142,7 +142,6 @@ export function WebMcpReadTools() {
       const { boards, issues } = await getTeamIssues(ctx.teamId)
       const countByBoard = new Map<string, number>()
       for (const issue of issues) {
-        if (issue.archivedAt) continue
         countByBoard.set(
           issue.boardId,
           (countByBoard.get(issue.boardId) ?? 0) + 1
@@ -158,7 +157,7 @@ export function WebMcpReadTools() {
 
   useWebMCP({
     name: `list_issues`,
-    description: `List issues on a board of the current team (newest-updated first). Ignores any filters active in the UI. Archived issues are excluded.`,
+    description: `List issues on a board of the current team (newest-updated first). Ignores any filters active in the UI.`,
     inputSchema: {
       board: boardRefSchema,
       statuses: z
@@ -176,9 +175,7 @@ export function WebMcpReadTools() {
       const ctx = getWebMcpAppContext()
       const { boards, issues } = await getTeamIssues(ctx.teamId)
       const board = resolveBoard(input.board, ctx.boardSlug, boards)
-      let rows = issues.filter(
-        (issue) => issue.boardId === board.id && !issue.archivedAt
-      )
+      let rows = issues.filter((issue) => issue.boardId === board.id)
       if (input.statuses && input.statuses.length > 0) {
         const wanted = new Set(input.statuses)
         rows = rows.filter((issue) => wanted.has(issue.status))

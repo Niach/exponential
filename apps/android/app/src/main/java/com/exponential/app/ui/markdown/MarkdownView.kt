@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -45,7 +47,9 @@ import com.exponential.app.ui.markdown.model.RichText
  * Replaces the `compose-rich-editor` `RichText` read path so all three clients
  * render the same contract. When a [LocalIssueRefs] handler is provided,
  * inline `#IDENTIFIER` tokens that resolve to a visible issue render as
- * tappable pills (render-only — the stored markdown keeps the plain token).
+ * tappable pills, and with a [LocalMentions] resolver a known member's
+ * `@email` renders as their name pill (both render-only — the stored markdown
+ * keeps the plain tokens).
  */
 @Composable
 fun MarkdownView(markdown: String, modifier: Modifier = Modifier) {
@@ -64,12 +68,22 @@ fun MarkdownView(markdown: String, modifier: Modifier = Modifier) {
 
 @Composable
 private fun ImageBlockView(url: String, alt: String) {
+    // Pre-size from the synced attachment probe (REV2-79) so the row reserves
+    // its real height instead of measuring 0 and jumping when the bitmap
+    // lands. Our own attachments whose probe hasn't synced yet reserve the
+    // editor's 4:3 tile; EXTERNAL image URLs (never probed) keep their natural
+    // sizing rather than being letterboxed forever.
+    val dims = LocalAttachmentDims.current
+    val aspect = dims.aspectRatioOf(url)
+        ?: if (attachmentIdFromUrl(url) != null) DEFAULT_IMAGE_ASPECT_RATIO else null
     AsyncImage(
         model = url,
         contentDescription = alt,
+        contentScale = ContentScale.Fit,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
+            .then(if (aspect != null) Modifier.aspectRatio(aspect) else Modifier)
             .clip(RoundedCornerShape(8.dp)),
     )
 }
@@ -114,6 +128,7 @@ private fun QuoteBlockView(
     marks: List<List<InlineMark>>,
     issueRefs: IssueRefHandler?,
 ) {
+    val mentions = LocalMentions.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -130,7 +145,7 @@ private fun QuoteBlockView(
         Column(Modifier.weight(1f)) {
             texts.forEachIndexed { index, text ->
                 Text(
-                    text = annotate(text, marks[index], issueRefs),
+                    text = annotate(text, marks[index], issueRefs, mentions),
                     style = MdStyle.body.copy(color = MdStyle.Blockquote),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
                 )
@@ -160,9 +175,10 @@ private fun LineView(
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
 ) {
+    val mentions = LocalMentions.current
     when (a.kind) {
         BlockKind.Heading -> Text(
-            text = annotate(text, marks, issueRefs),
+            text = annotate(text, marks, issueRefs, mentions),
             style = MdStyle.heading(a.headingLevel),
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
@@ -184,7 +200,7 @@ private fun LineView(
                 Spacer(Modifier.padding(vertical = 2.dp))
             } else {
                 Text(
-                    text = annotate(text, marks, issueRefs),
+                    text = annotate(text, marks, issueRefs, mentions),
                     style = MdStyle.body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
@@ -200,6 +216,7 @@ private fun ListItemView(
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
 ) {
+    val mentions = LocalMentions.current
     val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * a.listDepth
     Row(
         modifier = Modifier
@@ -225,7 +242,7 @@ private fun ListItemView(
             )
         }
         Text(
-            text = annotate(text, marks, issueRefs),
+            text = annotate(text, marks, issueRefs, mentions),
             style = MdStyle.body,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -238,20 +255,30 @@ internal fun annotate(
     text: String,
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
+    mentions: MentionResolver? = null,
 ): AnnotatedString {
     if (text.isEmpty()) return AnnotatedString("")
     val refPills = if (issueRefs != null) resolvedRefPills(text, marks, issueRefs) else emptyList()
-    if (marks.isEmpty() && refPills.isEmpty()) return AnnotatedString(text)
+    val mentionPills =
+        if (mentions != null) resolvedMentionPills(text, marks, mentions) else emptyList()
+    if (marks.isEmpty() && refPills.isEmpty() && mentionPills.isEmpty()) {
+        return AnnotatedString(text)
+    }
+    // A resolved mention renders the member's NAME over the stored `@email`
+    // (web read-only parity), so the displayed string is no longer the source
+    // string — every other span offset is mapped through [display].
+    val display = MentionDisplay.build(text, mentionPills)
     return buildAnnotatedString {
-        append(text)
+        append(display.text)
         // Compose crashes if two `LinkAnnotation`s overlap (issue-detail crash,
         // masterplan §9.3). Every `addLink` must be range-coerced into the
         // appended text AND rejected if it overlaps an already-added link, so
         // no combination of markdown links + `#IDENTIFIER` pills can throw.
         val linkRanges = ArrayList<Pair<Int, Int>>() // half-open [start, end)
+        // Takes SOURCE offsets and maps them onto the displayed string.
         fun addLinkGuarded(annotation: LinkAnnotation, rawStart: Int, rawEnd: Int) {
-            val start = rawStart.coerceIn(0, text.length)
-            val end = rawEnd.coerceIn(start, text.length)
+            val start = display.map(rawStart.coerceIn(0, text.length))
+            val end = display.map(rawEnd.coerceIn(0, text.length)).coerceAtLeast(start)
             if (end <= start) return
             if (linkRanges.any { it.first < end && start < it.second }) return
             when (annotation) {
@@ -261,8 +288,11 @@ internal fun annotate(
             linkRanges.add(start to end)
         }
         for (m in marks) {
-            val start = m.start.coerceIn(0, text.length)
-            val end = m.end.coerceIn(start, text.length)
+            val rawStart = m.start.coerceIn(0, text.length)
+            val rawEnd = m.end.coerceIn(rawStart, text.length)
+            if (rawEnd <= rawStart) continue
+            val start = display.map(rawStart)
+            val end = display.map(rawEnd).coerceAtLeast(start)
             if (end <= start) continue
             when (m.kind) {
                 InlineKind.Bold -> addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, end)
@@ -280,7 +310,7 @@ internal fun annotate(
                             url = href,
                             styles = TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
                         ),
-                        start, end,
+                        rawStart, rawEnd,
                     )
                 }
             }
@@ -305,6 +335,16 @@ internal fun annotate(
                 match.start, match.end,
             )
         }
+        // Resolved `@email` mentions render as the member's name pill
+        // (REV2-42) — display-only, not tappable (there is nothing to open),
+        // so they can never collide with a link annotation.
+        for (range in display.pills) {
+            addStyle(
+                SpanStyle(color = MdStyle.Link, background = MdStyle.IssueRefBg),
+                range.first,
+                range.second,
+            )
+        }
     }
 }
 
@@ -326,6 +366,91 @@ private fun resolvedRefPills(
         if (covered) return@mapNotNull null
         issueRefs.resolve(match.identifier)?.let { match to it }
     }
+
+/**
+ * `@email` tokens in this line that resolve to a visible team member. Tokens
+ * inside inline code or a markdown link stay plain (same rule as the
+ * `#IDENTIFIER` pills), and unknown addresses stay plain text.
+ */
+private fun resolvedMentionPills(
+    text: String,
+    marks: List<InlineMark>,
+    mentions: MentionResolver,
+): List<Pair<Mentions.Match, MentionMember>> =
+    Mentions.findAll(text).mapNotNull { match ->
+        val covered = marks.any { m ->
+            (m.kind == InlineKind.InlineCode || m.kind == InlineKind.Link) &&
+                m.start < match.end && match.start < m.end
+        }
+        if (covered) return@mapNotNull null
+        mentions.resolve(match.email)?.let { match to it }
+    }
+
+/**
+ * The rendered string when mention tokens are replaced by member names, plus
+ * the source→display offset mapping every other span is placed through.
+ * Desktop parity (`markdown::editor`'s decoration pass): the STORED markdown
+ * is untouched — only the display differs.
+ */
+internal class MentionDisplay private constructor(
+    val text: String,
+    /** Half-open display ranges of the rendered name pills. */
+    val pills: List<Pair<Int, Int>>,
+    private val replacements: List<Replacement>,
+) {
+    class Replacement(
+        val sourceStart: Int,
+        val sourceEnd: Int,
+        val displayStart: Int,
+        val displayEnd: Int,
+    )
+
+    /** Map a source offset onto the displayed string. */
+    fun map(offset: Int): Int {
+        if (replacements.isEmpty()) return offset
+        var delta = 0
+        for (r in replacements) {
+            if (offset <= r.sourceStart) break
+            if (offset < r.sourceEnd) {
+                // Inside a replaced token: snap to the nearer pill edge.
+                return if (offset - r.sourceStart <= r.sourceEnd - offset) {
+                    r.displayStart
+                } else {
+                    r.displayEnd
+                }
+            }
+            delta += (r.displayEnd - r.displayStart) - (r.sourceEnd - r.sourceStart)
+        }
+        return offset + delta
+    }
+
+    companion object {
+        /** Identity mapping when nothing is replaced. */
+        fun build(
+            text: String,
+            pills: List<Pair<Mentions.Match, MentionMember>>,
+        ): MentionDisplay {
+            if (pills.isEmpty()) return MentionDisplay(text, emptyList(), emptyList())
+            val out = StringBuilder(text.length)
+            val ranges = ArrayList<Pair<Int, Int>>(pills.size)
+            val replacements = ArrayList<Replacement>(pills.size)
+            var last = 0
+            for ((match, member) in pills.sortedBy { it.first.start }) {
+                if (match.start < last) continue // overlapping token: keep the first
+                out.append(text, last, match.start)
+                val displayStart = out.length
+                out.append('@').append(member.name)
+                ranges.add(displayStart to out.length)
+                replacements.add(
+                    Replacement(match.start, match.end, displayStart, out.length),
+                )
+                last = match.end
+            }
+            out.append(text, last, text.length)
+            return MentionDisplay(out.toString(), ranges, replacements)
+        }
+    }
+}
 
 /** Offset each block's marks into per-line-local coordinates. */
 internal fun lineLocalMarks(rich: RichText): List<List<InlineMark>> {

@@ -8,11 +8,11 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 // lists otherwise — the server-side member gate on the helpdesk router is the
 // boundary.
 export const Route = createFileRoute(`/t/$teamSlug/support/`)({
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
         to: `/auth/login`,
-        search: { redirect: undefined },
+        search: { redirect: location.href },
       })
     }
   },

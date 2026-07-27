@@ -65,8 +65,8 @@ export function DeleteAccountSection() {
             Danger Zone
           </CardTitle>
           <CardDescription>
-            Permanently delete your account, including your personal teams
-            and everything you created.
+            Permanently delete your account and every team where you are the
+            only member.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -86,10 +86,32 @@ export function DeleteAccountSection() {
           <DialogHeader>
             <DialogTitle>Delete your account</DialogTitle>
             <DialogDescription>
-              This permanently deletes your account, your personal teams,
-              and all issues and comments you created. This cannot be undone.
+              This permanently deletes your account and cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {/* Accurate per-team consequences (REV2-55/REV2-36): a solo team is
+              destroyed WITH its paid plan, while a shared team — and the
+              subscription funding it — survives, because a subscription
+              belongs to the team and not to whoever paid for it. */}
+          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>
+              Teams where you are the only member are deleted with all their
+              boards, issues and files. If one of them has a paid plan, that
+              subscription is cancelled immediately — no refund for the rest
+              of the period.
+            </li>
+            <li>
+              Teams you share with others stay exactly as they are, including
+              their paid plan — a subscription belongs to the team, so it
+              keeps running and the remaining owners keep managing it.
+            </li>
+            <li>
+              In shared teams, the issues you created and the images you
+              uploaded stay (they are part of the team&apos;s work); your
+              comments are deleted and mentions of your email address are
+              anonymized.
+            </li>
+          </ul>
           <div className="space-y-2 py-2">
             <Label htmlFor="delete-account-confirm">
               Type <span className="font-semibold">{email}</span> to confirm

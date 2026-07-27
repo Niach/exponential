@@ -1,3 +1,7 @@
 node_modules
 dist
 .vite
+
+# Remotion render output (movie:render / movie:still) and its cached browser
+out
+.remotion

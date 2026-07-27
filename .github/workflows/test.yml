@@ -37,6 +37,20 @@ jobs:
       - name: Steer relay + ticket tests
         run: bun run test:steer-relay
 
+  marketing:
+    # REV2-62: nothing else in CI typechecks or builds apps/marketing — its
+    # breaks used to surface only at Coolify deploy time. `build` also runs
+    # scripts/prerender.tsx, the Bun SSR canary that hard-fails if remotion
+    # ever enters HomePage's static import graph (the movie must stay in the
+    # lazy LoopMoviePlayer chunk).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Build marketing site
+        run: bun run build:marketing
+
   migrations:
     # EXP-112: drizzle-kit can generate SQL that fails on every real DB
     # (e.g. DROP TABLE CASCADE before its referencing DROP CONSTRAINTs —

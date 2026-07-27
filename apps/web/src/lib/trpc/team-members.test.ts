@@ -5,10 +5,11 @@ import { TRPCError } from "@trpc/server"
 // self-leave). REV-8: removal must also delete the ex-member's
 // issue_subscribers rows in that team inside the same transaction, so
 // notification fan-out and the team-scoped issue-subscribers shape stop
-// referencing them. The router runs against ctx.db, so a fake db object is
-// enough — `select()` shifts pre-seeded rows off a FIFO queue, `delete()`
-// records the drizzle table object it was called with, and `transaction()`
-// just hands the callback the same fake db.
+// referencing them. REV2-28: it must clear their assignments in the same
+// transaction too. The router runs against ctx.db, so a fake db object is
+// enough — `select()` shifts pre-seeded rows off a FIFO queue, `delete()` /
+// `update()` record the drizzle table object they were called with, and
+// `transaction()` just hands the callback the same fake db.
 const selectQueue: unknown[][] = []
 
 function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
@@ -22,10 +23,18 @@ function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
 }
 
 const deletes: { table: unknown }[] = []
+const updates: { table: unknown; values: Record<string, unknown> }[] = []
+
+type ThenableChain = Promise<unknown[]> & Record<string, () => unknown>
+
+type UpdateChain = {
+  set: (values: Record<string, unknown>) => { where: () => ThenableChain }
+}
 
 type FakeDb = {
   select: () => ReturnType<typeof selectChain>
   delete: (table: unknown) => { where: () => Promise<void> }
+  update: (table: unknown) => UpdateChain
   transaction: (fn: (tx: FakeDb) => Promise<void>) => Promise<void>
 }
 
@@ -36,6 +45,16 @@ const fakeDb: FakeDb = {
       deletes.push({ table })
       return Promise.resolve()
     },
+  }),
+  update: (table: unknown) => ({
+    set: (values: Record<string, unknown>) => ({
+      where: () => {
+        updates.push({ table, values })
+        const p = Promise.resolve([] as unknown[]) as ThenableChain
+        p.returning = () => p
+        return p
+      },
+    }),
   }),
   transaction: async (fn) => fn(fakeDb),
 }
@@ -63,7 +82,7 @@ vi.mock(`@/lib/auth/membership-cache`, () => ({
 
 import { teamMembersRouter } from "@/lib/trpc/team-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
-import { issueSubscribers, teamMembers } from "@/db/schema"
+import { issues, issueSubscribers, teamMembers } from "@/db/schema"
 
 const MEMBER_ID = `22222222-2222-4222-8222-222222222222`
 const WS = `11111111-1111-4111-8111-111111111111`
@@ -78,6 +97,7 @@ function callerFor(userId: string) {
 beforeEach(() => {
   selectQueue.length = 0
   deletes.length = 0
+  updates.length = 0
   assertTeamMember.mockClear()
   vi.mocked(invalidateMembershipCaches).mockClear()
 })
@@ -94,6 +114,8 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     expect(deletes).toHaveLength(2)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
+    // REV2-28: their assignments in that team are cleared too.
+    expect(updates).toEqual([{ table: issues, values: { assigneeId: null } }])
     // REV2-7: membership caches cleared post-commit.
     expect(invalidateMembershipCaches).toHaveBeenCalledTimes(1)
   })
@@ -109,6 +131,7 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     expect(deletes).toHaveLength(2)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
+    expect(updates).toEqual([{ table: issues, values: { assigneeId: null } }])
   })
 
   it(`still refuses to remove the last owner (guard survives the transaction refactor)`, async () => {
@@ -124,6 +147,8 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
       callerFor(`user-a`).remove({ memberId: MEMBER_ID })
     ).rejects.toThrow(TRPCError)
     expect(deletes).toHaveLength(0)
+    // REV2-28: the rejected removal leaves their assignments alone.
+    expect(updates).toHaveLength(0)
     // REV2-7: no membership change → no cache invalidation.
     expect(invalidateMembershipCaches).not.toHaveBeenCalled()
   })

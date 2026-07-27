@@ -215,17 +215,13 @@ impl RepoResolver {
 /// is stale. Shared with the settings Boards/Repositories panes, which
 /// cache the same server read. Sorted, so collection iteration order can
 /// never look like a link change. Repo-less boards are omitted (unrelated
-/// board churn must not force refetches); archived boards are omitted
-/// because the server's `boards[]` mapping hides them too, so archiving or
-/// unarchiving a LINKED board correctly counts as a mapping change.
+/// board churn must not force refetches).
 pub(crate) fn links_snapshot(team_id: &str, cx: &App) -> Vec<(String, String)> {
     let store = Store::global(cx);
     let boards = store.collections().boards.read(cx);
     let mut links: Vec<(String, String)> = boards
         .iter()
-        .filter(|board| {
-            board.team_id == team_id && board.archived_at.is_none()
-        })
+        .filter(|board| board.team_id == team_id)
         .filter_map(|board| {
             board
                 .repository_id

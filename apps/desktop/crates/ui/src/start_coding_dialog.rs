@@ -257,7 +257,7 @@ pub struct StartCodingDialogView {
     action_icon_picks: HashMap<String, String>,
     /// `repositories.list` rows for the repo input pickers.
     team_repos: Vec<ActionRepoRow>,
-    /// Every non-archived team issue, board→number ordered.
+    /// Every team issue, board→number ordered.
     rows: Vec<IssueRow>,
     /// issue id → probe state (LAZY: only checked issues probe).
     repos: HashMap<String, RepoState>,
@@ -317,10 +317,11 @@ impl StartCodingDialogView {
         // drop it from the run otherwise.
         let preselected: HashSet<String> = preselected.into_iter().collect();
         let mut issues = queries::team_issues(cx, &team_id);
-        // `team_issues` hides ARCHIVED rows, but the Play button resolves
-        // its seed from the raw collection — re-read any missing seed raw so
-        // an archived pick shows up force-checked instead of silently
-        // vanishing from the run (`batch_request` iterates `rows`).
+        // `team_issues` joins through the boards collection, but the Play
+        // button resolves its seed from the raw issues collection — re-read
+        // any seed the join dropped (a board row that hasn't synced yet) so
+        // the pick shows up force-checked instead of silently vanishing from
+        // the run (`batch_request` iterates `rows`).
         for seed in &preselected {
             if !issues.iter().any(|issue| &issue.id == seed) {
                 if let Some(issue) = Store::global(cx).collections().issues.read(cx).get(seed) {

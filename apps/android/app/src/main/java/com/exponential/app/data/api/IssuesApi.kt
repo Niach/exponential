@@ -22,8 +22,6 @@ data class CreateIssueInput(
     val description: String? = null,
     @SerialName("assigneeId") val assigneeId: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
-    @SerialName("dueTime") val dueTime: String? = null,
-    @SerialName("endTime") val endTime: String? = null,
     // Team label ids assigned at create (issues.create inserts the
     // issue_labels joins in the same transaction). Null = none.
     @SerialName("labelIds") val labelIds: List<String>? = null,
@@ -40,8 +38,6 @@ data class UpdateIssueInput(
     // setAssignee()/bulkUpdate(clearAssignee=true) to actually UNASSIGN.
     @SerialName("assigneeId") val assigneeId: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
-    @SerialName("dueTime") val dueTime: String? = null,
-    @SerialName("endTime") val endTime: String? = null,
     // Canonical issue this one duplicates (pairs with status='duplicate').
     // NOTE: the shared Json omits nulls (explicitNulls=false), so clearing the
     // FK goes through setDuplicateOf() which sends an explicit JSON null.

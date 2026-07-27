@@ -73,7 +73,7 @@ export const mcpGrantsRouter = router({
     }),
 
   // Everything the signed-in user could grant: their teams with each
-  // team's non-archived boards.
+  // team's live (non-trashed) boards.
   scopeTree: authedProcedure.query(async ({ ctx }) => {
     const memberTeams = await getMemberTeams(ctx.session.user.id)
     if (memberTeams.length === 0) return { teams: [] }
@@ -93,7 +93,6 @@ export const mcpGrantsRouter = router({
             boards.teamId,
             memberTeams.map((w) => w.id)
           ),
-          isNull(boards.archivedAt),
           isNull(boards.deletedAt)
         )
       )

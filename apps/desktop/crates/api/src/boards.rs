@@ -7,7 +7,7 @@
 //!   `{repositoryId}` OR `{fullName, …}` union
 //!   ([`BoardRepositoryInput`]). (slug is server-derived — there is no slug
 //!   field, §4.2; prefix is uppercased server-side.)
-//! - `boards.update({id, name?, color?, archivedAt?})` → `{board}` (no txId).
+//! - `boards.update({id, name?, color?, icon?})` → `{board}` (no txId).
 //! - `boards.delete({boardId})` → `{ok, txId}` (owner-only).
 //!
 //! (`boards.updatePreviewConfig` is the §7 run-target mirror — owned by the
@@ -16,7 +16,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
-use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 
 /// Slim camelCase mirror of the board row a mutation returns.
@@ -105,9 +104,6 @@ pub struct BoardsUpdateInput {
     /// grid; server: `boardIconSchema.nullable().optional()`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// ISO datetime to archive; `Null` un-archives (owner-only server-side).
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub archived_at: Patch<String>,
 }
 
 impl BoardsUpdateInput {
@@ -117,7 +113,6 @@ impl BoardsUpdateInput {
             name: None,
             color: None,
             icon: None,
-            archived_at: Patch::Omit,
         }
     }
 }
@@ -255,17 +250,11 @@ mod tests {
     }
 
     #[test]
-    fn update_omits_untouched_archived_at() {
+    fn update_omits_untouched_fields() {
         let mut input = BoardsUpdateInput::new("p-1");
         input.name = Some("Renamed".to_string());
         let json = serde_json::to_string(&input).unwrap();
         assert_eq!(json, r#"{"id":"p-1","name":"Renamed"}"#);
-
-        // Explicit un-archive is a null, not an omission.
-        let mut input = BoardsUpdateInput::new("p-1");
-        input.archived_at = Patch::Null;
-        let json = serde_json::to_string(&input).unwrap();
-        assert_eq!(json, r#"{"id":"p-1","archivedAt":null}"#);
 
         // EXP-288: the per-board settings page's icon update.
         let mut input = BoardsUpdateInput::new("p-1");

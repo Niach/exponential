@@ -204,7 +204,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("prefix", .text).notNull()
                 t.column("color", .text).notNull().defaults(to: "#6366f1")
                 t.column("sort_order", .double).notNull().defaults(to: 0)
-                t.column("archived_at", .text)
                 // The repo backing this board (Electric ride-along on the
                 // boards shape). Nullable — repos are optional on every board;
                 // coding affordances gate on presence.
@@ -212,7 +211,7 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Curated glyph name (nullable — nil falls back to a derived icon).
                 t.column("icon", .text)
                 // Server-managed protection flag: a protected board (the
-                // bootstrap dogfood board) can't be deleted/archived/repointed.
+                // bootstrap dogfood board) can't be deleted/repointed.
                 t.column("is_protected", .boolean).notNull().defaults(to: false)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
@@ -233,11 +232,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Issue origin ('user' | 'widget').
                 t.column("source", .text)
                 t.column("due_date", .text)
-                t.column("due_time", .text)
-                t.column("end_time", .text)
                 t.column("sort_order", .double).notNull().defaults(to: 0)
                 t.column("completed_at", .text)
-                t.column("archived_at", .text)
                 // Duplicate resolution (pairs with status='duplicate').
                 t.column("duplicate_of_id", .text)
                 // PR linkage (one issue = one PR); all nullable.
@@ -675,6 +671,44 @@ public final class DatabaseManager: @unchecked Sendable {
         migrator.registerMigration("v10_action_icon") { db in
             try db.alter(table: "actions") { t in
                 t.add(column: "icon", .text)
+            }
+        }
+
+        // v11 (REV2-103): archiving is gone from the product — `boards.archived_at`
+        // and `issues.archived_at` no longer exist server-side and the shapes no
+        // longer carry them. Drop the dead columns from the cache (the
+        // v5_drop_user_is_agent / v7_drop_board_dead_columns precedent); guarded
+        // on presence so fresh installs (which never create them above) and
+        // re-runs are no-ops. Stale stores that only now run the v6 issues
+        // rebuild still get the column from that historical create — this drops
+        // it right after. Board TRASH (`deleted_at`) is a different feature and
+        // is filtered server-side by the boards shape, so nothing here touches it.
+        migrator.registerMigration("v11_drop_archived_at") { db in
+            for table in ["boards", "issues"] {
+                guard try db.tableExists(table) else { continue }
+                let existing = Set(try db.columns(in: table).map(\.name))
+                guard existing.contains("archived_at") else { continue }
+                try db.alter(table: table) { t in
+                    t.drop(column: "archived_at")
+                }
+            }
+        }
+
+        // v12 (REV2-103 / REV2-49): time-of-day on issues is gone from the
+        // product — `issues.due_time` / `issues.end_time` no longer exist
+        // server-side and the issues shape no longer carries them. Drop the
+        // dead columns from the cache (the v11_drop_archived_at precedent);
+        // guarded on presence so fresh installs (which never create them
+        // above) and re-runs are no-ops. A stale store that only now runs the
+        // v6 issues rebuild still gets them from that historical create —
+        // this drops them right after. Due DATE (`due_date`) is untouched.
+        migrator.registerMigration("v12_drop_issue_times") { db in
+            guard try db.tableExists("issues") else { return }
+            let existing = Set(try db.columns(in: "issues").map(\.name))
+            for column in ["due_time", "end_time"] where existing.contains(column) {
+                try db.alter(table: "issues") { t in
+                    t.drop(column: column)
+                }
             }
         }
 

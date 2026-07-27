@@ -31,9 +31,9 @@ export function CodingDocsPage() {
           <div className="shell docs-hero-content">
             <h1>Coding with Claude</h1>
             <p>
-              Hand issues to Claude from the desktop IDE — it plans,
-              implements, and opens the pull request. On your machine, on
-              your Claude subscription.
+              Hand issues to a coding agent from the desktop IDE — Claude
+              Code, Codex, or pi. It plans, implements, and opens the pull
+              request. On your machine, on your own agent subscription.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href={LINKS.downloadPage}>
@@ -51,10 +51,10 @@ export function CodingDocsPage() {
               The <a href="/docs/apps/">desktop app</a> is the client that
               runs coding sessions. When you start one, it hands the issue to
               {` `}
-              <strong>Claude running locally</strong> — your machine, your
-              checkout, your Claude subscription. Nothing executes in a cloud
-              sandbox, and your code never routes through Exponential&apos;s
-              servers.
+              <strong>your agent running locally</strong> — Claude Code, Codex
+              or pi, on your machine, your checkout, your own agent
+              subscription. Nothing executes in a cloud sandbox, and your code
+              never routes through Exponential&apos;s servers.
             </p>
             <p>The server&apos;s role is deliberately small:</p>
             <ul>
@@ -65,9 +65,9 @@ export function CodingDocsPage() {
                 push without any long-lived credential on disk.
               </li>
               <li>
-                It <strong>opens and links pull requests</strong> when Claude
-                calls the built-in MCP tool — and tracks the PR through to
-                merge, completing the issue.
+                It <strong>opens and links pull requests</strong> when the
+                agent calls the built-in MCP tool — and tracks the PR through
+                to merge, completing the issue.
               </li>
             </ul>
             <p>
@@ -86,11 +86,13 @@ export function CodingDocsPage() {
                 Windows, or Linux.
               </li>
               <li>
-                <strong>Have <code>git</code> and the <code>claude</code> CLI
-                on your <code>PATH</code></strong>, with <code>claude</code>
+                <strong>Have <code>git</code> plus whichever agent CLIs you
+                use on your <code>PATH</code></strong> — <code>claude</code>,
                 {` `}
-                signed in to your Anthropic account. That&apos;s the entire
-                dependency list — no <code>gh</code>, no tokens to paste.
+                <code>codex</code>, <code>pi</code> — each signed in to its own
+                account. The app checks all three but only requires the one
+                you pick for the run. That&apos;s the entire dependency list —
+                no <code>gh</code>, no tokens to paste.
               </li>
               <li>
                 <strong>Sign in</strong> — to{` `}
@@ -108,10 +110,10 @@ export function CodingDocsPage() {
               </li>
             </ol>
             <p>
-              Under the hood, the launcher writes a scoped MCP config into the
-              run&apos;s worktree carrying a personal API key — that&apos;s
-              how Claude drives Exponential itself: updating issue status,
-              posting comments, and opening the PR, all as tools.
+              Under the hood, the launcher wires a scoped MCP config into the
+              run carrying a personal API key — that&apos;s how the agent
+              drives Exponential itself: updating issue status, posting
+              comments, and opening the PR, all as tools.
             </p>
           </DocsSection>
 
@@ -133,26 +135,43 @@ export function CodingDocsPage() {
 
             <ul>
               <li>
+                An <strong>agent tab strip</strong> —{` `}
+                <strong>Claude Code</strong>, <strong>Codex</strong> or{` `}
+                <strong>pi</strong>. The strip narrows to the CLIs the app
+                finds installed.
+              </li>
+              <li>
                 A <strong>searchable multi-issue picker</strong> — one checked
                 issue launches a single run, two or more launch a batch.
               </li>
               <li>
-                <strong>Model</strong> and <strong>Effort</strong> pickers.
+                <strong>Model</strong> and <strong>Effort</strong> pickers, per
+                agent — each agent offers its own models and its own effort
+                vocabulary (Codex calls it Reasoning, pi calls it Thinking).
               </li>
               <li>
-                <strong>Dynamic workflows (ultracode)</strong> — lets the run
-                organize its own workflow; it takes over the effort setting.
+                <strong>Skip permissions</strong> (Claude and Codex) — off
+                leaves the agent in its own guarded auto mode, on hands it a
+                full bypass.
               </li>
               <li>
-                <strong>Plan mode</strong> — Claude proposes a plan you approve
-                before it touches code.
+                <strong>Dynamic workflows (ultracode)</strong> — Claude only.
+                Lets the run organize its own workflow; it takes over the
+                effort setting.
+              </li>
+              <li>
+                <strong>Plan mode</strong> — Claude only. It proposes a plan
+                you approve before it touches code.
               </li>
             </ul>
             <p>
-              Defaults follow the mode: single-issue runs start with{` `}
-              <strong>plan mode on</strong>, batch runs start with{` `}
-              <strong>ultracode on</strong>. Every run uses exactly one
-              repository.
+              Defaults are <strong>per agent, not per mode</strong>: single and
+              batch runs prefill identically. Out of the box that&apos;s{` `}
+              <strong>plan mode on</strong>, <strong>ultracode off</strong> and
+              {` `}
+              <strong>skip permissions off</strong> — change them in the
+              desktop app&apos;s settings, per agent, and every future run
+              starts from your values. Every run uses exactly one repository.
             </p>
           </DocsSection>
 
@@ -169,9 +188,10 @@ export function CodingDocsPage() {
                 repo side by side.
               </li>
               <li>
-                Claude opens in the embedded terminal, seeded with the issue.
-                With plan mode on it <strong>plans first</strong>; you approve
-                before implementation starts.
+                The agent opens in the embedded terminal, seeded with the
+                issue. With Claude&apos;s plan mode on it{` `}
+                <strong>plans first</strong>; you approve before implementation
+                starts.
               </li>
               <li>
                 It implements, commits, pushes, and{` `}
@@ -192,7 +212,7 @@ export function CodingDocsPage() {
             <p>
               Check <strong>two or more issues</strong> in the dialog (or use
               the board&apos;s bulk-select bar) and you get a batch run:{` `}
-              <strong>one Claude session</strong> given all the issues at
+              <strong>one agent session</strong> given all the issues at
               once, working on <strong>one shared branch</strong> (
               <code>exp/batch-&lt;id&gt;</code>), ending in{` `}
               <strong>one combined PR</strong> linked to every issue in the
@@ -200,7 +220,7 @@ export function CodingDocsPage() {
             </p>
             <p>
               The batch is deliberately loose — the issues are handed over as
-              a list and Claude organizes the work itself. Issues may overlap
+              a list and the agent organizes the work itself. Issues may overlap
               or touch the same files; that&apos;s fine, and often the point.
             </p>
             <h3>When to batch</h3>
@@ -239,7 +259,7 @@ export function CodingDocsPage() {
               While a session runs, your other devices see it live: the{` `}
               <strong>Agents</strong> view on web and mobile shows the running
               session with a live activity feed, and you can{` `}
-              <strong>send steer messages</strong> from your phone — Claude
+              <strong>send steer messages</strong> from your phone — the agent
               picks them up mid-run. Review the plan from the couch, veto an
               approach from the train.
             </p>

@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from "react"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
@@ -64,12 +72,11 @@ export function CreateIssueDialog({
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
   const [dueDate, setDueDate] = useState<Date | undefined>()
-  const [dueTime, setDueTime] = useState<string | null>(null)
-  const [endTime, setEndTime] = useState<string | null>(null)
   const [createMore, setCreateMore] = useState(false)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [draftImages, setDraftImages] = useState<DraftImage[]>([])
   const [submitPhase, setSubmitPhase] = useState<CreateIssueSubmitPhase>(`idle`)
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   const editorRef = useRef<MarkdownEditorRef>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const descriptionRef = useRef(``)
@@ -153,8 +160,6 @@ export function CreateIssueDialog({
     setAssigneeId(soleMemberId)
     setSelectedLabelIds([])
     setDueDate(undefined)
-    setDueTime(null)
-    setEndTime(null)
   }
 
   const handleToggleLabel = (labelId: string) => {
@@ -213,8 +218,27 @@ export function CreateIssueDialog({
   }
 
   const handleClose = () => {
+    setDiscardConfirmOpen(false)
     resetFields()
     onOpenChange(false)
+  }
+
+  const hasDraftContent =
+    title.trim().length > 0 ||
+    toIssueDescription(description) !== null ||
+    draftImages.length > 0
+
+  // Escape or a backdrop click is one stray keystroke away from destroying an
+  // arbitrarily long draft — resetFields() also revokes the pasted images'
+  // object URLs, so the draft is unrecoverable. Confirm first (REV2-60); the
+  // explicit Close button and the post-create error footer stay immediate.
+  const handleDismissAttempt = () => {
+    if (submitPhase !== `idle` || !hasDraftContent) {
+      return false
+    }
+
+    setDiscardConfirmOpen(true)
+    return true
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -259,8 +283,6 @@ export function CreateIssueDialog({
         assigneeId: assigneeId ?? undefined,
         description: toIssueDescription(strippedDescription) ?? undefined,
         dueDate: formatDateForMutation(dueDate) ?? undefined,
-        dueTime: dueTime ?? undefined,
-        endTime: endTime ?? undefined,
         labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
       })
 
@@ -350,96 +372,69 @@ export function CreateIssueDialog({
   }
 
   return (
-    <IssueEditorDialogShell
-      open={open}
-      onOpenChange={handleOpenChange}
-      boardPrefix={boardPrefix}
-      boardColor={boardColor}
-      dialogTestId="issue-editor-create"
-      formProps={{ onSubmit: handleSubmit }}
-      primaryAction={{
-        type: `submit`,
-        disabled: !title.trim() || closeDisabled,
-        loading: submitPhase === `creating` || submitPhase === `uploading`,
-      }}
-      headerContent={<span className="text-sm">New issue</span>}
-      title={title}
-      titleRef={titleRef}
-      autoFocus
-      disabled={dialogDisabled}
-      closeDisabled={closeDisabled}
-      onTitleChange={setTitle}
-      description={description}
-      editorRef={editorRef}
-      onDescriptionChange={setDescriptionValue}
-      imageUpload={{
-        enabled: true,
-        uploading: submitPhase === `uploading`,
-        onFiles: handleImageFiles,
-      }}
-      status={status}
-      onStatusChange={setStatus}
-      priority={priority}
-      onPriorityChange={setPriority}
-      teamId={teamId}
-      selectedLabelIds={selectedLabelIds}
-      onToggleLabel={handleToggleLabel}
-      users={users}
-      assigneeId={assigneeId}
-      onAssigneeChange={setAssigneeId}
-      hideAssignee={isSolo}
-      dueDate={dueDate}
-      onDueDateSelect={setDueDate}
-      dueTime={dueTime}
-      endTime={endTime}
-      onDueTimeChange={setDueTime}
-      onEndTimeChange={setEndTime}
-      createMore={createMore}
-      onCreateMoreChange={setCreateMore}
-      mobileFooter={
-        submitPhase === `created_with_image_errors` ? (
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
-            <span className="text-xs text-destructive">{attachmentStatus}</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              onClick={handleClose}
-            >
-              Close
-            </Button>
-          </div>
-        ) : (
-          // Submit lives in the header FAB and "Create more" in the property
-          // card, so the mobile footer is just the attachment rail.
-          <div className="px-4 py-3 border-t border-border">
-            <IssueEditorAttachmentRail
-              attachmentStatus={attachmentStatus}
-              images={imageOccurrences}
-              onFiles={handleImageFiles}
-              onRemove={handleRemoveImageOccurrence}
-              uploading={submitPhase === `uploading`}
-              disabled={closeDisabled}
-            />
-          </div>
-        )
-      }
-      footer={
-        submitPhase === `created_with_image_errors` ? (
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
-            <span className="text-xs text-destructive">{attachmentStatus}</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              onClick={handleClose}
-            >
-              Close
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-            <div className="min-w-0 flex-1">
+    <>
+      <IssueEditorDialogShell
+        open={open}
+        onOpenChange={handleOpenChange}
+        onDismissAttempt={handleDismissAttempt}
+        boardPrefix={boardPrefix}
+        boardColor={boardColor}
+        dialogTestId="issue-editor-create"
+        formProps={{ onSubmit: handleSubmit }}
+        primaryAction={{
+          type: `submit`,
+          disabled: !title.trim() || closeDisabled,
+          loading: submitPhase === `creating` || submitPhase === `uploading`,
+        }}
+        headerContent={<span className="text-sm">New issue</span>}
+        title={title}
+        titleRef={titleRef}
+        autoFocus
+        disabled={dialogDisabled}
+        closeDisabled={closeDisabled}
+        onTitleChange={setTitle}
+        description={description}
+        editorRef={editorRef}
+        onDescriptionChange={setDescriptionValue}
+        imageUpload={{
+          enabled: true,
+          uploading: submitPhase === `uploading`,
+          onFiles: handleImageFiles,
+        }}
+        status={status}
+        onStatusChange={setStatus}
+        priority={priority}
+        onPriorityChange={setPriority}
+        teamId={teamId}
+        selectedLabelIds={selectedLabelIds}
+        onToggleLabel={handleToggleLabel}
+        users={users}
+        assigneeId={assigneeId}
+        onAssigneeChange={setAssigneeId}
+        hideAssignee={isSolo}
+        dueDate={dueDate}
+        onDueDateSelect={setDueDate}
+        createMore={createMore}
+        onCreateMoreChange={setCreateMore}
+        mobileFooter={
+          submitPhase === `created_with_image_errors` ? (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
+              <span className="text-xs text-destructive">
+                {attachmentStatus}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={handleClose}
+              >
+                Close
+              </Button>
+            </div>
+          ) : (
+            // Submit lives in the header FAB and "Create more" in the property
+            // card, so the mobile footer is just the attachment rail.
+            <div className="px-4 py-3 border-t border-border">
               <IssueEditorAttachmentRail
                 attachmentStatus={attachmentStatus}
                 images={imageOccurrences}
@@ -449,37 +444,96 @@ export function CreateIssueDialog({
                 disabled={closeDisabled}
               />
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="create-more"
-                  size="sm"
-                  checked={createMore}
-                  disabled={closeDisabled}
-                  onCheckedChange={(checked) => setCreateMore(checked === true)}
-                />
-                <Label
-                  htmlFor="create-more"
-                  className="text-xs text-muted-foreground cursor-pointer select-none"
-                >
-                  Create more
-                </Label>
-              </div>
+          )
+        }
+        footer={
+          submitPhase === `created_with_image_errors` ? (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
+              <span className="text-xs text-destructive">
+                {attachmentStatus}
+              </span>
               <Button
-                type="submit"
-                disabled={!title.trim() || closeDisabled}
-                className="inline-flex items-center justify-center rounded-full bg-brand-strong px-3 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand-strong/90 disabled:pointer-events-none disabled:opacity-50 h-7"
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={handleClose}
               >
-                {submitPhase === `uploading`
-                  ? `Uploading images...`
-                  : submitPhase === `creating`
-                    ? `Creating...`
-                    : `Create issue`}
+                Close
               </Button>
             </div>
-          </div>
-        )
-      }
-    />
+          ) : (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+              <div className="min-w-0 flex-1">
+                <IssueEditorAttachmentRail
+                  attachmentStatus={attachmentStatus}
+                  images={imageOccurrences}
+                  onFiles={handleImageFiles}
+                  onRemove={handleRemoveImageOccurrence}
+                  uploading={submitPhase === `uploading`}
+                  disabled={closeDisabled}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="create-more"
+                    size="sm"
+                    checked={createMore}
+                    disabled={closeDisabled}
+                    onCheckedChange={(checked) =>
+                      setCreateMore(checked === true)
+                    }
+                  />
+                  <Label
+                    htmlFor="create-more"
+                    className="text-xs text-muted-foreground cursor-pointer select-none"
+                  >
+                    Create more
+                  </Label>
+                </div>
+                <Button
+                  type="submit"
+                  disabled={!title.trim() || closeDisabled}
+                  className="inline-flex items-center justify-center rounded-full bg-brand-strong px-3 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand-strong/90 disabled:pointer-events-none disabled:opacity-50 h-7"
+                >
+                  {submitPhase === `uploading`
+                    ? `Uploading images...`
+                    : submitPhase === `creating`
+                      ? `Creating...`
+                      : `Create issue`}
+                </Button>
+              </div>
+            </div>
+          )
+        }
+      />
+
+      <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+        <DialogContent
+          className="sm:max-w-sm"
+          data-testid="discard-draft-confirm"
+        >
+          <DialogHeader>
+            <DialogTitle>Discard draft?</DialogTitle>
+            <DialogDescription>
+              This issue hasn&apos;t been created yet — discarding clears the
+              title, description and any attached images.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDiscardConfirmOpen(false)}
+            >
+              Keep editing
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleClose}>
+              Discard draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

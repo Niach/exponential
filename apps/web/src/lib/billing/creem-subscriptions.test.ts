@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   selectRows: [] as unknown[],
   selectCalls: { count: 0 },
   cancel: vi.fn(),
+  resume: vi.fn(),
   updateCalls: [] as Array<{ values: unknown }>,
 }))
 
@@ -39,15 +40,20 @@ vi.mock(`@/lib/bootstrap-cloud`, () => ({
 }))
 
 vi.mock(`@creem_io/better-auth/server`, () => ({
-  createCreemClient: () => ({ subscriptions: { cancel: mocks.cancel } }),
+  createCreemClient: () => ({
+    subscriptions: { cancel: mocks.cancel, resume: mocks.resume },
+  }),
 }))
 
+import { ACTIVE_STATUSES } from "@/lib/billing"
 import {
+  ACTIVE_SUBSCRIPTION_STATUSES,
   assertSubscriptionMutable,
   buildSeatUpdateItems,
   cancelCreemSubscriptionsBestEffort,
-  findActiveSubscriptionsForUser,
   findActiveSubscriptionsForTeams,
+  resumeCreemSubscription,
+  scheduleCreemSubscriptionCancellation,
   SUBSCRIPTION_UPDATE_BEHAVIOR,
 } from "./creem-subscriptions"
 
@@ -81,6 +87,31 @@ describe(`buildSeatUpdateItems`, () => {
     expect(() => buildSeatUpdateItems(null, 2)).toThrow(TRPCError)
     expect(() => buildSeatUpdateItems([ITEM, { ...ITEM, id: `sitem_2` }], 2)).toThrow(
       TRPCError
+    )
+  })
+})
+
+describe(`ACTIVE_SUBSCRIPTION_STATUSES`, () => {
+  // A scheduled cancellation is PAID THROUGH periodEnd. Dropping it from the
+  // active set would zero the team's entitlements the moment the owner
+  // clicked Cancel, and make getActiveTeamSubscription return null — hiding
+  // the pending-cancel banner and breaking Resume/the team-delete gate.
+  it(`counts Creem's scheduled_cancel as still subscribed`, () => {
+    expect(ACTIVE_SUBSCRIPTION_STATUSES).toContain(`scheduled_cancel`)
+  })
+
+  it(`never counts a finished subscription`, () => {
+    expect(ACTIVE_SUBSCRIPTION_STATUSES).not.toContain(`canceled`)
+    expect(ACTIVE_SUBSCRIPTION_STATUSES).not.toContain(`unpaid`)
+    expect(ACTIVE_SUBSCRIPTION_STATUSES).not.toContain(`paused`)
+  })
+
+  // The two lists gate the same question in two modules (row lookup vs plan
+  // resolution); a status in one but not the other means a team can be
+  // entitled while its subscription is invisible, or vice versa.
+  it(`matches lib/billing.ts's ACTIVE_STATUSES exactly`, () => {
+    expect([...ACTIVE_SUBSCRIPTION_STATUSES].sort()).toEqual(
+      [...ACTIVE_STATUSES].sort()
     )
   })
 })
@@ -148,6 +179,7 @@ describe(`cancel-on-delete`, () => {
     mocks.selectCalls.count = 0
     mocks.updateCalls.length = 0
     mocks.cancel.mockReset()
+    mocks.resume.mockReset()
     process.env.CREEM_API_KEY = `creem_test_key`
     errorSpy = vi.spyOn(console, `error`).mockImplementation(() => {})
     warnSpy = vi.spyOn(console, `warn`).mockImplementation(() => {})
@@ -188,21 +220,29 @@ describe(`cancel-on-delete`, () => {
     })
   })
 
-  describe(`findActiveSubscriptionsForUser`, () => {
-    it(`returns the subscriptions the user purchased`, async () => {
-      mocks.selectRows = [{ id: `row-1`, creemSubscriptionId: `sub_1` }]
-      await expect(findActiveSubscriptionsForUser(`user-1`)).resolves.toEqual([
-        { id: `row-1`, creemSubscriptionId: `sub_1` },
-      ])
-      expect(mocks.selectCalls.count).toBe(1)
+  // REV2-55: the buyer-scoped capture (findActiveSubscriptionsForUser) is
+  // GONE on purpose. Account deletion may only cancel subscriptions bound to
+  // the solo teams it destroys — a subscription belongs to its team, so the
+  // ones funding surviving teams must outlive their purchaser.
+  it(`exports no buyer-scoped capture helper`, async () => {
+    const mod = await import(`./creem-subscriptions`)
+    expect(`findActiveSubscriptionsForUser` in mod).toBe(false)
+  })
+
+  describe(`self-service cancel / resume`, () => {
+    it(`schedules cancellation at period end, never immediately`, async () => {
+      mocks.cancel.mockResolvedValue({})
+      await scheduleCreemSubscriptionCancellation(`sub_1`)
+      expect(mocks.cancel).toHaveBeenCalledWith(`sub_1`, {
+        mode: `scheduled`,
+        onExecute: `cancel`,
+      })
     })
 
-    it(`no-ops on self-hosted instances (no billing)`, async () => {
-      mocks.cloud.value = false
-      await expect(findActiveSubscriptionsForUser(`user-1`)).resolves.toEqual(
-        []
-      )
-      expect(mocks.selectCalls.count).toBe(0)
+    it(`resumes a scheduled cancellation`, async () => {
+      mocks.resume.mockResolvedValue({})
+      await resumeCreemSubscription(`sub_1`)
+      expect(mocks.resume).toHaveBeenCalledWith(`sub_1`)
     })
   })
 

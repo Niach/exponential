@@ -3,7 +3,6 @@ WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/marketing/package.json apps/marketing/package.json
-COPY apps/video/package.json apps/video/package.json
 COPY apps/push-relay/package.json apps/push-relay/package.json
 COPY packages/db-schema/package.json packages/db-schema/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
@@ -31,7 +30,6 @@ COPY --from=builder /app/package.json .
 COPY --from=builder /app/bun.lock .
 COPY --from=builder /app/bunfig.toml .
 COPY --from=builder /app/apps/marketing/package.json apps/marketing/package.json
-COPY --from=builder /app/apps/video/package.json apps/video/package.json
 COPY --from=builder /app/apps/push-relay/package.json apps/push-relay/package.json
 COPY --from=builder /app/apps/steer-relay/package.json apps/steer-relay/package.json
 COPY --from=builder /app/packages packages
@@ -48,6 +46,10 @@ RUN touch apps/web/.env
 ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336
 EXPOSE 3000
 # start-period covers the migrate step before the server begins listening.
+# REV2-68: probe whatever the server actually binds — server-bun.ts reads
+# NITRO_PORT, then PORT, then falls back to 3000. The self-host recipe runs the
+# image with -e PORT=5173, where a hardcoded 3000 measured the compose Caddy (or
+# nothing at all) instead of this container.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD bun -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD bun -e "fetch('http://localhost:'+(Number.parseInt(process.env.NITRO_PORT||process.env.PORT||'')||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["sh", "-c", "bun --filter @exp/web migrate && bun .output/server/index.mjs"]

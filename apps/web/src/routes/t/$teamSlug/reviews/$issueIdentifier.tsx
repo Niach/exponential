@@ -45,11 +45,11 @@ import { PrStateBadge } from "@/components/issue-coding-rows"
 export const Route = createFileRoute(
   `/t/$teamSlug/reviews/$issueIdentifier`
 )({
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
         to: `/auth/login`,
-        search: { redirect: undefined },
+        search: { redirect: location.href },
       })
     }
   },
@@ -185,12 +185,10 @@ function ReviewDetailPage() {
   )
   const linked = useMemo(
     () =>
-      ((linkedRows ?? []) as Issue[])
-        .filter((i) => i.archivedAt == null)
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        ),
+      ((linkedRows ?? []) as Issue[]).sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ),
     [linkedRows]
   )
 

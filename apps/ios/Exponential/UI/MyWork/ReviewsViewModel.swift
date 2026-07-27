@@ -64,7 +64,7 @@ final class ReviewsViewModel {
         issueTask = Task { [weak self] in
             do {
                 for try await issues in issueObservation.values(in: pool) {
-                    self?.issues = issues.filter { $0.archivedAt == nil }
+                    self?.issues = issues
                 }
             } catch {}
         }

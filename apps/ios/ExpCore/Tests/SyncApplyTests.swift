@@ -53,8 +53,8 @@ final class SyncApplyTests: XCTestCase {
             try IssueEntity(
                 id: id, boardId: "p1", number: 1, identifier: "EXP-1", title: title,
                 description: nil, status: "todo", priority: "none", assigneeId: nil,
-                creatorId: "u1", source: nil, dueDate: nil, dueTime: nil, endTime: nil, sortOrder: 1.0,
-                completedAt: nil, archivedAt: nil, duplicateOfId: nil, prUrl: nil,
+                creatorId: "u1", source: nil, dueDate: nil, sortOrder: 1.0,
+                completedAt: nil, duplicateOfId: nil, prUrl: nil,
                 prNumber: nil, prState: nil, branch: nil, prMergedAt: nil,
                 createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
             ).save(db)
@@ -130,7 +130,7 @@ final class SyncApplyTests: XCTestCase {
         // persist it into the v5 column (not silently drop it).
         let board = BoardEntity(
             id: "p1", teamId: "ws1", name: "Dogfood", slug: "exponential",
-            prefix: "EXP", color: "#6366f1", sortOrder: 0, archivedAt: nil,
+            prefix: "EXP", color: "#6366f1", sortOrder: 0,
             repositoryId: "repo1", isProtected: true,
             createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
         )

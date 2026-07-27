@@ -75,9 +75,12 @@ import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
+import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalIssueRefs
+import com.exponential.app.ui.markdown.LocalMentions
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
+import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
@@ -192,6 +195,26 @@ fun IssueDetailScreen(
         }
     }
 
+    // Surface a refused property mutation — status/priority/due date/assignee/
+    // labels/title, subscribe, duplicate, delete (REV2-50). The screen renders
+    // synced state, so without this the tap read as "nothing happened".
+    val mutationError by viewModel.mutationError.collectAsStateWithLifecycle()
+    LaunchedEffect(mutationError) {
+        mutationError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeMutationError()
+        }
+    }
+
+    // Same for the comment thread (send / edit / delete).
+    val commentError by commentViewModel.commentError.collectAsStateWithLifecycle()
+    LaunchedEffect(commentError) {
+        commentError?.let {
+            snackbarHostState.showSnackbar(it)
+            commentViewModel.consumeCommentError()
+        }
+    }
+
     // Remote-start feedback (EXP-240 — the inline captions left with the card's
     // start strip): failures surface as a snackbar; a batch send points at the
     // Agents tab (the single-issue send keeps spinning in the start circle
@@ -220,7 +243,23 @@ fun IssueDetailScreen(
         IssueRefHandler(issueRefCandidates) { target -> currentOnOpenIssue(target.issueId) }
     }
 
-    CompositionLocalProvider(LocalIssueRefs provides issueRefHandler) {
+    // Inline `@email` mention pills (REV2-42): the same synced team members the
+    // @-autocomplete offers, so a written mention renders as the member's name
+    // in every read view below (description + comment thread) instead of a raw
+    // address. Display-only — the stored markdown keeps the `@email` token.
+    val mentionMembers = remember(state.users) {
+        state.users.map { MentionMember(it.name ?: it.email, it.email) }
+    }
+    val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
+
+    // Probed image sizes for the description + comment images (REV2-79).
+    val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
+
+    CompositionLocalProvider(
+        LocalIssueRefs provides issueRefHandler,
+        LocalMentions provides mentionResolver,
+        LocalAttachmentDims provides attachmentDims,
+    ) {
     ProvideMarkdownToolbar {
     Scaffold(
         topBar = {
@@ -348,10 +387,6 @@ fun IssueDetailScreen(
 
         val status = IssueStatus.fromWire(issue.status)
         val priority = IssuePriority.fromWire(issue.priority)
-        val mentionMembers = remember(state.users) {
-            state.users
-                .map { MentionMember(it.name ?: it.email, it.email) }
-        }
 
         // Start-circle gating + content (EXP-240): hidden without steer /
         // membership / a repo-backed board, and until the device list has
@@ -725,11 +760,7 @@ fun IssueDetailScreen(
     if (activeSheet == IssueSheet.DueDate && issue != null && isModerator) {
         DueDateSheet(
             dueDate = issue.dueDate,
-            dueTime = issue.dueTime,
-            endTime = issue.endTime,
             onSetDate = { viewModel.updateDueDate(it) },
-            onSetDueTime = { viewModel.updateDueTime(it) },
-            onSetEndTime = { viewModel.updateEndTime(it) },
             onDismiss = { activeSheet = null },
         )
     }

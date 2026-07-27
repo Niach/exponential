@@ -68,6 +68,36 @@ public enum SharedBoardMirror {
         defaults.set(data, forKey: lastUsedKey)
     }
 
+    // MARK: - Teardown
+
+    /// Drop everything mirrored for one account (sign-out / remove-server /
+    /// delete-account). The mirror is only ever rewritten by a *remaining*
+    /// signed-in account's board observation, so without this an account torn
+    /// down from Settings would leave its team/board/display names in the
+    /// app-group container forever (and the extension would keep offering
+    /// boards it can no longer reach).
+    public static func remove(accountId: String) {
+        guard !accountId.isEmpty, let defaults = SharedAppGroup.defaults else { return }
+        let kept = readBoards().filter { $0.accountId != accountId }
+        if kept.isEmpty {
+            defaults.removeObject(forKey: boardsKey)
+        } else if let data = try? JSONEncoder().encode(kept) {
+            defaults.set(data, forKey: boardsKey)
+        }
+        if readLastUsed()?.accountId == accountId {
+            defaults.removeObject(forKey: lastUsedKey)
+        }
+    }
+
+    /// Forget the picker default once its account is no longer signed in.
+    public static func pruneLastUsed(signedInAccountIds: Set<String>) {
+        guard let defaults = SharedAppGroup.defaults,
+              let last = readLastUsed(),
+              !signedInAccountIds.contains(last.accountId)
+        else { return }
+        defaults.removeObject(forKey: lastUsedKey)
+    }
+
     // MARK: - Extension reads
 
     public static func readBoards() -> [MirroredBoard] {

@@ -1,7 +1,12 @@
 import type { ReactNode } from "react"
 import { CalendarDays, MoreHorizontal } from "lucide-react"
 import type { User } from "@/db/schema"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
+import {
+  ISSUE_PRIORITY_FALLBACK,
+  ISSUE_STATUS_FALLBACK,
+  type IssuePriority,
+  type IssueStatus,
+} from "@/lib/domain"
 import { formatDate } from "@/lib/utils"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
@@ -22,7 +27,6 @@ export const creatableStatuses = statuses.filter(
   (option) => option.value !== `duplicate`
 )
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
-import { TimeInput } from "@/components/time-input"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -44,8 +48,6 @@ export interface IssueEditorChipsProps {
   teamId: string
   users: User[]
   dueDate: Date | undefined
-  dueTime: string | null
-  endTime: string | null
   hideAssignee?: boolean
   hideDueDateChip?: boolean
   disableStatus?: boolean
@@ -57,8 +59,6 @@ export interface IssueEditorChipsProps {
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
-  onDueTimeChange: (time: string | null) => void | Promise<void>
-  onEndTimeChange: (time: string | null) => void | Promise<void>
 }
 
 export function IssueEditorChips({
@@ -69,8 +69,6 @@ export function IssueEditorChips({
   teamId,
   users,
   dueDate,
-  dueTime,
-  endTime,
   hideAssignee,
   hideDueDateChip,
   disableStatus,
@@ -82,13 +80,12 @@ export function IssueEditorChips({
   onAssigneeChange,
   onToggleLabel,
   onDueDateSelect,
-  onDueTimeChange,
-  onEndTimeChange,
 }: IssueEditorChipsProps) {
   return (
     <>
       <OptionDropdownMenu
         value={status}
+        fallbackValue={ISSUE_STATUS_FALLBACK}
         disabled={disabled || disableStatus}
         options={creatableStatuses}
         onSelect={onStatusChange}
@@ -108,6 +105,7 @@ export function IssueEditorChips({
 
       <OptionDropdownMenu
         value={priority}
+        fallbackValue={ISSUE_PRIORITY_FALLBACK}
         disabled={disabled}
         options={priorities}
         onSelect={onPriorityChange}
@@ -151,9 +149,7 @@ export function IssueEditorChips({
               disabled={disabled}
             >
               <CalendarDays className="size-3" />
-              {dueDate
-                ? `${formatDate(dueDate)}${dueTime ? ` · ${dueTime.slice(0, 5)}` : ``}`
-                : `Due date`}
+              {dueDate ? formatDate(dueDate) : `Due date`}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
@@ -164,39 +160,6 @@ export function IssueEditorChips({
                 void onDueDateSelect(date)
               }}
             />
-            {dueDate && (
-              <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                <span>Time</span>
-                <TimeInput
-                  value={dueTime}
-                  onChange={(t) => void onDueTimeChange(t)}
-                  className="h-7 w-20 text-xs tabular-nums"
-                  ariaLabel="Start time"
-                />
-                <span>–</span>
-                <TimeInput
-                  value={endTime}
-                  onChange={(t) => void onEndTimeChange(t)}
-                  disabled={!dueTime}
-                  className="h-7 w-20 text-xs tabular-nums"
-                  ariaLabel="End time"
-                />
-                {(dueTime || endTime) && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    className="ml-auto h-6 text-xs"
-                    onClick={() => {
-                      void onDueTimeChange(null)
-                      void onEndTimeChange(null)
-                    }}
-                  >
-                    All day
-                  </Button>
-                )}
-              </div>
-            )}
           </PopoverContent>
         </Popover>
       )}

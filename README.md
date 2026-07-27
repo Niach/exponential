@@ -8,13 +8,13 @@
 
 ## What it does
 
-- **Issues** — statuses, priorities, labels, due dates, assignees, recurring issues, GFM descriptions with @mentions and image attachments. Real-time sync on every client via [ElectricSQL](https://electric-sql.com); no spinners, no stale lists.
-- **Every project is a GitHub repository** — connected through a GitHub App. One issue = one branch (`exp/EXP-42`) = one pull request, tracked on the issue.
+- **Issues** — statuses, priorities, labels, due dates, assignees, GFM descriptions with @mentions and image attachments. Real-time sync on every client via [ElectricSQL](https://electric-sql.com); no spinners, no stale lists.
+- **Boards, optionally backed by a GitHub repository** — connect one through a GitHub App and the coding features turn on: one issue = one branch (`exp/EXP-42`) = one pull request, tracked on the issue. Boards without a repository stay plain issue tracking.
 - **Start coding** — the desktop IDE hands an issue to Claude Code on *your* machine, on your subscription: it creates a git worktree, plans, codes in the embedded terminal, and opens the PR itself. Bring your own agents — there is no cloud-agent billing, ever.
 - **Desktop IDE** (Rust, [gpui](https://www.gpui.rs)) — issue board, file tree, source control with side-by-side diffs, embedded terminal.
 - **Live steer** — watch and redirect a running coding session from your phone.
 - **Feedback widget** — a script tag for your own site; visitors report bugs with annotated screenshots that land as issues.
-- **MCP server** — point Claude Code, Cursor, or any MCP client at `/api/mcp` and work with issues, projects, and PRs as your real user (OAuth 2.1, no tokens to copy).
+- **MCP server** — point Claude Code, Cursor, or any MCP client at `/api/mcp` and work with issues, boards, and PRs as your real user (OAuth 2.1, no tokens to copy).
 
 ## The repo
 
@@ -42,7 +42,7 @@ packages/
 ```sh
 git clone https://github.com/Niach/exponential
 cd exponential
-cp .env.example .env             # set BETTER_AUTH_SECRET + GitHub App creds
+cp .env.example .env             # set BETTER_AUTH_SECRET
 ln -s ../../.env apps/web/.env   # the web app reads env from apps/web/
 cp Caddyfile.example Caddyfile   # gitignored — compose bind-mounts it
 openssl rand -hex 32 > infra/garage/secrets/rpc_secret
@@ -56,7 +56,7 @@ bun run storage:init             # prints S3 keys — paste into .env
 bun dev
 ```
 
-App at `https://localhost:3000` (Caddy proxies for HTTP/2). A **GitHub App is required to create projects** (every project is a repository) — set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`; see [`.env.example`](./.env.example) for these and everything else (OIDC, Google login, SMTP/Amazon SES, push, steer). Full guide: [self-host docs](https://exponential.at/docs/self-host/).
+App at `https://localhost:3000` (Caddy proxies for HTTP/2). Teams, boards, and issues work out of the box: a **GitHub App is only needed for coding** — backing a board with a repository, and the PRs coding sessions open. Set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` when you want that; see [`.env.example`](./.env.example) for these and everything else (OIDC, Google login, SMTP/Amazon SES, push, steer). Full guide: [self-host docs](https://exponential.at/docs/self-host/).
 
 For production, build the web image and run it instead of `bun dev` — note that with `NODE_ENV=production`, password sign-up is **disabled by default**, so opt in (or configure an OAuth/OIDC provider):
 

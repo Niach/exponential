@@ -66,11 +66,11 @@ import { getActionIcon } from "@/lib/board-icons"
 // → Actions tab). Action writes are owner-only; the interactive parts gate on
 // membership + a configured relay — the server enforces all of it regardless.
 export const Route = createFileRoute(`/t/$teamSlug/agents/`)({
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
         to: `/auth/login`,
-        search: { redirect: undefined },
+        search: { redirect: location.href },
       })
     }
   },

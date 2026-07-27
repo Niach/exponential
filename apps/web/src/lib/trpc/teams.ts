@@ -8,6 +8,8 @@ import {
 } from "@/lib/trpc"
 import { attachments, teams, teamMembers } from "@/db/schema"
 import { and, asc, eq, ne } from "drizzle-orm"
+import { teamColumns } from "@/lib/team-columns"
+import { emailEnabled } from "@/lib/email-enabled"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { randomBytes } from "crypto"
@@ -20,10 +22,7 @@ import {
   assertCanCreateTeam,
   assertCanUseHelpdesk,
 } from "@/lib/billing"
-import {
-  cancelCreemSubscriptionsBestEffort,
-  findActiveSubscriptionsForTeams,
-} from "@/lib/billing/creem-subscriptions"
+import { assertTeamDeletableBilling } from "@/lib/billing/billing-handover"
 
 function slugify(input: string): string {
   return input
@@ -91,7 +90,7 @@ export const teamsRouter = router({
     if (!membership) return { team: null }
 
     const [team] = await ctx.db
-      .select()
+      .select(teamColumns)
       .from(teams)
       .where(eq(teams.id, membership.teamId))
       .limit(1)
@@ -122,7 +121,7 @@ export const teamsRouter = router({
             slug,
             iconUrl: input.iconUrl,
           })
-          .returning()
+          .returning(teamColumns)
 
         await tx.insert(teamMembers).values({
           teamId: team.id,
@@ -156,6 +155,16 @@ export const teamsRouter = router({
       await assertTeamOwner(ctx.session.user.id, id)
 
       if (updates.helpdeskEnabled === true) {
+        // REV2-10: the reporter's ONLY credential is the emailed magic link,
+        // so a helpdesk on an instance with no mail transport accepts tickets
+        // into a guaranteed black hole. Refuse at setup time, where the
+        // person flipping the switch can still fix it.
+        if (!emailEnabled) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `Email sending is not configured on this server, and support reporters can only reach their conversation through an emailed link. Set AWS_SES_REGION (Amazon SES) or SMTP_HOST, then enable support.`,
+          })
+        }
         await assertCanUseHelpdesk(id)
       }
 
@@ -165,7 +174,7 @@ export const teamsRouter = router({
           .update(teams)
           .set({ ...updates, updatedAt: new Date() })
           .where(eq(teams.id, id))
-          .returning()
+          .returning(teamColumns)
         return { team, txId }
       })
     }),
@@ -184,13 +193,13 @@ export const teamsRouter = router({
         })
       }
 
-      // Capture BEFORE the delete: creem_subscriptions.team_id goes
-      // `set null` when the team row is deleted, after which the remote
-      // Creem subscription would keep charging with nothing left to find it
-      // by (the paying-ghost bug).
-      const doomedSubscriptions = await findActiveSubscriptionsForTeams([
-        input.teamId,
-      ])
+      // A paying team must be un-subscribed BEFORE it can be deleted
+      // (REV2-55): `creem_subscriptions.team_id` goes `set null` on delete,
+      // after which the remote Creem subscription would keep charging with
+      // nothing left to find it by (the paying-ghost bug). Cancelling is the
+      // owner's own call, not a side effect of a delete confirm — a
+      // cancellation already scheduled for period end passes the gate.
+      await assertTeamDeletableBilling(input.teamId)
 
       // Collected inside the tx BEFORE the cascade drops the attachment rows;
       // the cascade never touches S3, so without this the blobs orphan.
@@ -212,9 +221,9 @@ export const teamsRouter = router({
       // Post-commit: the cascade dropped every member's teamMembers row.
       invalidateMembershipCaches()
 
-      // Best-effort AFTER commit: a Creem API failure logs loudly but never
-      // leaves the team half-deleted.
-      await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+      // No remote cancellation here — the gate above already proved there is
+      // nothing live left to cancel (a scheduled cancellation keeps serving
+      // the period the customer paid for and then ends by itself).
       await deleteStorageObjects(storageKeys)
 
       return result

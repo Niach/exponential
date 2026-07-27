@@ -491,6 +491,9 @@ function AdminTeamDetail() {
           <CardDescription className="text-xs">
             Deleting a team cascades to all boards, issues, comments,
             and attachments.
+            {detail.subscription && !detail.subscription.cancelAtPeriodEnd
+              ? ` This team has a live subscription — cancel it first (team settings → Billing, or the Creem dashboard); the delete is refused until then.`
+              : ``}
           </CardDescription>
         </CardHeader>
         <CardContent>

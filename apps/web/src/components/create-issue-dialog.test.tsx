@@ -45,6 +45,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
       footer,
       formProps,
       onDescriptionChange,
+      onDismissAttempt,
       onOpenChange: handleOpenChange,
       onTitleChange,
       title,
@@ -60,6 +61,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
       footer: ReactNode
       formProps?: ComponentPropsWithoutRef<`form`>
       onDescriptionChange: (markdown: string) => void
+      onDismissAttempt?: () => boolean
       onOpenChange: (open: boolean) => void
       onTitleChange: (value: string) => void
       title: string
@@ -111,6 +113,18 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
         </form>
         <button type="button" onClick={() => handleOpenChange(false)}>
           Close dialog
+        </button>
+        {/* Mirrors the real shell's Escape / backdrop path: the caller may
+            claim the dismissal (REV2-60 discard confirm) by returning true. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (onDismissAttempt?.() !== true) {
+              handleOpenChange(false)
+            }
+          }}
+        >
+          Dismiss dialog
         </button>
       </div>
     )
@@ -340,5 +354,84 @@ describe(`CreateIssueDialog`, () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(mockState.updateMutate).not.toHaveBeenCalled()
     expect(revokeObjectURL).toHaveBeenCalledWith(`blob:mock-image-1`)
+  })
+
+  // REV2-60: Escape / backdrop must not silently destroy a typed draft.
+  it(`confirms before discarding a dirty draft on Escape or backdrop`, async () => {
+    mockState.attachmentFiles = [
+      new File([`image`], `draft.png`, {
+        type: `image/png`,
+      }),
+    ]
+
+    render(
+      <CreateIssueDialog
+        open
+        onOpenChange={onOpenChange}
+        boardColor="#6366f1"
+        boardId="board-1"
+        boardPrefix="APP"
+        users={[]}
+        teamId="team-1"
+      />
+    )
+
+    fireEvent.change(screen.getByLabelText(`Issue title`), {
+      target: { value: `Draft issue` },
+    })
+    fireEvent.click(screen.getByLabelText(`Add image`))
+
+    await waitFor(() => {
+      expect(screen.getByText(`draft.png`)).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Dismiss dialog` }))
+
+    expect(await screen.findByText(`Discard draft?`)).toBeTruthy()
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Keep editing` }))
+
+    await waitFor(() => {
+      expect(screen.queryByText(`Discard draft?`)).toBeNull()
+    })
+    expect(
+      (screen.getByLabelText(`Issue title`) as HTMLInputElement).value
+    ).toBe(`Draft issue`)
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Dismiss dialog` }))
+    expect(await screen.findByText(`Discard draft?`)).toBeTruthy()
+    fireEvent.click(screen.getByRole(`button`, { name: `Discard draft` }))
+
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
+    expect(revokeObjectURL).toHaveBeenCalledWith(`blob:mock-image-1`)
+    expect(
+      (screen.getByLabelText(`Issue title`) as HTMLInputElement).value
+    ).toBe(``)
+  })
+
+  it(`dismisses immediately when the draft is empty`, () => {
+    render(
+      <CreateIssueDialog
+        open
+        onOpenChange={onOpenChange}
+        boardColor="#6366f1"
+        boardId="board-1"
+        boardPrefix="APP"
+        users={[]}
+        teamId="team-1"
+      />
+    )
+
+    fireEvent.change(screen.getByLabelText(`Issue description`), {
+      target: { value: `   ` },
+    })
+    fireEvent.click(screen.getByRole(`button`, { name: `Dismiss dialog` }))
+
+    expect(screen.queryByText(`Discard draft?`)).toBeNull()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

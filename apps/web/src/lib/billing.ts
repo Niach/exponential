@@ -97,7 +97,17 @@ function productIdToTier(productId: string): PlanTier {
   return `free`
 }
 
-const ACTIVE_STATUSES = [`active`, `trialing`, `paid`]
+// Statuses that still grant entitlements. Mirrors (and is asserted equal to)
+// ACTIVE_SUBSCRIPTION_STATUSES in lib/billing/creem-subscriptions.ts, which
+// documents why `scheduled_cancel` belongs here: a subscription scheduled to
+// cancel is paid through `periodEnd`, so the team keeps its plan until Creem's
+// `subscription.canceled` webhook lands. Exported for that parity test.
+export const ACTIVE_STATUSES = [
+  `active`,
+  `trialing`,
+  `paid`,
+  `scheduled_cancel`,
+]
 
 // Rank order for the comp-tier floor (EXP-49): an admin-granted complimentary
 // tier (teams.comp_tier) can only ever RAISE a team's effective

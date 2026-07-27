@@ -27,7 +27,7 @@ export const issueLabelsRouter = router({
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
+        const [inserted] = await tx
           .insert(issueLabels)
           .values({
             issueId: input.issueId,
@@ -36,14 +36,19 @@ export const issueLabelsRouter = router({
             boardId: issue.boardId,
           })
           .onConflictDoNothing()
+          .returning({ issueId: issueLabels.issueId })
 
-        await recordIssueEvent(tx, {
-          issueId: input.issueId,
-          teamId: label!.teamId,
-          actorUserId: ctx.session.user.id,
-          type: `label_added`,
-          payload: { labelId: input.labelId },
-        })
+        // No row ⇒ the label was already on the issue (MCP re-add, concurrent
+        // toggle): a no-op must not write a phantom timeline event.
+        if (inserted) {
+          await recordIssueEvent(tx, {
+            issueId: input.issueId,
+            teamId: label!.teamId,
+            actorUserId: ctx.session.user.id,
+            type: `label_added`,
+            payload: { labelId: input.labelId },
+          })
+        }
 
         return { txId }
       })
@@ -65,7 +70,7 @@ export const issueLabelsRouter = router({
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
+        const [removed] = await tx
           .delete(issueLabels)
           .where(
             and(
@@ -73,14 +78,19 @@ export const issueLabelsRouter = router({
               eq(issueLabels.labelId, input.labelId)
             )
           )
+          .returning({ issueId: issueLabels.issueId })
 
-        await recordIssueEvent(tx, {
-          issueId: input.issueId,
-          teamId: label!.teamId,
-          actorUserId: ctx.session.user.id,
-          type: `label_removed`,
-          payload: { labelId: input.labelId },
-        })
+        // Nothing deleted ⇒ the label was not on the issue; same no-op rule
+        // as add.
+        if (removed) {
+          await recordIssueEvent(tx, {
+            issueId: input.issueId,
+            teamId: label!.teamId,
+            actorUserId: ctx.session.user.id,
+            type: `label_removed`,
+            payload: { labelId: input.labelId },
+          })
+        }
 
         return { txId }
       })
@@ -164,13 +174,36 @@ export const issueLabelsRouter = router({
       await assertTeamMember(ctx.session.user.id, label.teamId)
 
       return await ctx.db.transaction(async (tx) => {
+        // Same eligibility read as bulkAdd — a trashed board's issues stay
+        // frozen for the whole 48h window, unlabelling included.
+        const eligible = await tx
+          .select({ id: issues.id })
+          .from(issues)
+          .innerJoin(boards, eq(issues.boardId, boards.id))
+          .where(
+            and(
+              inArray(issues.id, input.issueIds),
+              eq(boards.teamId, label.teamId),
+              isNull(boards.deletedAt)
+            )
+          )
+        if (eligible.length === 0) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `No labelable issues in this team`,
+          })
+        }
+
         const txId = await generateTxId(tx)
         const removed = await tx
           .delete(issueLabels)
           .where(
             and(
               eq(issueLabels.labelId, input.labelId),
-              inArray(issueLabels.issueId, input.issueIds)
+              inArray(
+                issueLabels.issueId,
+                eligible.map((row) => row.id)
+              )
             )
           )
           .returning({ issueId: issueLabels.issueId })

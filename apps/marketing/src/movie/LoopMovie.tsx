@@ -2,9 +2,9 @@
 
    CRITICAL: this file is statically imported by HomePage, which is
    renderToString'd under Bun by scripts/prerender.tsx — it must import
-   NOTHING from remotion. The ONE allowed @video import is the remotion-free
-   data module @video/closedloop/chapters (chapter ids/labels shared with the
-   composition so the rail can't drift); the Remotion Player and the
+   NOTHING from remotion. The ONE allowed composition import is the
+   remotion-free data module ./closedloop/chapters (chapter ids/labels shared
+   with the composition so the rail can't drift); the Remotion Player and the
    composition itself live in the lazy chunk ./LoopMoviePlayer, dynamically
    imported when the section scrolls near (IntersectionObserver, 300px
    early).
@@ -23,7 +23,7 @@ import {
   type CSSProperties,
 } from "react"
 import { Play } from "lucide-react"
-import { CHAPTER_INFO } from "@video/closedloop/chapters"
+import { CHAPTER_INFO } from "./closedloop/chapters"
 
 /* The imperative surface LoopMoviePlayer hands back once mounted. Defined
    here (not in the player chunk) so this file stays remotion-free. */

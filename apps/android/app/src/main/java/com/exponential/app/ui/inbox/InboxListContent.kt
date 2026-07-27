@@ -49,8 +49,8 @@ import com.exponential.app.ui.theme.glassRow
 // actor column; the leading element is a type-icon badge instead).
 //
 // Issue-less `support_reply` notifications (EXP-180 helpdesk) render as
-// synthetic Support groups above the issue stream — one per team — mirroring
-// the web inbox's "Support" group; tapping one opens the Support tab.
+// synthetic Support groups — one per team — interleaved into the same stream
+// by latest activity, like web/iOS/desktop; tapping one opens the Support tab.
 //
 // Rendered as the Inbox segment of the "My Work" tab (PersonalScreen) since
 // EXP-58 — no longer a routed screen of its own; mark-all-read lives in the
@@ -65,7 +65,7 @@ fun InboxListContent(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    if (state.groups.isEmpty() && state.supportGroups.isEmpty()) {
+    if (state.entries.isEmpty()) {
         EmptyState(
             message = "You're all caught up.",
             icon = ExpIcons.navInbox,
@@ -77,18 +77,18 @@ fun InboxListContent(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            items(state.supportGroups, key = { "support-${it.teamId ?: "generic"}" }) { group ->
-                SupportInboxRow(group) {
-                    // Selects the group's team (when known) + marks read; the
-                    // callback then lands on the Support tab.
-                    viewModel.openSupportGroup(group)
-                    onOpenSupport()
-                }
-            }
-            items(state.groups, key = { it.issue.id }) { group ->
-                InboxRow(group) {
-                    viewModel.markGroupRead(group)
-                    onOpenIssue(group.issue.id)
+            items(state.entries, key = { it.key }) { entry ->
+                when (entry) {
+                    is InboxEntry.Support -> SupportInboxRow(entry.group) {
+                        // Selects the group's team (when known) + marks read;
+                        // the callback then lands on the Support tab.
+                        viewModel.openSupportGroup(entry.group)
+                        onOpenSupport()
+                    }
+                    is InboxEntry.Issue -> InboxRow(entry.group) {
+                        viewModel.markGroupRead(entry.group)
+                        onOpenIssue(entry.group.issue.id)
+                    }
                 }
             }
         }

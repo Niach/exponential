@@ -4,17 +4,26 @@ import Foundation
 
 public struct AuthConfig: Codable, Sendable {
     public let passwordEnabled: Bool
+    // Password sign-up is open on this instance — gates the "Create account"
+    // hand-off (server: buildAuthConfig).
+    public let signupEnabled: Bool
+    // The instance can send mail — gates the "Forgot password?" hand-off.
+    public let passwordResetEnabled: Bool
     public let oidcProviders: [OidcProvider]
     public let googleLoginEnabled: Bool
     public let appleLoginEnabled: Bool
 
     public init(
         passwordEnabled: Bool = true,
+        signupEnabled: Bool = false,
+        passwordResetEnabled: Bool = false,
         oidcProviders: [OidcProvider] = [],
         googleLoginEnabled: Bool = false,
         appleLoginEnabled: Bool = false
     ) {
         self.passwordEnabled = passwordEnabled
+        self.signupEnabled = signupEnabled
+        self.passwordResetEnabled = passwordResetEnabled
         self.oidcProviders = oidcProviders
         self.googleLoginEnabled = googleLoginEnabled
         self.appleLoginEnabled = appleLoginEnabled
@@ -22,9 +31,14 @@ public struct AuthConfig: Codable, Sendable {
 
     // appleLoginEnabled is absent from pre-SIWA servers (self-hosted lag) —
     // decode it as optional so the login screen keeps working against them.
+    // signupEnabled/passwordResetEnabled get the same treatment and default to
+    // false: a missing flag hides the affordance rather than offering a link
+    // the server would dead-end.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         passwordEnabled = try c.decode(Bool.self, forKey: .passwordEnabled)
+        signupEnabled = try c.decodeIfPresent(Bool.self, forKey: .signupEnabled) ?? false
+        passwordResetEnabled = try c.decodeIfPresent(Bool.self, forKey: .passwordResetEnabled) ?? false
         oidcProviders = try c.decode([OidcProvider].self, forKey: .oidcProviders)
         googleLoginEnabled = try c.decode(Bool.self, forKey: .googleLoginEnabled)
         appleLoginEnabled = try c.decodeIfPresent(Bool.self, forKey: .appleLoginEnabled) ?? false
@@ -248,6 +262,21 @@ public final class AuthApi: Sendable {
             }
         }
         return nil
+    }
+
+    // Registration and password reset stay WEB flows on every native client
+    // (desktop `open_register` parity) — the app hands off to the browser
+    // instead of reimplementing sign-up/reset. Static so a login screen can
+    // build them from the instance URL alone; nil for a blank instance URL.
+
+    public static func registerUrl(instanceUrl: String?) -> URL? {
+        guard let base = WebLinks.normalizedBase(instanceUrl) else { return nil }
+        return URL(string: "\(base)/auth/register")
+    }
+
+    public static func forgotPasswordUrl(instanceUrl: String?) -> URL? {
+        guard let base = WebLinks.normalizedBase(instanceUrl) else { return nil }
+        return URL(string: "\(base)/auth/forgot-password")
     }
 
     // OAuth start URLs carry the attempt's PKCE S256 code_challenge (REV-13,

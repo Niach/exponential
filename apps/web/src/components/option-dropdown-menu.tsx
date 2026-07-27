@@ -13,6 +13,13 @@ import type { IssueOption } from "@/lib/domain"
 interface OptionDropdownMenuProps<TValue extends string> {
   align?: React.ComponentProps<typeof DropdownMenuContent>[`align`]
   disabled?: boolean
+  // Which option the trigger shows when `value` is not in `options` (an
+  // unknown/forward-compat wire value, or a value the caller filtered out of
+  // the menu). Callers pass the lifecycle-start fallback of their vocabulary
+  // (`ISSUE_STATUS_FALLBACK` / `ISSUE_PRIORITY_FALLBACK`) — the option tables
+  // are DISPLAY-ordered (REV2-85), so falling back to `options[0]` would show
+  // "In Progress" / "Urgent" for an unknown value.
+  fallbackValue?: TValue
   onSelect: (value: TValue) => void | Promise<void>
   options: readonly IssueOption<TValue>[]
   renderTrigger: (selected: IssueOption<TValue>) => ReactNode
@@ -23,6 +30,7 @@ interface OptionDropdownMenuProps<TValue extends string> {
 export function OptionDropdownMenu<TValue extends string>({
   align = `start`,
   disabled,
+  fallbackValue,
   onSelect,
   options,
   renderTrigger,
@@ -32,7 +40,9 @@ export function OptionDropdownMenu<TValue extends string>({
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
   const selected =
-    options.find((option) => option.value === value) ?? options[0]
+    options.find((option) => option.value === value) ??
+    options.find((option) => option.value === fallbackValue) ??
+    options[0]
 
   if (disabled) {
     return <>{renderTrigger(selected)}</>

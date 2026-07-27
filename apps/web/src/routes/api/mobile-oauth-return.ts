@@ -1,12 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { auth } from "@/lib/auth"
-import { oauthReturnCodeDeepLink, oauthReturnDeepLink } from "@/lib/deep-link"
+import {
+  normalizeOauthErrorReason,
+  oauthErrorMessage,
+  oauthReturnCodeDeepLink,
+  oauthReturnDeepLink,
+  oauthReturnErrorDeepLink,
+} from "@/lib/deep-link"
 import {
   isValidCodeChallenge,
   mintMobileOauthCode,
 } from "@/lib/auth/mobile-oauth-code"
 
-const FAILED_REDIRECT = `/auth/login?error=mobile_oauth_failed`
 const STATE_COOKIE_NAME = `exp_mobile_oauth_state`
 const CLEAR_STATE_COOKIE = `${STATE_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`
 
@@ -24,16 +29,32 @@ function readCookie(cookieHeader: string, name: string): string | null {
 // the OS grabs the scheme but the browser can never "complete" the navigation.
 // So we serve a 200 HTML page that fires the deep link from JS (iOS's
 // ASWebAuthenticationSession and desktop's registered handler both intercept
-// it) AND shows a "you can close this tab" confirmation the browser can render.
-// `deepLink` is already percent-encoded (URL-safe), so it's inert in both the
-// href attribute and the JSON-stringified script string.
-function renderReturnPage(deepLink: string): string {
+// it) AND shows a card the browser can render.
+//
+// FAILURES take the exact same shape (REV2-53): an https error page is invisible
+// to every native completion channel, so a denied/expired sign-in would leave
+// the auth sheet open on a dead end. `deepLink` and `webLink` are built here
+// (already percent-encoded, URL-safe) and `body` comes from a fixed message
+// table, so both are inert in the href attributes and the JSON-stringified
+// script string.
+function renderHandoffPage(page: {
+  ok: boolean
+  title: string
+  heading: string
+  body: string
+  deepLink: string
+  webLink?: string
+}): string {
+  const accent = page.ok ? `#22c55e` : `#f87171`
+  const glyph = page.ok
+    ? `<path d="M20 6 9 17l-5-5"/>`
+    : `<path d="M12 8v5"/><path d="M12 16h.01"/><circle cx="12" cy="12" r="9"/>`
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Signed in — Exponential</title>
+<title>${page.title}</title>
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; }
@@ -49,8 +70,8 @@ function renderReturnPage(deepLink: string): string {
   }
   .check {
     width: 48px; height: 48px; margin: 0 auto 1.25rem;
-    border-radius: 999px; background: #22c55e1a;
-    display: grid; place-items: center; color: #22c55e;
+    border-radius: 999px; background: ${accent}1a;
+    display: grid; place-items: center; color: ${accent};
   }
   h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem; }
   p { font-size: 0.9rem; line-height: 1.5; color: #a1a1aa; margin: 0 0 1.5rem; }
@@ -58,24 +79,57 @@ function renderReturnPage(deepLink: string): string {
     display: inline-block; text-decoration: none; font-size: 0.875rem; font-weight: 500;
     padding: 0.5rem 1rem; border-radius: 8px; background: #fafafa; color: #09090b;
   }
+  a.alt {
+    display: block; margin-top: 1rem; font-size: 0.8rem; color: #a1a1aa;
+  }
 </style>
 </head>
 <body>
   <main class="card">
     <div class="check">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg>
     </div>
-    <h1>You're signed in</h1>
-    <p>Exponential is opening. You can close this tab and return to the app.</p>
-    <a class="btn" href="${deepLink}">Open Exponential</a>
+    <h1>${page.heading}</h1>
+    <p>${page.body}</p>
+    <a class="btn" href="${page.deepLink}">Open Exponential</a>
+    ${page.webLink ? `<a class="alt" href="${page.webLink}">Sign in on the web instead</a>` : ``}
   </main>
   <script>
-    // Hand off to the native app immediately; the confirmation card stays put.
-    window.location.href = ${JSON.stringify(deepLink)};
+    // Hand off to the native app immediately; the card stays put.
+    window.location.href = ${JSON.stringify(page.deepLink)};
   </script>
 </body>
 </html>
 `
+}
+
+// Every failure branch answers with the SAME 200 HTML handoff — carrying the
+// error deep link instead of a credential — so the native auth sheet completes
+// and the app can say what went wrong. The secondary link keeps the desktop
+// browser case (no app registered for the scheme) recoverable.
+function failureResponse(request: Request, rawReason: unknown): Response {
+  const reason = normalizeOauthErrorReason(rawReason)
+  return new Response(
+    renderHandoffPage({
+      ok: false,
+      title: `Sign-in failed — Exponential`,
+      heading: `Sign-in didn't finish`,
+      body: `${oauthErrorMessage(reason)} You can close this tab and try again in the app.`,
+      deepLink: oauthReturnErrorDeepLink(reason),
+      webLink: new URL(
+        `/auth/login?error=${encodeURIComponent(reason)}`,
+        request.url
+      ).toString(),
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": `text/html; charset=utf-8`,
+        "Set-Cookie": CLEAR_STATE_COOKIE,
+        "Cache-Control": `no-store`,
+      },
+    }
+  )
 }
 
 export const Route = createFileRoute(`/api/mobile-oauth-return`)({
@@ -83,6 +137,17 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
     handlers: {
       GET: async ({ request }) => {
         const cookieHeader = request.headers.get(`cookie`) ?? ``
+        // Provider-side denial (the common failure: the user cancels at
+        // Google) or any Better Auth callback error — /api/mobile-oauth-start
+        // points `errorCallbackURL` back here, and Better Auth appends its
+        // reason as `?error=`. Handled before the state check: the app must
+        // learn the flow failed even if the anti-CSRF cookie has expired.
+        const providerError = new URL(request.url).searchParams.get(`error`)
+        if (providerError) {
+          console.warn(`[mobile-oauth-return] provider error: ${providerError}`)
+          return failureResponse(request, providerError)
+        }
+
         // Anti-CSRF for the deep-link hop: the cookie was set by
         // /api/mobile-oauth-start, so absence means this URL was visited
         // out-of-band. Better Auth's own state cookie already protected the
@@ -93,10 +158,7 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           console.warn(
             `[mobile-oauth-return] missing ${STATE_COOKIE_NAME} cookie — rejecting`
           )
-          return new Response(`Invalid OAuth state`, {
-            status: 400,
-            headers: { "Set-Cookie": CLEAR_STATE_COOKIE },
-          })
+          return failureResponse(request, `state_missing`)
         }
 
         // PKCE (REV-13): /api/mobile-oauth-start appends the client's S256
@@ -108,22 +170,13 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           console.warn(
             `[mobile-oauth-return] malformed code_challenge in ${STATE_COOKIE_NAME} cookie — rejecting`
           )
-          return new Response(`Invalid OAuth state`, {
-            status: 400,
-            headers: { "Set-Cookie": CLEAR_STATE_COOKIE },
-          })
+          return failureResponse(request, `state_invalid`)
         }
 
         const session = await auth.api.getSession({ headers: request.headers })
         if (!session?.session) {
-          console.warn(`[mobile-oauth-return] no session — falling back to ${FAILED_REDIRECT}`)
-          return new Response(null, {
-            status: 302,
-            headers: {
-              Location: new URL(FAILED_REDIRECT, request.url).toString(),
-              "Set-Cookie": CLEAR_STATE_COOKIE,
-            },
-          })
+          console.warn(`[mobile-oauth-return] no session — deep-linking the failure back`)
+          return failureResponse(request, `no_session`)
         }
 
         const ctx = await auth.$context
@@ -134,13 +187,7 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           console.warn(
             `[mobile-oauth-return] session present but session-cookie '${cookieName}' missing — falling back`
           )
-          return new Response(null, {
-            status: 302,
-            headers: {
-              Location: new URL(FAILED_REDIRECT, request.url).toString(),
-              "Set-Cookie": CLEAR_STATE_COOKIE,
-            },
-          })
+          return failureResponse(request, `session_cookie_missing`)
         }
 
         // Two deep-link forms (both built in lib/deep-link.ts), each riding
@@ -166,14 +213,23 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           : oauthReturnDeepLink(token)
         // 200 HTML (not a 302 to the custom scheme) so the browser tab renders
         // a confirmation instead of spinning on an uncompletable navigation.
-        return new Response(renderReturnPage(target), {
-          status: 200,
-          headers: {
-            "Content-Type": `text/html; charset=utf-8`,
-            "Set-Cookie": CLEAR_STATE_COOKIE,
-            "Cache-Control": `no-store`,
-          },
-        })
+        return new Response(
+          renderHandoffPage({
+            ok: true,
+            title: `Signed in — Exponential`,
+            heading: `You're signed in`,
+            body: `Exponential is opening. You can close this tab and return to the app.`,
+            deepLink: target,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": `text/html; charset=utf-8`,
+              "Set-Cookie": CLEAR_STATE_COOKIE,
+              "Cache-Control": `no-store`,
+            },
+          }
+        )
       },
     },
   },

@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-subscription-belongs-to-team`,
+    date: `2026-07-27`,
+    title: `Your plan belongs to the team`,
+    summary: `Deleting an account no longer cancels a shared team's paid plan, and you can cancel a subscription in-app.`,
+    body: `- **A shared team keeps its plan** — deleting the account of whoever bought the subscription used to cancel it immediately, dropping the team to Free mid-period with no warning. A subscription belongs to the team now: it keeps running and the remaining owners keep managing it. Only a team that is deleted along with its last member takes its plan with it.
+- **Cancel (and un-cancel) in the app** — team settings → Billing gets a Cancel plan button that ends the subscription at the end of the paid period, shows the date it lapses, and lets you resume before then.
+- **Delete a team, cancel first** — deleting a team with a live subscription is refused with a message pointing at Billing, instead of quietly leaving a subscription behind that nothing could reach.
+- **Nothing breaks when someone leaves** — images they uploaded into your issues stay where they are instead of turning into broken embeds, and mentions of their email address are replaced with a neutral handle.`,
+  },
+  {
     id: `2026-07-one-icon-set`,
     date: `2026-07-26`,
     title: `One icon set, everywhere`,

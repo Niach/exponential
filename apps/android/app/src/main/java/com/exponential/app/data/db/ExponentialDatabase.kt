@@ -119,9 +119,17 @@ import androidx.room.RoomDatabase
     // v29 (EXP-273): actions.icon — the action's curated registry glyph, the
     //      same set boards.icon draws from. Additive column on the existing
     //      actions shape; destructive fallback wipes + resyncs.
+    // v30 (REV2-103): archiving deleted from the product — boards.archived_at
+    //      and issues.archived_at dropped from the entities (and the shapes
+    //      server-side). Removing a column is decode-safe (ignoreUnknownKeys)
+    //      and the destructive fallback wipes + resyncs.
+    // v31 (REV2-103): due times deleted from the product — issues.due_time and
+    //      issues.end_time dropped from the entity (and the schema/shape
+    //      server-side); the due DATE stays. Removing a column is decode-safe
+    //      (ignoreUnknownKeys) and the destructive fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 29,
+    version = 31,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

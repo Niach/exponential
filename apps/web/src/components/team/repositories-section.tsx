@@ -175,6 +175,11 @@ export function TeamRepositoriesSection({
   const manageUrlForRepo = (repo: RepoRowData) =>
     installations.find((inst) => inst.installationId === repo.installationId)
       ?.manageUrl ?? githubStatus?.installUrl ?? null
+  // A suspension flags every repo of the installation as inaccessible — the
+  // row's banner must then say "unsuspend", not "re-grant access" (REV2-29).
+  const suspendedForRepo = (repo: RepoRowData) =>
+    installations.find((inst) => inst.installationId === repo.installationId)
+      ?.suspended ?? false
 
   return (
     <>
@@ -239,7 +244,54 @@ export function TeamRepositoriesSection({
                   />
                 ))}
               </div>
-              {installations.some((inst) => inst.needsReauth) &&
+              {/* GitHub suspended the App for one of the linked accounts
+                  (REV2-29). The claim link survives a suspension, so nothing
+                  needs reconnecting — but until it's unsuspended on GitHub no
+                  token mints, which means no clone, no coding, no PRs. Say so
+                  instead of letting the repos below look healthy. */}
+              {installations.some((inst) => inst.suspended) && (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    GitHub suspended the Exponential app for{` `}
+                    {installations
+                      .filter((inst) => inst.suspended)
+                      .map(
+                        (inst) =>
+                          inst.accountLogin ??
+                          `installation ${inst.installationId}`
+                      )
+                      .join(`, `)}
+                    . Repositories under it can&rsquo;t be cloned or coded on
+                    until you unsuspend it on GitHub — your connection stays
+                    intact, so nothing needs reconnecting.
+                  </span>
+                  {installations.find((inst) => inst.suspended)?.manageUrl && (
+                    <Button
+                      asChild
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                    >
+                      <a
+                        href={
+                          installations.find((inst) => inst.suspended)!
+                            .manageUrl
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Unsuspend on GitHub
+                        <ExternalLink className="ml-1 h-3 w-3" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {installations.some(
+                (inst) => inst.needsReauth && !inst.suspended
+              ) &&
                 connectHopUrl && (
                   <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
@@ -305,6 +357,7 @@ export function TeamRepositoriesSection({
                   repo={repo}
                   busy={busy}
                   manageUrl={manageUrlForRepo(repo)}
+                  installationSuspended={suspendedForRepo(repo)}
                   onRemove={() =>
                     run(() =>
                       trpc.repositories.remove.mutate(
@@ -361,10 +414,17 @@ function InstallationChip({
       <span className="font-medium">
         {installation.accountLogin ?? `Installation ${installation.installationId}`}
       </span>
-      {installation.needsReauth && (
-        <span title="Reconnect GitHub to load this account's repositories">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-        </span>
+      {installation.suspended ? (
+        <Badge variant="destructive" className="shrink-0 gap-1 text-[10px]">
+          <AlertTriangle className="h-3 w-3" />
+          Suspended
+        </Badge>
+      ) : (
+        installation.needsReauth && (
+          <span title="Reconnect GitHub to load this account's repositories">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+          </span>
+        )
       )}
       <Button
         asChild
@@ -397,11 +457,13 @@ function RepoRow({
   repo,
   busy,
   manageUrl,
+  installationSuspended,
   onRemove,
 }: {
   repo: RepoRowData
   busy: boolean
   manageUrl: string | null
+  installationSuspended: boolean
   onRemove: () => void
 }) {
   const inUse = repo.boards.length > 0
@@ -461,12 +523,13 @@ function RepoRow({
         )}
       </div>
 
-      {repo.inaccessibleAt && (
+      {(repo.inaccessibleAt || installationSuspended) && (
         <div className="ml-6 flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 flex-1">
-            The GitHub App lost access to this repository — re-grant it on
-            GitHub.
+            {installationSuspended
+              ? `GitHub suspended the Exponential app for this repository's account — unsuspend it on GitHub to code on this repo again.`
+              : `The GitHub App lost access to this repository — re-grant it on GitHub.`}
           </span>
           {manageUrl && (
             <Button
@@ -476,7 +539,7 @@ function RepoRow({
               className="h-6 px-2 text-xs"
             >
               <a href={manageUrl} target="_blank" rel="noreferrer">
-                Re-grant
+                {installationSuspended ? `Unsuspend` : `Re-grant`}
                 <ExternalLink className="ml-1 h-3 w-3" />
               </a>
             </Button>

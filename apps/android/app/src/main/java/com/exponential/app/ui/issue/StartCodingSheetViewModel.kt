@@ -134,7 +134,7 @@ class StartCodingSheetViewModel @Inject constructor(
             emptyList()
         } else {
             boards
-                .filter { it.teamId == teamId && it.archivedAt == null && it.deletedAt == null }
+                .filter { it.teamId == teamId && it.deletedAt == null }
                 .sortedBy { it.name.lowercase() }
                 .map { StartBoardOption(id = it.id, name = it.name) }
         }

@@ -49,6 +49,13 @@ export function Panel(props: {
   // public boards); kept so the card still links when an older self-hosted
   // server sends one.
   successUrl: string | null
+  // Support mode only: whether the confirmation email carrying the magic
+  // conversation link actually went out. `false` swaps the success copy for
+  // an honest one — the link itself is NEVER shown inline (it is the
+  // reporter's credential and this page is not an authenticated surface).
+  // `null` (feedback, or a server that doesn't report it) keeps the
+  // optimistic copy.
+  successEmailDelivered: boolean | null
   position: `bottom-right` | `bottom-left`
   screenshot: Screenshot | null
   // The annotated screenshot is still being encoded; sending now would
@@ -77,11 +84,14 @@ export function Panel(props: {
     email: string
     name: string
     customValues: Record<string, string>
+    // The honeypot's value — empty for every real reporter.
+    website: string
   }): Promise<string | null>
   onSubmitSupport(form: {
     message: string
     email: string
     name: string
+    website: string
   }): Promise<string | null>
 }) {
   const [title, setTitle] = useState(``)
@@ -91,6 +101,11 @@ export function Panel(props: {
   const [message, setMessage] = useState(``)
   const [supportEmail, setSupportEmail] = useState(``)
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
+  // Honeypot (REV2-69): the server drops any submission that carries a
+  // non-empty `website`, but the field was never rendered — so DOM-walking
+  // bots had nothing to fall for. Shared by both forms; a real reporter can
+  // neither see nor tab into it.
+  const [website, setWebsite] = useState(``)
   const [error, setError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -172,6 +187,7 @@ export function Panel(props: {
       email: email.trim(),
       name: name.trim(),
       customValues,
+      website,
     })
     if (failure) setError(failure)
   }
@@ -197,6 +213,7 @@ export function Panel(props: {
       message: trimmedMessage,
       email: emailValue,
       name: name.trim(),
+      website,
     })
     if (failure) setError(failure)
   }
@@ -220,6 +237,34 @@ export function Panel(props: {
         />
       </div>
     ) : null
+
+  // The honeypot input. Off-screen (not display:none — bots skip undisplayed
+  // fields), out of the tab order and hidden from assistive tech, with the
+  // `website` name the server's check keys on. autoComplete="one-time-code"
+  // is the REV-107 lesson: browsers happily autofill off-screen url/website
+  // profile fields and largely ignore autoComplete="off", and an autofilled
+  // honeypot silently swallows a real report.
+  const honeypotField = (idPrefix: string) => (
+    <input
+      id={`${idPrefix}-website`}
+      name="website"
+      type="text"
+      tabIndex={-1}
+      aria-hidden="true"
+      autoComplete="one-time-code"
+      value={website}
+      onInput={(event) =>
+        setWebsite((event.target as HTMLInputElement).value)
+      }
+      style={{
+        position: `absolute`,
+        left: `-9999px`,
+        width: `1px`,
+        height: `1px`,
+        opacity: 0,
+      }}
+    />
+  )
 
   const sideClass = props.position === `bottom-left` ? `exp-left` : `exp-right`
 
@@ -246,7 +291,11 @@ export function Panel(props: {
           </div>
           <div className="exp-success-sub">
             {props.successFlavor === `support` ? (
-              `Check your email — we sent you a link to track the conversation and reply.`
+              props.successEmailDelivered === false ? (
+                `We couldn't send the confirmation email — the team has received your message and will follow up.`
+              ) : (
+                `Check your email — we sent you a link to track the conversation and reply.`
+              )
             ) : props.successIdentifier ? (
               props.successUrl ? (
                 <>
@@ -332,6 +381,7 @@ export function Panel(props: {
 
       {props.view === `support` && (
         <form className="exp-body" onSubmit={submitSupport}>
+          {honeypotField(`exp-support`)}
           <div className="exp-field">
             <label htmlFor="exp-message">How can we help?</label>
             <textarea
@@ -378,6 +428,7 @@ export function Panel(props: {
 
       {props.view === `feedback` && (
         <form className="exp-body" onSubmit={submit}>
+          {honeypotField(`exp`)}
           <div className="exp-shot">
             {props.screenshot ? (
               <>

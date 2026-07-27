@@ -16,6 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.data.share.ShareIntentParser
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.navigation.AppNavHost
@@ -99,12 +100,20 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (data.scheme != "exponential") return
+        // A push-built link carries its recipient (REV2-81); switch to that
+        // account before publishing so the id resolves against the right
+        // local database. Absent on every other producer of these links.
+        val linkUserId = data.getQueryParameter(PushDeepLinks.PARAM_USER_ID)
         when (data.host) {
             "oauth-return" -> handleOauthReturn(data)
-            "issue" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openIssue(it) }
+            "issue" -> data.pathSegments.firstOrNull()?.let {
+                if (switchToPushAccount(linkUserId)) deepLinkBus.openIssue(it)
+            }
             "invite" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openInvite(it) }
             // support_reply push taps (EXP-180): straight to the ticket.
-            "support" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openSupportThread(it) }
+            "support" -> data.pathSegments.firstOrNull()?.let {
+                if (switchToPushAccount(linkUserId)) deepLinkBus.openSupportThread(it)
+            }
             // Fired by the server's post-GitHub-App-install page: closes the
             // Custom Tab (singleTask clear-top) and lands back on the repo
             // picker, which consumes this and re-fetches the repo list.
@@ -112,32 +121,68 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Route a backgrounded push tap's launcher-intent extras to the issue. Same
-    // active-account guard as FcmService.onMessageReceived: only deep-link when
-    // the push targets the ACTIVE account (another account's issue id would
-    // dead-end in the wrong local database); servers predating the userId hint
-    // omit it — keep the link then. AccountStore loads synchronously, so the
-    // guard is valid even during onCreate. AppNavHost parks the bus target
-    // until the auth token is ready, so a cold-start tap navigates post-login.
+    // Route a backgrounded push tap's launcher-intent extras to its target.
+    // Same account resolution as FcmService.onMessageReceived (REV2-81): a push
+    // for a non-active but still signed-in account switches to that account
+    // first instead of being dropped; one for an account that's gone stays
+    // dropped, since its ids would dead-end in no local database at all.
+    // AccountStore loads synchronously, so the resolution is valid even during
+    // onCreate. AppNavHost parks the bus target until the auth token is ready,
+    // so a cold-start tap navigates post-login.
     private fun handlePushExtras(intent: Intent) {
-        val issueId = intent.getStringExtra("issueId")
-        // support_reply pushes (EXP-180) carry a threadId and NO issue keys.
-        val threadId = intent.getStringExtra("threadId")
-        if (issueId == null && threadId == null) return
-        val targetUserId = intent.getStringExtra("userId")
-        if (targetUserId != null && targetUserId != authRepository.userId.value) return
+        val target = PushDeepLinks.target(
+            type = intent.getStringExtra("type"),
+            issueId = intent.getStringExtra("issueId"),
+            threadId = intent.getStringExtra("threadId"),
+        ) ?: return
+        if (!switchToPushAccount(intent.getStringExtra("userId"))) return
         // Belt-and-braces beside the savedInstanceState gate: an in-process
         // recreation reuses this same Intent instance via getIntent().
-        if (issueId != null) {
-            intent.removeExtra("issueId")
-            deepLinkBus.openIssue(issueId)
-        } else if (threadId != null) {
-            intent.removeExtra("threadId")
-            deepLinkBus.openSupportThread(threadId)
+        when (target) {
+            is PushDeepLinks.Target.Issue -> {
+                intent.removeExtra("issueId")
+                deepLinkBus.openIssue(target.id)
+            }
+            is PushDeepLinks.Target.SupportThread -> {
+                intent.removeExtra("threadId")
+                deepLinkBus.openSupportThread(target.id)
+            }
+        }
+    }
+
+    /**
+     * Make the account a push belongs to active, returning false when it
+     * belongs to no signed-in account here (nothing to open). A null
+     * [targetUserId] is a link from any other producer — or a server predating
+     * the hint — and stays on the active account.
+     */
+    private fun switchToPushAccount(targetUserId: String?): Boolean {
+        val account = PushDeepLinks.resolveAccount(
+            accounts = authRepository.accounts.value,
+            activeAccountId = authRepository.activeAccountId.value,
+            targetUserId = targetUserId,
+        )
+        return when (account) {
+            PushDeepLinks.Account.Active -> true
+            is PushDeepLinks.Account.Switch -> {
+                authRepository.switchAccount(account.id)
+                true
+            }
+            PushDeepLinks.Account.Unknown -> false
         }
     }
 
     private fun handleOauthReturn(data: android.net.Uri) {
+        // Failure handoff (REV2-53): every failing branch of the web hop now
+        // deep-links back with `error=<reason>` instead of stranding the user
+        // on an https page the Custom Tab can't hand back. Surface it on the
+        // login screen (which mirrors + consumes reportLoginError).
+        val error = oauthReturnParam(data, "error")
+        if (error != null) {
+            authRepository.consumeOauthVerifier() // this attempt is over
+            authRepository.reportLoginError(oauthErrorMessage(error))
+            return
+        }
         // New servers deliver a single-use PKCE `code` (REV-13) we redeem via
         // /api/mobile-oauth-exchange with the in-memory verifier; old servers
         // (self-hosted lag) still deliver the raw `token`. Both ride in the
@@ -212,6 +257,18 @@ class MainActivity : ComponentActivity() {
         if (!ok) {
             authRepository.reportLoginError("Couldn't verify your account. Please try again.")
         }
+    }
+
+    // Human copy for the server's error reason (REV2-53). Mirrors the web's
+    // `oauthErrorMessage` and iOS `LoginViewModel.oauthErrorMessage`; unknown
+    // reasons get the generic line so a new server slug is never shown raw.
+    private fun oauthErrorMessage(reason: String): String = when (reason) {
+        "access_denied" -> "Sign-in was cancelled."
+        "state_missing", "state_invalid", "state_mismatch", "state_not_found",
+        "please_restart_the_process" -> "That sign-in link expired. Please try again."
+        "no_session", "session_cookie_missing" ->
+            "Sign-in didn't complete on the server. Please try again."
+        else -> "Couldn't complete sign-in. Please try again."
     }
 
     private fun maybeRequestNotificationPermission() {

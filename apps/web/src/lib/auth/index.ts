@@ -15,6 +15,7 @@ import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email"
 import { emailEnabled } from "@/lib/email-enabled"
 import { isAdminUser } from "./app-user"
 import { mintAppleClientSecret } from "./apple"
+import { withAuthDbFailureSignal } from "./db-failure-signal"
 import {
   resolveDismissalFlags,
   resolveOnboardingCompletedAt,
@@ -92,12 +93,31 @@ const appleClientConfigured = Boolean(
 const appleLoginEnabled =
   appleClientConfigured && process.env.APPLE_LOGIN_ENABLED === `true`
 
+// REV2-66: the Creem plugin registers its webhook endpoint ONLY when a secret
+// is present, so a half-configured billing env fails silently in the worst
+// place: checkout still works, the customer pays, and Creem's delivery hits a
+// route that does not exist (404) — no creem_subscriptions row, no team/seat
+// binding, no entitlements. The plugin's own signal is a debug-level log, so
+// say it loudly at boot; the only other evidence is failed deliveries in
+// Creem's dashboard.
+if (
+  isCloudInstance() &&
+  process.env.CREEM_API_KEY &&
+  !process.env.CREEM_WEBHOOK_SECRET
+) {
+  process.stderr.write(
+    `[creem] CREEM_API_KEY is set but CREEM_WEBHOOK_SECRET is not — the webhook endpoint is NOT registered, so subscription events 404 and paid subscriptions never activate. Set CREEM_WEBHOOK_SECRET.\n`
+  )
+}
+
 export const auth = betterAuth({
-  database: drizzleAdapter(db, {
-    provider: `pg`,
-    usePlural: true,
-    schema,
-  }),
+  database: withAuthDbFailureSignal(
+    drizzleAdapter(db, {
+      provider: `pg`,
+      usePlural: true,
+      schema,
+    })
+  ),
   emailAndPassword: {
     enabled: process.env.AUTH_PASSWORD_ENABLED !== `false`,
     // Public password sign-up: historically OFF in production (invite/OAuth

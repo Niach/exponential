@@ -14,9 +14,11 @@ const SECTIONS: DocsSectionType[] = [
   { id: `installation`, num: `01`, label: `Installation` },
   { id: `github-app`, num: `02`, label: `GitHub App` },
   { id: `push`, num: `03`, label: `Push notifications` },
-  { id: `environment`, num: `04`, label: `Environment variables` },
-  { id: `updating`, num: `05`, label: `Updating` },
-  { id: `licensing`, num: `06`, label: `Licensing` },
+  { id: `steer`, num: `04`, label: `Steer relay` },
+  { id: `email`, num: `05`, label: `Email` },
+  { id: `environment`, num: `06`, label: `Environment variables` },
+  { id: `updating`, num: `07`, label: `Updating` },
+  { id: `licensing`, num: `08`, label: `Licensing` },
 ]
 
 export function SelfHostDocsPage() {
@@ -51,7 +53,9 @@ export function SelfHostDocsPage() {
             <p>
               One <code>docker compose</code> file, four services: Postgres,
               Electric (real-time sync), Garage (S3-compatible attachment
-              storage), and Caddy (reverse proxy). Set{` `}
+              storage), and Caddy (reverse proxy) — plus the optional{` `}
+              <a href="#steer">steer relay</a> behind a compose profile. Set
+              {` `}
               <code>SELF_HOSTED=true</code> and every plan limit disappears —
               seats, storage, widgets — and billing is disabled entirely.
               Licensing is a separate question: free under 10 people, see{` `}
@@ -119,7 +123,10 @@ bun run storage:init
               secret and the S3 keys from the previous step. The web app (dev
               server, migrations) reads env from <code>apps/web/</code>, so link
               the root <code>.env</code> there — the root file stays the single
-              source of truth.
+              source of truth. The optional subsystems are all in there,
+              commented out: <a href="#push">push</a>,{` `}
+              <a href="#steer">steer</a> and <a href="#email">email</a> stay off
+              until you fill them in.
             </p>
             <DocsCode language="shell">{`
 cp apps/web/.env.example .env
@@ -342,12 +349,148 @@ PUSH_RELAY_SECRET=<shared secret>
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 04 Environment variables ── */}
-          <DocsSection id="environment" num="04" label="Environment variables">
+          {/* ── 04 Steer relay ── */}
+          <DocsSection id="steer" num="04" label="Steer relay">
+            <h2>Steer relay</h2>
+            <p>
+              Starting a coding session on your desktop from the phone or the
+              web app — and then watching and steering it live — goes through
+              the <strong>steer-relay</strong>, a second companion service. It
+              is a dumb pipe with auth: every connection dials{` `}
+              <em>out</em> to it, so the desktop never needs an inbound port,
+              and the relay itself holds device presence and session rooms in
+              memory only. Leave it unconfigured and remote start plus live
+              watch/steer are simply off — local coding sessions on the desktop
+              are unaffected.
+            </p>
+
+            <h3>Run the relay</h3>
+            <p>
+              The compose file ships it behind an opt-in profile, so it stays
+              down until you ask for it. The service reads{` `}
+              <code>STEER_RELAY_SECRET</code> from your root{` `}
+              <code>.env</code> (falling back to a dev placeholder), so setting
+              it there configures both sides at once:
+            </p>
+            <DocsCode language="shell">{`
+docker compose --profile steer up -d
+
+# verify
+curl http://localhost:4002/healthz   # => {"ok":true,...}
+`}</DocsCode>
+            <p>
+              To host it on its own box, build the image directly — same
+              Dockerfile the profile uses:
+            </p>
+            <DocsCode language="shell">{`
+docker build -f Dockerfile.steer-relay -t steer-relay:latest .
+docker run -d \\
+  -p 4002:4002 \\
+  -e STEER_RELAY_SECRET='<shared secret>' \\
+  steer-relay:latest
+`}</DocsCode>
+            <p>Either way, point the web app at it with the same secret:</p>
+            <DocsCode language="env">{`
+STEER_RELAY_URL=ws://localhost:4002   # or ws(s):// the host you run it on
+STEER_RELAY_SECRET=<shared secret>
+`}</DocsCode>
+            <p>
+              The relay is reached over WebSocket, so give{` `}
+              <code>STEER_RELAY_URL</code> a <code>ws://</code> or{` `}
+              <code>wss://</code> URL (an <code>http(s)://</code> one works too
+              — the server converts it); the web app derives the HTTP origin
+              from it for its own server-to-server calls. A LAN address is
+              fine: every client dials out, so the relay never has to be
+              reachable from the internet.
+            </p>
+            <DocsCallout kind="warn" title="Set the secret on both sides">
+              <code>STEER_RELAY_SECRET</code> is the shared HS256 key: the web
+              app signs the short-lived tickets clients present, the relay
+              verifies them. Without it the relay answers <code>503</code> on
+              everything but <code>/healthz</code>, and the web app treats the
+              subsystem as off unless <strong>both</strong>{` `}
+              <code>STEER_RELAY_URL</code> and <code>STEER_RELAY_SECRET</code>
+              {` `}
+              are set.
+            </DocsCallout>
+            <DocsCallout kind="note" title="Behind a reverse proxy?">
+              Set <code>TRUST_PROXY=true</code> on the relay process whenever a
+              proxy fronts it. The relay rate-limits WebSocket upgrades per
+              client IP, and without this flag every connection keys to one
+              shared bucket instead of the real address from{` `}
+              <code>X-Forwarded-For</code>. Leave it off when the relay is
+              exposed directly — forwarded headers from unknown peers are
+              forgeable.
+            </DocsCallout>
+          </DocsSection>
+
+          {/* ── 05 Email ── */}
+          <DocsSection id="email" num="05" label="Email">
+            <h2>Email</h2>
+            <p>
+              One sender handles all outgoing mail: password reset and address
+              verification, invite emails, the notification digest, the
+              helpdesk reporter magic links, and the contact form. With no
+              transport configured every send is a logged no-op — nothing
+              throws, the UI hides the affordances that depend on it (
+              &quot;Forgot password?&quot;, the email-notification prefs), and
+              in-app plus push notifications keep working.
+            </p>
+
+            <h3>SMTP</h3>
+            <p>
+              The straightforward option for a self-hosted instance — any
+              relay you already run. <code>SMTP_PORT</code> defaults to{` `}
+              <code>587</code> (STARTTLS); set <code>SMTP_SECURE=true</code>
+              {` `}
+              for implicit TLS on port 465. <code>SMTP_USER</code> and{` `}
+              <code>SMTP_PASS</code> are optional for unauthenticated relays.
+            </p>
+            <DocsCode language="env">{`
+SMTP_HOST=smtp.yourcompany.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+SMTP_SECURE=false
+EMAIL_FROM="Exponential <noreply@yourcompany.com>"
+`}</DocsCode>
+
+            <h3>Amazon SES</h3>
+            <p>
+              Setting <code>AWS_SES_REGION</code> switches the sender to the
+              SESv2 API; credentials come from the standard AWS chain.{` `}
+              <code>EMAIL_FROM</code> must be a verified identity in that
+              region, and the account has to be out of the SES sandbox to mail
+              arbitrary recipients.
+            </p>
+            <DocsCode language="env">{`
+AWS_SES_REGION=eu-central-1
+AWS_ACCESS_KEY_ID=<IAM user allowed ses:SendEmail>
+AWS_SECRET_ACCESS_KEY=
+EMAIL_FROM="Exponential <noreply@yourcompany.com>"
+`}</DocsCode>
+            <p>
+              SES wins when both transports are configured.{` `}
+              <code>EMAIL_REPLY_TO</code> sets a monitored default Reply-To on
+              every message (individual sends may override it).
+            </p>
+
+            <DocsCallout kind="warn" title="The helpdesk needs a transport">
+              A support reporter&apos;s only credential is the magic link
+              emailed to them, so support mode on the feedback widget can&apos;t
+              work without SMTP or SES. Password reset, address verification,
+              emailed invites, and the notification digest are equally inert —
+              they fail silently rather than erroring.
+            </DocsCallout>
+          </DocsSection>
+
+          {/* ── 06 Environment variables ── */}
+          <DocsSection id="environment" num="06" label="Environment variables">
             <h2>Environment variables</h2>
             <p>
               Only three are strictly required — the rest have sensible
-              defaults.
+              defaults, except the optional subsystems above (push, steer,
+              email), which stay off until you configure them.
             </p>
 
             <dl className="docs-env-list">
@@ -432,6 +575,41 @@ PUSH_RELAY_SECRET=<shared secret>
                 Set to <code>true</code> to poll for PR merges instead — for
                 servers behind NAT that webhooks can&apos;t reach.
               </EnvVar>
+              <EnvVar name="SMTP_HOST">
+                SMTP server for all outgoing mail (self-host transport). Unset
+                together with <code>AWS_SES_REGION</code> ⇒ every send is a
+                logged no-op.
+              </EnvVar>
+              <EnvVar name="SMTP_PORT">
+                SMTP port (default: <code>587</code>).
+              </EnvVar>
+              <EnvVar name="SMTP_USER">
+                SMTP username — optional, for unauthenticated relays.
+              </EnvVar>
+              <EnvVar name="SMTP_PASS">SMTP password.</EnvVar>
+              <EnvVar name="SMTP_SECURE">
+                Set to <code>true</code> for implicit TLS (port 465).
+              </EnvVar>
+              <EnvVar name="AWS_SES_REGION">
+                Amazon SES region — setting it switches the sender to SES,
+                which wins over SMTP when both are configured.
+              </EnvVar>
+              <EnvVar name="AWS_ACCESS_KEY_ID">
+                AWS credentials for SES (IAM user allowed{` `}
+                <code>ses:SendEmail</code>).
+              </EnvVar>
+              <EnvVar name="AWS_SECRET_ACCESS_KEY">AWS secret key for SES.</EnvVar>
+              <EnvVar name="EMAIL_FROM">
+                Sender address, e.g.{` `}
+                <code>
+                  {`Exponential <noreply@yourcompany.com>`}
+                </code>
+                {` `}
+                — must be a verified identity on SES.
+              </EnvVar>
+              <EnvVar name="EMAIL_REPLY_TO">
+                Monitored default Reply-To on every outbound email.
+              </EnvVar>
               <EnvVar name="PUSH_RELAY_URL">
                 Push notification relay URL.
               </EnvVar>
@@ -444,11 +622,24 @@ PUSH_RELAY_SECRET=<shared secret>
                 a secret, so a secretless web app just collects{` `}
                 <code>401</code>s.
               </EnvVar>
+              <EnvVar name="STEER_RELAY_URL">
+                Steer relay WebSocket URL (e.g.{` `}
+                <code>ws://relay.lan:4002</code>) — remote start and live
+                watch/steer. Unset ⇒ the subsystem is off; local coding is
+                unaffected.
+              </EnvVar>
+              <EnvVar name="STEER_RELAY_SECRET">
+                Shared HS256 secret the web app signs steer tickets with — must
+                match the relay process&apos;s env. Both this and{` `}
+                <code>STEER_RELAY_URL</code> are needed: with either missing the
+                web app reports the subsystem as disabled, and a secretless
+                relay answers <code>503</code>.
+              </EnvVar>
             </dl>
           </DocsSection>
 
-          {/* ── 05 Updating ── */}
-          <DocsSection id="updating" num="05" label="Updating">
+          {/* ── 07 Updating ── */}
+          <DocsSection id="updating" num="07" label="Updating">
             <h2>Updating</h2>
             <p>
               Exponential rolls forward on <code>master</code>. To update:
@@ -490,8 +681,8 @@ docker rm -f exponential-web
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 06 Licensing ── */}
-          <DocsSection id="licensing" num="06" label="Licensing">
+          {/* ── 08 Licensing ── */}
+          <DocsSection id="licensing" num="08" label="Licensing">
             <h2>Licensing</h2>
             <p>
               Exponential is <strong>source-available</strong>, not open source.

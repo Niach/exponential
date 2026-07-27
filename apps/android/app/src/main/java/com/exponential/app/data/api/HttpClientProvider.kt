@@ -18,6 +18,7 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.request
 import io.ktor.serialization.kotlinx.json.json
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
@@ -81,9 +82,12 @@ object HttpClientModule {
             // A custom validator runs even with expectSuccess = false, so this is
             // the single choke point that catches the server's HTTP 426
             // ("client_upgrade_required") across every tRPC and shape response and
-            // latches the app-wide update gate. Parsing is fully defensive — the
-            // min/latest fields may be absent, and a body that won't decode must
-            // never mask the 426 signal.
+            // latches the update gate FOR THAT SERVER (REV2-18: every signed-in
+            // account polls its own instance through this one shared client, so
+            // the latch must be keyed by the responding origin — a foreign
+            // server's minimum can't be allowed to gate the whole app).
+            // Parsing is fully defensive — the min/latest fields may be absent,
+            // and a body that won't decode must never mask the 426 signal.
             HttpResponseValidator {
                 validateResponse { response ->
                     if (response.status.value == 426) {
@@ -94,7 +98,7 @@ object HttpClientModule {
                                 latest = obj["latest"]?.jsonPrimitive?.contentOrNull,
                             )
                         }.getOrDefault(UpdateGate.UpgradeInfo(min = null, latest = null))
-                        updateGate.trigger(info)
+                        updateGate.trigger(response.request.url.toString(), info)
                     }
                 }
             }

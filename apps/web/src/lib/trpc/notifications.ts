@@ -63,6 +63,33 @@ export const notificationsRouter = router({
       })
     }),
 
+  // The Support surface's twin of markReadByIssue (REV2-13). Issue-less
+  // `support_reply` rows can never be cleared by markReadByIssue (their
+  // issue_id is NULL by construction), so the badge that sits ON the Support
+  // entry used to stay lit no matter how many tickets a member answered —
+  // only a detour through the Inbox tab's Support group cleared it. Every
+  // client's Support surface fires this for the team it is showing.
+  markReadSupport: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx
+          .update(notifications)
+          .set({ readAt: new Date() })
+          .where(
+            and(
+              eq(notifications.userId, ctx.session.user.id),
+              eq(notifications.type, `support_reply`),
+              isNull(notifications.issueId),
+              eq(notifications.teamId, input.teamId),
+              isNull(notifications.readAt)
+            )
+          )
+        return { txId }
+      })
+    }),
+
   markAllRead: authedProcedure.mutation(async ({ ctx }) => {
     return await ctx.db.transaction(async (tx) => {
       const txId = await generateTxId(tx)
@@ -84,7 +111,10 @@ export const notificationsRouter = router({
   // unsubscribeToken on first read/write; a user who never touched the panel
   // simply has the defaults (email on, all types on, daily digest).
   // `transportConfigured` lets the web panel hide/disable email affordances on
-  // self-hosted instances without AWS_SES_REGION/SMTP_HOST (§6.6).
+  // self-hosted instances without AWS_SES_REGION/SMTP_HOST (§6.6), and
+  // `emailVerified` (REV2-52) lets it say so when the address itself is the
+  // blocker: the digest sweep refuses unverified addresses, so without this
+  // the panel renders live toggles over a channel that silently does nothing.
   emailPrefs: authedProcedure.query(async ({ ctx }) => {
     const prefs = await getOrCreateEmailPrefs(ctx.session.user.id)
     return {
@@ -92,6 +122,8 @@ export const notificationsRouter = router({
       typePrefs: prefs.typePrefs,
       digest: prefs.digest,
       transportConfigured: emailEnabled,
+      emailVerified: ctx.session.user.emailVerified === true,
+      email: ctx.session.user.email,
     }
   }),
 

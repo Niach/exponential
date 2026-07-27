@@ -35,8 +35,11 @@ data class AppState(
     val token: String? = null,
     val activeAccountId: String? = null,
     val accounts: List<ServerAccount> = emptyList(),
-    // Non-null once the server has answered HTTP 426 (this build is below the
-    // configured minimum, EXP-104) — drives the blocking "Update required" gate.
+    // Non-null once the ACTIVE account's server has answered HTTP 426 (this
+    // build is below that server's configured minimum, EXP-104) — drives the
+    // blocking "Update required" gate. Keyed per instance (REV2-18): a
+    // background account's 426 never blocks the app, it only stops that
+    // account's sync and raises [gatedOtherServers].
     val updateRequired: UpdateGate.UpgradeInfo? = null,
 )
 
@@ -134,6 +137,35 @@ class AppViewModel @Inject constructor(
                     teamSelection.clearSelection()
                 }
         }
+        // REV2-18: a server that 426s rejects every request from this build, so
+        // keep its 15 shape loops from polling forever — for the active account
+        // (whose screen is the blocking gate) and, crucially, for background
+        // accounts, which used to keep re-triggering the process-global latch.
+        viewModelScope.launch {
+            combine(updateGate.gated, auth.accounts) { gated, accounts ->
+                accounts.filter { it.token != null && it.isGated(gated) }.map { it.id }
+            }.collectLatest { ids ->
+                if (ids.isEmpty()) return@collectLatest
+                // Re-assert on a backing-off schedule rather than stopping once:
+                // SyncManager's reconcile consumes the SAME auth.accounts
+                // emission on its own dispatcher, so on an account-set change a
+                // stop issued here can land BEFORE the relaunch it is meant to
+                // undo — and nothing re-emits afterwards to fix it up (the latch
+                // is first-wins, so later 426s yield an equal map the StateFlow
+                // dedupes), leaving that account's 15 loops polling a server
+                // that answers nothing but 426. Cancelling an already-cancelled
+                // pipeline is a map lookup against an equal stats map, so the
+                // steady-state cost is a no-op tick a minute, and collectLatest
+                // drops the whole schedule the moment a newer gated/accounts
+                // emission supersedes it.
+                var backoffMs = GATED_STOP_REASSERT_MIN_MS
+                while (true) {
+                    ids.forEach { syncManager.signOut(it) }
+                    delay(backoffMs)
+                    backoffMs = (backoffMs * 2).coerceAtMost(GATED_STOP_REASSERT_MAX_MS)
+                }
+            }
+        }
     }
 
     val state: StateFlow<AppState> = combine(
@@ -141,16 +173,30 @@ class AppViewModel @Inject constructor(
         auth.token,
         auth.activeAccountId,
         auth.accounts,
-        updateGate.state,
-    ) { url, token, activeId, accounts, updateRequired ->
+        updateGate.gated,
+    ) { url, token, activeId, accounts, gated ->
         AppState(
             instanceUrl = url,
             token = token,
             activeAccountId = activeId,
             accounts = accounts,
-            updateRequired = updateRequired,
+            updateRequired = url?.let { UpdateGate.originKey(it) }?.let { gated[it] },
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AppState())
+
+    // Signed-in servers OTHER than the active one that answered 426 (REV2-18).
+    // Their pipelines are stopped below; this is the banner that says so, since
+    // silently frozen background sync reads as a broken app.
+    val gatedOtherServers: StateFlow<List<String>> = combine(
+        updateGate.gated,
+        auth.accounts,
+        auth.activeAccountId,
+    ) { gated, accounts, activeId ->
+        accounts
+            .filter { it.id != activeId && it.token != null && it.isGated(gated) }
+            .map { it.displayName }
+            .distinct()
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Unread notifications for the active account — drives the bottom bar's
     // inbox dot. Re-scopes reactively on account switch like the feature VMs.
@@ -225,7 +271,7 @@ class AppViewModel @Inject constructor(
 
     // True while the active team has any open pull request — the Reviews
     // tab's green "stuff to do" dot (EXP-214). Same query the Reviews screen
-    // lists (team-scoped, open PRs only, archived/trashed filtered).
+    // lists (team-scoped, open PRs only, trashed filtered).
     @OptIn(ExperimentalCoroutinesApi::class)
     val reviewsOpen: StateFlow<Boolean> = combine(
         accountDatabaseFlow(auth, databaseHolder),
@@ -252,7 +298,7 @@ class AppViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // The Issues tab root's current board: last-used on the active account
-    // (validated against the live Room table, so deleted/archived boards fall
+    // (validated against the live Room table, so deleted boards fall
     // through), else the first board of the first team, else none. The
     // lastBoardVersion counter re-runs the resolve after every last-used
     // write — that's what swaps the root list in place after a switcher pick.
@@ -316,12 +362,45 @@ class AppViewModel @Inject constructor(
     }
 
     fun removeAccount(id: String) {
+        viewModelScope.launch { removeAccountAwaiting(id) }
+    }
+
+    // The body of [removeAccount], as a suspend function: callers that must
+    // sequence work AFTER the removal has fully settled (signOutOfGatedServer)
+    // have to await it instead of racing the coroutine removeAccount() fires
+    // and forgets.
+    private suspend fun removeAccountAwaiting(id: String) {
+        val account = auth.accounts.value.firstOrNull { it.id == id }
+        pushTokenManager.unregisterToken(id)
+        revokeSession(account)
+        auth.removeAccount(id)
+        databaseHolder.deleteFiles(id)
+    }
+
+    // The blocking 426 gate's escape hatch (REV2-18): remove the offending
+    // account outright. Clearing just its token would leave that server's
+    // account signed out but still present, so the gate would re-latch off its
+    // own login round-trips instead of falling through to another signed-in
+    // server (AccountStore.remove re-activates the most recent one) or the
+    // instance picker.
+    fun signOutOfGatedServer() {
+        val account = activeAccount() ?: return
         viewModelScope.launch {
-            val account = auth.accounts.value.firstOrNull { it.id == id }
-            pushTokenManager.unregisterToken(id)
-            revokeSession(account)
-            auth.removeAccount(id)
-            databaseHolder.deleteFiles(id)
+            // AWAIT the removal before clearing the latch. The removal's own
+            // push unregister is a tRPC call to the very server that is 426ing,
+            // and that response re-latches the origin through
+            // HttpClientProvider's validator — a clear() issued before it lands
+            // is silently undone, and the stale latch then blocks re-adding the
+            // server for the rest of the app run (exactly what clear() exists
+            // to prevent).
+            removeAccountAwaiting(account.id)
+            // Keep the latch while another account still lives on that server —
+            // the same 426 gates it too.
+            val origin = UpdateGate.originKey(account.instanceUrl)
+            val othersOnServer = auth.accounts.value.any {
+                it.id != account.id && UpdateGate.originKey(it.instanceUrl) == origin
+            }
+            if (!othersOnServer) updateGate.clear(account.instanceUrl)
         }
     }
 
@@ -335,4 +414,18 @@ class AppViewModel @Inject constructor(
         authApi.signOut(account.instanceUrl, token)
     }
 
+}
+
+// Re-assert cadence for the gated-account pipeline stop (REV2-18). Starts fast
+// enough that the reconcile-relaunch race closes within a blink of the account
+// change that opened it, then backs off to a once-a-minute insurance tick for
+// as long as a signed-in server stays gated.
+private const val GATED_STOP_REASSERT_MIN_MS = 200L
+private const val GATED_STOP_REASSERT_MAX_MS = 60_000L
+
+// Does this account's server sit behind a 426 update gate? Matching is by
+// instance origin, the same key HttpClientProvider latches responses under.
+private fun ServerAccount.isGated(gated: Map<String, UpdateGate.UpgradeInfo>): Boolean {
+    val key = UpdateGate.originKey(instanceUrl) ?: return false
+    return gated.containsKey(key)
 }

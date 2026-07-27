@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CommentsApi
 import com.exponential.app.data.api.IssueImagesApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -16,6 +17,7 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.ui.markdown.stripDraftImages
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -110,6 +112,21 @@ class CommentThreadViewModel @Inject constructor(
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending
 
+    // Surfaced when a comment send / edit / delete is refused (snackbar in the
+    // issue screen, REV2-50): the thread is driven by Electric sync, so a
+    // failed write left the composer looking like a dead button.
+    private val _commentError = MutableStateFlow<String?>(null)
+    val commentError: StateFlow<String?> = _commentError
+
+    fun consumeCommentError() {
+        _commentError.value = null
+    }
+
+    private fun reportFailure(t: Throwable, fallback: String) {
+        if (t is CancellationException) throw t
+        _commentError.value = trpcErrorMessage(t, fallback)
+    }
+
     fun updateDraft(text: String) {
         _draft.value = text
     }
@@ -140,7 +157,9 @@ class CommentThreadViewModel @Inject constructor(
         // Never persist `draft://` placeholders from in-flight/failed uploads.
         val sanitized = stripDraftImages(text).trim()
         if (sanitized.isEmpty()) return false
-        return runCatching { commentsApi.create(accountId, issueId, sanitized) }.isSuccess
+        return runCatching { commentsApi.create(accountId, issueId, sanitized) }
+            .onFailure { reportFailure(it, "The comment could not be posted") }
+            .isSuccess
     }
 
     /** Returns true when the edit was saved — the editor stays open otherwise. */
@@ -148,12 +167,15 @@ class CommentThreadViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return false
         val sanitized = stripDraftImages(text).trim()
         if (sanitized.isEmpty()) return false
-        return runCatching { commentsApi.update(accountId, id, sanitized) }.isSuccess
+        return runCatching { commentsApi.update(accountId, id, sanitized) }
+            .onFailure { reportFailure(it, "The comment could not be saved") }
+            .isSuccess
     }
 
     suspend fun deleteComment(id: String) {
         val accountId = auth.activeAccountId.value ?: return
         runCatching { commentsApi.delete(accountId, id) }
+            .onFailure { reportFailure(it, "The comment could not be deleted") }
     }
 
     // Comment images upload to the issue's attachments (same store as

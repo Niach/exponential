@@ -51,17 +51,44 @@ data class SupportGroup(
     val latest: NotificationEntity get() = notifications.first()
 }
 
+/**
+ * One merged stream (web/iOS/desktop parity): issue groups and synthetic
+ * Support groups interleaved newest-first by each group's latest notification.
+ */
+sealed interface InboxEntry {
+    val unread: Int
+
+    /** Stable list key, mirroring the web/iOS `issue:`/`support:` key form. */
+    val key: String
+
+    data class Issue(val group: InboxGroup) : InboxEntry {
+        override val unread: Int get() = group.unread
+        override val key: String get() = "issue:${group.issue.id}"
+    }
+
+    data class Support(val group: SupportGroup) : InboxEntry {
+        override val unread: Int get() = group.unread
+        override val key: String get() = "support:${group.teamId ?: "generic"}"
+    }
+}
+
 data class InboxState(
-    val groups: List<InboxGroup> = emptyList(),
-    val supportGroups: List<SupportGroup> = emptyList(),
+    val entries: List<InboxEntry> = emptyList(),
     val totalUnread: Int = 0,
 )
 
+/** First-seen registry key: one namespace across both entry kinds. */
+private sealed interface GroupKey {
+    data class Issue(val issueId: String) : GroupKey
+    data class Support(val teamId: String?) : GroupKey
+}
+
 /**
  * Pure grouping core, extracted so unit tests can drive it directly.
- * `notifications` arrives newest-first (DAO orders created_at DESC);
- * LinkedHashMap keeps that order per group, so each group's first element is
- * its latest notification and groups are ordered by their latest row.
+ * `notifications` arrives newest-first (DAO orders created_at DESC); ONE
+ * LinkedHashMap across both entry kinds keeps that order, so each group's
+ * first element is its latest notification and the entries interleave by
+ * latest activity (web `inbox-view.tsx` sorts all groups together).
  */
 internal fun buildInboxState(
     notifications: List<NotificationEntity>,
@@ -70,38 +97,38 @@ internal fun buildInboxState(
 ): InboxState {
     val issueMap = issues.associateBy { it.id }
     val teamMap = teams.associateBy { it.id }
-    val byIssue = LinkedHashMap<String, MutableList<NotificationEntity>>()
-    val bySupportTeam = LinkedHashMap<String?, MutableList<NotificationEntity>>()
+    val byKey = LinkedHashMap<GroupKey, MutableList<NotificationEntity>>()
     for (n in notifications) {
         val iid = n.issueId
-        if (iid == null) {
+        val key = if (iid == null) {
             // Issue-less rows are the helpdesk fan-out (`support_reply`,
             // EXP-180) — group them per ticket team instead of dropping them.
             // NULL/unknown team ids collapse into one generic bucket.
             if (n.type != DomainContract.notificationTypeSupportReply) continue
-            val key = n.teamId?.takeIf { teamMap.containsKey(it) }
-            bySupportTeam.getOrPut(key) { mutableListOf() }.add(n)
-            continue
+            GroupKey.Support(n.teamId?.takeIf { teamMap.containsKey(it) })
+        } else {
+            if (!issueMap.containsKey(iid)) continue
+            GroupKey.Issue(iid)
         }
-        if (!issueMap.containsKey(iid)) continue
-        byIssue.getOrPut(iid) { mutableListOf() }.add(n)
+        byKey.getOrPut(key) { mutableListOf() }.add(n)
     }
-    val groups = byIssue.map { (iid, ns) ->
-        InboxGroup(issueMap.getValue(iid), ns, ns.count { it.readAt == null })
+    val entries = byKey.map { (key, ns) ->
+        val unread = ns.count { it.readAt == null }
+        when (key) {
+            is GroupKey.Issue -> InboxEntry.Issue(
+                InboxGroup(issueMap.getValue(key.issueId), ns, unread),
+            )
+            is GroupKey.Support -> InboxEntry.Support(
+                SupportGroup(
+                    teamId = key.teamId,
+                    teamName = key.teamId?.let { teamMap.getValue(it).name },
+                    notifications = ns,
+                    unread = unread,
+                ),
+            )
+        }
     }
-    val supportGroups = bySupportTeam.map { (tid, ns) ->
-        SupportGroup(
-            teamId = tid,
-            teamName = tid?.let { teamMap.getValue(it).name },
-            notifications = ns,
-            unread = ns.count { it.readAt == null },
-        )
-    }
-    return InboxState(
-        groups = groups,
-        supportGroups = supportGroups,
-        totalUnread = groups.sumOf { it.unread } + supportGroups.sumOf { it.unread },
-    )
+    return InboxState(entries = entries, totalUnread = entries.sumOf { it.unread })
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

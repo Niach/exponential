@@ -91,14 +91,9 @@ pub struct IssuesCreateInput {
     /// ("Images can only be added after the issue is created").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// `YYYY-MM-DD`.
+    /// `YYYY-MM-DD` — date only; REV2-49 deleted the time-of-day fields.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due_date: Option<String>,
-    /// `HH:MM` (cascade-null rules live server-side, §4.2).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub due_time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label_ids: Option<Vec<String>>,
 }
@@ -113,8 +108,6 @@ impl IssuesCreateInput {
             assignee_id: None,
             description: None,
             due_date: None,
-            due_time: None,
-            end_time: None,
             label_ids: None,
         }
     }
@@ -148,17 +141,10 @@ pub struct IssuesUpdateInput {
     pub description: Patch<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub due_date: Patch<String>,
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub due_time: Patch<String>,
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub end_time: Patch<String>,
     /// Mark-as-duplicate (§4.2): `Set(canonical_id)` forces
     /// `status='duplicate'` server-side; `Null` unmarks (restores backlog).
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub duplicate_of_id: Patch<String>,
-    /// ISO datetime; `Null` un-archives.
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub archived_at: Patch<String>,
 }
 
 impl IssuesUpdateInput {
@@ -172,10 +158,7 @@ impl IssuesUpdateInput {
             assignee_id: Patch::Omit,
             description: Patch::Omit,
             due_date: Patch::Omit,
-            due_time: Patch::Omit,
-            end_time: Patch::Omit,
             duplicate_of_id: Patch::Omit,
-            archived_at: Patch::Omit,
         }
     }
 }

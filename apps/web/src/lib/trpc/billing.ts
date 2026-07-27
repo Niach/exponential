@@ -16,9 +16,15 @@ import {
 import {
   assertSubscriptionMutable,
   getActiveTeamSubscription,
+  resumeCreemSubscription,
+  scheduleCreemSubscriptionCancellation,
   updateCreemSubscriptionSeats,
   upgradeCreemSubscriptionProduct,
 } from "@/lib/billing/creem-subscriptions"
+import {
+  isSubscriptionPendingCancel,
+  SCHEDULED_CANCEL_STATUS,
+} from "@/lib/billing/billing-handover"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { resolveTeamAccess } from "@/lib/team-membership"
 
@@ -86,7 +92,11 @@ export const billingRouter = router({
               productId: subscription.productId,
               seats: subscription.seats,
               periodEnd: subscription.periodEnd?.toISOString() ?? null,
-              cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+              // Derived, not the raw column: a cancellation scheduled outside
+              // our UI only shows up as Creem's `scheduled_cancel` status, and
+              // the whole billing UI (pending-cancel banner, Resume button,
+              // seat/plan controls) keys off this flag.
+              cancelAtPeriodEnd: isSubscriptionPendingCancel(subscription),
             }
           : null,
       }
@@ -261,6 +271,120 @@ export const billingRouter = router({
         .where(eq(creem_subscriptions.id, subscription.id))
 
       return { productId: input.productId }
+    }),
+
+  // Cancel the team's subscription at the end of the paid period. The
+  // subscription belongs to the TEAM (REV2-55), so this is the ONE
+  // user-facing cancel path — and the prerequisite for deleting a paying team
+  // (lib/billing/billing-handover.ts). Never immediate: the team keeps every
+  // paid seat, byte and feature until `periodEnd`, then drops to Free when
+  // Creem's `subscription.canceled` webhook lands.
+  cancelSubscription: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertBillingConfigured()
+
+      // Same gate as buying seats: team owner only.
+      await resolveTeamAccess(
+        ctx.session.user.id,
+        input.teamId,
+        `mutate_resources`,
+        { roles: [`owner`] }
+      )
+
+      const subscription = await getActiveTeamSubscription(input.teamId)
+      if (!subscription) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This team has no active subscription`,
+        })
+      }
+      // Idempotent: a second confirm (or a race with the webhook) is a no-op
+      // rather than an error the owner has to interpret. Creem's own
+      // `scheduled_cancel` status counts too — it is the only signal when the
+      // cancellation was scheduled outside this router.
+      if (isSubscriptionPendingCancel(subscription)) {
+        return {
+          cancelAtPeriodEnd: true,
+          periodEnd: subscription.periodEnd?.toISOString() ?? null,
+        }
+      }
+      if (!subscription.creemSubscriptionId) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This subscription can't be changed automatically — contact support`,
+        })
+      }
+
+      await scheduleCreemSubscriptionCancellation(
+        subscription.creemSubscriptionId
+      )
+
+      // Optimistic write — the plugin never persists this column, so our own
+      // write is what makes the pending cancellation visible (to the billing
+      // UI and to the team-delete gate).
+      await db
+        .update(creem_subscriptions)
+        .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
+        .where(eq(creem_subscriptions.id, subscription.id))
+
+      return {
+        cancelAtPeriodEnd: true,
+        periodEnd: subscription.periodEnd?.toISOString() ?? null,
+      }
+    }),
+
+  // Undo a pending cancellation before the period ends — without it a
+  // mis-click would strand the team (seat/plan changes refuse to run while a
+  // cancellation is scheduled) until the plan lapsed.
+  resumeSubscription: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertBillingConfigured()
+
+      await resolveTeamAccess(
+        ctx.session.user.id,
+        input.teamId,
+        `mutate_resources`,
+        { roles: [`owner`] }
+      )
+
+      const subscription = await getActiveTeamSubscription(input.teamId)
+      // Same derived signal the banner uses — a cancellation scheduled from
+      // the Creem dashboard must still be resumable from here.
+      if (!subscription || !isSubscriptionPendingCancel(subscription)) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This subscription is not scheduled to cancel`,
+        })
+      }
+      if (!subscription.creemSubscriptionId) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This subscription can't be changed automatically — contact support`,
+        })
+      }
+
+      await resumeCreemSubscription(subscription.creemSubscriptionId)
+
+      // Optimistic write. `status` is cleared alongside the flag because the
+      // pending-cancel signal is derived from BOTH — leaving a stale
+      // `scheduled_cancel` here would keep the banner up (and re-cancel a
+      // no-op) until Creem's confirming webhook landed. The webhook overwrites
+      // it with the authoritative value moments later.
+      await db
+        .update(creem_subscriptions)
+        .set({
+          cancelAtPeriodEnd: false,
+          status:
+            subscription.status === SCHEDULED_CANCEL_STATUS
+              ? `active`
+              : subscription.status,
+          updatedAt: new Date(),
+        })
+        .where(eq(creem_subscriptions.id, subscription.id))
+
+      return { cancelAtPeriodEnd: false }
     }),
 
   // User-scoped plan + owned-team usage, for pre-gating team

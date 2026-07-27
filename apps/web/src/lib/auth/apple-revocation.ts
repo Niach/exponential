@@ -1,6 +1,3 @@
-import { and, eq } from "drizzle-orm"
-import { accounts } from "@/db/auth-schema"
-import type { db as Database } from "@/db/connection"
 import { buildAppleRevokeBody, getAppleClientSecret } from "./apple"
 
 // Revoke a user's Sign in with Apple pairing when their account is deleted.
@@ -14,29 +11,14 @@ import { buildAppleRevokeBody, getAppleClientSecret } from "./apple"
 // the native idToken exchange store NO Apple tokens, so there is nothing to
 // revoke for them — those users clear the pairing manually via Settings → Apple
 // ID → Sign-In & Security → Exponential → Stop Using Apple ID.
-
-// Works over the root db or a transaction — structurally typed so it can run
-// wherever the caller needs it (only `.select` is used).
-type DbOrTx = Pick<typeof Database, `select`>
+//
+// The capture side is provider-agnostic and lives in oauth-revocation.ts
+// (REV2-76: Google and generic OIDC grants must be revoked too); this module is
+// only the Apple-specific request.
 
 export interface AppleTokenRow {
   accessToken: string | null
   refreshToken: string | null
-}
-
-// Capture the user's Apple `accounts` rows BEFORE the delete transaction — the
-// user FK cascades on delete, after which the tokens are gone.
-export async function captureAppleTokens(
-  db: DbOrTx,
-  userId: string
-): Promise<AppleTokenRow[]> {
-  return db
-    .select({
-      accessToken: accounts.accessToken,
-      refreshToken: accounts.refreshToken,
-    })
-    .from(accounts)
-    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, `apple`)))
 }
 
 // Best-effort revoke, mirroring cancelCreemSubscriptionsBestEffort: never

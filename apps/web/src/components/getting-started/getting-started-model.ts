@@ -16,7 +16,7 @@ export type EntryState = `done` | `available` | `locked`
 export interface GettingStartedSignals {
   /** integrations.github.status → installed (team has a linked App install). */
   githubInstalled: boolean
-  /** Any live (non-archived, non-trashed) board. */
+  /** Any live (non-trashed) board. */
   hasBoard: boolean
   /** Any live board with a repository attached. */
   hasRepoBoard: boolean

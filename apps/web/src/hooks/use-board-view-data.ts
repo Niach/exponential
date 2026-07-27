@@ -31,7 +31,7 @@ export function useBoardViewData({
 }) {
   const team = useTeamBySlug(teamSlug)
 
-  const { data: boards } = useLiveQuery(
+  const { data: boards, isReady: boardsQueryReady } = useLiveQuery(
     (query) =>
       team
         ? query
@@ -47,8 +47,12 @@ export function useBoardViewData({
   )
 
   const board = (boards?.[0] ?? null) as Board | null
+  // A DISABLED live query reports `isReady: true` (it never ran), so every
+  // readiness signal has to carry its own enabling condition — otherwise
+  // "ready and empty" fires while the gate is still resolving (REV2-59).
+  const boardReady = Boolean(team) && boardsQueryReady
 
-  const { data: issues, isReady: issuesReady } = useLiveQuery(
+  const { data: issues, isReady: issuesQueryReady } = useLiveQuery(
     (query) =>
       board
         ? query
@@ -58,6 +62,8 @@ export function useBoardViewData({
         : undefined,
     [board?.id]
   )
+
+  const issuesReady = Boolean(board) && issuesQueryReady
 
   const { data: labels } = useLiveQuery(
     (query) =>
@@ -98,6 +104,10 @@ export function useBoardViewData({
       issuesReady,
       labelList,
       board,
+      // True once the boards collection delivered its first snapshot for this
+      // team — `boardReady && !board` means the slug matches no live board
+      // (trashed, renamed, never existed), not "still syncing".
+      boardReady,
       // Unfiltered count, so the list can tell "no issues at all" apart from
       // "filters hide everything".
       totalIssueCount: issueList.length,
@@ -113,6 +123,7 @@ export function useBoardViewData({
     issuesReady,
     labelList,
     board,
+    boardReady,
     userMap,
     users,
     team,

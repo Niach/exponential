@@ -46,6 +46,33 @@ export function formatDueDateMenuMeta(date: Date) {
   return `${weekday}, ${day} ${month}`.trim()
 }
 
+/**
+ * Due-date urgency (REV2-48) — the rule iOS and Android already ship
+ * (`dueDateColor`): due TODAY wins over overdue, then overdue, else muted.
+ * The boundary is the device-LOCAL `YYYY-MM-DD` the EXP-38 overdue-first
+ * comparator sorts on (`lib/board-view.ts`), so the color explains the order.
+ */
+export type DueDateTone = `overdue` | `today` | `upcoming`
+
+export function dueDateTone(
+  dueDate: string,
+  today: string = formatDateForMutation(new Date())!
+): DueDateTone {
+  if (dueDate === today) return `today`
+  return dueDate < today ? `overdue` : `upcoming`
+}
+
+const dueDateToneClasses: Record<DueDateTone, string> = {
+  overdue: `text-red-500`,
+  today: `text-orange-500`,
+  upcoming: `text-muted-foreground`,
+}
+
+/** Tailwind text color for a due date — the shared list/cell treatment. */
+export function dueDateToneClass(dueDate: string, today?: string): string {
+  return dueDateToneClasses[dueDateTone(dueDate, today)]
+}
+
 export function matchesDueDateValue(
   date: Date | null | undefined,
   dueDate: string | null

@@ -169,15 +169,6 @@ export const teamInvitesRouter = router({
   accept: authedProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const [precheck] = await ctx.db
-        .select({ teamId: teamInvites.teamId })
-        .from(teamInvites)
-        .where(eq(teamInvites.token, input.token))
-        .limit(1)
-      if (precheck) {
-        await assertCanInviteMember(precheck.teamId)
-      }
-
       const result = await ctx.db.transaction(async (tx) => {
         const [invite] = await tx
           .select()
@@ -263,6 +254,13 @@ export const teamInvitesRouter = router({
             message: `Invite has already been used`,
           })
         }
+
+        // Seat gate applies to the FRESH-JOIN path only, and only once the
+        // invite is validated + claimed (REV2-71): an over-seat team must
+        // never lock existing members out, so the alreadyMember no-op above
+        // and the used/expired errors win over the plan-limit error. A throw
+        // here rolls the claim back, leaving the invite pending.
+        await assertCanInviteMember(invite.teamId)
 
         const txId = await generateTxId(tx)
 

@@ -16,7 +16,7 @@
 //!
 //! Column sets intentionally mirror `sync::shapes::SHAPES` (the §5.4
 //! known-column allowlists): no `email` on [`IssueSubscriber`] (PII stays
-//! server-side), no stale `due_time`/`end_time` on [`Issue`].
+//! server-side).
 
 use serde::Deserialize;
 
@@ -69,14 +69,12 @@ pub struct Board {
     #[serde(default)]
     pub repository_id: Option<String>,
     /// Trash contract: protected boards (the bootstrap dogfood board) are
-    /// non-deletable/non-archivable/non-retypable — the server refuses, and
-    /// clients disable the affordances from this flag. `None` on legacy rows.
+    /// non-deletable — the server refuses, and clients disable the
+    /// affordance from this flag. `None` on legacy rows.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub is_protected: Option<bool>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
-    #[serde(default)]
-    pub archived_at: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -112,8 +110,6 @@ pub struct Issue {
     pub sort_order: Option<f64>,
     #[serde(default)]
     pub completed_at: Option<String>,
-    #[serde(default)]
-    pub archived_at: Option<String>,
     #[serde(default)]
     pub duplicate_of_id: Option<String>,
     #[serde(default)]

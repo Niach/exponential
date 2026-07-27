@@ -9,7 +9,6 @@ import {
   pgTable,
   primaryKey,
   text,
-  time,
   timestamp,
   unique,
   uniqueIndex,
@@ -137,9 +136,17 @@ export const teams = pgTable(`teams`, {
 export const creem_subscriptions = pgTable(`creem_subscriptions`, {
   id: text(`id`).primaryKey(),
   productId: text(`product_id`).notNull(),
-  referenceId: text(`reference_id`)
-    .notNull()
-    .references(() => users.id, { onDelete: `cascade` }),
+  // The BUYER (the Creem customer whose card is charged). NULLABLE + `set
+  // null` on purpose (REV2-55): a subscription belongs to the TEAM, not to
+  // the person who happened to pay for it, so it must survive the purchaser
+  // deleting their account — the old `cascade` silently destroyed a surviving
+  // team's billing row (and with it the local billing history) the moment the
+  // buyer left. Remaining owners keep managing the subscription through the
+  // team-scoped billing router; `reference_id` is only the buyer attribution
+  // used by getUserPlan's free-tier owned-team guard.
+  referenceId: text(`reference_id`).references(() => users.id, {
+    onDelete: `set null`,
+  }),
   creemCustomerId: text(`creem_customer_id`),
   creemSubscriptionId: text(`creem_subscription_id`),
   creemOrderId: text(`creem_order_id`),
@@ -233,7 +240,6 @@ export const boards = pgTable(
       onDelete: `restrict`,
     }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
-    archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     // Soft-delete (trash) marker. Non-null = trashed; the purge sweep hard-deletes
     // it (cascade) once deletedAt + BOARD_TRASH_RETENTION_MS has passed. Purge
     // time is computed, never stored (constant retention). Trashed boards drop
@@ -303,11 +309,8 @@ export const issues = pgTable(
     // origin off this.
     source: issueSourceEnum().notNull().default(`user`),
     dueDate: date(`due_date`),
-    dueTime: time(`due_time`),
-    endTime: time(`end_time`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
-    archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     // Duplicate resolution: this issue is a duplicate of the canonical issue.
     // 1:1 (no relation graph); pairs with status='duplicate'.
     duplicateOfId: uuid(`duplicate_of_id`).references(
@@ -547,10 +550,16 @@ export const attachments = pgTable(
       onDelete: `set null`,
     }),
     // NULLABLE: widget screenshot attachments have no user uploader (the
-    // synthetic per-widget bot user was removed). Still `cascade` for real
-    // uploaders — deleting a user reclaims the attachments they uploaded.
+    // synthetic per-widget bot user was removed). `set null` on user delete
+    // (REV2-36): an attachment is embedded in an issue description or comment
+    // as `![alt](/api/attachments/{id})`, and those bodies survive the
+    // uploader's account deletion (issues.creator_id is `set null`, and any
+    // member may embed an image into a teammate's issue) — cascading the
+    // attachment away left permanently broken images in content the deletion
+    // was never supposed to touch. Blobs are only reclaimed for the teams the
+    // deletion itself destroys (lib/account-deletion.ts).
     uploaderId: text(`uploader_id`).references(() => users.id, {
-      onDelete: `cascade`,
+      onDelete: `set null`,
     }),
     filename: varchar({ length: 500 }).notNull(),
     contentType: varchar(`content_type`, { length: 255 }).notNull(),
@@ -611,6 +620,18 @@ export const githubInstallations = pgTable(`github_installations`, {
     .unique(),
   accountLogin: text(`account_login`),
   accountType: varchar(`account_type`, { length: 20 }),
+  // GitHub-side SUSPENSION marker (REV2-29). Suspension is REVERSIBLE — GitHub
+  // keeps the installation, just refuses to mint tokens for it — so the
+  // `suspend` webhook marks this column instead of deleting the row. Deleting
+  // it CASCADE-dropped every team's claim link, and `unsuspend` re-inserted a
+  // row with a FRESH uuid PK, so the links (which reference that uuid) were
+  // unrecoverable by construction: a suspend→unsuspend cycle silently cost
+  // every claiming team its coding/PR/token features until an owner re-ran the
+  // connect flow by hand. Row deletion is now reserved for the terminal
+  // `deleted` action. A marked installation is inert but recoverable —
+  // discovery/connect refuse it, `unsuspend` (or the probe heal in
+  // lib/trpc/integrations.ts) clears the mark and everything resumes.
+  suspendedAt: timestamp(`suspended_at`, { withTimezone: true }),
   ...timestamps,
 })
 
@@ -619,8 +640,11 @@ export const githubInstallations = pgTable(`github_installations`, {
 // Created by the OAuth claim flow (or the install-page round-trip fallback) —
 // both prove control of the GitHub account before linking. Many-to-many: one
 // org install can serve several teams, one team can link several
-// GitHub accounts. CASCADE on the installation FK: when an uninstall webhook
-// deletes the github_installations row, its links vanish with it.
+// GitHub accounts. CASCADE on the installation FK: when the UNINSTALL webhook
+// (`installation.deleted` — the only terminal action) deletes the
+// github_installations row, its links vanish with it. A mere `suspend` must
+// never take this path (REV2-29): it marks `suspended_at` instead, so an
+// `unsuspend` restores every claim without a manual reconnect.
 export const githubInstallationLinks = pgTable(
   `github_installation_links`,
   {

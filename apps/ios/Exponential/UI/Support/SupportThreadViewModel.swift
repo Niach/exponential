@@ -11,8 +11,8 @@ final class SupportThreadViewModel {
     var thread: SupportThreadInfo?
     var messages: [SupportMessage] = []
     var linkedIssue: SupportLinkedIssue?
-    /// Non-archived boards of the ticket's team (GRDB, loaded with the
-    /// thread) — the escalation picker's options.
+    /// Boards of the ticket's team (GRDB, loaded with the thread) — the
+    /// escalation picker's options.
     var boards: [BoardEntity] = []
     var isLoading = false
     var error: String?
@@ -119,7 +119,7 @@ final class SupportThreadViewModel {
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let rows = (try? pool.read { db in try BoardEntity.fetchAll(db) }) ?? []
         boards = rows
-            .filter { $0.teamId == teamId && $0.archivedAt == nil }
+            .filter { $0.teamId == teamId }
             .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
     }
 }

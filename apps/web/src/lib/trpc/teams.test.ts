@@ -28,12 +28,24 @@ const deletes: { table: unknown }[] = []
 const inserts: { table: unknown; values: Record<string, unknown> }[] = []
 const insertReturningQueue: unknown[][] = []
 
+const updates: {
+  table: unknown
+  values: Record<string, unknown>
+  returning?: unknown
+}[] = []
+const updateReturningQueue: unknown[][] = []
+
 type FakeDb = {
   select: () => ReturnType<typeof selectChain>
   insert: (table: unknown) => {
     values: (
       values: Record<string, unknown>
     ) => Promise<void> & { returning: () => Promise<unknown[]> }
+  }
+  update: (table: unknown) => {
+    set: (values: Record<string, unknown>) => {
+      where: () => Promise<void> & { returning: () => Promise<unknown[]> }
+    }
   }
   delete: (table: unknown) => { where: () => Promise<void> }
   execute: ReturnType<typeof vi.fn>
@@ -51,6 +63,21 @@ const fakeDb: FakeDb = {
       p.returning = () => Promise.resolve(insertReturningQueue.shift() ?? [])
       return p
     },
+  }),
+  update: (table: unknown) => ({
+    set: (values: Record<string, unknown>) => ({
+      where: () => {
+        updates.push({ table, values })
+        const p = Promise.resolve() as Promise<void> & {
+          returning: (projection?: unknown) => Promise<unknown[]>
+        }
+        p.returning = (projection?: unknown) => {
+          updates[updates.length - 1]!.returning = projection
+          return Promise.resolve(updateReturningQueue.shift() ?? [])
+        }
+        return p
+      },
+    }),
   }),
   delete: (table: unknown) => ({
     where: () => {
@@ -72,10 +99,22 @@ vi.mock(`@/lib/team-membership`, () => ({
 }))
 
 const assertCanCreateTeam = vi.fn(async () => {})
+const assertCanUseHelpdesk = vi.fn(async () => {})
 vi.mock(`@/lib/billing`, () => ({
   assertCanCreateTeam: (...args: unknown[]) =>
     assertCanCreateTeam(...(args as [])),
-  assertCanUseHelpdesk: vi.fn(async () => {}),
+  assertCanUseHelpdesk: (...args: unknown[]) =>
+    assertCanUseHelpdesk(...(args as [])),
+}))
+
+// REV2-10: enabling the helpdesk without a mail transport accepts tickets
+// into a black hole (the emailed magic link is the reporter's ONLY
+// credential), so the toggle refuses. Mutable so both postures are testable.
+const transport = { enabled: true }
+vi.mock(`@/lib/email-enabled`, () => ({
+  get emailEnabled() {
+    return transport.enabled
+  },
 }))
 
 const FEEDBACK_WS = `99999999-9999-4999-8999-999999999999`
@@ -83,11 +122,12 @@ vi.mock(`@/lib/bootstrap-cloud`, () => ({
   getFeedbackTeamId: vi.fn(async () => FEEDBACK_WS),
 }))
 
-const cancelCreemSubscriptionsBestEffort = vi.fn(async () => {})
-vi.mock(`@/lib/billing/creem-subscriptions`, () => ({
-  findActiveSubscriptionsForTeams: vi.fn(async () => []),
-  cancelCreemSubscriptionsBestEffort: (...args: unknown[]) =>
-    cancelCreemSubscriptionsBestEffort(...(args as [])),
+// REV2-55: deleting a paying team is GATED on its subscription being
+// cancelled first (the router no longer cancels anything itself).
+const assertTeamDeletableBilling = vi.fn(async () => {})
+vi.mock(`@/lib/billing/billing-handover`, () => ({
+  assertTeamDeletableBilling: (...args: unknown[]) =>
+    assertTeamDeletableBilling(...(args as [])),
 }))
 
 const deleteStorageObjects = vi.fn(async () => {})
@@ -113,9 +153,15 @@ beforeEach(() => {
   deletes.length = 0
   inserts.length = 0
   insertReturningQueue.length = 0
+  updates.length = 0
+  updateReturningQueue.length = 0
+  transport.enabled = true
   fakeDb.execute.mockClear()
   assertCanCreateTeam.mockClear()
-  cancelCreemSubscriptionsBestEffort.mockClear()
+  assertCanUseHelpdesk.mockClear()
+  assertCanUseHelpdesk.mockResolvedValue(undefined)
+  assertTeamDeletableBilling.mockClear()
+  assertTeamDeletableBilling.mockResolvedValue(undefined)
   deleteStorageObjects.mockClear()
 })
 
@@ -175,6 +221,54 @@ describe(`teams.getDefault — non-creating resolver (EXP-188)`, () => {
   })
 })
 
+// REV2-10: the helpdesk's whole reporter channel is email — the magic link is
+// the only credential. Enabling it on an instance with no transport accepts
+// tickets nobody can ever answer.
+describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
+  it(`refuses to enable the helpdesk with no mail transport`, async () => {
+    transport.enabled = false
+    await expect(
+      caller().update({ id: WS, helpdeskEnabled: true })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    expect(updates).toHaveLength(0)
+    // The plan gate never even runs — the setup problem comes first.
+    expect(assertCanUseHelpdesk).not.toHaveBeenCalled()
+  })
+
+  it(`enables it when a transport is configured (plan gate still applies)`, async () => {
+    updateReturningQueue.push([{ id: WS, helpdeskEnabled: true }])
+    const result = await caller().update({ id: WS, helpdeskEnabled: true })
+    expect(assertCanUseHelpdesk).toHaveBeenCalledWith(WS)
+    expect(result.team).toMatchObject({ helpdeskEnabled: true })
+  })
+
+  it(`always allows DISABLING it, transport or not`, async () => {
+    transport.enabled = false
+    updateReturningQueue.push([{ id: WS, helpdeskEnabled: false }])
+    await caller().update({ id: WS, helpdeskEnabled: false })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.table).toBe(teams)
+  })
+
+  // REV2-67: `.returning()` used to hand back the whole row, comp_tier and
+  // all — the column the teams shape deliberately keeps off the wire.
+  it(`returns only the synced contract columns`, async () => {
+    updateReturningQueue.push([{ id: WS, name: `Ship It` }])
+    await caller().update({ id: WS, name: `Ship It` })
+    expect(updates).toHaveLength(1)
+    const projection = updates[0]!.returning as Record<string, unknown>
+    expect(Object.keys(projection).sort()).toEqual([
+      `createdAt`,
+      `helpdeskEnabled`,
+      `iconUrl`,
+      `id`,
+      `name`,
+      `slug`,
+      `updatedAt`,
+    ])
+  })
+})
+
 describe(`teams.delete (EXP-188: no last-team guard)`, () => {
   it(`deletes the user's only team, reclaiming storage`, async () => {
     // Only in-tx select left: attachments storage-key collection — there is
@@ -194,7 +288,28 @@ describe(`teams.delete (EXP-188: no last-team guard)`, () => {
       caller().delete({ teamId: FEEDBACK_WS })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
     expect(deletes).toHaveLength(0)
-    expect(cancelCreemSubscriptionsBestEffort).not.toHaveBeenCalled()
+    expect(assertTeamDeletableBilling).not.toHaveBeenCalled()
     expect(deleteStorageObjects).not.toHaveBeenCalled()
+  })
+
+  // REV2-55: a team with a live subscription must be un-subscribed first —
+  // deleting it would strand a paying ghost in Creem (team_id goes set null).
+  it(`refuses a team whose subscription is still active, deleting nothing`, async () => {
+    assertTeamDeletableBilling.mockRejectedValueOnce(
+      Object.assign(new Error(`cancel the subscription first`), {
+        code: `PRECONDITION_FAILED`,
+      })
+    )
+    await expect(caller().delete({ teamId: WS })).rejects.toThrow(
+      `cancel the subscription first`
+    )
+    expect(deletes).toHaveLength(0)
+    expect(deleteStorageObjects).not.toHaveBeenCalled()
+  })
+
+  it(`runs the billing gate before deleting a normal team`, async () => {
+    selectQueue.push([{ storageKey: `attachments/a.png` }])
+    await caller().delete({ teamId: WS })
+    expect(assertTeamDeletableBilling).toHaveBeenCalledWith(WS)
   })
 })

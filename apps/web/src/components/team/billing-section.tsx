@@ -17,10 +17,12 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { useBillingPlan } from "@/hooks/use-billing"
+import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
+import { trpc } from "@/lib/trpc-client"
 import { PlanComparison } from "@/components/team/plan-comparison"
 import { AdjustSeatsDialog } from "@/components/team/adjust-seats-dialog"
+import { CancelSubscriptionDialog } from "@/components/team/cancel-subscription-dialog"
 
 const PLAN_LABELS: Record<PlanTier, string> = {
   free: `Free`,
@@ -96,6 +98,8 @@ export function TeamBillingSection({
   const [portalLoading, setPortalLoading] = useState(false)
   const [showPlans, setShowPlans] = useState(false)
   const [showSeatDialog, setShowSeatDialog] = useState(false)
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [resuming, setResuming] = useState(false)
 
   if (!billingPlan || billingPlan.plan === `unlimited`) return null
 
@@ -104,6 +108,32 @@ export function TeamBillingSection({
   // Seat changes mutate the existing subscription (billing.updateSeats) — a
   // second checkout would stack a second full-price subscription (pay-twice).
   const canAdjustSeats = Boolean(subscription && !subscription.cancelAtPeriodEnd)
+  const pendingCancel = Boolean(subscription?.cancelAtPeriodEnd)
+  const periodEndLabel = subscription?.periodEnd
+    ? new Date(subscription.periodEnd).toLocaleDateString(undefined, {
+        year: `numeric`,
+        month: `long`,
+        day: `numeric`,
+      })
+    : null
+
+  const handleResume = async () => {
+    setResuming(true)
+    try {
+      await trpc.billing.resumeSubscription.mutate({ teamId })
+      invalidateBillingCache()
+      toast.success(`Subscription resumed`)
+    } catch (err) {
+      console.error(`[billing] resume failed:`, err)
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : `Couldn't resume the subscription`
+      )
+    } finally {
+      setResuming(false)
+    }
+  }
   // A full or over-provisioned team blocks new invites (downgrade policy:
   // existing members keep working).
   const seatsFull =
@@ -170,10 +200,37 @@ export function TeamBillingSection({
                   {portalLoading ? `Loading...` : `Manage`}
                 </Button>
               )}
+              {subscription && !pendingCancel && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => setShowCancelDialog(true)}
+                >
+                  Cancel plan
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          {pendingCancel && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+              <p className="text-muted-foreground">
+                {periodEndLabel
+                  ? `This subscription ends on ${periodEndLabel} — the team drops to Free after that.`
+                  : `This subscription is scheduled to cancel at the end of the paid period.`}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleResume}
+                disabled={resuming}
+              >
+                {resuming ? `Resuming...` : `Resume`}
+              </Button>
+            </div>
+          )}
           <UsageBar
             label="Seats"
             current={usage.members}
@@ -276,14 +333,24 @@ export function TeamBillingSection({
       )}
 
       {subscription && (
-        <AdjustSeatsDialog
-          teamId={teamId}
-          currentSeats={subscription.seats}
-          memberCount={usage.members}
-          periodEnd={subscription.periodEnd}
-          open={showSeatDialog}
-          onOpenChange={setShowSeatDialog}
-        />
+        <>
+          <AdjustSeatsDialog
+            teamId={teamId}
+            currentSeats={subscription.seats}
+            memberCount={usage.members}
+            periodEnd={subscription.periodEnd}
+            open={showSeatDialog}
+            onOpenChange={setShowSeatDialog}
+          />
+          <CancelSubscriptionDialog
+            teamId={teamId}
+            planLabel={PLAN_LABELS[plan]}
+            seats={subscription.seats}
+            periodEnd={subscription.periodEnd}
+            open={showCancelDialog}
+            onOpenChange={setShowCancelDialog}
+          />
+        </>
       )}
     </div>
   )

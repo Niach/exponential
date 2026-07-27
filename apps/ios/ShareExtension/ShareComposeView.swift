@@ -41,9 +41,15 @@ struct ShareComposeView: View {
 
     @State private var title: String
     @State private var descriptionText: String
-    @State private var selectedBoardId: String?
+    /// The composite `MirroredBoard.id` (accountId + boardId) — a bare boardId
+    /// is ambiguous once two accounts on the same server mirror a shared team's
+    /// board, and it loses the account the issue must be created as.
+    @State private var selectedBoardKey: String?
     @State private var submitting = false
     @State private var error: String?
+    /// Retained across Post attempts so a retry resumes the submission it
+    /// already started instead of creating a duplicate issue.
+    @State private var submitter: ShareSubmitter?
 
     private let boards: [MirroredBoard]
 
@@ -52,13 +58,20 @@ struct ShareComposeView: View {
         self.payload = payload
         self.onComplete = onComplete
         self.onCancel = onCancel
-        let boards = SharedBoardMirror.readBoards()
+        // Only boards whose OWN account still holds a token: the extension
+        // submits per account (HTTPClient resolves the bearer by accountId), so
+        // signing out of one server must neither hide the other accounts' boards
+        // nor offer a destination that can no longer authenticate.
+        let signedIn = deps.auth.authenticatedAccountIds
+        let boards = SharedBoardMirror.readBoards().filter { signedIn.contains($0.accountId) }
         self.boards = boards
         _title = State(initialValue: payload.title)
         _descriptionText = State(initialValue: payload.descriptionText)
-        let lastUsed = SharedBoardMirror.readLastUsed()?.boardId
-        _selectedBoardId = State(initialValue:
-            lastUsed.flatMap { id in boards.first { $0.boardId == id }?.boardId } ?? boards.first?.boardId
+        let lastUsed = SharedBoardMirror.readLastUsed()
+        _selectedBoardKey = State(initialValue:
+            lastUsed.flatMap { last in
+                boards.first { $0.accountId == last.accountId && $0.boardId == last.boardId }?.id
+            } ?? boards.first?.id
         )
     }
 
@@ -85,7 +98,10 @@ struct ShareComposeView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !deps.auth.isAuthenticated {
+        // Any signed-in account can receive a share (the same rule the app's nav
+        // gate uses); the ACTIVE account is routinely tokenless after a
+        // per-server sign-out and says nothing about the others.
+        if !deps.auth.hasAuthenticatedAccount {
             ShareMessageView(
                 message: "Sign in to Exponential first, then try sharing again.",
                 onCancel: onCancel
@@ -100,10 +116,10 @@ struct ShareComposeView: View {
                 // Destination first (EXP-60): choosing where the share lands
                 // leads the form, matching the Android share composer.
                 Section("Share to") {
-                    Picker("Board", selection: $selectedBoardId) {
+                    Picker("Board", selection: $selectedBoardKey) {
                         ForEach(boards) { board in
                             Text("\(board.teamName) / \(board.boardName)")
-                                .tag(Optional(board.boardId))
+                                .tag(Optional(board.id))
                         }
                     }
                 }
@@ -142,21 +158,22 @@ struct ShareComposeView: View {
     }
 
     private var canPost: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedBoardId != nil && !submitting
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedBoardKey != nil && !submitting
     }
 
     private func post() {
-        guard let boardId = selectedBoardId,
-              let board = boards.first(where: { $0.boardId == boardId }) else { return }
+        guard let key = selectedBoardKey,
+              let board = boards.first(where: { $0.id == key }) else { return }
         submitting = true
         error = nil
         var submitted = payload
         submitted.title = title
         submitted.descriptionText = descriptionText
-        let submitter = ShareSubmitter(issuesApi: deps.issuesApi, issueImagesApi: deps.issueImagesApi)
+        let submitter = self.submitter ?? ShareSubmitter(issuesApi: deps.issuesApi, issueImagesApi: deps.issueImagesApi)
+        self.submitter = submitter
         Task {
             do {
-                try await submitter.submit(payload: submitted, accountId: board.accountId, boardId: boardId)
+                try await submitter.submit(payload: submitted, accountId: board.accountId, boardId: board.boardId)
                 onComplete()
             } catch {
                 self.error = error.trpcUserMessage

@@ -3,8 +3,13 @@ import crypto from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
+  BRANCH_DIFF_CACHE_MAX,
+  evictStaleEntries,
+  fetchBranchDiff,
   listUserInstallationRepos,
+  peekBranchDiff,
   resolveInstallationTokenWith,
+  type CompareFetch,
 } from "@/lib/integrations/github-app"
 
 // resolveInstallationTokenWith is the pure resolution policy behind
@@ -270,6 +275,89 @@ describe(`listUserInstallationRepos`, () => {
     await expect(listUserInstallationRepos(`bad-tok`, 7)).rejects.toThrow(
       /GitHub user installation repos failed \(401\)/
     )
+  })
+})
+
+// The module-level TTL caches only ever grew: their read-side TTL check hides
+// dead entries but never frees them, so one-shot keys (a fresh `exp/…` branch
+// per coding run, each holding up to 100 files of patch text) leaked for the
+// process lifetime. These pin the prune-on-insert bound.
+describe(`evictStaleEntries`, () => {
+  const opts = { now: 100_000, ttlMs: 60_000, maxEntries: 4 }
+
+  function fill(entries: Array<[string, number]>) {
+    return new Map(entries.map(([key, at]) => [key, { at }]))
+  }
+
+  it(`does nothing below the cap, even with past-TTL entries`, () => {
+    const cache = fill([
+      [`a`, 0],
+      [`b`, 0],
+      [`c`, 99_000],
+    ])
+
+    evictStaleEntries(cache, opts)
+
+    expect([...cache.keys()]).toEqual([`a`, `b`, `c`])
+  })
+
+  it(`drops every past-TTL entry once the cap is reached`, () => {
+    const cache = fill([
+      [`stale-1`, 0],
+      [`fresh-1`, 50_000],
+      [`stale-2`, 39_999],
+      [`fresh-2`, 99_000],
+    ])
+
+    evictStaleEntries(cache, opts)
+
+    expect([...cache.keys()]).toEqual([`fresh-1`, `fresh-2`])
+  })
+
+  it(`drops the oldest writes when a burst of fresh keys is still over the cap`, () => {
+    const cache = fill([
+      [`f1`, 60_000],
+      [`f2`, 70_000],
+      [`f3`, 80_000],
+      [`f4`, 90_000],
+      [`f5`, 95_000],
+    ])
+
+    evictStaleEntries(cache, opts)
+
+    // Trimmed to cap - 1 so the caller's own insert lands back at the cap.
+    expect([...cache.keys()]).toEqual([`f3`, `f4`, `f5`])
+  })
+})
+
+describe(`fetchBranchDiff cache bound`, () => {
+  it(`evicts the oldest branch once the cache is full`, async () => {
+    const fetchImpl = vi.fn<CompareFetch>().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ files: [] }),
+    })
+    const now = 1_000
+    const repo = `acme/bounded`
+
+    for (let i = 0; i <= BRANCH_DIFF_CACHE_MAX; i++) {
+      await fetchBranchDiff({
+        repo,
+        base: `main`,
+        branch: `exp/BOUND-${i}`,
+        token: `t0k3n`,
+        now,
+        fetchImpl,
+      })
+    }
+
+    // Every entry is inside the TTL, so only the hard cap can free space: the
+    // first branch is gone while the newest two are still served.
+    expect(peekBranchDiff(repo, `main`, `exp/BOUND-0`, now)).toBeNull()
+    expect(peekBranchDiff(repo, `main`, `exp/BOUND-1`, now)).not.toBeNull()
+    expect(
+      peekBranchDiff(repo, `main`, `exp/BOUND-${BRANCH_DIFF_CACHE_MAX}`, now)
+    ).not.toBeNull()
   })
 })
 

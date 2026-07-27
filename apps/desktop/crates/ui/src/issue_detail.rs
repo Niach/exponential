@@ -898,7 +898,7 @@ impl DuplicatePicker {
             .issues
             .read(cx)
             .iter()
-            .filter(|issue| issue.id != self.exclude_issue_id && issue.archived_at.is_none())
+            .filter(|issue| issue.id != self.exclude_issue_id)
             .filter(|issue| {
                 query.is_empty()
                     || issue.identifier.to_lowercase().contains(&query)

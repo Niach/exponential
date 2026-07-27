@@ -431,7 +431,8 @@ struct IssueDetailView: View {
         case .status:
             GlassPickerSheet(
                 title: "Status",
-                items: IssueStatus.allCases,
+                // Contract display order — the ONE picker vocabulary (REV2-85).
+                items: IssueStatus.displayOrder,
                 selectedID: IssueStatus.from(issue.status).id,
                 idFor: { $0.id },
                 onSelect: { selected in
@@ -457,7 +458,7 @@ struct IssueDetailView: View {
         case .priority:
             GlassPickerSheet(
                 title: "Priority",
-                items: IssuePriority.allCases,
+                items: IssuePriority.displayOrder,
                 selectedID: IssuePriority.from(issue.priority).id,
                 idFor: { $0.id },
                 onSelect: { selected in
@@ -493,11 +494,7 @@ struct IssueDetailView: View {
         case .dueDate:
             DueDateSheet(
                 date: parseDate(issue.dueDate),
-                dueTime: issue.dueTime,
-                endTime: issue.endTime,
-                onDateChange: { date in Task { await vm.setDueDate(date) } },
-                onDueTimeChange: { time in Task { await vm.setDueTime(time) } },
-                onEndTimeChange: { time in Task { await vm.setEndTime(time) } }
+                onDateChange: { date in Task { await vm.setDueDate(date) } }
             )
         case .properties:
             IssuePropertiesSheet(

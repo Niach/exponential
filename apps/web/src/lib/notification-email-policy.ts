@@ -117,8 +117,75 @@ export interface DigestRecipientLike {
   isMember: boolean
 }
 
+// Three outcomes, not two (REV2-52):
+//   send  — mailable now
+//   claim — permanently unmailable (no address, or access revoked): stamp
+//           emailed_at without sending so the row stops rescanning forever
+//   defer — unmailable ONLY because the address isn't verified yet. Leave the
+//           row untouched, exactly like the no-transport guard: verifying
+//           inside the 24h backstop still digests recent items, and anything
+//           older ages out by itself. Claiming these was a silent permanent
+//           drop for a state the user can fix in one click.
+export type DigestSendability = `send` | `defer` | `claim`
+
+export function digestSendability(row: DigestRecipientLike): DigestSendability {
+  if (!row.email || !row.isMember) return `claim`
+  if (!row.emailVerified) return `defer`
+  return `send`
+}
+
 export function isDigestSendable(row: DigestRecipientLike): boolean {
-  return Boolean(row.email) && row.emailVerified && row.isMember
+  return digestSendability(row) === `send`
+}
+
+// Transient-vs-persistent send failure (REV2-39). The 22h
+// DIGEST_FAILED_RETRY_GAP_MS backoff exists for a BROKEN transport (SES still
+// sandboxed, bad credentials) — applying it to a throttle blip or a dropped
+// connection costs the user their whole day's digest, and rows already ≥2h
+// old at failure time age past the 24h backstop before the retry window
+// opens, i.e. they are never emailed at all. Errors matching this stay
+// eligible for the very next sweep.
+export function isTransientSendError(error: unknown): boolean {
+  const parts: string[] = []
+  if (error && typeof error === `object`) {
+    const e = error as Record<string, unknown>
+    for (const key of [`name`, `code`, `message`]) {
+      if (typeof e[key] === `string`) parts.push(e[key] as string)
+    }
+    const status =
+      (e.$metadata as { httpStatusCode?: number } | undefined)
+        ?.httpStatusCode ??
+      (typeof e.statusCode === `number` ? e.statusCode : undefined)
+    // 429 = throttled, 5xx = provider-side outage — both clear by themselves.
+    if (status !== undefined && (status === 429 || status >= 500)) return true
+    // SMTP reply codes 421/450/451/452 are explicitly "try again later"; any
+    // other 4xx (550 aside) is a real rejection.
+    if (
+      typeof e.responseCode === `number` &&
+      [421, 450, 451, 452].includes(e.responseCode)
+    ) {
+      return true
+    }
+  } else if (typeof error === `string`) {
+    parts.push(error)
+  }
+  const haystack = parts.join(` `).toLowerCase()
+  return [
+    `throttl`,
+    `too many requests`,
+    `rate exceeded`,
+    `maximum sending rate`,
+    `timeout`,
+    `timedout`,
+    `etimedout`,
+    `econnreset`,
+    `econnrefused`,
+    `epipe`,
+    `eai_again`,
+    `socket hang up`,
+    `network`,
+    `service unavailable`,
+  ].some((needle) => haystack.includes(needle))
 }
 
 // The minimal row shape the planner needs. The DB runner passes richer rows
@@ -241,4 +308,12 @@ export function buildIssueDeepLinkPath(args: {
   identifier: string
 }): string {
   return `/t/${encodeURIComponent(args.teamSlug)}/boards/${encodeURIComponent(args.boardSlug)}/issues/${encodeURIComponent(args.identifier)}`
+}
+
+// The team's Support inbox — the link target for issue-less `support_reply`
+// digest items (REV2-51). Those rows carry notifications.team_id precisely so
+// clients can route them here; before this they rendered as unlinked text
+// while the prefs page promised "deep links straight to each issue".
+export function buildSupportDeepLinkPath(teamSlug: string): string {
+  return `/t/${encodeURIComponent(teamSlug)}/support`
 }

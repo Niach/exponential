@@ -5,6 +5,7 @@ import { PriorityIcon, getPriorityConfig } from "@/components/issue-properties/p
 import type { IssueFilters } from "@/lib/filters"
 import { hasActiveFilters } from "@/lib/filters"
 import { emptyFilters } from "@/lib/filters"
+import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
 import type { Label } from "@/db/schema"
 
 interface ActiveFilterPillsProps {
@@ -21,6 +22,15 @@ export function ActiveFilterPills({
   if (!hasActiveFilters(filters)) return null
 
   const labelMap = new Map(labels.map((l) => [l.id, l]))
+
+  // Pills read in the shared option order (REV2-85: contract displayOrder),
+  // not in the order the values happened to be ticked.
+  const statuses = issueStatusOptions
+    .map((option) => option.value)
+    .filter((value) => filters.statuses.includes(value))
+  const priorities = issuePriorityOptions
+    .map((option) => option.value)
+    .filter((value) => filters.priorities.includes(value))
 
   const removeStatus = (value: string) =>
     onFiltersChange({
@@ -42,7 +52,7 @@ export function ActiveFilterPills({
 
   return (
     <div className="flex items-center gap-1.5 px-6 py-1.5 flex-wrap">
-      {filters.statuses.map((status) => {
+      {statuses.map((status) => {
         const config = getStatusConfig(status)
         return (
           <Button
@@ -58,7 +68,7 @@ export function ActiveFilterPills({
           </Button>
         )
       })}
-      {filters.priorities.map((priority) => {
+      {priorities.map((priority) => {
         const config = getPriorityConfig(priority)
         return (
           <Button

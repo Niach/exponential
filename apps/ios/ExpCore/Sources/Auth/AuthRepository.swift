@@ -18,6 +18,22 @@ public final class AuthRepository: @unchecked Sendable {
     public var isAuthenticated: Bool { token != nil }
     public var hasInstance: Bool { instanceUrl != nil }
 
+    /// True when ANY account still holds a token — the app's nav-gate rule
+    /// (login is shown only once every account is tokenless). Surfaces that work
+    /// per account (the Share Extension) must gate on this, never on
+    /// `isAuthenticated`: a per-server sign-out re-adds the URL as a TOKENLESS
+    /// active account, which says nothing about the other signed-in accounts.
+    public var hasAuthenticatedAccount: Bool {
+        accounts.contains { $0.token != nil }
+    }
+
+    /// Ids of the accounts that still hold a token, for callers that resolve
+    /// their target account themselves (HTTPClient picks the bearer by
+    /// accountId, so a tokenless account can only produce unauthenticated calls).
+    public var authenticatedAccountIds: Set<String> {
+        Set(accounts.lazy.filter { $0.token != nil }.map(\.id))
+    }
+
     public init(accountStore: AccountStore) {
         self.accountStore = accountStore
         self.accounts = accountStore.accounts

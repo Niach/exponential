@@ -127,10 +127,9 @@ class SearchViewModel @Inject constructor(
             SearchState(query = "")
         } else {
             val boardsById = boards.associateBy { it.id }
-            // Live boards only (the DAO already filters archived boards);
-            // archived issues are excluded here — observeAll includes them.
+            // Live boards only (the DAO already filters trashed boards).
             val localMatches = issues.asSequence()
-                .filter { it.archivedAt == null && it.boardId in boardsById }
+                .filter { it.boardId in boardsById }
                 .filter {
                     it.title.contains(trimmed, ignoreCase = true) ||
                         it.identifier.contains(trimmed, ignoreCase = true)
@@ -153,10 +152,10 @@ class SearchViewModel @Inject constructor(
                     .mapNotNull { hit ->
                         val local = issuesById[hit.id]
                         when {
-                            local != null -> local.takeIf { it.archivedAt == null && it.boardId in boardsById }
+                            local != null -> local.takeIf { it.boardId in boardsById }
                             hit.boardId in boardsById -> placeholderIssue(hit)
                             // No local board to group the row under (sync
-                            // lag / archived board) — drop it.
+                            // lag / trashed board) — drop it.
                             else -> null
                         }
                     }

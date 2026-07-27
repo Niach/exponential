@@ -25,10 +25,13 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,8 +67,23 @@ import com.exponential.app.ui.theme.glassRow
 fun ReviewsScreen(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
+    viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
-    Scaffold(containerColor = Color.Transparent) { padding ->
+    // A refused merge (conflicts, branch protection, GitHub App errors) has to
+    // say so — the row otherwise just sits there (REV2-50).
+    val snackbarHostState = remember { SnackbarHostState() }
+    val mergeError by viewModel.mergeError.collectAsStateWithLifecycle()
+    LaunchedEffect(mergeError) {
+        mergeError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeMergeError()
+        }
+    }
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Text(
                 "Reviews",

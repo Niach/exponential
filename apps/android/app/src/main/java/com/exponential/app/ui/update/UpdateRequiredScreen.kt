@@ -14,10 +14,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Modifier
@@ -39,16 +45,48 @@ import com.google.android.play.core.install.model.UpdateAvailability
 private const val IMMEDIATE_UPDATE_REQUEST_CODE = 5104
 
 /**
- * Full-screen blocking gate shown when the server 426s this build (below its
- * minimum version, EXP-104). It floats on the app's [AppBackground] gradient
- * (its caller already supplies it), matching the login/instance screens. The
- * only action is "Update": production builds launch Play's immediate in-app
- * update flow, and any failure — plus every staging build — falls through to a
- * plain Play Store link.
+ * Full-screen blocking gate shown when the ACTIVE account's server 426s this
+ * build (below its minimum version, EXP-104). It floats on the app's
+ * [AppBackground] gradient (its caller already supplies it), matching the
+ * login/instance screens. The primary action is "Update": production builds
+ * launch Play's immediate in-app update flow, and any failure — plus every
+ * staging build — falls through to a plain Play Store link.
+ *
+ * The secondary action is the escape hatch (REV2-18): a self-hosted server can
+ * demand a version Play doesn't ship, and "Update" can never satisfy it — so
+ * signing out of that server has to be reachable from here, not only by
+ * clearing app data.
  */
 @Composable
-fun UpdateRequiredScreen(info: UpdateGate.UpgradeInfo) {
+fun UpdateRequiredScreen(
+    info: UpdateGate.UpgradeInfo,
+    serverLabel: String?,
+    onSignOutOfServer: () -> Unit,
+) {
     val context = LocalContext.current
+    var confirmSignOut by remember { mutableStateOf(false) }
+
+    if (confirmSignOut) {
+        AlertDialog(
+            onDismissRequest = { confirmSignOut = false },
+            title = { Text("Sign out of this server?") },
+            text = {
+                Text(
+                    "This removes ${serverLabel ?: "this server"} and its offline copy " +
+                        "from this device. Your other servers stay signed in.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSignOut = false
+                    onSignOutOfServer()
+                }) { Text("Sign out") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -83,7 +121,7 @@ fun UpdateRequiredScreen(info: UpdateGate.UpgradeInfo) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            buildUpdateBody(info.min),
+            buildUpdateBody(info.min, serverLabel),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -94,12 +132,25 @@ fun UpdateRequiredScreen(info: UpdateGate.UpgradeInfo) {
         ) {
             Text("Update")
         }
+        Spacer(Modifier.height(8.dp))
+        TextButton(
+            onClick = { confirmSignOut = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Sign out of this server")
+        }
     }
 }
 
-private fun buildUpdateBody(min: String?): String {
-    val base =
+// Naming the server matters here: the gate is per instance (REV2-18), so the
+// user has to be able to tell "the app is outdated" from "this one server
+// wants a version Play doesn't ship yet".
+private fun buildUpdateBody(min: String?, serverLabel: String?): String {
+    val base = if (serverLabel != null) {
+        "$serverLabel needs a newer version of Exponential. Please update to keep using it."
+    } else {
         "This version of Exponential is no longer supported. Please update to keep using the app."
+    }
     return if (min != null) "$base The minimum supported version is $min." else base
 }
 

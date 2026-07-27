@@ -20,6 +20,10 @@ class MarkdownAnnotateTest {
         onOpen = {},
     )
 
+    private fun mentions(vararg members: Pair<String, String>) = MentionResolver(
+        members.map { (name, email) -> MentionMember(name, email) },
+    )
+
     /** No two link annotations in the built string may overlap — the exact invariant Compose enforces. */
     private fun assertNoOverlappingLinks(annotated: androidx.compose.ui.text.AnnotatedString) {
         val ranges = annotated.getLinkAnnotations(0, annotated.length)
@@ -103,6 +107,75 @@ class MarkdownAnnotateTest {
         assertEquals(1, links.size)
         assertTrue("end coerced within text", links[0].end <= text.length)
         assertNoOverlappingLinks(result)
+    }
+
+    // --- REV2-42: `@email` mention pills (display-only, name substituted). ---
+
+    @Test
+    fun knownMentionRendersTheMemberName() {
+        val result = annotate(
+            "ping @dev@example.com now",
+            emptyList(),
+            null,
+            mentions("Ada Lovelace" to "dev@example.com"),
+        )
+        assertEquals("ping @Ada Lovelace now", result.text)
+        // Not a link — nothing to open, so it can never collide with one.
+        assertEquals(0, result.getLinkAnnotations(0, result.length).size)
+    }
+
+    @Test
+    fun unknownMentionStaysPlainText() {
+        val text = "ping @nobody@example.com now"
+        val result = annotate(text, emptyList(), null, mentions("Ada" to "dev@example.com"))
+        assertEquals(text, result.text)
+    }
+
+    @Test
+    fun mentionResolvesCaseInsensitively() {
+        val result = annotate(
+            "@DEV@Example.com",
+            emptyList(),
+            null,
+            mentions("Ada" to "dev@example.com"),
+        )
+        assertEquals("@Ada", result.text)
+    }
+
+    @Test
+    fun mentionInsideInlineCodeStaysPlain() {
+        val text = "`@dev@example.com`"
+        val marks = listOf(InlineMark(0, text.length, InlineKind.InlineCode))
+        val result = annotate(text, marks, null, mentions("Ada" to "dev@example.com"))
+        assertEquals(text, result.text)
+    }
+
+    // The name substitution shifts every later offset — marks, links and issue
+    // pills after a mention must still land on the right characters.
+    @Test
+    fun spansAfterAMentionAreRemappedOntoTheDisplayText() {
+        // "@dev@example.com bug #MET-1" → "@Ada bug #MET-1"
+        val text = "@dev@example.com bug #MET-1"
+        val marks = listOf(InlineMark(17, 20, InlineKind.Bold)) // "bug"
+        val result = annotate(text, marks, refs("MET-1"), mentions("Ada" to "dev@example.com"))
+        assertEquals("@Ada bug #MET-1", result.text)
+        val links = result.getLinkAnnotations(0, result.length)
+        assertEquals(1, links.size)
+        assertEquals("#MET-1", result.text.substring(links[0].start, links[0].end))
+        assertNoOverlappingLinks(result)
+    }
+
+    @Test
+    fun markdownLinkAroundAMentionIsRemappedNotDropped() {
+        // The mention sits inside a link span, so it stays plain — and the link
+        // still covers exactly its own text.
+        val text = "mail @dev@example.com here"
+        val marks = listOf(InlineMark(5, 21, InlineKind.Link, href = "https://x"))
+        val result = annotate(text, marks, null, mentions("Ada" to "dev@example.com"))
+        assertEquals(text, result.text)
+        val links = result.getLinkAnnotations(0, result.length)
+        assertEquals(1, links.size)
+        assertEquals("@dev@example.com", result.text.substring(links[0].start, links[0].end))
     }
 
     @Test

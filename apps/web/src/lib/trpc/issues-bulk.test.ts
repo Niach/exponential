@@ -8,10 +8,12 @@ import { is, Param, SQL } from "drizzle-orm"
 // hard BAD_REQUEST), membership + assignee validation run ONCE, and the whole
 // batch commits in ONE transaction under ONE txId. Per-issue side effects go
 // through the same applyStatusDerivations/finalizeIssueUpdateInTx core as the
-// single update (completedAt stamping, duplicate-link clearing), and the
-// post-commit notification fan-out is skipped entirely past
-// 25 ids. Fake-db harness: FIFO select queue,
-// recording update/delete chains, transaction() handing back the same fake.
+// single update (completedAt stamping, duplicate-link clearing), derived from
+// an in-transaction FOR UPDATE re-read (REV2-72) rather than the unlocked
+// eligibility snapshot, and the post-commit MEMBER fan-out is skipped past 25
+// updated issues while the widget reporter's resolution email always fires
+// (REV2-25). Fake-db harness: FIFO select queue, recording update/delete
+// chains, transaction() handing back the same fake.
 
 const h = vi.hoisted(() => ({
   assertTeamMember: vi.fn(
@@ -95,13 +97,20 @@ const ID_B = uuid(2)
 
 // FIFO select queue: each ctx.db.select() call resolves the next seeded rows.
 const selectQueue: unknown[][] = []
+// Records whether each select() ended in a `.for('update')` row lock.
+const selectLocks: boolean[] = []
 
 function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
+  const index = selectLocks.push(false) - 1
   const p = Promise.resolve(
     selectQueue.shift() ?? []
   ) as Promise<unknown[]> & Record<string, () => unknown>
-  for (const m of [`from`, `where`, `innerJoin`, `limit`]) {
+  for (const m of [`from`, `where`, `innerJoin`, `limit`, `orderBy`]) {
     p[m] = () => p
+  }
+  p.for = () => {
+    selectLocks[index] = true
+    return p
   }
   return p
 }
@@ -186,10 +195,17 @@ function issueRow(
   }
 }
 
-// Seeds the eligibility select AND the update chain's persisted-row store.
-function seedEligible(rows: Record<string, unknown>[]) {
+// Seeds the pre-transaction eligibility select, the in-transaction FOR UPDATE
+// re-read (`locked`, defaulting to the same rows) AND the update chain's
+// persisted-row store. Passing a different `locked` set models the window
+// between the two reads: changed values, or a row deleted meanwhile.
+function seedEligible(
+  rows: Record<string, unknown>[],
+  locked: Record<string, unknown>[] = rows
+) {
   selectQueue.push(rows)
-  for (const row of rows) rowsById.set(row.id as string, { ...row })
+  selectQueue.push(locked)
+  for (const row of locked) rowsById.set(row.id as string, { ...row })
 }
 
 async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
@@ -201,6 +217,7 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 
 beforeEach(() => {
   selectQueue.length = 0
+  selectLocks.length = 0
   updates.length = 0
   deletes.length = 0
   rowsById.clear()
@@ -277,6 +294,9 @@ describe(`issues.bulkUpdate`, () => {
     // ONE transaction, ONE generateTxId probe for the whole batch.
     expect(fakeDb.transaction).toHaveBeenCalledTimes(1)
     expect(fakeDb.execute).toHaveBeenCalledTimes(1)
+    // Unlocked eligibility select, then ONE in-transaction FOR UPDATE re-read
+    // of the whole batch (REV2-72).
+    expect(selectLocks).toEqual([false, true])
 
     expect(updates).toHaveLength(2)
     for (const update of updates) {
@@ -347,18 +367,36 @@ describe(`issues.bulkUpdate`, () => {
     expect(updates[0]!.set.assigneeId).toBeNull()
   })
 
-  it(`skips ALL per-issue notifications past 25 ids (fan-out cap)`, async () => {
+  it(`caps the member fan-out past 25 updated issues but still resolves every widget reporter`, async () => {
     const ids = Array.from({ length: 26 }, (_, i) => uuid(i + 1))
-    seedEligible(ids.map((id) => issueRow(id)))
+    seedEligible(ids.map((id) => issueRow(id, { assigneeId: `other` })))
+
+    const result = await caller.bulkUpdate({
+      ids,
+      status: `done`,
+      assigneeId: `victim`,
+    })
+
+    expect(result.updated).toBe(26)
+    // Events still record — only the member push fan-out is capped.
+    expect(eventsOfType(`status_changed`)).toHaveLength(26)
+    expect(h.fireAndForgetStatusChangeNotify).not.toHaveBeenCalled()
+    expect(h.fireAndForgetAssignmentNotify).not.toHaveBeenCalled()
+    // REV2-25: the reporter resolution email is the external reporter's only
+    // close signal, one send per issue ever, with no retry — never capped.
+    expect(h.fireAndForgetReporterResolution).toHaveBeenCalledTimes(26)
+  })
+
+  it(`caps on the SURVIVOR count, not the requested id count`, async () => {
+    // 26 requested ids, 2 survivors — the member fan-out must still fire.
+    const ids = Array.from({ length: 26 }, (_, i) => uuid(i + 1))
+    seedEligible([issueRow(ID_A), issueRow(ID_B)])
 
     const result = await caller.bulkUpdate({ ids, status: `done` })
 
-    expect(result.updated).toBe(26)
-    // Events still record — only the push/email fan-out is capped.
-    expect(eventsOfType(`status_changed`)).toHaveLength(26)
-    expect(h.fireAndForgetStatusChangeNotify).not.toHaveBeenCalled()
-    expect(h.fireAndForgetReporterResolution).not.toHaveBeenCalled()
-    expect(h.fireAndForgetAssignmentNotify).not.toHaveBeenCalled()
+    expect(result.updated).toBe(2)
+    expect(h.fireAndForgetStatusChangeNotify).toHaveBeenCalledTimes(2)
+    expect(h.fireAndForgetReporterResolution).toHaveBeenCalledTimes(2)
   })
 
   it(`silently skips stale ids while updating the survivors`, async () => {
@@ -384,9 +422,9 @@ describe(`issues.bulkUpdate`, () => {
     expect(select).not.toHaveBeenCalled()
   })
 
-  it(`skips a row hard-deleted between the eligibility select and its UPDATE`, async () => {
-    seedEligible([issueRow(ID_A), issueRow(ID_B)])
-    rowsById.delete(ID_B) // deleted in the window — UPDATE returns no row
+  it(`skips a row hard-deleted between the eligibility select and the locked re-read`, async () => {
+    // ID_B vanished in the window — it never comes back from FOR UPDATE.
+    seedEligible([issueRow(ID_A), issueRow(ID_B)], [issueRow(ID_A)])
 
     const result = await caller.bulkUpdate({ ids: [ID_A, ID_B], status: `done` })
 
@@ -397,6 +435,27 @@ describe(`issues.bulkUpdate`, () => {
       ID_A,
     ])
     expect(h.fireAndForgetStatusChangeNotify).toHaveBeenCalledTimes(1)
+  })
+
+  it(`derives transitions from the locked re-read, not the stale eligibility snapshot`, async () => {
+    const completedAt = new Date(`2026-01-01T00:00:00.000Z`)
+    seedEligible(
+      // Pre-transaction snapshot: still todo, unassigned.
+      [issueRow(ID_A, { status: `todo`, assigneeId: null })],
+      // A concurrent single update already completed + assigned it.
+      [issueRow(ID_A, { status: `done`, assigneeId: `other`, completedAt })]
+    )
+
+    const result = await caller.bulkUpdate({ ids: [ID_A], status: `done` })
+
+    expect(result.updated).toBe(1)
+    // Redundant terminal write: completedAt must not be re-stamped over the
+    // concurrent completion, and no second status_changed event is recorded.
+    expect(updates[0]!.set).toEqual({ status: `done` })
+    expect(eventsOfType(`status_changed`)).toHaveLength(0)
+    expect(eventsOfType(`assignee_changed`)).toHaveLength(0)
+    expect(h.fireAndForgetStatusChangeNotify).not.toHaveBeenCalled()
+    expect(h.fireAndForgetReporterResolution).not.toHaveBeenCalled()
   })
 })
 

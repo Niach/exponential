@@ -18,7 +18,6 @@
     "baseUrl": ".",
     "paths": {
       "@app/*": ["../web/src/*"],
-      "@video/*": ["../video/src/*"],
       "@remotion/google-fonts/Inter": ["src/movie/fonts/inter-shim.ts"],
       "@remotion/google-fonts/JetBrainsMono": [
         "src/movie/fonts/jetbrains-shim.ts"

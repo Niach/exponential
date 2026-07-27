@@ -18,9 +18,9 @@
 //!   commit — a reader never observes an empty table.
 //! * **Known-column allowlist** (§5.4): incoming keys are filtered to the
 //!   [`ShapeSpec::columns`] set and unknowns silently dropped — the
-//!   conformance fixtures themselves carry stale `due_time`/`end_time`
-//!   columns, and an unfiltered `INSERT` would wedge the shape in a permanent
-//!   rollback/retry loop.
+//!   conformance fixtures themselves carry a column no build models
+//!   (`some_future_column`), and an unfiltered `INSERT` would wedge the shape
+//!   in a permanent rollback/retry loop.
 //! * **Scalars are bound as scalars** (§5.4 CRITICAL): never route
 //!   `serde_json::Value` through its blanket `ToSql` impl — that JSON-encodes,
 //!   storing `"title"` WITH quotes and `null` as the TEXT `null`. We match the

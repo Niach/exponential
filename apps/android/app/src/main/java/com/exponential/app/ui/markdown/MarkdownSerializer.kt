@@ -130,6 +130,8 @@ object MarkdownSerializer {
         val strike: Boolean,
     )
 
+    private class Run(val text: StringBuilder, val flags: RunFlags)
+
     private fun inline(text: String, marks: List<InlineMark>, isHeading: Boolean): String {
         if (text.isEmpty()) return ""
         if (marks.isEmpty()) return text
@@ -142,33 +144,8 @@ object MarkdownSerializer {
         }
         val bounds = boundaries.toList()
 
-        val out = StringBuilder()
-        var pendingText: StringBuilder? = null
-        var pendingFlags: RunFlags? = null
-
-        fun flush() {
-            val flags = pendingFlags ?: return
-            val s = pendingText.toString()
-            pendingText = null
-            pendingFlags = null
-            when {
-                s.isEmpty() -> {}
-                flags.code -> out.append("`").append(s).append("`")
-                flags.link -> out.append("[").append(s).append("](").append(flags.href ?: "").append(")")
-                else -> {
-                    var t = s
-                    if (flags.strike) t = "~~$t~~"
-                    val bold = flags.bold && !isHeading
-                    when {
-                        bold && flags.italic -> t = "***$t***"
-                        bold -> t = "**$t**"
-                        flags.italic -> t = "*$t*"
-                    }
-                    out.append(t)
-                }
-            }
-        }
-
+        // Collapse the mark boundaries into runs of identical formatting.
+        val runs = mutableListOf<Run>()
         for (k in 0 until bounds.size - 1) {
             val a = bounds[k]
             val b = bounds[k + 1]
@@ -183,14 +160,56 @@ object MarkdownSerializer {
                 italic = active.any { it.kind == InlineKind.Italic },
                 strike = active.any { it.kind == InlineKind.Strikethrough },
             )
-            if (flags != pendingFlags) {
-                flush()
-                pendingFlags = flags
-                pendingText = StringBuilder()
-            }
-            pendingText!!.append(text, a, b)
+            val last = runs.lastOrNull()
+            if (last != null && last.flags == flags) last.text.append(text, a, b)
+            else runs.add(Run(StringBuilder().append(text, a, b), flags))
         }
-        flush()
+
+        // The parser overlaps a Link mark with the Bold/Italic/Strikethrough/
+        // InlineCode marks nested inside its text, so one link can span several
+        // runs. Emit the whole link as ONE `[...](href)` with the inner
+        // delimiters composed INSIDE the brackets — short-circuiting on the
+        // first flag used to strip the formatting, drop the href around inline
+        // code, and split `[**bold** rest](u)` into two adjacent links.
+        val out = StringBuilder()
+        var i = 0
+        while (i < runs.size) {
+            val flags = runs[i].flags
+            if (!flags.link) {
+                out.append(styled(runs[i].text.toString(), flags, isHeading))
+                i++
+                continue
+            }
+            val href = flags.href
+            val inner = StringBuilder()
+            while (i < runs.size && runs[i].flags.link && runs[i].flags.href == href) {
+                inner.append(styled(runs[i].text.toString(), runs[i].flags, isHeading))
+                i++
+            }
+            if (inner.isNotEmpty()) {
+                out.append("[").append(inner).append("](").append(href ?: "").append(")")
+            }
+        }
         return out.toString()
+    }
+
+    /**
+     * Inline delimiters for one run, link wrapper excluded. Inline code stays
+     * exclusive of the emphasis delimiters — iOS loses the bold/italic traits
+     * when it swaps in the monospace font at load, so composing them here would
+     * diverge the two native clients' bytes.
+     */
+    private fun styled(s: String, flags: RunFlags, isHeading: Boolean): String {
+        if (s.isEmpty()) return ""
+        if (flags.code) return "`$s`"
+        var t = s
+        if (flags.strike) t = "~~$t~~"
+        val bold = flags.bold && !isHeading
+        when {
+            bold && flags.italic -> t = "***$t***"
+            bold -> t = "**$t**"
+            flags.italic -> t = "*$t*"
+        }
+        return t
     }
 }

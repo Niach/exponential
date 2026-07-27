@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest"
 import {
   buildIssueDeepLinkPath,
   buildUnsubscribeUrl,
+  buildSupportDeepLinkPath,
   defaultEmailPrefs,
+  digestSendability,
   emailTypeAllowed,
   isDigestDue,
   isDigestRetryDue,
   isDigestSendable,
+  isTransientSendError,
   isResolutionStatus,
   planEmailDigest,
   shouldSendReporterResolution,
@@ -126,6 +129,93 @@ describe(`isDigestSendable`, () => {
   it(`blocks a recipient who lost team access (REV2-14: ex-members must not
       be digested content the shape hides from them)`, () => {
     expect(isDigestSendable({ ...sendable, isMember: false })).toBe(false)
+  })
+
+  // REV2-52: unverified is a one-click-fixable user state, not a permanent
+  // one — claiming those rows silently dropped the digest forever.
+  it(`defers an unverified address but claims the permanently unmailable`, () => {
+    expect(digestSendability(sendable)).toBe(`send`)
+    expect(digestSendability({ ...sendable, emailVerified: false })).toBe(
+      `defer`
+    )
+    expect(digestSendability({ ...sendable, email: null })).toBe(`claim`)
+    expect(digestSendability({ ...sendable, isMember: false })).toBe(`claim`)
+    // No address AND unverified is still permanently unmailable.
+    expect(
+      digestSendability({ ...sendable, email: null, emailVerified: false })
+    ).toBe(`claim`)
+  })
+})
+
+// REV2-39: the 22h failure backoff is for a BROKEN transport. Charging it to
+// a throttle blip costs the user a day of digests — and any row already ≥2h
+// old ages past the 24h backstop before the retry window opens, so it is
+// never emailed at all.
+describe(`isTransientSendError`, () => {
+  it(`treats throttling, timeouts and 5xx as retry-next-sweep`, () => {
+    expect(
+      isTransientSendError(
+        Object.assign(new Error(`Maximum sending rate exceeded`), {
+          name: `ThrottlingException`,
+        })
+      )
+    ).toBe(true)
+    expect(
+      isTransientSendError(
+        Object.assign(new Error(`too many requests`), {
+          $metadata: { httpStatusCode: 429 },
+        })
+      )
+    ).toBe(true)
+    expect(
+      isTransientSendError(
+        Object.assign(new Error(`internal`), {
+          $metadata: { httpStatusCode: 503 },
+        })
+      )
+    ).toBe(true)
+    expect(
+      isTransientSendError(
+        Object.assign(new Error(`connection reset`), { code: `ECONNRESET` })
+      )
+    ).toBe(true)
+    // SMTP 421/45x are explicitly "try again later".
+    expect(
+      isTransientSendError(
+        Object.assign(new Error(`greylisted`), { responseCode: 451 })
+      )
+    ).toBe(true)
+  })
+
+  it(`treats real rejections as persistent (they keep the daily backoff)`, () => {
+    expect(
+      isTransientSendError(
+        Object.assign(new Error(`Email address is not verified`), {
+          name: `MessageRejected`,
+          $metadata: { httpStatusCode: 400 },
+        })
+      )
+    ).toBe(false)
+    expect(
+      isTransientSendError(
+        Object.assign(new Error(`no such user`), { responseCode: 550 })
+      )
+    ).toBe(false)
+    expect(isTransientSendError(new Error(`credentials missing`))).toBe(false)
+    expect(isTransientSendError(null)).toBe(false)
+    expect(isTransientSendError(undefined)).toBe(false)
+  })
+})
+
+// REV2-51: issue-less support_reply rows rendered as unlinked text while the
+// prefs copy promised deep links.
+describe(`buildSupportDeepLinkPath`, () => {
+  it(`points at the team's Support inbox`, () => {
+    expect(buildSupportDeepLinkPath(`acme`)).toBe(`/t/acme/support`)
+  })
+
+  it(`encodes the slug`, () => {
+    expect(buildSupportDeepLinkPath(`a c/me`)).toBe(`/t/a%20c%2Fme/support`)
   })
 })
 

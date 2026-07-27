@@ -106,19 +106,12 @@ const fn opt<V>(value: V, label: &'static str, icon: IconGlyph, color: ColorToke
 }
 
 /// Web `issueStatusOptions` — same order, labels, glyphs, colors.
+///
+/// REV2-85: the table is ordered by the contract `displayOrder`
+/// (`contract::ISSUE_STATUS_DISPLAY_ORDER`, locked by test) — the ONE picker
+/// vocabulary every client walks, so a status menu reads the same here, on
+/// web and on both phones.
 pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 7] = [
-    opt(
-        IssueStatus::Backlog,
-        "Backlog",
-        IconGlyph::CircleDashed,
-        ColorToken::MutedForeground,
-    ),
-    opt(
-        IssueStatus::Todo,
-        "Todo",
-        IconGlyph::Circle,
-        ColorToken::Foreground,
-    ),
     opt(
         IssueStatus::InProgress,
         "In Progress",
@@ -130,6 +123,18 @@ pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 7] = [
         "In Review",
         IconGlyph::GitPullRequest,
         ColorToken::Green,
+    ),
+    opt(
+        IssueStatus::Todo,
+        "Todo",
+        IconGlyph::Circle,
+        ColorToken::Foreground,
+    ),
+    opt(
+        IssueStatus::Backlog,
+        "Backlog",
+        IconGlyph::CircleDashed,
+        ColorToken::MutedForeground,
     ),
     opt(
         IssueStatus::Done,
@@ -151,14 +156,9 @@ pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 7] = [
     ),
 ];
 
-/// Web `issuePriorityOptions` — same order, labels, glyphs, colors.
+/// Web `issuePriorityOptions` — same labels, glyphs, colors, and the same
+/// contract `displayOrder` as the status table (REV2-85).
 pub const ISSUE_PRIORITY_OPTIONS: [IssueOption<IssuePriority>; 5] = [
-    opt(
-        IssuePriority::None,
-        "No priority",
-        IconGlyph::Minus,
-        ColorToken::MutedForeground,
-    ),
     opt(
         IssuePriority::Urgent,
         "Urgent",
@@ -183,23 +183,40 @@ pub const ISSUE_PRIORITY_OPTIONS: [IssueOption<IssuePriority>; 5] = [
         IconGlyph::SignalLow,
         ColorToken::Blue,
     ),
+    opt(
+        IssuePriority::None,
+        "No priority",
+        IconGlyph::Minus,
+        ColorToken::MutedForeground,
+    ),
 ];
 
-/// Web `getIssueStatusConfig` — find-or-first-fallback (unknown/forward-compat
-/// values render as the first option, exactly like web).
+/// Web `getIssueStatusConfig` — find-or-fallback. Unknown/forward-compat
+/// values render as `backlog` (web parity: the START of the lifecycle, which
+/// is no longer the first row of the display-ordered table).
 pub fn get_issue_status_config(status: IssueStatus) -> &'static IssueOption<IssueStatus> {
     ISSUE_STATUS_OPTIONS
         .iter()
         .find(|option| option.value == status)
-        .unwrap_or(&ISSUE_STATUS_OPTIONS[0])
+        .unwrap_or_else(|| {
+            ISSUE_STATUS_OPTIONS
+                .iter()
+                .find(|option| option.value == IssueStatus::Backlog)
+                .expect("backlog is in the status table")
+        })
 }
 
-/// Web `getIssuePriorityConfig` — find-or-first-fallback.
+/// Web `getIssuePriorityConfig` — find-or-fallback (unknown → no priority).
 pub fn get_issue_priority_config(priority: IssuePriority) -> &'static IssueOption<IssuePriority> {
     ISSUE_PRIORITY_OPTIONS
         .iter()
         .find(|option| option.value == priority)
-        .unwrap_or(&ISSUE_PRIORITY_OPTIONS[0])
+        .unwrap_or_else(|| {
+            ISSUE_PRIORITY_OPTIONS
+                .iter()
+                .find(|option| option.value == IssuePriority::None)
+                .expect("none is in the priority table")
+        })
 }
 
 #[cfg(test)]
@@ -208,24 +225,17 @@ mod tests {
 
     #[test]
     fn status_options_mirror_web_table() {
-        // Order + labels are the web table verbatim.
-        let values: Vec<_> = ISSUE_STATUS_OPTIONS.iter().map(|o| o.value).collect();
-        assert_eq!(
-            values,
-            vec![
-                IssueStatus::Backlog,
-                IssueStatus::Todo,
-                IssueStatus::InProgress,
-                IssueStatus::InReview,
-                IssueStatus::Done,
-                IssueStatus::Cancelled,
-                IssueStatus::Duplicate,
-            ]
-        );
+        // REV2-85: the option table IS the contract display order — the one
+        // picker vocabulary shared with web/iOS/Android.
+        let order: Vec<&str> = ISSUE_STATUS_OPTIONS
+            .iter()
+            .map(|o| o.value.as_wire().unwrap())
+            .collect();
+        assert_eq!(order, crate::contract::ISSUE_STATUS_DISPLAY_ORDER);
         let labels: Vec<_> = ISSUE_STATUS_OPTIONS.iter().map(|o| o.label).collect();
         assert_eq!(
             labels,
-            vec!["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
+            vec!["In Progress", "In Review", "Todo", "Backlog", "Done", "Cancelled", "Duplicate"]
         );
         // Labels agree with the enum's own label() (single source of display
         // truth across the two P2/P3 surfaces).
@@ -236,17 +246,11 @@ mod tests {
 
     #[test]
     fn priority_options_mirror_web_table() {
-        let values: Vec<_> = ISSUE_PRIORITY_OPTIONS.iter().map(|o| o.value).collect();
-        assert_eq!(
-            values,
-            vec![
-                IssuePriority::None,
-                IssuePriority::Urgent,
-                IssuePriority::High,
-                IssuePriority::Medium,
-                IssuePriority::Low,
-            ]
-        );
+        let order: Vec<&str> = ISSUE_PRIORITY_OPTIONS
+            .iter()
+            .map(|o| o.value.as_wire().unwrap())
+            .collect();
+        assert_eq!(order, crate::contract::ISSUE_PRIORITY_DISPLAY_ORDER);
         for option in &ISSUE_PRIORITY_OPTIONS {
             assert_eq!(option.label, option.value.label());
         }
@@ -270,8 +274,8 @@ mod tests {
     }
 
     #[test]
-    fn config_lookups_fall_back_to_first_option() {
-        // web getOptionConfig: options.find(...) ?? fallback(first).
+    fn config_lookups_fall_back_to_backlog_and_no_priority() {
+        // web getOptionConfig: options.find(...) ?? backlog / no-priority.
         assert_eq!(
             get_issue_status_config(IssueStatus::Unknown).value,
             IssueStatus::Backlog

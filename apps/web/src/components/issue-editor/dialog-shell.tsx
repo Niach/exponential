@@ -58,11 +58,12 @@ interface IssueEditorDialogShellProps {
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onDescriptionBlur?: () => void
   onDescriptionChange: (markdown: string) => void
+  // Called on an accidental dismissal (Escape / backdrop) so the caller can
+  // take one over — return `true` to keep the shell open because the caller
+  // handled it (REV2-60: the create dialog confirms before discarding a
+  // typed draft). The explicit Close button never routes through here.
+  onDismissAttempt?: () => boolean
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
-  dueTime: string | null
-  endTime: string | null
-  onDueTimeChange: (time: string | null) => void | Promise<void>
-  onEndTimeChange: (time: string | null) => void | Promise<void>
   onOpenChange: (open: boolean) => void
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onStatusChange: (status: IssueStatus) => void | Promise<void>
@@ -109,11 +110,8 @@ export function IssueEditorDialogShell({
   onAssigneeChange,
   onDescriptionBlur,
   onDescriptionChange,
+  onDismissAttempt,
   onDueDateSelect,
-  dueTime,
-  endTime,
-  onDueTimeChange,
-  onEndTimeChange,
   onOpenChange,
   onPriorityChange,
   onStatusChange,
@@ -208,8 +206,6 @@ export function IssueEditorDialogShell({
       teamId={teamId}
       users={users}
       dueDate={dueDate}
-      dueTime={dueTime}
-      endTime={endTime}
       hideAssignee={hideAssignee}
       hideDueDateChip={hideDueDateChip}
       disableStatus={disableStatus}
@@ -221,8 +217,6 @@ export function IssueEditorDialogShell({
       onAssigneeChange={onAssigneeChange}
       onToggleLabel={onToggleLabel}
       onDueDateSelect={onDueDateSelect}
-      onDueTimeChange={onDueTimeChange}
-      onEndTimeChange={onEndTimeChange}
     />
   )
 
@@ -289,8 +283,6 @@ export function IssueEditorDialogShell({
             teamId={teamId}
             users={users}
             dueDate={dueDate}
-            dueTime={dueTime}
-            endTime={endTime}
             hideAssignee={hideAssignee}
             hideDueDateChip={hideDueDateChip}
             disableStatus={disableStatus}
@@ -302,8 +294,6 @@ export function IssueEditorDialogShell({
             onAssigneeChange={onAssigneeChange}
             onToggleLabel={onToggleLabel}
             onDueDateSelect={onDueDateSelect}
-            onDueTimeChange={onDueTimeChange}
-            onEndTimeChange={onEndTimeChange}
           />
         </div>
 
@@ -319,12 +309,16 @@ export function IssueEditorDialogShell({
           data-testid={dialogTestId}
           aria-describedby={undefined}
           onEscapeKeyDown={(event) => {
-            if (closeBlocked) {
+            if (closeBlocked || onDismissAttempt?.() === true) {
               event.preventDefault()
             }
           }}
           onInteractOutside={(event) => {
-            if (closeBlocked || isEditorAutocompleteInteraction(event)) {
+            if (
+              closeBlocked ||
+              isEditorAutocompleteInteraction(event) ||
+              onDismissAttempt?.() === true
+            ) {
               event.preventDefault()
             }
           }}
@@ -387,12 +381,16 @@ export function IssueEditorDialogShell({
         data-testid={dialogTestId}
         aria-describedby={undefined}
         onEscapeKeyDown={(event) => {
-          if (closeBlocked) {
+          if (closeBlocked || onDismissAttempt?.() === true) {
             event.preventDefault()
           }
         }}
         onInteractOutside={(event) => {
-          if (closeBlocked || isEditorAutocompleteInteraction(event)) {
+          if (
+            closeBlocked ||
+            isEditorAutocompleteInteraction(event) ||
+            onDismissAttempt?.() === true
+          ) {
             event.preventDefault()
           }
         }}

@@ -26,8 +26,8 @@ use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::Navigation;
 
 use super::{
-    active_team, card_header, is_owner, open_url, row_stroke, section, show_team_chrome,
-    spawn_trpc,
+    active_team, card_header, error_notice, is_owner, open_url, row_stroke, section,
+    show_team_chrome, team_delete_error_message,
 };
 
 /// Server fetch state for the read-only billing summary (EXP-288).
@@ -55,6 +55,10 @@ pub struct GeneralPane {
     snapshot: Option<Snapshot>,
     saving: bool,
     error: Option<SharedString>,
+    /// REV2-55: the server can REFUSE a delete (a live subscription, a lost
+    /// ownership race), so the Danger Zone shows why instead of leaving the
+    /// confirm dialog looking like it worked.
+    delete_error: Option<SharedString>,
     /// EXP-288: the read-only plan/usage summary between the name card and
     /// the Danger Zone. Refetched on team/account change; hidden while
     /// loading/failed and entirely on self-hosted (`plan == "unlimited"`).
@@ -100,6 +104,7 @@ impl GeneralPane {
             snapshot: None,
             saving: false,
             error: None,
+            delete_error: None,
             billing: BillingLoad::Idle,
             billing_team: None,
             billing_account: None,
@@ -174,6 +179,8 @@ impl GeneralPane {
             state.set_value(snapshot.name.clone(), window, cx);
         });
         self.snapshot = Some(snapshot);
+        // A refused delete belonged to the team that was selected then.
+        self.delete_error = None;
         cx.notify();
     }
 
@@ -408,6 +415,10 @@ impl GeneralPane {
         self.delete_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
         });
+        // Re-opening the confirm clears the previous refusal.
+        self.delete_error = None;
+        cx.notify();
+        let pane = cx.entity().downgrade();
         let content_input = self.delete_input.clone();
         let ok_input = self.delete_input.clone();
         let confirm_name = team_name.clone();
@@ -444,10 +455,31 @@ impl GeneralPane {
                 // until it matches).
                 return false;
             }
+            let Some(trpc) = crate::queries::trpc_client(cx) else {
+                log::warn!("[ui] teams.delete skipped: no signed-in account");
+                return true;
+            };
             let team_id = team_id.clone();
-            spawn_trpc(cx, "teams.delete", move |trpc| {
-                api::teams::teams_delete(trpc, &team_id)
-            });
+            let pane = pane.clone();
+            // Not fire-and-forget like the other Danger Zone mutations: the
+            // server REFUSES a team whose subscription is still live (REV2-55,
+            // PRECONDITION_FAILED), so the failure has to land on the screen.
+            cx.spawn(async move |cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { api::teams::teams_delete(&trpc, &team_id) })
+                    .await;
+                let _ = pane.update(cx, |this, cx| {
+                    if let Err(err) = &result {
+                        log::warn!("[ui] teams.delete failed: {err}");
+                        this.delete_error = Some(team_delete_error_message(err));
+                        cx.notify();
+                    }
+                    // Success needs no action: the Electric echo drops the
+                    // team and navigation re-scopes.
+                });
+            })
+            .detach();
             true
         });
         native_dialog::open_alert(window, cx, spec);
@@ -569,7 +601,13 @@ impl Render for GeneralPane {
                                     );
                                 })),
                         ),
-                    ),
+                    )
+                    // Web parity (settings/general.tsx): a refused delete —
+                    // the REV2-55 billing gate above all — is shown, never
+                    // swallowed.
+                    .when_some(self.delete_error.clone(), |zone, message| {
+                        zone.child(error_notice(message, cx))
+                    }),
             );
         }
 

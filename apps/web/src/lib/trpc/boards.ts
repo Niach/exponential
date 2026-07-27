@@ -219,7 +219,7 @@ export const boardsRouter = router({
       )
 
       // Protected boards (the dogfood board) keep their repo — mirrors the
-      // delete/archive guards.
+      // delete guard.
       const [current] = await ctx.db
         .select({ isProtected: boards.isProtected })
         .from(boards)
@@ -261,44 +261,24 @@ export const boardsRouter = router({
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
         icon: boardIconSchema.nullable().optional(),
-        archivedAt: z
-          .string()
-          .datetime()
-          .transform((value) => new Date(value))
-          .nullable()
-          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
 
-      const boardRecord = await assertBoardMember(ctx.session.user.id, id)
+      await assertBoardMember(ctx.session.user.id, id)
 
-      // Archiving is structure-significant — team-owner-only.
-      // Name/color/icon stay member-editable.
-      const ownerGated = Object.hasOwn(updates, `archivedAt`)
-      if (ownerGated) {
-        await assertTeamOwner(
-          ctx.session.user.id,
-          boardRecord.teamId
-        )
-      }
-
-      const [current] = await ctx.db
-        .select({ isProtected: boards.isProtected })
-        .from(boards)
-        .where(eq(boards.id, id))
-        .limit(1)
-
-      // Protected boards (the dogfood board) can't be archived;
-      // name/color/icon stay editable.
-      const attemptsArchive =
-        Object.hasOwn(updates, `archivedAt`) && updates.archivedAt != null
-      if (attemptsArchive && current?.isProtected) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `This board is protected and cannot be archived`,
-        })
+      // Every field is optional, so a patch can be effectively empty (a client
+      // re-saving an untouched form). Drizzle throws "No values to set" on an
+      // empty `.set()`, so read the row back instead — same no-op shape as
+      // issues.update.
+      if (Object.keys(updates).length === 0) {
+        const [existing] = await ctx.db
+          .select()
+          .from(boards)
+          .where(eq(boards.id, id))
+          .limit(1)
+        return { board: existing! }
       }
 
       const [board] = await ctx.db

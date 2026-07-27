@@ -3,7 +3,19 @@ import type { EnvMeta } from "./env-meta"
 import { screenshotFilename } from "./capture/image"
 
 export type SubmitResult =
-  | { ok: true; identifier: string | null; url: string | null }
+  | {
+      ok: true
+      identifier: string | null
+      url: string | null
+      // Support mode only (REV2-10): did the server actually SEND the
+      // confirmation email carrying the reporter's magic link — their only
+      // credential for the conversation? `null` when it doesn't apply
+      // (feedback submissions) or when an older server doesn't report it, in
+      // which case the panel keeps its optimistic "check your email" copy.
+      // Optional so the field stays additive for callers that construct a
+      // result themselves.
+      emailDelivered?: boolean | null
+    }
   | {
       ok: false
       message: string
@@ -25,6 +37,9 @@ export async function submitSupportRequest(args: {
   // state fallbacks.
   name?: string | null
   customData?: Record<string, string | number | boolean>
+  // The Panel honeypot's value — only a bot ever fills it, and the server
+  // drops those submissions with a fake success (REV2-69).
+  website?: string
   meta: EnvMeta
 }): Promise<SubmitResult> {
   const { state } = args
@@ -33,6 +48,7 @@ export async function submitSupportRequest(args: {
   formData.set(`mode`, `support`)
   formData.set(`message`, args.message)
   formData.set(`email`, args.email)
+  if (args.website) formData.set(`website`, args.website)
   const name = args.name ?? state.identity.name
   if (name) formData.set(`name`, name)
   if (state.identity.userId) formData.set(`userId`, state.identity.userId)
@@ -70,8 +86,15 @@ export async function submitSupportRequest(args: {
     }
     const body = (await response.json().catch(() => null)) as {
       identifier?: string
+      emailDelivered?: boolean | null
     } | null
-    return { ok: true, identifier: body?.identifier ?? null, url: null }
+    return {
+      ok: true,
+      identifier: body?.identifier ?? null,
+      url: null,
+      emailDelivered:
+        typeof body?.emailDelivered === `boolean` ? body.emailDelivered : null,
+    }
   } catch {
     return {
       ok: false,
@@ -93,6 +116,8 @@ export async function submitFeedback(args: {
   name?: string | null
   customData?: Record<string, string | number | boolean>
   screenshot: Blob | null
+  // See submitSupportRequest — the honeypot rides both forms.
+  website?: string
   meta: EnvMeta
 }): Promise<SubmitResult> {
   const { state } = args
@@ -101,6 +126,7 @@ export async function submitFeedback(args: {
   formData.set(`title`, args.title)
   formData.set(`description`, args.description)
   if (args.email) formData.set(`email`, args.email)
+  if (args.website) formData.set(`website`, args.website)
   const name = args.name ?? state.identity.name
   if (name) formData.set(`name`, name)
   if (state.identity.userId) formData.set(`userId`, state.identity.userId)
@@ -154,6 +180,8 @@ export async function submitFeedback(args: {
       ok: true,
       identifier: body?.identifier ?? null,
       url: typeof body?.url === `string` ? body.url : null,
+      // Feedback submissions send the reporter no email at all.
+      emailDelivered: null,
     }
   } catch {
     return {

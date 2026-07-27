@@ -13,6 +13,7 @@ const h = vi.hoisted(() => {
     user: { id: `user-token` } as { id: string } | null,
     calls: 0,
     throwNext: false,
+    swallowDbFailureNext: false,
   }
   return { state }
 })
@@ -27,12 +28,20 @@ vi.mock(`@/lib/auth`, () => ({
           h.state.throwNext = false
           throw new Error(`db down`)
         }
+        if (h.state.swallowDbFailureNext) {
+          h.state.swallowDbFailureNext = false
+          // What the customSession plugin actually does: the adapter call
+          // fails, the plugin catches it, and the caller sees a plain null.
+          noteAuthDbFailure()
+          return null
+        }
         return h.state.user ? { user: h.state.user } : null
       }),
     },
   },
 }))
 
+import { noteAuthDbFailure } from "@/lib/auth/db-failure-signal"
 import {
   invalidateSessionCache,
   resolveSession,
@@ -45,6 +54,7 @@ beforeEach(() => {
   h.state.user = { id: `user-token` }
   h.state.calls = 0
   h.state.throwNext = false
+  h.state.swallowDbFailureNext = false
   // The REV2-7 session cache is a module singleton — clear it so each
   // test starts cold (several tests reuse the same bearer literal).
   invalidateSessionCache()
@@ -113,6 +123,39 @@ describe(`resolveSession bearer/cookie isolation`, () => {
     })
     expect(await resolveSession(request)).toBeNull()
     expect(await resolveSessionUserId(request)).toBeNull()
+  })
+})
+
+// REV2-20: Better Auth's customSession plugin catches a failed core session
+// lookup and answers null, so a DB outage is indistinguishable from "logged
+// out" at this layer unless we look at the adapter failure signal.
+describe(`resolveSession swallowed lookup failures (REV2-20)`, () => {
+  it(`reports a null session that coincided with an auth DB failure as SessionResolveError`, async () => {
+    h.state.swallowDbFailureNext = true
+    const request = new Request(`https://x/api/shapes/issues`, {
+      headers: { authorization: `Bearer sometoken` },
+    })
+    await expect(resolveSession(request)).rejects.toBeInstanceOf(
+      SessionResolveError
+    )
+  })
+
+  it(`applies to cookie-only (web) requests too`, async () => {
+    h.state.swallowDbFailureNext = true
+    const request = new Request(`https://x/api/shapes/issues`, {
+      headers: { cookie: `__Secure-better-auth.session_token=web-user` },
+    })
+    await expect(resolveSession(request)).rejects.toBeInstanceOf(
+      SessionResolveError
+    )
+  })
+
+  it(`still returns null for a clean no-session lookup`, async () => {
+    h.state.user = null
+    const request = new Request(`https://x/api/shapes/issues`, {
+      headers: { authorization: `Bearer deadtoken` },
+    })
+    expect(await resolveSession(request)).toBeNull()
   })
 })
 

@@ -24,7 +24,7 @@ final class ActionsViewModel {
     var loadError: String?
     // Issues the unified sheet's Issues tab can queue (Android parity —
     // the AgentsViewModel.startCandidates rules): the loaded team's
-    // repo-backed non-archived boards; open issues, recency-ordered.
+    // repo-backed boards; open issues, recency-ordered.
     // Rebuilt on every Run tap; the sheet's candidate pool self-heals if
     // the read lands after presentation.
     var startCandidates: [StartCodingSheet.IssueOption] = []
@@ -129,8 +129,8 @@ final class ActionsViewModel {
     }
 
     /// One-shot rebuild of `startCandidates` from the synced store — the
-    /// same eligibility as the Agents-tab picker (repo-backed non-archived
-    /// boards, open issues, no merged PR), scoped to the loaded team.
+    /// same eligibility as the Agents-tab picker (repo-backed boards, open
+    /// issues, no merged PR), scoped to the loaded team.
     func refreshStartCandidates() async {
         guard let teamId = loadedTeamId, let pool = try? db.pool(forAccountId: accountId) else {
             startCandidates = []
@@ -138,9 +138,9 @@ final class ActionsViewModel {
         }
         let boards = (try? await pool.read { db in try BoardEntity.fetchAll(db) }) ?? []
         let issues = (try? await pool.read { db in try IssueEntity.fetchAll(db) }) ?? []
-        // Repo-backed, non-archived boards only — boardId → repositoryId.
+        // Repo-backed boards only — boardId → repositoryId.
         var repoByBoard: [String: String] = [:]
-        for board in boards where board.archivedAt == nil && board.teamId == teamId {
+        for board in boards where board.teamId == teamId {
             if let repoId = board.repositoryId {
                 repoByBoard[board.id] = repoId
             }
@@ -153,7 +153,6 @@ final class ActionsViewModel {
         startCandidates = issues
             .filter { row in
                 guard repoByBoard[row.boardId] != nil else { return false }
-                if row.archivedAt != nil { return false }
                 if terminal.contains(row.status) { return false }
                 if row.prState == DomainContract.prStateMerged { return false }
                 return true

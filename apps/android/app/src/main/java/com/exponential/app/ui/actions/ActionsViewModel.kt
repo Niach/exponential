@@ -114,7 +114,7 @@ class ActionsViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActionsState())
 
     // Issues the unified sheet's Issues tab can queue (AgentsViewModel's
-    // candidate rules): the selected team's repo-backed, non-archived boards;
+    // candidate rules): the selected team's repo-backed, live boards;
     // open issues, `updatedAt` desc.
     val startCandidates: StateFlow<List<StartIssueOption>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
@@ -128,14 +128,12 @@ class ActionsViewModel @Inject constructor(
                 .filter {
                     it.teamId == teamId &&
                         it.repositoryId != null &&
-                        it.archivedAt == null &&
                         it.deletedAt == null
                 }
                 .associateBy { it.id }
             issues
                 .filter {
                     it.boardId in eligibleBoards.keys &&
-                        it.archivedAt == null &&
                         it.status !in TERMINAL_ISSUE_STATUSES &&
                         it.prState != DomainContract.prStateMerged
                 }

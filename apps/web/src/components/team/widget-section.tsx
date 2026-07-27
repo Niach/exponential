@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
+import { TRPCClientError } from "@trpc/client"
 import {
   Check,
   Code2,
@@ -139,7 +140,7 @@ function modesForChoice(
 
 export function TeamWidgetSection({ team }: { team: Team }) {
   const teamId = team.id
-  const boards = useTeamBoards(teamId).filter((board) => !board.archivedAt)
+  const boards = useTeamBoards(teamId)
   const [widgets, setWidgets] = useState<WidgetList>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -370,11 +371,21 @@ export function TeamWidgetSection({ team }: { team: Team }) {
         helpdeskEnabled: enabled,
       })
     } catch (err) {
-      setHelpdeskError(
-        isPlanLimitError(err)
-          ? `The helpdesk is available on Pro and Business plans.`
-          : `Could not update the helpdesk setting.`
-      )
+      if (isPlanLimitError(err)) {
+        setHelpdeskError(`The helpdesk is available on Pro and Business plans.`)
+      } else if (
+        err instanceof TRPCClientError &&
+        err.data?.code === `PRECONDITION_FAILED`
+      ) {
+        // A non-plan-limit precondition failure is an actionable SETUP error —
+        // REV2-10(c)'s transport gate refuses `helpdeskEnabled: true` with a
+        // message naming AWS_SES_REGION / SMTP_HOST. This toggle is the only
+        // place that gate is ever hit, so the server's own wording must reach
+        // the owner instead of the generic fallback.
+        setHelpdeskError(err.message)
+      } else {
+        setHelpdeskError(`Could not update the helpdesk setting.`)
+      }
     } finally {
       setHelpdeskBusy(false)
     }

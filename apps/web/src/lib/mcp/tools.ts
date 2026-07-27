@@ -34,6 +34,7 @@ import {
   issueStatusValues,
   boardIconValues,
 } from "@/lib/domain"
+import { teamColumns } from "@/lib/team-columns"
 import {
   assertTeamMember,
   getAttachmentTeamContext,
@@ -229,8 +230,10 @@ export function registerExponentialTools(
       try {
         assertTeamVisible(access, id)
         await resolveTeamAccess(user.id, id)
+        // Projected, never `select()` — server-only columns (comp_tier) stay
+        // behind the same allowlist the teams shape pins (REV2-67).
         const [row] = await db
-          .select()
+          .select(teamColumns)
           .from(teams)
           .where(eq(teams.id, id))
           .limit(1)
@@ -252,10 +255,9 @@ export function registerExponentialTools(
       description: `List boards in a team, or across all teams the user belongs to.`,
       inputSchema: {
         teamId: z.string().uuid().optional(),
-        includeArchived: z.boolean().default(false),
       },
     },
-    async ({ teamId, includeArchived }) => {
+    async ({ teamId }) => {
       try {
         let allowedTeamIds: Array<string>
         if (teamId) {
@@ -278,9 +280,7 @@ export function registerExponentialTools(
 
         const filtered = rows.filter(
           (row) =>
-            isBoardGranted(access, row.id, row.teamId) &&
-            row.deletedAt == null &&
-            (includeArchived || row.archivedAt == null)
+            isBoardGranted(access, row.id, row.teamId) && row.deletedAt == null
         )
         return ok(filtered)
       } catch (e) {
@@ -369,7 +369,7 @@ export function registerExponentialTools(
     `exponential_boards_update`,
     {
       title: `Update board`,
-      description: `Update a board's name, color, icon, or archive state (archiving is owner-only).`,
+      description: `Update a board's name, color, or icon.`,
       inputSchema: {
         id: z.string().uuid(),
         icon: boardIconEnumSchema.nullable().optional(),
@@ -378,7 +378,6 @@ export function registerExponentialTools(
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        archivedAt: z.string().datetime().nullable().optional(),
       },
     },
     async (input) => {
@@ -403,7 +402,7 @@ export function registerExponentialTools(
     `exponential_issues_list`,
     {
       title: `List issues`,
-      description: `List issues in boards the MCP user can access. Supports filtering by board, status, priority, assignee, due-date range, and a free-text title search. Defaults to non-archived issues, newest first.`,
+      description: `List issues in boards the MCP user can access. Supports filtering by board, status, priority, assignee, due-date range, and a free-text title search. Newest first.`,
       inputSchema: {
         boardId: z.string().uuid().optional(),
         teamId: z.string().uuid().optional(),
@@ -413,7 +412,6 @@ export function registerExponentialTools(
         dueAfter: dateOnly.optional(),
         dueBefore: dateOnly.optional(),
         search: z.string().min(1).optional(),
-        includeArchived: z.boolean().default(false),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       },
@@ -427,7 +425,6 @@ export function registerExponentialTools(
       dueAfter,
       dueBefore,
       search,
-      includeArchived,
       limit,
       offset,
     }) => {
@@ -482,9 +479,6 @@ export function registerExponentialTools(
         if (search) {
           conditions.push(ilike(issues.title, `%${escapeLikePattern(search)}%`))
         }
-        // Filter in SQL, not after — a post-limit JS filter under-fills
-        // pages and makes offset pagination skip live issues.
-        if (!includeArchived) conditions.push(isNull(issues.archivedAt))
 
         const rows = await db
           .select()

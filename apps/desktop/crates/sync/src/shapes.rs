@@ -4,10 +4,10 @@
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
 //! path, the PK kind, and the **exact known-column allowlist** from its
 //! `CREATE TABLE` (§5.4): `upsert_row` filters incoming snake_case keys to
-//! this list and silently drops unknowns — the conformance fixtures carry
-//! stale pre-GFM columns (`due_time`, `end_time`) that must tolerate-and-drop,
-//! and a server that adds a column before the desktop updates must never wedge
-//! a shape in a rollback loop.
+//! this list and silently drops unknowns — the conformance fixtures carry a
+//! column no build models (`some_future_column`) that must be tolerated and
+//! dropped, and a server that adds a column before the desktop updates must
+//! never wedge a shape in a rollback loop.
 //!
 //! The server-side `where`/`requireAuth`/`columns` scoping documented in §5.9
 //! is proxy-enforced — the client sends none of it (§5.2).
@@ -81,9 +81,8 @@ impl ShapeSpec {
 }
 
 /// The 15 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
-/// (minus the §5.4 exclusions: no `due_time`/`end_time` on `issues`, no
-/// `email` on `issue_subscribers`, web-only billing fields dropped from
-/// `users`, and no `body` on `actions`).
+/// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
+/// billing fields dropped from `users`, and no `body` on `actions`).
 pub const SHAPES: [ShapeSpec; 15] = [
     ShapeSpec {
         name: "teams",
@@ -117,16 +116,17 @@ pub const SHAPES: [ShapeSpec; 15] = [
             "color",
             // Nullable repo + icon. `heal_missing_columns` ALTERs these onto
             // existing tables on the next open (all TEXT). The dropped
-            // public-board columns (`is_public`/`public_show_*`) linger as
-            // orphaned local TEXT columns on pre-drop installs; the allowlist
-            // drops the keys on upsert.
+            // public-board columns (`is_public`/`public_show_*`) and the
+            // dropped `archived_at` (REV2-103: archiving is gone; board trash
+            // is the unrelated `deleted_at` feature, server-side scoped)
+            // linger as orphaned local TEXT columns on pre-drop installs; the
+            // allowlist drops the keys on upsert.
             "icon",
             "repository_id",
             // Trash contract: the bootstrap dogfood board is protected —
-            // clients disable delete/archive/retype from this synced flag.
+            // clients disable delete from this synced flag.
             "is_protected",
             "sort_order",
-            "archived_at",
             "created_at",
             "updated_at",
         ],
@@ -135,8 +135,9 @@ pub const SHAPES: [ShapeSpec; 15] = [
     ShapeSpec {
         name: "issues",
         path: "/api/shapes/issues",
-        // §5.4 verbatim — deliberately NO due_time/end_time (stale pre-GFM
-        // wire fields; tolerated-and-dropped by the allowlist, never modeled).
+        // §5.4 verbatim — no `archived_at` (REV2-103 deleted archiving; the
+        // column lingers as an orphaned local TEXT column on pre-drop
+        // installs).
         columns: &[
             "id",
             "board_id",
@@ -152,7 +153,6 @@ pub const SHAPES: [ShapeSpec; 15] = [
             "due_date",
             "sort_order",
             "completed_at",
-            "archived_at",
             "duplicate_of_id",
             "pr_url",
             "pr_number",
@@ -429,14 +429,16 @@ mod tests {
     }
 
     #[test]
-    fn issues_never_models_stale_pre_gfm_columns() {
+    fn issues_never_models_deleted_columns() {
         let spec = shape_by_name("issues").unwrap();
-        assert!(!spec.columns.contains(&"due_time"));
-        assert!(!spec.columns.contains(&"end_time"));
-        // Recurrence was removed repo-wide (EXP-107); the columns no longer
-        // exist and must never be requested.
+        // Recurrence was removed repo-wide by EXP-107, and the time-of-day
+        // `due_time`/`end_time` columns by REV2-49 (the due DATE stays).
+        // Neither exists on the server anymore, so neither may be requested.
         assert!(!spec.columns.contains(&"recurrence_interval"));
         assert!(!spec.columns.contains(&"recurrence_unit"));
+        assert!(!spec.columns.contains(&"due_time"));
+        assert!(!spec.columns.contains(&"end_time"));
+        assert!(spec.columns.contains(&"due_date"));
     }
 
     #[test]

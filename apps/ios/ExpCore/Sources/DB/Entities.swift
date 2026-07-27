@@ -108,7 +108,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let prefix: String
     public let color: String?
     public let sortOrder: Double?
-    public let archivedAt: String?
     // v4: the repo backing this board (server-only `repositories` registry
     // row). Synced ride-along on the boards shape — the uuid resolves to a
     // fullName/defaultBranch via the repositories tRPC API (cached per
@@ -119,7 +118,7 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     // back to a derived icon. Rendered to an SF Symbol client-side.
     public let icon: String?
     // Server-managed protection flag: a protected board (the bootstrap
-    // dogfood board) can't be deleted/archived/retyped/repointed. Rides along on
+    // dogfood board) can't be deleted/retyped/repointed. Rides along on
     // the boards shape; clients hide the destructive affordances for it.
     public let isProtected: Bool
     public let createdAt: String
@@ -133,7 +132,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         prefix: String,
         color: String?,
         sortOrder: Double?,
-        archivedAt: String?,
         repositoryId: String?,
         icon: String? = nil,
         isProtected: Bool = false,
@@ -147,7 +145,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.prefix = prefix
         self.color = color
         self.sortOrder = sortOrder
-        self.archivedAt = archivedAt
         self.repositoryId = repositoryId
         self.icon = icon
         self.isProtected = isProtected
@@ -159,7 +156,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case id, name, slug, prefix, color, icon
         case teamId = "team_id"
         case sortOrder = "sort_order"
-        case archivedAt = "archived_at"
         case repositoryId = "repository_id"
         case isProtected = "is_protected"
         case createdAt = "created_at"
@@ -184,7 +180,6 @@ extension BoardEntity: Codable {
         prefix = try c.decode(String.self, forKey: .prefix)
         color = try c.decodeIfPresent(String.self, forKey: .color)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
-        archivedAt = try c.decodeIfPresent(String.self, forKey: .archivedAt)
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         isProtected = c.decodeWireBool(forKey: .isProtected, default: false)
@@ -212,11 +207,8 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     // snapshot or an older row may omit it.
     public let source: String?
     public let dueDate: String?
-    public let dueTime: String?
-    public let endTime: String?
     public let sortOrder: Double?
     public let completedAt: String?
-    public let archivedAt: String?
     // Duplicate resolution: the canonical issue this one duplicates (pairs with
     // status='duplicate'). 1:1, no relation graph.
     public let duplicateOfId: String?
@@ -244,11 +236,8 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         creatorId: String?,
         source: String?,
         dueDate: String?,
-        dueTime: String?,
-        endTime: String?,
         sortOrder: Double?,
         completedAt: String?,
-        archivedAt: String?,
         duplicateOfId: String?,
         prUrl: String?,
         prNumber: Int?,
@@ -270,11 +259,8 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.creatorId = creatorId
         self.source = source
         self.dueDate = dueDate
-        self.dueTime = dueTime
-        self.endTime = endTime
         self.sortOrder = sortOrder
         self.completedAt = completedAt
-        self.archivedAt = archivedAt
         self.duplicateOfId = duplicateOfId
         self.prUrl = prUrl
         self.prNumber = prNumber
@@ -291,11 +277,8 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case assigneeId = "assignee_id"
         case creatorId = "creator_id"
         case dueDate = "due_date"
-        case dueTime = "due_time"
-        case endTime = "end_time"
         case sortOrder = "sort_order"
         case completedAt = "completed_at"
-        case archivedAt = "archived_at"
         case duplicateOfId = "duplicate_of_id"
         case prUrl = "pr_url"
         case prNumber = "pr_number"
@@ -325,11 +308,8 @@ extension IssueEntity: Codable {
         creatorId = try container.decodeIfPresent(String.self, forKey: .creatorId)
         source = try container.decodeIfPresent(String.self, forKey: .source)
         dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
-        dueTime = try container.decodeIfPresent(String.self, forKey: .dueTime)
-        endTime = try container.decodeIfPresent(String.self, forKey: .endTime)
         sortOrder = try container.decodeWireDouble(forKey: .sortOrder)
         completedAt = try container.decodeIfPresent(String.self, forKey: .completedAt)
-        archivedAt = try container.decodeIfPresent(String.self, forKey: .archivedAt)
         duplicateOfId = try container.decodeIfPresent(String.self, forKey: .duplicateOfId)
         prUrl = try container.decodeIfPresent(String.self, forKey: .prUrl)
         prNumber = try container.decodeWireInt(forKey: .prNumber)

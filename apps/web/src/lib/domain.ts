@@ -24,19 +24,12 @@ export interface IssueOption<TValue extends string> {
   value: TValue
 }
 
+// Option tables — the ONE picker vocabulary (REV2-85): every status/priority
+// menu on every client walks the contract `displayOrder`
+// (packages/domain-contract/contract.json), the same order the board groups
+// use, so picker muscle memory transfers between web, desktop, iOS and
+// Android. Locked against the contract by lib/domain-contract.test.ts.
 export const issueStatusOptions = [
-  {
-    value: `backlog`,
-    label: `Backlog`,
-    icon: CircleDashed,
-    color: `text-muted-foreground`,
-  },
-  {
-    value: `todo`,
-    label: `Todo`,
-    icon: Circle,
-    color: `text-foreground`,
-  },
   {
     value: `in_progress`,
     label: `In Progress`,
@@ -48,6 +41,18 @@ export const issueStatusOptions = [
     label: `In Review`,
     icon: GitPullRequest,
     color: `text-green-500`,
+  },
+  {
+    value: `todo`,
+    label: `Todo`,
+    icon: Circle,
+    color: `text-foreground`,
+  },
+  {
+    value: `backlog`,
+    label: `Backlog`,
+    icon: CircleDashed,
+    color: `text-muted-foreground`,
   },
   {
     value: `done`,
@@ -70,12 +75,6 @@ export const issueStatusOptions = [
 ] as const satisfies readonly IssueOption<IssueStatus>[]
 
 export const issuePriorityOptions = [
-  {
-    value: `none`,
-    label: `No priority`,
-    icon: Minus,
-    color: `text-muted-foreground`,
-  },
   {
     value: `urgent`,
     label: `Urgent`,
@@ -100,6 +99,12 @@ export const issuePriorityOptions = [
     icon: SignalLow,
     color: `text-blue-500`,
   },
+  {
+    value: `none`,
+    label: `No priority`,
+    icon: Minus,
+    color: `text-muted-foreground`,
+  },
 ] as const satisfies readonly IssueOption<IssuePriority>[]
 
 function getOptionConfig<TValue extends string>(
@@ -110,14 +115,25 @@ function getOptionConfig<TValue extends string>(
   return options.find((option) => option.value === value) ?? fallback
 }
 
+// Unknown/forward-compat wire values fall back to the lifecycle START of the
+// vocabulary (backlog / no priority), NOT to the first row of the display
+// order — the tables are display-ordered, so the fallbacks are looked up by
+// value. Anything that resolves an option out of these tables (the config
+// helpers below, `OptionDropdownMenu`'s trigger) must use these constants.
+export const ISSUE_STATUS_FALLBACK = `backlog` satisfies IssueStatus
+export const ISSUE_PRIORITY_FALLBACK = `none` satisfies IssuePriority
+
+const backlogOption = issueStatusOptions.find(
+  (option) => option.value === ISSUE_STATUS_FALLBACK
+)!
+const noPriorityOption = issuePriorityOptions.find(
+  (option) => option.value === ISSUE_PRIORITY_FALLBACK
+)!
+
 export function getIssueStatusConfig(status: IssueStatus | string) {
-  return getOptionConfig(issueStatusOptions, status, issueStatusOptions[0])
+  return getOptionConfig(issueStatusOptions, status, backlogOption)
 }
 
 export function getIssuePriorityConfig(priority: IssuePriority | string) {
-  return getOptionConfig(
-    issuePriorityOptions,
-    priority,
-    issuePriorityOptions[0]
-  )
+  return getOptionConfig(issuePriorityOptions, priority, noPriorityOption)
 }

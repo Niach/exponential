@@ -10,6 +10,17 @@ import { createHmac } from "node:crypto"
 
 const h = vi.hoisted(() => {
   const selectQueue: unknown[][] = []
+  // Writes are recorded with the drizzle table object they targeted so the
+  // installation-lifecycle tests can assert WHICH table was written (and, for
+  // `suspend`, that github_installations was never DELETEd — that delete is
+  // what used to cascade every team's claim link away).
+  const inserts: Array<{
+    table: unknown
+    values?: unknown
+    conflictSet?: unknown
+  }> = []
+  const updates: Array<{ table: unknown; set: Record<string, unknown> }> = []
+  const deletes: Array<{ table: unknown }> = []
 
   function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
     const p = Promise.resolve(
@@ -22,7 +33,45 @@ const h = vi.hoisted(() => {
   }
 
   const select = vi.fn(() => selectChain())
-  return { selectQueue, select, fakeDb: { select } }
+  const insert = vi.fn((table: unknown) => {
+    const record: { table: unknown; values?: unknown; conflictSet?: unknown } =
+      { table }
+    inserts.push(record)
+    const chain = {
+      values: (v: unknown) => {
+        record.values = v
+        return chain
+      },
+      onConflictDoUpdate: (arg: { set?: unknown }) => {
+        record.conflictSet = arg?.set
+        return Promise.resolve()
+      },
+      onConflictDoNothing: () => Promise.resolve(),
+    }
+    return chain
+  })
+  const update = vi.fn((table: unknown) => ({
+    set: (set: Record<string, unknown>) => ({
+      where: () => {
+        updates.push({ table, set })
+        return Promise.resolve()
+      },
+    }),
+  }))
+  const del = vi.fn((table: unknown) => ({
+    where: () => {
+      deletes.push({ table })
+      return Promise.resolve()
+    },
+  }))
+  return {
+    selectQueue,
+    inserts,
+    updates,
+    deletes,
+    select,
+    fakeDb: { select, insert, update, delete: del },
+  }
 })
 
 vi.mock(`@/db/connection`, () => ({ db: h.fakeDb }))
@@ -38,6 +87,8 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 }))
 
 import * as prSync from "@/lib/integrations/pr-sync"
+import * as integrations from "@/lib/trpc/integrations"
+import { githubInstallations, repositories } from "@/db/schema"
 import { Route } from "./github"
 
 const prSyncMock = vi.mocked(prSync)
@@ -100,6 +151,9 @@ function pullRequestPayload(overrides: {
 beforeEach(() => {
   process.env.GITHUB_WEBHOOK_SECRET = SECRET
   h.selectQueue.length = 0
+  h.inserts.length = 0
+  h.updates.length = 0
+  h.deletes.length = 0
   vi.clearAllMocks()
 })
 
@@ -251,5 +305,102 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
     expect(res.status).toBe(401)
     expect(h.select).not.toHaveBeenCalled()
     expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()
+  })
+})
+
+// REV2-29: GitHub suspension is REVERSIBLE, so `suspend` must never take the
+// terminal path. It used to delete the github_installations row, which
+// CASCADE-dropped every team's claim link — and `unsuspend` re-inserted a row
+// with a fresh uuid PK, so those links were unrecoverable by construction. The
+// marker column keeps the row (and the claims) and `unsuspend` clears it.
+describe(`github webhook — installation lifecycle (suspend/unsuspend/deleted)`, () => {
+  const INSTALLATION_ID = 424242
+
+  function installationPayload(action: string): unknown {
+    return {
+      action,
+      installation: {
+        id: INSTALLATION_ID,
+        account: { login: `acme`, type: `Organization` },
+      },
+    }
+  }
+
+  const installationUpdates = () =>
+    h.updates.filter((u) => u.table === githubInstallations)
+  const repositoryUpdates = () =>
+    h.updates.filter((u) => u.table === repositories)
+
+  it(`suspend MARKS the installation and never deletes it (claim links survive)`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(`installation`, installationPayload(`suspend`)),
+    })
+
+    expect(res.status).toBe(200)
+    // The row (and, through it, every team's claim link) stays put.
+    expect(h.deletes).toHaveLength(0)
+    expect(installationUpdates()).toHaveLength(1)
+    expect(installationUpdates()[0].set.suspendedAt).toBeInstanceOf(Date)
+    // Repos under it are flagged so the settings UI stops showing them healthy.
+    expect(repositoryUpdates()).toHaveLength(1)
+    expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
+    expect(
+      vi.mocked(integrations.invalidateRepoCacheForInstallation)
+    ).toHaveBeenCalledWith(INSTALLATION_ID)
+  })
+
+  it(`unsuspend CLEARS the marker on the surviving row (self-heal)`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(`installation`, installationPayload(`unsuspend`)),
+    })
+
+    expect(res.status).toBe(200)
+    expect(h.deletes).toHaveLength(0)
+    expect(h.inserts).toHaveLength(1)
+    expect(h.inserts[0].table).toBe(githubInstallations)
+    expect(h.inserts[0].values).toMatchObject({
+      installationId: INSTALLATION_ID,
+      suspendedAt: null,
+    })
+    // …and on the conflict path too — the row always already exists here.
+    expect(h.inserts[0].conflictSet).toMatchObject({ suspendedAt: null })
+  })
+
+  it(`created upserts with no suspension marker`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(`installation`, installationPayload(`created`)),
+    })
+
+    expect(res.status).toBe(200)
+    expect(h.inserts[0].values).toMatchObject({ suspendedAt: null })
+    expect(h.updates).toHaveLength(0)
+    expect(h.deletes).toHaveLength(0)
+  })
+
+  it(`deleted stays terminal: flags repos, then drops the row (links cascade)`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(`installation`, installationPayload(`deleted`)),
+    })
+
+    expect(res.status).toBe(200)
+    expect(repositoryUpdates()).toHaveLength(1)
+    expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
+    expect(installationUpdates()).toHaveLength(0)
+    expect(h.deletes).toEqual([{ table: githubInstallations }])
+    // The cache invalidation must run BEFORE the delete — it resolves the
+    // linked teams through the links that cascade away with the row.
+    expect(
+      vi.mocked(integrations.invalidateRepoCacheForInstallation)
+    ).toHaveBeenCalled()
+  })
+
+  it(`ignores an installation event with no installation id`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(`installation`, { action: `suspend` }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(h.updates).toHaveLength(0)
+    expect(h.deletes).toHaveLength(0)
   })
 })

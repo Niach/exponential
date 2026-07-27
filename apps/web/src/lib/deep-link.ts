@@ -35,3 +35,52 @@ export function oauthReturnDeepLink(token: string): string {
 export function githubConnectedDeepLink(): string {
   return `${DEEP_LINK_SCHEME}://github-connected`
 }
+
+// The reason slug used when nothing more specific is known.
+export const OAUTH_ERROR_FALLBACK = `oauth_failed`
+
+// `exponential://oauth-return?error=…#error=…` — the FAILURE twin of the two
+// success handoffs (REV2-53). Every failing branch of the mobile OAuth hop
+// must reach the app through this link: the native completion channels only
+// recognise `exponential://` navigations (iOS's ASWebAuthenticationSession,
+// Android's Custom Tab intent, the desktop's registered handler), so an https
+// error page strands the auth sheet with nothing for the user to act on. Same
+// query-AND-fragment doubling as the success forms, for the same reason.
+export function oauthReturnErrorDeepLink(reason: string): string {
+  const enc = encodeURIComponent(normalizeOauthErrorReason(reason))
+  return `${DEEP_LINK_SCHEME}://oauth-return?error=${enc}#error=${enc}`
+}
+
+// Reason slugs ride a deep link and a login-page query param, and come partly
+// from an upstream provider (Better Auth forwards the IdP's `error`), so clamp
+// them to a short opaque slug before they reach either sink.
+export function normalizeOauthErrorReason(input: unknown): string {
+  if (typeof input !== `string`) return OAUTH_ERROR_FALLBACK
+  const slug = input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, `_`)
+    .replace(/^_+|_+$/g, ``)
+    .slice(0, 48)
+  return slug || OAUTH_ERROR_FALLBACK
+}
+
+// Human copy for a reason slug, shown on the web error/login pages. The native
+// clients keep their own translations of the same slugs.
+export function oauthErrorMessage(reason: unknown): string {
+  switch (normalizeOauthErrorReason(reason)) {
+    case `access_denied`:
+      return `Sign-in was cancelled.`
+    case `state_missing`:
+    case `state_invalid`:
+    case `state_mismatch`:
+    case `state_not_found`:
+    case `please_restart_the_process`:
+      return `That sign-in link expired. Please start again.`
+    case `no_session`:
+    case `session_cookie_missing`:
+      return `Sign-in didn't complete on the server. Please try again.`
+    default:
+      return `Couldn't complete sign-in. Please try again.`
+  }
+}
