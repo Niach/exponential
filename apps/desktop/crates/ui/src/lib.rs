@@ -81,6 +81,7 @@ mod title_bar;
 mod undock;
 mod undocked_terminal;
 mod update;
+mod user_avatar;
 mod window_frame;
 mod window_hooks;
 pub mod window_size;

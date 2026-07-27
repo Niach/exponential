@@ -125,6 +125,19 @@ pub fn active_account(cx: &App) -> Option<api::Account> {
         .account(&account_id)
 }
 
+/// The active account's synced `users` row — the profile `image` lives only
+/// there (accounts.json carries name/email but never the avatar URL). `None`
+/// until the users shape has landed the caller's own row.
+pub(crate) fn active_user(cx: &App) -> Option<domain::rows::User> {
+    let account = active_account(cx)?;
+    Store::global(cx)
+        .collections()
+        .users
+        .read(cx)
+        .get(&account.user_id)
+        .cloned()
+}
+
 /// A tRPC client bound to the active account (call-time token provider, §5.7).
 /// Build per mutation — cheap (an `Agent` + two `Arc`s), and always pointed at
 /// the CURRENT account even across re-login.

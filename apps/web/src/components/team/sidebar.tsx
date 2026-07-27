@@ -26,6 +26,7 @@ import {
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
+import { firstName } from "@/lib/user-display"
 import type { Board, Team } from "@/db/schema"
 import {
   useReviewsOpenPrCount,
@@ -326,8 +327,10 @@ export function TeamSidebar({
                     {userInitials}
                   </AvatarFallback>
                 </Avatar>
+                {/* First name only (EXP-311) — the full name + email live in
+                    account settings; nameless accounts fall back to email. */}
                 <span className="truncate text-sm">
-                  {session?.user?.email ?? `Loading...`}
+                  {userLabel ? firstName(userLabel) : `Loading...`}
                 </span>
                 <ChevronsUpDown className="ml-auto h-4 w-4" />
               </SidebarMenuButton>

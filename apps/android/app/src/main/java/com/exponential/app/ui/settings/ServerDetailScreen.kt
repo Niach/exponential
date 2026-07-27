@@ -42,8 +42,10 @@ import com.exponential.app.data.api.UsersApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
+import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
@@ -52,7 +54,9 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -65,6 +69,16 @@ class ServerDetailViewModel @Inject constructor(
     private val authApi: AuthApi,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
+
+    /**
+     * EXP-311: the account's own synced `users` row — it carries the profile
+     * image the account store doesn't. Emits null until the shape lands.
+     */
+    fun userFor(accountId: String): Flow<UserEntity?> {
+        val userId = auth.accounts.value.firstOrNull { it.id == accountId }?.userId
+            ?: return flowOf(null)
+        return databaseHolder.database(forAccountId = accountId).userDao().observeById(userId)
+    }
 
     // Account teardown must NOT run in viewModelScope: the callers pop the nav
     // entry right after invoking it, which clears this ViewModel and cancels
@@ -158,6 +172,9 @@ fun ServerDetailScreen(
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val account = accounts.firstOrNull { it.id == accountId }
+    // EXP-311: the synced users row carries the profile image for the avatar.
+    val user by remember(accountId) { viewModel.userFor(accountId) }
+        .collectAsStateWithLifecycle(initialValue = null)
     var showRemoveConfirm by remember { mutableStateOf(false) }
     var showDeleteAccountConfirm by remember { mutableStateOf(false) }
 
@@ -185,7 +202,9 @@ fun ServerDetailScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // Server identity card.
+            // Identity card — signed in it shows the ACCOUNT identity (avatar
+            // + "Firstname Lastname" + email, EXP-311, iOS/web parity); signed
+            // out the server block stays so the row remains identifiable.
             Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -193,37 +212,56 @@ fun ServerDetailScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
-                    Icon(
-                        ExpIcons.settingsServers,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            account?.displayName.orEmpty(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        if (!account?.userEmail.isNullOrBlank()) {
+                    if (account != null && account.token != null && !account.userEmail.isNullOrBlank()) {
+                        // Name-less accounts (Apple sign-in) fall back to the
+                        // email for the title/initials.
+                        val name = account.userName?.takeIf { it.isNotBlank() }
+                            ?: account.userEmail.orEmpty()
+                        UserAvatar(user = user, nameOrEmail = name, size = 40.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                account!!.userEmail!!,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            val email = account.userEmail
+                            if (!email.isNullOrBlank() && email != name) {
+                                Text(
+                                    email,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
-                        Text(
-                            if (account?.token == null) "Signed out" else "Signed in",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (account?.token == null) {
-                                MaterialTheme.colorScheme.tertiary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                            },
+                    } else {
+                        Icon(
+                            ExpIcons.settingsServers,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                account?.displayName.orEmpty(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                if (account?.token == null) "Signed out" else "Signed in",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (account?.token == null) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                                },
+                            )
+                        }
                     }
                 }
             }

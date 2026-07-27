@@ -103,25 +103,22 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func serverRow(_ account: ServerAccount) -> some View {
-        // With a single connected server the "Cloud"/hostname label is noise —
-        // the signed-in email alone identifies the account. A signed-out
-        // account keeps its server label so the row stays identifiable.
-        let emailAsTitle = deps.auth.accounts.count == 1
-            && account.token != nil
-            && !(account.userEmail ?? "").isEmpty
+        // EXP-311: the row is always titled by the server ("Exponential
+        // Cloud" / hostname) with the signed-in email below — the account
+        // identity (avatar, name, email) lives in the detail view.
         HStack(spacing: 12) {
             AppIcon(AppIcons.settingsServers, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text(emailAsTitle ? (account.userEmail ?? "") : account.displayName)
+                Text(account.displayName)
                     .font(.body)
                     .foregroundStyle(.white)
                 if account.token == nil {
                     Text("Signed out")
                         .font(.caption)
                         .foregroundStyle(.orange.opacity(0.85))
-                } else if !emailAsTitle, let email = account.userEmail, !email.isEmpty {
+                } else if let email = account.userEmail, !email.isEmpty {
                     Text(email)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))

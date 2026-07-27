@@ -139,7 +139,6 @@ fun SettingsScreen(
                             if (i > 0) CardDivider()
                             ServerRow(
                                 account = account,
-                                soleServer = accounts.size == 1,
                                 onClick = { onOpenServerDetail(account.id) },
                             )
                         }
@@ -272,11 +271,10 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun ServerRow(account: ServerAccount, soleServer: Boolean, onClick: () -> Unit) {
-    // With a single connected server the "Cloud"/hostname label is noise —
-    // the signed-in email alone identifies the account (iOS parity). A
-    // signed-out account keeps its server label so the row stays identifiable.
-    val emailAsTitle = soleServer && account.token != null && !account.userEmail.isNullOrBlank()
+private fun ServerRow(account: ServerAccount, onClick: () -> Unit) {
+    // EXP-311: the row is always titled by the server ("Exponential Cloud" /
+    // hostname, iOS parity) with the signed-in email below — the account
+    // identity (avatar, name, email) lives in the detail screen.
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -293,7 +291,7 @@ private fun ServerRow(account: ServerAccount, soleServer: Boolean, onClick: () -
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                if (emailAsTitle) account.userEmail!! else account.displayName,
+                account.displayName,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -305,7 +303,6 @@ private fun ServerRow(account: ServerAccount, soleServer: Boolean, onClick: () -
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.tertiary,
                 )
-                emailAsTitle -> Unit
                 !account.userEmail.isNullOrBlank() -> Text(
                     account.userEmail!!,
                     style = MaterialTheme.typography.labelSmall,
