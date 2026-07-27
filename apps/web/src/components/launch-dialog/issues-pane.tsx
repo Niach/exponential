@@ -41,7 +41,8 @@ export function IssuesPane({
   blocked: boolean
 }) {
   return (
-    <div className="flex min-h-0 flex-col gap-2">
+    // Shrink only under `sm:` — see the actions pane's note (EXP-313).
+    <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink">
       <Label>Issues</Label>
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

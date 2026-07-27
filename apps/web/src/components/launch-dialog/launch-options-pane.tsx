@@ -107,7 +107,7 @@ export function LaunchOptionsPane({
 }) {
   if (devices.length === 0) {
     return (
-      <div className="flex min-h-0 flex-col gap-3 sm:overflow-y-auto">
+      <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
         <div className="flex items-start gap-2 py-2 text-sm text-muted-foreground">
           <MonitorOff className="mt-0.5 size-4 shrink-0" />
           {noDeviceNote}
@@ -117,7 +117,7 @@ export function LaunchOptionsPane({
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-3 sm:overflow-y-auto">
+    <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
       {devices.length > 1 && (
         <div className="space-y-2">
           <Label htmlFor="start-coding-device">Desktop</Label>

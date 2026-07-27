@@ -839,102 +839,139 @@ impl ActionDetailView {
             return Some(lines.into_any_element());
         }
 
-        let mut rows = v_flex().w_full().gap_1p5();
-        for (ix, draft) in self.input_drafts.iter().enumerate() {
-            let Some(field) = self.input_labels.get(ix) else {
-                break;
-            };
-            let type_label: SharedString = draft.input_type.clone().into();
-            let required = draft.required;
-            rows = rows.child(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    // A label is a couple of words — a full-width field read
-                    // as a giant box next to the tiny type/required controls.
-                    .child(Input::new(field).xsmall().flex_1().min_w_0().max_w(px(280.)))
-                    .child(
-                        // Picker-shaped chip (`picker_trigger`'s look at
-                        // content width — that helper is full-width only).
-                        Button::new(("action-input-type", ix))
-                            .ghost()
-                            .xsmall()
-                            .child(
-                                h_flex()
-                                    .gap_1()
-                                    .items_center()
-                                    .child(div().text_xs().child(type_label))
-                                    .child(
-                                        Icon::new(IconName::ChevronDown)
-                                            .size_3()
-                                            .text_color(muted),
-                                    ),
-                            )
-                            .dropdown_menu({
-                                let view = cx.entity().downgrade();
-                                move |mut menu, _window, _cx| {
-                                    for value in domain::contract::ACTION_INPUT_TYPE_VALUES {
-                                        let view = view.clone();
-                                        menu = menu.item(PopupMenuItem::new(*value).on_click(
-                                            move |_, _, cx| {
-                                                let Some(view) = view.upgrade() else {
-                                                    return;
-                                                };
-                                                view.update(cx, |view, cx| {
-                                                    if let Some(draft) =
-                                                        view.input_drafts.get_mut(ix)
-                                                    {
-                                                        draft.input_type = value.to_string();
-                                                    }
-                                                    view.save_inputs(cx);
-                                                    cx.notify();
-                                                });
-                                            },
-                                        ));
+        // EXP-313: a card-shaped table — muted header row + separator-lined
+        // rows with aligned columns — instead of the loose per-row flex that
+        // read as disconnected controls.
+        let border = cx.theme().border;
+        let mut column = v_flex().w_full().gap_1p5();
+        if !self.input_drafts.is_empty() {
+            let mut table = v_flex()
+                .w_full()
+                .border_1()
+                .border_color(border)
+                .rounded(cx.theme().radius)
+                .child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py_1()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(div().flex_1().min_w_0().child("Label"))
+                        .child(div().w(px(96.)).flex_shrink_0().child("Type"))
+                        .child(div().w(px(60.)).flex_shrink_0().child("Required"))
+                        .child(div().w(px(22.)).flex_shrink_0()),
+                );
+            for (ix, draft) in self.input_drafts.iter().enumerate() {
+                let Some(field) = self.input_labels.get(ix) else {
+                    break;
+                };
+                let type_label: SharedString = draft.input_type.clone().into();
+                let required = draft.required;
+                table = table.child(
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py_1p5()
+                        .border_t_1()
+                        .border_color(border)
+                        .child(Input::new(field).xsmall().flex_1().min_w_0())
+                        .child(
+                            Button::new(("action-input-type", ix))
+                                .outline()
+                                .xsmall()
+                                .w(px(96.))
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .justify_between()
+                                        .items_center()
+                                        .child(div().text_xs().child(type_label))
+                                        .child(
+                                            Icon::new(IconName::ChevronDown)
+                                                .size_3()
+                                                .text_color(muted),
+                                        ),
+                                )
+                                .dropdown_menu({
+                                    let view = cx.entity().downgrade();
+                                    move |mut menu, _window, _cx| {
+                                        for value in domain::contract::ACTION_INPUT_TYPE_VALUES {
+                                            let view = view.clone();
+                                            menu = menu.item(PopupMenuItem::new(*value).on_click(
+                                                move |_, _, cx| {
+                                                    let Some(view) = view.upgrade() else {
+                                                        return;
+                                                    };
+                                                    view.update(cx, |view, cx| {
+                                                        if let Some(draft) =
+                                                            view.input_drafts.get_mut(ix)
+                                                        {
+                                                            draft.input_type = value.to_string();
+                                                        }
+                                                        view.save_inputs(cx);
+                                                        cx.notify();
+                                                    });
+                                                },
+                                            ));
+                                        }
+                                        menu
                                     }
-                                    menu
-                                }
-                            }),
-                    )
-                    .child(
-                        Checkbox::new(("action-input-required", ix))
-                            .label("Required")
-                            .checked(required)
-                            .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                                if let Some(draft) = this.input_drafts.get_mut(ix) {
-                                    draft.required = *on;
-                                }
-                                this.save_inputs(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new(("action-input-remove", ix))
-                            .ghost()
-                            .xsmall()
-                            .icon(Icon::new(IconName::Close).text_color(muted))
-                            .tooltip("Remove input")
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                this.remove_input(ix, window, cx);
-                            })),
-                    ),
-            );
+                                }),
+                        )
+                        .child(
+                            // The header names the column, so the checkbox
+                            // drops its inline label.
+                            div().w(px(60.)).flex_shrink_0().child(
+                                Checkbox::new(("action-input-required", ix))
+                                    .checked(required)
+                                    .on_click(cx.listener(move |this, on: &bool, _, cx| {
+                                        if let Some(draft) = this.input_drafts.get_mut(ix) {
+                                            draft.required = *on;
+                                        }
+                                        this.save_inputs(cx);
+                                        cx.notify();
+                                    })),
+                            ),
+                        )
+                        .child(
+                            div().w(px(22.)).flex_shrink_0().child(
+                                Button::new(("action-input-remove", ix))
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(Icon::new(IconName::Close).text_color(muted))
+                                    .tooltip("Remove input")
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            this.remove_input(ix, window, cx);
+                                        },
+                                    )),
+                            ),
+                        ),
+                );
+            }
+            column = column.child(table);
         }
         if self.input_drafts.len() < MAX_ACTION_INPUTS {
-            rows = rows.child(
-                Button::new("action-input-add")
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::Plus)
-                    .label("Add input")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.add_input(window, cx);
-                    })),
+            column = column.child(
+                h_flex().w_full().child(
+                    Button::new("action-input-add")
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::Plus)
+                        .label("Add input")
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.add_input(window, cx);
+                        })),
+                ),
             );
         }
-        Some(rows.into_any_element())
+        Some(column.into_any_element())
     }
 
     // -- sidebar controls ---------------------------------------------------

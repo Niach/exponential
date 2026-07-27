@@ -561,9 +561,56 @@ impl PropertiesPanel {
                         .text_color(cx.theme().danger)
                         .child(error),
                 );
+                // EXP-313: a failed merge (typically conflicts) offers the
+                // builtin fix run right here — the Reviews-rail affordance,
+                // routed through the Start-coding dialog with this PR
+                // preselected. Needs the PR's recorded branch (the run
+                // rebases it); parks while a local run already works it.
+                if issue.branch.is_some() {
+                    column = column.child(self.fix_conflicts_button(issue, cx));
+                }
             }
         }
         column
+    }
+
+    /// The sidebar "Fix conflicts" button (EXP-313): opens the Start-coding
+    /// dialog with the fix-conflicts builtin and this issue's PR preselected.
+    fn fix_conflicts_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let fixing = issue.branch.as_deref().is_some_and(|branch| {
+            LocalSessions::global_ref(cx)
+                .is_some_and(|sessions| sessions.read(cx).is_branch_live(branch))
+        });
+        let issue_id = issue.id.clone();
+        let board_id = issue.board_id.clone();
+        let mut button = Button::new("sidebar-fix-conflicts")
+            .outline()
+            .small()
+            .w_full()
+            .icon(Icon::from(ExpIcon::GitBranch).text_color(cx.theme().muted_foreground))
+            .label(if fixing { "Fixing…" } else { "Fix conflicts" })
+            .tooltip("Run the fix-conflicts action on this pull request")
+            .on_click(cx.listener(move |_, _, window, cx| {
+                let Some(team_id) = Store::global(cx)
+                    .collections()
+                    .boards
+                    .read(cx)
+                    .get(&board_id)
+                    .map(|board| board.team_id.clone())
+                else {
+                    return;
+                };
+                crate::start_coding_dialog::open_for_fix_conflicts(
+                    window,
+                    cx,
+                    team_id,
+                    issue_id.clone(),
+                );
+            }));
+        if fixing {
+            button = button.disabled(true);
+        }
+        button
     }
 
     /// The sidebar Merge button (EXP-268): two-click arm ("Merge" →
