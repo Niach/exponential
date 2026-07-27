@@ -507,21 +507,22 @@ pub fn glass_sidebar_alpha() -> f32 {
 /// How opaque the page paints under the MAIN CONTENT — everything right of
 /// the rail (issue list, tabs, detail sidebar, terminal dock) and every
 /// standalone window (undocked views, dialogs, the login/update surfaces).
-/// 0.92 is EXP-290's proven `GLASS_BACKGROUND_ALPHA`: the lightly frosted
-/// content the EXP-293 flip accidentally LOST — its base+top-up layering
-/// stacked two translucent gradients, which never composite to the intended
-/// alpha (the content rendered fully opaque at every top-up value; the
-/// commit's own "not verified visually" note). EXP-303 restored the EXP-290
-/// mechanism — each region paints ONE gradient at its own alpha
-/// ([`background_gradient`] for content, [`sidebar_background_gradient`] for
-/// the rail column) — so this value reaches the screen again. The sidebar
-/// stays 0.72, deliberately the glassier region.
+/// 0.88 is EXP-290's proven mechanism, one notch more open than its 0.92
+/// (dialed in visually over the restored frost): the lightly frosted content
+/// the EXP-293 flip accidentally LOST — its base+top-up layering stacked two
+/// translucent gradients, which never composite to the intended alpha (the
+/// content rendered fully opaque at every top-up value; the commit's own
+/// "not verified visually" note). EXP-303 restored the EXP-290 mechanism —
+/// each region paints ONE gradient at its own alpha ([`background_gradient`]
+/// for content, [`sidebar_background_gradient`] for the rail column) — so
+/// this value reaches the screen again. The sidebar stays 0.72, deliberately
+/// the glassier region.
 ///
 /// 1.0 without a real blur backdrop ([`blur_backdrop_available`]) — Windows
 /// and non-KDE-Wayland Linux have no glassy blur and stay fully opaque.
 pub fn glass_content_alpha() -> f32 {
     if blur_backdrop_available() {
-        0.92
+        0.88
     } else {
         1.0
     }

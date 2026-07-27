@@ -121,6 +121,13 @@ pub fn open_shell_window(cx: &mut App) {
             })
         })?;
 
+        // EXP-303: give the Blurred shell window a working frosted backdrop —
+        // gpui's own BlurredView renders no backdrop on current macOS
+        // (`ui::macos_blur` inserts a stock NSGlassEffectView /
+        // NSVisualEffectView above it).
+        #[cfg(target_os = "macos")]
+        ui::macos_blur::ensure_window_blur();
+
         window.update(cx, |_, window, cx| {
             window.set_window_title(crate::channel::APP_NAME);
             window.activate_window();

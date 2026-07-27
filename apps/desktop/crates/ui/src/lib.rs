@@ -49,6 +49,8 @@ pub mod issue_detail;
 mod issue_list;
 mod join_team;
 mod login;
+#[cfg(target_os = "macos")]
+pub mod macos_blur;
 pub mod markdown;
 mod mention_input;
 mod wysiwyg;
