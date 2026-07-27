@@ -71,6 +71,63 @@ final class IssueRefsLinkifyTests: XCTestCase {
     }
 }
 
+// EXP-307: read-only chips show the whole issue title next to the short code.
+// `decorateForDisplay` REPLACES the token text with `#ID <title>` (display
+// models only — edit paths reseed from the raw markdown), so these lock the
+// replacement mechanics: back-to-front ranges, tap attribute over the whole
+// chip, bare-token fallbacks, truncation.
+final class IssueRefsDecorateForDisplayTests: XCTestCase {
+    private let resolver: (String) -> String? = { id in ["EXP-1": "id-1"][id] }
+    private let titles: (String) -> String? = { id in ["EXP-1": "Fix login flow"][id] }
+
+    private func display(
+        _ text: String,
+        titleResolver: ((String) -> String?)? = nil
+    ) -> NSAttributedString {
+        IssueRefs.decorateForDisplay(
+            NSAttributedString(string: text),
+            resolver: resolver,
+            titleResolver: titleResolver ?? titles
+        )
+    }
+
+    func testChipShowsTheIssueTitleAndTheWholeChipIsTappable() {
+        let out = display("see #EXP-1 now")
+        XCTAssertEqual(out.string, "see #EXP-1 Fix login flow now")
+        let ns = out.string as NSString
+        let chipStart = ns.range(of: "#EXP-1").location
+        var range = NSRange(location: 0, length: 0)
+        let value = out.attribute(
+            .markdownIssueRef, at: chipStart,
+            longestEffectiveRange: &range, in: NSRange(location: 0, length: ns.length))
+        XCTAssertEqual(value as? String, "id-1")
+        XCTAssertEqual(ns.substring(with: range), "#EXP-1 Fix login flow")
+    }
+
+    func testMissingTitleKeepsTheBareTokenButStillDecorates() {
+        let out = display("see #EXP-1", titleResolver: { _ in nil })
+        XCTAssertEqual(out.string, "see #EXP-1")
+        XCTAssertNotNil(out.attribute(.markdownIssueRef, at: 4, effectiveRange: nil))
+    }
+
+    func testUnresolvedTokenIsUntouched() {
+        let out = display("see #EXP-9")
+        XCTAssertEqual(out.string, "see #EXP-9")
+        XCTAssertNil(out.attribute(.markdownIssueRef, at: 4, effectiveRange: nil))
+    }
+
+    func testMultipleTokensAllGainTheirTitle() {
+        let out = display("#EXP-1 and #EXP-1")
+        XCTAssertEqual(out.string, "#EXP-1 Fix login flow and #EXP-1 Fix login flow")
+    }
+
+    func testLongTitlesTruncateWithAnEllipsis() {
+        let long = String(repeating: "x", count: 80)
+        let out = display("#EXP-1", titleResolver: { _ in long })
+        XCTAssertEqual(out.string, "#EXP-1 " + String(repeating: "x", count: 59) + "…")
+    }
+}
+
 // Locks the `extractInlineMarkdown` list-prefix fix: the prefix length must be a
 // UTF-16 count (clamped), not a Character distance, so multi-scalar content
 // right after a list marker can't feed `enumerateAttributes` an out-of-bounds

@@ -39,6 +39,30 @@ enum IssueRefLookup {
         }) ?? nil
     }
 
+    /// identifier → the issue's TITLE inside the scope's team (EXP-307: the
+    /// read-only chip shows `#ID <title>`); nil when the identifier does not
+    /// resolve.
+    static func resolveTitle(
+        _ identifier: String,
+        scope: Scope,
+        db: DatabaseManager,
+        accountId: String
+    ) -> String? {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+        return (try? pool.read { db -> String? in
+            guard let teamId = try teamId(for: scope, db: db) else { return nil }
+            return try String.fetchOne(
+                db,
+                sql: """
+                SELECT i.title FROM issues i
+                JOIN boards p ON p.id = i.board_id
+                WHERE upper(i.identifier) = ? AND p.team_id = ?
+                """,
+                arguments: [identifier, teamId]
+            )
+        }) ?? nil
+    }
+
     /// Universal-link resolution (EXP-92): team SLUG + identifier → local
     /// issue id. Unlike the #-ref resolve above: no board-slug predicate
     /// (identifiers are team-unique, and the board slug in an old link goes

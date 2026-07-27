@@ -109,6 +109,71 @@ public enum IssueRefs {
         return mutable ?? attributed
     }
 
+    /// EXP-307: like `decorate`, but for READ-ONLY display models — replaces a
+    /// resolved token's text with `#ID <title>` so the chip shows the whole
+    /// issue title next to the short code (web/Android read-view parity). This
+    /// CHANGES the character content, so it must never run on an editable
+    /// model whose markdown gets serialized — edit paths reseed from the raw
+    /// stored markdown and use `decorate` instead.
+    public static func decorateForDisplay(
+        _ attributed: NSAttributedString,
+        resolver: (String) -> String?,
+        titleResolver: (String) -> String?
+    ) -> NSAttributedString {
+        guard attributed.length > 0 else { return attributed }
+        let ns = attributed.string as NSString
+        let found = regex.matches(in: attributed.string, range: NSRange(location: 0, length: ns.length))
+        guard !found.isEmpty else { return attributed }
+
+        var mutable: NSMutableAttributedString?
+        // Replacements grow the string, so walk back-to-front to keep every
+        // earlier match range valid.
+        for match in found.reversed() {
+            // Same guards as `decorate`: one attribute run, never code/links,
+            // and skip styled spans (consistent pill rules across both paths).
+            var effective = NSRange(location: 0, length: 0)
+            let attrs = attributed.attributes(
+                at: match.range.location, longestEffectiveRange: &effective, in: match.range)
+            guard effective.location == match.range.location, effective.length == match.range.length else {
+                continue
+            }
+            if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
+                continue
+            }
+            let font = attrs[.font] as? PlatformFont
+            if expFontHasBold(font) || expFontHasItalic(font)
+                || attrs[.markdownStrikethrough] as? Bool == true {
+                continue
+            }
+            let identifier = ns.substring(with: match.range(at: 1)).uppercased()
+            guard let issueId = resolver(identifier) else { continue }
+            let token = ns.substring(with: match.range)
+            let title = titleResolver(identifier).map(chipTitle) ?? ""
+            let display = title.isEmpty ? token : "\(token) \(title)"
+            var chipAttrs = attrs
+            chipAttrs[.markdownIssueRef] = issueId
+            chipAttrs[.foregroundColor] = MarkdownStyle.linkColor
+            chipAttrs[.backgroundColor] = MarkdownStyle.codeBackground
+            let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
+            target.replaceCharacters(
+                in: match.range,
+                with: NSAttributedString(string: display, attributes: chipAttrs)
+            )
+            mutable = target
+        }
+        return mutable ?? attributed
+    }
+
+    /// Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60 chars,
+    /// ellipsis beyond). The full title is one tap away — the chip opens the
+    /// issue.
+    private static func chipTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 60 else { return trimmed }
+        let cut = String(trimmed.prefix(59)).trimmingCharacters(in: .whitespaces)
+        return "\(cut)…"
+    }
+
     /// Display-only markdown transform for read-mode renderers (e.g. the iOS
     /// comment `Markdown` view): wraps resolved tokens as
     /// `[#ID](<scheme>://<issueId>)` links, skipping code. NEVER persisted —

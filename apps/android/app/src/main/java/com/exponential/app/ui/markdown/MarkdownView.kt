@@ -264,10 +264,11 @@ internal fun annotate(
     if (marks.isEmpty() && refPills.isEmpty() && mentionPills.isEmpty()) {
         return AnnotatedString(text)
     }
-    // A resolved mention renders the member's NAME over the stored `@email`
-    // (web read-only parity), so the displayed string is no longer the source
+    // A resolved mention renders the member's NAME over the stored `@email`,
+    // and a resolved `#IDENTIFIER` chip appends the issue TITLE (EXP-307, web
+    // read-only parity), so the displayed string is no longer the source
     // string — every other span offset is mapped through [display].
-    val display = MentionDisplay.build(text, mentionPills)
+    val display = MentionDisplay.build(text, mentionPills, refPills)
     return buildAnnotatedString {
         append(display.text)
         // Compose crashes if two `LinkAnnotation`s overlap (issue-detail crash,
@@ -276,16 +277,18 @@ internal fun annotate(
         // no combination of markdown links + `#IDENTIFIER` pills can throw.
         val linkRanges = ArrayList<Pair<Int, Int>>() // half-open [start, end)
         // Takes SOURCE offsets and maps them onto the displayed string.
-        fun addLinkGuarded(annotation: LinkAnnotation, rawStart: Int, rawEnd: Int) {
+        // Returns whether the link was added (false = dropped by a guard).
+        fun addLinkGuarded(annotation: LinkAnnotation, rawStart: Int, rawEnd: Int): Boolean {
             val start = display.map(rawStart.coerceIn(0, text.length))
             val end = display.map(rawEnd.coerceIn(0, text.length)).coerceAtLeast(start)
-            if (end <= start) return
-            if (linkRanges.any { it.first < end && start < it.second }) return
+            if (end <= start) return false
+            if (linkRanges.any { it.first < end && start < it.second }) return false
             when (annotation) {
                 is LinkAnnotation.Url -> addLink(annotation, start, end)
                 is LinkAnnotation.Clickable -> addLink(annotation, start, end)
             }
             linkRanges.add(start to end)
+            return true
         }
         for (m in marks) {
             val rawStart = m.start.coerceIn(0, text.length)
@@ -319,21 +322,31 @@ internal fun annotate(
         // mirroring how the web renderer decorates them and how `@email`
         // mentions pill: display-only, navigation on tap. Guarded so a pill
         // that lands on an existing link span is dropped instead of crashing.
+        // The chip covers the token PLUS the appended title (EXP-307); only
+        // the identifier part renders monospace, so the link style itself
+        // carries no font and the underlying spans decide.
         for ((match, target) in refPills) {
-            addLinkGuarded(
+            val added = addLinkGuarded(
                 LinkAnnotation.Clickable(
                     tag = target.identifier,
                     styles = TextLinkStyles(
                         style = SpanStyle(
                             color = MdStyle.Link,
                             background = MdStyle.IssueRefBg,
-                            fontFamily = FontFamily.Monospace,
                         ),
                     ),
                     linkInteractionListener = { issueRefs?.onOpen?.invoke(target) },
                 ),
                 match.start, match.end,
             )
+            if (added) {
+                val monoStart = display.map(match.start)
+                addStyle(
+                    SpanStyle(fontFamily = FontFamily.Monospace),
+                    monoStart,
+                    (monoStart + (match.end - match.start)).coerceAtMost(display.text.length),
+                )
+            }
         }
         // Resolved `@email` mentions render as the member's name pill
         // (REV2-42) — display-only, not tappable (there is nothing to open),
@@ -387,8 +400,9 @@ private fun resolvedMentionPills(
     }
 
 /**
- * The rendered string when mention tokens are replaced by member names, plus
- * the source→display offset mapping every other span is placed through.
+ * The rendered string when mention tokens are replaced by member names and
+ * `#IDENTIFIER` chips gain their issue title (EXP-307), plus the
+ * source→display offset mapping every other span is placed through.
  * Desktop parity (`markdown::editor`'s decoration pass): the STORED markdown
  * is untouched — only the display differs.
  */
@@ -425,26 +439,64 @@ internal class MentionDisplay private constructor(
     }
 
     companion object {
+        /** Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60). */
+        private const val MAX_CHIP_TITLE_CHARS = 60
+
+        private fun chipTitle(title: String): String {
+            val trimmed = title.trim()
+            if (trimmed.length <= MAX_CHIP_TITLE_CHARS) return trimmed
+            return trimmed.take(MAX_CHIP_TITLE_CHARS - 1).trimEnd() + "…"
+        }
+
+        private class Candidate(
+            val start: Int,
+            val end: Int,
+            val replacement: String,
+            /** Mention pills get their own display style range; ref chips are
+             *  styled through their link annotation instead. */
+            val isMention: Boolean,
+        )
+
         /** Identity mapping when nothing is replaced. */
         fun build(
             text: String,
             pills: List<Pair<Mentions.Match, MentionMember>>,
+            refPills: List<Pair<IssueRefs.Match, IssueRefTarget>> = emptyList(),
         ): MentionDisplay {
-            if (pills.isEmpty()) return MentionDisplay(text, emptyList(), emptyList())
+            val candidates = ArrayList<Candidate>(pills.size + refPills.size)
+            for ((match, member) in pills) {
+                candidates.add(Candidate(match.start, match.end, "@${member.name}", true))
+            }
+            // EXP-307: the chip shows the whole title next to the short code
+            // (blank titles keep the bare token).
+            for ((match, target) in refPills) {
+                val title = chipTitle(target.title)
+                if (title.isEmpty()) continue
+                if (match.start < 0 || match.end > text.length || match.end <= match.start) continue
+                candidates.add(
+                    Candidate(
+                        match.start, match.end,
+                        "${text.substring(match.start, match.end)} $title",
+                        isMention = false,
+                    ),
+                )
+            }
+            if (candidates.isEmpty()) return MentionDisplay(text, emptyList(), emptyList())
+            candidates.sortBy { it.start }
             val out = StringBuilder(text.length)
             val ranges = ArrayList<Pair<Int, Int>>(pills.size)
-            val replacements = ArrayList<Replacement>(pills.size)
+            val replacements = ArrayList<Replacement>(candidates.size)
             var last = 0
-            for ((match, member) in pills.sortedBy { it.first.start }) {
-                if (match.start < last) continue // overlapping token: keep the first
-                out.append(text, last, match.start)
+            for (candidate in candidates) {
+                if (candidate.start < last) continue // overlapping token: keep the first
+                out.append(text, last, candidate.start)
                 val displayStart = out.length
-                out.append('@').append(member.name)
-                ranges.add(displayStart to out.length)
+                out.append(candidate.replacement)
+                if (candidate.isMention) ranges.add(displayStart to out.length)
                 replacements.add(
-                    Replacement(match.start, match.end, displayStart, out.length),
+                    Replacement(candidate.start, candidate.end, displayStart, out.length),
                 )
-                last = match.end
+                last = candidate.end
             }
             out.append(text, last, text.length)
             return MentionDisplay(out.toString(), ranges, replacements)

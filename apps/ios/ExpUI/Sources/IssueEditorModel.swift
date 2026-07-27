@@ -98,6 +98,15 @@ public final class IssueEditorModel {
     /// byte-identical either way.
     public var issueRefResolver: ((String) -> String?)?
 
+    /// EXP-307: identifier → issue TITLE for read-only DISPLAY models — when
+    /// set, `load()` renders resolved `#IDENTIFIER` chips as `#ID <title>`
+    /// (web/Android read-view parity). This changes the blocks' character
+    /// content, so it must NEVER be set on an editable model: the appended
+    /// title would serialize into the saved markdown. Read-only comment cards
+    /// build a throwaway display model and reseed edits from the raw stored
+    /// markdown, which is exactly the safe shape.
+    public var issueRefTitleResolver: ((String) -> String?)?
+
     /// Issue search backing the #-autocomplete (set by the host; team-
     /// scoped, matching identifier + title substrings — empty query = most
     /// recent). nil disables the #-autocomplete.
@@ -229,7 +238,16 @@ public final class IssueEditorModel {
         guard let issueRefResolver else { return }
         for (idx, block) in blocks.enumerated() {
             guard case let .text(id, content) = block else { continue }
-            let decorated = IssueRefs.decorate(content, resolver: issueRefResolver)
+            // Display models additionally show the issue title inside the
+            // chip (EXP-307); editable models keep the bare token so the
+            // markdown round trip stays byte-identical.
+            let decorated: NSAttributedString
+            if let issueRefTitleResolver {
+                decorated = IssueRefs.decorateForDisplay(
+                    content, resolver: issueRefResolver, titleResolver: issueRefTitleResolver)
+            } else {
+                decorated = IssueRefs.decorate(content, resolver: issueRefResolver)
+            }
             if decorated !== content {
                 blocks[idx] = .text(id: id, attributedContent: decorated)
             }
