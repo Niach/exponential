@@ -122,14 +122,27 @@ fn traffic_tongue() -> impl IntoElement {
                 .bg(theme::tokens::glass::FILL_SECTION.to_hsla()),
         )
         .child(
+            // gpui clamps corner radii to HALF the quad's min dimension
+            // (`Corners::clamp_radii_for_quad_size`), so an r×r quad can
+            // never round a corner by r — the disc rendered as a content
+            // square with a 5px nick (the review's "small rectangle").
+            // Instead clip a 2r×2r rounded quad to its top-left r×r: the
+            // radius survives the clamp and the visible part is exactly the
+            // quarter disc.
             div()
                 .absolute()
                 .right_0()
                 .bottom_0()
                 .w(radius)
                 .h(radius)
-                .rounded_tl(radius)
-                .bg(theme::background_gradient_stops().0),
+                .overflow_hidden()
+                .child(
+                    div()
+                        .w(radius * 2.)
+                        .h(radius * 2.)
+                        .rounded_tl(radius)
+                        .bg(theme::background_gradient_stops().0),
+                ),
         )
 }
 
