@@ -108,6 +108,39 @@ function assertNotBuiltin(row: { builtinKey: string | null }): void {
 }
 
 export const statusesRouter = router({
+  // Server-authoritative count of issues still referencing a status. The
+  // FK doesn't care about board trash, so this includes issues on trashed
+  // boards — which never sync, so the client's synced count can undershoot.
+  // Powers the delete dialog's "N issues will move to …" copy (EXP-320).
+  referencingCount: authedProcedure
+    .input(
+      z.object({
+        teamId: z.string().uuid(),
+        statusId: z.string().uuid(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await resolveTeamAccess(ctx.session.user.id, input.teamId, `read`)
+      const [status] = await ctx.db
+        .select({ id: issueStatuses.id })
+        .from(issueStatuses)
+        .where(
+          and(
+            eq(issueStatuses.id, input.statusId),
+            eq(issueStatuses.teamId, input.teamId)
+          )
+        )
+        .limit(1)
+      if (!status) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Status not found` })
+      }
+      const [row] = await ctx.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(issues)
+        .where(eq(issues.statusId, input.statusId))
+      return { count: row?.count ?? 0 }
+    }),
+
   create: authedProcedure
     .input(
       z.object({

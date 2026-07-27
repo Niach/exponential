@@ -12,6 +12,9 @@
 //!   whenever issues still reference the status (`PRECONDITION_FAILED`
 //!   otherwise; the server's count includes trashed-board issues, so the
 //!   client's synced count can undershoot — always honor the error)
+//! - `statuses.referencingCount({teamId, statusId})` → `{count}` — query
+//!   (EXP-320): the server-authoritative referencing-issue count, trashed
+//!   boards included — the delete dialog's copy source
 //!
 //! Writes are member-level (`mutate_resources`, like labels — no owner gate).
 //! Reads come from the synced `issue_statuses` collection, never a tRPC list
@@ -159,6 +162,34 @@ pub fn statuses_move(
     )
 }
 
+/// Output of `statuses.referencingCount`: the server-authoritative number of
+/// issues still referencing a status (trashed-board issues included).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusesReferencingCountOutput {
+    pub count: i64,
+}
+
+/// `statuses.referencingCount` — query (EXP-320). The synced issue count can
+/// undershoot the server's (trashed-board issues never sync); the delete
+/// dialog shows this count instead.
+pub fn statuses_referencing_count(
+    trpc: &TrpcClient,
+    team_id: &str,
+    status_id: &str,
+) -> Result<StatusesReferencingCountOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+        status_id: &'a str,
+    }
+    trpc.query_with_input(
+        "statuses.referencingCount",
+        &Input { team_id, status_id },
+    )
+}
+
 /// `statuses.delete` — mutation. Pass `reassign_to_id` whenever any issue
 /// still sits in the status; omitting it there fails with a
 /// `PRECONDITION_FAILED` naming the count.
@@ -265,6 +296,15 @@ mod tests {
         assert!(
             request.ends_with(r#"{"teamId":"t-1","statusId":"s-1","reassignToId":"s-2"}"#)
         );
+    }
+
+    #[test]
+    fn referencing_count_is_a_get_query() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"count":3}}}"#);
+        let out = statuses_referencing_count(&client(&base), "t-1", "s-1").unwrap();
+        assert_eq!(out.count, 3);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/statuses.referencingCount?input="));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
 import {
   ChevronDown,
@@ -97,8 +97,8 @@ function StatusTile({ option }: { option: StatusRowOption }) {
  * key. Scoped through the team's BOARDS — the issues shape deliberately
  * excludes team_id (REV2-5 scoping column), so a teamId filter would match
  * nothing client-side. These are board-VISIBLE counts: the server counts ALL
- * referencing rows (trashed boards included), so its PRECONDITION_FAILED can
- * fire even when a row reads 0 here — the delete flow always honors it.
+ * referencing rows (trashed boards included), so a row reading 0 here can
+ * still hold issues — the delete dialog shows statuses.referencingCount.
  */
 function useIssueCountsByStatus(
   teamId: string,
@@ -343,6 +343,25 @@ function ReassignDialog({
   const [reassignToId, setReassignToId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Server-authoritative referencing count — the synced count undershoots
+  // whenever issues sit on trashed boards (they never sync). null = loading
+  // or fetch failed; the copy then stays hedged instead of showing a number.
+  const [serverCount, setServerCount] = useState<number | null>(null)
+  const targetStatusId = target?.option.id ?? null
+  useEffect(() => {
+    setServerCount(null)
+    if (!targetStatusId) return
+    let cancelled = false
+    trpc.statuses.referencingCount
+      .query({ teamId, statusId: targetStatusId })
+      .then(({ count }) => {
+        if (!cancelled) setServerCount(count)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [teamId, targetStatusId])
   // Self-correcting: a stale pick from a previous target (or the row being
   // deleted) falls back to the team's Backlog builtin.
   const selectedId =
@@ -378,9 +397,11 @@ function ReassignDialog({
         <DialogHeader>
           <DialogTitle>Delete {target?.option.name}?</DialogTitle>
           <DialogDescription>
-            {target?.count === 0
-              ? `Issues on trashed boards may still use this status. Pick where they should go.`
-              : `${target?.count} issue${target?.count === 1 ? `` : `s`} (plus any on trashed boards) will move to the status you pick.`}
+            {serverCount === null
+              ? `Issues using this status (including any on trashed boards) will move to the status you pick.`
+              : serverCount === 0
+                ? `No issues use this status right now. Anything referencing it when you confirm will move to the status you pick.`
+                : `${serverCount} issue${serverCount === 1 ? `` : `s`}${serverCount > (target?.count ?? 0) ? ` (some on trashed boards)` : ``} will move to the status you pick.`}
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-64 space-y-1 overflow-y-auto">
@@ -508,23 +529,13 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
     count: number
   } | null>(null)
 
-  // An unreferenced status deletes straight away; anything the server still
-  // finds issues for (including issues on TRASHED boards, which never reach
-  // the client) comes back PRECONDITION_FAILED and opens the reassign picker.
-  const requestDelete = async (option: StatusRowOption, count: number) => {
-    if (count > 0) {
-      setDeleteTarget({ option, count })
-      return
-    }
-    try {
-      const { txId } = await trpc.statuses.delete.mutate({
-        teamId,
-        statusId: option.id,
-      })
-      await issueStatusCollection.utils.awaitTxId(txId)
-    } catch {
-      setDeleteTarget({ option, count })
-    }
+  // Delete ALWAYS goes through the one confirm-and-reassign dialog (EXP-320)
+  // — even a 0-count status can be referenced by issues on trashed boards,
+  // which never sync, so there is no safe "just delete it" fast path. The
+  // dialog fetches the server-authoritative count and always sends a
+  // reassignment target, so the delete can never bounce PRECONDITION_FAILED.
+  const requestDelete = (option: StatusRowOption, count: number) => {
+    setDeleteTarget({ option, count })
   }
 
   const byCategory = useMemo(() => {
@@ -618,9 +629,7 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
                       isFirst={index === 0}
                       isLast={index === rows.length - 1}
                       isDefault={option.id === defaultOptionId}
-                      onRequestDelete={(target, targetCount) =>
-                        void requestDelete(target, targetCount)
-                      }
+                      onRequestDelete={requestDelete}
                     />
                   ))}
                 </div>
