@@ -932,6 +932,25 @@ impl Shell {
             .map(|i| i.url.clone())
             .unwrap_or_else(|| update::releases_page_url().to_string());
 
+        // EXP-316: when only the browser link can be offered, SAY WHY — a
+        // capability gate ($APPIMAGE unset, moved file, unwritable folder,
+        // staging build), a release without this platform's asset, or a
+        // check that hasn't answered yet. All three used to render as the
+        // same bare "Download update" button, which made Linux failures
+        // undiagnosable from a screenshot.
+        let no_plan_explainer: Option<SharedString> = (!has_plan)
+            .then(|| match update::self_update_unavailable_reason() {
+                Some(reason) => format!("In-app update isn't available: {reason}.").into(),
+                None => match info.as_ref() {
+                    Some(_) => SharedString::from(
+                        "The release doesn't include this platform's update file yet — checking again automatically.",
+                    ),
+                    None => SharedString::from(
+                        "Looking for the release… if this persists, the update check can't reach GitHub.",
+                    ),
+                },
+            });
+
         // A per-phase status line under the body copy (progress / installing /
         // failure reason) — `None` in the idle `Available` state.
         let status: Option<SharedString> = match &phase {
@@ -1057,6 +1076,12 @@ impl Shell {
             .children(status.map(|text| {
                 div()
                     .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(text)
+            }))
+            .children(no_plan_explainer.map(|text| {
+                div()
+                    .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .child(text)
             }))

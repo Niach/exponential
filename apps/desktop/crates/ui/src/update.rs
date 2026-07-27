@@ -89,6 +89,18 @@ pub fn releases_page_url() -> &'static str {
     RELEASES_PAGE
 }
 
+/// Why this install can only offer the browser link, one sentence fragment
+/// for the blocking view to surface (EXP-316) — `None` when the install can
+/// self-update (a missing plan is then about the RELEASE, not the install).
+pub fn self_update_unavailable_reason() -> Option<String> {
+    if !CHANNEL_CHECKS_UPDATES {
+        return Some(
+            "staging builds don't self-update (deployed by hand)".to_string(),
+        );
+    }
+    updater::self_update_unavailable_reason()
+}
+
 /// A newer release the user can download or install.
 #[derive(Clone, Debug)]
 pub struct UpdateInfo {
@@ -472,15 +484,20 @@ fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
         .header("User-Agent", USER_AGENT)
         .header("Accept", "application/vnd.github+json")
         .send()
-        .map_err(|_| ())?;
+        .map_err(|err| {
+            log::warn!("[ui] update: release check failed: {err}");
+        })?;
     if !response.status().is_success() {
+        log::warn!("[ui] update: release check answered {}", response.status());
         return Err(());
     }
     // Decode with `serde_json` rather than reqwest's `json()` — the workspace
     // client is built without the `json` feature (image_paste.rs relies on the
     // same).
     let body = response.text().map_err(|_| ())?;
-    let release: Release = serde_json::from_str(&body).map_err(|_| ())?;
+    let release: Release = serde_json::from_str(&body).map_err(|err| {
+        log::warn!("[ui] update: release check returned malformed JSON: {err}");
+    })?;
 
     // Only desktop releases carry a version comparable to ours.
     let Some(version) = release.tag_name.strip_prefix(DESKTOP_TAG_PREFIX) else {
@@ -502,6 +519,11 @@ fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
 /// doesn't carry both our asset and the checksums file.
 fn build_plan(assets: &[ReleaseAsset]) -> Option<UpdatePlan> {
     let updater::Capability::SelfUpdate(strategy) = updater::capability() else {
+        // Answer the "why is there only a browser button" question from the
+        // log too (EXP-316) — the blocking view surfaces the same reason.
+        if let Some(reason) = updater::self_update_unavailable_reason() {
+            log::info!("[ui] update: self-update unavailable: {reason}");
+        }
         return None;
     };
     let asset_name = updater::expected_asset_name(&strategy);
@@ -511,12 +533,21 @@ fn build_plan(assets: &[ReleaseAsset]) -> Option<UpdatePlan> {
             .find(|asset| asset.name == name)
             .map(|asset| asset.browser_download_url.clone())
     };
-    Some(UpdatePlan {
-        asset_url: find(&asset_name)?,
-        sums_url: find(updater::SUMS_ASSET)?,
-        asset_name,
-        strategy,
-    })
+    match (find(&asset_name), find(updater::SUMS_ASSET)) {
+        (Some(asset_url), Some(sums_url)) => Some(UpdatePlan {
+            asset_url,
+            sums_url,
+            asset_name,
+            strategy,
+        }),
+        _ => {
+            log::info!(
+                "[ui] update: release lacks {asset_name} or {} — banner-only",
+                updater::SUMS_ASSET
+            );
+            None
+        }
+    }
 }
 
 /// Numeric `major.minor.patch` compare (pre-release/build metadata ignored —
