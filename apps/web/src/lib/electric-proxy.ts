@@ -1,4 +1,5 @@
 import "@dotenvx/dotenvx/config"
+import { gzipSync } from "node:zlib"
 import { ELECTRIC_PROTOCOL_QUERY_PARAMS } from "@electric-sql/client"
 
 /**
@@ -105,7 +106,8 @@ function acquireSnapshotSlot(signal?: AbortSignal): Promise<boolean> {
  */
 export async function proxyElectricRequest(
   originUrl: URL,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  acceptEncoding?: string | null
 ): Promise<Response> {
   const isSnapshot = originUrl.searchParams.get(`offset`) === `-1`
   if (isSnapshot) {
@@ -119,15 +121,32 @@ export async function proxyElectricRequest(
     }
   }
   try {
-    return await proxyElectricRequestInner(originUrl, signal)
+    return await proxyElectricRequestInner(originUrl, signal, acceptEncoding)
   } finally {
     if (isSnapshot) releaseSnapshotSlot()
   }
 }
 
+/**
+ * Below this, compression costs more than it saves: an idle live long-poll's
+ * `[{"headers":{"control":"up-to-date"}}]` is ~40 bytes and gzip would make it
+ * bigger. Snapshots — the bodies worth compressing — are orders of magnitude
+ * past this.
+ */
+const GZIP_MIN_BYTES = 1024
+
+/** Does this client's `Accept-Encoding` allow a gzip response? */
+function acceptsGzip(acceptEncoding: string | null | undefined): boolean {
+  if (!acceptEncoding) return false
+  return acceptEncoding
+    .split(`,`)
+    .some((part) => part.trim().toLowerCase().split(`;`)[0] === `gzip`)
+}
+
 async function proxyElectricRequestInner(
   originUrl: URL,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  acceptEncoding?: string | null
 ): Promise<Response> {
   let response: Response
   try {
@@ -163,7 +182,37 @@ async function proxyElectricRequestInner(
   // line of defense for caches that ignore no-store. It must list every
   // credential the shape route accepts: cookie, authorization, AND x-api-key.
   headers.set(`cache-control`, `private, no-store`)
-  headers.set(`vary`, `authorization, cookie, x-api-key`)
+
+  // Compress on the way out (EXP-304). Bun's `fetch` already decoded whatever
+  // Electric sent, and the body is fully buffered here anyway, so gzipping it
+  // costs one pass over memory we are holding regardless. Electric's JSON
+  // compresses roughly 10x, which is the difference between a snapshot being a
+  // moment and being a wait on a phone. Strictly opt-in per request:
+  // URLSession and OkHttp advertise gzip and decode transparently, ureq
+  // (desktop) only when built with its gzip feature, and anything that doesn't
+  // ask still gets plain JSON.
+  //
+  // `vary` must therefore now include accept-encoding as well as every
+  // credential the shape route accepts — a cache that ignores `no-store` must
+  // not hand a gzipped body to a client that never asked for one.
+  headers.set(`vary`, `authorization, cookie, x-api-key, accept-encoding`)
+
+  if (
+    acceptsGzip(acceptEncoding) &&
+    body.byteLength >= GZIP_MIN_BYTES &&
+    // Never double-encode: if upstream really did hand back an encoded body
+    // (Bun decodes automatically, so this is belt-and-braces), leave it alone.
+    !response.headers.get(`content-encoding`)
+  ) {
+    const compressed = gzipSync(new Uint8Array(body))
+    headers.set(`content-encoding`, `gzip`)
+    headers.set(`content-length`, String(compressed.byteLength))
+    return new Response(compressed, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    })
+  }
 
   return new Response(body, {
     status: response.status,

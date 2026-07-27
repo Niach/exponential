@@ -1,6 +1,6 @@
 //! Long-poll engine integration tests (masterplan-v3 §5.3/§5.6/§5.10 — the
 //! Phase-2 gate bullets that need a live HTTP round-trip): a tiny in-process
-//! HTTP/1.1 shape server drives the REAL stack — `UreqTransport` →
+//! HTTP/1.1 shape server drives the REAL stack — `HttpTransport` →
 //! `ShapeClient` loop → `ShapeStore` — covering snapshot→live, the 409
 //! atomic-refetch dance (no visible empty state), 401 → Unauthorized surfaced
 //! exactly once, warm-start cursor resume, and the <1s no-hammer repeat
@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use sync::client::{
-    ShapeClient, ShapeClientConfig, ShapeDelta, UreqTransport, UNAUTHORIZED_GRACE,
+    HttpTransport, ShapeClient, ShapeClientConfig, ShapeDelta, UNAUTHORIZED_GRACE,
 };
 use sync::manager::{AccountSyncConfig, SyncManager};
 use sync::shapes::{shape_by_name, SHAPES};
@@ -367,7 +367,7 @@ impl ClientHarness {
             spec: shape_by_name(shape).unwrap(),
             store,
             token: Arc::new(|| Some("tok-1".to_string())),
-            transport: Arc::new(UreqTransport::new()),
+            transport: Arc::new(HttpTransport::new()),
             deltas: tx,
             unauthorized_reported,
             on_unauthorized: None,

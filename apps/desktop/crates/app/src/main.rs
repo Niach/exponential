@@ -30,6 +30,13 @@ mod x11_window_icon;
 mod windows_integration;
 
 fn main() {
+    // Build the app's ONE HTTP client here, first, on the foreground thread
+    // (EXP-304). `reqwest::blocking` must not be constructed from inside an
+    // async context, and `crates/steer` reaches the api crate from tokio's
+    // `spawn_blocking` — doing it eagerly means no code path can ever build it
+    // on a runtime thread.
+    api::http::init();
+
     // OAuth-callback channel (exponential:// → §5.7): filled by the macOS
     // `on_open_urls` surface AND — on Linux, where gpui never invokes that —
     // by the single-instance datagram bridge. Drained by a foreground task

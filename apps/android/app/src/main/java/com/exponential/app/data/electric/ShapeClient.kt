@@ -61,6 +61,16 @@ internal const val KICK_FRESHNESS_MS = 1_500L
 private const val REQUEST_TIMEOUT_MS = LIVE_TIMEOUT_MS + 30_000L
 // Consecutive schema-class apply errors before a one-shot per-shape reset.
 private const val SCHEMA_RESET_THRESHOLD = 3
+// EXP-304: a DNS/connect-class failure means "the network isn't usable YET",
+// not "the server is unhappy" — a radio waking, a VPN establishing, private DNS
+// resolving. Those resolve in a second or two, so the first few retries are
+// flat and short instead of feeding the 500ms→30s ladder, which used to park a
+// shape for 4-30s AFTER the network had come back (nothing wakes it: the
+// connectivity callback only fires on a network APPEARING, not on an
+// already-"available" one becoming usable). Past the burst we fall back to the
+// exponential ladder so a genuine outage still can't be hammered.
+private const val NETWORK_UNREADY_RETRY_MS = 750L
+private const val NETWORK_UNREADY_BURST = 6
 
 /** Thrown on HTTP 401/403 so the run loop can report it as an *auth* failure. */
 private class ShapeAuthException(message: String) : Exception(message)
@@ -111,6 +121,10 @@ class ShapeClient<T : Any>(
     private val onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
     // Reports a successful poll, so current-health error state can be cleared.
     private val onSuccess: () -> Unit = {},
+    // EXP-304 diagnostics: (kind, wall-clock ms, rows applied) for a completed
+    // poll. "how slow was it and what kind of request was it" is the question
+    // the Sync Diagnostics screen could not answer.
+    private val onPollTiming: (String, Long, Int) -> Unit = { _, _, _ -> },
     // A full-row insert was dropped because its payload failed to decode.
     private val onDecodeDrop: (String) -> Unit = {},
     // An auto-reset of this shape has begun (rows briefly empty until refetch).
@@ -145,6 +159,23 @@ class ShapeClient<T : Any>(
     @Volatile private var lastSuccessAtMs = nowMs()
 
     /**
+     * EXP-304: the next poll must PROVE freshness rather than park in a live
+     * hold. A resumed shape's first request would otherwise be `live=true`,
+     * which Electric holds open by design — so nothing observes that we caught
+     * up, `SyncStats.lastSuccessAtMs` never advances, and the "Syncing…" chip
+     * clears on a 15s timer while pull-to-refresh always burns its full 5s.
+     * While set, the poll omits `live` even though the cursor is live: a
+     * non-live request at the current offset comes back in ONE round-trip with
+     * either the pending delta or a bare `up-to-date`, stamps the success, and
+     * the poll after it goes live as usual. Net zero extra requests — it
+     * replaces the request that was going to be made anyway.
+     *
+     * Armed at construction and re-armed whenever we might have missed data:
+     * a kick, and the lifecycle gate reopening after a park.
+     */
+    @Volatile private var confirmFreshness = true
+
+    /**
      * Ask this shape to poll NOW: interrupts a backoff/pacing wait, and cancels
      * an in-flight long-poll so the request restarts against the current
      * network. Safe to call from any thread (a binder thread from the
@@ -156,6 +187,10 @@ class ShapeClient<T : Any>(
      */
     fun kick() {
         if (nowMs() - lastSuccessAtMs < KICK_FRESHNESS_MS) return
+        // A kick exists because someone suspects we're behind, so the poll it
+        // triggers has to come back with an answer instead of parking in a live
+        // hold (see [confirmFreshness]).
+        confirmFreshness = true
         kicks.trySend(Unit)
     }
 
@@ -166,7 +201,26 @@ class ShapeClient<T : Any>(
     suspend fun run() {
         var backoffMs = 500L
         var consecutiveSchemaErrors = 0
+        var consecutiveNetworkErrors = 0
         var didAutoReset = false
+
+        // Wait out a failed poll. DNS/connect-class failures get a short flat
+        // burst (the network is still coming up); everything else rides the
+        // exponential ladder. Local fun so both catch sites share one policy.
+        suspend fun waitAfter(error: Throwable) {
+            if (isNetworkUnready(error)) {
+                consecutiveNetworkErrors++
+                if (consecutiveNetworkErrors <= NETWORK_UNREADY_BURST) {
+                    delayOrKick(NETWORK_UNREADY_RETRY_MS)
+                    backoffMs = 500L
+                    return
+                }
+            } else {
+                consecutiveNetworkErrors = 0
+            }
+            backoffMs = if (delayOrKick(backoffMs)) 500L else min(backoffMs * 2, 30_000L)
+        }
+
         while (coroutineContext.isActive) {
             // Park while the app is backgrounded (REV2-38). The per-shape
             // offsets in Room make the resume a cheap catch-up poll, not a
@@ -175,6 +229,12 @@ class ShapeClient<T : Any>(
             if (!active.value) {
                 active.first { it }
                 backoffMs = 500L
+                consecutiveNetworkErrors = 0
+                // Anything could have landed while we were parked, and the
+                // radio we come back on is usually a different one. Prove
+                // freshness with a non-live poll rather than reopening a live
+                // hold nobody can observe.
+                confirmFreshness = true
                 continue
             }
             try {
@@ -184,7 +244,9 @@ class ShapeClient<T : Any>(
                     delayOrKick(2_000)
                     continue
                 }
+                val pollStartedAt = nowMs()
                 val outcome = pollOnce(baseUrl, token)
+                onPollTiming(outcome.kind, nowMs() - pollStartedAt, outcome.rows)
                 if (outcome.completed) {
                     // A refetch-marker write is NOT a completed poll: the data
                     // on disk is still the stale pre-rotation set, so it must
@@ -192,8 +254,12 @@ class ShapeClient<T : Any>(
                     // the stats stamp) nor arm the kick freshness window.
                     lastSuccessAtMs = nowMs()
                     onSuccess()
+                    // Freshness is now established (this poll returned from the
+                    // current offset), so the next one may take the live hold.
+                    confirmFreshness = false
                 }
                 consecutiveSchemaErrors = 0
+                consecutiveNetworkErrors = 0
                 backoffMs = 500L
                 // Pace the loop when a non-live poll made no progress, so a
                 // response that never reaches up-to-date can't spin-request.
@@ -201,8 +267,8 @@ class ShapeClient<T : Any>(
             } catch (cancel: CancellationException) {
                 // Only exit for a REAL cancellation of this loop's own job
                 // (sign-out / pipeline reconcile). HTTP engines can surface
-                // request-level failures as CancellationExceptions too (ktor
-                // CIO's engine timeout cancels the call job) — before the
+                // request-level failures as CancellationExceptions too (an
+                // engine-level timeout cancels the call job) — before the
                 // HttpTimeout plugin was installed, that silently killed this
                 // loop forever and froze sync (EXP-61). Treat any cancellation
                 // that arrives while our job is still active as a transient
@@ -211,7 +277,7 @@ class ShapeClient<T : Any>(
                 android.util.Log.w("ShapeClient", "[$shapeName] request cancelled: ${cancel.message}", cancel)
                 onError(false, describe(cancel.cause ?: cancel), false)
                 consecutiveSchemaErrors = 0
-                backoffMs = if (delayOrKick(backoffMs)) 500L else min(backoffMs * 2, 30_000L)
+                waitAfter(cancel.cause ?: cancel)
             } catch (kick: KickException) {
                 // Not a failure: someone (app foreground, network return, push,
                 // pull-to-refresh) asked for fresh data mid-request. Re-poll
@@ -255,9 +321,41 @@ class ShapeClient<T : Any>(
                 } else {
                     consecutiveSchemaErrors = 0
                 }
-                backoffMs = if (delayOrKick(backoffMs)) 500L else min(backoffMs * 2, 30_000L)
+                waitAfter(error)
             }
         }
+    }
+
+    /**
+     * Does this failure mean "the network isn't usable yet" rather than "the
+     * server said no"? DNS resolution failures, refused/unroutable connects and
+     * connect/socket timeouts all clear on their own within a second or two
+     * once the radio, the VPN tunnel or the DNS resolver is up. Walks the cause
+     * chain, since ktor wraps engine exceptions.
+     */
+    private fun isNetworkUnready(error: Throwable): Boolean {
+        var t: Throwable? = error
+        while (t != null) {
+            val unready = when (t) {
+                is java.nio.channels.UnresolvedAddressException,
+                is java.net.UnknownHostException,
+                is java.net.ConnectException,
+                is java.net.NoRouteToHostException,
+                is java.net.PortUnreachableException,
+                // NB: ktor's io.ktor.client.network.sockets.SocketTimeoutException
+                // is a JVM typealias for java.net's, so it is already covered
+                // here — only ConnectTimeoutException is a distinct class, and
+                // it is the one the field reports showed ("Connect timeout has
+                // expired" on all 15 shapes at once).
+                is java.net.SocketTimeoutException,
+                is io.ktor.client.network.sockets.ConnectTimeoutException,
+                -> true
+                else -> false
+            }
+            if (unready) return true
+            t = t.cause
+        }
+        return false
     }
 
     // Some transport exceptions carry no message at all (e.g. a DNS
@@ -284,9 +382,15 @@ class ShapeClient<T : Any>(
      * One poll's effect on the run loop. [completed] is false when the poll
      * only wrote a refetch marker (409/400, inline must-refetch): the local
      * data is still the stale pre-rotation set, so the loop must not stamp it
-     * as a success. [pause] paces no-progress polls (see run()).
+     * as a success. [pause] paces no-progress polls (see run()). [kind] and
+     * [rows] feed the diagnostics timing row.
      */
-    private class PollOutcome(val completed: Boolean, val pause: Boolean)
+    private class PollOutcome(
+        val completed: Boolean,
+        val pause: Boolean,
+        val kind: String = "live",
+        val rows: Int = 0,
+    )
 
     private suspend fun pollOnce(baseUrl: String, token: String): PollOutcome {
         // A kick that arrived BEFORE this poll started is satisfied by this
@@ -306,7 +410,19 @@ class ShapeClient<T : Any>(
         // live=true from a mid-snapshot offset is rejected by Electric, and a
         // refetch must re-earn live from scratch.
         val wasLive = !refetching && (saved?.isLive ?: false)
+        // ...but a live cursor may still take ONE non-live poll first, to come
+        // back with an answer instead of disappearing into a hold nobody can
+        // observe (see [confirmFreshness]). The phase still reports "live" —
+        // the shape IS live, this is a freshness check, and reporting "catchup"
+        // here would flash the "Syncing…" chip on every foreground.
+        val goLive = wasLive && !confirmFreshness
         onPhase(if (saved == null) "initial" else if (wasLive) "live" else "catchup")
+        val kind = when {
+            isSnapshot -> "snapshot"
+            goLive -> "live"
+            wasLive -> "confirm"
+            else -> "catchup"
+        }
         val response: HttpResponse = withTimeoutOrNull(REQUEST_TIMEOUT_MS + 30_000L) {
             // Race the request against a kick. Cancelling mid-request loses
             // nothing: the offset is written only after a successful response
@@ -343,7 +459,7 @@ class ShapeClient<T : Any>(
                         } else {
                             parameter("offset", saved!!.offset)
                             parameter("handle", saved.handle)
-                            if (wasLive) parameter("live", "true")
+                            if (goLive) parameter("live", "true")
                         }
                     }
                 }
@@ -476,7 +592,13 @@ class ShapeClient<T : Any>(
 
         return PollOutcome(
             completed = true,
-            pause = !wasLive && !sawUpToDate && decoded.isEmpty(),
+            // Keyed on goLive, not wasLive: a freshness-confirming poll is
+            // non-live too, so if one ever came back empty without up-to-date
+            // it must be paced like any other no-progress poll rather than
+            // spin-requesting.
+            pause = !goLive && !sawUpToDate && decoded.isEmpty(),
+            kind = kind,
+            rows = countDataOps(messages),
         )
     }
 

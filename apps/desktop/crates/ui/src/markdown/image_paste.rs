@@ -110,23 +110,25 @@ pub trait AttachmentTransport: Send + Sync {
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<u8>>;
 }
 
-/// [`AttachmentTransport`] over `ureq`, authenticated with the account's
-/// call-time bearer (same §5.7 rule as `api::TrpcClient` — a re-login is
-/// picked up by the very next request).
+/// [`AttachmentTransport`] over the app's one shared HTTP client, authenticated
+/// with the account's call-time bearer (same §5.7 rule as `api::TrpcClient` — a
+/// re-login is picked up by the very next request).
 pub struct HttpAttachmentTransport {
     base_url: String,
     token: Arc<dyn api::TokenProvider>,
-    agent: ureq::Agent,
+    client: reqwest::blocking::Client,
 }
+
+/// Attachments can be megabytes on a slow link, so they get a longer budget
+/// than the shared client's 30s default.
+const ATTACHMENT_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl HttpAttachmentTransport {
     pub fn new(instance_url: &str, token: Arc<dyn api::TokenProvider>) -> Self {
         Self {
             base_url: instance_url.trim_end_matches('/').to_string(),
             token,
-            agent: ureq::AgentBuilder::new()
-                .timeout(Duration::from_secs(60))
-                .build(),
+            client: api::http::shared().clone(),
         }
     }
 
@@ -138,15 +140,18 @@ impl HttpAttachmentTransport {
         }
     }
 
-    fn authorize(&self, request: ureq::Request) -> ureq::Request {
+    fn authorize(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
         // EXP-104: the client-version header rides the attachment upload/fetch
         // requests too, so a stale build is 426-gated everywhere.
-        let request = request.set(
+        let request = request.timeout(ATTACHMENT_TIMEOUT).header(
             domain::client_version::CLIENT_VERSION_HEADER,
-            &domain::client_version::client_version_header_value(),
+            domain::client_version::client_version_header_value(),
         );
         match self.token.token() {
-            Some(token) => request.set("Authorization", &format!("Bearer {token}")),
+            Some(token) => request.header("Authorization", format!("Bearer {token}")),
             None => request,
         }
     }
@@ -163,32 +168,36 @@ impl AttachmentTransport for HttpAttachmentTransport {
         let boundary = format!("----ExpMarkdownEditor{}", new_draft_url().len() as u64 + rand_ish());
         let body = build_multipart(&boundary, filename, content_type, bytes);
         let url = format!("{}/api/issues/{issue_id}/images", self.base_url);
-        let request = self
-            .authorize(self.agent.post(&url))
-            .set(
+        let response = self
+            .authorize(self.client.post(&url))
+            .header(
                 "Content-Type",
-                &format!("multipart/form-data; boundary={boundary}"),
+                format!("multipart/form-data; boundary={boundary}"),
             )
-            .set("Accept", "application/json");
-        let response = request
-            .send_bytes(&body)
+            .header("Accept", "application/json")
+            .body(body)
+            .send()
             .map_err(|e| anyhow!("image upload failed: {e}"))?;
-        let text = response.into_string().context("image upload response")?;
+        // reqwest returns Ok for non-2xx, so the status check is explicit.
+        let status = response.status();
+        let text = response.text().context("image upload response")?;
+        if !status.is_success() {
+            return Err(anyhow!("image upload failed: HTTP {status}: {text}"));
+        }
         serde_json::from_str(&text).with_context(|| format!("decode upload response: {text}"))
     }
 
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<u8>> {
         let absolute = self.absolute(url);
         let response = self
-            .authorize(self.agent.get(&absolute))
-            .call()
+            .authorize(self.client.get(&absolute))
+            .send()
             .map_err(|e| anyhow!("attachment fetch failed: {e}"))?;
-        let mut bytes = Vec::new();
-        response
-            .into_reader()
-            .read_to_end(&mut bytes)
-            .context("attachment body")?;
-        Ok(bytes)
+        let status = response.status();
+        if !status.is_success() {
+            return Err(anyhow!("attachment fetch failed: HTTP {status}"));
+        }
+        Ok(response.bytes().context("attachment body")?.to_vec())
     }
 }
 
@@ -546,7 +555,12 @@ mod tests {
         assert_eq!(uploaded.width, Some(2));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/issues/issue-1/images HTTP/1.1"));
-        assert!(request.contains("Authorization: Bearer tok-9"));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer tok-9"),
+            "bearer missing (header names go out lowercase on the wire)"
+        );
         assert!(request.contains("multipart/form-data; boundary="));
         assert!(request.contains("name=\"file\"; filename=\"a.png\""));
     }
@@ -559,6 +573,11 @@ mod tests {
         assert_eq!(bytes, b"BYTES");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/attachments/att-2 HTTP/1.1"));
-        assert!(request.contains("Authorization: Bearer tok-9"));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer tok-9"),
+            "bearer missing (header names go out lowercase on the wire)"
+        );
     }
 }

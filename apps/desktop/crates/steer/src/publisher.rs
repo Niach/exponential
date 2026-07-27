@@ -58,7 +58,7 @@ pub struct PublishSpec {
     pub issue_id: Option<String>,
 }
 
-/// Publisher-ticket source, injectable for tests. Blocking (ureq) — the loop
+/// Publisher-ticket source, injectable for tests. Blocking (reqwest) — the loop
 /// wraps calls in `spawn_blocking`. `Ok(None)` = instance reports disabled ⇒
 /// skip publishing entirely (§8.4 #1).
 pub trait PublisherTickets: Send + Sync + 'static {
@@ -311,7 +311,7 @@ async fn run_publisher_loop(
     let mut unauthorized_once = false;
 
     'reconnect: while running.load(Ordering::SeqCst) {
-        // Mint (blocking ureq off the reactor), then dial IMMEDIATELY (§8.7).
+        // Mint (blocking reqwest off the reactor), then dial IMMEDIATELY (§8.7).
         let tickets_for_mint = tickets.clone();
         let minted = match tokio::task::spawn_blocking(move || tickets_for_mint.mint()).await {
             Ok(result) => result,

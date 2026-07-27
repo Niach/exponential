@@ -21,10 +21,10 @@
 
 use domain::client_version::{client_version_header_value, CLIENT_VERSION_HEADER};
 use serde::Deserialize;
-use std::time::Duration;
 
 use crate::encode::{base64url_nopad, percent_decode, percent_encode};
-use crate::error::{from_ureq_unauthed, ApiError};
+use crate::error::{read_body, status_error_unauthed, transport_error, ApiError};
+use crate::http;
 
 /// Tag a request with the client-version header (EXP-104) so the server can
 /// 426-gate stale builds — applied to every `AuthClient` request, including
@@ -32,8 +32,49 @@ use crate::error::{from_ureq_unauthed, ApiError};
 /// uniformity. The server does NOT gate auth routes (only tRPC and shape
 /// requests answer 426), so the blocking update screen latches once sync
 /// starts, not at login.
-fn versioned(request: ureq::Request) -> ureq::Request {
-    request.set(CLIENT_VERSION_HEADER, &client_version_header_value())
+fn versioned(request: reqwest::blocking::RequestBuilder) -> reqwest::blocking::RequestBuilder {
+    request.header(CLIENT_VERSION_HEADER, client_version_header_value())
+}
+
+/// A completed auth request, split the way reqwest hands it over: the status
+/// separate from the body. Every caller below needs both, and reqwest returns
+/// `Ok` for non-2xx (unlike ureq), so the status check is always explicit.
+struct AuthResponse {
+    status: u16,
+    body: String,
+    /// `Set-Cookie` values, kept for the sign-in token fallback.
+    cookies: Vec<String>,
+}
+
+impl AuthResponse {
+    /// Fail with the UNAUTHENTICATED status policy unless the status is 2xx.
+    fn ok_or_status(self) -> Result<Self, ApiError> {
+        if (200..300).contains(&self.status) {
+            Ok(self)
+        } else {
+            Err(status_error_unauthed(self.status, &self.body))
+        }
+    }
+}
+
+fn send(request: reqwest::blocking::RequestBuilder) -> Result<AuthResponse, ApiError> {
+    let response = request
+        .timeout(http::DEFAULT_TIMEOUT)
+        .send()
+        .map_err(transport_error)?;
+    let status = response.status().as_u16();
+    let cookies = response
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(str::to_string))
+        .collect();
+    let body = read_body(response)?;
+    Ok(AuthResponse {
+        status,
+        body,
+        cookies,
+    })
 }
 
 /// Which auth methods the server offers (`GET /api/auth-config`, mirrors
@@ -102,7 +143,7 @@ struct SessionResponse {
 
 /// Blocking Better Auth client. Cheap to construct; share one per app.
 pub struct AuthClient {
-    agent: ureq::Agent,
+    client: reqwest::blocking::Client,
 }
 
 impl Default for AuthClient {
@@ -113,25 +154,25 @@ impl Default for AuthClient {
 
 impl AuthClient {
     pub fn new() -> Self {
-        // 30s overall — parity with the iOS URLSession config. Never used for
-        // long-polls (sync owns its own 90s-read agent, §5.3).
-        let agent = ureq::AgentBuilder::new()
-            .timeout(Duration::from_secs(30))
-            .build();
-        Self { agent }
+        // A clone of the process-wide client (EXP-304): 30s overall — parity
+        // with the iOS URLSession config — and the same connection pool as
+        // everything else. Never used for long-polls (sync overrides the
+        // per-request budget to 90s, §5.3).
+        Self {
+            client: http::shared().clone(),
+        }
     }
 
     /// `GET /api/auth-config` — unauthenticated; call before any account exists.
     pub fn fetch_auth_config(&self, instance_url: &str) -> Result<AuthConfig, ApiError> {
         let base = normalize_instance_url(instance_url);
-        let response = versioned(self.agent.get(&format!("{base}/api/auth-config")))
-            .set("Accept", "application/json")
-            .call()
-            .map_err(from_ureq_unauthed)?;
-        let body = response
-            .into_string()
-            .map_err(|e| ApiError::Transport(e.to_string()))?;
-        serde_json::from_str(&body).map_err(|e| ApiError::Decode(format!("auth-config: {e}")))
+        let response = send(
+            versioned(self.client.get(format!("{base}/api/auth-config")))
+                .header("Accept", "application/json"),
+        )?
+        .ok_or_status()?;
+        serde_json::from_str(&response.body)
+            .map_err(|e| ApiError::Decode(format!("auth-config: {e}")))
     }
 
     /// `POST /api/auth/sign-in/email` → session token + user. The token is
@@ -147,25 +188,20 @@ impl AuthClient {
     ) -> Result<SignInSuccess, ApiError> {
         let base = normalize_instance_url(instance_url);
         let payload = serde_json::json!({ "email": email, "password": password });
-        let response = versioned(self.agent.post(&format!("{base}/api/auth/sign-in/email")))
-            .set("Accept", "application/json")
-            .set("Content-Type", "application/json")
-            // Better Auth's CSRF check 403s POSTs without an Origin header
-            // (MISSING_OR_NULL_ORIGIN); send the instance's own origin like a
-            // same-origin browser request would.
-            .set("Origin", &base)
-            .send_string(&payload.to_string())
-            .map_err(from_ureq_unauthed)?;
+        let response = send(
+            versioned(self.client.post(format!("{base}/api/auth/sign-in/email")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                // Better Auth's CSRF check 403s POSTs without an Origin header
+                // (MISSING_OR_NULL_ORIGIN); send the instance's own origin like
+                // a same-origin browser request would.
+                .header("Origin", &base)
+                .body(payload.to_string()),
+        )?
+        .ok_or_status()?;
 
-        let cookies: Vec<String> = response
-            .all("set-cookie")
-            .into_iter()
-            .map(str::to_string)
-            .collect();
-        let body = response
-            .into_string()
-            .map_err(|e| ApiError::Transport(e.to_string()))?;
-        let parsed: SignInResponseBody = serde_json::from_str(&body)
+        let cookies = response.cookies;
+        let parsed: SignInResponseBody = serde_json::from_str(&response.body)
             .map_err(|e| ApiError::Decode(format!("sign-in response: {e}")))?;
 
         match (parsed.token, parsed.user) {
@@ -199,22 +235,19 @@ impl AuthClient {
         token: &str,
     ) -> Result<Option<AuthUser>, ApiError> {
         let base = normalize_instance_url(instance_url);
-        let result = versioned(self.agent.get(&format!("{base}/api/auth/get-session")))
-            .set("Accept", "application/json")
-            .set("Authorization", &format!("Bearer {token}"))
-            .call();
-        let response = match result {
-            Ok(r) => r,
-            // A bearer that fails to resolve is an explicit 401 on some
-            // Better Auth configs — that IS the dead-session answer.
-            Err(ureq::Error::Status(401, _)) => return Ok(None),
-            Err(e) => return Err(from_ureq_unauthed(e)),
-        };
-        let body = response
-            .into_string()
-            .map_err(|e| ApiError::Transport(e.to_string()))?;
+        let response = send(
+            versioned(self.client.get(format!("{base}/api/auth/get-session")))
+                .header("Accept", "application/json")
+                .header("Authorization", format!("Bearer {token}")),
+        )?;
+        // A bearer that fails to resolve is an explicit 401 on some Better Auth
+        // configs — that IS the dead-session answer, not an error.
+        if response.status == 401 {
+            return Ok(None);
+        }
+        let response = response.ok_or_status()?;
         // Better Auth returns JSON `null` when there is no session.
-        let session: Option<SessionResponse> = serde_json::from_str(&body)
+        let session: Option<SessionResponse> = serde_json::from_str(&response.body)
             .map_err(|e| ApiError::Decode(format!("get-session: {e}")))?;
         Ok(session.and_then(|s| s.user))
     }
@@ -236,22 +269,21 @@ impl AuthClient {
 
         let base = normalize_instance_url(instance_url);
         let payload = serde_json::json!({ "code": code, "code_verifier": code_verifier });
-        let response = versioned(self.agent.post(&format!("{base}/api/mobile-oauth-exchange")))
-            .set("Accept", "application/json")
-            .set("Content-Type", "application/json")
-            .send_string(&payload.to_string())
-            .map_err(|e| match e {
-                // invalid_grant — the code is single-use and short-TTL, so a
-                // late/replayed callback lands here; not a transport problem.
-                ureq::Error::Status(400, _) => {
-                    ApiError::Decode("invalid or expired sign-in code".to_string())
-                }
-                other => from_ureq_unauthed(other),
-            })?;
-        let body = response
-            .into_string()
-            .map_err(|e| ApiError::Transport(e.to_string()))?;
-        let parsed: ExchangeResponse = serde_json::from_str(&body)
+        let response = send(
+            versioned(self.client.post(format!("{base}/api/mobile-oauth-exchange")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .body(payload.to_string()),
+        )?;
+        // invalid_grant — the code is single-use and short-TTL, so a
+        // late/replayed callback lands here; not a transport problem.
+        if response.status == 400 {
+            return Err(ApiError::Decode(
+                "invalid or expired sign-in code".to_string(),
+            ));
+        }
+        let response = response.ok_or_status()?;
+        let parsed: ExchangeResponse = serde_json::from_str(&response.body)
             .map_err(|e| ApiError::Decode(format!("oauth-exchange response: {e}")))?;
         parsed
             .token
@@ -263,15 +295,17 @@ impl AuthClient {
     /// fails (offline sign-out is legal).
     pub fn sign_out(&self, instance_url: &str, token: &str) -> Result<(), ApiError> {
         let base = normalize_instance_url(instance_url);
-        versioned(self.agent.post(&format!("{base}/api/auth/sign-out")))
-            .set("Accept", "application/json")
-            .set("Content-Type", "application/json")
-            .set("Authorization", &format!("Bearer {token}"))
-            .send_string("{}")
-            .map_err(|e| match e {
-                ureq::Error::Status(401, _) => ApiError::Unauthorized,
-                other => from_ureq_unauthed(other),
-            })?;
+        let response = send(
+            versioned(self.client.post(format!("{base}/api/auth/sign-out")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
+                .body("{}"),
+        )?;
+        if response.status == 401 {
+            return Err(ApiError::Unauthorized);
+        }
+        response.ok_or_status()?;
         Ok(())
     }
 }

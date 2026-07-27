@@ -283,66 +283,90 @@ public final class SyncManager: @unchecked Sendable {
             auth.accounts.first { $0.id == accountId }?.token
         }
 
+        // ONE session for all 15 shapes of this account (EXP-304). Per shape it
+        // meant 15 separate connections, so every launch fired 15 simultaneous
+        // cold DNS lookups + TLS handshakes at the same host — the storm behind
+        // "~10s before fresh data shows up". Sharing lets URLSession negotiate
+        // HTTP/2 and multiplex them over a single connection. Per ACCOUNT, not
+        // global: the session is cookie-less by design and that is a
+        // cross-account leak guard (see makeShapeSession).
+        let session = makeShapeSession()
+
         var tasks: [Task<Void, Never>] = []
         tasks.append(makeShapeTask(
             name: "teams", path: "/api/shapes/teams", table: "teams",
-            type: TeamEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: TeamEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "boards", path: "/api/shapes/boards", table: "boards",
-            type: BoardEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: BoardEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "issues", path: "/api/shapes/issues", table: "issues",
-            type: IssueEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: IssueEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "labels", path: "/api/shapes/labels", table: "labels",
-            type: LabelEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: LabelEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "issue-labels", path: "/api/shapes/issue-labels", table: "issue_labels",
-            type: IssueLabelEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: IssueLabelEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "users", path: "/api/shapes/users", table: "users",
-            type: UserEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: UserEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "team-members", path: "/api/shapes/team-members", table: "team_members",
-            type: TeamMemberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: TeamMemberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "team-invites", path: "/api/shapes/team-invites", table: "team_invites",
-            type: TeamInviteEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: TeamInviteEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "comments", path: "/api/shapes/comments", table: "comments",
-            type: CommentEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: CommentEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "attachments", path: "/api/shapes/attachments", table: "attachments",
-            type: AttachmentEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: AttachmentEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "notifications", path: "/api/shapes/notifications", table: "notifications",
-            type: NotificationEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: NotificationEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "issue-events", path: "/api/shapes/issue-events", table: "issue_events",
-            type: IssueEventEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: IssueEventEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "issue-subscribers", path: "/api/shapes/issue-subscribers", table: "issue_subscribers",
-            type: IssueSubscriberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: IssueSubscriberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "coding-sessions", path: "/api/shapes/coding-sessions", table: "coding_sessions",
-            type: CodingSessionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: CodingSessionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
         tasks.append(makeShapeTask(
             name: "actions", path: "/api/shapes/actions", table: "actions",
-            type: ActionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            type: ActionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
         ))
 
         lock.withLock { pipelines[accountId] = tasks }
@@ -353,7 +377,8 @@ public final class SyncManager: @unchecked Sendable {
         accountId: String,
         pool: DatabasePool,
         baseUrl: @escaping @Sendable () -> String?,
-        token: @escaping @Sendable () -> String?
+        token: @escaping @Sendable () -> String?,
+        session: URLSession
     ) -> Task<Void, Never> {
         let client = ShapeClient<T>(
             shapeName: name,
@@ -362,6 +387,7 @@ public final class SyncManager: @unchecked Sendable {
             baseUrlProvider: baseUrl,
             tokenProvider: token,
             pool: pool,
+            session: session,
             onMessages: { messages in
                 try await applyBatch(messages: messages, name: name, table: table, pool: pool)
             }

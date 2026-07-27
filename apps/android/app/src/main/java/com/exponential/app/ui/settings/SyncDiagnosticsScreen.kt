@@ -171,6 +171,20 @@ private fun ShapeRow(status: SyncStats.ShapeStatus) {
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
+                    // What the last completed poll cost (EXP-304). A live hold
+                    // legitimately sits at ~60s, so only the request kinds that
+                    // are supposed to answer quickly are worth reading here.
+                    if (status.lastPollMs >= 0 && status.lastPollKind != null &&
+                        status.lastPollKind != "live"
+                    ) {
+                        Text(
+                            "${status.lastPollKind} ${status.lastPollMs}ms",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                            color = tertiary,
+                        )
+                    }
                 }
             }
             Column(horizontalAlignment = Alignment.End) {

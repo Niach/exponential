@@ -41,6 +41,16 @@ class SyncStats @Inject constructor() {
         // SyncManager.refresh and the "Syncing…" chip to tell "this shape has
         // caught up since the kick" from "it is still behind".
         val lastSuccessAtMs: Long = 0L,
+        // EXP-304 timing: how the last completed poll went. Wall-clock cost,
+        // what kind of request it was, and how many rows it applied. Without
+        // this the diagnostics screen could say a shape was erroring but not
+        // whether it was slow, re-snapshotting, or idle — which is what made
+        // "sync takes 10 seconds" take two screenshots to pin down. -1 = no
+        // poll has completed yet.
+        val lastPollMs: Long = -1L,
+        // "snapshot" | "catchup" | "confirm" | "live"
+        val lastPollKind: String? = null,
+        val lastPollRows: Int = 0,
     )
 
     // Mark a shape "unauthorized" once a requireAuth shape has failed auth this
@@ -133,6 +143,12 @@ class SyncStats @Inject constructor() {
                 recovering = false,
                 lastSuccessAtMs = now,
             )
+        }
+
+    /** Record how the last completed poll went (EXP-304 diagnostics). */
+    fun recordPoll(accountId: String, shape: String, kind: String, ms: Long, rows: Int) =
+        mutate(accountId, shape) {
+            it.copy(lastPollKind = kind, lastPollMs = ms, lastPollRows = rows)
         }
 
     /** Mark a shape as auto-recovering (offset + rows wiped, awaiting snapshot). */

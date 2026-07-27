@@ -56,7 +56,7 @@ libc = { workspace = true }
 # and banner on top of it.
 updater = { path = "../updater" }
 comrak = { version = "0.53.0", default-features = false }
-ureq.workspace = true
+reqwest.workspace = true
 # EXP-261: the vendored Velotype WYSIWYG editor core (see its NOTICE for
 # provenance) — the issue-description editing surface; the block editor above
 # stays for the comment composer.

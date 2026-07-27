@@ -418,20 +418,23 @@ struct ReleaseAsset {
 /// `Ok(None)` = up to date / non-desktop latest, `Err(())` = network/parse
 /// failure (don't record the check so we retry).
 fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
-    let agent = ureq::AgentBuilder::new()
+    // The app's one shared HTTP client (EXP-304). GitHub is a different host
+    // from the instance, so this just gets its own pooled connection — but it
+    // is still one client, one TLS stack, one place to configure.
+    let response = api::http::shared()
+        .get(releases_api())
         .timeout(Duration::from_secs(10))
-        .build();
-    // `into_string` + `serde_json` rather than `into_json` — the team
-    // `ureq` is built without the `json` feature (image_paste.rs relies on the
-    // same), so decode the body ourselves.
-    let body = agent
-        .get(&releases_api())
-        .set("User-Agent", USER_AGENT)
-        .set("Accept", "application/vnd.github+json")
-        .call()
-        .map_err(|_| ())?
-        .into_string()
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "application/vnd.github+json")
+        .send()
         .map_err(|_| ())?;
+    if !response.status().is_success() {
+        return Err(());
+    }
+    // Decode with `serde_json` rather than reqwest's `json()` — the workspace
+    // client is built without the `json` feature (image_paste.rs relies on the
+    // same).
+    let body = response.text().map_err(|_| ())?;
     let release: Release = serde_json::from_str(&body).map_err(|_| ())?;
 
     // Only desktop releases carry a version comparable to ours.
