@@ -104,14 +104,6 @@ impl AppTitleBar {
     }
 }
 
-/// EXP-303: with the rail collapsed on macOS, the sidebar glass extends this
-/// far from the window's left edge — the rail (44px) plus the wash tongue the
-/// titlebar paints under the rest of the traffic-light cluster. The cluster
-/// ends ~68px; 84 leaves a snug margin after the green light before the
-/// rounded corner. The titlebar's collapsed-rail left padding derives from
-/// the same value (+8px) so the expand toggle always starts past the curve.
-const TRAFFIC_TONGUE_TOTAL: f32 = 84.;
-
 /// EXP-285: whether this window renders the full-height rail next to the
 /// titlebar (`Shell`'s Synced branch, not update-blocked). Mirrors the
 /// branch conditions in `Shell::render` — keep the two in sync.
@@ -176,14 +168,13 @@ impl Render for AppTitleBar {
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .when(rail, |bar| {
-                let pl = if cfg!(target_os = "macos") && !window.is_fullscreen() && !expanded {
-                    // Clear the traffic-light tongue plus a little slack so
-                    // the expand toggle never touches the tongue's curve.
-                    px(TRAFFIC_TONGUE_TOTAL - crate::sidebar::RAIL_W + 8.)
-                } else {
-                    px(8.)
-                };
-                bar.pl(pl)
+                // EXP-303: with the rail present the vendored 80px macOS
+                // traffic-light reserve is wrong in every state — expanded,
+                // the rail (164px) clears the cluster; collapsed, the Shell
+                // renders the sidebar-material tongue segment LEFT of this
+                // bar (`shell::traffic_tongue`), which consumes the reserve.
+                // Either way the bar itself only needs its normal inset.
+                bar.pl(px(8.))
             });
 
         // Collapsed rail: the 44px strip can't host the expand toggle (the
@@ -203,7 +194,7 @@ impl Render for AppTitleBar {
             )
         });
 
-        let bar = bar.child(
+        bar.child(
             h_flex()
                 .flex_1()
                 .min_w_0()
@@ -236,37 +227,7 @@ impl Render for AppTitleBar {
                 .when_some(strip, |bar, strip| {
                     bar.child(h_flex().flex_1().min_w_0().child(interactive(strip)))
                 }),
-        );
-
-        // EXP-303: collapsed rail — the sidebar glass ends at 44px but the
-        // macOS traffic-light cluster reaches ~68px, so its trailing buttons
-        // sat on the rail/content seam. Extend the rail's wash as a tongue
-        // under the rest of the cluster, rounded on its bottom-right so the
-        // sidebar reads as curving around the lights. Rendered OUTSIDE the
-        // TitleBar in a plain relative wrapper: the vendored TitleBar's inner
-        // container carries the traffic-light padding, and an absolute child
-        // inside it inherits that offset (the tongue floated a padding-width
-        // right of the rail, leaving a dark notch at the window corner). On
-        // top of the bar on purpose — it must cover the bar's bottom hairline
-        // in its 40px span so the rail region stays seamless; the lights
-        // float above everything regardless.
-        let tongue = cfg!(target_os = "macos") && rail && !expanded && !window.is_fullscreen();
-        div()
-            .relative()
-            .flex_shrink_0()
-            .child(bar)
-            .when(tongue, |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left_0()
-                        .w(px(TRAFFIC_TONGUE_TOTAL - crate::sidebar::RAIL_W))
-                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
-                        .rounded_br(px(10.)),
-                )
-            })
+        )
     }
 }
 
