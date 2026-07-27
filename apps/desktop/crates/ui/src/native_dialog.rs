@@ -7,7 +7,9 @@
 //! - **Window options** (EXP-287, Linux split in EXP-308): on macOS/Windows a
 //!   dialog is an ORDINARY secondary app window — `WindowKind::Normal` with
 //!   the main window's chrome (`gpui_component::TitleBar::title_bar_options()`),
-//!   minimizable, sharing `undock`'s options set verbatim. That is what earns
+//!   minimizable on Windows only (a minimized macOS dialog folds into the
+//!   app's Dock icon instead of earning its own tile — nothing visible left
+//!   to restore it from). That is what earns
 //!   it its own taskbar/window-list button, which is the point: dialogs are
 //!   managed by hand now, so they must be findable. `WindowKind::Floating`
 //!   could not deliver that on macOS — it allocs an `NSPanel` (never listed,
@@ -465,11 +467,14 @@ pub(crate) fn open_dialog_window(
                 ..gpui_component::TitleBar::title_bar_options()
             }),
             is_resizable: min_size.is_some(),
-            // EXP-287: a window with its own taskbar button must minimize.
-            // EXP-308: on Linux a dialog is a transient with NO taskbar
-            // button, so minimizing it would strand it with no restore
-            // affordance.
-            is_minimizable: !cfg!(target_os = "linux"),
+            // EXP-287 wanted minimize wherever the dialog has its own
+            // taskbar/window-list button. EXP-308: that is Windows-only now —
+            // the Linux dialog is a transient with NO taskbar button, and a
+            // minimized macOS dialog folds into the app's Dock icon instead
+            // of earning a tile of its own — on both, minimizing would strand
+            // the window with no visible restore affordance. (On macOS this
+            // is what disables the yellow traffic light.)
+            is_minimizable: cfg!(target_os = "windows"),
             window_min_size: min_size,
             app_id: Some(CHANNEL_APP_ID.to_string()),
             // EXP-290 glass: non-opaque + behind-window blur, same as the shell
