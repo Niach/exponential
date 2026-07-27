@@ -171,6 +171,19 @@ fn traffic_tongue() -> impl IntoElement {
             .w(radius)
             .h(radius),
         )
+        .child(
+            // EXP-303: the strip's bottom hairline (the TitleBar's
+            // `border_b`, same STROKE_ROW token) continues through the notch
+            // until it meets the curve — without this it stopped at the
+            // strip's left edge and left a small gap beside the corner.
+            div()
+                .absolute()
+                .right_0()
+                .bottom_0()
+                .w(radius)
+                .h(px(1.))
+                .bg(theme::tokens::glass::STROKE_ROW.to_hsla()),
+        )
 }
 
 /// Debounce for persisting layout changes (`DockEvent::LayoutChanged` fires on
