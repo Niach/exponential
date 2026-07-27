@@ -517,10 +517,21 @@ fn handle_connection(
         }
     }
 
+    // Reject responses must still drain the announced body first: closing
+    // with unread bytes in the socket makes the kernel RST the connection,
+    // and the client may then never see the status line.
+    let drain_body = |reader: &mut BufReader<TcpStream>, len: usize| {
+        let _ = std::io::copy(
+            &mut reader.by_ref().take(len.min(MAX_BODY_BYTES) as u64),
+            &mut std::io::sink(),
+        );
+    };
     if method != "POST" || !path.starts_with("/hook") {
+        drain_body(&mut reader, content_length);
         return respond(&mut writer, "404 Not Found");
     }
     if !bearer_matches(&authorization, token) {
+        drain_body(&mut reader, content_length);
         return respond(&mut writer, "401 Unauthorized");
     }
     if content_length > MAX_BODY_BYTES {

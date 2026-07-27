@@ -192,7 +192,7 @@ mod tests {
             "unexpected request line: {}",
             request.lines().next().unwrap_or_default()
         );
-        assert!(request.contains("Authorization: Bearer tok-1"));
+        assert!(has_header(&request, "Authorization: Bearer tok-1"));
     }
 
     #[test]
@@ -226,7 +226,7 @@ mod tests {
             request.starts_with("POST /api/trpc/attachments.sweepUnreferencedImages HTTP/1.1")
         );
         assert!(request.ends_with(r#"{"teamId":"ws-1"}"#));
-        assert!(request.contains("Authorization: Bearer tok-1"));
+        assert!(has_header(&request, "Authorization: Bearer tok-1"));
     }
 
     #[test]
