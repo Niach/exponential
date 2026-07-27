@@ -636,6 +636,17 @@ fun IssueDetailScreen(
                 )
             }
 
+            // Non-image attachments (EXP-297) — they never appear in the
+            // markdown, so this is the only surface they exist on. The section
+            // renders (and pads) nothing when there's neither a file nor the
+            // right to attach one.
+            IssueFilesSection(
+                viewModel = viewModel,
+                canUpload = isModerator,
+                canDelete = permissions.isMember,
+                modifier = Modifier.padding(top = 20.dp),
+            )
+
             Spacer(Modifier.height(20.dp))
             CommentThread(
                 issueId = issue.id,

@@ -27,27 +27,35 @@
 //! restores the prior status.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Entity, FocusHandle, Focusable as _, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{self, Input, InputEvent, InputState},
+    notification::Notification,
     skeleton::Skeleton,
     text::TextView,
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
-use domain::rows::Issue;
+use domain::rows::{Attachment, Issue};
 
 use crate::coding_flow::StartCodingControl;
 use crate::icons::ExpIcon;
+use crate::issue_files::{
+    all_attachment_ids, attachment_label, file_attachments, format_bytes, icon_for_content_type,
+    is_inline_image, temp_open_path,
+};
 use crate::navigation::{navigate, Screen};
 use crate::properties_panel::{spawn_issue_update, PropertiesPanel};
 use crate::queries;
@@ -178,6 +186,21 @@ pub fn install_description_editor(cx: &mut App, build: DescriptionEditorBuilder)
 // The view
 // ---------------------------------------------------------------------------
 
+/// One file the user just picked, from the moment it is staged until its
+/// synced `attachments` row arrives (EXP-297). The pending row is what makes
+/// an upload visible; the SYNCED row replaces it (deduped by `uploaded_id`),
+/// so a slow Electric echo never shows the file twice.
+struct PendingFileUpload {
+    /// Process-local row key (element ids + the completion lookup).
+    key: u64,
+    filename: String,
+    /// The attachment id the server assigned — set once the POST answered.
+    uploaded_id: Option<String>,
+    /// Set when the read or the upload failed; the row then shows the
+    /// message with a dismiss ✕ instead of "Uploading…".
+    error: Option<SharedString>,
+}
+
 pub struct IssueDetailView {
     issue_id: Option<String>,
     /// Focus target of the detail root: holding it puts `IssueDetail` on the
@@ -206,6 +229,12 @@ pub struct IssueDetailView {
     start_coding: Entity<StartCodingControl>,
     properties: Entity<PropertiesPanel>,
     timeline: Entity<IssueTimeline>,
+    /// EXP-297 files rail: in-flight picks (see [`PendingFileUpload`]).
+    pending_files: Vec<PendingFileUpload>,
+    next_pending_file_key: u64,
+    /// Attachment ids with an open/save/delete request in flight — their row
+    /// actions are disabled until it settles.
+    busy_files: HashSet<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -270,6 +299,9 @@ impl IssueDetailView {
             start_coding,
             properties,
             timeline,
+            pending_files: Vec::new(),
+            next_pending_file_key: 1,
+            busy_files: HashSet::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -318,6 +350,12 @@ impl IssueDetailView {
         self.editor = None;
         self.editor_issue = None;
         self.synced_title = String::new();
+        // The files rail's transient state belongs to the OUTGOING issue —
+        // a pending upload row or a busy marker must never leak onto the
+        // incoming one (the in-flight requests themselves keep running and
+        // land through the synced collection).
+        self.pending_files.clear();
+        self.busy_files.clear();
         *self.last_saved_description.borrow_mut() = String::new();
         // Back to the top: the scroll offset belongs to the PREVIOUS issue
         // (gpui keys scroll state by element id and this view is shared) —
@@ -662,6 +700,497 @@ impl IssueDetailView {
             .into_any_element()
     }
 
+    // -- EXP-297 files rail -----------------------------------------------------
+
+    /// The "Files" section: every NON-inline-image attachment of the issue
+    /// (`issue_files::file_attachments` — pdf/zip/video/… plus the image
+    /// types markdown never embeds) with Open / Save as / Delete, the
+    /// in-flight picks on top of them, and the "Attach file" picker.
+    ///
+    /// Inline images are deliberately absent: they live in the description
+    /// markdown and the editor renders them. The section re-renders off the
+    /// view's existing `attachments` collection observer, so an upload,
+    /// a delete or another client's change lands without any refetch.
+    fn render_files_section(
+        &mut self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let attachments = file_attachments(&issue.id, cx);
+        // A pending row disappears the moment its synced row shows up — that
+        // is the one dedupe rule between the two sources. The set spans ALL
+        // synced rows (inline images included), so a row can never spin
+        // forever just because its content type classified out of the rail.
+        let synced_ids = all_attachment_ids(&issue.id, cx);
+        let pending: Vec<(u64, String, Option<SharedString>)> = self
+            .pending_files
+            .iter()
+            .filter(|pending| {
+                pending
+                    .uploaded_id
+                    .as_deref()
+                    .is_none_or(|id| !synced_ids.contains(id))
+            })
+            .map(|pending| (pending.key, pending.filename.clone(), pending.error.clone()))
+            .collect();
+
+        let issue_id = issue.id.clone();
+        let header = h_flex()
+            .w_full()
+            .items_center()
+            .justify_between()
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Files"),
+            )
+            .child(
+                Button::new("issue-files-attach")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::from(ExpIcon::Paperclip).xsmall())
+                    .label("Attach file")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.pick_files(issue_id.clone(), window, cx);
+                    })),
+            );
+
+        let mut section = v_flex()
+            .w_full()
+            .px(px(DETAIL_GUTTER))
+            .pt_2()
+            .gap_1()
+            .child(header);
+
+        for attachment in &attachments {
+            section = section.child(self.render_file_row(attachment, cx));
+        }
+        for (key, filename, error) in pending {
+            section = section.child(self.render_pending_file_row(key, filename, error, cx));
+        }
+        section.into_any_element()
+    }
+
+    /// One synced file row: type glyph · filename · size · Open / Save as /
+    /// Delete.
+    fn render_file_row(
+        &self,
+        attachment: &Attachment,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let id = attachment.id.clone();
+        let label = attachment_label(attachment);
+        let busy = self.busy_files.contains(&id);
+        let glyph = icon_for_content_type(attachment.content_type.as_deref());
+
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .items_center()
+            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+            .child(
+                Icon::from(glyph)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_sm()
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(SharedString::from(label.clone())),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(format_bytes(
+                        attachment.size_bytes.unwrap_or_default(),
+                    ))),
+            )
+            .child({
+                let (id, label) = (id.clone(), label.clone());
+                Button::new(SharedString::from(format!("issue-file-open-{id}")))
+                    .ghost()
+                    .xsmall()
+                    .disabled(busy)
+                    .icon(Icon::from(ExpIcon::ExternalLink).xsmall())
+                    .tooltip("Open")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_file(id.clone(), label.clone(), window, cx);
+                    }))
+            })
+            .child({
+                let (id, label) = (id.clone(), label.clone());
+                Button::new(SharedString::from(format!("issue-file-save-{id}")))
+                    .ghost()
+                    .xsmall()
+                    .disabled(busy)
+                    .icon(Icon::from(ExpIcon::Download).xsmall())
+                    .tooltip("Save as…")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.save_file_as(id.clone(), label.clone(), window, cx);
+                    }))
+            })
+            .child({
+                let (id, label) = (id.clone(), label.clone());
+                Button::new(SharedString::from(format!("issue-file-delete-{id}")))
+                    .ghost()
+                    .xsmall()
+                    .disabled(busy)
+                    .icon(
+                        Icon::from(ExpIcon::Trash2)
+                            .xsmall()
+                            .text_color(cx.theme().muted_foreground),
+                    )
+                    .tooltip("Delete")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.confirm_delete_file(id.clone(), label.clone(), window, cx);
+                    }))
+            })
+            .into_any_element()
+    }
+
+    /// A staged pick: "Uploading…" until the server answers, or the failure
+    /// message with a dismiss ✕.
+    fn render_pending_file_row(
+        &self,
+        key: u64,
+        filename: String,
+        error: Option<SharedString>,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let failed = error.is_some();
+        let status = error.unwrap_or_else(|| SharedString::from("Uploading…"));
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .items_center()
+            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+            .child(
+                Icon::from(ExpIcon::File)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_sm()
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(filename)),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(if failed {
+                        cx.theme().danger
+                    } else {
+                        cx.theme().muted_foreground
+                    })
+                    .child(status),
+            )
+            .when(failed, |row| {
+                row.child(
+                    Button::new(SharedString::from(format!("issue-file-dismiss-{key}")))
+                        .ghost()
+                        .xsmall()
+                        .icon(Icon::new(IconName::Close).xsmall())
+                        .tooltip("Dismiss")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.pending_files.retain(|pending| pending.key != key);
+                            cx.notify();
+                        })),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// "Attach file" — the native multi-select picker (same shape as the
+    /// editor's image picker); every pick becomes a pending row immediately.
+    fn pick_files(&mut self, issue_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Attach".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            // Receiver error = dialog dismissed/unsupported; None = cancelled.
+            let Ok(Ok(paths)) = receiver.await else {
+                return;
+            };
+            let Some(paths) = paths else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                for path in paths {
+                    this.start_file_upload(issue_id.clone(), path, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Stage one picked path and upload it in the background. The 50 MB read
+    /// happens off the foreground too (a big file would otherwise freeze the
+    /// window before the row even appears).
+    fn start_file_upload(
+        &mut self,
+        issue_id: String,
+        path: PathBuf,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let key = self.next_pending_file_key;
+        self.next_pending_file_key += 1;
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("file")
+            .to_string();
+        self.pending_files.push(PendingFileUpload {
+            key,
+            filename,
+            uploaded_id: None,
+            error: None,
+        });
+        cx.notify();
+
+        let Some(transport) = queries::attachment_transport(cx) else {
+            self.fail_pending_file(key, "Not signed in".into(), cx);
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let (filename, content_type, bytes) =
+                        crate::markdown::read_any_file(&path)?;
+                    // Deflect inline-image picks: uploaded through /files they
+                    // would be invisible everywhere (filtered out of every
+                    // client's Files section, referenced by no markdown) and
+                    // eventually deleted by the unreferenced-image sweep.
+                    if is_inline_image(Some(content_type.as_str())) {
+                        anyhow::bail!(
+                            "Images go in the description — add them with the editor's image button"
+                        );
+                    }
+                    transport.upload_file(&issue_id, &filename, &content_type, &bytes)
+                })
+                .await;
+            this.update(cx, |this, cx| match result {
+                Ok(uploaded) => {
+                    if let Some(pending) = this
+                        .pending_files
+                        .iter_mut()
+                        .find(|pending| pending.key == key)
+                    {
+                        pending.uploaded_id = Some(uploaded.id);
+                    }
+                    cx.notify();
+                }
+                Err(error) => {
+                    log::warn!("[ui] file upload failed: {error}");
+                    this.fail_pending_file(key, SharedString::from(error.to_string()), cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn fail_pending_file(&mut self, key: u64, message: SharedString, cx: &mut gpui::Context<Self>) {
+        if let Some(pending) = self
+            .pending_files
+            .iter_mut()
+            .find(|pending| pending.key == key)
+        {
+            pending.error = Some(message);
+        }
+        cx.notify();
+    }
+
+    /// "Open": fetch the bytes through the auth-gated transport into a
+    /// per-attachment temp file and hand the path to the OS. The desktop app
+    /// ships no viewers of its own (EXP-297 decision: no video/PDF players).
+    fn open_file(
+        &mut self,
+        attachment_id: String,
+        label: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(transport) = queries::attachment_transport(cx) else {
+            return;
+        };
+        self.busy_files.insert(attachment_id.clone());
+        cx.notify();
+        let url = format!("/api/attachments/{attachment_id}");
+        let path = temp_open_path(&attachment_id, &label);
+        let handle = window.window_handle();
+        cx.spawn(async move |this, cx| {
+            let write_path = path.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let bytes = transport.fetch(&url)?;
+                    if let Some(parent) = write_path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&write_path, bytes)?;
+                    anyhow::Ok(())
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.busy_files.remove(&attachment_id);
+                match result {
+                    Ok(()) => cx.open_with_system(&path),
+                    Err(error) => {
+                        log::warn!("[ui] attachment open failed for {attachment_id}: {error}");
+                        let note = Notification::error(SharedString::from(format!(
+                            "Could not open {label}: {error}"
+                        )));
+                        let _ = handle.update(cx, |_, window, cx| {
+                            window.push_notification(note, cx);
+                        });
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// "Save as…" — the native save dialog + a background fetch/write, the
+    /// exact shape of the description editor's image download.
+    fn save_file_as(
+        &mut self,
+        attachment_id: String,
+        label: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(transport) = queries::attachment_transport(cx) else {
+            return;
+        };
+        let directory = dirs::download_dir().unwrap_or_else(|| PathBuf::from("."));
+        let receiver = cx.prompt_for_new_path(&directory, Some(&label));
+        let url = format!("/api/attachments/{attachment_id}");
+        let handle = window.window_handle();
+        cx.spawn(async move |_, cx| {
+            // Receiver error = dialog dismissed/unsupported; None = cancelled.
+            let Ok(Ok(Some(path))) = receiver.await else {
+                return;
+            };
+            let write_path = path.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let bytes = transport.fetch(&url)?;
+                    std::fs::write(&write_path, bytes)?;
+                    anyhow::Ok(())
+                })
+                .await;
+            let note = match result {
+                Ok(()) => Notification::info(SharedString::from(format!(
+                    "Saved to {}",
+                    path.display()
+                ))),
+                Err(error) => {
+                    log::warn!("[ui] attachment download failed for {attachment_id}: {error}");
+                    Notification::error(SharedString::from(format!("Download failed: {error}")))
+                }
+            };
+            let _ = handle.update(cx, |_, window, cx| {
+                window.push_notification(note, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// The delete confirm (member-level, like every client): the server also
+    /// rewrites any markdown still referencing the attachment, so the copy
+    /// names that consequence.
+    fn confirm_delete_file(
+        &mut self,
+        attachment_id: String,
+        label: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let view = cx.entity().downgrade();
+        // The OPENER's window — the alert closes on confirm, so a failure
+        // notification has to land back on the detail window.
+        let handle = window.window_handle();
+        let spec = crate::native_dialog::AlertSpec::new(
+            format!("Delete \"{label}\"?"),
+            "The file is removed for everyone and its storage is reclaimed. \
+             Any description or comment still embedding it keeps a plain-text \
+             placeholder.",
+            "Delete file",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            let Some(trpc) = queries::trpc_client(cx) else {
+                return true;
+            };
+            let _ = view.update(cx, |this, cx| {
+                this.busy_files.insert(attachment_id.clone());
+                cx.notify();
+            });
+            let view = view.clone();
+            let attachment_id = attachment_id.clone();
+            let label = label.clone();
+            cx.spawn(async move |cx| {
+                let deleted_id = attachment_id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        api::attachments::attachments_delete(&trpc, &deleted_id)
+                    })
+                    .await;
+                let _ = view.update(cx, |this, cx| {
+                    this.busy_files.remove(&attachment_id);
+                    cx.notify();
+                });
+                if let Err(error) = result {
+                    // The row stays — the delete simply did not happen; the
+                    // Electric echo is what removes a row that DID.
+                    log::warn!("[ui] attachments.delete({attachment_id}) failed: {error}");
+                    let note = Notification::error(SharedString::from(format!(
+                        "Could not delete {label}: {error}"
+                    )));
+                    let _ = handle.update(cx, |_, window, cx| {
+                        window.push_notification(note, cx);
+                    });
+                }
+            })
+            .detach();
+            true
+        });
+        crate::native_dialog::open_alert(window, cx, spec);
+    }
+
     fn render_left_column(
         &mut self,
         issue: &Issue,
@@ -717,7 +1246,10 @@ impl IssueDetailView {
 
         let column = v_flex()
             .child(title)
-            .child(self.render_description(issue, window, cx));
+            .child(self.render_description(issue, window, cx))
+            // EXP-297: the files rail sits under the description and above
+            // the timeline — inline images stay in the description itself.
+            .child(self.render_files_section(issue, cx));
 
         // The timeline sits OUTSIDE the centered column and re-centers its own
         // content to the same column width. It used to carry a full-bleed top

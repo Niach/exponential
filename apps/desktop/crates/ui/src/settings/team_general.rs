@@ -234,69 +234,6 @@ impl GeneralPane {
         .detach();
     }
 
-    /// Web `formatStorage`: MB under a GB, one-decimal GB above.
-    fn format_storage(mb: f64) -> String {
-        if mb >= 1024. {
-            let gb = mb / 1024.;
-            if (gb - gb.round()).abs() < 0.05 {
-                format!("{} GB", gb.round() as i64)
-            } else {
-                format!("{gb:.1} GB")
-            }
-        } else if (mb - mb.round()).abs() < 0.05 {
-            format!("{} MB", mb.round() as i64)
-        } else {
-            format!("{mb:.1} MB")
-        }
-    }
-
-    /// One usage row: label left, "current / limit" right, a thin progress
-    /// track underneath (no track for unlimited).
-    fn usage_bar(
-        label: &'static str,
-        current: String,
-        limit: Option<String>,
-        fraction: Option<f64>,
-        cx: &App,
-    ) -> impl IntoElement {
-        let amount = match limit {
-            Some(limit) => format!("{current} / {limit}"),
-            None => format!("{current} / unlimited"),
-        };
-        let mut row = v_flex()
-            .gap_1()
-            .child(
-                h_flex()
-                    .justify_between()
-                    .items_center()
-                    .child(div().text_sm().child(label))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(amount)),
-                    ),
-            );
-        if let Some(fraction) = fraction {
-            let fraction = fraction.clamp(0., 1.) as f32;
-            row = row.child(
-                div()
-                    .h(gpui::px(6.))
-                    .w_full()
-                    .rounded_full()
-                    .bg(cx.theme().muted.opacity(0.35))
-                    .child(
-                        div()
-                            .h_full()
-                            .rounded_full()
-                            .w(gpui::relative(fraction))
-                            .bg(cx.theme().primary),
-                    ),
-            );
-        }
-        row
-    }
-
     /// The EXP-288 read-only billing summary: plan chip + usage bars + a
     /// "Manage on the web" hand-off. Returns `None` while loading/failed,
     /// on self-hosted (`unlimited`), or without a synced team slug.
@@ -330,7 +267,7 @@ impl GeneralPane {
         let fraction = |current: f64, limit: Option<f64>| {
             limit.filter(|limit| *limit > 0.).map(|limit| current / limit)
         };
-        let seats = Self::usage_bar(
+        let seats = super::usage_bar(
             "Seats",
             format!("{}", plan.usage.members.round() as i64),
             plan.limits
@@ -339,14 +276,14 @@ impl GeneralPane {
             fraction(plan.usage.members, plan.limits.seats),
             cx,
         );
-        let storage = Self::usage_bar(
+        let storage = super::usage_bar(
             "Attachment storage",
-            Self::format_storage(plan.usage.storage_mb),
-            plan.limits.storage_mb.map(Self::format_storage),
+            super::format_storage(plan.usage.storage_mb),
+            plan.limits.storage_mb.map(super::format_storage),
             fraction(plan.usage.storage_mb, plan.limits.storage_mb),
             cx,
         );
-        let widgets = Self::usage_bar(
+        let widgets = super::usage_bar(
             "Feedback widgets",
             format!("{}", plan.usage.widget_configs.round() as i64),
             plan.limits

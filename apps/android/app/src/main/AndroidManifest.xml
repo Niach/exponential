@@ -111,6 +111,19 @@
             </intent-filter>
         </activity>
 
+        <!-- EXP-297: hands cached issue attachments to external viewers and
+             share targets as content:// URIs. Not exported; every consumer
+             gets a per-intent read grant (FLAG_GRANT_READ_URI_PERMISSION). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
+
         <service
             android:name=".data.push.FcmService"
             android:exported="false">

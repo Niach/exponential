@@ -76,7 +76,8 @@ export async function uploadObject(options: {
 }
 
 export async function getObject(
-  key: string
+  key: string,
+  options?: { range?: string }
 ): Promise<GetObjectCommandOutput | null> {
   await ensureBucketReady()
 
@@ -85,6 +86,10 @@ export async function getObject(
       new GetObjectCommand({
         Bucket: storageBucket,
         Key: key,
+        // Byte-range passthrough (EXP-297): the caller forwards an already
+        // validated single-range `Range` header so media players and
+        // resumable downloads work against the attachment route.
+        Range: options?.range,
       })
     )
   } catch (error) {

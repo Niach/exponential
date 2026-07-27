@@ -1,16 +1,25 @@
-export interface UploadedIssueImage {
+export interface UploadedIssueAttachment {
   contentType: string
   filename: string
+  height: number | null
   id: string
   sizeBytes: number
   url: string
+  width: number | null
 }
 
-export async function uploadIssueImageFile(issueId: string, file: File) {
+// Legacy alias — the image call sites still speak in "image" terms.
+export type UploadedIssueImage = UploadedIssueAttachment
+
+async function postIssueUpload(
+  path: string,
+  file: File,
+  fallbackMessage: string
+) {
   const formData = new FormData()
   formData.append(`file`, file)
 
-  const response = await fetch(`/api/issues/${issueId}/images`, {
+  const response = await fetch(path, {
     method: `POST`,
     body: formData,
     credentials: `same-origin`,
@@ -18,16 +27,44 @@ export async function uploadIssueImageFile(issueId: string, file: File) {
 
   const result = (await response.json()) as
     | { error?: string }
-    | UploadedIssueImage
+    | UploadedIssueAttachment
 
   if (!response.ok || !(`url` in result)) {
     const message =
       `error` in result && typeof result.error === `string`
         ? result.error
-        : `Failed to upload image`
+        : fallbackMessage
 
     throw new Error(message)
   }
 
   return result
+}
+
+/**
+ * Inline-image upload. Since EXP-297 this posts to the any-type `/files`
+ * route — identical request/response contract; the server applies the 10 MB
+ * ceiling only to the five accepted inline image types (everything else gets
+ * the 50 MB file cap), so callers must pre-filter to accepted image types.
+ * The frozen `/images` route stays behind for old native builds only.
+ */
+export async function uploadIssueImageFile(issueId: string, file: File) {
+  return postIssueUpload(
+    `/api/issues/${issueId}/files`,
+    file,
+    `Failed to upload image`
+  )
+}
+
+/**
+ * Arbitrary-file upload (EXP-297): 50 MB for non-images, 10 MB for the inline
+ * image types. Non-image rows never enter markdown — they render from the
+ * synced attachments collection in the issue's Files section.
+ */
+export async function uploadIssueFile(issueId: string, file: File) {
+  return postIssueUpload(
+    `/api/issues/${issueId}/files`,
+    file,
+    `Failed to upload file`
+  )
 }

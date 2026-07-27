@@ -20,7 +20,10 @@ import {
   getIssueDescriptionText,
   normalizeIssueDescriptionText,
 } from "@/lib/domain"
-import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
+import {
+  uploadIssueFile,
+  uploadIssueImageFile,
+} from "@/lib/storage/issue-image-upload"
 import { useSession } from "@/hooks/use-session"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { parseLocalDate } from "@/lib/utils"
@@ -49,6 +52,7 @@ import {
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
+import { IssueFilesSection } from "@/components/issue-files-section"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 
@@ -417,6 +421,23 @@ export function IssueDetailView({
     }
   }
 
+  // Pasted/dropped files that are NOT inline-embeddable images (EXP-297): they
+  // upload to the Files section instead of entering the markdown.
+  const handleOtherFiles = async (files: File[]) => {
+    setAttachmentStatus(null)
+    try {
+      await enqueueUploadTask(async () => {
+        for (const file of files) {
+          await uploadIssueFile(issue.id, file)
+        }
+      })
+    } catch (error) {
+      setAttachmentStatus(
+        error instanceof Error ? error.message : `Failed to upload file`
+      )
+    }
+  }
+
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
   // once it commits, land back on the board with the carried filters.
   const handleDeleteIssue = async () => {
@@ -705,6 +726,7 @@ export function IssueDetailView({
           enabled: !readOnly,
           uploading: activeUploadCount > 0,
           onFiles: handleImageFiles,
+          onOtherFiles: handleOtherFiles,
         }}
       />
     </div>
@@ -716,6 +738,12 @@ export function IssueDetailView({
   const attachmentError = attachmentStatus ? (
     <p className="px-5 py-2 text-xs text-destructive">{attachmentStatus}</p>
   ) : null
+
+  // EXP-297 Files rail: non-inline-image attachments straight from the synced
+  // shape, plus the "Attach file" affordance for members.
+  const filesSection = (
+    <IssueFilesSection issueId={issue.id} readOnly={readOnly} />
+  )
 
   // PR / pushed-branch link to the review-detail route (EXP-106) — stays in
   // the main column on every layout.
@@ -754,6 +782,7 @@ export function IssueDetailView({
           {titleField}
           {editor}
           {attachmentError}
+          {filesSection}
           {codingControl}
           {prRow}
           {widgetCard}
@@ -775,6 +804,7 @@ export function IssueDetailView({
               {titleField}
               {editor}
               {attachmentError}
+              {filesSection}
               {prRow}
               {widgetCard}
               {timeline}

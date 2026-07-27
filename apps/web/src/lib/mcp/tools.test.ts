@@ -26,6 +26,7 @@ const h = vi.hoisted(() => {
     boards: { delete: vi.fn(), setRepository: vi.fn() },
     teams: { create: vi.fn(), update: vi.fn() },
     teamInvites: { create: vi.fn(), list: vi.fn(), revoke: vi.fn() },
+    attachments: { delete: vi.fn() },
   }
 
   // A chainable, thenable drizzle query stub. Every builder method returns the
@@ -449,7 +450,9 @@ describe(`exponential_notifications_list`, () => {
       limit: 50,
       offset: 0,
     })
-    const { sql, params } = new PgDialect().sqlToQuery(state.capturedWhere as never)
+    const { sql, params } = new PgDialect().sqlToQuery(
+      state.capturedWhere as never
+    )
     expect(sql).toContain(`user_id`)
     expect(params).toContain(`user-1`)
     // unreadOnly must add the read_at IS NULL predicate.
@@ -486,19 +489,14 @@ describe(`exponential_teams_get`, () => {
 
 describe(`exponential_members_list`, () => {
   it(`returns the team members`, async () => {
-    dbRows.current = [
-      { id: `user-1`, name: `User One`, role: `owner` },
-    ]
+    dbRows.current = [{ id: `user-1`, name: `User One`, role: `owner` }]
     const result = await tool(`exponential_members_list`)({
       teamId: WS,
     })
     expect(parseOk(result)).toEqual([
       { id: `user-1`, name: `User One`, role: `owner` },
     ])
-    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(
-      `user-1`,
-      WS
-    )
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
     const { sql } = new PgDialect().sqlToQuery(state.capturedWhere as never)
     expect(sql).not.toContain(`is_agent`)
   })
@@ -544,13 +542,35 @@ describe(`exponential_attachments_upload`, () => {
     )
   })
 
-  it(`rejects a non-image content type before touching storage`, async () => {
+  // EXP-297: any content type is accepted now. Non-images attach to the
+  // issue's Files list and deliberately get NO markdown field (embedding them
+  // would break the description round-trip guard) and no probed dimensions.
+  it(`accepts a non-image content type without markdown or dimensions`, async () => {
     const result = await tool(`exponential_attachments_upload`)({
       ...args,
+      filename: `spec.pdf`,
       contentType: `application/pdf`,
     })
+    const payload = parseOk(result) as {
+      id: string
+      markdown?: string
+      width: number | null
+      height: number | null
+    }
+    expect(payload.markdown).toBeUndefined()
+    expect(payload.width).toBeNull()
+    expect(payload.height).toBeNull()
+    expect(uploadObject).toHaveBeenCalledTimes(1)
+    expect(insertValues).toHaveBeenCalledTimes(1)
+  })
+
+  it(`rejects an empty payload before touching storage`, async () => {
+    const result = await tool(`exponential_attachments_upload`)({
+      ...args,
+      dataBase64: ``,
+    })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`Unsupported image type`)
+    expect(result.content[0].text).toContain(`empty`)
     expect(uploadObject).not.toHaveBeenCalled()
   })
 
@@ -561,5 +581,23 @@ describe(`exponential_attachments_upload`, () => {
     expect(result.content[0].text).toContain(`not allowed here`)
     expect(uploadObject).not.toHaveBeenCalled()
     expect(insertValues).not.toHaveBeenCalled()
+  })
+})
+
+// ── attachments_delete (delegates to the attachments router) ─────────────────
+
+describe(`exponential_attachments_delete`, () => {
+  it(`delegates to the router so the rewrite/reclaim logic is never forked`, async () => {
+    caller.attachments.delete.mockResolvedValue({ txId: 7 })
+    const result = await tool(`exponential_attachments_delete`)({ id: UUID })
+    expect(parseOk(result)).toEqual({ ok: true, id: UUID })
+    expect(caller.attachments.delete).toHaveBeenCalledWith({ id: UUID })
+  })
+
+  it(`surfaces the router's authorization failure`, async () => {
+    caller.attachments.delete.mockRejectedValue(forbidden())
+    const result = await tool(`exponential_attachments_delete`)({ id: UUID })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not allowed here`)
   })
 })

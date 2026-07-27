@@ -236,6 +236,8 @@
     "ui-staging": "flask-conical",
     "ui-undock": "arrow-up-right",
     "ui-redock": "arrow-down-left",
+    "ui-download": "download",
+    "ui-attach": "paperclip",
 
     "support-open": "mail-open",
     "support-resolved": "circle-check"

@@ -47,7 +47,10 @@ import { deleteObject, getObject, uploadObject } from "@/lib/storage"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
+  canonicalizeContentType,
+  getMaxUploadBytesForContentType,
   isAcceptedImageContentType,
+  maxFileUploadBytes,
   maxImageUploadBytes,
   sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
@@ -1848,14 +1851,14 @@ export function registerExponentialTools(
   )
 
   // -----------------------------------------------------------------------
-  // Attachments upload (base64 image → S3 → attachments row)
+  // Attachments upload (base64 payload → S3 → attachments row)
   // -----------------------------------------------------------------------
 
   server.registerTool(
     `exponential_attachments_upload`,
     {
-      title: `Upload an image attachment`,
-      description: `Upload a base64-encoded image and attach it to an issue (by UUID or human identifier, e.g. "MET-12"). Returns the canonical markdown form ![](/api/attachments/{id}) — embed that string in the issue's description or a comment to show the image. Images only (png/jpeg/webp/gif/avif), 10 MB max; the team storage plan limit applies.`,
+      title: `Upload a file attachment`,
+      description: `Upload a base64-encoded file and attach it to an issue (by UUID or human identifier, e.g. "MET-12"). Images (png/jpeg/webp/gif/avif, 10 MB max) additionally return a "markdown" field of the form ![](/api/attachments/{id}) — embed that string in the issue's description or a comment to show the image. Any other content type (pdf, zip, video, …) is allowed up to 50 MB; those attach to the issue's Files list, return NO markdown field, and must NOT be embedded in description or comment markdown. The team storage plan limit applies. Large payloads inflate ~33% as base64 — very large files may exceed your client's request size limit.`,
       inputSchema: {
         issueId: z.string().min(1),
         filename: z.string().min(1).max(255),
@@ -1867,31 +1870,36 @@ export function registerExponentialTools(
     async ({
       issueId: issueIdInput,
       filename: filenameInput,
-      contentType,
+      contentType: contentTypeInput,
       dataBase64,
       alt,
     }) => {
       try {
+        // Canonicalized (lowercase essence) so the exact-match inline-image
+        // classification behaves identically for every stored row.
+        const contentType = canonicalizeContentType(contentTypeInput)
+        const isImage = isAcceptedImageContentType(contentType)
         // The zod schema only checks length — strip control chars (CRLF would
         // otherwise poison the read path's Content-Disposition header).
-        const filename = sanitizeUploadFilename(filenameInput, `image`)
+        const filename = sanitizeUploadFilename(
+          filenameInput,
+          isImage ? `image` : `file`
+        )
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
         const issueCtx = await getIssueTeamContext(issueId)
         assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
         await assertTeamMember(user.id, issueCtx.teamId)
 
-        if (!isAcceptedImageContentType(contentType)) {
-          throw new Error(
-            `Unsupported image type "${contentType}" — only PNG, JPEG, WebP, GIF, and AVIF images are accepted.`
-          )
-        }
-
         const body = new Uint8Array(Buffer.from(dataBase64, `base64`))
         if (body.byteLength === 0) {
-          throw new Error(`Decoded image is empty — check the base64 payload.`)
+          throw new Error(`Decoded file is empty — check the base64 payload.`)
         }
-        if (body.byteLength > maxImageUploadBytes) {
-          throw new Error(`Images must be 10 MB or smaller.`)
+        if (body.byteLength > getMaxUploadBytesForContentType(contentType)) {
+          throw new Error(
+            isImage
+              ? `Images must be ${maxImageUploadBytes / (1024 * 1024)} MB or smaller.`
+              : `Files must be ${maxFileUploadBytes / (1024 * 1024)} MB or smaller.`
+          )
         }
 
         await assertWithinStorageLimit(issueCtx.teamId, body.byteLength)
@@ -1903,7 +1911,8 @@ export function registerExponentialTools(
           filename
         )
         const url = buildAttachmentUrl(attachmentId)
-        const dimensions = getImageDimensions(body)
+        // Only inline images are probed — a pdf/zip/video has no pixel size.
+        const dimensions = isImage ? getImageDimensions(body) : null
 
         await uploadObject({
           body,
@@ -1942,13 +1951,36 @@ export function registerExponentialTools(
         return ok({
           id: attachmentId,
           url,
-          markdown: `![${alt ?? ``}](${url})`,
+          // Non-images are NOT markdown-embeddable — they live in the issue's
+          // Files list, so no markdown field is offered for them.
+          ...(isImage ? { markdown: `![${alt ?? ``}](${url})` } : {}),
           filename,
           contentType,
           sizeBytes: body.byteLength,
           width: dimensions?.width ?? null,
           height: dimensions?.height ?? null,
         })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_attachments_delete`,
+    {
+      title: `Delete an attachment`,
+      description: `Permanently delete an issue attachment by its id (the {id} in /api/attachments/{id}) and reclaim its stored bytes. Any issue description or comment that embedded the image is rewritten in the same transaction, replacing the image with the plain text *(deleted image: …)*.`,
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      try {
+        const attachment = await getAttachmentTeamContext(id)
+        assertBoardGranted(access, attachment.boardId, attachment.teamId)
+        // Membership, rewrite and blob reclamation all live in the router —
+        // the MCP surface must never fork that logic.
+        await caller(user, request).attachments.delete({ id })
+        return ok({ ok: true, id })
       } catch (e) {
         return err(e)
       }

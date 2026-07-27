@@ -5,7 +5,8 @@
 //! their `components/team/*-section.tsx` cards, plus
 //! `routes/_authenticated/account/notifications.tsx`. The team-settings
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
-//! left nav with the groups — **Team** (General, Members, Labels), **Boards**
+//! left nav with the groups — **Team** (General, Members, Labels, Storage —
+//! the EXP-297 owner-only attachment manager), **Boards**
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
 //! old flat Boards list into per-board detail pages), and the desktop-only
 //! **This device** group (Tools, Agents, Local repositories); the detail
@@ -31,6 +32,7 @@ mod members;
 mod notifications_prefs;
 mod board_detail;
 mod repositories;
+mod storage;
 mod team_general;
 mod tools;
 
@@ -62,6 +64,7 @@ use members::MembersPane;
 use agents::AgentsPane;
 use board_detail::BoardDetailPane;
 use repositories::RepositoriesPane;
+use storage::StoragePane;
 use team_general::GeneralPane;
 use tools::ToolsPane;
 
@@ -74,6 +77,10 @@ pub(crate) enum SettingsSection {
     General,
     Members,
     Labels,
+    /// EXP-297 team file manager: every attachment via
+    /// `attachments.listForTeam` + per-file delete + the unreferenced-image
+    /// sweep. Owner-only, like the router behind it.
+    Storage,
     /// One board's detail settings page (EXP-288 — the Boards group lists
     /// every board as its own nav entry; the payload is the board id).
     Board(String),
@@ -118,6 +125,12 @@ const NAV_GROUPS: &[NavGroup] = &[
                 label: "Labels",
                 section: SettingsSection::Labels,
             },
+            // EXP-297: after Labels — the web nav's Team group order minus
+            // the web-only Plan & Billing entry between them.
+            NavItem {
+                label: "Storage",
+                section: SettingsSection::Storage,
+            },
         ],
     },
     NavGroup {
@@ -153,6 +166,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::General => Icon::new(IconName::Building2),
         SettingsSection::Members => Icon::new(IconName::User),
         SettingsSection::Labels => Icon::from(crate::icons::ExpIcon::Tag),
+        SettingsSection::Storage => Icon::from(crate::icons::ExpIcon::HardDrive),
         SettingsSection::Board(_) => Icon::from(crate::icons::ExpIcon::SquareKanban),
         SettingsSection::Repositories => Icon::new(IconName::Github),
         SettingsSection::Tools => Icon::new(IconName::SquareTerminal),
@@ -167,7 +181,9 @@ fn section_icon(section: &SettingsSection) -> Icon {
 fn section_visible(section: &SettingsSection, owner: bool, solo: bool) -> bool {
     match section {
         SettingsSection::General => owner && !solo,
-        SettingsSection::Board(_) | SettingsSection::Repositories => owner,
+        SettingsSection::Storage
+        | SettingsSection::Board(_)
+        | SettingsSection::Repositories => owner,
         _ => true,
     }
 }
@@ -235,6 +251,8 @@ pub struct SettingsView {
     general: Entity<GeneralPane>,
     members: Entity<MembersPane>,
     labels: Entity<LabelsPane>,
+    /// EXP-297 owner-only attachment manager (fetch-on-open server read).
+    storage: Entity<StoragePane>,
     /// EXP-288: ONE per-board detail pane — it reads the selected `Board(id)`
     /// from the shared selection itself and re-points at board switches.
     board_detail: Entity<BoardDetailPane>,
@@ -263,6 +281,7 @@ impl SettingsView {
         let general = cx.new(|cx| GeneralPane::new(nav.clone(), window, cx));
         let members = cx.new(|cx| MembersPane::new(nav.clone(), window, cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
+        let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), cx));
@@ -289,6 +308,7 @@ impl SettingsView {
             general,
             members,
             labels,
+            storage,
             board_detail,
             repositories,
             tools,
@@ -328,6 +348,7 @@ impl Render for SettingsView {
             SettingsSection::General => self.general.clone().into_any_element(),
             SettingsSection::Members => self.members.clone().into_any_element(),
             SettingsSection::Labels => self.labels.clone().into_any_element(),
+            SettingsSection::Storage => self.storage.clone().into_any_element(),
             // The pane reads the selected board id from the shared selection
             // itself (it needs to flush a pending rename on board switches).
             SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
@@ -741,6 +762,70 @@ pub(crate) fn pref_row(
         .child(div().flex_none().child(control))
 }
 
+/// Web `formatStorage`: MB under a GB, one-decimal GB above. Shared by the
+/// General billing summary and the Storage pane's usage meter (EXP-297).
+pub(super) fn format_storage(mb: f64) -> String {
+    if mb >= 1024. {
+        let gb = mb / 1024.;
+        if (gb - gb.round()).abs() < 0.05 {
+            format!("{} GB", gb.round() as i64)
+        } else {
+            format!("{gb:.1} GB")
+        }
+    } else if (mb - mb.round()).abs() < 0.05 {
+        format!("{} MB", mb.round() as i64)
+    } else {
+        format!("{mb:.1} MB")
+    }
+}
+
+/// One usage row (web `UsageBar`): label left, "current / limit" right, a
+/// thin progress track underneath (no track for unlimited).
+pub(super) fn usage_bar(
+    label: &'static str,
+    current: String,
+    limit: Option<String>,
+    fraction: Option<f64>,
+    cx: &App,
+) -> impl IntoElement {
+    let amount = match limit {
+        Some(limit) => format!("{current} / {limit}"),
+        None => format!("{current} / unlimited"),
+    };
+    let mut row = v_flex()
+        .gap_1()
+        .child(
+            h_flex()
+                .justify_between()
+                .items_center()
+                .child(div().text_sm().child(label))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(amount)),
+                ),
+        );
+    if let Some(fraction) = fraction {
+        let fraction = fraction.clamp(0., 1.) as f32;
+        row = row.child(
+            div()
+                .h(gpui::px(6.))
+                .w_full()
+                .rounded_full()
+                .bg(cx.theme().muted.opacity(0.35))
+                .child(
+                    div()
+                        .h_full()
+                        .rounded_full()
+                        .w(gpui::relative(fraction))
+                        .bg(cx.theme().primary),
+                ),
+        );
+    }
+    row
+}
+
 /// Web `CardTitle` + `CardDescription`.
 pub(crate) fn card_header(
     title: impl Into<SharedString>,
@@ -912,6 +997,7 @@ mod tests {
     fn non_owner_falls_back_to_members() {
         for gated in [
             SettingsSection::General,
+            SettingsSection::Storage,
             SettingsSection::Board("b-1".to_string()),
             SettingsSection::Repositories,
         ] {

@@ -40,7 +40,8 @@
 //! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
 //! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 `prFiles`
 //! query), [`boards`], [`teams`] (+ members + invites), [`labels`]
-//! (+ issueLabels), [`comments`], [`notifications`] — plus [`patch`], the
+//! (+ issueLabels), [`comments`], [`notifications`], [`attachments`]
+//! (EXP-297 `attachments.delete`) — plus [`patch`], the
 //! tri-state omit/null/set field for zod `.nullable().optional()` updates.
 //! Mutation outputs decode the server `txId` for the §4.1 `awaitTxId` gate.
 //!
@@ -57,6 +58,7 @@
 
 pub mod accounts;
 pub mod actions;
+pub mod attachments;
 pub mod billing;
 pub mod coding_sessions;
 pub mod comments;

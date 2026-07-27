@@ -121,6 +121,7 @@ public enum AppIcons {
         "credit-card",
         "crown",
         "database",
+        "download",
         "ellipsis",
         "ellipsis-vertical",
         "external-link",
@@ -178,6 +179,7 @@ public enum AppIcons {
         "palette",
         "panel-left-close",
         "panel-left-open",
+        "paperclip",
         "pen-tool",
         "pencil",
         "phone",
@@ -440,6 +442,8 @@ public enum AppIcons {
     public static let uiArrowRight: String = "arrow-right"
     /// Concept `ui-assignee`.
     public static let uiAssignee: String = "circle-user"
+    /// Concept `ui-attach`.
+    public static let uiAttach: String = "paperclip"
     /// Concept `ui-back`.
     public static let uiBack: String = "arrow-left"
     /// Concept `ui-branch`.
@@ -474,6 +478,8 @@ public enum AppIcons {
     public static let uiDeleteAccount: String = "user-x"
     /// Concept `ui-device`.
     public static let uiDevice: String = "monitor"
+    /// Concept `ui-download`.
+    public static let uiDownload: String = "download"
     /// Concept `ui-due-date`.
     public static let uiDueDate: String = "calendar-days"
     /// Concept `ui-edit`.

@@ -46,6 +46,7 @@ mod icons;
 mod image_preview;
 mod inbox;
 pub mod issue_detail;
+mod issue_files;
 mod issue_list;
 mod join_team;
 mod login;

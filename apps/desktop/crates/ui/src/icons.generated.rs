@@ -126,6 +126,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "credit-card" => ExpIcon::CreditCard,
         "crown" => ExpIcon::Crown,
         "database" => ExpIcon::Database,
+        "download" => ExpIcon::Download,
         "ellipsis" => ExpIcon::Ellipsis,
         "ellipsis-vertical" => ExpIcon::EllipsisVertical,
         "external-link" => ExpIcon::ExternalLink,
@@ -183,6 +184,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "palette" => ExpIcon::Palette,
         "panel-left-close" => ExpIcon::PanelLeftClose,
         "panel-left-open" => ExpIcon::PanelLeftOpen,
+        "paperclip" => ExpIcon::Paperclip,
         "pen-tool" => ExpIcon::PenTool,
         "pencil" => ExpIcon::Pencil,
         "phone" => ExpIcon::Phone,
@@ -442,6 +444,8 @@ pub const UI_ADD: ExpIcon = ExpIcon::Plus;
 pub const UI_ARROW_RIGHT: ExpIcon = ExpIcon::ArrowRight;
 /// Registry concept `ui-assignee` -> Lucide `circle-user`.
 pub const UI_ASSIGNEE: ExpIcon = ExpIcon::CircleUser;
+/// Registry concept `ui-attach` -> Lucide `paperclip`.
+pub const UI_ATTACH: ExpIcon = ExpIcon::Paperclip;
 /// Registry concept `ui-back` -> Lucide `arrow-left`.
 pub const UI_BACK: ExpIcon = ExpIcon::ArrowLeft;
 /// Registry concept `ui-branch` -> Lucide `git-branch`.
@@ -476,6 +480,8 @@ pub const UI_DELETE: ExpIcon = ExpIcon::Trash2;
 pub const UI_DELETE_ACCOUNT: ExpIcon = ExpIcon::UserX;
 /// Registry concept `ui-device` -> Lucide `monitor`.
 pub const UI_DEVICE: ExpIcon = ExpIcon::Monitor;
+/// Registry concept `ui-download` -> Lucide `download`.
+pub const UI_DOWNLOAD: ExpIcon = ExpIcon::Download;
 /// Registry concept `ui-due-date` -> Lucide `calendar-days`.
 pub const UI_DUE_DATE: ExpIcon = ExpIcon::CalendarDays;
 /// Registry concept `ui-edit` -> Lucide `pencil`.
