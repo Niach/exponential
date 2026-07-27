@@ -31,6 +31,9 @@ final class AppDependencies: @unchecked Sendable {
     let pushTokensApi: PushTokensApi
     let integrationsApi: IntegrationsApi
     let issueImagesApi: IssueImagesApi
+    // Any-content-type issue attachments (EXP-297): upload/delete/download for
+    // the Files section. The inline-image pipeline keeps using issueImagesApi.
+    let attachmentsApi: AttachmentsApi
     let commentsApi: CommentsApi
     let usersApi: UsersApi
     let notificationsApi: NotificationsApi
@@ -127,6 +130,7 @@ final class AppDependencies: @unchecked Sendable {
         self.pushTokensApi = PushTokensApi(trpc: trpc)
         self.integrationsApi = IntegrationsApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
+        self.attachmentsApi = AttachmentsApi(httpClient: httpClient, trpc: trpc, auth: auth)
         self.commentsApi = CommentsApi(trpc: trpc)
         self.usersApi = UsersApi(trpc: trpc)
         self.notificationsApi = NotificationsApi(trpc: trpc)

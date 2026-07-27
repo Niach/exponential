@@ -53,8 +53,6 @@ import {
   hasMarkdownImages,
 } from "@/lib/storage/issue-attachments"
 import {
-  collectAndDeleteRemovedAttachmentsInTx,
-  collectAndDeleteUnreferencedAttachmentsInTx,
   collectIssueAttachmentStorageKeysInTx,
   deleteStorageObjects,
 } from "@/lib/storage/issue-attachment-cleanup"
@@ -414,8 +412,6 @@ export const issuesRouter = router({
         await assertAssigneeInTeam(updates.assigneeId, issueContext.teamId)
       }
 
-      const deletedStorageKeys: string[] = []
-
       let previousAssigneeId: string | null = null
       let newlyMentionedUserIds: string[] = []
       const { issue, statusChange } = await ctx.db.transaction(async (tx) => {
@@ -542,23 +538,10 @@ export const issuesRouter = router({
             setValues.description = nextText
           }
 
-          const removedKeys = await collectAndDeleteRemovedAttachmentsInTx(
-            tx,
-            id,
-            previousText,
-            nextText,
-            ctx.request.url
-          )
-          deletedStorageKeys.push(...removedKeys)
-
-          // Reclaim never-referenced uploads left by an abandoned edit.
-          const orphanKeys = await collectAndDeleteUnreferencedAttachmentsInTx(
-            tx,
-            id,
-            nextText,
-            ctx.request.url
-          )
-          deletedStorageKeys.push(...orphanKeys)
+          // EXP-297: no attachment GC here. Removing an image from a
+          // description only unlinks it from the markdown — the row (and the
+          // blob) survive in the issue's Files list until someone deletes it
+          // explicitly (attachments.delete / the team storage manager).
 
           // Description @mentions, delta-based: only members mentioned in the
           // NEW text but not the old one are subscribed + notified, so
@@ -609,8 +592,6 @@ export const issuesRouter = router({
 
         return { issue: result.issue, statusChange: result.statusChange }
       })
-
-      await deleteStorageObjects(deletedStorageKeys)
 
       fireAndForgetAssignmentNotify({
         issueId: issue.id,

@@ -7,6 +7,7 @@ import {
   CreditCard,
   FolderKanban,
   Github,
+  HardDrive,
   MessageSquarePlus,
   Settings2,
   Tags,
@@ -37,6 +38,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/members`
   | `/t/$teamSlug/settings/labels`
   | `/t/$teamSlug/settings/billing`
+  | `/t/$teamSlug/settings/storage`
   | `/t/$teamSlug/settings/boards`
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/widget`
@@ -84,6 +86,14 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         icon: CreditCard,
         visible: (permissions, context) =>
           permissions.canManageTeam && context.isCloud,
+      },
+      // EXP-297 attachment manager: usage meter + per-file delete + the
+      // unreferenced-image sweep. Owner-only, like the router behind it.
+      {
+        label: `Storage`,
+        to: `/t/$teamSlug/settings/storage`,
+        icon: HardDrive,
+        visible: (permissions) => permissions.isOwner,
       },
     ],
   },
@@ -137,8 +147,8 @@ export function useSettingsPage(teamSlug: string) {
   const currentUserId = session?.user?.id
   const resolved = Boolean(
     team &&
-      currentUserId &&
-      members.some((member) => member.userId === currentUserId)
+    currentUserId &&
+    members.some((member) => member.userId === currentUserId)
   )
 
   return {

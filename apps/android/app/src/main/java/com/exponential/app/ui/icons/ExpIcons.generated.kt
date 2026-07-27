@@ -1717,6 +1717,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `download`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "download",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 15V3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m7 10 5 5 5-5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `ellipsis`: ImageVector by lazy {
         ImageVector.Builder(
             name = "ellipsis",
@@ -3573,6 +3605,24 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `paperclip`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "paperclip",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `pen-tool`: ImageVector by lazy {
         ImageVector.Builder(
             name = "pen-tool",
@@ -5396,6 +5446,7 @@ public object ExpIcons {
         "credit-card" -> `credit-card`
         "crown" -> `crown`
         "database" -> `database`
+        "download" -> `download`
         "ellipsis" -> `ellipsis`
         "ellipsis-vertical" -> `ellipsis-vertical`
         "external-link" -> `external-link`
@@ -5453,6 +5504,7 @@ public object ExpIcons {
         "palette" -> `palette`
         "panel-left-close" -> `panel-left-close`
         "panel-left-open" -> `panel-left-open`
+        "paperclip" -> `paperclip`
         "pen-tool" -> `pen-tool`
         "pencil" -> `pencil`
         "phone" -> `phone`
@@ -5711,6 +5763,8 @@ public object ExpIcons {
     public val uiArrowRight: ImageVector get() = `arrow-right`
     /** Concept `ui-assignee`. */
     public val uiAssignee: ImageVector get() = `circle-user`
+    /** Concept `ui-attach`. */
+    public val uiAttach: ImageVector get() = `paperclip`
     /** Concept `ui-back`. */
     public val uiBack: ImageVector get() = `arrow-left`
     /** Concept `ui-branch`. */
@@ -5745,6 +5799,8 @@ public object ExpIcons {
     public val uiDeleteAccount: ImageVector get() = `user-x`
     /** Concept `ui-device`. */
     public val uiDevice: ImageVector get() = `monitor`
+    /** Concept `ui-download`. */
+    public val uiDownload: ImageVector get() = `download`
     /** Concept `ui-due-date`. */
     public val uiDueDate: ImageVector get() = `calendar-days`
     /** Concept `ui-edit`. */

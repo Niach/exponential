@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  EXP-297: downloaded issue attachments are cached under cacheDir/attachments/
+  and handed to viewers / share targets as content:// URIs. Only that one
+  subtree is exposed — never the whole cache, and never files/ (which holds
+  the Room database and the account store).
+-->
+<paths>
+    <cache-path name="attachments" path="attachments/" />
+</paths>

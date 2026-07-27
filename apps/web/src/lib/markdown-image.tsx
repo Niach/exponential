@@ -255,7 +255,7 @@ function MarkdownImageNodeView({
                 <MoreHorizontal className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onSelect={() => setLightboxOpen(true)}>
                 <Eye />
                 View image
@@ -281,7 +281,10 @@ function MarkdownImageNodeView({
                 }}
               >
                 <Trash2 />
-                Delete
+                {/* EXP-297: removing the node only unlinks the image from the
+                    text — the attachment itself now lives until someone
+                    deletes it explicitly (the auto-GC is gone). */}
+                Remove from description
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

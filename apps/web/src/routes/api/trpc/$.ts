@@ -16,6 +16,7 @@ import { integrationsRouter } from "@/lib/trpc/integrations"
 import { adminRouter } from "@/lib/trpc/admin"
 import { pushTokensRouter } from "@/lib/trpc/push-tokens"
 import { commentsRouter } from "@/lib/trpc/comments"
+import { attachmentsRouter } from "@/lib/trpc/attachments"
 import { repositoriesRouter } from "@/lib/trpc/repositories"
 import { actionsRouter } from "@/lib/trpc/actions"
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
@@ -35,6 +36,7 @@ export const appRouter = router({
   issueLabels: issueLabelsRouter,
   labels: labelsRouter,
   comments: commentsRouter,
+  attachments: attachmentsRouter,
   repositories: repositoriesRouter,
   actions: actionsRouter,
   codingSessions: codingSessionsRouter,

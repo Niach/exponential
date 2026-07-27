@@ -1,5 +1,5 @@
 import { useRef } from "react"
-import { LoaderCircle, Paperclip } from "lucide-react"
+import { LoaderCircle, Paperclip, type LucideIcon } from "lucide-react"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,15 +10,25 @@ import {
 } from "@/components/ui/tooltip"
 
 interface IssueEditorAttachmentButtonProps {
+  // Native file-picker filter. Defaults to the inline-image types; the Files
+  // section (EXP-297) passes `*/*`.
+  accept?: string
   disabled?: boolean
   disabledReason?: string
+  // Glyph of the trigger; defaults to the paperclip.
+  icon?: LucideIcon
+  // Accessible name of the trigger; defaults to the image wording.
+  label?: string
   onFiles?: (files: File[]) => void | Promise<void>
   uploading?: boolean
 }
 
 export function IssueEditorAttachmentButton({
+  accept = acceptedImageContentTypes.join(`,`),
   disabled,
   disabledReason,
+  icon: Icon = Paperclip,
+  label = `Add image`,
   onFiles,
   uploading,
 }: IssueEditorAttachmentButtonProps) {
@@ -30,7 +40,7 @@ export function IssueEditorAttachmentButton({
       <Input
         ref={inputRef}
         type="file"
-        accept={acceptedImageContentTypes.join(`,`)}
+        accept={accept}
         className="hidden"
         disabled={isDisabled || uploading}
         onChange={(event) => {
@@ -48,7 +58,7 @@ export function IssueEditorAttachmentButton({
         size="icon-xs"
         className="text-muted-foreground"
         type="button"
-        aria-label="Add image"
+        aria-label={label}
         disabled={isDisabled || uploading}
         onClick={() => {
           inputRef.current?.click()
@@ -57,7 +67,7 @@ export function IssueEditorAttachmentButton({
         {uploading ? (
           <LoaderCircle className="size-3 animate-spin" />
         ) : (
-          <Paperclip className="size-3" />
+          <Icon className="size-3" />
         )}
       </Button>
     </>

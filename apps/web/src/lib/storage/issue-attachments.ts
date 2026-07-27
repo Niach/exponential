@@ -13,6 +13,24 @@ export const acceptedImageContentTypes = [
 
 export const maxImageUploadBytes = 10 * 1024 * 1024
 
+// EXP-297: non-image attachments (pdf/zip/video/…) get a larger cap. Images
+// keep their 10 MB ceiling because they ride the inline markdown pipeline.
+export const maxFileUploadBytes = 50 * 1024 * 1024
+
+/**
+ * Content types the byte route may serve with `Content-Disposition: inline`.
+ * Deliberately narrow: anything scriptable in a browsing context (text/html,
+ * image/svg+xml, …) must download instead of render, because attachment bytes
+ * are served from the app's own origin.
+ */
+const inlineSafeContentTypes = new Set<string>([
+  ...acceptedImageContentTypes,
+  `application/pdf`,
+  `text/plain`,
+])
+
+const inlineSafeContentTypePrefixes = [`video/`, `audio/`]
+
 export interface MarkdownImageOccurrence {
   alt: string
   end: number
@@ -140,10 +158,92 @@ export function buildContentDispositionHeader(
   }
 }
 
+/**
+ * Canonical stored form of an upload's content type: the lowercased media
+ * essence (parameters stripped), falling back to application/octet-stream.
+ * Stored rows must always be canonical because the inline-image classification
+ * (`isAcceptedImageContentType`) is an EXACT match on every client — a stored
+ * `image/PNG` or `image/png; charset=binary` would classify differently than
+ * `image/png`.
+ */
+export function canonicalizeContentType(raw: string) {
+  const essence = raw.split(`;`)[0]?.trim().toLowerCase() ?? ``
+  return essence || `application/octet-stream`
+}
+
 export function isAcceptedImageContentType(contentType: string) {
   return acceptedImageContentTypes.includes(
     contentType as (typeof acceptedImageContentTypes)[number]
   )
+}
+
+/**
+ * Per-type upload ceiling: inline images stay at 10 MB, everything else gets
+ * the 50 MB file cap (EXP-297).
+ */
+export function getMaxUploadBytesForContentType(contentType: string) {
+  return isAcceptedImageContentType(contentType)
+    ? maxImageUploadBytes
+    : maxFileUploadBytes
+}
+
+/**
+ * True when the byte route may serve this type with an `inline` disposition.
+ * Parameters (`; charset=…`) are ignored; an empty/unknown type is never
+ * inline-safe.
+ */
+export function isInlineSafeContentType(contentType: string) {
+  const essence = contentType.split(`;`)[0]?.trim().toLowerCase() ?? ``
+
+  if (!essence) return false
+  if (inlineSafeContentTypes.has(essence)) return true
+
+  return inlineSafeContentTypePrefixes.some((prefix) =>
+    essence.startsWith(prefix)
+  )
+}
+
+/**
+ * Plain-text stand-in written into markdown where a now-deleted image used to
+ * be. Deliberately NOT image-shaped: the issues.update round-trip guard 400s
+ * descriptions that reference attachments which no longer exist.
+ */
+export function buildDeletedAttachmentPlaceholder(label: string) {
+  const cleaned = label
+    .replace(/[\r\n]+/g, ` `)
+    .replace(/[[\]()!]/g, ``)
+    .replace(/\s+/g, ` `)
+    .trim()
+    .slice(0, 100)
+    .trim()
+
+  return `*(deleted image: ${cleaned || `image`})*`
+}
+
+/**
+ * Replaces EVERY markdown image whose URL resolves to `attachmentId` (relative
+ * or absolute same-origin, with or without the `?w=` display-width param) by
+ * the plain-text deleted placeholder. The label is the image's alt text,
+ * falling back to the attachment's filename.
+ */
+export function replaceAttachmentReferencesWithPlaceholder(
+  text: string,
+  attachmentId: string,
+  origin: string,
+  filenameFallback: string
+): { text: string; changed: boolean } {
+  let changed = false
+
+  const next = updateMarkdownImages(text, (match) => {
+    if (getAttachmentIdFromUrl(match.url, origin) !== attachmentId) {
+      return undefined
+    }
+
+    changed = true
+    return buildDeletedAttachmentPlaceholder(match.alt || filenameFallback)
+  })
+
+  return { text: next, changed }
 }
 
 export function extractMarkdownImageOccurrences(
@@ -252,7 +352,9 @@ export function replaceMarkdownImageUrls(
 
 function getAttachmentIdFromParsedUrl(url: URL) {
   const match = attachmentPathPattern.exec(url.pathname)
-  return match?.groups?.attachmentId ?? null
+  // Lowercased so extracted ids always compare equal to DB-stored uuids,
+  // whatever casing a stored URL happens to carry.
+  return match?.groups?.attachmentId?.toLowerCase() ?? null
 }
 
 export function getAttachmentIdFromUrl(value: string, origin: string) {
@@ -345,19 +447,4 @@ export function canonicalizeMarkdownImageUrls(text: string, origin: string) {
 
     return match.markdown.replace(match.url, canonical)
   })
-}
-
-export function getRemovedAttachmentIds(
-  previousText: string,
-  nextText: string,
-  origin: string
-) {
-  const previousIds = new Set(
-    extractAttachmentIdsFromDescription(previousText, origin).attachmentIds
-  )
-  const nextIds = new Set(
-    extractAttachmentIdsFromDescription(nextText, origin).attachmentIds
-  )
-
-  return [...previousIds].filter((attachmentId) => !nextIds.has(attachmentId))
 }

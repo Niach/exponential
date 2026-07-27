@@ -1,0 +1,263 @@
+import { useMemo, useState } from "react"
+import { eq, useLiveQuery } from "@tanstack/react-db"
+import { Download, ExternalLink, LoaderCircle, Trash2 } from "lucide-react"
+import type { Attachment } from "@/db/schema"
+import { attachmentCollection } from "@/lib/collections"
+import { trpc } from "@/lib/trpc-client"
+import { uploadIssueFile } from "@/lib/storage/issue-image-upload"
+import {
+  buildAttachmentDownloadUrl,
+  formatAttachmentSize,
+  getAttachmentIcon,
+  isInlineImageAttachment,
+} from "@/lib/attachment-files"
+import { Button } from "@/components/ui/button"
+import { IconTooltip } from "@/components/icon-tooltip"
+import { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+
+interface IssueFilesSectionProps {
+  issueId: string
+  readOnly?: boolean
+}
+
+/**
+ * EXP-297 Files rail: the issue's NON-inline-image attachments, rendered
+ * straight from the synced `attachments` shape (they never appear in the
+ * description markdown). Members can attach any file type, open/download it,
+ * or delete the row.
+ */
+export function IssueFilesSection({
+  issueId,
+  readOnly = false,
+}: IssueFilesSectionProps) {
+  const { data } = useLiveQuery(
+    (query) =>
+      query
+        .from({ attachments: attachmentCollection })
+        .where(({ attachments }) => eq(attachments.issueId, issueId)),
+    [issueId]
+  )
+
+  const files = useMemo(() => {
+    const rows = (data ?? []) as Attachment[]
+    return rows
+      .filter((row) => !isInlineImageAttachment(row.contentType))
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )
+  }, [data])
+
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<Attachment | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleFiles = async (selected: File[]) => {
+    setError(null)
+
+    // Inline-image types are deflected: they would upload fine but never show
+    // anywhere — every client's Files section filters them out and no markdown
+    // references them, so the sweep would silently delete them (EXP-297).
+    const images = selected.filter((file) =>
+      isInlineImageAttachment(file.type)
+    )
+    const uploadable = selected.filter(
+      (file) => !isInlineImageAttachment(file.type)
+    )
+    const failures: string[] = images.map(
+      (file) =>
+        `${file.name}: images go in the description — add them with the editor's image button`
+    )
+
+    setUploading(true)
+    // Every pick is attempted; failures are collected per file so one oversize
+    // upload never silently drops the rest (parity with the native clients).
+    for (const file of uploadable) {
+      try {
+        await uploadIssueFile(issueId, file)
+      } catch (uploadError) {
+        failures.push(
+          uploadError instanceof Error
+            ? `${file.name}: ${uploadError.message}`
+            : `${file.name}: upload failed`
+        )
+      }
+    }
+    setUploading(false)
+
+    if (failures.length > 0) {
+      setError(
+        failures.length === selected.length
+          ? failures.join(` · `)
+          : `${failures.length} of ${selected.length} files failed — ${failures.join(` · `)}`
+      )
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return
+    setDeleting(true)
+    setError(null)
+    try {
+      const { txId } = await trpc.attachments.delete.mutate({
+        id: pendingDelete.id,
+      })
+      await attachmentCollection.utils.awaitTxId(txId)
+      setPendingDelete(null)
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : `Failed to delete file`
+      )
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  // Nothing to show and nothing to add — stay out of the way entirely.
+  if (files.length === 0 && readOnly) {
+    return null
+  }
+
+  return (
+    <div className="px-5 py-2" data-testid="issue-files-section">
+      <div className="flex items-center gap-2">
+        <h3 className="text-xs font-medium text-muted-foreground">
+          Files{files.length > 0 ? ` · ${files.length}` : ``}
+        </h3>
+        {!readOnly && (
+          <div className="ml-auto">
+            <IssueEditorAttachmentButton
+              accept="*/*"
+              label="Attach file"
+              onFiles={handleFiles}
+              uploading={uploading}
+            />
+          </div>
+        )}
+      </div>
+
+      {files.length > 0 && (
+        <ul className="mt-1.5 flex flex-col gap-1">
+          {files.map((file) => {
+            const Icon = getAttachmentIcon(file.contentType)
+
+            return (
+              <li
+                key={file.id}
+                className="flex min-w-0 items-center gap-2 rounded-md border border-glass-stroke-card bg-glass-section px-2 py-1.5"
+                data-testid={`issue-file-row-${file.id}`}
+              >
+                <Icon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {file.filename}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                  {formatAttachmentSize(file.sizeBytes)}
+                </span>
+                <IconTooltip label="Open">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground"
+                    asChild
+                  >
+                    <a
+                      href={file.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Open ${file.filename}`}
+                    >
+                      <ExternalLink />
+                    </a>
+                  </Button>
+                </IconTooltip>
+                <IconTooltip label="Download">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground"
+                    asChild
+                  >
+                    <a
+                      href={buildAttachmentDownloadUrl(file.url)}
+                      download={file.filename}
+                      aria-label={`Download ${file.filename}`}
+                    >
+                      <Download />
+                    </a>
+                  </Button>
+                </IconTooltip>
+                {!readOnly && (
+                  <IconTooltip label="Delete">
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label={`Delete ${file.filename}`}
+                      onClick={() => setPendingDelete(file)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </IconTooltip>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {uploading && (
+        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <LoaderCircle className="size-3 animate-spin" />
+          Uploading...
+        </p>
+      )}
+      {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setPendingDelete(null)
+        }}
+      >
+        <AlertDialogContent data-testid="issue-file-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.filename} will be permanently removed for everyone
+              — this can&apos;t be undone. If it is referenced anywhere in a
+              description or comment, that reference is replaced with a plain
+              &ldquo;deleted image&rdquo; note.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleConfirmDelete()
+              }}
+            >
+              {deleting ? `Deleting...` : `Delete file`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}

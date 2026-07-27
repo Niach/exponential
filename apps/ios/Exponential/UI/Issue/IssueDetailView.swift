@@ -208,6 +208,10 @@ struct IssueDetailView: View {
                             currentUserId: deps.auth.userId
                         )
 
+                        // Non-image attachments (EXP-297): rendered from the
+                        // synced attachment rows, not from the markdown.
+                        IssueFilesSection(viewModel: vm)
+
                         // Error
                         if let error = vm.error {
                             Text(error)
@@ -388,6 +392,7 @@ struct IssueDetailView: View {
                     db: deps.db,
                     issuesApi: deps.issuesApi,
                     issueImagesApi: deps.issueImagesApi,
+                    attachmentsApi: deps.attachmentsApi,
                     labelsApi: deps.labelsApi,
                     subscriptionsApi: deps.subscriptionsApi,
                     steerApi: deps.steerApi,

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
   buildContentDispositionHeader,
+  buildDeletedAttachmentPlaceholder,
+  getMaxUploadBytesForContentType,
+  isInlineSafeContentType,
+  maxFileUploadBytes,
+  maxImageUploadBytes,
+  replaceAttachmentReferencesWithPlaceholder,
   canonicalizeMarkdownImageUrls,
   collectMarkdownImageUrls,
   collectReferencedAttachmentIds,
@@ -8,7 +14,7 @@ import {
   extractAttachmentIdsFromDescription,
   extractMarkdownImageUrls,
   getAttachmentImageWidthFromUrl,
-  getRemovedAttachmentIds,
+  canonicalizeContentType,
   hasMarkdownImages,
   removeMarkdownImageByOccurrence,
   removeMarkdownImagesByUrl,
@@ -94,17 +100,25 @@ describe(`issue attachment helpers`, () => {
     })
   })
 
-  it(`calculates removed attachment ids`, () => {
+  it(`extracts a lowercase id from an uppercase attachment URL`, () => {
     expect(
-      getRemovedAttachmentIds(
-        [
-          `![one](/api/attachments/11111111-1111-1111-1111-111111111111)`,
-          `![two](/api/attachments/22222222-2222-2222-2222-222222222222)`,
-        ].join(`\n`),
-        `![two](/api/attachments/22222222-2222-2222-2222-222222222222)`,
+      extractAttachmentIdsFromDescription(
+        `![shout](/api/attachments/11111111-1111-1111-1111-11111111111A)`,
         `https://app.test/api/trpc`
-      )
-    ).toEqual([`11111111-1111-1111-1111-111111111111`])
+      ).attachmentIds
+    ).toEqual([`11111111-1111-1111-1111-11111111111a`])
+  })
+
+  it(`canonicalizes content types to a lowercase parameter-free essence`, () => {
+    expect(canonicalizeContentType(`image/png`)).toBe(`image/png`)
+    expect(canonicalizeContentType(`IMAGE/PNG`)).toBe(`image/png`)
+    expect(canonicalizeContentType(`image/jpeg; charset=binary`)).toBe(
+      `image/jpeg`
+    )
+    expect(canonicalizeContentType(``)).toBe(`application/octet-stream`)
+    expect(canonicalizeContentType(`  ;foo=bar`)).toBe(
+      `application/octet-stream`
+    )
   })
 
   it(`removes only selected markdown image urls`, () => {
@@ -261,7 +275,10 @@ describe(`canonicalizeMarkdownImageUrls`, () => {
 
   it(`clamps w into sane bounds`, () => {
     expect(
-      canonicalizeMarkdownImageUrls(`![one](/api/attachments/${id}?w=5)`, origin)
+      canonicalizeMarkdownImageUrls(
+        `![one](/api/attachments/${id}?w=5)`,
+        origin
+      )
     ).toBe(`![one](/api/attachments/${id}?w=40)`)
     expect(
       canonicalizeMarkdownImageUrls(
@@ -296,13 +313,15 @@ describe(`getAttachmentImageWidthFromUrl`, () => {
   const origin = `https://app.test`
 
   it(`returns the integer w param`, () => {
-    expect(getAttachmentImageWidthFromUrl(`/api/attachments/x?w=480`, origin)).toBe(
-      480
-    )
+    expect(
+      getAttachmentImageWidthFromUrl(`/api/attachments/x?w=480`, origin)
+    ).toBe(480)
   })
 
   it(`returns null without a valid w`, () => {
-    expect(getAttachmentImageWidthFromUrl(`/api/attachments/x`, origin)).toBe(null)
+    expect(getAttachmentImageWidthFromUrl(`/api/attachments/x`, origin)).toBe(
+      null
+    )
     expect(
       getAttachmentImageWidthFromUrl(`/api/attachments/x?w=12px`, origin)
     ).toBe(null)
@@ -344,7 +363,10 @@ describe(`buildContentDispositionHeader`, () => {
   })
 
   it(`keeps the quoted fallback parseable when the name contains quotes or backslashes`, () => {
-    const result = buildContentDispositionHeader(`inline`, `she said "hi"\\.png`)
+    const result = buildContentDispositionHeader(
+      `inline`,
+      `she said "hi"\\.png`
+    )
 
     expect(result).toBe(
       `inline; filename="she said 'hi''.png"; filename*=UTF-8''she%20said%20%22hi%22%5C.png`
@@ -402,5 +424,180 @@ describe(`sanitizeUploadFilename`, () => {
 
   it(`clamps to 255 characters`, () => {
     expect(sanitizeUploadFilename(`${`a`.repeat(300)}.png`)).toHaveLength(255)
+  })
+})
+
+// ── EXP-297: any-file attachments ────────────────────────────────────────────
+
+describe(`getMaxUploadBytesForContentType`, () => {
+  it(`keeps the 10 MB ceiling for the five inline image types`, () => {
+    for (const contentType of [
+      `image/png`,
+      `image/jpeg`,
+      `image/webp`,
+      `image/gif`,
+      `image/avif`,
+    ]) {
+      expect(getMaxUploadBytesForContentType(contentType)).toBe(
+        maxImageUploadBytes
+      )
+    }
+  })
+
+  it(`gives everything else the 50 MB file cap`, () => {
+    for (const contentType of [
+      `application/pdf`,
+      `application/zip`,
+      `video/mp4`,
+      `text/plain`,
+      `image/svg+xml`,
+      `image/tiff`,
+      ``,
+    ]) {
+      expect(getMaxUploadBytesForContentType(contentType)).toBe(
+        maxFileUploadBytes
+      )
+    }
+  })
+})
+
+describe(`isInlineSafeContentType`, () => {
+  it(`allows the inline allowlist`, () => {
+    for (const contentType of [
+      `image/png`,
+      `image/jpeg`,
+      `image/webp`,
+      `image/gif`,
+      `image/avif`,
+      `application/pdf`,
+      `text/plain`,
+      `video/mp4`,
+      `video/quicktime`,
+      `audio/mpeg`,
+    ]) {
+      expect(isInlineSafeContentType(contentType)).toBe(true)
+    }
+  })
+
+  it(`forces everything scriptable or unknown to download`, () => {
+    for (const contentType of [
+      `text/html`,
+      `image/svg+xml`,
+      `application/xhtml+xml`,
+      `application/zip`,
+      `application/octet-stream`,
+      `application/javascript`,
+      ``,
+    ]) {
+      expect(isInlineSafeContentType(contentType)).toBe(false)
+    }
+  })
+
+  it(`ignores parameters and case`, () => {
+    expect(isInlineSafeContentType(`TEXT/PLAIN; charset=utf-8`)).toBe(true)
+    expect(isInlineSafeContentType(`text/html; charset=utf-8`)).toBe(false)
+  })
+})
+
+describe(`buildDeletedAttachmentPlaceholder`, () => {
+  it(`is plain text, never image-shaped markdown`, () => {
+    const placeholder = buildDeletedAttachmentPlaceholder(`shot.png`)
+    expect(placeholder).toBe(`*(deleted image: shot.png)*`)
+    expect(placeholder).not.toContain(`![`)
+  })
+
+  it(`strips markdown-structural characters and newlines`, () => {
+    const placeholder = buildDeletedAttachmentPlaceholder(
+      `![evil](http://x)\nmore]( stuff`
+    )
+    expect(placeholder).toBe(`*(deleted image: evilhttp://x more stuff)*`)
+    expect(placeholder).not.toContain(`![`)
+    expect(placeholder).not.toContain(`\n`)
+  })
+
+  it(`clamps a very long label`, () => {
+    const placeholder = buildDeletedAttachmentPlaceholder(`a`.repeat(500))
+    expect(placeholder).toBe(`*(deleted image: ${`a`.repeat(100)})*`)
+  })
+
+  it(`falls back when the label sanitizes away`, () => {
+    expect(buildDeletedAttachmentPlaceholder(``)).toBe(
+      `*(deleted image: image)*`
+    )
+    expect(buildDeletedAttachmentPlaceholder(`!!![]()`)).toBe(
+      `*(deleted image: image)*`
+    )
+  })
+})
+
+describe(`replaceAttachmentReferencesWithPlaceholder`, () => {
+  const origin = `http://localhost:5173/api/trpc/x`
+  const target = `11111111-1111-1111-1111-111111111111`
+  const other = `22222222-2222-2222-2222-222222222222`
+
+  it(`replaces every occurrence: relative, ?w= variant, and absolute same-origin`, () => {
+    const text = [
+      `intro ![alt one](/api/attachments/${target})`,
+      `![alt two](/api/attachments/${target}?w=480)`,
+      `![](http://localhost:5173/api/attachments/${target})`,
+      `![keep](/api/attachments/${other})`,
+    ].join(`\n`)
+
+    const result = replaceAttachmentReferencesWithPlaceholder(
+      text,
+      target,
+      origin,
+      `fallback.png`
+    )
+
+    expect(result.changed).toBe(true)
+    expect(result.text).toBe(
+      [
+        `intro *(deleted image: alt one)*`,
+        `*(deleted image: alt two)*`,
+        `*(deleted image: fallback.png)*`,
+        `![keep](/api/attachments/${other})`,
+      ].join(`\n`)
+    )
+    // The rewritten text no longer references the deleted attachment at all.
+    expect(
+      extractAttachmentIdsFromDescription(result.text, origin).attachmentIds
+    ).toEqual([other])
+  })
+
+  it(`rewrites a stored uppercase-id URL (extracted ids are lowercased)`, () => {
+    const text = `![alt](/api/attachments/${target.toUpperCase()})`
+    const result = replaceAttachmentReferencesWithPlaceholder(
+      text,
+      target,
+      origin,
+      `fallback.png`
+    )
+    expect(result.changed).toBe(true)
+    expect(result.text).toBe(`*(deleted image: alt)*`)
+  })
+
+  it(`reports changed=false and returns the text untouched when nothing matches`, () => {
+    const text = `![keep](/api/attachments/${other}) plus ${target} as bare text`
+    const result = replaceAttachmentReferencesWithPlaceholder(
+      text,
+      target,
+      origin,
+      `fallback.png`
+    )
+    expect(result.changed).toBe(false)
+    expect(result.text).toBe(text)
+  })
+
+  it(`ignores a same-id image hosted on a foreign origin`, () => {
+    const text = `![x](https://evil.example.com/api/attachments/${target})`
+    const result = replaceAttachmentReferencesWithPlaceholder(
+      text,
+      target,
+      origin,
+      `fallback.png`
+    )
+    expect(result.changed).toBe(false)
+    expect(result.text).toBe(text)
   })
 })

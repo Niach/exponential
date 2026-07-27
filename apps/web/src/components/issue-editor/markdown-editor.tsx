@@ -53,7 +53,10 @@ import {
   IssueCandidateRow,
   UserCandidateRow,
 } from "@/components/autocomplete-rows"
-import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
+import {
+  acceptedImageContentTypes,
+  isAcceptedImageContentType,
+} from "@/lib/storage/issue-attachments"
 import {
   releaseKeyboardClearance,
   revealCaretAboveKeyboard,
@@ -64,6 +67,13 @@ export interface MarkdownEditorImageUploadConfig {
   disabledReason?: string
   enabled: boolean
   onFiles: (files: File[]) => Promise<void>
+  /**
+   * Receives pasted/dropped/picked files that are NOT of an accepted inline
+   * image type (EXP-297: only png/jpeg/webp/gif/avif may be embedded in
+   * markdown — everything else belongs in the issue's Files section). When
+   * absent, such files are ignored.
+   */
+  onOtherFiles?: (files: File[]) => void | Promise<void>
   uploading?: boolean
 }
 
@@ -110,10 +120,17 @@ function getEditorMarkdown(editor: Editor | null) {
   return hasMarkdownStorage(editor) ? editor.storage.markdown.getMarkdown() : ``
 }
 
-function getImageFiles(fileList: FileList | null | undefined) {
-  return Array.from(fileList ?? []).filter((file) =>
-    file.type.startsWith(`image/`)
-  )
+/**
+ * Splits an upload batch into inline-embeddable images (the exact 5-type
+ * accepted set — the only types the markdown pipeline may reference) and
+ * everything else, which routes to the Files-section flow via onOtherFiles.
+ */
+function partitionUploadFiles(fileList: FileList | null | undefined) {
+  const files = Array.from(fileList ?? [])
+  return {
+    images: files.filter((file) => isAcceptedImageContentType(file.type)),
+    others: files.filter((file) => !isAcceptedImageContentType(file.type)),
+  }
 }
 
 // ── Pieces of the static toolbar above the editor ──
@@ -348,8 +365,9 @@ function ImageControl({
         multiple
         hidden
         onChange={(event) => {
-          const files = getImageFiles(event.target.files)
-          if (files.length > 0) void imageUpload.onFiles(files)
+          const { images, others } = partitionUploadFiles(event.target.files)
+          if (images.length > 0) void imageUpload.onFiles(images)
+          if (others.length > 0) void imageUpload.onOtherFiles?.(others)
           event.target.value = ``
         }}
       />
@@ -421,6 +439,27 @@ export const MarkdownEditor = forwardRef<
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
     const menuRef = useRef<HTMLDivElement | null>(null)
 
+    // Shared paste/drop handler: inline-image types go through the markdown
+    // embed pipeline, everything else to the Files-section flow (when wired).
+    const handleUploadedFiles = (
+      fileList: FileList | null | undefined,
+      event: Event
+    ) => {
+      const upload = imageUploadRef.current
+      const { images, others } = partitionUploadFiles(fileList)
+      const hasImages = images.length > 0
+      const hasOthers = others.length > 0 && Boolean(upload?.onOtherFiles)
+
+      if (!editable || !upload || (!hasImages && !hasOthers)) {
+        return false
+      }
+
+      event.preventDefault()
+      if (hasImages) void upload.onFiles(images)
+      if (hasOthers) void upload.onOtherFiles?.(others)
+      return true
+    }
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -483,28 +522,10 @@ export const MarkdownEditor = forwardRef<
           "aria-label": `Issue description`,
           "aria-readonly": String(!editable),
         },
-        handlePaste: (_view, event) => {
-          const files = getImageFiles(event.clipboardData?.files)
-
-          if (!editable || files.length === 0 || !imageUploadRef.current) {
-            return false
-          }
-
-          event.preventDefault()
-          void imageUploadRef.current.onFiles(files)
-          return true
-        },
-        handleDrop: (_view, event) => {
-          const files = getImageFiles(event.dataTransfer?.files)
-
-          if (!editable || files.length === 0 || !imageUploadRef.current) {
-            return false
-          }
-
-          event.preventDefault()
-          void imageUploadRef.current.onFiles(files)
-          return true
-        },
+        handlePaste: (_view, event) =>
+          handleUploadedFiles(event.clipboardData?.files, event),
+        handleDrop: (_view, event) =>
+          handleUploadedFiles(event.dataTransfer?.files, event),
       },
     })
 

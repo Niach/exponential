@@ -52,8 +52,6 @@ vi.mock(`@/lib/storage/issue-attachments`, () => ({
   hasMarkdownImages: () => false,
 }))
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
-  collectAndDeleteRemovedAttachmentsInTx: vi.fn(),
-  collectAndDeleteUnreferencedAttachmentsInTx: vi.fn(),
   collectIssueAttachmentStorageKeysInTx: vi.fn(async () => []),
   deleteStorageObjects: vi.fn(),
 }))

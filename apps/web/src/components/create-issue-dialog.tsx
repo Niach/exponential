@@ -25,12 +25,18 @@ import {
   removeMarkdownImagesByUrl,
   replaceMarkdownImageUrls,
 } from "@/lib/storage/issue-attachments"
-import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
 import {
+  uploadIssueFile,
+  uploadIssueImageFile,
+} from "@/lib/storage/issue-image-upload"
+import {
+  buildPostCreateFileErrorMessage,
   buildPostCreateImageErrorMessage,
   revokeDraftImages,
+  type DraftFile,
   type DraftImage,
 } from "@/lib/create-issue-helpers"
+import { isInlineImageAttachment } from "@/lib/attachment-files"
 import type { User } from "@/db/schema"
 import { IssueEditorDialogShell } from "@/components/issue-editor/dialog-shell"
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
@@ -75,6 +81,9 @@ export function CreateIssueDialog({
   const [createMore, setCreateMore] = useState(false)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [draftImages, setDraftImages] = useState<DraftImage[]>([])
+  // EXP-297: non-image attachments queued locally and uploaded (sequentially)
+  // once the issue exists — they never enter the description markdown.
+  const [draftFiles, setDraftFiles] = useState<DraftFile[]>([])
   const [submitPhase, setSubmitPhase] = useState<CreateIssueSubmitPhase>(`idle`)
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   const editorRef = useRef<MarkdownEditorRef>(null)
@@ -150,6 +159,7 @@ export function CreateIssueDialog({
 
   const resetFields = () => {
     clearDraftImages()
+    setDraftFiles([])
     setTitle(``)
     setDescriptionValue(``)
     setAttachmentStatus(null)
@@ -217,6 +227,37 @@ export function CreateIssueDialog({
     setDescriptionValue(nextDescription)
   }
 
+  const handleAttachFiles = (files: File[]) => {
+    if (submitPhase !== `idle`) {
+      return
+    }
+
+    setAttachmentStatus(null)
+
+    // Inline-image picks embed into the description like any other image add.
+    // A draft FILE row of an inline type would upload to an attachment every
+    // client's Files section filters out — invisible and unreferenced, exactly
+    // what the sweep deletes (EXP-297 classification contract).
+    const images = files.filter((file) => isInlineImageAttachment(file.type))
+    const others = files.filter((file) => !isInlineImageAttachment(file.type))
+
+    if (images.length > 0) {
+      void handleImageFiles(images)
+    }
+    if (others.length > 0) {
+      setDraftFiles((previous) => [
+        ...previous,
+        ...others.map((file) => ({ id: crypto.randomUUID(), file })),
+      ])
+    }
+  }
+
+  const handleRemoveDraftFile = (draftFileId: string) => {
+    setDraftFiles((previous) =>
+      previous.filter((draftFile) => draftFile.id !== draftFileId)
+    )
+  }
+
   const handleClose = () => {
     setDiscardConfirmOpen(false)
     resetFields()
@@ -226,7 +267,8 @@ export function CreateIssueDialog({
   const hasDraftContent =
     title.trim().length > 0 ||
     toIssueDescription(description) !== null ||
-    draftImages.length > 0
+    draftImages.length > 0 ||
+    draftFiles.length > 0
 
   // Escape or a backdrop click is one stray keystroke away from destroying an
   // arbitrarily long draft — resetFields() also revokes the pasted images'
@@ -302,6 +344,18 @@ export function CreateIssueDialog({
         }
       }
 
+      // EXP-297: plain file attachments ride the same post-create window but
+      // never touch the markdown — a failure only costs that one attachment.
+      let failedFileCount = 0
+
+      for (const draftFile of draftFiles) {
+        try {
+          await uploadIssueFile(issue.id, draftFile.file)
+        } catch {
+          failedFileCount += 1
+        }
+      }
+
       const finalDescription = replaceMarkdownImageUrls(
         removeMarkdownImagesByUrl(currentDescription, failedDraftUrls),
         uploadedImageUrls
@@ -328,13 +382,20 @@ export function CreateIssueDialog({
         return
       }
 
-      if (failedDraftUrls.size > 0) {
-        setAttachmentStatus(
-          buildPostCreateImageErrorMessage(
-            issue.identifier,
-            failedDraftUrls.size
-          )
-        )
+      const uploadFailureMessages = [
+        failedDraftUrls.size > 0
+          ? buildPostCreateImageErrorMessage(
+              issue.identifier,
+              failedDraftUrls.size
+            )
+          : null,
+        failedFileCount > 0
+          ? buildPostCreateFileErrorMessage(issue.identifier, failedFileCount)
+          : null,
+      ].filter((message): message is string => message !== null)
+
+      if (uploadFailureMessages.length > 0) {
+        setAttachmentStatus(uploadFailureMessages.join(` `))
         setSubmitPhase(`created_with_image_errors`)
         return
       }
@@ -400,6 +461,7 @@ export function CreateIssueDialog({
           enabled: true,
           uploading: submitPhase === `uploading`,
           onFiles: handleImageFiles,
+          onOtherFiles: handleAttachFiles,
         }}
         status={status}
         onStatusChange={setStatus}
@@ -437,9 +499,12 @@ export function CreateIssueDialog({
             <div className="px-4 py-3 border-t border-border">
               <IssueEditorAttachmentRail
                 attachmentStatus={attachmentStatus}
+                files={draftFiles}
                 images={imageOccurrences}
+                onAttachFiles={handleAttachFiles}
                 onFiles={handleImageFiles}
                 onRemove={handleRemoveImageOccurrence}
+                onRemoveFile={handleRemoveDraftFile}
                 uploading={submitPhase === `uploading`}
                 disabled={closeDisabled}
               />
@@ -466,9 +531,12 @@ export function CreateIssueDialog({
               <div className="min-w-0 flex-1">
                 <IssueEditorAttachmentRail
                   attachmentStatus={attachmentStatus}
+                  files={draftFiles}
                   images={imageOccurrences}
+                  onAttachFiles={handleAttachFiles}
                   onFiles={handleImageFiles}
                   onRemove={handleRemoveImageOccurrence}
+                  onRemoveFile={handleRemoveDraftFile}
                   uploading={submitPhase === `uploading`}
                   disabled={closeDisabled}
                 />

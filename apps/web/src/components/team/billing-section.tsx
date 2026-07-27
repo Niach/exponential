@@ -41,7 +41,9 @@ const PLAN_BADGE_VARIANT: Record<
   unlimited: `outline`,
 }
 
-function formatStorage(mb: number): string {
+// Exported for the Storage settings section (EXP-297) — one storage-usage
+// vocabulary across both pages.
+export function formatStorage(mb: number): string {
   if (mb >= 1024) return `${(mb / 1024).toFixed(1).replace(/\.0$/, ``)} GB`
   return `${Math.round(mb)} MB`
 }
@@ -56,7 +58,7 @@ export function scrollToPlans() {
     ?.scrollIntoView({ behavior: `smooth`, block: `start` })
 }
 
-function UsageBar({
+export function UsageBar({
   label,
   current,
   max,

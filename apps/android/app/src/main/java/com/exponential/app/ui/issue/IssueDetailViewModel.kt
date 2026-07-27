@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
@@ -19,6 +20,7 @@ import com.exponential.app.data.api.SubscriptionsApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -34,12 +36,18 @@ import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.TeamPermissions
+import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.isInlineImage
+import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +70,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class IssueDetailState(
@@ -90,6 +99,7 @@ class IssueDetailViewModel @Inject constructor(
     private val labelsApi: LabelsApi,
     private val subscriptionsApi: SubscriptionsApi,
     private val issueImagesApi: IssueImagesApi,
+    private val attachmentsApi: AttachmentsApi,
     private val notificationsApi: NotificationsApi,
     private val repositoriesApi: RepositoriesApi,
     private val steerApi: SteerApi,
@@ -195,23 +205,62 @@ class IssueDetailViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueDetailState())
 
+    // Every synced attachment row of this issue — the ONE query behind both the
+    // probed-dimension map (inline images) and the Files section (everything
+    // else, EXP-297). Comment attachments belong to the same issue, so this
+    // covers the description AND the whole thread.
+    private val attachmentsFlow: StateFlow<List<AttachmentEntity>> =
+        dbFlow.scopedQuery(emptyList()) { it.attachmentDao().observeByIssue(issueId) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // Probed sizes of this issue's attachments (REV2-79) — read views pre-size
     // embedded images from them instead of measuring 0-height and jumping when
-    // the bitmap lands. Comment images are attachments of the same issue, so
-    // this one query covers the description AND the whole thread.
-    val attachmentDims: StateFlow<AttachmentDims> =
-        dbFlow.scopedQuery(emptyList()) { it.attachmentDao().observeByIssue(issueId) }
-            .map { rows ->
-                AttachmentDims(
-                    rows.mapNotNull { row ->
-                        val width = row.width
-                        val height = row.height
-                        if (width == null || height == null) null
-                        else row.id to (width to height)
-                    }.toMap()
-                )
-            }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
+    // the bitmap lands.
+    val attachmentDims: StateFlow<AttachmentDims> = attachmentsFlow
+        .map { rows ->
+            AttachmentDims(
+                rows.mapNotNull { row ->
+                    val width = row.width
+                    val height = row.height
+                    if (width == null || height == null) null
+                    else row.id to (width to height)
+                }.toMap()
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
+
+    // ── Files section (EXP-297) ──────────────────────────────────────────────
+
+    /**
+     * Non-inline-image attachments, oldest first. These never appear in the
+     * markdown (only the five raster types are embeddable), so the Files
+     * section is the only place they are visible — which is exactly why the
+     * classification has to mirror the server's accepted-image set: anything
+     * else, `image/tiff` included, lands here rather than nowhere.
+     */
+    val fileAttachments: StateFlow<List<AttachmentEntity>> = attachmentsFlow
+        .map { rows ->
+            rows.filterNot { isInlineImage(it.contentType) }.sortedBy { it.createdAt }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _pendingFiles = MutableStateFlow<List<PendingFileUpload>>(emptyList())
+
+    /**
+     * In-flight / failed file uploads. An entry that already produced a server
+     * row stays until that row lands via sync, so the list never flickers
+     * empty between the 200 and the Electric delta — and is deduped by id, so
+     * the synced row never renders twice.
+     */
+    val pendingFiles: StateFlow<List<PendingFileUpload>> =
+        combine(_pendingFiles, attachmentsFlow) { pending, synced ->
+            val syncedIds = synced.map { it.id }.toSet()
+            pending.filterNot { it.uploadedId != null && it.uploadedId in syncedIds }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Attachment ids with a download or delete in flight (per-row spinner). */
+    private val _busyAttachmentIds = MutableStateFlow<Set<String>>(emptySet())
+    val busyAttachmentIds: StateFlow<Set<String>> = _busyAttachmentIds
 
     // Subscription state (separate StateFlow — the main combine is at the 5-arg
     // typed cap). Drives the Bell/BellOff toggle in the detail top bar.
@@ -898,7 +947,202 @@ class IssueDetailViewModel @Inject constructor(
             throw error
         }
     }
+
+    // ── File attachments (EXP-297) ───────────────────────────────────────────
+
+    /**
+     * Upload a picked document as an issue attachment. Failures stay on the
+     * pending row (with the server's reason and a Retry) rather than becoming a
+     * snackbar that scrolls away — the file is only ever gone if the user
+     * dismisses it.
+     */
+    fun uploadFile(uri: android.net.Uri) {
+        val key = UUID.randomUUID().toString()
+        // Placeholder name from the URI only — the real display name needs a
+        // ContentResolver query, which runUpload does on Dispatchers.IO.
+        _pendingFiles.value = _pendingFiles.value + PendingFileUpload(
+            key = key,
+            filename = sanitizeFilename(uri.lastPathSegment),
+            uri = uri,
+        )
+        runUpload(key)
+    }
+
+    /** Retry a failed pending upload from its original content URI. */
+    fun retryFileUpload(key: String) {
+        val pending = _pendingFiles.value.firstOrNull { it.key == key } ?: return
+        if (pending.error == null) return
+        updatePending(key) { it.copy(error = null) }
+        runUpload(key)
+    }
+
+    /** Drop a failed pending upload the user gave up on. */
+    fun dismissFileUpload(key: String) {
+        _pendingFiles.value = _pendingFiles.value.filterNot { it.key == key }
+    }
+
+    private fun runUpload(key: String) {
+        viewModelScope.launch {
+            val pending = _pendingFiles.value.firstOrNull { it.key == key } ?: return@launch
+            val accountId = auth.activeAccountId.value
+            if (accountId == null) {
+                updatePending(key) { it.copy(error = "You are signed out") }
+                return@launch
+            }
+            val resolver = appContext.contentResolver
+            // ALL ContentResolver work rides Dispatchers.IO: a 50 MB pick from
+            // a cloud-backed DocumentsProvider streams the bytes over the
+            // network inside openInputStream/readBytes and would ANR the main
+            // thread (viewModelScope launches on Main.immediate).
+            val displayName = withContext(Dispatchers.IO) { queryDisplayName(pending.uri) }
+            val filename = displayName?.let { sanitizeFilename(it) } ?: pending.filename
+            if (filename != pending.filename) {
+                updatePending(key) { it.copy(filename = filename) }
+            }
+            // Canonicalized before the classification guard AND the upload so
+            // the stored row always exact-matches on every client (EXP-297).
+            val contentType = canonicalContentType(
+                withContext(Dispatchers.IO) { resolver.getType(pending.uri) }
+            )
+            if (isInlineImage(contentType)) {
+                // An inline-image type uploaded through the Files flow would be
+                // invisible everywhere: filtered out of every client's Files
+                // section, referenced by no markdown, and eventually deleted by
+                // the owner's unreferenced-image sweep.
+                updatePending(key) {
+                    it.copy(error = "Images go in the description — add them from the description editor")
+                }
+                return@launch
+            }
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching {
+                    resolver.openInputStream(pending.uri)?.use { it.readBytes() }
+                }.getOrNull()
+            }
+            if (bytes == null) {
+                updatePending(key) { it.copy(error = "The file could not be read") }
+                return@launch
+            }
+            if (bytes.size > MAX_FILE_UPLOAD_BYTES) {
+                // Refuse locally: a 50 MB body only to be rejected wastes the
+                // user's data plan and minutes of waiting.
+                updatePending(key) {
+                    it.copy(
+                        sizeBytes = bytes.size.toLong(),
+                        error = "Files must be ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB or smaller",
+                    )
+                }
+                return@launch
+            }
+            updatePending(key) { it.copy(sizeBytes = bytes.size.toLong()) }
+            try {
+                val uploaded = attachmentsApi.upload(
+                    accountId,
+                    issueId,
+                    bytes,
+                    filename,
+                    contentType,
+                )
+                // Keep the row until the synced attachment lands (pendingFiles
+                // dedupes on this id) so the list never blinks empty.
+                updatePending(key) { it.copy(uploadedId = uploaded.id, error = null) }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (t: Throwable) {
+                android.util.Log.w("IssueDetailViewModel", "File upload failed (type=$contentType)", t)
+                updatePending(key) {
+                    it.copy(error = trpcErrorMessage(t, "The file could not be uploaded"))
+                }
+            }
+        }
+    }
+
+    private fun updatePending(key: String, transform: (PendingFileUpload) -> PendingFileUpload) {
+        _pendingFiles.value = _pendingFiles.value.map { if (it.key == key) transform(it) else it }
+    }
+
+    private fun queryDisplayName(uri: android.net.Uri): String? = runCatching {
+        appContext.contentResolver.query(
+            uri,
+            arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+        }
+    }.getOrNull()
+
+    /**
+     * Delete an attachment (`attachments.delete`, member-level). The server
+     * rewrites every markdown reference to a placeholder in the same
+     * transaction; the local row is dropped optimistically so the list reacts
+     * immediately instead of waiting for the Electric delta.
+     */
+    fun deleteAttachment(attachmentId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _busyAttachmentIds.value = _busyAttachmentIds.value + attachmentId
+            try {
+                attachmentsApi.delete(accountId, attachmentId)
+                runCatching {
+                    holder.database(forAccountId = accountId).attachmentDao().deleteById(attachmentId)
+                }
+            } catch (t: Throwable) {
+                reportMutationFailure(t, "The file could not be deleted")
+            } finally {
+                _busyAttachmentIds.value = _busyAttachmentIds.value - attachmentId
+            }
+        }
+    }
+
+    /**
+     * Fetch an attachment's bytes into the app cache so a viewer/share target
+     * can read them through the FileProvider. One directory per attachment id
+     * keeps names from colliding, and the filename is sanitized so a
+     * server-side name can never escape it. Returns null on failure (the
+     * reason is surfaced through [mutationError]).
+     */
+    suspend fun downloadToCache(attachment: AttachmentEntity): File? {
+        val accountId = auth.activeAccountId.value ?: return null
+        val dir = File(File(appContext.cacheDir, "attachments"), attachment.id)
+        val target = File(dir, sanitizeFilename(attachment.filename))
+        // Already cached at the expected size — attachments are immutable, so
+        // re-downloading buys nothing.
+        if (target.isFile && target.length() == attachment.sizeBytes) return target
+        _busyAttachmentIds.value = _busyAttachmentIds.value + attachment.id
+        return try {
+            val bytes = attachmentsApi.download(accountId, attachment.url)
+            withContext(Dispatchers.IO) {
+                dir.mkdirs()
+                target.writeBytes(bytes)
+            }
+            target
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (t: Throwable) {
+            reportMutationFailure(t, "The file could not be downloaded")
+            null
+        } finally {
+            _busyAttachmentIds.value = _busyAttachmentIds.value - attachment.id
+        }
+    }
 }
+
+/**
+ * A file upload the user started that isn't a synced attachment row yet —
+ * in flight, or failed and awaiting Retry.
+ */
+data class PendingFileUpload(
+    val key: String,
+    val filename: String,
+    val uri: android.net.Uri,
+    val sizeBytes: Long? = null,
+    /** Set once the server accepted it; the row lives on until sync delivers it. */
+    val uploadedId: String? = null,
+    val error: String? = null,
+)
 
 // Terminal issue statuses that make an issue ineligible to start a NEW coding
 // run (the current issue is exempt — see startCandidates).

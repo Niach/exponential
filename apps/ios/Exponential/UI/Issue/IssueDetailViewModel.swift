@@ -2,6 +2,23 @@ import ExpUI
 import ExpCore
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
+
+/// A file the user picked that hasn't landed as a synced `attachments` row yet
+/// (EXP-297). It renders as a placeholder row in the Files section: a spinner
+/// while the POST is in flight, or the failure plus a retry. Once the upload
+/// returns, `uploadedId` is stamped and the entry is dropped the moment Electric
+/// delivers the real row — so the list never flickers empty in between.
+struct PendingFileUpload: Identifiable, Sendable {
+    let id = UUID()
+    let filename: String
+    let contentType: String
+    let data: Data
+    var uploadedId: String?
+    var failure: String?
+
+    var sizeBytes: Int { data.count }
+}
 
 @MainActor @Observable
 final class IssueDetailViewModel {
@@ -26,6 +43,16 @@ final class IssueDetailViewModel {
     /// (EXP-57). Trashed boards never reach the local store (the boards
     /// shape filters `deleted_at IS NULL` server-side).
     var boards: [BoardEntity] = []
+    /// Non-inline-image attachments on this issue, oldest first (EXP-297) — the
+    /// Files section's rows. Inline images (`image/png|jpeg|webp|gif|avif`) are
+    /// deliberately excluded: they live in the description markdown and are
+    /// rendered by the editor.
+    var fileAttachments: [AttachmentEntity] = []
+    /// Picked files whose upload is in flight (or failed) — see PendingFileUpload.
+    var pendingFileUploads: [PendingFileUpload] = []
+    /// Attachment ids with a delete request in flight; the row stays visible but
+    /// inert until sync removes it.
+    var deletingAttachmentIds: Set<String> = []
 
     // Non-agent members offered by the editor's @-mention autocomplete.
     var mentionMembers: [MentionMember] {
@@ -71,6 +98,7 @@ final class IssueDetailViewModel {
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
     private let issueImagesApi: IssueImagesApi
+    private let attachmentsApi: AttachmentsApi
     private let labelsApi: LabelsApi
     private let subscriptionsApi: SubscriptionsApi
     private let steerApi: SteerApi
@@ -92,6 +120,7 @@ final class IssueDetailViewModel {
         db: DatabaseManager,
         issuesApi: IssuesApi,
         issueImagesApi: IssueImagesApi,
+        attachmentsApi: AttachmentsApi,
         labelsApi: LabelsApi,
         subscriptionsApi: SubscriptionsApi,
         steerApi: SteerApi,
@@ -102,6 +131,7 @@ final class IssueDetailViewModel {
         self.db = db
         self.issuesApi = issuesApi
         self.issueImagesApi = issueImagesApi
+        self.attachmentsApi = attachmentsApi
         self.labelsApi = labelsApi
         self.subscriptionsApi = subscriptionsApi
         self.steerApi = steerApi
@@ -210,6 +240,18 @@ final class IssueDetailViewModel {
             Task {
                 for try await boards in boardObs.values(in: pool) {
                     self.boards = boards
+                }
+            }
+
+            // Attachments on this issue (EXP-297). Filtered in Swift rather
+            // than SQL: the inline-image rule is a shared contract constant, and
+            // the row count per issue is tiny.
+            let attachmentObs = ValueObservation.tracking { db in
+                try AttachmentEntity.filter(Column("issue_id") == self.issueId).fetchAll(db)
+            }
+            Task {
+                for try await rows in attachmentObs.values(in: pool) {
+                    self.applyAttachments(rows)
                 }
             }
 
@@ -517,6 +559,183 @@ final class IssueDetailViewModel {
                 contentType: image.contentType
             )
             return uploaded.url
+        }
+    }
+
+    // MARK: - File attachments (EXP-297)
+
+    /// True when this viewer may attach or delete files — the same membership
+    /// gate every other issue mutation on this screen uses.
+    var canManageFiles: Bool { permissions.isModerator }
+
+    private func applyAttachments(_ rows: [AttachmentEntity]) {
+        fileAttachments = rows
+            .filter { !AttachmentFiles.isInlineImage(contentType: $0.contentType) }
+            .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+        // A pending entry whose real row has arrived is now a duplicate — the
+        // synced row takes over.
+        let syncedIds = Set(rows.map(\.id))
+        pendingFileUploads.removeAll { pending in
+            guard let uploadedId = pending.uploadedId else { return false }
+            return syncedIds.contains(uploadedId)
+        }
+    }
+
+    /// Attach a file picked through `.fileImporter`. The security-scoped read
+    /// runs inside a detached task (the scope is started and stopped off-main
+    /// around the read) so a 50 MB — possibly cloud-provider-backed — read can
+    /// never freeze the main thread; every `pendingFileUploads` mutation hops
+    /// back to the MainActor.
+    func uploadFile(from url: URL) {
+        let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
+        // Canonical (lowercased, parameter-free) so the stored row always
+        // exact-matches the inline-image classification on every client.
+        let contentType = AttachmentFiles.canonicalContentType(
+            UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+        )
+
+        // Deflect inline-image picks before any I/O: uploaded through /files
+        // they would be invisible everywhere (filtered out of every client's
+        // Files section, referenced by no markdown) and eventually deleted by
+        // the owner's unreferenced-image sweep.
+        guard !AttachmentFiles.isInlineImage(contentType: contentType) else {
+            pendingFileUploads.append(PendingFileUpload(
+                filename: filename,
+                contentType: contentType,
+                data: Data(),
+                failure: "Images go in the description — add them with the editor's image button."
+            ))
+            return
+        }
+
+        Task.detached { [weak self] in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+            // Size check before buffering — never read bytes the cap rejects.
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            if let size, size > AttachmentFiles.maxFileUploadBytes {
+                await self?.appendFailedUpload(
+                    filename: filename,
+                    contentType: contentType,
+                    failure: "Files must be 50 MB or smaller."
+                )
+                return
+            }
+            guard let data = try? Data(contentsOf: url) else {
+                await self?.appendFailedUpload(
+                    filename: filename,
+                    contentType: contentType,
+                    failure: "Couldn't read this file."
+                )
+                return
+            }
+            guard data.count <= AttachmentFiles.maxFileUploadBytes else {
+                await self?.appendFailedUpload(
+                    filename: filename,
+                    contentType: contentType,
+                    failure: "Files must be 50 MB or smaller."
+                )
+                return
+            }
+            await self?.startUpload(filename: filename, contentType: contentType, data: data)
+        }
+    }
+
+    private func appendFailedUpload(filename: String, contentType: String, failure: String) {
+        pendingFileUploads.append(PendingFileUpload(
+            filename: filename,
+            contentType: contentType,
+            data: Data(),
+            failure: failure
+        ))
+    }
+
+    private func startUpload(filename: String, contentType: String, data: Data) {
+        let pending = PendingFileUpload(filename: filename, contentType: contentType, data: data)
+        pendingFileUploads.append(pending)
+        Task { await performUpload(pendingId: pending.id) }
+    }
+
+    /// Retry a failed pending upload (the row's Retry button).
+    func retryUpload(pendingId: UUID) {
+        guard let index = pendingFileUploads.firstIndex(where: { $0.id == pendingId }),
+              !pendingFileUploads[index].data.isEmpty else {
+            // Nothing to resend (an unreadable/oversize pick) — just clear it.
+            pendingFileUploads.removeAll { $0.id == pendingId }
+            return
+        }
+        pendingFileUploads[index].failure = nil
+        Task { await performUpload(pendingId: pendingId) }
+    }
+
+    func cancelPendingUpload(pendingId: UUID) {
+        pendingFileUploads.removeAll { $0.id == pendingId }
+    }
+
+    private func performUpload(pendingId: UUID) async {
+        guard let issueId = issue?.id,
+              let pending = pendingFileUploads.first(where: { $0.id == pendingId })
+        else { return }
+        do {
+            let uploaded = try await attachmentsApi.upload(
+                accountId: accountId,
+                issueId: issueId,
+                data: pending.data,
+                filename: pending.filename,
+                contentType: pending.contentType
+            )
+            guard let index = pendingFileUploads.firstIndex(where: { $0.id == pendingId }) else { return }
+            // Hold the placeholder until the synced row lands (applyAttachments
+            // drops it), but release the bytes now.
+            pendingFileUploads[index].uploadedId = uploaded.id
+            if fileAttachments.contains(where: { $0.id == uploaded.id }) {
+                pendingFileUploads.remove(at: index)
+            }
+        } catch {
+            guard let index = pendingFileUploads.firstIndex(where: { $0.id == pendingId }) else { return }
+            pendingFileUploads[index].failure = error.localizedDescription
+        }
+    }
+
+    /// Delete an attachment. The server also rewrites any markdown reference to
+    /// it into a plain-text placeholder; the row's removal reaches this list
+    /// through Electric sync.
+    func deleteAttachment(id: String) async {
+        deletingAttachmentIds.insert(id)
+        defer { deletingAttachmentIds.remove(id) }
+        do {
+            try await attachmentsApi.delete(accountId: accountId, attachmentId: id)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Download an attachment's bytes into a per-attachment temp folder and
+    /// return the local file URL for Quick Look. Cached: a second tap on the
+    /// same row reuses the file instead of re-fetching.
+    func downloadForPreview(_ attachment: AttachmentEntity) async -> URL? {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("attachments", isDirectory: true)
+            .appendingPathComponent(attachment.id, isDirectory: true)
+        let destination = directory
+            .appendingPathComponent(AttachmentFiles.sanitizedFilename(attachment.filename))
+
+        if FileManager.default.fileExists(atPath: destination.path) { return destination }
+        do {
+            let data = try await attachmentsApi.download(
+                accountId: accountId,
+                relativeUrl: attachment.url
+            )
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try data.write(to: destination, options: .atomic)
+            return destination
+        } catch {
+            self.error = error.localizedDescription
+            return nil
         }
     }
 

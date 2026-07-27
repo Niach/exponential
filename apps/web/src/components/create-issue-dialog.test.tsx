@@ -13,6 +13,8 @@ import { CreateIssueDialog } from "@/components/create-issue-dialog"
 
 const mockState = vi.hoisted(() => ({
   attachmentFiles: [] as File[],
+  // EXP-297: non-image files queued through the rail's second (file) button.
+  draftFiles: [] as File[],
   createMutate: vi.fn(),
   updateMutate: vi.fn(),
 }))
@@ -131,24 +133,31 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
   }),
   IssueEditorAttachmentButton: ({
     disabled,
+    label = `Add image`,
     onFiles,
     uploading,
   }: {
     disabled?: boolean
+    label?: string
     onFiles?: (files: File[]) => void | Promise<void>
     uploading?: boolean
   }) => (
     <button
       type="button"
-      aria-label="Add image"
+      aria-label={label}
       disabled={disabled || uploading}
       onClick={() => {
-        if (mockState.attachmentFiles.length > 0 && onFiles) {
-          void onFiles(mockState.attachmentFiles)
+        const queued =
+          label === `Attach file`
+            ? mockState.draftFiles
+            : mockState.attachmentFiles
+
+        if (queued.length > 0 && onFiles) {
+          void onFiles(queued)
         }
       }}
     >
-      Add image
+      {label}
     </button>
   ),
 }))
@@ -156,6 +165,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
 describe(`CreateIssueDialog`, () => {
   beforeEach(() => {
     mockState.attachmentFiles = []
+    mockState.draftFiles = []
     mockState.createMutate.mockReset()
     mockState.updateMutate.mockReset()
     onOpenChange.mockReset()
