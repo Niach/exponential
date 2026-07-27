@@ -1,0 +1,1 @@
+Attach any file to an issue (PDFs, videos, logs), issue mentions show their title, and the app is current the moment you open it thanks to faster sync.

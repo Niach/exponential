@@ -1,3 +1,5 @@
-• One shared icon set — every icon now matches web, Android and desktop pixel for pixel
-• Live agent sessions no longer get stuck on multi-question prompts, and the session view scrolls more smoothly
-• Actions can carry their own icon, so long lists stay scannable
+• Attach any file to an issue — PDFs, videos, audio and more, with a new Files section
+• Current the moment you open it — sync rides one fast connection instead of fifteen
+• Issue mentions show the issue's title next to the identifier
+• Live coding sessions are steered seamlessly by their owner — no more take-over banner
+• The jump-to-bottom button in agent sessions now hides reliably

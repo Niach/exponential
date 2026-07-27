@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-attach-any-file`,
+    date: `2026-07-27`,
+    title: `Attach any file`,
+    summary: `Issues now take PDFs, videos and other files — plus seamless steering and a rounder IDE.`,
+    body: `- **Attach more than screenshots** — issues and comments now accept any file, not just images: PDFs, videos, audio, logs, archives, up to 50MB each. A new Files section on the issue collects them, and team owners get a Storage pane in settings that shows what is using space and can sweep images nothing references anymore.
+- **Steering without ceremony** — the "Remote steering" banner and its Take over button are gone. A live coding session is now visible and steerable only from the account that started it; teammates see the synced status badge instead. Update your apps — builds from before this release degrade to a read-only view of their own sessions until updated.
+- **Issue chips show their title** — a \`#EXP-42\` mention now renders the issue's title alongside the identifier in every editor and comment, and typing \`=>\` or \`->\` turns into a real arrow.
+- **Safari menus fixed** — dropdown submenus (like Delete issue → Confirm delete) were invisible in Safari.
+- **Desktop IDE polish** — tab chips show issue identifiers with smarter overflow, your account avatar shows up in the rail, dialogs feel native on every platform, and a conflicted issue offers its Fix conflicts button right on the detail page.`,
+  },
+  {
     id: `2026-07-instant-sync-on-open`,
     date: `2026-07-27`,
     title: `Current the moment you open it`,
