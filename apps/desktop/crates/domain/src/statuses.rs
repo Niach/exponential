@@ -181,9 +181,31 @@ impl ResolvedStatus {
     }
 }
 
+/// The synthetic group-key prefix of a CONSTRUCTED default (web
+/// `FALLBACK_STATUS_ID_PREFIX`).
+pub const FALLBACK_GROUP_KEY_PREFIX: &str = "builtin:";
+
 /// The `builtin:<key>` group key of a constructed default.
 pub fn fallback_group_key(builtin_key: &str) -> String {
-    format!("builtin:{builtin_key}")
+    format!("{FALLBACK_GROUP_KEY_PREFIX}{builtin_key}")
+}
+
+/// Does a stored status-filter token select `status`?
+///
+/// The cross-platform FILTER-TOKEN rule: a token stored while only the
+/// constructed fallback vocabulary existed (`builtin:<key>`) must keep
+/// matching after the `issue_statuses` shape syncs and the group key re-keys
+/// to the row uuid — otherwise the board renders empty behind a phantom
+/// filter. A row-uuid token still matches ONLY that row (custom rows carry no
+/// builtin key), and a `builtin:<key>` token never matches a custom row.
+pub fn status_key_matches(status: &ResolvedStatus, token: &str) -> bool {
+    if token == status.group_key {
+        return true;
+    }
+    match token.strip_prefix(FALLBACK_GROUP_KEY_PREFIX) {
+        Some(key) => status.builtin_key.as_deref() == Some(key),
+        None => false,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +369,19 @@ fn started_position(sorted: &[IssueStatusRow], index: usize) -> (usize, usize) {
     (index0, started.len())
 }
 
+/// Contract rule 2's anchor normalization: an UNKNOWN forward-compat status
+/// enum resolves as `backlog`. Applied BEFORE the team-row lookup, so an issue
+/// carrying a newer server's status still joins the team's REAL Backlog row
+/// (and only a team with no synced rows at all degrades to the constructed
+/// `builtin:backlog` default). Mirrors web `resolveIssueStatus`, iOS
+/// `IssueStatusResolution` and Android's port.
+pub fn normalized_anchor(status: IssueStatus) -> IssueStatus {
+    match status.as_wire() {
+        Some(_) => status,
+        None => IssueStatus::Backlog,
+    }
+}
+
 /// A constructed builtin default for an enum anchor — contract rule 2(c).
 /// An unknown/absent anchor yields the BACKLOG default (web's
 /// `getIssueStatusConfig` fallback, unchanged).
@@ -424,7 +459,11 @@ pub fn resolve_status_sorted(issue: &Issue, sorted: &[IssueStatusRow]) -> Resolv
             return resolve_row(sorted, index);
         }
     }
-    if let Some(wire) = issue.status.as_wire() {
+    // An unknown forward-compat anchor normalizes to backlog FIRST, so it
+    // joins the team's real Backlog row rather than spawning a second,
+    // constructed group next to it.
+    let anchor = normalized_anchor(issue.status);
+    if let Some(wire) = anchor.as_wire() {
         if let Some(index) = sorted
             .iter()
             .position(|row| row.builtin_key.as_deref() == Some(wire))
@@ -432,7 +471,7 @@ pub fn resolve_status_sorted(issue: &Issue, sorted: &[IssueStatusRow]) -> Resolv
             return resolve_row(sorted, index);
         }
     }
-    constructed_default(issue.status)
+    constructed_default(anchor)
 }
 
 #[cfg(test)]
@@ -698,10 +737,85 @@ mod tests {
         assert_eq!(resolved.glyph.file_name(), "progress-3-4");
         assert!(resolved.is_fallback());
 
-        // Unknown anchor → the backlog default, never a panic.
+        // Unknown anchor with NO rows → the constructed backlog default.
         let resolved = resolve_status(&issue("triaged", None), &[]);
         assert_eq!(resolved.group_key, "builtin:backlog");
+        assert!(resolved.is_fallback());
+    }
+
+    #[test]
+    fn an_unknown_anchor_joins_the_teams_real_backlog_row() {
+        // Cross-platform UNKNOWN-ANCHOR rule: normalize to backlog BEFORE the
+        // row lookup, so a forward-compat status lands in the team's REAL
+        // Backlog group instead of a second, constructed one.
+        let rows = builtin_rows();
+        let sorted = sort_team_statuses(&rows);
+        let backlog_id = sorted
+            .iter()
+            .find(|row| row.builtin_key.as_deref() == Some("backlog"))
+            .map(|row| row.id.clone())
+            .unwrap();
+
         let resolved = resolve_status_sorted(&issue("triaged", None), &sorted);
-        assert_eq!(resolved.group_key, "builtin:backlog");
+        assert_eq!(resolved.group_key, backlog_id);
+        assert_eq!(resolved.row_id.as_deref(), Some(backlog_id.as_str()));
+        assert!(!resolved.is_fallback());
+        assert_eq!(resolved.category, IssueStatusCategory::Backlog);
+        assert_eq!(resolved.anchor(), IssueStatus::Backlog);
+        // Same through the unsorted entry point, and with a dangling
+        // status_id alongside the unknown anchor.
+        assert_eq!(
+            resolve_status(&issue("triaged", Some("gone")), &rows).group_key,
+            backlog_id
+        );
+
+        // A RENAMED backlog row is still the anchor row (the join is on
+        // builtin_key, not on the name).
+        let mut renamed = rows.clone();
+        for row in &mut renamed {
+            if row.builtin_key.as_deref() == Some("backlog") {
+                row.name = "Icebox".to_string();
+            }
+        }
+        assert_eq!(resolve_status(&issue("triaged", None), &renamed).name, "Icebox");
+
+        assert_eq!(normalized_anchor(IssueStatus::Unknown), IssueStatus::Backlog);
+        assert_eq!(normalized_anchor(IssueStatus::Done), IssueStatus::Done);
+    }
+
+    #[test]
+    fn filter_tokens_survive_the_fallback_to_synced_rekey() {
+        // A `builtin:<key>` token stored while only the constructed
+        // vocabulary existed must keep matching once the shape syncs and the
+        // group key becomes the row uuid.
+        let rows = builtin_rows();
+        let vocabulary = team_resolved_statuses(&rows);
+        let in_progress = vocabulary
+            .iter()
+            .find(|status| status.builtin_key.as_deref() == Some("in_progress"))
+            .unwrap();
+
+        assert!(status_key_matches(in_progress, &in_progress.group_key));
+        assert!(status_key_matches(in_progress, "builtin:in_progress"));
+        assert!(!status_key_matches(in_progress, "builtin:todo"));
+        // A row-uuid token matches ONLY that row.
+        let todo = vocabulary
+            .iter()
+            .find(|status| status.builtin_key.as_deref() == Some("todo"))
+            .unwrap();
+        assert!(!status_key_matches(todo, &in_progress.group_key));
+
+        // A CUSTOM row has no builtin key — only its uuid selects it.
+        let custom = resolve_row(&sort_team_statuses(&[row("qa", "started", "QA", 1.0, None)]), 0);
+        assert!(status_key_matches(&custom, "qa"));
+        assert!(!status_key_matches(&custom, "builtin:in_progress"));
+
+        // And the pre-sync constructed rows keep matching their own key.
+        let fallback = default_resolved_statuses();
+        let fallback_wip = fallback
+            .iter()
+            .find(|status| status.builtin_key.as_deref() == Some("in_progress"))
+            .unwrap();
+        assert!(status_key_matches(fallback_wip, "builtin:in_progress"));
     }
 }

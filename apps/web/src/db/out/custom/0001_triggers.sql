@@ -351,6 +351,28 @@ CREATE OR REPLACE TRIGGER seed_builtin_issue_statuses
   AFTER INSERT ON teams
   FOR EACH ROW EXECUTE FUNCTION seed_builtin_issue_statuses();
 
+-- Heal pass: teams inserted in the window between `migrate` (0052) and this
+-- file's (re-)application never fired the trigger above — backfill them on
+-- every boot (applyCustomSql re-runs this file), so a gap team can never
+-- permanently lack its builtins. Idempotent via the partial unique index.
+INSERT INTO issue_statuses (team_id, category, name, color, sort_order, builtin_key)
+SELECT t.id, d.category::issue_status_category, d.name, d.color, d.sort_order, d.key::issue_status
+FROM teams t
+CROSS JOIN (VALUES
+  ('backlog', 'backlog', 'Backlog', '#A1A1AA', 1),
+  ('todo', 'unstarted', 'Todo', '#FAFAFA', 1),
+  ('in_progress', 'started', 'In Progress', '#EAB308', 1),
+  ('in_review', 'started', 'In Review', '#22C55E', 2),
+  ('done', 'completed', 'Done', '#3B82F6', 1),
+  ('cancelled', 'cancelled', 'Cancelled', '#A1A1AA', 1),
+  ('duplicate', 'duplicate', 'Duplicate', '#A1A1AA', 1)
+) AS d(key, category, name, color, sort_order)
+WHERE NOT EXISTS (
+  SELECT 1 FROM issue_statuses s
+  WHERE s.team_id = t.id AND s.builtin_key = d.key::issue_status
+)
+ON CONFLICT DO NOTHING;
+
 -- 11. Derive issues.status_id from the anchor enum for enum-only writers
 --     (EXP-314). New clients dual-write {status_id, status}; old clients,
 --     pr-sync, MCP tools, the widget service and the desktop launcher's

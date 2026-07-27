@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery, eq } from "@tanstack/react-db"
+import { useLiveQuery, inArray } from "@tanstack/react-db"
 import {
   ChevronDown,
   ChevronUp,
@@ -16,6 +16,7 @@ import {
   issueStatusCategorySettingsOrder,
   type IssueStatusCategory,
 } from "@/lib/domain"
+import { useTeamBoards } from "@/hooks/use-team-data"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import {
   resolveIssueStatus,
@@ -93,20 +94,26 @@ function StatusTile({ option }: { option: StatusRowOption }) {
 
 /**
  * ONE live query over the team's synced issues, bucketed by resolved group
- * key. These are board-VISIBLE counts: the server counts ALL referencing rows
- * (trashed boards included), so its PRECONDITION_FAILED can fire even when a
- * row reads 0 here — the delete flow always honors it.
+ * key. Scoped through the team's BOARDS — the issues shape deliberately
+ * excludes team_id (REV2-5 scoping column), so a teamId filter would match
+ * nothing client-side. These are board-VISIBLE counts: the server counts ALL
+ * referencing rows (trashed boards included), so its PRECONDITION_FAILED can
+ * fire even when a row reads 0 here — the delete flow always honors it.
  */
 function useIssueCountsByStatus(
   teamId: string,
   options: StatusRowOption[]
 ): Map<string, number> {
+  const boards = useTeamBoards(teamId)
+  const boardIds = useMemo(() => boards.map((board) => board.id), [boards])
   const { data: rows } = useLiveQuery(
     (q) =>
-      q
-        .from({ issues: issueCollection })
-        .where(({ issues }) => eq(issues.teamId, teamId)),
-    [teamId]
+      boardIds.length > 0
+        ? q
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.boardId, boardIds))
+        : undefined,
+    [boardIds.join(`,`)]
   )
   return useMemo(() => {
     const counts = new Map<string, number>(

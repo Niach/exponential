@@ -82,8 +82,8 @@ struct IssueFilterSheet: View {
             // EXP-314: the team's own statuses, keyed by group id (a row id, or
             // `builtin:<key>` while the statuses shape is still syncing).
             ForEach(vm.teamStatuses, id: \.id) { status in
-                checkRow(selected: vm.filters.statusIds.contains(status.id)) {
-                    vm.toggleStatus(status.id)
+                checkRow(selected: vm.isStatusFiltered(status)) {
+                    vm.toggleStatus(status)
                 } content: {
                     AppIcon(status.iconName, size: AppIcon.Size.small)
                         .foregroundStyle(status.color)

@@ -133,10 +133,16 @@ export function buildIssueLabelIdsMap(issueLabels: IssueLabel[]) {
 export function buildFilteredIssues(
   issues: Issue[],
   issueLabelIdsMap: Map<string, string[]>,
-  filters: IssueFilters
+  filters: IssueFilters,
+  resolve?: (issue: Issue) => StatusRowOption
 ) {
   return issues.filter((issue) =>
-    matchesFilters(issue, issueLabelIdsMap.get(issue.id) ?? [], filters)
+    matchesFilters(
+      issue,
+      issueLabelIdsMap.get(issue.id) ?? [],
+      filters,
+      resolve?.(issue)
+    )
   )
 }
 

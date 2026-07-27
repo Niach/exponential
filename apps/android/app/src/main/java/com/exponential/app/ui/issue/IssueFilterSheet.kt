@@ -33,6 +33,7 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.isStatusSelected
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
@@ -55,7 +56,7 @@ fun IssueFilterSheet(
     // The board team's statuses (EXP-314) — the filter lists ROWS now, and a
     // ticked value is that row's group key.
     statuses: List<ResolvedIssueStatus>,
-    onToggleStatus: (String) -> Unit,
+    onToggleStatus: (ResolvedIssueStatus) -> Unit,
     onTogglePriority: (IssuePriority) -> Unit,
     onToggleLabel: (String) -> Unit,
     onClear: () -> Unit,
@@ -90,8 +91,11 @@ fun IssueFilterSheet(
                 FilterView.Status -> SubViewHeader("Status", onBack = { view = FilterView.Categories }) {
                     statuses.forEach { status ->
                         FilterCheckRow(
-                            selected = status.id in filters.statusIds,
-                            onClick = { onToggleStatus(status.id) },
+                            // Tick state (and the toggle) go through the row,
+                            // not a bare id — a `builtin:<key>` token stored
+                            // pre-sync still addresses the synced row.
+                            selected = filters.isStatusSelected(status),
+                            onClick = { onToggleStatus(status) },
                         ) {
                             StatusIcon(status, size = 16.dp)
                             Spacer(Modifier.width(8.dp))

@@ -32,7 +32,7 @@ use gpui_component::{
 
 use domain::options::{IssueOption, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::Label;
-use domain::statuses::{IssueStatusCategory, ResolvedStatus};
+use domain::statuses::{status_key_matches, IssueStatusCategory, ResolvedStatus};
 use domain::{active_filter_count, IssueFilters};
 
 use crate::icons::{option_icon, resolved_status_icon, ExpIcon};
@@ -350,14 +350,26 @@ fn status_filter_view(
     }
 
     for (ix, status) in statuses.iter().enumerate() {
-        let checked = filters.status_keys.contains(&status.group_key);
+        // Token matching (not raw key equality): a `builtin:<key>` key stored
+        // before the statuses shape synced still ticks the synced row it
+        // re-keyed to — and untick removes it in whichever form it is stored.
+        let checked = filters
+            .status_keys
+            .iter()
+            .any(|token| status_key_matches(status, token));
         let on_toggle: OnToggleRow = Rc::new({
             let filters = filters.clone();
             let on_change = on_filters_change.clone();
             let key = status.group_key.clone();
+            let this = status.clone();
             move |window, cx| {
                 let mut next = filters.clone();
-                toggle_value(&mut next.status_keys, key.clone());
+                if checked {
+                    next.status_keys
+                        .retain(|token| !status_key_matches(&this, token));
+                } else {
+                    next.status_keys.push(key.clone());
+                }
                 on_change(next, window, cx);
             }
         });

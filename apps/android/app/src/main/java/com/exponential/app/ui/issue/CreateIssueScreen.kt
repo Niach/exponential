@@ -171,7 +171,12 @@ fun CreateIssueScreen(
     val teamStatuses = state.teamStatuses
     LaunchedEffect(teamStatuses) {
         if (teamStatuses.isEmpty()) return@LaunchedEffect
-        status = teamStatuses.firstOrNull { it.id == status.id }
+        val picked = status
+        status = teamStatuses.firstOrNull { it.id == picked.id }
+            // The pick was made against the CONSTRUCTED fallback set, whose ids
+            // are `builtin:<key>` — once the real rows land, re-key it through
+            // the builtin key instead of silently resetting to Backlog.
+            ?: picked.builtinKey?.let { key -> teamStatuses.firstOrNull { it.builtinKey == key } }
             ?: teamStatuses.firstOrNull { it.builtinKey == IssueStatus.Backlog }
             ?: teamStatuses.firstOrNull { it.category == IssueStatusCategory.Backlog }
             ?: teamStatuses.first()

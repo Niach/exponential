@@ -35,6 +35,7 @@ import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.matchesFilters
 import com.exponential.app.domain.sortIssuesForCategory
+import com.exponential.app.domain.toggleStatus
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
@@ -293,10 +294,10 @@ class IssueListViewModel @Inject constructor(
         }
 
         val filteredAndDecorated = issues.mapNotNull { issue ->
-            val groupKey = statusByIssue.getValue(issue.id).id
+            val resolvedStatus = statusByIssue.getValue(issue.id)
             val priority = IssuePriority.fromWire(issue.priority)
             val labelIds = joinsByIssue[issue.id]?.map { it.labelId } ?: emptyList()
-            if (!matchesFilters(groupKey, priority, labelIds, filters)) return@mapNotNull null
+            if (!matchesFilters(resolvedStatus, priority, labelIds, filters)) return@mapNotNull null
             val resolvedLabels = labelIds.mapNotNull { labelsById[it] }
             IssueWithLabels(issue, resolvedLabels)
         }
@@ -625,10 +626,11 @@ class IssueListViewModel @Inject constructor(
         _filters.value = filters
     }
 
-    fun toggleStatus(statusId: String) {
-        val next = _filters.value.statusIds.toMutableSet()
-            .apply { if (!add(statusId)) remove(statusId) }
-        _filters.value = _filters.value.copy(statusIds = next)
+    // Toggling goes through the resolved ROW (not a bare id) so a filter
+    // ticked before the issue_statuses shape synced keeps matching — and stops
+    // matching — after the fallback→synced re-key (EXP-314).
+    fun toggleStatus(status: ResolvedIssueStatus) {
+        _filters.value = _filters.value.toggleStatus(status)
     }
 
     fun togglePriority(priority: IssuePriority) {

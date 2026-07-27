@@ -218,6 +218,9 @@ fn resolve_search_hit_status(
             return domain::statuses::resolve_row(sorted, index);
         }
     }
+    // Unknown forward-compat anchors normalize to backlog before the lookup,
+    // so a hit still shows the team's real Backlog row.
+    let anchor = domain::statuses::normalized_anchor(anchor);
     if let Some(wire) = anchor.as_wire() {
         if let Some(index) = sorted
             .iter()

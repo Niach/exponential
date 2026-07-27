@@ -99,7 +99,8 @@ export function useBoardViewData({
     const filteredIssues = buildFilteredIssues(
       issueList,
       issueLabelIdsMap,
-      filters
+      filters,
+      resolveStatus
     )
 
     return {

@@ -8,8 +8,8 @@ use crate::enums::{IssuePriority, IssueStatus};
 use crate::filters::{matches_filters, IssueFilters};
 use crate::rows::{Issue, IssueLabel, IssueStatusRow};
 use crate::statuses::{
-    resolve_status_sorted, sort_team_statuses, team_resolved_statuses, IssueStatusCategory,
-    ResolvedStatus,
+    resolve_status_sorted, sort_team_statuses, status_key_matches, team_resolved_statuses,
+    IssueStatusCategory, ResolvedStatus,
 };
 
 /// Web `priorityRank` — sort weight inside a status group.
@@ -159,8 +159,8 @@ pub fn build_filtered_issues(
                 .get(&issue.id)
                 .map(Vec::as_slice)
                 .unwrap_or(NO_LABELS);
-            let status_key = resolve_status_sorted(issue, &sorted).group_key;
-            matches_filters(issue, label_ids, &status_key, filters)
+            let status = resolve_status_sorted(issue, &sorted);
+            matches_filters(issue, label_ids, &status, filters)
         })
         .collect()
 }
@@ -174,7 +174,9 @@ pub fn build_filtered_issues(
 /// (web computes it via `formatDateForMutation(new Date())`).
 ///
 /// `selected_group_keys` are group keys (row ids, or `builtin:<key>` for the
-/// constructed pre-sync vocabulary); unknown keys are simply never matched.
+/// constructed pre-sync vocabulary); a `builtin:<key>` key also selects the
+/// SYNCED row carrying that builtin key (the fallback→synced re-key), and
+/// unknown keys are simply never matched.
 pub fn build_status_groups(
     issues: &[Issue],
     team_rows: &[IssueStatusRow],
@@ -224,7 +226,15 @@ pub fn build_status_groups(
     }
 
     if !selected_group_keys.is_empty() {
-        groups.retain(|group| selected_group_keys.contains(&group.status.group_key));
+        // Token matching, not raw key equality: a `builtin:<key>` key selected
+        // while only the constructed vocabulary existed must keep selecting
+        // the synced row it re-keyed to (else the board renders empty behind a
+        // phantom filter).
+        groups.retain(|group| {
+            selected_group_keys
+                .iter()
+                .any(|token| status_key_matches(&group.status, token))
+        });
         return groups;
     }
 
@@ -524,18 +534,61 @@ mod tests {
     }
 
     #[test]
-    fn an_unresolvable_issue_still_gets_a_group() {
-        // Forward-compat: an unknown anchor with real rows synced resolves to
-        // the CONSTRUCTED backlog default, whose key is not in the vocabulary
-        // — it must still render, appended after the known groups.
+    fn an_unknown_anchor_joins_the_teams_real_backlog_group() {
+        // Forward-compat UNKNOWN-ANCHOR rule: an unknown status normalizes to
+        // backlog BEFORE the row lookup, so it lands in the team's REAL
+        // Backlog group — never a second, constructed one beside it.
         let issues = vec![
             issue("known", "todo", "none", None),
             issue("weird", "triaged", "none", None),
         ];
         let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
         assert_eq!(group_names(&groups), vec!["Todo", "Backlog"]);
-        assert_eq!(groups[1].status.group_key, "builtin:backlog");
+        assert_eq!(groups[1].status.group_key, "row-backlog");
+        assert!(!groups[1].status.is_fallback());
         assert_eq!(groups[1].issues.len(), 1);
+
+        // With NO synced rows it degrades to the constructed backlog default.
+        let groups = build_status_groups(&issues[1..], &[], &[], TODAY);
+        assert_eq!(groups[0].status.group_key, "builtin:backlog");
+        assert!(groups[0].status.is_fallback());
+    }
+
+    #[test]
+    fn a_builtin_filter_key_survives_the_sync_rekey() {
+        // The key was stored while only the constructed vocabulary existed;
+        // once the shape syncs the group key is the row uuid, and the board
+        // must keep showing that group instead of rendering empty.
+        let issues = vec![
+            issue("wip", "in_progress", "none", None),
+            issue("t", "todo", "none", None),
+        ];
+        let groups = build_status_groups(
+            &issues,
+            &builtin_rows(),
+            &["builtin:in_progress".to_string()],
+            TODAY,
+        );
+        assert_eq!(group_names(&groups), vec!["In Progress"]);
+        assert_eq!(groups[0].issues.len(), 1);
+
+        // Filtering also drops the non-matching issues.
+        let filtered = build_filtered_issues(
+            issues.clone(),
+            &HashMap::new(),
+            &builtin_rows(),
+            &IssueFilters {
+                status_keys: vec!["builtin:in_progress".to_string()],
+                ..Default::default()
+            },
+        );
+        let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, vec!["wip"]);
+
+        // A row-uuid key still selects exactly its own group.
+        let groups =
+            build_status_groups(&issues, &builtin_rows(), &["row-todo".to_string()], TODAY);
+        assert_eq!(group_names(&groups), vec!["Todo"]);
     }
 
     #[test]

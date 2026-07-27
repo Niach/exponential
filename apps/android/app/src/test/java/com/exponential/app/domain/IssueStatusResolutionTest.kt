@@ -187,9 +187,51 @@ class IssueStatusResolutionTest {
     @Test
     fun unknownCategoryDegradesToTheBacklogTreatment() {
         val resolved = IssueStatusResolver.teamStatuses(listOf(row("weird", "blocked"))).single()
+        // RENDER degradation: neutral dashed glyph + the backlog category, so
+        // the row also lands on the ACTIVE in-group sort branch.
         assertEquals(IssueStatusCategory.Backlog, resolved.category)
         assertEquals("circle-dashed", resolved.iconName)
         assertEquals("weird", resolved.name)
+        assertTrue(
+            "unknown categories use the active in-group sort branch",
+            resolved.category in listOf(
+                IssueStatusCategory.Backlog,
+                IssueStatusCategory.Unstarted,
+                IssueStatusCategory.Started,
+            ),
+        )
+    }
+
+    @Test
+    fun unknownCategorySortsLastAfterDuplicate() {
+        // A category this client cannot interpret must not wedge itself into
+        // the middle of the team's list — it goes to the very end, after
+        // duplicate (the cross-platform UNKNOWN CATEGORY rule).
+        val rows = listOf(
+            row("weird", "blocked"),
+            row("dup", "duplicate"),
+            row("done", "completed"),
+            row("progress", "started"),
+            row("backlog", "backlog"),
+        )
+        assertEquals(
+            listOf("progress", "backlog", "done", "dup", "weird"),
+            IssueStatusResolver.teamStatuses(rows).map { it.id },
+        )
+    }
+
+    @Test
+    fun unknownCategoryDoesNotStealAStartedClock() {
+        // The started clock ramp counts only REAL started rows.
+        val rows = listOf(
+            row("s1", "started", sortOrder = 1.0),
+            row("s2", "started", sortOrder = 2.0),
+            row("weird", "blocked"),
+        )
+        val resolved = IssueStatusResolver.teamStatuses(rows).associate { it.id to it.iconName }
+        assertEquals("progress-2-4", resolved["s1"])
+        assertEquals("progress-3-4", resolved["s2"])
+        assertEquals("circle-dashed", resolved["weird"])
     }
 
     // --- resolution chain ---------------------------------------------------
@@ -235,6 +277,25 @@ class IssueStatusResolutionTest {
         val resolved = IssueStatusResolver.resolve(issue("blocked"), emptyList())
         assertEquals("builtin:backlog", resolved.id)
         assertEquals(IssueStatus.Backlog, resolved.builtinKey)
+    }
+
+    @Test
+    fun anUnknownAnchorJoinsTheTeamsRealBacklogRow() {
+        // The UNKNOWN ANCHOR rule: normalize to backlog BEFORE the team-row
+        // lookup, so a forward-compat status joins the team's REAL Backlog
+        // group instead of spawning a second, constructed one.
+        val team = IssueStatusResolver.teamStatuses(
+            listOf(
+                row("bl", "backlog", name = "Backlog", builtinKey = "backlog"),
+                row("bi", "started", name = "In Progress", builtinKey = "in_progress"),
+            )
+        )
+        val resolved = IssueStatusResolver.resolve(issue("blocked"), team)
+        assertEquals("bl", resolved.id)
+        assertEquals("bl", resolved.rowId)
+        assertEquals(IssueStatus.Backlog, resolved.builtinKey)
+        // Only a team with NO synced rows degrades to the constructed default.
+        assertEquals("builtin:backlog", IssueStatusResolver.resolve(issue("blocked"), emptyList()).id)
     }
 
     @Test

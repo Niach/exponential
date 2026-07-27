@@ -1,5 +1,6 @@
 package com.exponential.app.data.electric
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,6 +21,24 @@ class SyncActivityTest {
             SyncStats.ShapeStatus(shape = shape, phase = "live", lastSuccessAtMs = now)
         }
         return live + overrides
+    }
+
+    @Test
+    fun coreShapesAreTheIssueListShapesOnly() {
+        assertEquals(
+            setOf("teams", "boards", "issues", "issue_labels", "labels"),
+            CORE_SHAPES,
+        )
+    }
+
+    @Test
+    fun issueStatusesIsNotCoreSoAnOldServerCannotWedgeTheGate() {
+        // A pre-EXP-314 server 404s the issue_statuses shape forever. If it
+        // were core, its never-completing initial snapshot would pin
+        // isCatchingUp (and the refresh wait) to true for the whole session —
+        // while the list itself renders fine off the constructed builtins.
+        val map = shapes() + ("issue_statuses" to SyncStats.ShapeStatus("issue_statuses", phase = "initial"))
+        assertFalse(isCatchingUp(map, lastKickAt = now - 200, now = now))
     }
 
     @Test

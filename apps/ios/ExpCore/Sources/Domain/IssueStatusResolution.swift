@@ -25,7 +25,8 @@ public enum IssueStatusCategory: String, CaseIterable, Sendable, Hashable {
     case duplicate
 
     /// Tolerant wire mapping: an unknown category from a NEWER server decodes
-    /// to nil, and callers render it through the anchor instead of failing.
+    /// to nil, and callers degrade it to `.backlog` (sorting it last) instead
+    /// of failing — see `IssueStatusResolver.teamStatuses`.
     public static func from(_ wire: String?) -> IssueStatusCategory? {
         guard let wire else { return nil }
         return IssueStatusCategory(rawValue: wire)
@@ -242,11 +243,15 @@ public enum IssueStatusResolver {
             .filter { IssueStatusCategory.from($0.category) == .started }
             .map(\.id)
         return ordered.map { row in
-            let category = IssueStatusCategory.from(row.category)
             let builtinKey = row.builtinKey.flatMap { IssueStatus(rawValue: $0) }
-            // A category from a newer server renders through the anchor's
-            // category rather than dropping the row.
-            let effective = category ?? builtinKey.map(categoryOf) ?? .backlog
+            // UNKNOWN CATEGORY (cross-platform rule): a category from a NEWER
+            // server never drops the row — it degrades to `backlog` for every
+            // consumer at once. It sorts LAST here (see `categoryRank`), and
+            // renders the backlog treatment (dashed circle + neutral color)
+            // and takes the ACTIVE in-group sort branch through this
+            // `category`. Rendering and sorting must never disagree, so this
+            // deliberately does NOT route through the anchor's category.
+            let effective = IssueStatusCategory.from(row.category) ?? .backlog
             let startedIndex = startedIds.firstIndex(of: row.id) ?? 0
             return ResolvedIssueStatus(
                 id: row.id,
@@ -264,7 +269,8 @@ public enum IssueStatusResolver {
         }
     }
 
-    /// Unknown categories sort last (stable, never a crash).
+    /// Unknown categories sort last (stable, never a crash) — the sort half of
+    /// the UNKNOWN CATEGORY rule whose render half lives in `teamStatuses`.
     private static func categoryRank(_ wire: String) -> Int {
         guard let category = IssueStatusCategory.from(wire),
               let rank = IssueStatusCategory.displayOrder.firstIndex(of: category)
@@ -286,6 +292,11 @@ public enum IssueStatusResolver {
     /// The resolution chain: (a) the team row with `id == statusId`,
     /// (b) else the team row whose `builtinKey` matches the anchor,
     /// (c) else a constructed builtin default. Never fails.
+    ///
+    /// UNKNOWN ANCHOR (cross-platform rule): a `status` enum value from a
+    /// NEWER server normalizes to `.backlog` via `IssueStatus.from` BEFORE the
+    /// row lookup, so the issue joins the team's REAL Backlog row/group; only
+    /// with no synced rows at all does it land on the constructed default.
     public static func resolve(
         statusId: String?, anchor: String?, team: [ResolvedIssueStatus]
     ) -> ResolvedIssueStatus {

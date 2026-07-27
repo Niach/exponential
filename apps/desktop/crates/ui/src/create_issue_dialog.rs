@@ -540,6 +540,9 @@ impl CreateIssueDialogView {
                     menu,
                     &statuses,
                     &current_key,
+                    // A brand-new issue can't be a duplicate of anything yet —
+                    // no duplicate row here (web `creatableStatusOptions`).
+                    crate::pickers::StatusMenuScope::Assignable,
                     Rc::new(move |pick, _window, cx| {
                         view.update(cx, |this, cx| {
                             this.status = pick;

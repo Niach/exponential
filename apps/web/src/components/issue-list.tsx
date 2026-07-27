@@ -416,7 +416,12 @@ export function IssueList({
                   className="hidden md:inline-flex text-muted-foreground opacity-0 group-hover:opacity-100 hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation()
-                    onNewIssue(option)
+                    // A new issue can never be born a duplicate (no canonical
+                    // issue to pair with) — the duplicate group's "+" seeds
+                    // nothing and the dialog falls back to Backlog.
+                    onNewIssue(
+                      option.category === `duplicate` ? undefined : option
+                    )
                   }}
                 >
                   <Plus className="size-3" />

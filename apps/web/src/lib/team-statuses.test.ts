@@ -225,14 +225,25 @@ describe(`resolveIssueStatus`, () => {
     expect(resolved.name).toBe(`Done`)
   })
 
-  it(`falls back to constructed Backlog for unknown/forward-compat values`, () => {
+  it(`normalizes unknown/forward-compat anchors to the REAL Backlog row`, () => {
+    // The cross-platform rule: an unknown anchor is treated as backlog BEFORE
+    // the row lookup, so the issue joins the team's real Backlog group rather
+    // than spawning a second, constructed one.
     expect(
       resolveIssueStatus({ status: `triaged`, statusId: null }, options, byId)
-        .id
-    ).toBe(`builtin:backlog`)
+        .name
+    ).toBe(`Backlog`)
+    expect(
+      resolveIssueStatus({ status: `triaged`, statusId: null }, options, byId)
+        .builtinKey
+    ).toBe(`backlog`)
     expect(
       resolveIssueStatus({ status: `triaged`, statusId: `nope` }, options, byId)
-        .id
+        .builtinKey
+    ).toBe(`backlog`)
+    // Only with NO synced rows at all does it degrade to the constructed set.
+    expect(
+      resolveIssueStatus({ status: `triaged`, statusId: null }, []).id
     ).toBe(`builtin:backlog`)
   })
 

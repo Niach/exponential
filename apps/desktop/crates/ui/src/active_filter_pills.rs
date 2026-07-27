@@ -22,7 +22,7 @@ use gpui_component::{
 
 use domain::options::get_issue_priority_config;
 use domain::rows::Label;
-use domain::statuses::ResolvedStatus;
+use domain::statuses::{status_key_matches, ResolvedStatus};
 use domain::{empty_filters, IssueFilters, IssuePriority};
 
 use crate::filter_popover::OnFiltersChange;
@@ -68,10 +68,12 @@ impl RenderOnce for ActiveFilterPills {
         // the user happened to tick the boxes — the same vocabulary order the
         // popover lists them in. A key with no matching status (the row was
         // deleted) renders NOTHING, and toggling any pill prunes it.
-        let picked = self
-            .statuses
-            .iter()
-            .filter(|status| self.filters.status_keys.contains(&status.group_key));
+        let picked = self.statuses.iter().filter(|status| {
+            self.filters
+                .status_keys
+                .iter()
+                .any(|token| status_key_matches(status, token))
+        });
         for (ix, status) in picked.enumerate() {
             row = row.child(status_pill(
                 ix,
@@ -153,21 +155,24 @@ fn status_pill(
     on_change: OnFiltersChange,
     cx: &App,
 ) -> impl IntoElement {
-    let key = status.group_key.clone();
+    let this = status.clone();
     // Any key that no longer names a live status is pruned on the next toggle
-    // (a deleted status must not linger as an invisible active filter).
-    let live: Vec<String> = known
-        .iter()
-        .map(|status| status.group_key.clone())
-        .collect();
+    // (a deleted status must not linger as an invisible active filter). The
+    // comparison is TOKEN matching, so a pre-sync `builtin:<key>` key that now
+    // names a synced row is removed by its own pill, not pruned as dead.
+    let live: Vec<ResolvedStatus> = known.to_vec();
     pill_base(("filter-pill-status", ix), cx)
         .child(resolved_status_icon(status, cx).size_3())
         .child(SharedString::from(status.name.clone()))
         .child(pill_close_icon(cx))
         .on_click(move |_, window, cx| {
             let mut next = filters.clone();
-            next.status_keys
-                .retain(|candidate| *candidate != key && live.contains(candidate));
+            next.status_keys.retain(|candidate| {
+                !status_key_matches(&this, candidate)
+                    && live
+                        .iter()
+                        .any(|status| status_key_matches(status, candidate))
+            });
             on_change(next, window, cx);
         })
 }

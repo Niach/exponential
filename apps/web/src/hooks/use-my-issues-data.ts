@@ -101,7 +101,8 @@ export function useMyIssuesData({
     const filteredIssues = buildFilteredIssues(
       issueList,
       issueLabelIdsMap,
-      filters
+      filters,
+      resolveStatus
     )
 
     return {

@@ -334,6 +334,7 @@ impl PropertiesPanel {
                 &current_key,
                 // L27: a duplicate-category pick opens the picker; every other
                 // status writes.
+                crate::pickers::StatusMenuScope::SingleIssue,
                 Rc::new(move |pick, window, cx| {
                     crate::issue_detail::apply_status_selection(
                         issue_id.clone(),

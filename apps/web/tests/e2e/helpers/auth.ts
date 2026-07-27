@@ -40,7 +40,8 @@ export async function registerUser(
 
   await page.getByLabel(`Name`).fill(user.name)
   await page.getByLabel(`Email`).fill(user.email)
-  await page.getByLabel(`Password`).fill(user.password)
+  // exact: the "Show password" visibility toggle also substring-matches.
+  await page.getByLabel(`Password`, { exact: true }).fill(user.password)
 
   await Promise.all([
     expect(page).toHaveURL(options.expectedPath ?? /\/onboarding\/?$/),
@@ -62,7 +63,7 @@ export async function loginUser(
   ).toBeVisible()
 
   await page.getByLabel(`Email`).fill(user.email)
-  await page.getByLabel(`Password`).fill(user.password)
+  await page.getByLabel(`Password`, { exact: true }).fill(user.password)
 
   await Promise.all([
     // Existing users land somewhere under /t/ (team root or their
@@ -94,7 +95,8 @@ export async function createTeamThroughOnboarding(
 }
 
 export async function logoutUser(page: Page) {
-  await page.getByLabel(`User menu`).click()
+  // first(): the sidebar and the mobile topbar both render a user menu.
+  await page.getByLabel(`User menu`).first().click()
 
   await Promise.all([
     expect(page).toHaveURL(/\/auth\/login(?:\?.*)?$/),

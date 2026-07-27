@@ -180,10 +180,10 @@ final class IssueListViewModel {
     var filteredIssues: [IssueEntity] {
         let team = teamStatuses
         return issues.filter { issue in
-            let statusId = IssueStatusResolver.resolve(issue, team: team).id
+            let status = IssueStatusResolver.resolve(issue, team: team)
             let priority = IssuePriority.from(issue.priority)
             let issueLabelSet = Set(issueLabels.filter { $0.issueId == issue.id }.map(\.labelId))
-            return matchesFilters(statusId: statusId, priority: priority, issueLabelIds: issueLabelSet, filters: filters)
+            return matchesFilters(status: status, priority: priority, issueLabelIds: issueLabelSet, filters: filters)
         }
     }
 
@@ -217,12 +217,15 @@ final class IssueListViewModel {
         return labels.filter { $0.teamId == teamId }
     }
 
-    func toggleStatus(_ groupId: String) {
-        if filters.statusIds.contains(groupId) {
-            filters.statusIds.remove(groupId)
-        } else {
-            filters.statusIds.insert(groupId)
-        }
+    /// EXP-314: toggling goes through the resolved status so a stale
+    /// `builtin:<key>` token (picked before the statuses shape synced) is
+    /// recognized as the synced row it re-keyed into.
+    func toggleStatus(_ status: ResolvedIssueStatus) {
+        filters.toggleStatus(status)
+    }
+
+    func isStatusFiltered(_ status: ResolvedIssueStatus) -> Bool {
+        filters.selectsStatus(status)
     }
 
     func togglePriority(_ priority: IssuePriority) {

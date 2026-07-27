@@ -44,8 +44,20 @@ type Tx = Parameters<
   Parameters<typeof import("@/db/connection").db.transaction>[0]
 >[0]
 
-// Lock the category's rows in display order — the serialization point for
-// the started cap, appends, and moves.
+// Serialize ALL structural status writes for a team on one advisory lock,
+// taken as the FIRST statement of every create/move/delete transaction.
+// Row locks alone are not enough: FOR UPDATE cannot block phantom INSERTs
+// (two concurrent creates each counting 3 started rows would both pass the
+// cap), and move/delete's row-then-category lock order could deadlock
+// against create's category-first order. xact-scoped — released at commit.
+async function lockTeamStatuses(tx: Tx, teamId: string): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`issue_statuses:${teamId}`}))`
+  )
+}
+
+// Lock the category's rows in display order — the per-row serialization for
+// the started cap, appends, and moves (lockTeamStatuses guards the phantoms).
 async function lockCategory(
   tx: Tx,
   teamId: string,
@@ -121,6 +133,7 @@ export const statusesRouter = router({
       try {
         return await ctx.db.transaction(async (tx) => {
           const txId = await generateTxId(tx)
+          await lockTeamStatuses(tx, input.teamId)
           const siblings = await lockCategory(tx, input.teamId, input.category)
           if (
             input.category === `started` &&
@@ -255,6 +268,7 @@ export const statusesRouter = router({
       )
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        await lockTeamStatuses(tx, input.teamId)
         const row = await loadStatusForWrite(tx, input.teamId, input.statusId)
         const siblings = await lockCategory(tx, input.teamId, row.category)
 
@@ -303,6 +317,7 @@ export const statusesRouter = router({
       )
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        await lockTeamStatuses(tx, input.teamId)
         const row = await loadStatusForWrite(tx, input.teamId, input.statusId)
         assertNotBuiltin(row)
 

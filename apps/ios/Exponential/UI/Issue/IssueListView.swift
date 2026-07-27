@@ -309,9 +309,9 @@ struct IssueListView: View {
     private func activeFilterPills(_ vm: IssueListViewModel) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(vm.teamStatuses.filter { vm.filters.statusIds.contains($0.id) }, id: \.id) { status in
+                ForEach(vm.teamStatuses.filter { vm.isStatusFiltered($0) }, id: \.id) { status in
                     filterPill(icon: status.iconName, iconColor: status.color, text: status.name) {
-                        vm.toggleStatus(status.id)
+                        vm.toggleStatus(status)
                     }
                 }
                 ForEach(IssuePriority.displayOrder.filter { vm.filters.priorities.contains($0) }, id: \.self) { priority in

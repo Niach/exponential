@@ -12,12 +12,14 @@ import com.exponential.app.data.db.IssueStatusEntity
 //  1. teamStatuses(rows): order by category display order
 //     [started, unstarted, backlog, completed, cancelled, duplicate], then
 //     sort_order asc, then created_at asc, then id. A started row's clock
-//     position is its index among the started rows in THAT order.
+//     position is its index among the started rows in THAT order. A row whose
+//     category this client does not know sorts LAST but RENDERS backlog.
 //  2. resolve(issue): (a) the team row whose id == issue.statusId,
-//     (b) else the team row whose builtin_key == issue.status (the anchor),
-//     (c) else a locally CONSTRUCTED default from the generated contract
-//     defaults (unknown/missing anchor → the backlog default). Rendering can
-//     never fail — constructed rows carry the synthetic id "builtin:<key>".
+//     (b) else the team row whose builtin_key == issue.status (the anchor,
+//     with an unknown/missing anchor normalized to backlog FIRST so it joins
+//     the team's real Backlog row), (c) else a locally CONSTRUCTED default
+//     from the generated contract defaults. Rendering can never fail —
+//     constructed rows carry the synthetic id "builtin:<key>".
 //  3. Builtin + constructed rows render TODAY's design-token colors keyed on
 //     the builtin key (see resolvedStatusColor); only CUSTOM rows use the
 //     synced hex.
@@ -148,14 +150,13 @@ object IssueStatusResolver {
         if (!statusId.isNullOrBlank()) {
             team.firstOrNull { it.rowId == statusId }?.let { return it }
         }
-        val key = IssueStatus.entries.firstOrNull { it.wire == anchor }
-        if (key != null) {
-            team.firstOrNull { it.builtinKey == key }?.let { return it }
-        }
-        // Unknown / missing anchor falls back to the backlog default, matching
-        // IssueStatus.fromWire's long-standing rule.
-        val fallback = key ?: IssueStatus.Backlog
-        return builtinDefaults.first { it.builtinKey == fallback }
+        // An unknown / missing anchor (a NEWER server) normalizes to backlog
+        // BEFORE the team lookup, so such an issue joins the team's REAL
+        // Backlog row instead of spawning a second, constructed group. Only a
+        // team with no synced rows at all degrades to the constructed default.
+        val key = IssueStatus.fromWire(anchor)
+        team.firstOrNull { it.builtinKey == key }?.let { return it }
+        return builtinDefaults.first { it.builtinKey == key }
     }
 
     /**
@@ -197,14 +198,24 @@ object IssueStatusResolver {
         val sortOrder: Double,
         val createdAt: String,
     ) {
-        // An unknown category (a newer server) degrades to the backlog
-        // treatment: neutral glyph, active sort branch — never a crash.
+        // An unknown category (a NEWER server) degrades to the backlog
+        // treatment for RENDERING: neutral dashed glyph, active sort branch —
+        // never a crash.
         val effectiveCategory: IssueStatusCategory get() = category ?: IssueStatusCategory.Backlog
+
+        // …but for ORDERING it sorts LAST, after duplicate — a status this
+        // client cannot interpret must not wedge itself into the middle of the
+        // team's list. (Same rule on web/iOS/desktop.)
+        val categoryRank: Int
+            get() = category
+                ?.let { issueStatusCategoryDisplayOrder.indexOf(it) }
+                ?.takeIf { it >= 0 }
+                ?: issueStatusCategoryDisplayOrder.size
     }
 
     private fun order(rows: List<RawStatus>): List<ResolvedIssueStatus> {
         val sorted = rows.sortedWith(
-            compareBy<RawStatus> { issueStatusCategoryDisplayOrder.indexOf(it.effectiveCategory) }
+            compareBy<RawStatus> { it.categoryRank }
                 .thenBy { it.sortOrder }
                 .thenBy { it.createdAt }
                 .thenBy { it.id }

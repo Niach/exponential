@@ -51,7 +51,7 @@ use domain::{IssueFilters, IssueStatus};
 
 use crate::icons::{option_icon, resolved_status_icon, ExpIcon};
 use crate::issue_detail::{apply_status_selection, set_duplicate_of};
-use crate::pickers::{option_item, status_menu, StatusPick};
+use crate::pickers::{option_item, status_menu, StatusMenuScope, StatusPick};
 use crate::navigation::{navigate, Screen};
 use crate::properties_panel::toggle_label;
 use crate::queries::{self, BoardData};
@@ -611,11 +611,11 @@ impl IssueListView {
                 .tooltip("Status")
                 .disabled(busy)
                 .dropdown_menu(move |menu, _window, cx| {
-                    // The team's own vocabulary (EXP-314). Duplicate-category
-                    // rows are filtered out inside `status_menu`: bulk marking
-                    // has no canonical-issue picker, and status='duplicate'
-                    // without duplicate_of_id breaks the pairing invariant
-                    // (the single-issue path intercepts via
+                    // The team's own vocabulary (EXP-314), minus the
+                    // duplicate-category rows (`StatusMenuScope::Assignable`):
+                    // bulk marking has no canonical-issue picker, and
+                    // status='duplicate' without duplicate_of_id breaks the
+                    // pairing invariant (the single-issue path intercepts via
                     // apply_status_selection's picker).
                     let statuses = queries::team_status_options(cx, &team_id);
                     let ids = ids.clone();
@@ -624,6 +624,7 @@ impl IssueListView {
                         menu,
                         &statuses,
                         "",
+                        StatusMenuScope::Assignable,
                         Rc::new(move |pick: StatusPick, _window, cx| {
                             let pick = pick.clone();
                             spawn_bulk_op(
@@ -1241,6 +1242,10 @@ fn status_dropdown(issue: &Issue, statuses: &[ResolvedStatus], cx: &App) -> impl
                 menu,
                 &statuses,
                 &current_key,
+                // Single-issue surface: the duplicate row IS offered, and
+                // `apply_status_selection` intercepts it into the canonical
+                // picker (L27).
+                StatusMenuScope::SingleIssue,
                 Rc::new(move |pick, window, cx| {
                     apply_status_selection(issue_id.clone(), pick, window, cx)
                 }),
@@ -1261,7 +1266,11 @@ fn resolve_in(issue: &Issue, statuses: &[ResolvedStatus]) -> ResolvedStatus {
             return found.clone();
         }
     }
-    if let Some(wire) = issue.status.as_wire() {
+    // An unknown forward-compat anchor normalizes to backlog BEFORE the row
+    // lookup (the cross-platform rule), so the row icon agrees with the group
+    // the board built for it.
+    let anchor = domain::statuses::normalized_anchor(issue.status);
+    if let Some(wire) = anchor.as_wire() {
         if let Some(found) = statuses
             .iter()
             .find(|status| status.builtin_key.as_deref() == Some(wire))
@@ -1269,7 +1278,7 @@ fn resolve_in(issue: &Issue, statuses: &[ResolvedStatus]) -> ResolvedStatus {
             return found.clone();
         }
     }
-    domain::statuses::constructed_default(issue.status)
+    domain::statuses::constructed_default(anchor)
 }
 
 /// Assignee dropdown (web `AssigneeDropdown`): avatar trigger when assigned,
@@ -1506,6 +1515,7 @@ fn build_row_context_menu(
                 &current_key,
                 // L27: a duplicate-category pick opens the picker; every other
                 // status writes.
+                StatusMenuScope::SingleIssue,
                 Rc::new(move |pick, window, cx| {
                     apply_status_selection(issue_id.clone(), pick, window, cx)
                 }),

@@ -24,6 +24,7 @@ import {
   BUILTIN_STATUS_DEFAULTS,
   ISSUE_STATUS_FALLBACK,
   issueStatusCategoryDisplayOrder,
+  issueStatusValues,
   type IssueStatus,
   type IssueStatusCategory,
 } from "@/lib/domain"
@@ -163,9 +164,16 @@ export function resolveIssueStatus(
       : options.find((option) => option.id === issue.statusId)
     if (byIdHit) return byIdHit
   }
-  const anchored = options.find((option) => option.builtinKey === issue.status)
+  // Unknown forward-compat anchors normalize to backlog BEFORE the row
+  // lookup, so such an issue joins the team's REAL Backlog group instead of
+  // spawning a second, constructed one (the cross-platform rule — iOS/
+  // Android/desktop mirror it).
+  const anchor = (issueStatusValues as readonly string[]).includes(issue.status)
+    ? issue.status
+    : `backlog`
+  const anchored = options.find((option) => option.builtinKey === anchor)
   if (anchored) return anchored
-  return FALLBACK_BY_KEY.get(issue.status) ?? FALLBACK_BACKLOG
+  return FALLBACK_BY_KEY.get(anchor) ?? FALLBACK_BACKLOG
 }
 
 /** True for a CONSTRUCTED fallback row (its id is not a real row uuid). */

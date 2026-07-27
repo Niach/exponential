@@ -27,14 +27,23 @@ export const emptyFilters: IssueFilters = {
 export function matchesFilters(
   issue: Issue,
   issueLabelIds: string[],
-  filters: IssueFilters
+  filters: IssueFilters,
+  // The issue's RESOLVED status (from useTeamStatuses().resolve) — matching
+  // on it keeps filters agreeing with the rendered groups even for rows whose
+  // status_id is NULL/stale (pre-backfill, deleted-status races), exactly
+  // like the three native mirrors. Callers without team rows omit it and get
+  // the raw dual-column match.
+  resolvedStatus?: { id: string; builtinKey: string | null }
 ): boolean {
   if (
     filters.statusTokens.length > 0 &&
-    // A uuid token only ever equals `statusId`; an enum token only ever equals
-    // `status` — so one dual comparison covers both forms without team data.
-    !filters.statusTokens.some(
-      (token) => token === issue.statusId || token === issue.status
+    !filters.statusTokens.some((token) =>
+      resolvedStatus
+        ? token === resolvedStatus.id || token === resolvedStatus.builtinKey
+        : // A uuid token only ever equals `statusId`; an enum token only ever
+          // equals `status` — one dual comparison covers both without team
+          // data.
+          token === issue.statusId || token === issue.status
     )
   )
     return false

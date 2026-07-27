@@ -32,6 +32,25 @@ final class IssueStatusResolutionTests: XCTestCase {
         )
     }
 
+    private func issue(
+        id: String,
+        number: Int? = nil,
+        status: String = "todo",
+        statusId: String? = nil,
+        priority: IssuePriority = .none,
+        updatedAt: String = "2026-07-01 10:00:00+00"
+    ) -> IssueEntity {
+        IssueEntity(
+            id: id, boardId: "b1", number: number, identifier: nil, title: id,
+            description: nil, status: status, statusId: statusId,
+            priority: priority.rawValue,
+            assigneeId: nil, creatorId: nil, source: nil, dueDate: nil,
+            sortOrder: nil, completedAt: nil, duplicateOfId: nil,
+            prUrl: nil, prNumber: nil, prState: nil, branch: nil, prMergedAt: nil,
+            createdAt: "2026-06-01 10:00:00+00", updatedAt: updatedAt
+        )
+    }
+
     /// The 7 locked builtin rows exactly as a team is seeded.
     private func seededTeam() -> [IssueStatusEntity] {
         DomainContract.issueStatusDefaultKeys.indices.map { index in
@@ -197,16 +216,62 @@ final class IssueStatusResolutionTests: XCTestCase {
         )
     }
 
-    // A category value this build doesn't know must not drop the row; it
-    // renders through the builtin anchor's category instead.
-    func testUnknownCategoryFallsBackToTheAnchorsCategory() {
-        let rows = [IssueStatusEntity(
-            id: "x", teamId: "team-1", category: "triaging", name: "Weird",
-            color: nil, sortOrder: 1, builtinKey: IssueStatus.inProgress.rawValue,
+    // MARK: - UNKNOWN CATEGORY (one degradation for sorting AND rendering)
+
+    private func unknownCategoryRow(id: String, builtinKey: IssueStatus? = nil) -> IssueStatusEntity {
+        IssueStatusEntity(
+            id: id, teamId: "team-1", category: "triaging", name: "Weird",
+            color: nil, sortOrder: 1, builtinKey: builtinKey?.rawValue,
             createdAt: "2026-01-01 00:00:00+00", updatedAt: "2026-01-01 00:00:00+00"
-        )]
-        let team = IssueStatusResolver.teamStatuses(rows)
-        XCTAssertEqual(team.first?.category, .started)
+        )
+    }
+
+    // A category value this build doesn't know must not drop the row: it
+    // degrades to `backlog` — dashed-circle glyph, backlog color, backlog
+    // (= ACTIVE) in-group sort branch — for EVERY consumer at once.
+    func testUnknownCategoryRendersTheBacklogTreatment() {
+        let team = IssueStatusResolver.teamStatuses([unknownCategoryRow(id: "x")])
+        XCTAssertEqual(team.first?.category, .backlog)
+        XCTAssertEqual(team.first?.iconName, "circle-dashed")
+        XCTAssertEqual(team.first?.anchor, .backlog)
+    }
+
+    // Even a row that carries a builtin key uses the SAME degradation as the
+    // sort does — rendering must never disagree with `categoryRank`.
+    func testUnknownCategoryIgnoresTheAnchorsCategory() {
+        let team = IssueStatusResolver.teamStatuses([unknownCategoryRow(id: "x", builtinKey: .inProgress)])
+        XCTAssertEqual(team.first?.category, .backlog)
+        XCTAssertEqual(team.first?.iconName, "circle-dashed")
+        // The builtin key survives (writes still reference it); only the
+        // rendered/sorted category degrades.
+        XCTAssertEqual(team.first?.builtinKey, .inProgress)
+    }
+
+    // …and it sorts LAST, after duplicate — the sort half of the same rule.
+    func testUnknownCategorySortsLast() {
+        let rows = seededTeam() + [unknownCategoryRow(id: "x", builtinKey: .inProgress)]
+        XCTAssertEqual(IssueStatusResolver.teamStatuses(rows).last?.id, "x")
+        // Not merged into the backlog group it renders like.
+        XCTAssertEqual(
+            IssueStatusResolver.teamStatuses(rows).map(\.id).firstIndex(of: "row-duplicate"),
+            IssueStatusResolver.teamStatuses(rows).count - 2
+        )
+    }
+
+    // The degraded category is what the in-group sorter switches on, so an
+    // unknown category takes the ACTIVE branch (overdue → priority → due →
+    // number), never the terminal recency branch.
+    func testUnknownCategoryUsesTheActiveSortBranch() throws {
+        let team = IssueStatusResolver.teamStatuses([unknownCategoryRow(id: "x")])
+        let category = try XCTUnwrap(team.first).category
+        let urgent = issue(id: "i-urgent", number: 1, priority: .urgent, updatedAt: "2026-01-01 00:00:00+00")
+        let low = issue(id: "i-low", number: 2, priority: .low, updatedAt: "2026-09-09 00:00:00+00")
+        // Active branch ⇒ priority wins. (The cancelled/duplicate branch would
+        // have put the more recently updated `i-low` first.)
+        XCTAssertEqual(
+            IssueSorting.sorted([low, urgent], category: category, today: "2026-06-01").map(\.id),
+            ["i-urgent", "i-low"]
+        )
     }
 
     // MARK: - Resolution chain
@@ -256,6 +321,85 @@ final class IssueStatusResolutionTests: XCTestCase {
             IssueStatusResolver.resolve(statusId: nil, anchor: nil, team: []).id,
             "builtin:backlog"
         )
+    }
+
+    // UNKNOWN ANCHOR (cross-platform rule): the normalization to backlog
+    // happens BEFORE the team-row lookup, so a forward-compat status from a
+    // newer server joins the team's REAL Backlog row/group — it must never
+    // spawn a second, constructed backlog group next to it. Only with NO
+    // synced rows at all does it degrade to `builtin:backlog` (above).
+    func testResolveWithUnknownAnchorJoinsTheTeamsRealBacklogRow() {
+        let team = IssueStatusResolver.teamStatuses(seededTeam())
+        let resolved = IssueStatusResolver.resolve(
+            issue(id: "i1", status: "triaged"), team: team
+        )
+        XCTAssertEqual(resolved.id, "row-backlog")
+        XCTAssertEqual(resolved.rowId, "row-backlog")
+        XCTAssertEqual(resolved.builtinKey, .backlog)
+        // A stale/unknown statusId does not change the anchoring.
+        XCTAssertEqual(
+            IssueStatusResolver.resolve(
+                issue(id: "i2", status: "triaged", statusId: "gone"), team: team
+            ).id,
+            "row-backlog"
+        )
+    }
+
+    // MARK: - FILTER TOKENS (survive the fallback→synced re-key)
+
+    // A `builtin:<key>` group key stored while the statuses shape was still
+    // syncing must keep matching the SYNCED row it re-keys into.
+    func testBuiltinFilterTokenMatchesTheSyncedRowItRekeysInto() {
+        let team = IssueStatusResolver.teamStatuses(seededTeam())
+        let backlog = team.first { $0.builtinKey == .backlog }!
+        XCTAssertTrue(statusMatchesFilterToken(backlog, token: "builtin:backlog"))
+        XCTAssertTrue(statusMatchesFilterToken(backlog, token: "row-backlog"))
+        // …and only that row.
+        let done = team.first { $0.builtinKey == .done }!
+        XCTAssertFalse(statusMatchesFilterToken(done, token: "builtin:backlog"))
+        XCTAssertFalse(statusMatchesFilterToken(done, token: "row-backlog"))
+        // A CUSTOM row (no builtin key) never answers to a builtin token.
+        let custom = IssueStatusResolver.teamStatuses(
+            [row(id: "custom-1", category: .started, name: "Coding")]
+        )[0]
+        XCTAssertFalse(statusMatchesFilterToken(custom, token: "builtin:in_progress"))
+        XCTAssertTrue(statusMatchesFilterToken(custom, token: "custom-1"))
+        // A constructed fallback row still matches its own synthetic key.
+        let fallbackBacklog = IssueStatusResolver.builtinDefault(for: .backlog)
+        XCTAssertTrue(statusMatchesFilterToken(fallbackBacklog, token: "builtin:backlog"))
+        XCTAssertFalse(statusMatchesFilterToken(fallbackBacklog, token: "row-backlog"))
+    }
+
+    func testStatusFilterMatchingSurvivesTheSnapshotLandingMidSession() {
+        // Filter picked pre-sync, off the constructed fallback rows…
+        var filters = IssueFilters()
+        filters.toggleStatus(IssueStatusResolver.builtinDefault(for: .backlog))
+        XCTAssertEqual(filters.statusIds, ["builtin:backlog"])
+
+        // …then the shape lands and the issue resolves to the real row.
+        let team = IssueStatusResolver.teamStatuses(seededTeam())
+        let backlogIssue = IssueStatusResolver.resolve(issue(id: "i1", status: "backlog"), team: team)
+        let doneIssue = IssueStatusResolver.resolve(issue(id: "i2", status: "done"), team: team)
+        XCTAssertEqual(backlogIssue.id, "row-backlog")
+        XCTAssertTrue(matchesFilters(status: backlogIssue, priority: .none, issueLabelIds: [], filters: filters))
+        XCTAssertFalse(matchesFilters(status: doneIssue, priority: .none, issueLabelIds: [], filters: filters))
+
+        // Un-checking the SYNCED row clears the stale token instead of adding
+        // a second one for the same group.
+        filters.toggleStatus(backlogIssue)
+        XCTAssertTrue(filters.statusIds.isEmpty)
+    }
+
+    func testStatusFilterTogglesRealRowsByRowId() {
+        let team = IssueStatusResolver.teamStatuses(seededTeam())
+        let inReview = team.first { $0.builtinKey == .inReview }!
+        var filters = IssueFilters()
+        filters.toggleStatus(inReview)
+        XCTAssertEqual(filters.statusIds, ["row-in_review"])
+        XCTAssertTrue(filters.selectsStatus(inReview))
+        XCTAssertFalse(filters.selectsStatus(team.first { $0.builtinKey == .todo }!))
+        filters.toggleStatus(inReview)
+        XCTAssertTrue(filters.statusIds.isEmpty)
     }
 
     // MARK: - Wire tolerance

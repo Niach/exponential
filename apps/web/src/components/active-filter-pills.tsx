@@ -35,26 +35,29 @@ export function ActiveFilterPills({
   // displayOrder for priorities — not the order values happened to be ticked.
   // A token that resolves to no row (a status deleted while the URL was open)
   // still renders a removable "Unknown status" pill so the filter is escapable.
-  const statusPills: { token: string; option: StatusRowOption | null }[] = []
+  // A URL can carry BOTH forms of the same status (legacy enum + row uuid) —
+  // fold every equivalent token into ONE pill whose ✕ strips them all.
+  const statusPills: { tokens: string[]; option: StatusRowOption | null }[] = []
   for (const option of statusOptions) {
-    const token = filters.statusTokens.find(
+    const tokens = filters.statusTokens.filter(
       (candidate) => candidate === option.id || candidate === option.builtinKey
     )
-    if (token !== undefined) statusPills.push({ token, option })
+    if (tokens.length > 0) statusPills.push({ tokens, option })
   }
-  const matchedTokens = new Set(statusPills.map((pill) => pill.token))
+  const matchedTokens = new Set(statusPills.flatMap((pill) => pill.tokens))
   for (const token of filters.statusTokens) {
-    if (!matchedTokens.has(token)) statusPills.push({ token, option: null })
+    if (!matchedTokens.has(token))
+      statusPills.push({ tokens: [token], option: null })
   }
 
   const priorities = issuePriorityOptions
     .map((option) => option.value)
     .filter((value) => filters.priorities.includes(value))
 
-  const removeStatusToken = (token: string) =>
+  const removeStatusTokens = (tokens: string[]) =>
     onFiltersChange({
       ...filters,
-      statusTokens: filters.statusTokens.filter((s) => s !== token),
+      statusTokens: filters.statusTokens.filter((s) => !tokens.includes(s)),
     })
 
   const removePriority = (value: string) =>
@@ -71,13 +74,13 @@ export function ActiveFilterPills({
 
   return (
     <div className="flex items-center gap-1.5 px-6 py-1.5 flex-wrap">
-      {statusPills.map(({ token, option }) => (
+      {statusPills.map(({ tokens, option }) => (
         <Button
-          key={`s-${token}`}
+          key={`s-${tokens[0]}`}
           variant="outline"
           size="xs"
           className="h-6 gap-1 rounded-full text-xs"
-          onClick={() => removeStatusToken(token)}
+          onClick={() => removeStatusTokens(tokens)}
         >
           {option ? (
             <StatusIcon option={option} className="!h-3 !w-3" />
