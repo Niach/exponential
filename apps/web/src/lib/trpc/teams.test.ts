@@ -83,11 +83,12 @@ vi.mock(`@/lib/bootstrap-cloud`, () => ({
   getFeedbackTeamId: vi.fn(async () => FEEDBACK_WS),
 }))
 
-const cancelCreemSubscriptionsBestEffort = vi.fn(async () => {})
-vi.mock(`@/lib/billing/creem-subscriptions`, () => ({
-  findActiveSubscriptionsForTeams: vi.fn(async () => []),
-  cancelCreemSubscriptionsBestEffort: (...args: unknown[]) =>
-    cancelCreemSubscriptionsBestEffort(...(args as [])),
+// REV2-55: deleting a paying team is GATED on its subscription being
+// cancelled first (the router no longer cancels anything itself).
+const assertTeamDeletableBilling = vi.fn(async () => {})
+vi.mock(`@/lib/billing/billing-handover`, () => ({
+  assertTeamDeletableBilling: (...args: unknown[]) =>
+    assertTeamDeletableBilling(...(args as [])),
 }))
 
 const deleteStorageObjects = vi.fn(async () => {})
@@ -115,7 +116,8 @@ beforeEach(() => {
   insertReturningQueue.length = 0
   fakeDb.execute.mockClear()
   assertCanCreateTeam.mockClear()
-  cancelCreemSubscriptionsBestEffort.mockClear()
+  assertTeamDeletableBilling.mockClear()
+  assertTeamDeletableBilling.mockResolvedValue(undefined)
   deleteStorageObjects.mockClear()
 })
 
@@ -194,7 +196,28 @@ describe(`teams.delete (EXP-188: no last-team guard)`, () => {
       caller().delete({ teamId: FEEDBACK_WS })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
     expect(deletes).toHaveLength(0)
-    expect(cancelCreemSubscriptionsBestEffort).not.toHaveBeenCalled()
+    expect(assertTeamDeletableBilling).not.toHaveBeenCalled()
     expect(deleteStorageObjects).not.toHaveBeenCalled()
+  })
+
+  // REV2-55: a team with a live subscription must be un-subscribed first —
+  // deleting it would strand a paying ghost in Creem (team_id goes set null).
+  it(`refuses a team whose subscription is still active, deleting nothing`, async () => {
+    assertTeamDeletableBilling.mockRejectedValueOnce(
+      Object.assign(new Error(`cancel the subscription first`), {
+        code: `PRECONDITION_FAILED`,
+      })
+    )
+    await expect(caller().delete({ teamId: WS })).rejects.toThrow(
+      `cancel the subscription first`
+    )
+    expect(deletes).toHaveLength(0)
+    expect(deleteStorageObjects).not.toHaveBeenCalled()
+  })
+
+  it(`runs the billing gate before deleting a normal team`, async () => {
+    selectQueue.push([{ storageKey: `attachments/a.png` }])
+    await caller().delete({ teamId: WS })
+    expect(assertTeamDeletableBilling).toHaveBeenCalledWith(WS)
   })
 })

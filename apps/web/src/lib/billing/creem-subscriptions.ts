@@ -24,8 +24,24 @@ import { isCloudInstance } from "@/lib/bootstrap-cloud"
 export const SUBSCRIPTION_UPDATE_BEHAVIOR = `proration-charge-immediately` as const
 
 // Statuses that count as "this team is subscribed" — mirrors the plan
-// resolution in lib/billing.ts.
-export const ACTIVE_SUBSCRIPTION_STATUSES = [`active`, `trialing`, `paid`]
+// resolution in lib/billing.ts (ACTIVE_STATUSES; the two lists are asserted
+// equal by creem-subscriptions.test.ts).
+//
+// `scheduled_cancel` (Creem's status between "cancel at period end" and the
+// period actually ending — the plugin's webhook persistence writes
+// `event.object.status` verbatim) MUST be in here: the customer paid through
+// `periodEnd` and keeps every seat, byte and feature until then. Treating it
+// as inactive would drop the team to Free the instant they clicked Cancel and
+// — because getActiveTeamSubscription would return null — also hide the
+// pending-cancel banner and break Resume. "Pending cancel" is a separate axis
+// from "active": derive it with isSubscriptionPendingCancel
+// (lib/billing/billing-handover.ts), which owns SCHEDULED_CANCEL_STATUS.
+export const ACTIVE_SUBSCRIPTION_STATUSES = [
+  `active`,
+  `trialing`,
+  `paid`,
+  `scheduled_cancel`,
+]
 
 export type TeamSubscriptionRow = typeof creem_subscriptions.$inferSelect
 
@@ -164,17 +180,52 @@ export async function upgradeCreemSubscriptionProduct(
   })
 }
 
+/**
+ * Schedule cancellation at the end of the paid period (the self-service
+ * "Cancel subscription" path). The customer keeps everything they paid for
+ * until `periodEnd`; Creem's `subscription.canceled` webhook then flips the
+ * local status. Never `immediate` — that would forfeit paid time.
+ */
+export async function scheduleCreemSubscriptionCancellation(
+  creemSubscriptionId: string
+): Promise<void> {
+  const creem = creemClient()
+  await creem.subscriptions.cancel(creemSubscriptionId, {
+    mode: `scheduled`,
+    onExecute: `cancel`,
+  })
+}
+
+/**
+ * Undo a scheduled cancellation (Creem status `scheduled_cancel` → active).
+ * Pairs with scheduleCreemSubscriptionCancellation so a mis-click is
+ * self-service recoverable — assertSubscriptionMutable refuses seat/plan
+ * changes while a cancellation is pending.
+ */
+export async function resumeCreemSubscription(
+  creemSubscriptionId: string
+): Promise<void> {
+  const creem = creemClient()
+  await creem.subscriptions.resume(creemSubscriptionId)
+}
+
 // ── Cancel-on-delete (go-live audit) ─────────────────────────────────────────
-// Deleting a team (or an account) must not leave a paying ghost
-// subscription behind in Creem. The local FKs make the rows unfindable after
-// the delete — `team_id` goes `set null` on team delete and the
-// buyer FK (`reference_id`) CASCADES on user delete — so callers capture the
-// affected rows with the find* helpers BEFORE deleting, run the local delete,
-// and then cancel remotely with cancelCreemSubscriptionsBestEffort AFTER the
-// transaction commits. That ordering guarantees a Creem API failure can never
-// leave the team half-deleted (an orphaned REMOTE subscription is
-// recoverable from the Creem dashboard; it is logged loudly), and a failed
-// local delete never cancels a subscription the customer still uses.
+// Destroying a TEAM must not leave a paying ghost subscription behind in
+// Creem: `team_id` goes `set null` on team delete, after which the row is
+// unfindable by team. Deleting a team through teams.delete/admin.deleteTeam is
+// therefore GATED on the subscription being cancelled first
+// (lib/billing/billing-handover.ts); the one path that still destroys a
+// PAYING team is account deletion killing a solo team, which captures the
+// affected rows with findActiveSubscriptionsForTeams BEFORE the delete and
+// cancels them with cancelCreemSubscriptionsBestEffort AFTER the transaction
+// commits. That ordering guarantees a Creem API failure can never leave the
+// account half-deleted (an orphaned REMOTE subscription is recoverable from
+// the Creem dashboard; it is logged loudly), and a failed local delete never
+// cancels a subscription the customer still uses.
+//
+// Deleting an ACCOUNT never cancels a SURVIVING team's subscription — the
+// subscription belongs to the team, and `reference_id` is `set null` so the
+// row (and the team's plan) outlives its purchaser. See billing-handover.ts.
 
 export type CancellableSubscription = Pick<
   TeamSubscriptionRow,
@@ -206,39 +257,21 @@ export async function findActiveSubscriptionsForTeams(
     )
 }
 
-/**
- * Active subscription rows PURCHASED by the user (`referenceId` — the Creem
- * customer is this user's email/card). Capture BEFORE deleting the user (see
- * the cancel-on-delete note above). This covers the user's solo teams
- * AND surviving teams they paid for: once the account is gone nobody can
- * manage the subscription and the deleted user's card would keep being
- * charged, so those cancel too (a remaining owner re-subscribes with their
- * own payment method).
- */
-export async function findActiveSubscriptionsForUser(
-  userId: string
-): Promise<CancellableSubscription[]> {
-  if (!isCloudInstance()) return []
-  return await db
-    .select({
-      id: creem_subscriptions.id,
-      creemSubscriptionId: creem_subscriptions.creemSubscriptionId,
-    })
-    .from(creem_subscriptions)
-    .where(
-      and(
-        eq(creem_subscriptions.referenceId, userId),
-        inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES)
-      )
-    )
-}
+// NOTE (REV2-55): there is deliberately NO findActiveSubscriptionsForUser
+// buyer-scoped capture anymore. Deleting an account used to cancel every
+// subscription the person had ever purchased — including the ones funding
+// teams that survive them — which dropped a live shared team to Free
+// mid-period with no warning. A subscription belongs to its team; only the
+// team-scoped capture above may feed a cancellation.
 
 /**
- * Best-effort remote cancellation for the delete paths. NEVER throws — every
- * failure is logged with the Creem subscription id so it can be cancelled
- * manually from the dashboard. Cancellation is immediate (not scheduled): the
- * backing team/account no longer exists, so there is nothing to keep
- * serving until period end.
+ * Best-effort remote cancellation for the one surviving destroy-a-paying-team
+ * path (account deletion killing a solo team). NEVER throws — every failure is
+ * logged with the Creem subscription id so it can be cancelled manually from
+ * the dashboard. Cancellation is immediate (not scheduled): the backing team
+ * no longer exists, so there is nothing left to serve until period end.
+ * Self-service cancellation uses scheduleCreemSubscriptionCancellation
+ * instead, which preserves the paid period.
  */
 export async function cancelCreemSubscriptionsBestEffort(
   subscriptions: CancellableSubscription[]
@@ -280,8 +313,9 @@ export async function cancelCreemSubscriptionsBestEffort(
     }
     try {
       // Optimistic local write; the `subscription.canceled` webhook confirms
-      // it. On the account-deletion path the row is already gone (buyer FK
-      // cascade), so this is a harmless zero-row update.
+      // it. The row itself survives every delete path (`team_id` and
+      // `reference_id` are both `set null`), so this keeps the billing-history
+      // row honest about what happened to it.
       await db
         .update(creem_subscriptions)
         .set({ status: `canceled`, updatedAt: new Date() })

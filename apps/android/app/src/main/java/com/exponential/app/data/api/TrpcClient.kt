@@ -44,10 +44,29 @@ const val PLAN_LIMIT_MESSAGE_PREFIX = "Your plan allows"
 const val PLAN_LIMIT_NEUTRAL_MESSAGE = "This team has reached its plan limit."
 
 /**
+ * Leading clause of the server's team-delete billing gate (REV2-55):
+ * `teams.delete` / `admin.deleteTeam` refuse a team whose subscription is
+ * still live. Kept in sync with `TEAM_DELETE_ACTIVE_SUBSCRIPTION_MESSAGE`
+ * (apps/web/src/lib/billing/billing-handover.ts) — matched on this stable
+ * clause only, because the server's trailing pointer names a web-only screen.
+ */
+const val TEAM_DELETE_SUBSCRIPTION_MESSAGE_PREFIX = "This team has an active subscription"
+
+/**
+ * Native copy for that gate. The server's wording sends the owner to "team
+ * settings → Billing", which exists on the web ONLY (this app ships no
+ * billing UI — EXP-216 / store policy), so the refusal names the web instead
+ * of a screen the user cannot reach here.
+ */
+const val TEAM_DELETE_SUBSCRIPTION_MESSAGE =
+    "This team has an active subscription. Cancel the subscription on the web before deleting the team."
+
+/**
  * Extract the user-presentable `message` from a tRPC error body
  * (`{"error":{"message":…}}`, tolerating the nested `error.json` payload).
- * Plan-cap messages are replaced with neutral copy — the server's wording is
- * written for the web, where billing lives. Null when nothing extractable.
+ * Plan-cap messages are replaced with neutral copy and the team-delete
+ * billing gate with its native twin — the server's wording is written for the
+ * web, where billing lives. Null when nothing extractable.
  */
 fun trpcUserMessageFromBody(body: String): String? {
     val message = runCatching {
@@ -56,7 +75,11 @@ fun trpcUserMessageFromBody(body: String): String? {
         (payload?.get("message") as? JsonPrimitive)?.contentOrNull
     }.getOrNull()
     if (message.isNullOrBlank()) return null
-    return if (message.startsWith(PLAN_LIMIT_MESSAGE_PREFIX)) PLAN_LIMIT_NEUTRAL_MESSAGE else message
+    return when {
+        message.startsWith(PLAN_LIMIT_MESSAGE_PREFIX) -> PLAN_LIMIT_NEUTRAL_MESSAGE
+        message.startsWith(TEAM_DELETE_SUBSCRIPTION_MESSAGE_PREFIX) -> TEAM_DELETE_SUBSCRIPTION_MESSAGE
+        else -> message
+    }
 }
 
 @Singleton

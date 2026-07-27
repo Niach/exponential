@@ -17,6 +17,21 @@ public let planLimitMessagePrefix = "Your plan allows"
 /// iOS app (App Store 3.1.1 — EXP-216).
 public let planLimitNeutralMessage = "This team has reached its plan limit."
 
+/// Leading clause of the server's team-delete billing gate (REV2-55):
+/// `teams.delete` refuses a team whose subscription is still live, with
+/// `PRECONDITION_FAILED`. Kept in sync with the web
+/// `TEAM_DELETE_ACTIVE_SUBSCRIPTION_MESSAGE`
+/// (apps/web/src/lib/billing/billing-handover.ts) — only this stable clause is
+/// matched, because the server's trailing pointer names a web-only screen.
+public let teamDeleteSubscriptionMessagePrefix = "This team has an active subscription"
+
+/// Native copy for that gate. The server sends the owner to "team settings →
+/// Billing", which exists on the web ONLY (the app ships no billing UI —
+/// EXP-216 / App Store 3.1.1), so the refusal names the web instead of a
+/// screen the user cannot reach here.
+public let teamDeleteSubscriptionMessage =
+    "This team has an active subscription. Cancel the subscription on the web before deleting the team."
+
 struct TrpcErrorBody {
     let message: String
     let code: String?
@@ -42,12 +57,12 @@ struct TrpcErrorBody {
         return TrpcErrorBody(message: message, code: code)
     }
 
-    /// The server's user-presentable `message` (plan-cap copy swapped for the
-    /// neutral text), or nil when the body carries no extractable message —
+    /// The server's user-presentable `message` (billing copy swapped for the
+    /// native text), or nil when the body carries no extractable message —
     /// the structural sanitizer behind `TrpcError.errorDescription` (EXP-219).
     static func userMessage(fromBody body: String) -> String? {
         guard let parsed = parse(body), !parsed.message.isEmpty else { return nil }
-        return parsed.isPlanLimit ? planLimitNeutralMessage : parsed.message
+        return parsed.presentableMessage
     }
 
     /// Plan-cap detection (`PRECONDITION_FAILED` + the "Your plan allows"
@@ -55,20 +70,36 @@ struct TrpcErrorBody {
     var isPlanLimit: Bool {
         code == "PRECONDITION_FAILED" && message.hasPrefix(planLimitMessagePrefix)
     }
+
+    /// Team-delete billing gate detection (`PRECONDITION_FAILED` + the
+    /// "This team has an active subscription" clause — REV2-55).
+    var isTeamDeleteSubscriptionGate: Bool {
+        code == "PRECONDITION_FAILED" && message.hasPrefix(teamDeleteSubscriptionMessagePrefix)
+    }
+
+    /// The one place that decides which server messages render verbatim and
+    /// which are replaced: everything passes through except the two billing
+    /// messages, whose web-only wording must never reach an iOS surface.
+    var presentableMessage: String {
+        if isPlanLimit { return planLimitNeutralMessage }
+        if isTeamDeleteSubscriptionGate { return teamDeleteSubscriptionMessage }
+        return message
+    }
 }
 
 public extension Error {
     /// A clean, user-facing message. For `TrpcError.httpError` it extracts the
     /// tRPC error `message` from the JSON body; otherwise the localized
-    /// description. Plan-cap messages are replaced with neutral copy — the
-    /// server's wording is written for the web, where billing lives.
+    /// description. Plan-cap and team-delete billing-gate messages are replaced
+    /// with native copy — the server's wording is written for the web, where
+    /// billing lives.
     var trpcUserMessage: String {
         guard let trpcError = self as? TrpcError,
               case let .httpError(_, body) = trpcError,
               let parsed = TrpcErrorBody.parse(body),
               !parsed.message.isEmpty
         else { return localizedDescription }
-        return parsed.isPlanLimit ? planLimitNeutralMessage : parsed.message
+        return parsed.presentableMessage
     }
 
     /// The tRPC error `code` (`NOT_FOUND`, `FORBIDDEN`, `PRECONDITION_FAILED`,

@@ -1,10 +1,16 @@
 import { TRPCError } from "@trpc/server"
-import { eq, inArray, or } from "drizzle-orm"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import {
   attachments,
+  comments,
+  emailBounces,
   githubInstallationRepoGrants,
+  issues,
   teams,
+  teamInvites,
   teamMembers,
+  users,
+  verifications,
 } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
 import { getFeedbackTeamId } from "@/lib/bootstrap-cloud"
@@ -12,11 +18,15 @@ import {
   findActiveSubscriptionsForTeams,
   type CancellableSubscription,
 } from "@/lib/billing/creem-subscriptions"
+import {
+  ANONYMIZED_MENTION_HANDLE,
+  replaceMentionTokens,
+} from "@/lib/mention-refs"
 
 // Works over the root db or a transaction — structurally typed so the helper
 // can run inside the caller's delete transaction (nothing is removed when the
 // stranded-owner guard throws).
-type DbOrTx = Pick<typeof Database, `select` | `delete`>
+type DbOrTx = Pick<typeof Database, `select` | `delete` | `update`>
 
 export type MembershipRow = {
   teamId: string
@@ -83,14 +93,23 @@ export function classifyTeamsForUserDeletion(
  *    getFeedbackTeamId() guard keeps the bootstrap feedback team
  *    untouchable).
  *
+ * 4. Anonymize `@<email>` mentions of the departing user in surviving issue
+ *    descriptions and comment bodies (REV2-37), and delete the email residue
+ *    that carries no user FK — unsuppressed bounce rows, Better Auth
+ *    verification rows, and open invites addressed to them (REV2-75).
+ *
  * Returns the ids of the teams actually deleted PLUS the active Creem
  * subscriptions bound to them (captured in-tx BEFORE the delete — the
  * team FK goes `set null` on delete, after which the rows are
- * unfindable; a subscription bought by ANOTHER user for one of these
- * teams is invisible to the caller's buyer-scoped capture and would
- * keep charging), plus every S3 storage key the deletes (and the users-row
- * cascade the caller runs next) will strand — the caller cancels the
- * subscriptions and reclaims the keys from S3 after commit (best-effort).
+ * unfindable). Those are the ONLY subscriptions an account deletion may
+ * cancel: the teams they fund are being destroyed. Subscriptions this user
+ * bought for teams that SURVIVE stay live and stay bound to their team
+ * (REV2-55 + lib/billing/billing-handover.ts) — deleting an account never
+ * cancels a plan someone else is still using, and never fails on billing.
+ *
+ * Also returns every S3 storage key the deletes will strand — the caller
+ * cancels the subscriptions and reclaims the keys from S3 after commit
+ * (best-effort).
  */
 export async function guardAndCleanupTeamsForUserDeletion(
   tx: DbOrTx,
@@ -152,45 +171,166 @@ export async function guardAndCleanupTeamsForUserDeletion(
     ? solo.filter((id) => id !== feedbackTeamId)
     : solo
 
-  // Collect every S3 object the deletes below and the users-row cascade will
-  // strand — none of those DB deletes touch storage: (a) attachments in the
-  // solo teams being deleted, (b) attachments this user uploaded
-  // (attachments.uploader_id cascade). Deduped; collected BEFORE any delete.
-  // NOTE: issues this user CREATED are NOT reclaimed — issues.creator_id is
-  // ON DELETE SET NULL, so those issues (and their attachments) survive the
-  // account deletion; reclaiming their blobs would strand live images.
-  const keyConditions = [eq(attachments.uploaderId, userId)]
-  if (soloToDelete.length > 0) {
-    keyConditions.push(inArray(attachments.teamId, soloToDelete))
-  }
-  const keyRows = await tx
-    .select({ storageKey: attachments.storageKey })
-    .from(attachments)
-    .where(or(...keyConditions))
-  const storageKeys = [...new Set(keyRows.map((row) => row.storageKey))]
+  // The address is needed AFTER the users row is gone (mention scrub + email
+  // residue), so capture it while it still exists.
+  const [me] = await tx
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  const email = me?.email ?? null
 
-  if (soloToDelete.length === 0) {
-    return {
-      deletedTeamIds: [],
-      doomedTeamSubscriptions: [],
-      storageKeys,
-    }
+  // Collect the S3 objects the team deletes below will strand — that DB
+  // cascade never touches storage. ONLY attachments in the solo teams being
+  // deleted qualify (deduped; collected BEFORE any delete).
+  // NOTE (REV2-36): attachments this user UPLOADED into a surviving team are
+  // deliberately NOT reclaimed. `attachments.uploader_id` is ON DELETE SET
+  // NULL, so the rows outlive the account — any member may embed an image
+  // into a teammate's issue, and issues.creator_id is `set null` too, so
+  // reclaiming an uploader's blobs would leave broken `![](/api/attachments/…)`
+  // embeds scattered through content the deletion must not touch.
+  const storageKeys =
+    soloToDelete.length === 0
+      ? []
+      : [
+          ...new Set(
+            (
+              await tx
+                .select({ storageKey: attachments.storageKey })
+                .from(attachments)
+                .where(inArray(attachments.teamId, soloToDelete))
+            ).map((row) => row.storageKey)
+          ),
+        ]
+
+  let deletedTeamIds: string[] = []
+  let doomedTeamSubscriptions: CancellableSubscription[] = []
+  if (soloToDelete.length > 0) {
+    // Captured BEFORE the delete: the team FK on creem_subscriptions is
+    // `set null`, so after the delete these rows can no longer be found by
+    // team. These are the only subscriptions an account deletion cancels —
+    // the teams paying for them cease to exist (see the module docs).
+    doomedTeamSubscriptions = await findActiveSubscriptionsForTeams(
+      soloToDelete,
+      tx
+    )
+    const deleted = await tx
+      .delete(teams)
+      .where(inArray(teams.id, soloToDelete))
+      .returning({ id: teams.id })
+    deletedTeamIds = deleted.map((d) => d.id)
   }
-  // Captured BEFORE the delete: the team FK on creem_subscriptions is
-  // `set null`, so after the delete these rows can no longer be found by
-  // team — and the buyer-scoped capture the callers run misses
-  // subscriptions another user purchased for these teams.
-  const doomedTeamSubscriptions = await findActiveSubscriptionsForTeams(
-    soloToDelete,
-    tx
-  )
-  const deleted = await tx
-    .delete(teams)
-    .where(inArray(teams.id, soloToDelete))
-    .returning({ id: teams.id })
-  return {
-    deletedTeamIds: deleted.map((d) => d.id),
-    doomedTeamSubscriptions,
-    storageKeys,
+
+  if (email) {
+    // Run AFTER the solo-team deletes so the scan only walks surviving rows.
+    await anonymizeMentionsOfDeletedUser(tx, email)
+    await deleteEmailResidueForUser(tx, userId, email)
   }
+
+  return { deletedTeamIds, doomedTeamSubscriptions, storageKeys }
+}
+
+/** Escape a LIKE/ILIKE pattern operand (emails may legally contain `_`). */
+function escapeLikeOperand(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
+/**
+ * REV2-37: mentions are stored as the raw `@<email>` literal in
+ * `issues.description` / `comments.body`, and nothing used to rewrite them —
+ * so a deleted user's address stayed in former co-members' teams forever, and
+ * displayed WORSE than before (clients render a name pill only while the
+ * email resolves to a live member; once the users row is gone the raw address
+ * shows). Rewrite every remaining occurrence to the neutral
+ * ANONYMIZED_MENTION_HANDLE.
+ *
+ * Deliberately NOT team-scoped: the person may have been mentioned in a team
+ * they later left, and erasure means erasure. The ILIKE prefilter keeps the
+ * write set to the handful of rows that actually contain the address.
+ */
+async function anonymizeMentionsOfDeletedUser(
+  tx: DbOrTx,
+  email: string
+): Promise<void> {
+  const needle = `%@${escapeLikeOperand(email)}%`
+  const target = email.toLowerCase()
+  const anonymize = (text: string) =>
+    replaceMentionTokens(text, (mentioned) =>
+      mentioned === target ? ANONYMIZED_MENTION_HANDLE : null
+    )
+
+  const issueRows = await tx
+    .select({ id: issues.id, description: issues.description })
+    .from(issues)
+    .where(sql`${issues.description} ILIKE ${needle}`)
+  for (const row of issueRows) {
+    if (!row.description) continue
+    const next = anonymize(row.description)
+    if (next === row.description) continue
+    await tx
+      .update(issues)
+      .set({ description: next, updatedAt: new Date() })
+      .where(eq(issues.id, row.id))
+  }
+
+  const commentRows = await tx
+    .select({ id: comments.id, body: comments.body })
+    .from(comments)
+    .where(sql`${comments.body} ILIKE ${needle}`)
+  for (const row of commentRows) {
+    const next = anonymize(row.body)
+    if (next === row.body) continue
+    await tx
+      .update(comments)
+      .set({ body: next, updatedAt: new Date() })
+      .where(eq(comments.id, row.id))
+  }
+}
+
+/**
+ * REV2-75: the three places that keep the address with no user FK to cascade
+ * it away.
+ *
+ * - `email_bounces`: unsuppressed rows are pure PII residue. SUPPRESSED rows
+ *   are kept on purpose — a suppression list is a legitimate-interest record
+ *   that must outlive the account, or the next signup on the same address
+ *   would immediately re-bounce mail at SES and damage the sending domain.
+ * - `verifications`: the raw users-row delete bypasses Better Auth's own
+ *   cleanup. Matched by identifier (the email-keyed OTP forms) OR by value
+ *   (`reset-password:<token>` / `delete-account-<token>` rows store the user
+ *   id), which covers every flow this instance can enable.
+ * - `team_invites`: invites addressed TO this person. Only `invited_by_id`
+ *   cascades, and the `email` column IS in the team-invites shape allowlist,
+ *   so an un-accepted invite would keep syncing the address to every member
+ *   of that team forever. Accepted invites are historical records of a real
+ *   join, and their address is already redundant — they stay.
+ */
+async function deleteEmailResidueForUser(
+  tx: DbOrTx,
+  userId: string,
+  email: string
+): Promise<void> {
+  await tx
+    .delete(emailBounces)
+    .where(
+      and(
+        sql`lower(${emailBounces.email}) = ${email.toLowerCase()}`,
+        isNull(emailBounces.suppressedAt)
+      )
+    )
+
+  await tx
+    .delete(verifications)
+    .where(
+      sql`lower(${verifications.identifier}) = ${email.toLowerCase()} OR ${verifications.value} = ${userId}`
+    )
+
+  await tx
+    .delete(teamInvites)
+    .where(
+      and(
+        sql`lower(${teamInvites.email}) = ${email.toLowerCase()}`,
+        isNull(teamInvites.acceptedAt)
+      )
+    )
 }

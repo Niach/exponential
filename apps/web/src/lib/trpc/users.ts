@@ -14,7 +14,7 @@ import {
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import {
   cancelCreemSubscriptionsBestEffort,
-  findActiveSubscriptionsForUser,
+  type CancellableSubscription,
 } from "@/lib/billing/creem-subscriptions"
 import { and, desc, eq, inArray, sql } from "drizzle-orm"
 
@@ -130,13 +130,19 @@ export const usersRouter = router({
   // supports account creation (email-only deletion is explicitly insufficient).
   // Mirrors admin.deleteUser: the users row delete cascades sessions, accounts,
   // apikeys (via reference_id — the plugin's name for the user FK), memberships,
-  // comments authored, fcm tokens, notifications, and the
-  // attachments the user uploaded. Issues the user CREATED are NOT deleted —
-  // issues.creator_id is now ON DELETE SET NULL, so they survive with a null
-  // creator (they may be shared team data). Additionally removes teams where
-  // the caller is the ONLY member (their personal team + solo teams) so no
-  // orphaned data survives — the privacy policy promises deletion of "all
-  // associated data".
+  // comments authored, fcm tokens and notifications. Issues the user CREATED
+  // are NOT deleted — issues.creator_id is ON DELETE SET NULL, so they survive
+  // with a null creator (they may be shared team data) — and neither are the
+  // attachments they uploaded (uploader_id is `set null` too, REV2-36: those
+  // blobs are embedded in surviving descriptions/comments). Additionally
+  // removes teams where the caller is the ONLY member (their personal team +
+  // solo teams) so no orphaned data survives — the privacy policy promises
+  // deletion of "all associated data".
+  //
+  // Deletion is NEVER blocked or delayed by billing (App Store 5.1.1(v) /
+  // Play data-deletion, and billing is web-only so a mobile caller could not
+  // resolve a gate): the only subscription it cancels is one funding a solo
+  // team it destroys. See lib/billing/billing-handover.ts.
   deleteAccount: authedProcedure
     .input(z.object({ confirm: z.literal(true) }))
     .mutation(async ({ ctx }) => {
@@ -160,11 +166,6 @@ export const usersRouter = router({
         }
       }
 
-      // Subscriptions the caller purchased, captured BEFORE the delete — the
-      // buyer FK cascades with the users row, after which the remote Creem
-      // subscription would keep charging with nothing left to find it by.
-      const doomedSubscriptions = await findActiveSubscriptionsForUser(userId)
-
       // Sign in with Apple pairing to revoke after the delete (guideline
       // 5.1.1(v)) — captured now because the accounts row cascades away with
       // the users row. Web-flow accounts carry tokens; native-idToken pairings
@@ -172,24 +173,23 @@ export const usersRouter = router({
       const appleTokens = await captureAppleTokens(ctx.db, userId)
 
       let storageKeys: string[] = []
+      // Subscriptions bound to the SOLO teams this deletion destroys — the
+      // only ones it may cancel (REV2-55: a subscription belongs to its team,
+      // so the plans funding teams that survive the caller stay live and stay
+      // manageable by their remaining owners).
+      let doomedSubscriptions: CancellableSubscription[] = []
       await ctx.db.transaction(async (tx) => {
         // Fail closed when the caller is the sole owner of a team that
-        // still has other members, then delete their solo teams (shared
-        // with admin.deleteUser — see lib/account-deletion.ts).
+        // still has other members, then delete their solo teams, scrub their
+        // mentions and email residue (shared with admin.deleteUser — see
+        // lib/account-deletion.ts).
         const cleanup = await guardAndCleanupTeamsForUserDeletion(
           tx,
           userId,
           `self`
         )
         storageKeys = cleanup.storageKeys
-        // Subscriptions bound to the deleted solo teams but purchased by
-        // SOMEONE ELSE (e.g. after an ownership hand-off) — invisible to the
-        // buyer-scoped capture above, yet their team just vanished.
-        for (const sub of cleanup.doomedTeamSubscriptions) {
-          if (!doomedSubscriptions.some((s) => s.id === sub.id)) {
-            doomedSubscriptions.push(sub)
-          }
-        }
+        doomedSubscriptions = cleanup.doomedTeamSubscriptions
         await tx.delete(users).where(eq(users.id, userId))
       })
       // Post-commit: the users-row cascade dropped memberships (and possibly
@@ -200,7 +200,10 @@ export const usersRouter = router({
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the account half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
-      // The users-row cascade dropped attachment rows but not their S3 blobs.
+      // Blobs stranded by the SOLO-TEAM deletes above (their attachment rows
+      // cascaded away, the S3 objects did not). Attachments this user merely
+      // uploaded into a SURVIVING team are not here: `uploader_id` is `set
+      // null`, so those rows (and their blobs) outlive the account.
       await deleteStorageObjects(storageKeys)
       // Revoke the Apple pairing so a re-signup delivers the name again.
       await revokeAppleTokensBestEffort(appleTokens)

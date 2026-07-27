@@ -861,6 +861,37 @@ pub(crate) fn is_plan_limit(err: &api::ApiError) -> bool {
     matches!(err, api::ApiError::Http { status: 412, .. })
 }
 
+/// Leading clause of the server's team-delete billing gate (REV2-55):
+/// `teams.delete` refuses a team whose subscription is still live. Kept in
+/// sync with `TEAM_DELETE_ACTIVE_SUBSCRIPTION_MESSAGE`
+/// (apps/web/src/lib/billing/billing-handover.ts) — only this stable clause is
+/// matched, because the server's trailing pointer names a web-only screen.
+pub(crate) const TEAM_DELETE_SUBSCRIPTION_PREFIX: &str = "This team has an active subscription";
+
+/// Desktop copy for that gate. The server sends the owner to "team settings →
+/// Billing"; this app's Plan & Billing card is READ-ONLY and hands off to the
+/// browser (no in-app purchase/cancel UI), so the refusal names the web —
+/// pairing with the "Manage billing on the web" button right above the
+/// Danger Zone.
+pub(crate) const TEAM_DELETE_SUBSCRIPTION_MESSAGE: &str =
+    "This team has an active subscription. Cancel the subscription on the web before deleting the team.";
+
+/// Sanitizer for a failed `teams.delete`: the server's message is
+/// user-presentable and rendered verbatim (web parity), except the billing
+/// gate, whose web-only wording is swapped for the desktop twin. Non-HTTP
+/// failures (transport/decode) get a generic prefix instead of a raw dump.
+pub(crate) fn team_delete_error_message(err: &api::ApiError) -> SharedString {
+    match err {
+        api::ApiError::Http { status: 412, message }
+            if message.starts_with(TEAM_DELETE_SUBSCRIPTION_PREFIX) =>
+        {
+            TEAM_DELETE_SUBSCRIPTION_MESSAGE.into()
+        }
+        api::ApiError::Http { message, .. } => message.clone().into(),
+        other => format!("Couldn't delete the team: {other}").into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,6 +960,50 @@ mod tests {
             effective_selection(SettingsSection::Labels, false, false, any_board),
             SettingsSection::Labels
         );
+    }
+
+    /// REV2-55: the billing gate's web-only wording ("team settings →
+    /// Billing") never reaches the Danger Zone — desktop billing is a
+    /// read-only hand-off to the browser.
+    #[test]
+    fn team_delete_billing_gate_is_rewritten_for_desktop() {
+        let err = api::ApiError::Http {
+            status: 412,
+            message: "This team has an active subscription — cancel the subscription in \
+                      team settings → Billing before deleting the team"
+                .to_string(),
+        };
+        let message = team_delete_error_message(&err);
+        assert_eq!(message.as_ref(), TEAM_DELETE_SUBSCRIPTION_MESSAGE);
+        assert!(!message.contains("team settings"));
+    }
+
+    #[test]
+    fn other_delete_failures_keep_the_server_message() {
+        // billing.cancelSubscription's "has NO active subscription" is a
+        // different precondition — the prefix must not swallow it.
+        let err = api::ApiError::Http {
+            status: 412,
+            message: "This team has no active subscription".to_string(),
+        };
+        assert_eq!(
+            team_delete_error_message(&err).as_ref(),
+            "This team has no active subscription"
+        );
+        let err = api::ApiError::Http {
+            status: 403,
+            message: "Only team owners can delete a team".to_string(),
+        };
+        assert_eq!(
+            team_delete_error_message(&err).as_ref(),
+            "Only team owners can delete a team"
+        );
+    }
+
+    #[test]
+    fn transport_failures_get_a_generic_prefix() {
+        let err = api::ApiError::Transport("connection reset".to_string());
+        assert!(team_delete_error_message(&err).starts_with("Couldn't delete the team:"));
     }
 
     /// EXP-288: a selected board page survives while the board exists and

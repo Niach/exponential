@@ -136,9 +136,17 @@ export const teams = pgTable(`teams`, {
 export const creem_subscriptions = pgTable(`creem_subscriptions`, {
   id: text(`id`).primaryKey(),
   productId: text(`product_id`).notNull(),
-  referenceId: text(`reference_id`)
-    .notNull()
-    .references(() => users.id, { onDelete: `cascade` }),
+  // The BUYER (the Creem customer whose card is charged). NULLABLE + `set
+  // null` on purpose (REV2-55): a subscription belongs to the TEAM, not to
+  // the person who happened to pay for it, so it must survive the purchaser
+  // deleting their account — the old `cascade` silently destroyed a surviving
+  // team's billing row (and with it the local billing history) the moment the
+  // buyer left. Remaining owners keep managing the subscription through the
+  // team-scoped billing router; `reference_id` is only the buyer attribution
+  // used by getUserPlan's free-tier owned-team guard.
+  referenceId: text(`reference_id`).references(() => users.id, {
+    onDelete: `set null`,
+  }),
   creemCustomerId: text(`creem_customer_id`),
   creemSubscriptionId: text(`creem_subscription_id`),
   creemOrderId: text(`creem_order_id`),
@@ -542,10 +550,16 @@ export const attachments = pgTable(
       onDelete: `set null`,
     }),
     // NULLABLE: widget screenshot attachments have no user uploader (the
-    // synthetic per-widget bot user was removed). Still `cascade` for real
-    // uploaders — deleting a user reclaims the attachments they uploaded.
+    // synthetic per-widget bot user was removed). `set null` on user delete
+    // (REV2-36): an attachment is embedded in an issue description or comment
+    // as `![alt](/api/attachments/{id})`, and those bodies survive the
+    // uploader's account deletion (issues.creator_id is `set null`, and any
+    // member may embed an image into a teammate's issue) — cascading the
+    // attachment away left permanently broken images in content the deletion
+    // was never supposed to touch. Blobs are only reclaimed for the teams the
+    // deletion itself destroys (lib/account-deletion.ts).
     uploaderId: text(`uploader_id`).references(() => users.id, {
-      onDelete: `cascade`,
+      onDelete: `set null`,
     }),
     filename: varchar({ length: 500 }).notNull(),
     contentType: varchar(`content_type`, { length: 255 }).notNull(),
