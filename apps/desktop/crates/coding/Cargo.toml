@@ -23,6 +23,9 @@ dirs = { workspace = true }
 # §7.5 stop semantics: SIGTERM → grace → SIGKILL (run_launch.rs) —
 # portable-pty's ChildKiller only sends SIGHUP.
 libc = { workspace = true }
+# EXP-300: the reaper logs what it kills — the one record that explains a
+# "why did my agent process disappear" report after a quit.
+log = "0.4"
 # Only the thin gpui-facing driver (launcher::spawn_prepared) touches gpui —
 # the core (git/mcp/prompt/doctor/settings + prepare_launch) is gpui-free and
 # headless-testable (§7.1 "gpui-free-at-its-core state machine").

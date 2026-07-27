@@ -1156,6 +1156,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "libc",
+ "log",
  "serde",
  "serde_json",
  "terminal",
