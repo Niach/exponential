@@ -7694,6 +7694,7 @@ dependencies = [
  "gpui-component-macros",
  "gpui-markdown-editor",
  "imagesize",
+ "libc",
  "log",
  "objc",
  "ropey",
