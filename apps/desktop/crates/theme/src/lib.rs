@@ -507,8 +507,9 @@ pub fn glass_sidebar_alpha() -> f32 {
 /// How opaque the page paints under the MAIN CONTENT — everything right of
 /// the rail (issue list, tabs, detail sidebar, terminal dock) and every
 /// standalone window (undocked views, dialogs, the login/update surfaces).
-/// 0.88 is EXP-290's proven mechanism, one notch more open than its 0.92
-/// (dialed in visually over the restored frost): the lightly frosted content
+/// 0.90 was dialed in visually over the restored frost (EXP-290 shipped
+/// 0.92; 0.88 was briefly tried and read a touch too open — the review
+/// settled between them). The mechanism is EXP-290's: the lightly frosted content
 /// the EXP-293 flip accidentally LOST — its base+top-up layering stacked two
 /// translucent gradients, which never composite to the intended alpha (the
 /// content rendered fully opaque at every top-up value; the commit's own
@@ -522,7 +523,7 @@ pub fn glass_sidebar_alpha() -> f32 {
 /// and non-KDE-Wayland Linux have no glassy blur and stay fully opaque.
 pub fn glass_content_alpha() -> f32 {
     if blur_backdrop_available() {
-        0.88
+        0.90
     } else {
         1.0
     }

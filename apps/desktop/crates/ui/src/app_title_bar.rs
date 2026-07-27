@@ -174,7 +174,29 @@ impl Render for AppTitleBar {
                     px(8.)
                 };
                 bar.pl(pl)
-            });
+            })
+            // EXP-303: collapsed rail — the sidebar glass ends at 44px but the
+            // macOS traffic-light cluster reaches ~80px, so its trailing
+            // buttons sat on the rail/content seam. Extend the rail's wash as
+            // a tongue under the remainder of the cluster, rounded on its
+            // bottom-right so it reads as the sidebar curving around the
+            // lights. First child on purpose: everything else in the bar
+            // (toggle, tabs) paints above it.
+            .when(
+                cfg!(target_os = "macos") && rail && !expanded && !window.is_fullscreen(),
+                |bar| {
+                    bar.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left_0()
+                            .w(px(80. - crate::sidebar::RAIL_W))
+                            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+                            .rounded_br(px(10.)),
+                    )
+                },
+            );
 
         // Collapsed rail: the 44px strip can't host the expand toggle (the
         // macOS traffic lights sit over it) — surface it here instead.
