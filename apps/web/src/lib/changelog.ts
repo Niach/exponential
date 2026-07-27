@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-instant-sync-on-open`,
+    date: `2026-07-27`,
+    title: `Current the moment you open it`,
+    summary: `Opening the app used to show ten-second-old data. All three apps now sync over one connection instead of fifteen.`,
+    body: `- **No more ten-second wait** — opening iOS, Android or the desktop app showed you the state from before you closed it, and only caught up around ten seconds later. Each of the fifteen synced tables was opening its own connection, so every launch fired fifteen simultaneous DNS lookups and TLS handshakes at once — enough of them failed that the retries were the delay. All three apps now put every table on a single HTTP/2 connection.
+- **A VPN or a waking radio costs a second, not thirty** — a connection that is not usable *yet* used to be treated like a server error, parking sync on a backoff of up to thirty seconds long after the network had come back. Those failures now retry immediately, and Android additionally wakes sync when a VPN finishes connecting.
+- **"Syncing…" tells the truth** — on Android the indicator used to disappear on a fifteen-second timer whether or not anything had synced, and pull-to-refresh always spun for a full five seconds. Both now finish as soon as the server confirms you are up to date.
+- **Smaller downloads** — sync responses are compressed for clients that support it, which mostly shows up the first time a device populates its cache.`,
+  },
+  {
     id: `2026-07-subscription-belongs-to-team`,
     date: `2026-07-27`,
     title: `Your plan belongs to the team`,

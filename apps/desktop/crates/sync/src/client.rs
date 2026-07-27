@@ -1,10 +1,11 @@
 //! HTTP transport + the per-shape long-poll loop (masterplan-v3 §5.3) —
-//! blocking `ureq` over rustls, one dedicated `std::thread` per shape.
+//! the app's ONE shared blocking `reqwest` client over rustls (HTTP/2 where
+//! the server offers it), one dedicated `std::thread` per shape.
 //! gpui-free; a direct port of the proven iOS `ShapeClient.pollOnce`/`run`.
 //!
 //! Load-bearing rules baked in here (§5.6):
 //!
-//! * **No HTTP cache layer at all** (§5.6a). `ureq` has no shared cache by
+//! * **No HTTP cache layer at all** (§5.6a). `reqwest` has no shared cache by
 //!   default — exactly what we want. We never send `If-None-Match` /
 //!   `If-Modified-Since`, never key anything by URL, and additionally send
 //!   `Cache-Control: no-store` on every request as an explicit belt to the
@@ -41,7 +42,6 @@
 //!   success. Back off only on transport/5xx errors — never on `up-to-date`
 //!   (that's the normal steady state).
 
-use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -95,7 +95,7 @@ pub const SIGNED_OUT_PARK: Duration = Duration::from_secs(2);
 pub const MIN_LIVE_REPOLL: Duration = Duration::from_secs(1);
 
 // ---------------------------------------------------------------------------
-// Transport (trait-injected for tests, ureq in production)
+// Transport (trait-injected for tests, the shared reqwest client in production)
 // ---------------------------------------------------------------------------
 
 /// A raw shape-proxy response. Non-2xx statuses come back as `Ok` responses —
@@ -122,7 +122,7 @@ impl std::fmt::Display for TransportError {
 impl std::error::Error for TransportError {}
 
 /// The blocking HTTP seam (§5.3 testing guidance): production is
-/// [`UreqTransport`]; tests inject an in-process server or a scripted impl.
+/// [`HttpTransport`]; tests inject an in-process server or a scripted impl.
 ///
 /// Contract for implementors: **no caching of any kind** (§5.6a) — every
 /// `fetch` must hit the network; and the read timeout must exceed the ~60s
@@ -131,68 +131,77 @@ pub trait ShapeTransport: Send + Sync {
     fn fetch(&self, url: &str, bearer: &str) -> Result<TransportResponse, TransportError>;
 }
 
-/// Production transport: blocking `ureq` over rustls (§5.3 crate choice — no
-/// async runtime under gpui's executor). One `Agent` (connection pool) shared
-/// by all shape threads of a manager; **no cache middleware, ever**.
-pub struct UreqTransport {
-    agent: ureq::Agent,
+/// Production transport: the app's ONE shared blocking `reqwest` client over
+/// rustls (§5.3 crate choice — no async runtime under gpui's executor;
+/// reqwest's blocking client keeps its runtime on a private background thread).
+/// **No cache middleware, ever.**
+///
+/// EXP-304: this used to be a `ureq::Agent`, which is HTTP/1.1-only and — with
+/// ureq's default of ONE idle connection per host — had the 15 shape threads
+/// re-dialling constantly. reqwest negotiates HTTP/2 via ALPN and multiplexes
+/// all 15 long-polls (plus tRPC, which shares this client) onto one connection.
+pub struct HttpTransport {
+    client: reqwest::blocking::Client,
 }
 
-impl UreqTransport {
+impl HttpTransport {
     pub fn new() -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(CONNECT_TIMEOUT)
-            // ~90s read: must exceed the server's ~60s long-poll hold (§5.3).
-            .timeout_read(LIVE_READ_TIMEOUT)
-            .build();
-        Self { agent }
+        Self {
+            client: api::http::shared().clone(),
+        }
     }
 }
 
-impl Default for UreqTransport {
+impl Default for HttpTransport {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ShapeTransport for UreqTransport {
+impl ShapeTransport for HttpTransport {
     fn fetch(&self, url: &str, bearer: &str) -> Result<TransportResponse, TransportError> {
         let result = self
-            .agent
+            .client
             .get(url)
-            .set("Authorization", &format!("Bearer {bearer}"))
-            .set("Accept", "application/json")
+            // The shared client's 30s default is for ordinary calls; a live
+            // long-poll MUST outlast the server's ~60s hold or every idle poll
+            // times out client-side and the loop degrades into a hammering
+            // short-poll (the long-poll-canary.md failure mode).
+            .timeout(LIVE_READ_TIMEOUT)
+            .header("Authorization", format!("Bearer {bearer}"))
+            .header("Accept", "application/json")
             // Explicit no-cache discipline (§5.6a) — belt to the proxy's
             // `private, no-store` suspender. Never If-None-Match/-Modified.
-            .set("Cache-Control", "no-store")
+            .header("Cache-Control", "no-store")
             // EXP-104: the client-version header so a stale build's shape polls
             // are 426-gated just like tRPC.
-            .set(
+            .header(
                 domain::client_version::CLIENT_VERSION_HEADER,
-                &domain::client_version::client_version_header_value(),
+                domain::client_version::client_version_header_value(),
             )
-            .call();
+            .send();
+        // Non-2xx is a *response* (the 401/409 machine handles it), not a
+        // transport failure — and unlike ureq, reqwest already models it that
+        // way, so there is nothing to unwrap here.
         let response = match result {
             Ok(response) => response,
-            // Non-2xx is a *response* (the 401/409 machine handles it), not a
-            // transport failure.
-            Err(ureq::Error::Status(_, response)) => response,
-            Err(ureq::Error::Transport(t)) => return Err(TransportError(t.to_string())),
+            Err(e) => return Err(TransportError(e.to_string())),
         };
-        let status = response.status();
+        let status = response.status().as_u16();
         let headers = response
-            .headers_names()
-            .into_iter()
-            .map(|name| {
-                let value = response.header(&name).unwrap_or_default().to_string();
-                (name, value)
+            .headers()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_string(),
+                    value.to_str().unwrap_or_default().to_string(),
+                )
             })
             .collect();
-        let mut body = Vec::new();
-        response
-            .into_reader()
-            .read_to_end(&mut body)
-            .map_err(|e| TransportError(format!("body read: {e}")))?;
+        let body = response
+            .bytes()
+            .map_err(|e| TransportError(format!("body read: {e}")))?
+            .to_vec();
         Ok(TransportResponse {
             status,
             headers,

@@ -2,7 +2,8 @@
 //! (masterplan-v3 §3.1, §5.7, §7.2).
 //!
 //! Phase 2 surface (this crate is **gpui-free** — plain types + blocking
-//! `ureq` HTTP; the UI awaits results via its own executors):
+//! `reqwest` HTTP via the one shared client in [`http`]; the UI awaits results
+//! via its own executors):
 //!
 //! - [`login`] — email/password sign-in against Better Auth
 //!   (`/api/auth/sign-in/email`), session validation (`/api/auth/get-session`),
@@ -61,6 +62,7 @@ pub mod coding_sessions;
 pub mod comments;
 pub mod error;
 pub mod helpdesk;
+pub mod http;
 pub mod issues;
 pub mod labels;
 pub mod login;

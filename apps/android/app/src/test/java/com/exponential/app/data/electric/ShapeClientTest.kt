@@ -419,6 +419,102 @@ class ShapeClientTest {
     }
 
     /**
+     * EXP-304: a live cursor's first poll after a kick must NOT go live.
+     *
+     * A `live=true` request is held open by Electric until something changes,
+     * so nothing ever observes that we caught up — which is why the "Syncing…"
+     * chip used to clear on a 15s timer and pull-to-refresh always burned its
+     * full 5s. One non-live poll answers in a single round-trip; the poll after
+     * it goes live as usual.
+     */
+    @Test
+    fun theFirstPollAfterAKickConfirmsFreshnessNonLive() = runBlocking {
+        val dao = FakeOffsetDao()
+        val clock = FakeClock()
+        val requests = CopyOnWriteArrayList<HttpRequestData>()
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            nowMs = clock,
+            handler = { request ->
+                requests.add(request)
+                // Poll 2 is the live hold; poll 3 (post-kick) must not be.
+                if (requests.size == 2) kotlinx.coroutines.delay(30_000)
+                respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        withTimeout(10_000) {
+            while (requests.size < 2) kotlinx.coroutines.delay(10)
+        }
+        // Poll 1 is the cold snapshot (offset=-1, never live); poll 2 rides the
+        // live cursor it just earned.
+        assertFalse("the snapshot is never live", requests[0].url.parameters.contains("live"))
+        assertEquals("true", requests[1].url.parameters["live"])
+
+        // Past the freshness window so the kick isn't dropped as redundant.
+        clock.advance(KICK_FRESHNESS_MS + 1)
+        shapeClient.kick()
+        withTimeout(10_000) {
+            while (requests.size < 4) kotlinx.coroutines.delay(10)
+        }
+        job.cancel()
+        job.join()
+
+        assertFalse(
+            "the poll a kick asks for must come back, not park in a live hold",
+            requests[2].url.parameters.contains("live"),
+        )
+        assertEquals(
+            "and the poll after it goes live again",
+            "true",
+            requests[3].url.parameters["live"],
+        )
+        assertEquals("the cursor stays live throughout", true, dao.map["rows"]?.isLive)
+    }
+
+    /**
+     * EXP-304: DNS/connect-class failures mean "the network isn't usable yet"
+     * (a radio waking, a VPN establishing), not "the server is unhappy". They
+     * clear in a second or two, so the first few retries stay flat and short
+     * instead of climbing the 500ms→30s ladder — which used to leave a shape
+     * parked for tens of seconds AFTER connectivity had come back.
+     */
+    @Test
+    fun dnsFailuresRetryFastInsteadOfClimbingTheBackoffLadder() = runBlocking {
+        val dao = FakeOffsetDao()
+        val attempts = CopyOnWriteArrayList<Int>()
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            handler = {
+                attempts.add(attempts.size + 1)
+                if (attempts.size <= 4) throw java.nio.channels.UnresolvedAddressException()
+                respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+            },
+        )
+
+        val started = System.currentTimeMillis()
+        val job = launch { shapeClient.run() }
+        withTimeout(20_000) {
+            while (attempts.size < 5) kotlinx.coroutines.delay(10)
+        }
+        val elapsed = System.currentTimeMillis() - started
+        job.cancel()
+        job.join()
+
+        // Flat 750ms x 4 ≈ 3s. The old ladder (0.5 + 1 + 2 + 4) would be 7.5s
+        // and keeps doubling from there.
+        assertTrue(
+            "four DNS failures must not cost more than the flat burst (was ${elapsed}ms)",
+            elapsed < 5_000,
+        )
+    }
+
+    /**
      * REV2-38: backgrounding the app parks the loop. The in-flight long-poll is
      * cancelled (the socket is released instead of being held for the rest of
      * its 90s budget), no further polls go out — not even for a kick, which is

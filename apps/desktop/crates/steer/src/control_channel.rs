@@ -61,7 +61,7 @@ pub struct DeviceIdentity {
 }
 
 /// The two server calls the channel needs, injectable for tests. Blocking
-/// (ureq underneath) — the loop wraps calls in `spawn_blocking`.
+/// (reqwest underneath) — the loop wraps calls in `spawn_blocking`.
 pub trait ControlApi: Send + Sync + 'static {
     /// `steer.config().enabled` — `Ok(false)` = disabled (normal, §8.3 #1).
     fn config_enabled(&self) -> Result<bool, ApiError>;

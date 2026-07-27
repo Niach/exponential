@@ -93,34 +93,41 @@ pub(crate) fn http_error(status: u16, body: &str) -> ApiError {
     ApiError::Http { status, message }
 }
 
-/// Map a `ureq` error on an **authenticated** request: 401 →
-/// [`ApiError::Unauthorized`] (the reauth signal), other statuses →
-/// [`ApiError::Http`], transport failures → [`ApiError::Transport`].
-pub(crate) fn from_ureq_authed(err: ureq::Error) -> ApiError {
-    match err {
-        ureq::Error::Status(401, _) => ApiError::Unauthorized,
-        ureq::Error::Status(426, _) => ApiError::UpgradeRequired,
-        ureq::Error::Status(status, response) => {
-            let body = response.into_string().unwrap_or_default();
-            http_error(status, &body)
-        }
-        ureq::Error::Transport(t) => ApiError::Transport(t.to_string()),
+/// Map a transport-level `reqwest` failure (DNS / TCP / TLS / timeout). Unlike
+/// `ureq`, reqwest returns `Ok(response)` for non-2xx statuses, so an `Err`
+/// here is always transport — status mapping lives in [`status_error_authed`]
+/// / [`status_error_unauthed`], which the response path calls explicitly.
+pub(crate) fn transport_error(err: reqwest::Error) -> ApiError {
+    ApiError::Transport(err.to_string())
+}
+
+/// Map a non-2xx status on an **authenticated** request: 401 →
+/// [`ApiError::Unauthorized`] (the reauth signal), 426 →
+/// [`ApiError::UpgradeRequired`], everything else → [`ApiError::Http`].
+pub(crate) fn status_error_authed(status: u16, body: &str) -> ApiError {
+    match status {
+        401 => ApiError::Unauthorized,
+        426 => ApiError::UpgradeRequired,
+        other => http_error(other, body),
     }
 }
 
-/// Map a `ureq` error on an **unauthenticated** request (no bearer was
+/// Map a non-2xx status on an **unauthenticated** request (no bearer was
 /// presented, so a 401 means bad credentials, not a dead session).
-pub(crate) fn from_ureq_unauthed(err: ureq::Error) -> ApiError {
-    match err {
+pub(crate) fn status_error_unauthed(status: u16, body: &str) -> ApiError {
+    match status {
         // The min-version gate (EXP-104) rejects even unauthenticated calls
         // (auth-config, sign-in) so a stale build is stopped before login.
-        ureq::Error::Status(426, _) => ApiError::UpgradeRequired,
-        ureq::Error::Status(status, response) => {
-            let body = response.into_string().unwrap_or_default();
-            http_error(status, &body)
-        }
-        ureq::Error::Transport(t) => ApiError::Transport(t.to_string()),
+        426 => ApiError::UpgradeRequired,
+        other => http_error(other, body),
     }
+}
+
+/// Read a response body, mapping a read failure to [`ApiError::Transport`] —
+/// with reqwest the body arrives separately from the status, so this is the
+/// one place that conversion needs to happen.
+pub(crate) fn read_body(response: reqwest::blocking::Response) -> Result<String, ApiError> {
+    response.text().map_err(transport_error)
 }
 
 #[cfg(test)]
@@ -156,17 +163,39 @@ mod tests {
         // EXP-104: a 426 on an authed request is the min-version gate, NOT a
         // dead session — it must never be mistaken for Unauthorized (which
         // clears the token).
-        let response = ureq::Response::new(426, "Upgrade Required", "{}").unwrap();
-        let err = from_ureq_authed(ureq::Error::Status(426, response));
+        let err = status_error_authed(426, "{}");
         assert!(matches!(err, ApiError::UpgradeRequired), "got {err:?}");
+    }
+
+    #[test]
+    fn authed_maps_401_to_unauthorized() {
+        // The reauth signal: a presented bearer the server rejected. This is
+        // the one status that clears the stored token, so it must not drift
+        // into the generic Http bucket.
+        let err = status_error_authed(401, "{}");
+        assert!(matches!(err, ApiError::Unauthorized), "got {err:?}");
     }
 
     #[test]
     fn unauthed_maps_426_to_upgrade_required() {
         // The gate also fires before login (auth-config / sign-in).
-        let response = ureq::Response::new(426, "Upgrade Required", "{}").unwrap();
-        let err = from_ureq_unauthed(ureq::Error::Status(426, response));
+        let err = status_error_unauthed(426, "{}");
         assert!(matches!(err, ApiError::UpgradeRequired), "got {err:?}");
+    }
+
+    #[test]
+    fn unauthed_401_is_bad_credentials_not_a_dead_session() {
+        // No bearer was presented, so a 401 means "wrong email/password" and
+        // must stay an Http error — mapping it to Unauthorized would clear a
+        // perfectly good token belonging to another account.
+        let err = status_error_unauthed(401, r#"{"message":"Invalid email or password"}"#);
+        match err {
+            ApiError::Http { status, message } => {
+                assert_eq!(status, 401);
+                assert_eq!(message, "Invalid email or password");
+            }
+            other => panic!("expected Http, got {other:?}"),
+        }
     }
 
     #[test]

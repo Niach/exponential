@@ -491,7 +491,7 @@ mod tests {
         // GET query, camelCase issueId in the percent-encoded raw-JSON input.
         assert!(request.starts_with("GET /api/trpc/issues.prFiles?input="));
         assert!(request.contains("%22issueId%22"));
-        assert!(request.contains("Authorization: Bearer tok-1"));
+        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
     }
 
     #[test]
@@ -540,7 +540,7 @@ mod tests {
         assert!(request.starts_with("GET /api/trpc/issues.search?input="));
         assert!(request.contains("%22teamId%22"));
         assert!(request.contains("%22limit%22%3A20"));
-        assert!(request.contains("Authorization: Bearer tok-1"));
+        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
     }
 
     #[test]
@@ -682,7 +682,7 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.mergePr HTTP/1.1"));
         assert!(request.ends_with(r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000"}"#));
-        assert!(request.contains("Authorization: Bearer tok-1"));
+        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
     }
 
     #[test]
@@ -711,7 +711,7 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.closePr HTTP/1.1"));
         assert!(request.ends_with(r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000"}"#));
-        assert!(request.contains("Authorization: Bearer tok-1"));
+        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
     }
 
     #[test]

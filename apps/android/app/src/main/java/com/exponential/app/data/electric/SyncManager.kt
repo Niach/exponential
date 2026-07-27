@@ -2,7 +2,9 @@ package com.exponential.app.data.electric
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.SystemClock
 import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -101,6 +103,9 @@ class SyncManager @Inject constructor(
     // cold start would discard the first REAL connectivity-restored callback,
     // the exact transition this callback exists to catch.
     private val sawFirstNetworkCallback = AtomicBoolean(false)
+    // Edge detector for onCapabilitiesChanged: that callback fires constantly,
+    // and only the not-validated → validated transition is a reason to kick.
+    private val lastNetworkValidated = AtomicBoolean(false)
     // Throttles the Logcat line for dropped columns to once per (account, shape,
     // column-set) — the diagnostics Set already dedupes for the UI.
     private val loggedDroppedColumns = java.util.Collections.synchronizedSet(mutableSetOf<String>())
@@ -132,6 +137,17 @@ class SyncManager @Inject constructor(
      * from a dead radio, the parked loops are sitting on sockets that will only
      * fail when their timeout expires. Kick them the moment connectivity is
      * back instead.
+     *
+     * `onAvailable` alone is not enough (EXP-304). A network can be "available"
+     * from the framework's point of view long before it can carry a request —
+     * a VPN establishing its tunnel, private DNS resolving, the radio finishing
+     * validation. During that gap every shape burned DNS/connect failures and
+     * climbed the backoff ladder, and then NOTHING woke them once the path went
+     * usable, because no new network ever appeared. `onCapabilitiesChanged`
+     * (gaining NET_CAPABILITY_VALIDATED) and `onLinkPropertiesChanged` (DNS
+     * servers showing up) are the callbacks that DO fire for that transition.
+     * All three funnel through the same [kick] debounce, so a burst of
+     * callbacks still costs one kick.
      */
     private fun registerNetworkCallback() {
         val manager = context.getSystemService(ConnectivityManager::class.java) ?: return
@@ -147,6 +163,37 @@ class SyncManager @Inject constructor(
                 override fun onAvailable(network: Network) {
                     if (!sawFirstNetworkCallback.getAndSet(true)) return
                     kick("network-available")
+                }
+
+                override fun onCapabilitiesChanged(
+                    network: Network,
+                    capabilities: NetworkCapabilities,
+                ) {
+                    // Only the edge INTO validated matters; this fires often
+                    // (signal strength, metered-ness) and re-kicking on every
+                    // tick would drop 15 healthy long-polls for nothing.
+                    val validated =
+                        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    if (validated && !lastNetworkValidated.getAndSet(true)) {
+                        kick("network-validated")
+                    } else if (!validated) {
+                        lastNetworkValidated.set(false)
+                    }
+                }
+
+                override fun onLinkPropertiesChanged(
+                    network: Network,
+                    linkProperties: LinkProperties,
+                ) {
+                    // DNS servers appearing (or being swapped by a VPN) is
+                    // exactly the "UnresolvedAddressException on 14 of 15
+                    // shapes" case; anything else here is harmless noise the
+                    // debounce absorbs.
+                    if (linkProperties.dnsServers.isNotEmpty()) kick("network-dns")
+                }
+
+                override fun onLost(network: Network) {
+                    lastNetworkValidated.set(false)
                 }
             })
         }.onFailure {
@@ -300,6 +347,14 @@ class SyncManager @Inject constructor(
                 stats.incError(accountId, shape, authFailure = authFailure, message = message, schema = schema)
             },
             onSuccess = { stats.clearError(accountId, shape) },
+            onPollTiming = { kind, ms, rows ->
+                stats.recordPoll(accountId, shape, kind, ms, rows)
+                // Only the interesting ones reach Logcat: a live hold returning
+                // after 60s of nothing is normal and would just be noise.
+                if (kind != "live" || rows > 0) {
+                    android.util.Log.i("SyncManager", "[$shape] $kind poll ${ms}ms, $rows rows")
+                }
+            },
             onDropped = { cols -> reportDroppedColumns(accountId, shape, cols) },
             onDecodeDrop = { stats.reportDecodeDrop(accountId, shape) },
             onRecovering = { stats.setRecovering(accountId, shape) },
@@ -515,6 +570,7 @@ class SyncManager @Inject constructor(
             onApplied = reporter.onApplied,
             onError = reporter.onError,
             onSuccess = reporter.onSuccess,
+            onPollTiming = reporter.onPollTiming,
             onDecodeDrop = { reporter.onDecodeDrop() },
             onRecovering = reporter.onRecovering,
             // Auto-recovery: mark the shape for a refetch so the next poll
@@ -583,6 +639,8 @@ private class ShapeReporter(
     // is true for "no such column/table" class SQLite failures.
     val onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
     val onSuccess: () -> Unit = {},
+    // (kind, wall-clock ms, rows) for a completed poll — EXP-304 timing.
+    val onPollTiming: (String, Long, Int) -> Unit = { _, _, _ -> },
     // Wire columns a partial-update dropped because the local schema predates them.
     val onDropped: (Set<String>) -> Unit = {},
     // A full-row insert was dropped because it failed to decode.

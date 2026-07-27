@@ -5,6 +5,52 @@ import os
 private let initialOffset = "-1"
 private let liveTimeoutSeconds: TimeInterval = 60
 private let logger = Logger(subsystem: "at.exponential", category: "ShapeClient")
+// EXP-304: flat retry budget for "the network isn't up yet" failures, before
+// the exponential ladder takes over. Android uses the same figures.
+private let networkUnreadyRetryMs: UInt64 = 750
+private let networkUnreadyBurst = 6
+
+/// The session every shape of ONE account shares (EXP-304).
+///
+/// It used to be one session per shape, which meant 15 separate connections to
+/// the same host: app start fired 15 simultaneous cold DNS lookups and TLS
+/// handshakes, and that storm — not the volume of data — is what put ~10s
+/// between launching the app and seeing current data. One session lets
+/// URLSession negotiate HTTP/2 and multiplex all 15 long-polls over a single
+/// connection: one lookup, one handshake.
+///
+/// Per ACCOUNT, never one global session: the cookie-off stance below is a
+/// cross-account leak guard and must stay scoped the same way the bearer is.
+public func makeShapeSession() -> URLSession {
+    let config = URLSessionConfiguration.default
+    config.timeoutIntervalForRequest = liveTimeoutSeconds + 30
+    // 15 concurrent long-polls share this session, and the HTTP/1.1 fallback
+    // default is 6 — which would queue 9 of them behind holds that only end
+    // when the server has something to say.
+    config.httpMaximumConnectionsPerHost = 32
+    // Never let URLCache answer a shape request. Electric snapshots ship
+    // `cache-control: public, max-age=604800`, so a cached (possibly empty,
+    // anonymously-authed) snapshot replayed on a bare offset=-1 refetch would
+    // wipe every local row and re-save a stale handle — the poisoned-cache 409
+    // loop. Shape reads must always hit the server.
+    config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+    config.urlCache = nil
+    // Bearer auth is the ONLY credential a shape request carries; a cookie jar
+    // is not just unnecessary but actively harmful across accounts on the same
+    // host. Better Auth sets a signed `__Secure-better-auth.session_data`
+    // cookie on every authenticated response (a 5-minute session-cache
+    // snapshot) and getSession trusts that cookie OVER the bearer. With the
+    // default shared jar, a cookie left over from a previously signed-in user
+    // rides along on this account's requests and the server resolves — and
+    // syncs — them as the PREVIOUS user (the "Apple login shows the Google
+    // account's data" cross-account leak). Kill the jar so shapes are always
+    // scoped by the bearer (mirrors HTTPClient's cookie-off stance; the server
+    // also ignores the cache on bearer requests, this is defense-in-depth +
+    // stops us hoarding it).
+    config.httpShouldSetCookies = false
+    config.httpCookieStorage = nil
+    return URLSession(configuration: config)
+}
 
 public final class ShapeClient<T: Codable & Sendable>: Sendable {
     private let shapeName: String
@@ -26,6 +72,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         baseUrlProvider: @escaping @Sendable () -> String?,
         tokenProvider: @escaping @Sendable () -> String?,
         pool: DatabasePool,
+        session: URLSession,
         onMessages: @escaping @Sendable ([ShapeMessage<T>]) async throws -> Void
     ) {
         self.shapeName = shapeName
@@ -34,32 +81,8 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         self.baseUrlProvider = baseUrlProvider
         self.tokenProvider = tokenProvider
         self.pool = pool
+        self.session = session
         self.onMessages = onMessages
-
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = liveTimeoutSeconds + 30
-        // Never let URLCache answer a shape request. Electric snapshots ship
-        // `cache-control: public, max-age=604800`, so a cached (possibly
-        // empty, anonymously-authed) snapshot replayed on a bare offset=-1
-        // refetch would wipe every local row and re-save a stale handle —
-        // the poisoned-cache 409 loop. Shape reads must always hit the server.
-        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        config.urlCache = nil
-        // Bearer auth is the ONLY credential a shape request carries; a cookie
-        // jar is not just unnecessary but actively harmful across accounts on
-        // the same host. Better Auth sets a signed `__Secure-better-auth
-        // .session_data` cookie on every authenticated response (a 5-minute
-        // session-cache snapshot) and getSession trusts that cookie OVER the
-        // bearer. With the default shared jar, a cookie left over from a
-        // previously signed-in user rides along on this account's requests and
-        // the server resolves — and syncs — them as the PREVIOUS user (the
-        // "Apple login shows the Google account's data" cross-account leak).
-        // Kill the jar so shapes are always scoped by the bearer (mirrors
-        // HTTPClient's cookie-off stance; the server also ignores the cache on
-        // bearer requests, this is defense-in-depth + stops us hoarding it).
-        config.httpShouldSetCookies = false
-        config.httpCookieStorage = nil
-        self.session = URLSession(configuration: config)
     }
 
     public func run() async throws {
@@ -77,6 +100,18 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         var consecutiveSchemaErrors = 0
         var didAutoReset = false
         var pendingRecoveryReport = false
+        // EXP-304: the FIRST poll of this run must come back rather than
+        // disappear into a live hold. A resumed shape's cursor is already live,
+        // so it would otherwise send `live=true` and Electric would hold the
+        // request open by design — nothing observes whether we caught up, and
+        // the app sits on stale rows until something unrelated changes on the
+        // server. One non-live poll answers in a single round-trip with the
+        // pending delta (or a bare up-to-date); after that we go live as usual.
+        // Every wake path — scenePhase .active, network regain, pull-to-refresh
+        // — restarts the pipeline, so a fresh `run()` is exactly the moment
+        // this needs to be true.
+        var confirmFreshness = true
+        var consecutiveNetworkErrors = 0
         while !Task.isCancelled {
             do {
                 guard let baseUrl = baseUrlProvider(), let token = tokenProvider() else {
@@ -91,11 +126,17 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                     SyncDebug.shared.log("[\(shapeName)] resumed: credentials available")
                     loggedMissingCreds = false
                 }
-                let shouldPause = try await pollOnce(baseUrl: baseUrl, token: token)
+                let shouldPause = try await pollOnce(
+                    baseUrl: baseUrl, token: token, confirmFreshness: confirmFreshness
+                )
+                // Freshness is established — this poll returned from the current
+                // offset — so the next one may take the live hold.
+                confirmFreshness = false
                 // A clean poll supersedes any pending error: reset the schema
                 // escalation counter, clear the per-shape error, and report
                 // `recovered` once if we had auto-reset this run.
                 consecutiveSchemaErrors = 0
+                consecutiveNetworkErrors = 0
                 SyncDebug.shared.clearShapeError(name: shapeName)
                 if pendingRecoveryReport {
                     pendingRecoveryReport = false
@@ -138,9 +179,45 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                         SyncDebug.shared.reportRecovery(name: shapeName, .recovering)
                     }
                 }
-                try await Task.sleep(for: .milliseconds(backoffMs))
-                backoffMs = min(backoffMs * 2, 30_000)
+                // EXP-304: DNS/connect-class failures mean "the network isn't
+                // usable yet" — a radio waking, a VPN establishing its tunnel,
+                // private DNS resolving — not "the server is unhappy". They
+                // clear on their own in a second or two, so the first few
+                // retries stay flat and short instead of climbing the
+                // 500ms→30s ladder and leaving the shape parked long after
+                // connectivity came back. Past the burst the ladder takes over,
+                // so a genuine outage still can't be hammered.
+                if Self.isNetworkUnready(error) {
+                    consecutiveNetworkErrors += 1
+                } else {
+                    consecutiveNetworkErrors = 0
+                }
+                if consecutiveNetworkErrors > 0, consecutiveNetworkErrors <= networkUnreadyBurst {
+                    // The connection we come back on may be a different one, so
+                    // re-prove freshness rather than reopening a live hold.
+                    confirmFreshness = true
+                    try await Task.sleep(for: .milliseconds(networkUnreadyRetryMs))
+                    backoffMs = 500
+                } else {
+                    try await Task.sleep(for: .milliseconds(backoffMs))
+                    backoffMs = min(backoffMs * 2, 30_000)
+                }
             }
+        }
+    }
+
+    /// Does this failure mean "the network isn't usable yet" rather than "the
+    /// server said no"? These all clear by themselves once the radio, the VPN
+    /// tunnel or the DNS resolver is up.
+    private static func isNetworkUnready(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost,
+             .notConnectedToInternet, .networkConnectionLost, .timedOut,
+             .internationalRoamingOff, .callIsActive, .dataNotAllowed:
+            return true
+        default:
+            return false
         }
     }
 
@@ -179,7 +256,9 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
     /// Returns `true` when the next poll should be paced (a refetch is pending
     /// after a 409 / inline must-refetch, or a non-live poll made no progress).
-    private func pollOnce(baseUrl: String, token: String) async throws -> Bool {
+    private func pollOnce(
+        baseUrl: String, token: String, confirmFreshness: Bool
+    ) async throws -> Bool {
         let saved = try await pool.read { db in
             try ElectricOffset.fetchOne(db, key: shapeName)
         }
@@ -187,6 +266,10 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         // refetch, so the atomic DELETE+reinsert still happens after relaunch.
         let refetching = saved?.needsRefetch ?? false
         let wasLive = saved?.isLive ?? false
+        // A live cursor may still take ONE non-live poll first, so this run's
+        // first request comes back with an answer instead of parking in a hold
+        // (EXP-304 — see `confirmFreshness` in `run()`).
+        let goLive = wasLive && !confirmFreshness
 
         var components = URLComponents(string: "\(baseUrl)\(urlPath)")!
         if saved == nil || refetching {
@@ -204,7 +287,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             ]
             // Only long-poll live once the snapshot completed (up-to-date
             // seen); catch-up polls stay non-live per the Electric protocol.
-            if wasLive {
+            if goLive {
                 query.append(URLQueryItem(name: "live", value: "true"))
             }
             components.queryItems = query
@@ -217,13 +300,20 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         // so an out-of-date client's sync loop gets 426'd like everything else.
         request.setValue(AppConstants.clientVersionHeaderValue, forHTTPHeaderField: "x-client-version")
 
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ShapeError.invalidResponse
         }
+        // EXP-304: how long the request actually took. A live hold legitimately
+        // sits at ~60s, but a snapshot/catch-up/confirm poll that takes seconds
+        // is the whole story of "sync is slow" — and without this the debug log
+        // could say a shape errored, but never that it was slow.
+        let elapsedMs = (DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+        let kind = (saved == nil || refetching) ? "snapshot" : (goLive ? "live" : (wasLive ? "confirm" : "catchup"))
 
-        logger.info("[\(self.shapeName)] HTTP \(httpResponse.statusCode), \(data.count) bytes, live=\(wasLive), refetch=\(refetching)")
-        SyncDebug.shared.log("[\(shapeName)] HTTP \(httpResponse.statusCode), \(data.count)B")
+        logger.info("[\(self.shapeName)] HTTP \(httpResponse.statusCode), \(data.count) bytes, \(kind), \(elapsedMs)ms")
+        SyncDebug.shared.log("[\(shapeName)] HTTP \(httpResponse.statusCode), \(data.count)B, \(kind) \(elapsedMs)ms")
         SyncDebug.shared.reportShape(name: shapeName, httpStatus: httpResponse.statusCode, isLive: wasLive, accountId: accountId)
 
         if httpResponse.statusCode == 409 {
@@ -318,7 +408,10 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
         // Pace the loop when a non-live poll made no progress, so a response
         // that never reaches up-to-date can't spin-request.
-        return !wasLive && !sawUpToDate && messages.isEmpty
+        // Keyed on goLive, not wasLive: a freshness-confirming poll is non-live
+        // too, so if one ever came back empty without up-to-date it must be
+        // paced like any other no-progress poll rather than spin-requesting.
+        return !goLive && !sawUpToDate && messages.isEmpty
     }
 
     // Internal (not private) so ExpCoreTests can lock the wire-format mapping

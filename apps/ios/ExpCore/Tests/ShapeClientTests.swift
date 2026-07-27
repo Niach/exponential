@@ -60,6 +60,7 @@ final class ShapeClientTests: XCTestCase {
             baseUrlProvider: { nil },
             tokenProvider: { nil },
             pool: pool,
+            session: makeShapeSession(),
             onMessages: { _ in }
         )
     }

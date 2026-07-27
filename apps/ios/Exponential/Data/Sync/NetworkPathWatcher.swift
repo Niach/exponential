@@ -10,16 +10,23 @@ private let logger = Logger(subsystem: "at.exponential", category: "NetworkPathW
 /// leaves each shape loop backed off at its 30s ceiling and the app looks
 /// frozen for far longer than the outage itself.
 ///
+/// It also restarts when the path CHANGES while staying satisfied (EXP-304): a
+/// VPN establishing its tunnel, or wifi ⇄ cellular, swaps the interface set and
+/// the DNS resolver under us without the status ever leaving `.satisfied`. That
+/// window is when shapes burn DNS/connect failures, and nothing used to wake
+/// them afterwards because no network had "returned".
+///
 /// `@unchecked Sendable` for the same reason PushTokenManager is: the class is
 /// held for the app's lifetime and handed to escaping callbacks. Its only
-/// mutable state (`wasSatisfied`) is confined to `queue` — NWPathMonitor
-/// delivers every update there, serially — so there is nothing to synchronize.
+/// mutable state is confined to `queue` — NWPathMonitor delivers every update
+/// there, serially — so there is nothing to synchronize.
 final class NetworkPathWatcher: @unchecked Sendable {
     private let syncManager: SyncManager
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "at.exponential.network-path")
-    // Confined to `queue`: only the path-update handler ever touches it.
+    // Both confined to `queue`: only the path-update handler ever touches them.
     private var wasSatisfied: Bool?
+    private var lastInterfaces: String?
 
     init(syncManager: SyncManager) {
         self.syncManager = syncManager
@@ -29,17 +36,24 @@ final class NetworkPathWatcher: @unchecked Sendable {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
             let satisfied = path.status == .satisfied
+            let interfaces = path.availableInterfaces.map(\.name).sorted().joined(separator: ",")
             let previous = self.wasSatisfied
+            let previousInterfaces = self.lastInterfaces
             self.wasSatisfied = satisfied
-            // Only the unsatisfied → satisfied EDGE is a wake signal. The first
-            // callback (previous == nil) just reports the state at start, and
-            // satisfied → satisfied churn (wifi ⇄ cellular, interface changes)
-            // is noise — the restart's own 5s floor absorbs the rest.
-            guard previous == false, satisfied else { return }
-            logger.info("Network regained — restarting shape pipelines")
+            self.lastInterfaces = interfaces
+            // The first callback (previous == nil) just reports the state at
+            // start — never a wake signal.
+            guard satisfied else { return }
+            let regained = previous == false
+            let pathChanged = previous == true && previousInterfaces != interfaces
+            guard regained || pathChanged else { return }
+            let reason = regained ? "network regained" : "network path changed"
+            logger.info("\(reason) — restarting shape pipelines")
             let syncManager = self.syncManager
             Task {
-                await syncManager.restartAllPipelines(reason: "network regained")
+                // restartAllPipelines has its own 5s floor, so even a burst of
+                // path updates during a VPN handshake costs one restart.
+                await syncManager.restartAllPipelines(reason: reason)
             }
         }
         monitor.start(queue: queue)

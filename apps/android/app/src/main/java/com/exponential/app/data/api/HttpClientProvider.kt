@@ -7,7 +7,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.HttpTimeout
@@ -20,7 +20,10 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.request
 import io.ktor.serialization.kotlinx.json.json
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -41,18 +44,62 @@ object HttpClientModule {
     @Provides
     @Singleton
     fun provideHttpClient(json: Json, updateGate: UpdateGate): HttpClient =
-        HttpClient(CIO) {
+        HttpClient(OkHttp) {
             expectSuccess = false
-            // Without this plugin, ktor CIO enforces its engine-level default
-            // requestTimeout of 15s — BELOW the Electric live long-poll hold
-            // window (~20s on prod, up to ~60s per long-poll-canary.md), so
-            // every idle shape poll died with "Request timeout has expired"
-            // (EXP-61: errors across every synced shape, sync frozen). Worse, the
-            // engine enforces it by CANCELLING the request job, which can kill
-            // the shape run-loop outright. Installing HttpTimeout replaces that
-            // path with a plugin-level typed exception; ShapeClient raises the
-            // per-request budget above the hold window (iOS/desktop parity:
-            // both use 90s for shape reads, 30s for everything else).
+            // ENGINE CHOICE — OkHttp, not CIO (EXP-304). CIO is HTTP/1.1-only
+            // with a pure-Kotlin TLS stack, so the 15 Electric shape loops (per
+            // signed-in account!) each opened their own connection: app start
+            // fired 15 simultaneous cold DNS lookups + TLS handshakes at the
+            // same host, and that storm is what the "~10s before fresh data
+            // shows up" reports were. Sync diagnostics caught it twice: 2x
+            // "Connect timeout has expired" on all 15 shapes (5s budget, twice
+            // = the reported 10s), then 10x UnresolvedAddressException on 14 of
+            // 15 while the fifteenth resolved fine — resolver contention, not a
+            // down network. OkHttp negotiates HTTP/2 via ALPN and MULTIPLEXES
+            // every shape long-poll (and every tRPC call) onto ONE connection:
+            // one lookup, one handshake, one thing to keep alive. It also
+            // brings native TLS, a real connection pool, and transparent gzip
+            // (it adds Accept-Encoding itself and decompresses, as long as we
+            // never set that header — so don't).
+            engine {
+                config {
+                    // OkHttp's Dispatcher defaults to maxRequestsPerHost = 5.
+                    // The ktor OkHttp engine dispatches through `enqueue`, so
+                    // leaving that default would park 10 of the 15 shape loops
+                    // behind the other 5 FOREVER — every one of them is a
+                    // minutes-long live long-poll that never frees its slot.
+                    // Sized for several signed-in accounts (15 shapes each)
+                    // plus tRPC and image loads on top.
+                    dispatcher(
+                        Dispatcher().apply {
+                            maxRequests = 128
+                            maxRequestsPerHost = 64
+                        }
+                    )
+                    connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
+                    retryOnConnectionFailure(true)
+                    // Putting every stream on one connection means one dead
+                    // connection stalls everything, and a phone radio kills
+                    // idle sockets silently. HTTP/2 keepalive pings surface
+                    // that in ~30s instead of when each stream's 90s socket
+                    // budget expires; this is what earns the right to
+                    // multiplex.
+                    pingInterval(30, TimeUnit.SECONDS)
+                }
+            }
+            // Still required after the engine swap: an engine left to its own
+            // defaults enforces a request timeout BELOW the Electric live
+            // long-poll hold window (~20s on prod, up to ~60s per
+            // long-poll-canary.md), so every idle shape poll dies with
+            // "Request timeout has expired" (EXP-61: errors across every synced
+            // shape, sync frozen — CIO's 15s default at the time, and OkHttp
+            // would apply its own 10s read timeout here). Worse, CIO enforced
+            // it by CANCELLING the request job, which could kill the shape
+            // run-loop outright. HttpTimeout replaces that with a plugin-level
+            // typed exception and maps onto whatever the engine uses;
+            // ShapeClient raises the per-request budget above the hold window
+            // (iOS/desktop parity: both use 90s for shape reads, 30s for
+            // everything else).
             install(HttpTimeout) {
                 requestTimeoutMillis = 30_000
                 connectTimeoutMillis = 10_000

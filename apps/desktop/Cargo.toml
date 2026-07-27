@@ -55,7 +55,27 @@ alacritty_terminal = "0.26"                                            # UPSTREA
 portable-pty = "0.9"                                                   # resolves 0.9.0
 vte = { version = "0.15", features = ["std", "ansi"] }                 # "std" is required for StdSyncHandler (§6.4)
 rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }  # feature set matches §5.1
-ureq = { version = "2", features = ["tls"] }
+# THE HTTP client for the whole desktop app (EXP-304). It replaced `ureq`
+# outright — one stack, not two. ureq is HTTP/1.1-only, which meant the 15
+# Electric shape threads each held their own connection: every launch fired 15
+# simultaneous cold DNS lookups + TLS handshakes at the instance, and that
+# storm is what put ~10s between opening the app and seeing current data.
+# reqwest negotiates HTTP/2 over ALPN and multiplexes every shape long-poll AND
+# every tRPC call onto ONE connection.
+#
+# `blocking` keeps the call sites synchronous (§5.3: no async runtime under
+# gpui's executors — reqwest's blocking client owns a private runtime on its own
+# background thread, which never touches them). rustls, not native-tls, matching
+# what ureq used and keeping OpenSSL off the Linux build. hyper/h2/rustls/tokio
+# were already compiled into the binary via zed-reqwest and crates/steer, so the
+# marginal tree weight is roughly what dropping ureq gives back.
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "http2",
+    "rustls-tls",
+    "gzip",
+    "charset",
+] }
 rustls = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

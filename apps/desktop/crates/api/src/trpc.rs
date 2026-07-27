@@ -28,12 +28,12 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Duration;
 
 use domain::client_version::{client_version_header_value, CLIENT_VERSION_HEADER};
 
 use crate::encode::percent_encode;
-use crate::error::{from_ureq_authed, ApiError};
+use crate::error::{read_body, status_error_authed, transport_error, ApiError};
+use crate::http;
 use crate::login::normalize_instance_url;
 use crate::TokenProvider;
 
@@ -50,7 +50,7 @@ struct EnvelopeResult<T> {
 /// Blocking tRPC client bound to one instance URL + one account's token
 /// provider. Cheap to clone-per-account; share one per (account, app).
 pub struct TrpcClient {
-    agent: ureq::Agent,
+    client: reqwest::blocking::Client,
     base_url: String,
     token_provider: Arc<dyn TokenProvider>,
 }
@@ -59,11 +59,10 @@ impl TrpcClient {
     /// `instance_url` is normalized ([`normalize_instance_url`]); the token
     /// provider is evaluated per request (never captured once).
     pub fn new(instance_url: &str, token_provider: Arc<dyn TokenProvider>) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(Duration::from_secs(30))
-            .build();
         Self {
-            agent,
+            // A clone of the process-wide client: same connection pool, so
+            // tRPC rides the HTTP/2 connection sync already has open.
+            client: http::shared().clone(),
             base_url: normalize_instance_url(instance_url),
             token_provider,
         }
@@ -77,9 +76,8 @@ impl TrpcClient {
     /// GET an input-less `query` procedure (e.g. `users.listPersonalApiKeys`).
     pub fn query<O: DeserializeOwned>(&self, path: &str) -> Result<O, ApiError> {
         let url = format!("{}/api/trpc/{path}", self.base_url);
-        let request = self.authorize(self.agent.get(&url).set("Accept", "application/json"));
-        let response = request.call().map_err(from_ureq_authed)?;
-        decode_envelope(response, path)
+        let request = self.authorize(self.client.get(&url).header("Accept", "application/json"));
+        self.send(request, path)
     }
 
     /// GET a `query` procedure with an input (`?input=<raw JSON>`,
@@ -96,9 +94,8 @@ impl TrpcClient {
             self.base_url,
             percent_encode(&json)
         );
-        let request = self.authorize(self.agent.get(&url).set("Accept", "application/json"));
-        let response = request.call().map_err(from_ureq_authed)?;
-        decode_envelope(response, path)
+        let request = self.authorize(self.client.get(&url).header("Accept", "application/json"));
+        self.send(request, path)
     }
 
     /// POST a `mutation` procedure with an input.
@@ -119,40 +116,55 @@ impl TrpcClient {
 
     fn mutation_raw<O: DeserializeOwned>(&self, path: &str, body: &str) -> Result<O, ApiError> {
         let url = format!("{}/api/trpc/{path}", self.base_url);
-        let request = self.authorize(
-            self.agent
-                .post(&url)
-                .set("Accept", "application/json")
-                .set("Content-Type", "application/json"),
-        );
-        let response = request.send_string(body).map_err(from_ureq_authed)?;
-        decode_envelope(response, path)
+        let request = self
+            .authorize(
+                self.client
+                    .post(&url)
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json"),
+            )
+            .body(body.to_string());
+        self.send(request, path)
     }
 
     /// Attach the bearer read **at call time** (§5.7). No token → the request
     /// goes out unauthenticated and the server answers 401 for authed procs —
     /// which correctly surfaces as [`ApiError::Unauthorized`].
-    fn authorize(&self, request: ureq::Request) -> ureq::Request {
+    fn authorize(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
         // EXP-104: every request carries the client-version header so the
         // server can 426-gate stale builds (authed and unauthed alike).
-        let request = request.set(CLIENT_VERSION_HEADER, &client_version_header_value());
+        let request = request.header(CLIENT_VERSION_HEADER, client_version_header_value());
         match self.token_provider.token() {
-            Some(token) => request.set("Authorization", &format!("Bearer {token}")),
+            Some(token) => request.header("Authorization", format!("Bearer {token}")),
             None => request,
         }
     }
-}
 
-fn decode_envelope<O: DeserializeOwned>(
-    response: ureq::Response,
-    path: &str,
-) -> Result<O, ApiError> {
-    let body = response
-        .into_string()
-        .map_err(|e| ApiError::Transport(e.to_string()))?;
-    let envelope: Envelope<O> = serde_json::from_str(&body)
-        .map_err(|e| ApiError::Decode(format!("{path} envelope: {e}")))?;
-    Ok(envelope.result.data)
+    /// Send, map a non-2xx status through the AUTHED policy (401 is the reauth
+    /// signal), then decode the tRPC envelope. reqwest hands back `Ok` for
+    /// error statuses, so the check has to be explicit — unlike ureq, where it
+    /// arrived as an `Err`.
+    fn send<O: DeserializeOwned>(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+        path: &str,
+    ) -> Result<O, ApiError> {
+        let response = request
+            .timeout(http::DEFAULT_TIMEOUT)
+            .send()
+            .map_err(transport_error)?;
+        let status = response.status().as_u16();
+        let body = read_body(response)?;
+        if !(200..300).contains(&status) {
+            return Err(status_error_authed(status, &body));
+        }
+        let envelope: Envelope<O> = serde_json::from_str(&body)
+            .map_err(|e| ApiError::Decode(format!("{path} envelope: {e}")))?;
+        Ok(envelope.result.data)
+    }
 }
 
 #[cfg(test)]
@@ -160,6 +172,7 @@ pub(crate) mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::time::Duration;
 
     /// One-shot canned HTTP server: accepts a single connection, captures the
     /// full request (head + body), answers with `status` + `body`. Returns
@@ -215,6 +228,17 @@ pub(crate) mod tests {
         (format!("http://127.0.0.1:{port}"), rx)
     }
 
+    /// Case-insensitive header-line check. hyper writes header NAMES in
+    /// lowercase on the wire, so `request.contains("Authorization: …")` is a
+    /// trap — but the URL/body assertions around it are case-sensitive on
+    /// purpose (percent-encoded JSON), so lowercasing the whole request is
+    /// not an option either.
+    pub(crate) fn has_header(request: &str, header: &str) -> bool {
+        request
+            .to_ascii_lowercase()
+            .contains(&header.to_ascii_lowercase())
+    }
+
     fn find_head_end(bytes: &[u8]) -> Option<usize> {
         bytes
             .windows(4)
@@ -248,7 +272,7 @@ pub(crate) mod tests {
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/widgets.get HTTP/1.1"));
-        assert!(request.contains("Authorization: Bearer tok-1"));
+        assert!(has_header(&request, "Authorization: Bearer tok-1"));
         // EXP-104: the client-version header rides every request.
         assert!(
             request.to_ascii_lowercase().contains("x-client-version: desktop/"),
@@ -304,7 +328,7 @@ pub(crate) mod tests {
         assert_eq!(out.id, "w2");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/widgets.create HTTP/1.1"));
-        assert!(request.contains("Content-Type: application/json"));
+        assert!(has_header(&request, "Content-Type: application/json"));
         assert!(request.ends_with(r#"{"name":"x"}"#), "body missing: {request}");
     }
 
@@ -349,6 +373,6 @@ pub(crate) mod tests {
         let client = TrpcClient::new(&base, provider);
         let _: bool = client.query("public.ping").unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(!request.contains("Authorization:"));
+        assert!(!has_header(&request, "Authorization:"));
     }
 }

@@ -162,24 +162,39 @@ pub fn cleanup_staging() {
     }
 }
 
-fn agent() -> ureq::Agent {
-    // Connect/read timeouts, NOT an overall `.timeout()` — a whole-request
-    // deadline would kill a large download on a slow link.
-    ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(10))
-        .timeout_read(Duration::from_secs(30))
+/// The updater's own `reqwest` client — same library as the rest of the app
+/// (EXP-304: there is exactly one HTTP stack here), but deliberately NOT
+/// `api::http::shared()`: that one carries a 30s whole-request deadline, which
+/// would kill a hundred-megabyte release download on a slow link. No default
+/// deadline here; callers set their own per request, and TCP keepalive probes
+/// kill a silently-dead peer rather than leaving a transfer hanging.
+///
+/// Built per call — the updater makes two requests in a session, so there is
+/// nothing to pool.
+fn client() -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .tcp_keepalive(Duration::from_secs(30))
         .build()
+        .context("build updater HTTP client")
 }
+
+/// Whole-request backstop for the release download. Generous — a large build
+/// over a slow link is legitimate — but bounded, so a wedged transfer can't
+/// hang the updater thread for the life of the process.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
 /// Fetch a small text asset (SHA256SUMS.txt) into memory.
 pub fn fetch_text(url: &str) -> Result<String> {
-    agent()
+    let response = client()?
         .get(url)
-        .set("User-Agent", USER_AGENT)
-        .call()
+        .timeout(Duration::from_secs(30))
+        .header("User-Agent", USER_AGENT)
+        .send()
         .with_context(|| format!("GET {url}"))?
-        .into_string()
-        .context("read body")
+        .error_for_status()
+        .with_context(|| format!("GET {url}"))?;
+    response.text().context("read body")
 }
 
 /// Stream `url` to `dest`, reporting `(received, total)` after each chunk.
@@ -190,16 +205,17 @@ pub fn download(url: &str, dest: &Path, mut progress: impl FnMut(u64, Option<u64
     }
     let part = dest.with_extension("part");
 
-    let response = agent()
+    let mut response = client()?
         .get(url)
-        .set("User-Agent", USER_AGENT)
-        .call()
+        .timeout(DOWNLOAD_TIMEOUT)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .with_context(|| format!("GET {url}"))?
+        .error_for_status()
         .with_context(|| format!("GET {url}"))?;
-    let total = response
-        .header("Content-Length")
-        .and_then(|len| len.parse::<u64>().ok());
+    let total = response.content_length();
 
-    let mut reader = response.into_reader();
+    let reader = &mut response;
     let result = (|| -> Result<()> {
         let mut file = fs::File::create(&part).context("create download file")?;
         let mut received = 0u64;

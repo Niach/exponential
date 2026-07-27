@@ -1,7 +1,7 @@
 //! `steer` — the relay publisher (masterplan-v3 §3.1 / §08).
 //!
 //! Two modules over one WebSocket client stack, on the team's ONLY tokio
-//! runtime (isolated from gpui's executors and the blocking ureq sync stack):
+//! runtime (isolated from gpui's executors and the blocking reqwest sync stack):
 //!
 //! - [`control_channel`] — the per-account device-presence socket: `online`
 //!   registration, inbound `start_session` routing to the §7 launcher,

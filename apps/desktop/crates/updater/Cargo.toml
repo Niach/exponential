@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-ureq.workspace = true
+reqwest.workspace = true
 dirs.workspace = true
 log = "0.4"
 # Streaming digest for SHA256SUMS.txt verification — already in the tree

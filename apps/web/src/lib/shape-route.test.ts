@@ -238,14 +238,22 @@ describe(`shape route handler`, () => {
       getWhere: async () => `"id" IN ('user-1','user-2')`,
     })
 
-    const request = new Request(`https://example.com/api/shapes/users`)
+    const request = new Request(`https://example.com/api/shapes/users`, {
+      headers: { "accept-encoding": `gzip, deflate` },
+    })
     await handler({ request })
 
     expect(originUrl.searchParams.get(`table`)).toBe(`users`)
     expect(originUrl.searchParams.get(`where`)).toBe(
       `"id" IN ('user-1','user-2')`
     )
-    expect(proxyElectricRequest).toHaveBeenCalledWith(originUrl, request.signal)
+    // The caller's Accept-Encoding rides along so the proxy can gzip the
+    // buffered body for clients that advertise it (EXP-304).
+    expect(proxyElectricRequest).toHaveBeenCalledWith(
+      originUrl,
+      request.signal,
+      `gzip, deflate`
+    )
   })
 })
 

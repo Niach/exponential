@@ -94,6 +94,13 @@ export function createShapeRouteHandler({
       originUrl.searchParams.set(`where`, where)
     }
 
-    return proxyElectricRequest(originUrl, request.signal)
+    // Pass the caller's Accept-Encoding along: the proxy gzips the (already
+    // buffered) body for clients that advertise it, which is a ~10x cut on the
+    // snapshot bodies mobile clients pay for on a cold cache.
+    return proxyElectricRequest(
+      originUrl,
+      request.signal,
+      request.headers.get(`accept-encoding`)
+    )
   }
 }

@@ -12,6 +12,11 @@ navigation-compose = "2.8.5"
 hilt = "2.53.1"
 hilt-navigation-compose = "1.2.0"
 ktor = "3.0.3"
+# The engine's own version, declared explicitly because HttpClientProvider
+# configures okhttp3 types (Dispatcher, ConnectionPool) directly rather than
+# leaning on ktor's transitive graph. Must match what ktor-client-okhttp
+# resolves to, or gradle picks the higher of the two.
+okhttp = "4.12.0"
 kotlinx-serialization = "1.7.3"
 kotlinx-coroutines = "1.9.0"
 room = "2.7.1"
@@ -50,7 +55,8 @@ hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref
 hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
 hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hilt-navigation-compose" }
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
-ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
+ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-client-auth = { group = "io.ktor", name = "ktor-client-auth", version.ref = "ktor" }

@@ -13,7 +13,7 @@
 //! Phase-2 state: `protocol.rs` (wire protocol, fixture-locked against
 //! `packages/electric-protocol`), `shapes.rs` (the 15 `ShapeSpec` entries),
 //! `store.rs` (rusqlite/WAL generic upsert + the §5.6c atomic-refetch dance),
-//! `client.rs` (the blocking ureq long-poll engine, one thread per shape) and
+//! `client.rs` (the blocking reqwest long-poll engine, one thread per shape) and
 //! `manager.rs` (per-account pipeline reconcile) are in — all gpui-free and
 //! covered by `tests/{protocol,store,engine}.rs`. `collections.rs` is the
 //! real §5.8 glue: the global [`Store`] with one reactive
@@ -31,7 +31,7 @@ pub mod store;
 
 pub use client::{
     ShapeClient, ShapeClientConfig, ShapeDelta, ShapeError, ShapeTransport, TokenFn,
-    TransportError, TransportResponse, UnauthorizedFn, UpgradeRequiredFn, UreqTransport,
+    HttpTransport, TransportError, TransportResponse, UnauthorizedFn, UpgradeRequiredFn,
 };
 pub use collections::{
     cmp_identifiers, Collection, Collections, SessionPhase, ShapeRow, ShapeStatus, ShapeSyncPhase,

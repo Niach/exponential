@@ -120,7 +120,7 @@ fn start_relay() -> RelayGuard {
     }
 }
 
-/// Minimal raw HTTP/1.1 client (no ureq dep in this crate): returns the body
+/// Minimal raw HTTP/1.1 client (this crate has no HTTP client dep): returns the body
 /// on any complete response, `None` on connect failure.
 fn http_request(
     port: u16,

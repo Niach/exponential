@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use crate::client::{
     ShapeClient, ShapeClientConfig, ShapeDelta, ShapeTransport, TokenFn, UnauthorizedFn,
-    UpgradeRequiredFn, UreqTransport, UNAUTHORIZED_GRACE,
+    HttpTransport, UpgradeRequiredFn, UNAUTHORIZED_GRACE,
 };
 use crate::shapes::SHAPES;
 use crate::store::{ShapeStore, StoreError};
@@ -82,10 +82,10 @@ pub struct SyncManager {
 }
 
 impl SyncManager {
-    /// Production manager: blocking `ureq`/rustls transport (§5.3), one
+    /// Production manager: the shared blocking `reqwest`/rustls transport (§5.3), one
     /// shared connection pool across all shape threads.
     pub fn new() -> Self {
-        Self::with_transport(Arc::new(UreqTransport::new()))
+        Self::with_transport(Arc::new(HttpTransport::new()))
     }
 
     /// Test seam (§5.3 testing guidance): inject any [`ShapeTransport`].
