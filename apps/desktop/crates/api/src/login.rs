@@ -13,7 +13,8 @@
 //!   capture surfaces — the `exponential://oauth-return?code=…#code=…`
 //!   deep-link parser (PRIMARY; a single-use code redeemed via
 //!   `POST /api/mobile-oauth-exchange` with the in-memory verifier — legacy
-//!   pre-PKCE servers still send `#token=…` with the raw session token).
+//!   pre-PKCE servers still send `#token=…` with the raw session token, and a
+//!   failed hop comes back as `?error=…#error=…`, REV2-53).
 //!
 //! The login *view* (cloud button first) is §4/Phase-3 UI
 //! territory; this module owns only the mechanics.
@@ -386,18 +387,32 @@ pub enum OAuthCallback {
     Code(String),
     /// The raw session token (DEPRECATED legacy form — pre-PKCE servers).
     Token(String),
+    /// The FAILURE handoff (REV2-53):
+    /// `exponential://oauth-return?error=<reason>#error=<reason>`. Every
+    /// failing branch of the web hop deep-links back this way instead of
+    /// stranding the user on an https page the app never sees, so the login
+    /// surface can end the attempt. The payload is a short slug the server
+    /// clamps (`normalizeOauthErrorReason`, apps/web/src/lib/deep-link.ts) —
+    /// map it to human copy, never render it raw.
+    Error(String),
 }
 
 /// Extract the payload from an OAuth callback URL. Handles both capture
 /// mechanisms of §5.7 — for each param the URL **fragment** wins over the
 /// query (the fragment never leaves the client; the query survives the
-/// browser→OS custom-scheme hop, EXP-21) — and both payload forms, `code`
-/// (new PKCE flow) winning over `token` (legacy):
+/// browser→OS custom-scheme hop, EXP-21) — and all three payload forms,
+/// `error` (the REV2-53 failure handoff) winning over `code` (new PKCE flow)
+/// winning over `token` (legacy):
 ///
 /// - PRIMARY custom scheme: `exponential://oauth-return?code=<c>#code=<c>`
 ///   (or legacy `…?token=<t>#token=<t>`).
+/// - FAILURE: `exponential://oauth-return?error=<reason>#error=<reason>`.
 /// - Query-only `…?token=<t>` URLs (no fragment) parse too — the wire shape
 ///   of the dropped v3 loopback fallback, kept for legacy tolerance.
+///
+/// `error` is scanned first so a callback that somehow carries both never
+/// tries to redeem a payload the server already declared failed — the same
+/// precedence iOS (`LoginViewModel`) and Android (`handleOauthReturn`) apply.
 ///
 /// Values are percent-decoded (the server `encodeURIComponent`s them; a PKCE
 /// code is base64url and decode-inert).
@@ -411,12 +426,13 @@ pub fn parse_oauth_callback(url: &str) -> Option<OAuthCallback> {
         .split_once('?')
         .map(|(_, query)| query);
 
-    for key in ["code", "token"] {
+    for key in ["error", "code", "token"] {
         let value = fragment
             .and_then(|pairs| find_param(pairs, key))
             .or_else(|| query.and_then(|pairs| find_param(pairs, key)));
         if let Some(value) = value {
             return Some(match key {
+                "error" => OAuthCallback::Error(value),
                 "code" => OAuthCallback::Code(value),
                 _ => OAuthCallback::Token(value),
             });
@@ -545,10 +561,44 @@ mod tests {
     }
 
     #[test]
+    fn parses_error_callback() {
+        // REV2-53 failure handoff, doubled into query + fragment.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?error=access_denied#error=access_denied"),
+            Some(OAuthCallback::Error("access_denied".to_string()))
+        );
+        // Fragment-dropped hop (Linux xdg): the query alone still parses.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?error=state_missing"),
+            Some(OAuthCallback::Error("state_missing".to_string()))
+        );
+        // Fragment-only (macOS keeps the whole URL).
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return#error=no_session"),
+            Some(OAuthCallback::Error("no_session".to_string()))
+        );
+        // Percent-decoded like every other payload.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?error=oauth%5Ffailed"),
+            Some(OAuthCallback::Error("oauth_failed".to_string()))
+        );
+    }
+
+    #[test]
+    fn error_wins_over_code_and_token() {
+        // A declared failure must never be redeemed as a payload.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?error=access_denied&code=c#token=t"),
+            Some(OAuthCallback::Error("access_denied".to_string()))
+        );
+    }
+
+    #[test]
     fn callback_without_payload_is_none() {
         assert_eq!(parse_oauth_callback("exponential://oauth-return"), None);
         assert_eq!(parse_oauth_callback("exponential://oauth-return#token="), None);
         assert_eq!(parse_oauth_callback("exponential://oauth-return?code="), None);
+        assert_eq!(parse_oauth_callback("exponential://oauth-return?error="), None);
         assert_eq!(parse_oauth_callback("/favicon.ico"), None);
     }
 

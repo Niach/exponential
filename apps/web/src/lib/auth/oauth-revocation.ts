@@ -133,9 +133,14 @@ async function fetchOidcRevocationEndpoint(
         return null
       }
       const doc = (await res.json()) as { revocation_endpoint?: unknown }
+      // https ONLY: the endpoint comes from a remote document and we POST a
+      // live OAuth token (plus the client secret) to it — over http that is a
+      // credential handed to anyone on the path. A provider advertising a
+      // plaintext endpoint is treated as advertising none.
       return {
         endpoint:
-          typeof doc.revocation_endpoint === `string`
+          typeof doc.revocation_endpoint === `string` &&
+          doc.revocation_endpoint.startsWith(`https://`)
             ? doc.revocation_endpoint
             : null,
       }

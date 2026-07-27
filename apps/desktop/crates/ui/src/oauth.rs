@@ -13,7 +13,11 @@
 //! exchanges the code + held verifier for the session token over TLS
 //! (`POST /api/mobile-oauth-exchange`) and adopts it exactly like a password
 //! sign-in. Legacy pre-PKCE servers (self-hosted lag) still deep-link
-//! `#token=<session-token>`; that path is kept for compatibility.
+//! `#token=<session-token>`; that path is kept for compatibility. A FAILING
+//! hop deep-links `?error=<reason>#error=<reason>` (REV2-53) — routed to
+//! [`crate::login::report_oauth_failure`] with the same copy iOS and Android
+//! show, so a failure ends the attempt instead of stranding the login button
+//! on "Waiting for your browser…".
 //!
 //! The v3-era `127.0.0.1` loopback fallback was dropped (its server half — a
 //! `redirect=` param on `/api/mobile-oauth-return` — is not scheduled by any
@@ -146,6 +150,24 @@ fn open_issue_deep_link(identifier: &str, cx: &mut App) {
 /// the log.
 const COMPLETION_FAILED: &str = "Couldn't verify your sign-in. Please try again.";
 
+/// Human copy for the `error` reason slug the server deep-links back on a
+/// failed OAuth hop (REV2-53 — `exponential://oauth-return?error=…`). Mirrors
+/// the web `oauthErrorMessage` (apps/web/src/lib/deep-link.ts), iOS
+/// `LoginViewModel.oauthErrorMessage` and Android's `oauthErrorMessage` — the
+/// slugs are already clamped server-side by `normalizeOauthErrorReason`, and an
+/// unknown one gets the generic line so a new server slug is never shown raw.
+fn oauth_error_message(reason: &str) -> &'static str {
+    match reason {
+        "access_denied" => "Sign-in was cancelled.",
+        "state_missing" | "state_invalid" | "state_mismatch" | "state_not_found"
+        | "please_restart_the_process" => "That sign-in link expired. Please try again.",
+        "no_session" | "session_cookie_missing" => {
+            "Sign-in didn't complete on the server. Please try again."
+        }
+        _ => "Couldn't complete sign-in. Please try again.",
+    }
+}
+
 /// Adopt an OAuth callback: for a PKCE code, first redeem it via
 /// `POST /api/mobile-oauth-exchange` with the held verifier (REV-13); then
 /// validate the token via `get-session`, persist the account, connect sync —
@@ -154,6 +176,25 @@ fn complete(callback: OAuthCallback, cx: &mut App) {
     let store = Store::global(cx).clone();
     if matches!(store.session(cx), SessionPhase::Synced { .. }) {
         log::info!("[ui] oauth: callback while already signed in — ignored");
+        return;
+    }
+    // The server declared the hop failed (REV2-53). Surface it and end the
+    // attempt here — there is nothing to redeem, and falling through would
+    // leave the login button stuck on "Waiting for your browser…" forever.
+    // Handled BEFORE the pending-attempt checks: a failure that arrives
+    // without in-process state must still un-stick the surface, exactly like
+    // iOS clearing `pendingPkce` and Android consuming the verifier.
+    if let OAuthCallback::Error(reason) = &callback {
+        log::warn!("[ui] oauth: server reported sign-in failure ({reason})");
+        let pending = cx.default_global::<PendingOAuth>();
+        pending.instance_url = None;
+        pending.verifier = None;
+        crate::login::report_oauth_failure(oauth_error_message(reason), cx);
+        // Only our own in-flight attempt may be aborted — a password sign-in
+        // that raced the callback owns the phase now.
+        if store.session(cx) == SessionPhase::SigningIn {
+            store.abort_sign_in(cx);
+        }
         return;
     }
     let Some(instance_url) = cx
@@ -194,6 +235,14 @@ fn complete(callback: OAuthCallback, cx: &mut App) {
                         &code,
                         verifier_bg.as_deref().unwrap_or_default(),
                     )?,
+                    // Unreachable — `complete` returns on the error arm above;
+                    // spelled out rather than panicked so a future caller can
+                    // never turn a failure callback into a crash.
+                    OAuthCallback::Error(reason) => {
+                        return Err(api::ApiError::Decode(format!(
+                            "oauth error callback: {reason}"
+                        )))
+                    }
                 };
                 let user = client.fetch_session(&server_bg, &token)?;
                 Ok::<_, api::ApiError>((token, user))
@@ -261,5 +310,58 @@ mod tests {
         assert_eq!(parse_issue_deep_link("exponential://invite/abc123"), None);
         assert_eq!(parse_issue_deep_link("exponential://oauth-return#token=t"), None);
         assert_eq!(parse_issue_deep_link("https://x/issue/EXP-42"), None);
+    }
+
+    #[test]
+    fn oauth_error_copy_matches_the_other_clients() {
+        // Byte-parity with iOS `LoginViewModel.oauthErrorMessage` and Android's
+        // `oauthErrorMessage` — the same slug must read the same on every
+        // client (the web's own copy differs only on the expired-link line).
+        assert_eq!(oauth_error_message("access_denied"), "Sign-in was cancelled.");
+        for reason in [
+            "state_missing",
+            "state_invalid",
+            "state_mismatch",
+            "state_not_found",
+            "please_restart_the_process",
+        ] {
+            assert_eq!(
+                oauth_error_message(reason),
+                "That sign-in link expired. Please try again.",
+                "{reason}"
+            );
+        }
+        for reason in ["no_session", "session_cookie_missing"] {
+            assert_eq!(
+                oauth_error_message(reason),
+                "Sign-in didn't complete on the server. Please try again.",
+                "{reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_oauth_error_slugs_get_the_generic_line() {
+        // A slug a newer server invents must never reach the user raw.
+        for reason in ["oauth_failed", "server_exploded", "", "ACCESS_DENIED"] {
+            assert_eq!(
+                oauth_error_message(reason),
+                "Couldn't complete sign-in. Please try again.",
+                "{reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_callbacks_route_to_the_failure_copy() {
+        // The seam the desktop was missing: the server's failure deep link
+        // must parse as `Error` and map to user-facing copy, not fall through
+        // to the unhandled-URL log.
+        let Some(OAuthCallback::Error(reason)) = api::login::parse_oauth_callback(
+            "exponential://oauth-return?error=access_denied#error=access_denied",
+        ) else {
+            panic!("failure deep link did not parse as an OAuth error callback");
+        };
+        assert_eq!(oauth_error_message(&reason), "Sign-in was cancelled.");
     }
 }

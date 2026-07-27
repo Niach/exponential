@@ -268,6 +268,19 @@ export const boardsRouter = router({
 
       await assertBoardMember(ctx.session.user.id, id)
 
+      // Every field is optional, so a patch can be effectively empty (a client
+      // re-saving an untouched form). Drizzle throws "No values to set" on an
+      // empty `.set()`, so read the row back instead — same no-op shape as
+      // issues.update.
+      if (Object.keys(updates).length === 0) {
+        const [existing] = await ctx.db
+          .select()
+          .from(boards)
+          .where(eq(boards.id, id))
+          .limit(1)
+        return { board: existing! }
+      }
+
       const [board] = await ctx.db
         .update(boards)
         .set(updates)

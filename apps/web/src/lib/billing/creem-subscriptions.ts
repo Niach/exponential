@@ -46,14 +46,17 @@ export const ACTIVE_SUBSCRIPTION_STATUSES = [
 export type TeamSubscriptionRow = typeof creem_subscriptions.$inferSelect
 
 /**
- * The team's single active team-bound subscription row, or `null`.
- * Same most-seats-wins tiebreak as getTeamPlan, so seat adjustments
- * always target the subscription that currently determines the plan.
+ * EVERY active team-bound subscription row, most seats first. Normally there
+ * is at most one (the invariant creem-binding.ts enforces where the money
+ * lands), but the REV2-30 duplicate window can transiently leave two — so any
+ * check that must not MISS a live subscription (the team-delete gate) reads
+ * this, while checks that need the one row the plan derives from take the head
+ * via getActiveTeamSubscription.
  */
-export async function getActiveTeamSubscription(
+export async function listActiveTeamSubscriptions(
   teamId: string
-): Promise<TeamSubscriptionRow | null> {
-  const [row] = await db
+): Promise<TeamSubscriptionRow[]> {
+  return await db
     .select()
     .from(creem_subscriptions)
     .where(
@@ -63,7 +66,17 @@ export async function getActiveTeamSubscription(
       )
     )
     .orderBy(desc(creem_subscriptions.seats))
-    .limit(1)
+}
+
+/**
+ * The team's single active team-bound subscription row, or `null`.
+ * Same most-seats-wins tiebreak as getTeamPlan, so seat adjustments
+ * always target the subscription that currently determines the plan.
+ */
+export async function getActiveTeamSubscription(
+  teamId: string
+): Promise<TeamSubscriptionRow | null> {
+  const [row] = await listActiveTeamSubscriptions(teamId)
   return row ?? null
 }
 
@@ -265,13 +278,26 @@ export async function findActiveSubscriptionsForTeams(
 // team-scoped capture above may feed a cancellation.
 
 /**
- * Best-effort remote cancellation for the one surviving destroy-a-paying-team
- * path (account deletion killing a solo team). NEVER throws — every failure is
- * logged with the Creem subscription id so it can be cancelled manually from
- * the dashboard. Cancellation is immediate (not scheduled): the backing team
- * no longer exists, so there is nothing left to serve until period end.
- * Self-service cancellation uses scheduleCreemSubscriptionCancellation
- * instead, which preserves the paid period.
+ * Best-effort remote cancellation of subscriptions that must stop being
+ * charged NOW. NEVER throws — every failure is logged with the Creem
+ * subscription id so it can be cancelled manually from the dashboard.
+ *
+ * TWO callers, both cancelling `immediate` rather than `scheduled`:
+ *
+ * 1. Account deletion killing a SOLO team (the one surviving
+ *    destroy-a-paying-team path — see the note above). The backing team no
+ *    longer exists, so there is nothing left to serve until period end.
+ * 2. The one-subscription-per-team enforcement in creem-binding.ts: a
+ *    duplicate subscription bound to a team that still EXISTS and is still
+ *    fully served — by the incumbent the duplicate competes with. The
+ *    duplicate funds nothing on top of that, so every day it stays open is
+ *    pure double-charge; `scheduled` would leave it live (and the invariant
+ *    broken) until period end, which on the yearly-only Pro plan is up to a
+ *    year away, long past any refund window for the charge that just landed.
+ *
+ * Self-service cancellation is the opposite case and uses
+ * scheduleCreemSubscriptionCancellation instead: the customer is still being
+ * served by that exact subscription, so it preserves the paid period.
  */
 export async function cancelCreemSubscriptionsBestEffort(
   subscriptions: CancellableSubscription[]

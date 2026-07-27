@@ -161,6 +161,39 @@ describe(`resolveRevocationTarget`, () => {
     })
   })
 
+  it(`refuses a plaintext http revocation endpoint`, async () => {
+    // The endpoint arrives in a remote document and we POST a live OAuth token
+    // plus the client secret to it — over http that hands the credential to
+    // anyone on the path. Treated exactly like "advertises none".
+    process.env.OIDC_PROVIDERS = JSON.stringify([
+      {
+        id: `authentik`,
+        clientId: `oidc-client`,
+        clientSecret: `oidc-secret`,
+        discoveryUrl: `https://idp.test/plaintext/.well-known/openid-configuration`,
+      },
+    ])
+    fetchMock.mockResolvedValue(
+      ok({ revocation_endpoint: `http://idp.test/plaintext/revoke` })
+    )
+    expect(await resolveRevocationTarget(`authentik`)).toBe(null)
+  })
+
+  it(`refuses a non-http(s) revocation endpoint scheme`, async () => {
+    process.env.OIDC_PROVIDERS = JSON.stringify([
+      {
+        id: `authentik`,
+        clientId: `oidc-client`,
+        clientSecret: `oidc-secret`,
+        discoveryUrl: `https://idp.test/scheme/.well-known/openid-configuration`,
+      },
+    ])
+    fetchMock.mockResolvedValue(
+      ok({ revocation_endpoint: `file:///etc/passwd` })
+    )
+    expect(await resolveRevocationTarget(`authentik`)).toBe(null)
+  })
+
   it(`returns null for a provider that advertises no revocation endpoint`, async () => {
     process.env.OIDC_PROVIDERS = JSON.stringify([
       {

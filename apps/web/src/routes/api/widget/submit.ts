@@ -94,9 +94,16 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
   }
 
   // Honeypot: the real widget never fills this hidden field. Pretend success
-  // so bots don't adapt; nothing is created.
+  // so bots don't adapt; nothing is created. Logged (public key only — never
+  // the field value or any reporter detail) because the reply is
+  // indistinguishable from a real submission: without this line a widget that
+  // starts tripping its own honeypot silently drops every report with nothing
+  // to see anywhere.
   const honeypot = formData.get(`website`)
   if (typeof honeypot === `string` && honeypot.length > 0) {
+    console.warn(
+      `[widget] honeypot tripped for key ${config.publicKey} — submission dropped`
+    )
     return jsonResponse(201, { ok: true }, cors)
   }
 

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 
 // The team-delete billing gate (REV2-55). `assertTeamDeletableBilling` reads
-// the team's active subscription, so the DB helper and the cloud check are
+// the team's active subscriptions, so the DB helper and the cloud check are
 // mocked; the predicate itself is pure.
 const mocks = vi.hoisted(() => ({
   cloud: { value: true },
-  subscription: {
-    value: null as { cancelAtPeriodEnd: boolean; status: string } | null,
+  subscriptions: {
+    value: [] as Array<{ cancelAtPeriodEnd: boolean; status: string }>,
   },
   getCalls: { count: 0 },
 }))
@@ -16,9 +16,9 @@ vi.mock(`@/lib/bootstrap-cloud`, () => ({
 }))
 
 vi.mock(`@/lib/billing/creem-subscriptions`, () => ({
-  getActiveTeamSubscription: async () => {
+  listActiveTeamSubscriptions: async () => {
     mocks.getCalls.count += 1
-    return mocks.subscription.value
+    return mocks.subscriptions.value
   },
 }))
 
@@ -36,7 +36,7 @@ const LIVE = { cancelAtPeriodEnd: false, status: `active` }
 
 beforeEach(() => {
   mocks.cloud.value = true
-  mocks.subscription.value = null
+  mocks.subscriptions.value = []
   mocks.getCalls.count = 0
 })
 
@@ -139,14 +139,14 @@ describe(`assertTeamSubscriptionCancelled`, () => {
 
 describe(`assertTeamDeletableBilling`, () => {
   it(`refuses a team with a live subscription`, async () => {
-    mocks.subscription.value = LIVE
+    mocks.subscriptions.value = [LIVE]
     await expect(assertTeamDeletableBilling(`ws-1`)).rejects.toThrow(
       TEAM_DELETE_ACTIVE_SUBSCRIPTION_MESSAGE
     )
   })
 
   it(`allows a team whose subscription is scheduled to cancel`, async () => {
-    mocks.subscription.value = { ...LIVE, cancelAtPeriodEnd: true }
+    mocks.subscriptions.value = [{ ...LIVE, cancelAtPeriodEnd: true }]
     await expect(
       assertTeamDeletableBilling(`ws-1`)
     ).resolves.toBeUndefined()
@@ -155,10 +155,41 @@ describe(`assertTeamDeletableBilling`, () => {
   // scheduled_cancel is an ACTIVE status, so the row is still returned here —
   // the gate must let the delete through on the status alone.
   it(`allows a team whose subscription is scheduled_cancel in Creem`, async () => {
-    mocks.subscription.value = {
-      cancelAtPeriodEnd: false,
-      status: SCHEDULED_CANCEL_STATUS,
-    }
+    mocks.subscriptions.value = [
+      { cancelAtPeriodEnd: false, status: SCHEDULED_CANCEL_STATUS },
+    ]
+    await expect(
+      assertTeamDeletableBilling(`ws-1`)
+    ).resolves.toBeUndefined()
+  })
+
+  it(`allows a team with no active subscription at all`, async () => {
+    mocks.subscriptions.value = []
+    await expect(
+      assertTeamDeletableBilling(`ws-1`)
+    ).resolves.toBeUndefined()
+  })
+
+  // The REV2-30 duplicate window can leave TWO active rows on one team. The
+  // gate reads them all, so a live one blocks no matter where it sits — a
+  // most-seats-wins single read could have returned the scheduled_cancel row
+  // and waved the delete through while the other subscription kept charging.
+  it(`refuses when ANY of several rows is still live`, async () => {
+    mocks.subscriptions.value = [
+      { ...LIVE, cancelAtPeriodEnd: true },
+      { cancelAtPeriodEnd: false, status: SCHEDULED_CANCEL_STATUS },
+      LIVE,
+    ]
+    await expect(assertTeamDeletableBilling(`ws-1`)).rejects.toThrow(
+      TEAM_DELETE_ACTIVE_SUBSCRIPTION_MESSAGE
+    )
+  })
+
+  it(`allows a team whose every active row is already ending`, async () => {
+    mocks.subscriptions.value = [
+      { ...LIVE, cancelAtPeriodEnd: true },
+      { cancelAtPeriodEnd: false, status: SCHEDULED_CANCEL_STATUS },
+    ]
     await expect(
       assertTeamDeletableBilling(`ws-1`)
     ).resolves.toBeUndefined()
@@ -166,7 +197,7 @@ describe(`assertTeamDeletableBilling`, () => {
 
   it(`skips the lookup entirely on self-hosted instances`, async () => {
     mocks.cloud.value = false
-    mocks.subscription.value = LIVE
+    mocks.subscriptions.value = [LIVE]
     await expect(
       assertTeamDeletableBilling(`ws-1`)
     ).resolves.toBeUndefined()

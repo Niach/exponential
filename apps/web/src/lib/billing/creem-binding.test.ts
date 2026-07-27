@@ -37,6 +37,7 @@ import {
   bindingInputFromCheckout,
   bindingInputFromSubscription,
   pickDuplicateSubscriptionsToCancel,
+  statusClearsPendingCancel,
   type TeamBoundSubscription,
 } from "./creem-binding"
 
@@ -164,12 +165,51 @@ describe(`payload mappers`, () => {
       id: SUB,
       metadata: { teamId: WS, seats: 9 },
       items: [{ units: 9 }],
+      status: `active`,
     })
     expect(input).toEqual({
       creemSubscriptionId: SUB,
       metadata: { teamId: WS, seats: 9 },
       units: 9,
+      status: `active`,
     })
+  })
+
+  // A checkout's `status` describes the CHECKOUT (`completed`), not the
+  // subscription — mapping it would let a checkout clear a pending cancel.
+  it(`never carries a status off a checkout event`, () => {
+    const input = bindingInputFromCheckout({
+      units: 5,
+      metadata: { teamId: WS },
+      subscription: { id: SUB },
+    })
+    expect(input).not.toHaveProperty(`status`)
+  })
+})
+
+describe(`statusClearsPendingCancel`, () => {
+  it(`clears on every live, non-scheduled_cancel status`, () => {
+    for (const status of [`active`, `trialing`, `paid`]) {
+      expect(statusClearsPendingCancel(status), status).toBe(true)
+    }
+  })
+
+  it(`never clears while the cancellation is the pending state itself`, () => {
+    expect(statusClearsPendingCancel(`scheduled_cancel`)).toBe(false)
+  })
+
+  // These say nothing about a SCHEDULED cancellation, so they must not touch
+  // the flag either way.
+  it(`never clears on a dead or suspended status`, () => {
+    for (const status of [`canceled`, `expired`, `paused`, `past_due`, `unpaid`]) {
+      expect(statusClearsPendingCancel(status), status).toBe(false)
+    }
+  })
+
+  it(`never clears without a status (checkout events, legacy payloads)`, () => {
+    expect(statusClearsPendingCancel(null)).toBe(false)
+    expect(statusClearsPendingCancel(undefined)).toBe(false)
+    expect(statusClearsPendingCancel(``)).toBe(false)
   })
 })
 
@@ -262,11 +302,10 @@ describe(`bindSubscriptionToTeam`, () => {
       { commit, loadTeamSubscriptions: async () => [] }
     )
     expect(result).toEqual({ creemSubscriptionId: SUB, teamId: WS, seats: 6 })
-    expect(commit).toHaveBeenCalledExactlyOnceWith({
-      creemSubscriptionId: SUB,
-      teamId: WS,
-      seats: 6,
-    })
+    expect(commit).toHaveBeenCalledExactlyOnceWith(
+      { creemSubscriptionId: SUB, teamId: WS, seats: 6 },
+      { clearPendingCancel: false }
+    )
   })
 
   it(`does not commit an unbindable payload`, async () => {
@@ -298,6 +337,80 @@ describe(`bindSubscriptionToTeam`, () => {
     // table-wide update.
     expect(updateCalls[0].where).toBeDefined()
     expect(console.error).not.toHaveBeenCalled()
+  })
+})
+
+describe(`bindSubscriptionToTeam pending-cancel healing`, () => {
+  // A cancellation scheduled and then RESUMED in the Creem dashboard never
+  // reaches billing.resumeSubscription, so our optimistic cancelAtPeriodEnd
+  // mirror would stay true forever — pinning the pending-cancel banner and
+  // making assertSubscriptionMutable refuse every seat/plan change. The
+  // webhook is the only place that learns about it.
+  it(`clears the stale flag when the event reports a live status`, async () => {
+    const event = bindingInputFromSubscription({
+      id: SUB,
+      metadata: { teamId: WS },
+      items: [{ units: 2 }],
+      status: `active`,
+    })
+    selectRows.push(row({ creemSubscriptionId: SUB, cancelAtPeriodEnd: true }))
+    await bindSubscriptionToTeam(event)
+
+    expect(updateCalls).toHaveLength(1)
+    expect(updateCalls[0].values).toEqual({
+      teamId: WS,
+      seats: 2,
+      cancelAtPeriodEnd: false,
+    })
+  })
+
+  it(`leaves the flag alone while the cancellation is still scheduled`, async () => {
+    const event = bindingInputFromSubscription({
+      id: SUB,
+      metadata: { teamId: WS },
+      items: [{ units: 2 }],
+      status: `scheduled_cancel`,
+    })
+    selectRows.push(
+      row({ creemSubscriptionId: SUB, status: `scheduled_cancel` })
+    )
+    await bindSubscriptionToTeam(event)
+
+    expect(updateCalls).toHaveLength(1)
+    expect(updateCalls[0].values).toEqual({ teamId: WS, seats: 2 })
+  })
+
+  it(`leaves the flag alone for a payload that carries no status`, async () => {
+    // checkout.completed and any legacy/partial payload: nothing was learned
+    // about the cancellation state, so nothing is written.
+    selectRows.push(row({ creemSubscriptionId: SUB }))
+    await bindSubscriptionToTeam(
+      bindingInputFromCheckout({
+        units: 2,
+        metadata: { teamId: WS },
+        subscription: { id: SUB },
+      })
+    )
+
+    expect(updateCalls).toHaveLength(1)
+    expect(updateCalls[0].values).toEqual({ teamId: WS, seats: 2 })
+  })
+
+  it(`hands the verdict to an injected commit sink`, async () => {
+    const commit = vi.fn(async () => {})
+    await bindSubscriptionToTeam(
+      {
+        creemSubscriptionId: SUB,
+        metadata: { teamId: WS },
+        units: 1,
+        status: `trialing`,
+      },
+      { commit, loadTeamSubscriptions: async () => [] }
+    )
+    expect(commit).toHaveBeenCalledExactlyOnceWith(
+      { creemSubscriptionId: SUB, teamId: WS, seats: 1 },
+      { clearPendingCancel: true }
+    )
   })
 })
 

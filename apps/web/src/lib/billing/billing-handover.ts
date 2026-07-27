@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import {
-  getActiveTeamSubscription,
+  listActiveTeamSubscriptions,
   type TeamSubscriptionRow,
 } from "@/lib/billing/creem-subscriptions"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
@@ -100,10 +100,19 @@ export function assertTeamSubscriptionCancelled(
  * The DB-backed gate both team-deletion paths run (teams.delete and
  * admin.deleteTeam) BEFORE touching anything. Self-hosted instances have no
  * subscriptions at all, so the check is skipped there.
+ *
+ * Gated over EVERY active team-bound row, not just the plan-determining one:
+ * the REV2-30 duplicate window can leave two live subscriptions on a team, and
+ * `getActiveTeamSubscription`'s most-seats tiebreak could hand back the one
+ * that is already scheduled to cancel — passing the gate while the OTHER one
+ * keeps charging. The delete then nulls `team_id` on both and nothing can find
+ * the survivor again, which is exactly the paying ghost this gate exists to
+ * prevent. So: any single row that still blocks, blocks the delete.
  */
 export async function assertTeamDeletableBilling(
   teamId: string
 ): Promise<void> {
   if (!isCloudInstance()) return
-  assertTeamSubscriptionCancelled(await getActiveTeamSubscription(teamId))
+  const rows = await listActiveTeamSubscriptions(teamId)
+  assertTeamSubscriptionCancelled(rows.find(subscriptionBlocksTeamDelete) ?? null)
 }
