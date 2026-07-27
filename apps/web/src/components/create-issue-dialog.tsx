@@ -64,8 +64,6 @@ export function CreateIssueDialog({
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
   const [dueDate, setDueDate] = useState<Date | undefined>()
-  const [dueTime, setDueTime] = useState<string | null>(null)
-  const [endTime, setEndTime] = useState<string | null>(null)
   const [createMore, setCreateMore] = useState(false)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [draftImages, setDraftImages] = useState<DraftImage[]>([])
@@ -153,8 +151,6 @@ export function CreateIssueDialog({
     setAssigneeId(soleMemberId)
     setSelectedLabelIds([])
     setDueDate(undefined)
-    setDueTime(null)
-    setEndTime(null)
   }
 
   const handleToggleLabel = (labelId: string) => {
@@ -259,8 +255,6 @@ export function CreateIssueDialog({
         assigneeId: assigneeId ?? undefined,
         description: toIssueDescription(strippedDescription) ?? undefined,
         dueDate: formatDateForMutation(dueDate) ?? undefined,
-        dueTime: dueTime ?? undefined,
-        endTime: endTime ?? undefined,
         labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
       })
 
@@ -390,10 +384,6 @@ export function CreateIssueDialog({
       hideAssignee={isSolo}
       dueDate={dueDate}
       onDueDateSelect={setDueDate}
-      dueTime={dueTime}
-      endTime={endTime}
-      onDueTimeChange={setDueTime}
-      onEndTimeChange={setEndTime}
       createMore={createMore}
       onCreateMoreChange={setCreateMore}
       mobileFooter={

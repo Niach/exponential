@@ -725,11 +725,7 @@ fun IssueDetailScreen(
     if (activeSheet == IssueSheet.DueDate && issue != null && isModerator) {
         DueDateSheet(
             dueDate = issue.dueDate,
-            dueTime = issue.dueTime,
-            endTime = issue.endTime,
             onSetDate = { viewModel.updateDueDate(it) },
-            onSetDueTime = { viewModel.updateDueTime(it) },
-            onSetEndTime = { viewModel.updateEndTime(it) },
             onDismiss = { activeSheet = null },
         )
     }

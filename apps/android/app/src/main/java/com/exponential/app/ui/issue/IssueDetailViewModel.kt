@@ -776,24 +776,6 @@ class IssueDetailViewModel @Inject constructor(
         }
     }
 
-    fun updateDueTime(time: String?) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, dueTime = time))
-            }
-        }
-    }
-
-    fun updateEndTime(time: String?) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, endTime = time))
-            }
-        }
-    }
-
     fun toggleLabel(labelId: String, isCurrentlyAssigned: Boolean) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch

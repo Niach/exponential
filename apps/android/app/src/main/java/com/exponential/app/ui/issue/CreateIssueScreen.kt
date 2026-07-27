@@ -141,16 +141,12 @@ fun CreateIssueScreen(
     var priority by remember { mutableStateOf(IssuePriority.None) }
     var assigneeId by remember { mutableStateOf<String?>(null) }
     var dueDate by remember { mutableStateOf<String?>(null) }
-    var dueTime by remember { mutableStateOf<String?>(null) }
-    var endTime by remember { mutableStateOf<String?>(null) }
     var selectedLabelIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var createMore by remember { mutableStateOf(false) }
     var statusMenuOpen by remember { mutableStateOf(false) }
     var priorityMenuOpen by remember { mutableStateOf(false) }
     var assigneeMenuOpen by remember { mutableStateOf(false) }
     var datePickerOpen by remember { mutableStateOf(false) }
-    var dueTimePickerOpen by remember { mutableStateOf(false) }
-    var endTimePickerOpen by remember { mutableStateOf(false) }
     var labelSheetOpen by remember { mutableStateOf(false) }
     var boardSheetOpen by remember { mutableStateOf(false) }
 
@@ -208,8 +204,6 @@ fun CreateIssueScreen(
                 description = description,
                 dueDate = dueDate,
                 assigneeId = assigneeId,
-                dueTime = dueTime,
-                endTime = endTime,
                 // Drop selections for labels deleted while drafting — the
                 // server rejects the whole create on an unknown label id.
                 labelIds = selectedLabelIds.filter { id -> state.labels.any { it.id == id } },
@@ -364,8 +358,7 @@ fun CreateIssueScreen(
                             )
                         }
                     }
-                    // Due date + (when set) start/end times — same grouped card
-                    // (EXP-247), the time rows only appearing with a due date.
+                    // Due date — same grouped card (EXP-247).
                     MetaDivider()
                     MetaRow(label = "Due date", enabled = isModerator, onClick = { datePickerOpen = true }) {
                         Icon(ExpIcons.uiDueDate, null, modifier = Modifier.size(14.dp), tint = dueDate?.let { dueDateColor(it) } ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
@@ -375,20 +368,6 @@ fun CreateIssueScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dueDate != null) TextEmphasis.Primary else TextEmphasis.Tertiary),
                         )
-                    }
-                    if (dueDate != null) {
-                        MetaDivider()
-                        MetaRow(label = "Start time", enabled = isModerator, onClick = { dueTimePickerOpen = true }) {
-                            Icon(ExpIcons.uiClock, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
-                            Spacer(Modifier.width(6.dp))
-                            Text(dueTime ?: "—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dueTime != null) TextEmphasis.Primary else TextEmphasis.Tertiary))
-                        }
-                        MetaDivider()
-                        MetaRow(label = "End time", enabled = isModerator, onClick = { endTimePickerOpen = true }) {
-                            Icon(ExpIcons.uiClock, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
-                            Spacer(Modifier.width(6.dp))
-                            Text(endTime ?: "—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (endTime != null) TextEmphasis.Primary else TextEmphasis.Tertiary))
-                        }
                     }
                 }
 
@@ -530,26 +509,6 @@ fun CreateIssueScreen(
             initialDate = dueDate,
             onConfirm = { dueDate = it; datePickerOpen = false },
             onDismiss = { datePickerOpen = false },
-        )
-    }
-
-    if (dueTimePickerOpen) {
-        IssueTimePickerDialog(
-            initialTime = dueTime,
-            title = "Start time",
-            onConfirm = { dueTime = it; dueTimePickerOpen = false },
-            onClear = { dueTime = null; dueTimePickerOpen = false },
-            onDismiss = { dueTimePickerOpen = false },
-        )
-    }
-
-    if (endTimePickerOpen) {
-        IssueTimePickerDialog(
-            initialTime = endTime,
-            title = "End time",
-            onConfirm = { endTime = it; endTimePickerOpen = false },
-            onClear = { endTime = null; endTimePickerOpen = false },
-            onDismiss = { endTimePickerOpen = false },
         )
     }
 

@@ -12,8 +12,8 @@
 //!   — clipboard-image paste stages `draft://` blocks; submit
 //!   mirrors the web flow: create with the drafts **stripped**, upload each
 //!   staged image, rewrite the URLs and `issues.update` the final description
-//! - chip row: status / priority / assignee / labels / due-date (with
-//!   `due_time`/`end_time` + "All day", §4.2)
+//! - chip row: status / priority / assignee / labels / due-date (date only —
+//!   REV2-49 deleted the time-of-day fields, §4.2)
 //! - footer: "Create more" `Switch` (web uses a Switch, not a checkbox —
 //!   L488-494) + the indigo submit button.
 //!
@@ -165,8 +165,6 @@ pub struct CreateIssueDialogView {
     label_query: Entity<InputState>,
     due_date: Option<chrono::NaiveDate>,
     due_calendar: Entity<CalendarState>,
-    due_time: Entity<InputState>,
-    end_time: Entity<InputState>,
     create_more: bool,
     submitting: bool,
     error: Option<SharedString>,
@@ -217,8 +215,6 @@ impl CreateIssueDialogView {
             description.set_scroll_handle(desc_scroll.clone(), cx);
         });
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
-        let due_time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM"));
-        let end_time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM"));
         let label_query = cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels…"));
 
         let mut subscriptions = Vec::new();
@@ -249,13 +245,6 @@ impl CreateIssueDialogView {
                 cx.notify();
             },
         ));
-        // The end-time input enables only once a start time exists (web
-        // `disabled={!dueTime}`).
-        subscriptions.push(cx.subscribe(&due_time, |_, _, event: &InputEvent, cx| {
-            if let InputEvent::Change = event {
-                cx.notify();
-            }
-        }));
         // The footer attachment rail mirrors the live description (web
         // `imageOccurrences` over the current markdown) — re-render on every
         // editor change (pastes, deletions, chip removals).
@@ -284,8 +273,6 @@ impl CreateIssueDialogView {
             label_query,
             due_date: None,
             due_calendar,
-            due_time,
-            end_time,
             create_more: false,
             submitting: false,
             error: None,
@@ -351,10 +338,6 @@ impl CreateIssueDialogView {
         self.due_calendar.update(cx, |state, cx| {
             state.set_date(Date::Single(None), window, cx);
         });
-        self.due_time
-            .update(cx, |state, cx| state.set_value("", window, cx));
-        self.end_time
-            .update(cx, |state, cx| state.set_value("", window, cx));
         self.error = None;
         self.submitting = false;
         self.title.update(cx, |state, cx| state.focus(window, cx));
@@ -396,16 +379,6 @@ impl CreateIssueDialogView {
         // description update (cheap: an `Agent` + two `Arc`s, §5.7).
         let trpc_update = queries::trpc_client(cx);
         input.due_date = self.due_date.map(|date| date.format("%Y-%m-%d").to_string());
-        // Cascade rules (§4.2): times ride only with a date; end only with a
-        // start.
-        if input.due_date.is_some() {
-            if let Some(due_time) = valid_time(&self.due_time.read(cx).value()) {
-                input.due_time = Some(due_time);
-                if let Some(end_time) = valid_time(&self.end_time.read(cx).value()) {
-                    input.end_time = Some(end_time);
-                }
-            }
-        }
         if !self.selected_label_ids.is_empty() {
             input.label_ids = Some(self.selected_label_ids.clone());
         }
@@ -660,74 +633,16 @@ impl CreateIssueDialogView {
         )
     }
 
-    /// Web due chip: `CalendarDays` + "Jul 3 · HH:MM" or "Due date"; the
-    /// popover hosts the calendar + the time row with "All day" (§4.2).
+    /// Web due chip: `CalendarDays` + "Jul 3" or "Due date"; the popover hosts
+    /// the calendar (date only — REV2-49 deleted the time-of-day fields, §4.2).
     fn due_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let label: SharedString = match self.due_date {
             Some(date) => {
-                let short = domain::board::format_short_date(&date.format("%Y-%m-%d").to_string());
-                match valid_time(&self.due_time.read(cx).value()) {
-                    Some(time) => format!("{short} · {time}").into(),
-                    None => short.into(),
-                }
+                domain::board::format_short_date(&date.format("%Y-%m-%d").to_string()).into()
             }
             None => "Due date".into(),
         };
 
-        let due_time = self.due_time.clone();
-        let end_time = self.end_time.clone();
-        let view = cx.entity().clone();
-
-        // The time row rides as the shared popover's `extra` (EXP-288 — the
-        // shared popover also de-cards the Calendar, fixing the old
-        // card-in-card look this dialog had).
-        let extra: crate::pickers::DueExtra = Rc::new(move |_window, cx| {
-            let has_date = view.read(cx).due_date.is_some();
-            if !has_date {
-                return gpui::Empty.into_any_element();
-            }
-            let has_start = valid_time(&due_time.read(cx).value()).is_some();
-            let has_any_time = has_start || !end_time.read(cx).value().trim().is_empty();
-            let due_time = due_time.clone();
-            let end_time = end_time.clone();
-            h_flex()
-                .gap_2()
-                .items_center()
-                .border_t_1()
-                .border_color(cx.theme().border)
-                .px_1()
-                .pt_2()
-                .mt_2()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child("Time")
-                .child(div().w(px(64.)).child(Input::new(&due_time).xsmall()))
-                .child("–")
-                .child(
-                    div()
-                        .w(px(64.))
-                        .child(Input::new(&end_time).xsmall().disabled(!has_start)),
-                )
-                .when(has_any_time, |this| {
-                    let due_time = due_time.clone();
-                    let end_time = end_time.clone();
-                    this.child(
-                        Button::new("create-due-all-day")
-                            .ghost()
-                            .xsmall()
-                            .label("All day")
-                            .on_click(move |_, window, cx| {
-                                due_time.update(cx, |state, cx| {
-                                    state.set_value("", window, cx)
-                                });
-                                end_time.update(cx, |state, cx| {
-                                    state.set_value("", window, cx)
-                                });
-                            }),
-                    )
-                })
-                .into_any_element()
-        });
         crate::pickers::due_date_popover(
             "create-due-popover",
             chip_button("create-due-chip", cx)
@@ -739,7 +654,7 @@ impl CreateIssueDialogView {
                 .label(label),
             self.due_calendar.clone(),
             Some(px(280.)),
-            Some(extra),
+            None,
         )
     }
 
@@ -1091,36 +1006,9 @@ fn display_name(user: &User) -> String {
         .unwrap_or_else(|| domain::member_fallback_label(&user.id))
 }
 
-/// Validate an `HH:MM` time input (the server's zod shape). Empty/invalid →
-/// `None` (treated as unset, mirroring the web TimeInput's nulling).
-pub(crate) fn valid_time(value: &str) -> Option<String> {
-    let value = value.trim();
-    let (hours, minutes) = value.split_once(':')?;
-    if hours.len() != 2 || minutes.len() != 2 {
-        return None;
-    }
-    let hour: u8 = hours.parse().ok()?;
-    let minute: u8 = minutes.parse().ok()?;
-    if hour > 23 || minute > 59 {
-        return None;
-    }
-    Some(format!("{hour:02}:{minute:02}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn valid_time_accepts_hh_mm_and_rejects_garbage() {
-        assert_eq!(valid_time("09:30"), Some("09:30".to_string()));
-        assert_eq!(valid_time(" 23:59 "), Some("23:59".to_string()));
-        assert_eq!(valid_time("24:00"), None);
-        assert_eq!(valid_time("9:30"), None);
-        assert_eq!(valid_time("09:60"), None);
-        assert_eq!(valid_time(""), None);
-        assert_eq!(valid_time("late"), None);
-    }
 
     #[test]
     fn hex_colors_parse_and_reject_bad_input() {

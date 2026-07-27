@@ -207,8 +207,6 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     // snapshot or an older row may omit it.
     public let source: String?
     public let dueDate: String?
-    public let dueTime: String?
-    public let endTime: String?
     public let sortOrder: Double?
     public let completedAt: String?
     // Duplicate resolution: the canonical issue this one duplicates (pairs with
@@ -238,8 +236,6 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         creatorId: String?,
         source: String?,
         dueDate: String?,
-        dueTime: String?,
-        endTime: String?,
         sortOrder: Double?,
         completedAt: String?,
         duplicateOfId: String?,
@@ -263,8 +259,6 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.creatorId = creatorId
         self.source = source
         self.dueDate = dueDate
-        self.dueTime = dueTime
-        self.endTime = endTime
         self.sortOrder = sortOrder
         self.completedAt = completedAt
         self.duplicateOfId = duplicateOfId
@@ -283,8 +277,6 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case assigneeId = "assignee_id"
         case creatorId = "creator_id"
         case dueDate = "due_date"
-        case dueTime = "due_time"
-        case endTime = "end_time"
         case sortOrder = "sort_order"
         case completedAt = "completed_at"
         case duplicateOfId = "duplicate_of_id"
@@ -316,8 +308,6 @@ extension IssueEntity: Codable {
         creatorId = try container.decodeIfPresent(String.self, forKey: .creatorId)
         source = try container.decodeIfPresent(String.self, forKey: .source)
         dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
-        dueTime = try container.decodeIfPresent(String.self, forKey: .dueTime)
-        endTime = try container.decodeIfPresent(String.self, forKey: .endTime)
         sortOrder = try container.decodeWireDouble(forKey: .sortOrder)
         completedAt = try container.decodeIfPresent(String.self, forKey: .completedAt)
         duplicateOfId = try container.decodeIfPresent(String.self, forKey: .duplicateOfId)

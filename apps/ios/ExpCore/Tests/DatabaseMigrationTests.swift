@@ -19,8 +19,10 @@ import XCTest
 // v7_drop_board_dead_columns (REV2-91: boards.github_repo/preview_config)
 // the sixth, v8_coding_session_action_fields (EXP-253) the seventh,
 // v9_actions (EXP-268: the synced actions table, 15th shape) the eighth,
-// v10_action_icon (EXP-273) the ninth, and v11_drop_archived_at (REV2-103:
-// archiving deleted from the product) the tenth.
+// v10_action_icon (EXP-273) the ninth, v11_drop_archived_at (REV2-103:
+// archiving deleted from the product) the tenth, and v12_drop_issue_times
+// (REV2-103/REV2-49: issue time-of-day deleted from the product — due DATE
+// stays) the eleventh.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -62,7 +64,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
-             "v11_drop_archived_at"]
+             "v11_drop_archived_at", "v12_drop_issue_times"]
         )
     }
 
@@ -78,7 +80,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
-             "v11_drop_archived_at"]
+             "v11_drop_archived_at", "v12_drop_issue_times"]
         )
     }
 
@@ -122,7 +124,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
-             "v11_drop_archived_at"]
+             "v11_drop_archived_at", "v12_drop_issue_times"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -186,7 +188,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
-             "v11_drop_archived_at"]
+             "v11_drop_archived_at", "v12_drop_issue_times"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -231,6 +233,28 @@ final class DatabaseMigrationTests: XCTestCase {
         let boardCols = try columnNames(pool, "boards")
         XCTAssertFalse(boardCols.contains("github_repo"))
         XCTAssertFalse(boardCols.contains("preview_config"))
+    }
+
+    // v12 (REV2-103/REV2-49): a `-v5` store created while the issue
+    // time-of-day columns still existed must lose them via the guarded drop
+    // (today's v1 create no longer declares them — hand-add them to model the
+    // old state). `due_date` must survive: only the times are deleted.
+    func testIssueTimeColumnsDroppedFromExistingV5Store() throws {
+        let pool = try makePool("issue-times")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v11_drop_archived_at")
+        try pool.write { db in
+            try db.alter(table: "issues") { t in
+                t.add(column: "due_time", .text)
+                t.add(column: "end_time", .text)
+            }
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let issueCols = try columnNames(pool, "issues")
+        XCTAssertFalse(issueCols.contains("due_time"))
+        XCTAssertFalse(issueCols.contains("end_time"))
+        XCTAssertTrue(issueCols.contains("due_date"))
     }
 
     // v8 (EXP-253 actions): a `-v5` store created before the action columns
@@ -352,6 +376,11 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("release_id"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_interval"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_unit"))
+        // Due date is date-only (REV2-49): the time-of-day columns are deleted
+        // from the product, `due_date` stays.
+        XCTAssertTrue(try columnNames(pool, "issues").contains("due_date"))
+        XCTAssertFalse(try columnNames(pool, "issues").contains("due_time"))
+        XCTAssertFalse(try columnNames(pool, "issues").contains("end_time"))
         // coding_sessions.issue_id stays nullable (issueless batch sessions).
         let sessionIssueId = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "issue_id" }

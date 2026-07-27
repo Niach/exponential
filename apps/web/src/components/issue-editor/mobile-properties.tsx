@@ -19,7 +19,6 @@ import {
   MobilePopoverContent,
   MobilePopoverTrigger,
 } from "@/components/mobile-popover"
-import { TimeInput } from "@/components/time-input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -59,8 +58,6 @@ export interface IssueEditorMobilePropertiesProps {
   teamId: string
   users: User[]
   dueDate: Date | undefined
-  dueTime: string | null
-  endTime: string | null
   hideAssignee?: boolean
   hideDueDateChip?: boolean
   disableStatus?: boolean
@@ -72,8 +69,6 @@ export interface IssueEditorMobilePropertiesProps {
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
-  onDueTimeChange: (time: string | null) => void | Promise<void>
-  onEndTimeChange: (time: string | null) => void | Promise<void>
 }
 
 export function IssueEditorMobileProperties({
@@ -84,8 +79,6 @@ export function IssueEditorMobileProperties({
   teamId,
   users,
   dueDate,
-  dueTime,
-  endTime,
   hideAssignee,
   hideDueDateChip,
   disableStatus,
@@ -97,8 +90,6 @@ export function IssueEditorMobileProperties({
   onAssigneeChange,
   onToggleLabel,
   onDueDateSelect,
-  onDueTimeChange,
-  onEndTimeChange,
 }: IssueEditorMobilePropertiesProps) {
   const assignee = assigneeId
     ? users.find((user) => user.id === assigneeId)
@@ -198,9 +189,7 @@ export function IssueEditorMobileProperties({
               value={
                 <>
                   <CalendarDays className="size-3.5" />
-                  {dueDate
-                    ? `${formatDate(dueDate)}${dueTime ? ` · ${dueTime.slice(0, 5)}` : ``}`
-                    : `None`}
+                  {dueDate ? formatDate(dueDate) : `None`}
                 </>
               }
             />
@@ -214,39 +203,6 @@ export function IssueEditorMobileProperties({
               }}
               className="mx-auto"
             />
-            {dueDate && (
-              <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
-                <span>Time</span>
-                <TimeInput
-                  value={dueTime}
-                  onChange={(t) => void onDueTimeChange(t)}
-                  className="h-8 w-20 text-xs tabular-nums"
-                  ariaLabel="Start time"
-                />
-                <span>–</span>
-                <TimeInput
-                  value={endTime}
-                  onChange={(t) => void onEndTimeChange(t)}
-                  disabled={!dueTime}
-                  className="h-8 w-20 text-xs tabular-nums"
-                  ariaLabel="End time"
-                />
-                {(dueTime || endTime) && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    className="ml-auto h-6 text-xs"
-                    onClick={() => {
-                      void onDueTimeChange(null)
-                      void onEndTimeChange(null)
-                    }}
-                  >
-                    All day
-                  </Button>
-                )}
-              </div>
-            )}
           </MobilePopoverContent>
         </MobilePopover>
       )}

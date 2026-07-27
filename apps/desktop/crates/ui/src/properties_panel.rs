@@ -12,11 +12,9 @@
 //! trigger labeled **"Due date" when empty**, icon + short date once set
 //! (the icon-only-when-empty rule applies to the board ROW's
 //! `due-date-dropdown.tsx`, not this panel); the popover hosts the
-//! gpui-component `Calendar` plus a Clear action. Clearing the date
-//! cascade-nulls `due_time`/`end_time` (web `onDueDateSelect`). The synced
-//! `issues` shape deliberately drops `due_time`/`end_time` (§5.4), so the
-//! desktop shows no time inputs — date edits leave any server-side times
-//! untouched except through that cascade.
+//! gpui-component `Calendar` plus a Clear action. The due date is a DATE with
+//! no time-of-day component anywhere in the product (REV2-49 deleted the
+//! `due_time`/`end_time` columns), so there is nothing to cascade on clear.
 
 use std::rc::Rc;
 
@@ -223,8 +221,8 @@ impl PropertiesPanel {
 
     // -- mutations -------------------------------------------------------------
 
-    /// Web `onDueDateSelect`: set/clear the date; clearing cascade-nulls
-    /// `due_time` + `end_time`.
+    /// Web `onDueDateSelect`: set or clear the due date (date only — REV2-49
+    /// deleted the time-of-day fields, so there is nothing left to cascade).
     pub(crate) fn commit_due_date(
         &mut self,
         date: Option<NaiveDate>,
@@ -240,8 +238,6 @@ impl PropertiesPanel {
             }
             None => {
                 input.due_date = api::Patch::Null;
-                input.due_time = api::Patch::Null;
-                input.end_time = api::Patch::Null;
             }
         }
         spawn_issue_update(cx, input);

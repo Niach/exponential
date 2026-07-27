@@ -25,8 +25,6 @@ public extension FetchedIssue {
             creatorId: creatorId,
             source: source,
             dueDate: dueDate,
-            dueTime: dueTime,
-            endTime: endTime,
             sortOrder: sortOrder,
             completedAt: completedAt,
             duplicateOfId: duplicateOfId,

@@ -189,7 +189,7 @@ apps/web/src/
 - All tables have `created_at` / `updated_at` timestamps (with timezone)
 - Sort order fields use `doublePrecision` (float8) for fractional indexing
 - Rich text fields (issue description, comment body) are plain `text` GFM markdown
-- Due date uses `date` type (no time component)
+- Due date uses `date` type (no time component). Time-of-day on issues is DEAD (REV2-49 dropped `issues.due_time`/`end_time` from the schema, the issues shape allowlist, the tRPC inputs, and every client) — do not reintroduce it
 
 ### Tables
 

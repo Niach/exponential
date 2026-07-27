@@ -9,7 +9,6 @@ import {
   pgTable,
   primaryKey,
   text,
-  time,
   timestamp,
   unique,
   uniqueIndex,
@@ -302,8 +301,6 @@ export const issues = pgTable(
     // origin off this.
     source: issueSourceEnum().notNull().default(`user`),
     dueDate: date(`due_date`),
-    dueTime: time(`due_time`),
-    endTime: time(`end_time`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
     // Duplicate resolution: this issue is a duplicate of the canonical issue.

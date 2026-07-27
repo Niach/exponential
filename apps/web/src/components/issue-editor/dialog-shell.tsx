@@ -59,10 +59,6 @@ interface IssueEditorDialogShellProps {
   onDescriptionBlur?: () => void
   onDescriptionChange: (markdown: string) => void
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
-  dueTime: string | null
-  endTime: string | null
-  onDueTimeChange: (time: string | null) => void | Promise<void>
-  onEndTimeChange: (time: string | null) => void | Promise<void>
   onOpenChange: (open: boolean) => void
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onStatusChange: (status: IssueStatus) => void | Promise<void>
@@ -110,10 +106,6 @@ export function IssueEditorDialogShell({
   onDescriptionBlur,
   onDescriptionChange,
   onDueDateSelect,
-  dueTime,
-  endTime,
-  onDueTimeChange,
-  onEndTimeChange,
   onOpenChange,
   onPriorityChange,
   onStatusChange,
@@ -208,8 +200,6 @@ export function IssueEditorDialogShell({
       teamId={teamId}
       users={users}
       dueDate={dueDate}
-      dueTime={dueTime}
-      endTime={endTime}
       hideAssignee={hideAssignee}
       hideDueDateChip={hideDueDateChip}
       disableStatus={disableStatus}
@@ -221,8 +211,6 @@ export function IssueEditorDialogShell({
       onAssigneeChange={onAssigneeChange}
       onToggleLabel={onToggleLabel}
       onDueDateSelect={onDueDateSelect}
-      onDueTimeChange={onDueTimeChange}
-      onEndTimeChange={onEndTimeChange}
     />
   )
 
@@ -289,8 +277,6 @@ export function IssueEditorDialogShell({
             teamId={teamId}
             users={users}
             dueDate={dueDate}
-            dueTime={dueTime}
-            endTime={endTime}
             hideAssignee={hideAssignee}
             hideDueDateChip={hideDueDateChip}
             disableStatus={disableStatus}
@@ -302,8 +288,6 @@ export function IssueEditorDialogShell({
             onAssigneeChange={onAssigneeChange}
             onToggleLabel={onToggleLabel}
             onDueDateSelect={onDueDateSelect}
-            onDueTimeChange={onDueTimeChange}
-            onEndTimeChange={onEndTimeChange}
           />
         </div>
 

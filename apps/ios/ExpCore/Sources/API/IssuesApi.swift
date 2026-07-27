@@ -10,8 +10,6 @@ public struct CreateIssueInput: Encodable, Sendable {
     public var assigneeId: String?
     public var description: String?
     public var dueDate: String?
-    public var dueTime: String?
-    public var endTime: String?
     public var labelIds: [String]?
 
     public init(
@@ -22,8 +20,6 @@ public struct CreateIssueInput: Encodable, Sendable {
         assigneeId: String? = nil,
         description: String? = nil,
         dueDate: String? = nil,
-        dueTime: String? = nil,
-        endTime: String? = nil,
         labelIds: [String]? = nil
     ) {
         self.boardId = boardId
@@ -33,8 +29,6 @@ public struct CreateIssueInput: Encodable, Sendable {
         self.assigneeId = assigneeId
         self.description = description
         self.dueDate = dueDate
-        self.dueTime = dueTime
-        self.endTime = endTime
         self.labelIds = labelIds
     }
 }
@@ -47,8 +41,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
     public var assigneeId: String?
     public var description: String?
     public var dueDate: String?
-    public var dueTime: String?
-    public var endTime: String?
     /// Canonical issue this one duplicates — set together with
     /// `status = "duplicate"` in ONE update so the marking is atomic.
     public var duplicateOfId: String?
@@ -65,8 +57,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
         assigneeId: String? = nil,
         description: String? = nil,
         dueDate: String? = nil,
-        dueTime: String? = nil,
-        endTime: String? = nil,
         duplicateOfId: String? = nil,
         explicitNulls: Set<String> = []
     ) {
@@ -77,15 +67,13 @@ public struct UpdateIssueInput: Encodable, Sendable {
         self.assigneeId = assigneeId
         self.description = description
         self.dueDate = dueDate
-        self.dueTime = dueTime
-        self.endTime = endTime
         self.duplicateOfId = duplicateOfId
         self.explicitNulls = explicitNulls
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, priority, assigneeId, description
-        case dueDate, dueTime, endTime
+        case dueDate
         case duplicateOfId
     }
 
@@ -98,8 +86,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
         try encodeNullable(assigneeId, forKey: .assigneeId, in: &c)
         try encodeNullable(description, forKey: .description, in: &c)
         try encodeNullable(dueDate, forKey: .dueDate, in: &c)
-        try encodeNullable(dueTime, forKey: .dueTime, in: &c)
-        try encodeNullable(endTime, forKey: .endTime, in: &c)
         try encodeNullable(duplicateOfId, forKey: .duplicateOfId, in: &c)
     }
 
@@ -308,8 +294,6 @@ public struct FetchedIssue: Decodable, Sendable {
     public let creatorId: String?
     public let source: String?
     public let dueDate: String?
-    public let dueTime: String?
-    public let endTime: String?
     public let sortOrder: Double?
     public let completedAt: String?
     public let duplicateOfId: String?

@@ -16,8 +16,6 @@ struct CreateIssueSheet: View {
     @State private var status: IssueStatus = .backlog
     @State private var priority: IssuePriority = .none
     @State private var dueDate: Date?
-    @State private var dueTime: String?
-    @State private var endTime: String?
     @State private var assigneeId: String?
     @State private var selectedLabelIds: Set<String> = []
     @State private var labels: [LabelEntity] = []
@@ -125,28 +123,6 @@ struct CreateIssueSheet: View {
 
                             // Due date — embedded so it carries no card of its own.
                             DueDatePicker(date: $dueDate, embedded: true)
-
-                            // Times (only when a due date is selected)
-                            if dueDate != nil {
-                                Divider().background(Color.white.opacity(0.06))
-                                VStack(spacing: 12) {
-                                    metadataRow(label: "Start time", icon: "clock", iconColor: .white.opacity(0.6)) {
-                                        TimeFieldButton(
-                                            value: dueTime,
-                                            placeholder: "—",
-                                            onChange: { dueTime = $0 }
-                                        )
-                                    }
-                                    metadataRow(label: "End time", icon: "clock.badge", iconColor: .white.opacity(0.6)) {
-                                        TimeFieldButton(
-                                            value: endTime,
-                                            placeholder: "—",
-                                            onChange: { endTime = $0 }
-                                        )
-                                    }
-                                }
-                                .padding(16)
-                            }
                         }
                         .glassSection()
                         .opacity(permissions.isModerator ? 1 : 0.55)
@@ -457,8 +433,6 @@ struct CreateIssueSheet: View {
             assigneeId: assigneeId,
             description: stripped.isEmpty ? nil : stripped,
             dueDate: dateStr,
-            dueTime: dateStr == nil ? nil : dueTime,
-            endTime: dateStr == nil ? nil : endTime,
             labelIds: validLabelIds.isEmpty ? nil : Array(validLabelIds)
         )
 

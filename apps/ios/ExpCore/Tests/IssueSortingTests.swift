@@ -33,8 +33,6 @@ final class IssueSortingTests: XCTestCase {
             creatorId: nil,
             source: nil,
             dueDate: dueDate,
-            dueTime: nil,
-            endTime: nil,
             sortOrder: sortOrder,
             completedAt: completedAt,
             duplicateOfId: nil,

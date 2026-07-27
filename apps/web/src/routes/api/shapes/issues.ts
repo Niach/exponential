@@ -23,8 +23,6 @@ const ISSUE_COLUMNS = [
   `creator_id`,
   `source`,
   `due_date`,
-  `due_time`,
-  `end_time`,
   `sort_order`,
   `completed_at`,
   `duplicate_of_id`,

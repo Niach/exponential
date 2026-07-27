@@ -20,8 +20,6 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     source: `user`,
     description: `Description`,
     dueDate: null,
-    dueTime: null,
-    endTime: null,
     id: `issue-1`,
     identifier: `APP-1`,
     number: 1,

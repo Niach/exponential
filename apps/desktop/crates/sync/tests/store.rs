@@ -120,11 +120,10 @@ fn apply_accepts_both_casing_fixtures() {
 }
 
 /// §5.4: `unknown-columns.json` carries columns that do NOT exist in the
-/// desktop `issues` table (`due_time`, `end_time`, `some_future_column`) plus
-/// an object-valued `description`. The apply must tolerate-and-drop the
-/// unknowns and land the row with NO error — an unfiltered
-/// `INSERT … due_time …` would roll back every batch and wedge the shape
-/// forever.
+/// desktop `issues` table (`some_future_column`) plus an object-valued
+/// `description`. The apply must tolerate-and-drop the unknowns and land the
+/// row with NO error — an unfiltered `INSERT … some_future_column …` would
+/// roll back every batch and wedge the shape forever.
 #[test]
 fn apply_tolerates_and_drops_unknown_fixture_columns() {
     let db = TempDb::new();
@@ -141,9 +140,7 @@ fn apply_tolerates_and_drops_unknown_fixture_columns() {
         row.get("board_id").and_then(Value::as_str),
         Some("01J9K0A0X3CB4E5F6G7H8J9K0M")
     );
-    // Dropped, not stored — the columns don't even exist locally.
-    assert!(!row.contains_key("due_time"));
-    assert!(!row.contains_key("end_time"));
+    // Dropped, not stored — the column doesn't even exist locally.
     assert!(!row.contains_key("some_future_column"));
     // The object-valued description IS a known column → JSON text
     // (bind_value's Array/Object branch), never a crash.

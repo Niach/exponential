@@ -304,7 +304,6 @@ export const actionInputsSchema = z
   })
 
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
-export const timeOnlySchema = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/)
 
 // Issue descriptions and comment bodies are plain GFM markdown strings (stored
 // in `text` columns). The legacy jsonb `{ text }` envelope was unwrapped; the

@@ -493,11 +493,7 @@ struct IssueDetailView: View {
         case .dueDate:
             DueDateSheet(
                 date: parseDate(issue.dueDate),
-                dueTime: issue.dueTime,
-                endTime: issue.endTime,
-                onDateChange: { date in Task { await vm.setDueDate(date) } },
-                onDueTimeChange: { time in Task { await vm.setDueTime(time) } },
-                onEndTimeChange: { time in Task { await vm.setEndTime(time) } }
+                onDateChange: { date in Task { await vm.setDueDate(date) } }
             )
         case .properties:
             IssuePropertiesSheet(

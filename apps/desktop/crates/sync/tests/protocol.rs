@@ -183,8 +183,6 @@ fn camel_and_snake_fixtures_normalize_byte_identically() {
 fn unknown_columns_survive_parsing_verbatim() {
     let value = parse_single_message_fixture("unknown-columns.json");
     assert!(value.contains_key("board_id"));
-    assert_eq!(value.get("due_time"), Some(&Value::Null));
-    assert_eq!(value.get("end_time"), Some(&Value::Null));
     assert_eq!(
         value.get("some_future_column").and_then(Value::as_str),
         Some("ignore-me")

@@ -568,28 +568,6 @@ final class IssueDetailViewModel {
         }
     }
 
-    func setDueTime(_ time: String?) async {
-        guard let issue else { return }
-        if let time {
-            await update(UpdateIssueInput(id: issue.id, dueTime: time))
-        } else {
-            var input = UpdateIssueInput(id: issue.id)
-            input.explicitNulls.insert("dueTime")
-            await update(input)
-        }
-    }
-
-    func setEndTime(_ time: String?) async {
-        guard let issue else { return }
-        if let time {
-            await update(UpdateIssueInput(id: issue.id, endTime: time))
-        } else {
-            var input = UpdateIssueInput(id: issue.id)
-            input.explicitNulls.insert("endTime")
-            await update(input)
-        }
-    }
-
     /// Create a team label and assign it to this issue in one step
     /// (parity with Android's createAndAssignLabel).
     func createAndAssignLabel(name: String, color: String) async {

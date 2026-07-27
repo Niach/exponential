@@ -126,8 +126,6 @@ function buildIssue(overrides: Partial<Issue> = {}): Issue {
     creatorId: `user-1`,
     source: `user`,
     dueDate: null,
-    dueTime: null,
-    endTime: null,
     sortOrder: 0,
     completedAt: null,
     duplicateOfId: null,

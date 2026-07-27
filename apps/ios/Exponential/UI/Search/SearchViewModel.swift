@@ -202,8 +202,6 @@ final class SearchViewModel {
             creatorId: nil,
             source: nil,
             dueDate: nil,
-            dueTime: nil,
-            endTime: nil,
             sortOrder: nil,
             completedAt: nil,
             duplicateOfId: nil,

@@ -104,8 +104,6 @@ const SHAPE_COLUMNS = [
   `creatorId`,
   `source`,
   `dueDate`,
-  `dueTime`,
-  `endTime`,
   `sortOrder`,
   `completedAt`,
   `duplicateOfId`,

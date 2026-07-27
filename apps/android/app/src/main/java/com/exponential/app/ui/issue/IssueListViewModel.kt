@@ -650,8 +650,6 @@ class IssueListViewModel @Inject constructor(
         description: String?,
         dueDate: String?,
         assigneeId: String? = null,
-        dueTime: String? = null,
-        endTime: String? = null,
         labelIds: List<String> = emptyList(),
         pendingImages: Map<String, android.net.Uri> = emptyMap(),
     ): Boolean {
@@ -675,8 +673,6 @@ class IssueListViewModel @Inject constructor(
                     description = strippedDescription,
                     assigneeId = assigneeId,
                     dueDate = dueDate,
-                    dueTime = dueTime,
-                    endTime = endTime,
                     labelIds = labelIds.takeIf { it.isNotEmpty() },
                 )
             )

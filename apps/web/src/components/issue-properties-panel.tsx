@@ -26,7 +26,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { TimeInput } from "@/components/time-input"
 
 export interface IssuePropertiesPanelProps {
   layout: `sidebar` | `chiprow`
@@ -41,11 +40,7 @@ export interface IssuePropertiesPanelProps {
   selectedLabelIds: string[]
   onToggleLabel: (labelId: string) => void | Promise<void>
   dueDate: Date | undefined
-  dueTime: string | null
-  endTime: string | null
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
-  onDueTimeChange: (time: string | null) => void | Promise<void>
-  onEndTimeChange: (time: string | null) => void | Promise<void>
   // Where the issue came from. Only `widget` renders anything (a muted
   // "Feedback widget" pill); `user` (the default) shows nothing.
   source?: IssueSource
@@ -68,25 +63,12 @@ function DueDateControl({
   layout,
   disabled,
   dueDate,
-  dueTime,
-  endTime,
   onDueDateSelect,
-  onDueTimeChange,
-  onEndTimeChange,
 }: Pick<
   IssuePropertiesPanelProps,
-  | `layout`
-  | `disabled`
-  | `dueDate`
-  | `dueTime`
-  | `endTime`
-  | `onDueDateSelect`
-  | `onDueTimeChange`
-  | `onEndTimeChange`
+  `layout` | `disabled` | `dueDate` | `onDueDateSelect`
 >) {
-  const triggerLabel = dueDate
-    ? `${formatDate(dueDate)}${dueTime ? ` · ${dueTime.slice(0, 5)}` : ``}`
-    : `Due date`
+  const triggerLabel = dueDate ? formatDate(dueDate) : `Due date`
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -110,39 +92,6 @@ function DueDateControl({
           selected={dueDate}
           onSelect={(date) => void onDueDateSelect(date)}
         />
-        {dueDate && (
-          <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
-            <span>Time</span>
-            <TimeInput
-              value={dueTime}
-              onChange={(t) => void onDueTimeChange(t)}
-              className="h-7 w-20 text-xs tabular-nums"
-              ariaLabel="Start time"
-            />
-            <span>–</span>
-            <TimeInput
-              value={endTime}
-              onChange={(t) => void onEndTimeChange(t)}
-              disabled={!dueTime}
-              className="h-7 w-20 text-xs tabular-nums"
-              ariaLabel="End time"
-            />
-            {(dueTime || endTime) && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                className="ml-auto h-6 text-xs"
-                onClick={() => {
-                  void onDueTimeChange(null)
-                  void onEndTimeChange(null)
-                }}
-              >
-                All day
-              </Button>
-            )}
-          </div>
-        )}
       </PopoverContent>
     </Popover>
   )
@@ -283,11 +232,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       layout={layout}
       disabled={disabled}
       dueDate={props.dueDate}
-      dueTime={props.dueTime}
-      endTime={props.endTime}
       onDueDateSelect={props.onDueDateSelect}
-      onDueTimeChange={props.onDueTimeChange}
-      onEndTimeChange={props.onEndTimeChange}
     />
   )
 

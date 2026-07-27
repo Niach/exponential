@@ -46,7 +46,6 @@ import {
   issueDescriptionSchema,
   issuePrioritySchema,
   issueStatusSchema,
-  timeOnlySchema,
 } from "@/lib/domain"
 import {
   canonicalizeMarkdownImageUrls,
@@ -235,8 +234,6 @@ export const issuesRouter = router({
         assigneeId: z.string().nullable().optional(),
         description: issueDescriptionSchema.optional(),
         dueDate: dateOnlySchema.nullable().optional(),
-        dueTime: timeOnlySchema.nullable().optional(),
-        endTime: timeOnlySchema.nullable().optional(),
         labelIds: z.array(z.string().uuid()).optional(),
       })
     )
@@ -279,8 +276,6 @@ export const issuesRouter = router({
             assigneeId,
             description: input.description ?? null,
             dueDate: input.dueDate ?? null,
-            dueTime: input.dueTime ?? null,
-            endTime: input.endTime ?? null,
             creatorId: ctx.session.user.id,
           })
           .returning()
@@ -381,8 +376,6 @@ export const issuesRouter = router({
         assigneeId: z.string().nullable().optional(),
         description: issueDescriptionSchema.nullable().optional(),
         dueDate: dateOnlySchema.nullable().optional(),
-        dueTime: timeOnlySchema.nullable().optional(),
-        endTime: timeOnlySchema.nullable().optional(),
         // Canonical issue this one duplicates. Kept in lockstep with the
         // 'duplicate' status inside the transaction below: marking forces
         // status='duplicate'; unmarking (null) restores backlog; moving to any
@@ -1339,8 +1332,6 @@ export const issuesRouter = router({
           creatorId: issues.creatorId,
           source: issues.source,
           dueDate: issues.dueDate,
-          dueTime: issues.dueTime,
-          endTime: issues.endTime,
           sortOrder: issues.sortOrder,
           completedAt: issues.completedAt,
           duplicateOfId: issues.duplicateOfId,

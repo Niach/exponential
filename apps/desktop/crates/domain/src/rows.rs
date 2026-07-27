@@ -16,7 +16,7 @@
 //!
 //! Column sets intentionally mirror `sync::shapes::SHAPES` (the §5.4
 //! known-column allowlists): no `email` on [`IssueSubscriber`] (PII stays
-//! server-side), no stale `due_time`/`end_time` on [`Issue`].
+//! server-side).
 
 use serde::Deserialize;
 

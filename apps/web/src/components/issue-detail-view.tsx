@@ -476,27 +476,12 @@ export function IssueDetailView({
         await trpc.issueLabels.add.mutate({ issueId: issue.id, labelId })
       }}
       dueDate={dueDate}
-      dueTime={issue.dueTime ?? null}
-      endTime={issue.endTime ?? null}
       onDueDateSelect={async (date) => {
         if (readOnly) return
         await trpc.issues.update.mutate({
           id: issue.id,
           dueDate: formatDateForMutation(date),
-          ...(date ? {} : { dueTime: null, endTime: null }),
         })
-      }}
-      onDueTimeChange={async (time) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({
-          id: issue.id,
-          dueTime: time,
-          ...(time ? {} : { endTime: null }),
-        })
-      }}
-      onEndTimeChange={async (time) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({ id: issue.id, endTime: time })
       }}
       source={issue.source}
       boardName={board.name}
