@@ -13,12 +13,11 @@
 //! * publisher `hello` → the EXP-249 history re-publish (`activity_reset` +
 //!   the journal) → a viewer joining `channel:'activity'` gets its own reset +
 //!   the relay-side replay, then the live tail;
-//! * viewer `claim` → `input` reaches the publisher's PTY-writer hook, and an
-//!   `answer` frame reaches the emitter seam instead (never the PTY);
+//! * a steer-perm viewer's `input` reaches the publisher's PTY-writer hook
+//!   with no claim prelude (EXP-312 — steering is seamless), and an `answer`
+//!   frame reaches the emitter seam instead (never the PTY); legacy
+//!   `claim`/`release` frames from old clients are silently ignored;
 //! * a `pty`/channel-less join is refused with `pty_removed` (EXP-249);
-//! * publisher take-over (`claim` on the publisher socket) force-clears the
-//!   steerer (`publisherTakeover`) and a de-claimed viewer's input no longer
-//!   flows (§8.5);
 //! * viewer `kill` → publisher kill hook + clean `bye` → the relay closes the
 //!   room (`CLOSE_SESSION_ENDED` at the viewer);
 //! * a severed publisher socket (TCP proxy dropped) → re-mint → re-`hello`
@@ -41,7 +40,7 @@ use tokio_tungstenite::tungstenite::Message;
 use api::error::ApiError;
 use api::steer::MintedTicket;
 use steer::control_channel::{spawn_control_channel, ControlApi, DeviceIdentity};
-use steer::publisher::{publish, KillSignal, Presence, PublishSpec, PublisherHooks, PublisherTickets};
+use steer::publisher::{publish, KillSignal, PublishSpec, PublisherHooks, PublisherTickets};
 use steer::{ActivityEvent, AnswerLink, RemoteAnswer, SteerRuntime};
 
 const SECRET: &str = "test-secret";
@@ -230,7 +229,6 @@ impl ControlApi for BunControlApi {
 struct Recorded {
     inputs: Mutex<Vec<Vec<u8>>>,
     kills: Mutex<Vec<KillSignal>>,
-    presences: Mutex<Vec<Presence>>,
     errors: Mutex<Vec<String>>,
 }
 
@@ -244,13 +242,11 @@ fn recording_hooks_with(
 ) -> PublisherHooks {
     let r1 = recorded.clone();
     let r2 = recorded.clone();
-    let r3 = recorded.clone();
-    let r4 = recorded;
+    let r3 = recorded;
     PublisherHooks {
         write_input: Arc::new(move |bytes| r1.inputs.lock().unwrap().push(bytes.to_vec())),
         kill: Arc::new(move |signal| r2.kills.lock().unwrap().push(signal)),
-        presence: Arc::new(move |presence| r3.presences.lock().unwrap().push(presence)),
-        error: Arc::new(move |message| r4.errors.lock().unwrap().push(message)),
+        error: Arc::new(move |message| r3.errors.lock().unwrap().push(message)),
         answers,
     }
 }
@@ -338,18 +334,6 @@ struct Viewer {
 impl Viewer {
     fn send_text(&self, text: &str) {
         self.tx.send(Message::Text(text.to_string())).unwrap();
-    }
-
-    /// The latest `presence` frame's `steererId`, if any presence was seen.
-    fn last_steerer(&self) -> Option<Option<String>> {
-        let texts = self.log.texts.lock().unwrap();
-        texts
-            .iter()
-            .rfind(|t| t.contains("\"t\":\"presence\""))
-            .map(|t| {
-                let value: serde_json::Value = serde_json::from_str(t).unwrap();
-                value["steererId"].as_str().map(|s| s.to_string())
-            })
     }
 
     /// Every text frame seen so far.
@@ -590,27 +574,16 @@ fn full_protocol_flow_against_the_real_relay() {
         viewer.texts().iter().any(|t| t == r#"{"t":"activity_reset"}"#)
     });
     wait_for("replay at the viewer", || viewer.saw_activity("early-scrollback"));
-    // The publisher saw a presence broadcast for the join.
-    wait_for("publisher presence", || {
-        recorded
-            .presences
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|presence| presence.viewers.iter().any(|viewer| viewer.name == "Phone"))
-    });
 
-    // ── Claim → steer input reaches the PTY-writer hook (§8.5) ────────────
-    viewer.send_text(r#"{"t":"claim"}"#);
-    wait_for("steerer claimed", || {
-        viewer.last_steerer() == Some(Some("viewer-int".to_string()))
-    });
+    // ── Steer input reaches the PTY-writer hook — no claim needed (EXP-312),
+    // and a legacy claim from an old client is silently ignored ───────────
+    viewer.send_text(r#"{"t":"claim","steal":true}"#);
     viewer.send_text(r#"{"t":"input","data":"echo hi\r"}"#);
     wait_for("input injected", || {
         recorded.inputs.lock().unwrap().iter().any(|bytes| bytes == b"echo hi\r")
     });
 
-    // ── EXP-249: a semantic `answer` rides the same claim gate, and reaches
+    // ── EXP-249: a semantic `answer` rides the same perm gate, and reaches
     // the emitter seam instead of the PTY writer ─────────────────────────
     viewer.send_text(r#"{"t":"answer","questionId":"toolu_1#0","askId":"toolu_1","keys":["2"]}"#);
     let answer = answers_rx
@@ -634,24 +607,14 @@ fn full_protocol_flow_against_the_real_relay() {
     activity.send(ActivityEvent::tool("Edit", Some("src/main.rs".to_string())));
     wait_for("live tail at the viewer", || viewer.saw_activity("src/main.rs"));
 
-    // ── Take over: publisher claim force-clears the remote steerer ────────
-    handle.take_over();
-    wait_for("steerer cleared", || viewer.last_steerer() == Some(None));
-    // A de-claimed viewer's input no longer flows (single-steerer rule).
-    let inputs_before = recorded.inputs.lock().unwrap().len();
-    viewer.send_text(r#"{"t":"input","data":"blocked\r"}"#);
-    std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(
-        recorded.inputs.lock().unwrap().len(),
-        inputs_before,
-        "input from a non-steerer must be dropped by the relay"
-    );
-
-    // ── Kill from the phone: publisher tears down, room closes (§8.4/§8.5) ─
-    viewer.send_text(r#"{"t":"claim"}"#);
-    wait_for("steerer re-claimed", || {
-        viewer.last_steerer() == Some(Some("viewer-int".to_string()))
+    // ── A legacy `release` is equally ignored — input keeps flowing ───────
+    viewer.send_text(r#"{"t":"release"}"#);
+    viewer.send_text(r#"{"t":"input","data":"still flows\r"}"#);
+    wait_for("input after legacy release", || {
+        recorded.inputs.lock().unwrap().iter().any(|bytes| bytes == b"still flows\r")
     });
+
+    // ── Kill from the phone: publisher tears down, room closes (§8.4) ─────
     viewer.send_text(r#"{"t":"kill"}"#);
     wait_for("kill hook", || {
         recorded.kills.lock().unwrap().contains(&KillSignal::RemoteKill)

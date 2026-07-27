@@ -40,7 +40,7 @@ struct AgentSessionRouteView: View {
 /// session over the relay's scrubbed activity channel. NO terminal rendering:
 /// narration bubbles, compact tool rows, collapsible subagent runs, question
 /// cards, and a pinned "Latest changes" diff chip above the input bar. Steering
-/// is message-shaped (steal-claim + text + \r) and questions answer through the
+/// is message-shaped (text + \r, perm-gated by the relay) and questions answer through the
 /// semantic `answer` frame (EXP-249).
 /// Identical UX to the Android AgentSessionScreen (glass design system).
 /// Pushed onto the NavigationStack (EXP-221) — status lives in the native
@@ -143,7 +143,7 @@ struct AgentSessionView: View {
             }
         }
         .onDisappear {
-            // Auto-release the steer claim + close the socket when dismissed.
+            // Close the socket when dismissed.
             model?.shutdown()
         }
         .sheet(isPresented: $showDiffSheet) {
@@ -465,10 +465,8 @@ struct AgentSessionView: View {
                     diffChip(diff)
                 }
                 if inputVisible {
-                    // No steering captions at all — steering should feel
-                    // seamless (EXP-197/EXP-268); the composer tint
-                    // (model.isSteering) is the only remaining signal. Input
-                    // stays enabled — sending steals the claim.
+                    // Steering is fully seamless (EXP-312) — no captions, no
+                    // operator state; input just sends.
                     inputRow(model)
                 }
             }
@@ -523,12 +521,11 @@ struct AgentSessionView: View {
                 .focused($inputFocused)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                // Subtle active tint while we hold the steer claim.
-                .background(Color.white.opacity(model.isSteering ? 0.10 : 0.06))
+                .background(Color.white.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(model.isSteering ? 0.2 : 0.1), lineWidth: 0.5)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
                 )
             Button {
                 sendMessage(model)

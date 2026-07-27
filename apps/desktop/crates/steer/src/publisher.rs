@@ -1,7 +1,7 @@
 //! The per-coding-session publisher (masterplan-v3 §8.4–§8.7, steering v2 =
 //! EXP-249): publish the scrubbed activity stream, replay the session's full
 //! journal on every (re)connect, inject remote `input` and semantic `answer`
-//! frames, honor claim/kill, and auto-reconnect resuming the room.
+//! frames, honor kill, and auto-reconnect resuming the room.
 //!
 //! EXP-249 removed the binary PTY mirror it used to carry (no client ever
 //! joined `channel:'pty'`): there is no read-loop tee, no ring, no `resync`
@@ -12,11 +12,9 @@
 //! gates the terminal. Control frames and activity events ride ONE unbounded
 //! channel that is never dropped or reordered.
 //!
-//! Claim model (§8.5): the LOCAL user is never gated — their keystrokes go
-//! straight to the PTY. "Take over" simply sends `claim`; the relay's
-//! publisher-branch (`hub.ts`: `if (room.publisher === conn)
-//! publisherTakeover(room)`) force-clears the remote steerer and
-//! re-broadcasts presence.
+//! Steering is seamless (EXP-312): there is no operator claim and the LOCAL
+//! user is never gated — their keystrokes go straight to the PTY, and the
+//! relay forwards any joined steer-perm member's input.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -31,7 +29,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::activity::{AnswerLink, RemoteAnswer};
 use crate::frames::{
-    ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, CLOSE_REPLACED, CLOSE_UNAUTHORIZED,
+    ActivityEvent, ClientFrame, ServerFrame, CLOSE_REPLACED, CLOSE_UNAUTHORIZED,
 };
 use crate::journal::ActivityJournal;
 use crate::{dial, Backoff, DialError, SteerRuntime, WsStream, BACKOFF_RESET_AFTER};
@@ -78,15 +76,6 @@ impl PublisherTickets for TrpcPublisherTickets {
     }
 }
 
-/// A `presence` broadcast (§8.5): drives the "Remote steering — {name}"
-/// banner. `steerer_id` is a userId; resolve the name via the matching
-/// [`PresenceViewer`].
-#[derive(Clone, Debug, PartialEq)]
-pub struct Presence {
-    pub viewers: Vec<PresenceViewer>,
-    pub steerer_id: Option<String>,
-}
-
 /// Why the publisher asked the coding flow to tear the session down.
 ///
 /// EXP-283: an explicit relay `kill` frame is the ONLY relay signal that may
@@ -117,8 +106,6 @@ pub struct PublisherHooks {
     /// Relay-initiated teardown: kill the `claude` child; the exit hook then
     /// ends the `coding_sessions` row (idempotent server-side).
     pub kill: Arc<dyn Fn(KillSignal) + Send + Sync>,
-    /// Presence updates → the §8.5 banner state.
-    pub presence: Arc<dyn Fn(Presence) + Send + Sync>,
     /// Terminal-state errors worth surfacing (clock skew, repeated rejects).
     pub error: Arc<dyn Fn(String) + Send + Sync>,
     /// EXP-249: semantic `answer` frames → the activity emitter, which owns
@@ -172,9 +159,6 @@ pub fn pty_writer_input_hook(
 /// channel — never dropped, never reordered against each other).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PublisherCmd {
-    /// §8.5 "Take over": publisher-sent `claim` force-clears the remote
-    /// steerer (relay `publisherTakeover`).
-    TakeOver,
     /// §P7: one PUBLIC activity event (already redacted) → `activity` text
     /// frame. Rides the unbounded control channel like the others; low-rate
     /// (per assistant turn / debounced diff), so it never backs up.
@@ -217,11 +201,6 @@ impl ActivitySender {
 }
 
 impl PublisherHandle {
-    /// The §8.5 "Take over" button: revoke the remote steerer.
-    pub fn take_over(&self) {
-        let _ = self.cmd_tx.send(PublisherCmd::TakeOver);
-    }
-
     /// A cheap [`ActivitySender`] for the §P7 activity emitter thread — pushes
     /// activity events onto the same unbounded control channel without
     /// coupling the emitter to the whole handle.
@@ -489,12 +468,6 @@ async fn pump_connection(
             cmd = cmd_rx.recv_async() => {
                 let Ok(cmd) = cmd else { return LoopEnd::Dropped };
                 match cmd {
-                    PublisherCmd::TakeOver => {
-                        // §8.5: publisher-sent claim = relay publisherTakeover.
-                        if ws.send(Message::Text(ClientFrame::Claim.to_json())).await.is_err() {
-                            return LoopEnd::Dropped;
-                        }
-                    }
                     PublisherCmd::Activity(mut event) => {
                         // §P7: publish one already-redacted activity event.
                         // The relay fans it to the member activity audience.
@@ -564,9 +537,6 @@ async fn pump_connection(
                         let _ = ws.send(Message::Text(bye)).await;
                         let _ = ws.close(None).await;
                         return LoopEnd::Clean;
-                    }
-                    Some(ServerFrame::Presence { viewers, steerer_id }) => {
-                        (hooks.presence)(Presence { viewers, steerer_id });
                     }
                     Some(ServerFrame::Bye { outcome }) => {
                         log::debug!("steer publisher: relay bye ({outcome:?})");
@@ -679,7 +649,6 @@ async fn sleep_or_shutdown(
                     }
                     journal.push(event);
                 }
-                Ok(PublisherCmd::TakeOver) => {}
             }
         }
     }
@@ -822,7 +791,6 @@ mod tests {
     struct Recorded {
         inputs: Mutex<Vec<Vec<u8>>>,
         kills: Mutex<Vec<KillSignal>>,
-        presences: Mutex<Vec<Presence>>,
         errors: Mutex<Vec<String>>,
     }
 
@@ -836,8 +804,7 @@ mod tests {
     ) -> PublisherHooks {
         let r1 = recorded.clone();
         let r2 = recorded.clone();
-        let r3 = recorded.clone();
-        let r4 = recorded;
+        let r3 = recorded;
         PublisherHooks {
             write_input: Arc::new(move |bytes| {
                 r1.inputs.lock().unwrap().push(bytes.to_vec());
@@ -845,11 +812,8 @@ mod tests {
             kill: Arc::new(move |signal| {
                 r2.kills.lock().unwrap().push(signal);
             }),
-            presence: Arc::new(move |presence| {
-                r3.presences.lock().unwrap().push(presence);
-            }),
             error: Arc::new(move |message| {
-                r4.errors.lock().unwrap().push(message);
+                r3.errors.lock().unwrap().push(message);
             }),
             answers,
         }
@@ -959,23 +923,15 @@ mod tests {
         );
         assert_eq!(recorded.inputs.lock().unwrap().len(), 1, "answers never keystroke");
 
-        // 6) presence → banner hook.
+        // 6) a legacy `presence` frame from an old relay parses to None and is
+        // ignored — the pump keeps running (the kill below still lands).
         inject_tx
             .send(Message::Text(
                 r#"{"t":"presence","viewers":[{"userId":"v1","name":"Phone","perm":"steer"}],"steererId":"v1"}"#.to_string(),
             ))
             .unwrap();
-        wait_for(|| !recorded.presences.lock().unwrap().is_empty());
-        let presence = recorded.presences.lock().unwrap()[0].clone();
-        assert_eq!(presence.steerer_id.as_deref(), Some("v1"));
-        assert_eq!(presence.viewers[0].name, "Phone");
 
-        // 7) take over → a publisher `claim`.
-        handle.take_over();
-        let claim = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(claim, r#"{"t":"claim"}"#);
-
-        // 8) relay kill → kill hook fires, clean bye goes out, task stops.
+        // 7) relay kill → kill hook fires, clean bye goes out, task stops.
         inject_tx
             .send(Message::Text(r#"{"t":"kill"}"#.to_string()))
             .unwrap();

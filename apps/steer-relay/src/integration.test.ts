@@ -1,6 +1,6 @@
 // End-to-end smoke through the real Bun server: ticket auth on upgrade,
 // hello/join, the scrubbed activity channel (reset + replay + live fan-out),
-// claim + input + semantic answers, and the secret-authed admin endpoints.
+// input + semantic answers, and the secret-authed admin endpoints.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { signSteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
@@ -118,7 +118,7 @@ describe(`steer relay end-to-end`, () => {
     expect(await authed.json()).toEqual({ devices: [] })
   })
 
-  test(`activity channel: reset + replay, live fan-out, claim, input, answer, kill, bye`, async () => {
+  test(`activity channel: reset + replay, live fan-out, input, answer, kill, bye`, async () => {
     const sessionId = `sess-e2e`
 
     // Older desktops still send the removed activityPublic flag and PTY
@@ -137,9 +137,6 @@ describe(`steer relay end-to-end`, () => {
         activityPublic: false,
       })
     )
-    // hello triggers a presence broadcast to the publisher.
-    expect(await pubIn.nextJson()).toMatchObject({ t: `presence`, viewers: [] })
-
     // Activity emitted BEFORE anyone joins → the replayable log + lastDiff.
     pub.send(
       JSON.stringify({
@@ -174,11 +171,6 @@ describe(`steer relay end-to-end`, () => {
       t: `activity`,
       event: { kind: `diff`, diff: `+ line` },
     })
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `presence`,
-      viewers: [{ userId: `member-user`, name: `Member`, perm: `steer` }],
-      steererId: null,
-    })
 
     // Live activity — including the v2 kinds — reaches the member intact.
     const question = {
@@ -197,23 +189,10 @@ describe(`steer relay end-to-end`, () => {
     pub.send(JSON.stringify({ t: `activity`, event: question }))
     expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: question })
 
-    // claim → the member holds it; input and answers reach the publisher.
-    member.send(JSON.stringify({ t: `claim` }))
-    expect(await memberIn.nextJson()).toMatchObject({
-      t: `presence`,
-      steererId: `member-user`,
-    })
-    // The publisher heard the member join, then the claim.
-    expect(await pubIn.nextJson()).toMatchObject({
-      t: `presence`,
-      viewers: [{ userId: `member-user` }],
-      steererId: null,
-    })
-    expect(await pubIn.nextJson()).toMatchObject({
-      t: `presence`,
-      steererId: `member-user`,
-    })
-
+    // A steer-perm member's input and answers reach the publisher directly —
+    // no claim prelude (EXP-312: steering is seamless). A legacy claim from
+    // an old client is silently ignored.
+    member.send(JSON.stringify({ t: `claim`, steal: true }))
     member.send(JSON.stringify({ t: `input`, data: `yes\n` }))
     expect(await pubIn.nextJson()).toMatchObject({ t: `input`, data: `yes\n` })
 
@@ -294,7 +273,6 @@ describe(`steer relay end-to-end`, () => {
     )
     const pubIn = collector(pub)
     pub.send(JSON.stringify({ t: `hello`, sessionId, cols: 80, rows: 24 }))
-    expect(await pubIn.nextJson()).toMatchObject({ t: `presence` })
 
     // An old viewer joining the removed PTY mirror gets a typed error and
     // enters no audience.
@@ -321,12 +299,6 @@ describe(`steer relay end-to-end`, () => {
     const memberIn = collector(member)
     member.send(JSON.stringify({ t: `join`, channel: `activity` }))
     expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
-    expect(await memberIn.nextJson()).toMatchObject({ t: `presence` })
-    // The refused pty joiner never shows up in presence.
-    expect(await pubIn.nextJson()).toMatchObject({
-      t: `presence`,
-      viewers: [{ userId: `member-user` }],
-    })
 
     pub.send(new Uint8Array([0x01, ...new TextEncoder().encode(`pty bytes`)]))
     pub.send(JSON.stringify({ t: `resize`, cols: 200, rows: 50 }))

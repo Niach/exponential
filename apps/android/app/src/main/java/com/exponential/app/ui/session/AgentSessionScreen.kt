@@ -44,7 +44,6 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,7 +81,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 // session over the relay's scrubbed activity channel. NO terminal rendering:
 // narration bubbles, compact tool rows, collapsible subagent groups, question
 // steppers, a pinned "Latest changes" diff chip above the input bar, and
-// message-shaped steering (steal-claim + text + \r).
+// message-shaped steering (text + \r, perm-gated by the relay).
 // Identical UX to the iOS AgentSessionView (glass design system).
 
 private val LiveGreen = Color(0xFF34D399)
@@ -102,7 +101,6 @@ fun AgentSessionScreen(
     val activity by viewModel.activity.collectAsStateWithLifecycle()
     val feed = activity.feed
     val latestDiff = activity.latestDiff
-    val steererId by viewModel.steererId.collectAsStateWithLifecycle()
     val perm by viewModel.perm.collectAsStateWithLifecycle()
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val killError by viewModel.killError.collectAsStateWithLifecycle()
@@ -115,13 +113,6 @@ fun AgentSessionScreen(
         viewModel.reconnectNow()
         onPauseOrDispose { }
     }
-    // Auto-release the steer claim when the screen goes away (best-effort;
-    // closing the socket releases it relay-side anyway).
-    DisposableEffect(Unit) {
-        onDispose { viewModel.releaseNow() }
-    }
-
-    val steering = steererId != null && steererId == currentUserId
     val sessionEnded = session?.status == DomainContract.codingSessionStatusEnded
     // A trailing question/plan means the session is blocked on a human — the
     // header flips to "Needs your input" so it never looks silently stuck.
@@ -341,15 +332,11 @@ fun AgentSessionScreen(
                 }
             }
 
-            // ── Steering input (perm-gated; sending steals the claim) ────────
-            // No steering captions at all — steering should feel seamless
-            // (EXP-197/EXP-268); the composer tint is the only claim signal.
+            // ── Steering input (perm-gated) — fully seamless (EXP-312): no
+            // captions, no operator state; input just sends.
             val inputVisible = perm == "steer" && phase == AgentPhase.Live && !sessionEnded
             if (inputVisible) {
-                MessageInputRow(
-                    active = steering,
-                    onSend = viewModel::sendMessage,
-                )
+                MessageInputRow(onSend = viewModel::sendMessage)
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -1211,7 +1198,7 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 // ── Steering input ───────────────────────────────────────────────────────────
 
 @Composable
-private fun MessageInputRow(active: Boolean, onSend: (String) -> Unit) {
+private fun MessageInputRow(onSend: (String) -> Unit) {
     var field by remember { mutableStateOf("") }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1231,9 +1218,8 @@ private fun MessageInputRow(active: Boolean, onSend: (String) -> Unit) {
             maxLines = 4,
             shape = RoundedCornerShape(12.dp),
             colors = TextFieldDefaults.colors(
-                // Subtle active tint while we hold the steer claim.
-                focusedContainerColor = if (active) GlassTokens.RowFillActive else GlassTokens.RowFill,
-                unfocusedContainerColor = if (active) GlassTokens.RowFillActive else GlassTokens.RowFill,
+                focusedContainerColor = GlassTokens.RowFill,
+                unfocusedContainerColor = GlassTokens.RowFill,
                 disabledContainerColor = GlassTokens.RowFill,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,

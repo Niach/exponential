@@ -11,7 +11,6 @@ import {
   parseClientFrame,
   type ActivityEvent,
   type ClientFrame,
-  type PresenceViewer,
   type ServerFrame,
   type StartInput,
   type StartRepoGroup,
@@ -75,8 +74,6 @@ interface Room {
   sessionId: string
   issueId?: string
   publisher: Conn | null
-  /** userId of the single steer-claim holder (relay memory only). */
-  steerer: Conn | null
   /** Publisher dropped without `bye`; room closes when the grace expires. */
   staleTimer: ReturnType<typeof setTimeout> | null
   /** REV2-X: Last time we received ANY message from the publisher (including
@@ -87,7 +84,7 @@ interface Room {
   // activityMembers: authenticated viewer tickets that joined with
   // channel:'activity' — the only audience there is (EXP-90 removed the
   // anonymous one, EXP-249 the PTY mirror).
-  activityMembers: Map<Conn, PresenceViewer>
+  activityMembers: Set<Conn>
   /** Replayable scrubbed event log, capped by count AND bytes. */
   activityLog: ActivityEntry[]
   /** Running serialized size of activityLog (the byte-budget accumulator). */
@@ -225,10 +222,7 @@ export class Hub {
       return
     }
 
-    if (room.activityMembers.delete(conn)) {
-      if (room.steerer === conn) room.steerer = null
-      this.broadcastPresence(room)
-    }
+    room.activityMembers.delete(conn)
   }
 
   // ── Control frames ─────────────────────────────────────────────────────────
@@ -273,10 +267,9 @@ export class Hub {
             sessionId,
             issueId: msg.issueId,
             publisher: conn,
-            steerer: null,
             staleTimer: null,
             lastPublisherActivity: Date.now(), // REV2-X
-            activityMembers: new Map(),
+            activityMembers: new Set(),
             activityLog: [],
             activityBytes: 0,
             lastDiff: null,
@@ -296,7 +289,6 @@ export class Hub {
           room.publisher = conn
           room.lastPublisherActivity = Date.now() // REV2-X: reconnect resets the timer
         }
-        this.broadcastPresence(room)
         return
       }
 
@@ -321,17 +313,12 @@ export class Hub {
         }
         conn.sessionId = sessionId
 
-        room.activityMembers.set(conn, {
-          userId: conn.claims.sub,
-          name: conn.claims.name ?? conn.claims.sub,
-          perm: conn.claims.perm,
-        })
+        room.activityMembers.add(conn)
         // `activity_reset` first: a reconnecting client keeps rendering its
         // old feed until the relay says otherwise, so the replay that follows
         // is always a complete, self-contained picture.
         conn.sock.send(frame({ t: `activity_reset` }))
         this.replayActivity(room, conn)
-        this.broadcastPresence(room)
         return
       }
 
@@ -343,8 +330,10 @@ export class Hub {
       case `input`: {
         const room = this.roomFor(conn)
         if (!room || !room.publisher) return
-        // Single-steerer rule: only the claim holder's keystrokes flow.
-        if (room.steerer !== conn) return
+        // Steering is seamless (EXP-312): any joined steer-perm member's
+        // keystrokes flow — there is no single-operator claim.
+        if (!room.activityMembers.has(conn)) return
+        if (conn.claims.perm !== `steer`) return
         room.publisher.sock.send(frame({ t: `input`, data: msg.data }))
         return
       }
@@ -352,8 +341,9 @@ export class Hub {
       case `answer`: {
         const room = this.roomFor(conn)
         if (!room || !room.publisher) return
-        // Same gating as `input` — the claim implies steer perm.
-        if (room.steerer !== conn) return
+        // Same gating as `input`.
+        if (!room.activityMembers.has(conn)) return
+        if (conn.claims.perm !== `steer`) return
         room.publisher.sock.send(
           frame({
             t: `answer`,
@@ -362,37 +352,6 @@ export class Hub {
             keys: msg.keys,
           })
         )
-        return
-      }
-
-      case `claim`: {
-        const room = this.roomFor(conn)
-        if (!room) return
-        if (room.publisher === conn) {
-          this.publisherTakeover(room)
-          return
-        }
-        if (!room.activityMembers.has(conn)) return
-        if (conn.claims.perm !== `steer`) return
-        // Plain claim: first claim wins. steal:true (steer perm only — the
-        // check above) overrides an existing steerer, last-writer-wins.
-        if (room.steerer && room.steerer !== conn && !msg.steal) return
-        room.steerer = conn
-        this.broadcastPresence(room)
-        return
-      }
-
-      case `release`: {
-        const room = this.roomFor(conn)
-        if (!room) return
-        if (room.publisher === conn) {
-          this.publisherTakeover(room)
-          return
-        }
-        if (room.steerer === conn) {
-          room.steerer = null
-          this.broadcastPresence(room)
-        }
         return
       }
 
@@ -525,17 +484,6 @@ export class Hub {
     return conn.sessionId ? this.rooms.get(conn.sessionId) : undefined
   }
 
-  /**
-   * The local desktop user always wins (masterplan §3.4): "Take over" sends
-   * release-then-claim on the publisher socket, which force-clears any remote
-   * steer claim immediately. The publisher never becomes the steerer itself —
-   * local input doesn't flow through the relay.
-   */
-  private publisherTakeover(room: Room) {
-    room.steerer = null
-    this.broadcastPresence(room)
-  }
-
   private entryFor(event: ActivityEvent): ActivityEntry {
     const framed = frame({ t: `activity`, event })
     return { framed, bytes: Buffer.byteLength(framed, `utf8`) }
@@ -571,16 +519,6 @@ export class Hub {
       conn.sock.send(entry.framed)
     }
     if (room.lastDiff) conn.sock.send(room.lastDiff.framed)
-  }
-
-  private broadcastPresence(room: Room) {
-    const msg = frame({
-      t: `presence`,
-      viewers: [...room.activityMembers.values()],
-      steererId: room.steerer?.claims.sub ?? null,
-    })
-    room.publisher?.sock.send(msg)
-    for (const member of room.activityMembers.keys()) member.sock.send(msg)
   }
 
   private closeRoom(room: Room, outcome: string) {

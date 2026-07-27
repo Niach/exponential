@@ -379,7 +379,7 @@ describe(`device presence + remote start`, () => {
 })
 
 describe(`session rooms`, () => {
-  test(`member join: activity_reset, then replay, then presence`, () => {
+  test(`member join: activity_reset, then replay`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     activity(hub, pub, { kind: `narration`, text: `before-join` })
@@ -392,23 +392,13 @@ describe(`session rooms`, () => {
     // The reset lands FIRST: clients no longer wipe their feed on dial/open,
     // so the relay owns the "clear now" moment.
     expect(frames[0]).toEqual({ t: `activity_reset` })
-    // Then the log in order, then ONLY the latest diff, then presence.
+    // Then the log in order, then ONLY the latest diff.
     expect(member.events().map((e) => e.kind)).toEqual([
       `narration`,
       `tool`,
       `diff`,
     ])
     expect(member.events().at(-1)?.diff).toBe(`new diff`)
-    expect(frames.at(-1)).toMatchObject({
-      t: `presence`,
-      viewers: [{ userId: `member-1`, name: `Member`, perm: `steer` }],
-      steererId: null,
-    })
-
-    // The publisher's presence broadcast lists the member too.
-    expect(pub.lastFrame(`presence`)).toMatchObject({
-      viewers: [{ userId: `member-1`, perm: `steer` }],
-    })
 
     activity(hub, pub, { kind: `tool`, name: `Edit`, detail: `src/a.ts` })
     expect(member.events().at(-1)).toMatchObject({ kind: `tool`, name: `Edit` })
@@ -430,16 +420,13 @@ describe(`session rooms`, () => {
     hub.onMessage(legacy, JSON.stringify({ t: `join`, channel: `pty` }))
     expect(legacy.framesOf(`error`).length).toBe(2)
 
-    // It entered no audience: no presence, and activity never reaches it.
-    expect(pub.lastFrame(`presence`)).toMatchObject({ viewers: [] })
+    // It entered no audience: activity never reaches it.
     activity(hub, pub, { kind: `narration`, text: `secret` })
     expect(legacy.framesOf(`activity`).length).toBe(0)
 
-    // Nor can it steer.
-    hub.onMessage(legacy, JSON.stringify({ t: `claim` }))
+    // Nor can it steer — it never joined the room.
     hub.onMessage(legacy, JSON.stringify({ t: `input`, data: `x` }))
     expect(pub.lastFrame(`input`)).toBeUndefined()
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
   })
 
   test(`join on a dead session errors + closes`, () => {
@@ -449,70 +436,42 @@ describe(`session rooms`, () => {
     expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
   })
 
-  test(`single-steerer claim gates input forwarding`, () => {
+  test(`steer perm + membership gate input forwarding — no claim needed (EXP-312)`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
     const watcher = connectMember(hub, { sub: `w`, perm: `view` })
 
-    // Unclaimed input is dropped.
-    hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `x` }))
-    expect(pub.lastFrame(`input`)).toBeUndefined()
-
-    // view-perm claim is ignored.
-    hub.onMessage(watcher, JSON.stringify({ t: `claim` }))
-    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: null })
-
-    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
-    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
-
+    // A joined steer-perm member's input flows immediately — seamless.
     hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `ls\n` }))
     expect(pub.lastFrame(`input`)).toMatchObject({ data: `ls\n` })
 
-    // Non-holder input never reaches the publisher.
+    // view-perm input never reaches the publisher.
     hub.onMessage(watcher, JSON.stringify({ t: `input`, data: `rm -rf /\n` }))
     expect(pub.framesOf(`input`).length).toBe(1)
 
-    // Second steer-perm claim while held loses.
-    const rival = connectMember(hub, { sub: `r`, perm: `steer` })
-    hub.onMessage(rival, JSON.stringify({ t: `claim` }))
-    expect(rival.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
-
-    // Release frees the claim.
-    hub.onMessage(steerer, JSON.stringify({ t: `release` }))
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
+    // Multiple steer-perm members steer concurrently — no single operator.
+    const second = connectMember(hub, { sub: `r`, perm: `steer` })
+    hub.onMessage(second, JSON.stringify({ t: `input`, data: `pwd\n` }))
+    expect(pub.lastFrame(`input`)).toMatchObject({ data: `pwd\n` })
+    hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `id\n` }))
+    expect(pub.lastFrame(`input`)).toMatchObject({ data: `id\n` })
   })
 
-  test(`publisher release/claim force-clears an active viewer claim (take over)`, () => {
+  test(`legacy claim/release frames from old clients are silently ignored`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
 
-    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
-    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
-
-    // "Take over" on the desktop sends release-then-claim on the publisher
-    // socket — the local user wins immediately.
-    hub.onMessage(pub, JSON.stringify({ t: `release` }))
-    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: null })
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
-
-    hub.onMessage(pub, JSON.stringify({ t: `claim` }))
-    // The publisher never becomes steererId — local input doesn't flow
-    // through the relay.
-    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: null })
-
-    // The evicted viewer's keystrokes no longer flow.
+    // Shipped clients still send a claim prelude before every input; the
+    // retired frames parse to nothing and must not break the connection.
+    hub.onMessage(steerer, JSON.stringify({ t: `claim`, steal: true }))
     hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `x` }))
-    expect(pub.lastFrame(`input`)).toBeUndefined()
-
-    // Viewer semantics are unchanged: it can re-claim afterwards.
-    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
-    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
-
-    // A publisher claim while a fresh viewer claim is held also clears it.
-    hub.onMessage(pub, JSON.stringify({ t: `claim` }))
-    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: null })
+    expect(pub.lastFrame(`input`)).toMatchObject({ data: `x` })
+    hub.onMessage(steerer, JSON.stringify({ t: `release` }))
+    hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `y` }))
+    expect(pub.lastFrame(`input`)).toMatchObject({ data: `y` })
+    expect(steerer.closed).toBeNull()
   })
 
   test(`kill requires steer perm and reaches the publisher`, () => {
@@ -550,21 +509,12 @@ describe(`session rooms`, () => {
     expect(member.events().at(-1)).toMatchObject({ text: `resumed` })
   })
 
-  test(`disconnect of the steerer clears the claim + presence`, () => {
+  test(`disconnect evicts the member from the activity audience`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
-    const watcher = connectMember(hub, { sub: `w`, name: `Watcher`, perm: `view` })
     const member = connectMember(hub, { sub: `m`, perm: `steer` })
-    hub.onMessage(member, JSON.stringify({ t: `claim` }))
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `m` })
 
     hub.onClose(member)
-    const cleared = pub.lastFrame(`presence`)
-    expect(cleared).toMatchObject({ steererId: null })
-    expect(cleared?.viewers).toEqual([
-      { userId: `w`, name: `Watcher`, perm: `view` },
-    ])
-    expect(watcher.lastFrame(`presence`)).toMatchObject({ steererId: null })
 
     // Frames after the disconnect no longer reach the dead socket.
     const sentBefore = member.sent.length
@@ -667,8 +617,7 @@ describe(`PTY mirror removal (EXP-249)`, () => {
       pub2,
       JSON.stringify({ t: `hello`, sessionId: `sess-1`, cols: 80, rows: 24 })
     )
-    // Only the presence broadcast.
-    expect(member.frames().slice(before).map((f) => f.t)).toEqual([`presence`])
+    expect(member.frames().slice(before)).toEqual([])
   })
 })
 
@@ -680,7 +629,6 @@ describe(`removed public_viewer role (EXP-90)`, () => {
 
     activity(hub, pub, { kind: `tool`, name: `Edit`, detail: `src/a.ts` })
     expect(stale.sent.length).toBe(0)
-    expect(pub.lastFrame(`presence`)).toMatchObject({ viewers: [] })
   })
 
   test(`a stale public_viewer cannot steer, kill, answer, or forge activity`, () => {
@@ -689,7 +637,6 @@ describe(`removed public_viewer role (EXP-90)`, () => {
     const stale = connectStalePublicViewer(hub)
     const member = connectMember(hub)
 
-    hub.onMessage(stale, JSON.stringify({ t: `claim`, steal: true }))
     hub.onMessage(stale, JSON.stringify({ t: `input`, data: `rm -rf /` }))
     hub.onMessage(stale, JSON.stringify({ t: `kill` }))
     hub.onMessage(
@@ -699,7 +646,6 @@ describe(`removed public_viewer role (EXP-90)`, () => {
     expect(pub.lastFrame(`input`)).toBeUndefined()
     expect(pub.lastFrame(`answer`)).toBeUndefined()
     expect(pub.lastFrame(`kill`)).toBeUndefined()
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
 
     hub.onMessage(
       stale,
@@ -821,20 +767,12 @@ describe(`activity event kinds`, () => {
 })
 
 describe(`semantic answers (EXP-249)`, () => {
-  test(`only the claim holder's answer reaches the publisher, verbatim`, () => {
+  test(`a steer-perm member's answer reaches the publisher, verbatim`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
     const watcher = connectMember(hub, { sub: `w`, perm: `view` })
 
-    // Unclaimed — dropped, exactly like `input`.
-    hub.onMessage(
-      steerer,
-      JSON.stringify({ t: `answer`, questionId: `q1`, keys: [`1`] })
-    )
-    expect(pub.lastFrame(`answer`)).toBeUndefined()
-
-    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
     hub.onMessage(
       steerer,
       JSON.stringify({
@@ -851,7 +789,7 @@ describe(`semantic answers (EXP-249)`, () => {
       keys: [`1`, `3`],
     })
 
-    // A view-perm member never holds the claim, so its answer never flows.
+    // A view-perm member's answer never flows.
     hub.onMessage(
       watcher,
       JSON.stringify({ t: `answer`, questionId: `toolu_1#0`, keys: [`2`] })
@@ -874,19 +812,17 @@ describe(`semantic answers (EXP-249)`, () => {
     expect(watcher.framesOf(`answer`).length).toBe(0)
   })
 
-  test(`a stolen claim moves the answer right with it`, () => {
+  test(`answers from every steer-perm member flow — no single operator`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     const first = connectMember(hub, { sub: `first`, perm: `steer` })
     const boss = connectMember(hub, { sub: `boss`, perm: `steer` })
-    hub.onMessage(first, JSON.stringify({ t: `claim` }))
-    hub.onMessage(boss, JSON.stringify({ t: `claim`, steal: true }))
 
     hub.onMessage(
       first,
       JSON.stringify({ t: `answer`, questionId: `q`, keys: [`1`] })
     )
-    expect(pub.lastFrame(`answer`)).toBeUndefined()
+    expect(pub.lastFrame(`answer`)).toMatchObject({ keys: [`1`] })
     hub.onMessage(
       boss,
       JSON.stringify({ t: `answer`, questionId: `q`, keys: [`2`] })
@@ -898,7 +834,6 @@ describe(`semantic answers (EXP-249)`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
-    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
 
     hub.onMessage(steerer, JSON.stringify({ t: `answer`, keys: [`1`] }))
     hub.onMessage(steerer, JSON.stringify({ t: `answer`, questionId: `q` }))
@@ -1015,69 +950,6 @@ describe(`activity log caps (EXP-249)`, () => {
     expect(room(hub).activityBytes).toBe(0)
     expect(room(hub).activityLog.length).toBe(0)
     expect(room(hub).lastDiff).not.toBeNull()
-  })
-})
-
-describe(`claim steal (EXP-32)`, () => {
-  test(`claim{steal:true} overrides an existing steerer and broadcasts presence`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const first = connectMember(hub, { sub: `first`, perm: `steer` })
-    hub.onMessage(first, JSON.stringify({ t: `claim` }))
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `first` })
-
-    const member = connectMember(hub, { sub: `boss`, perm: `steer` })
-    // Plain claim still loses while the claim is held (first-claim-wins).
-    hub.onMessage(member, JSON.stringify({ t: `claim` }))
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `first` })
-
-    // steal:true wins (last-writer-wins) and everyone hears about it.
-    hub.onMessage(member, JSON.stringify({ t: `claim`, steal: true }))
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `boss` })
-    expect(first.lastFrame(`presence`)).toMatchObject({ steererId: `boss` })
-    expect(member.lastFrame(`presence`)).toMatchObject({ steererId: `boss` })
-
-    // The deposed steerer's input no longer flows; the stealer's does.
-    hub.onMessage(first, JSON.stringify({ t: `input`, data: `nope` }))
-    expect(pub.lastFrame(`input`)).toBeUndefined()
-    hub.onMessage(member, JSON.stringify({ t: `input`, data: `go\n` }))
-    expect(pub.lastFrame(`input`)).toMatchObject({ data: `go\n` })
-
-    // And it can be stolen right back.
-    hub.onMessage(first, JSON.stringify({ t: `claim`, steal: true }))
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `first` })
-  })
-
-  test(`steal is denied for perm view`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
-    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
-
-    const watcher = connectMember(hub, { sub: `w`, perm: `view` })
-    hub.onMessage(watcher, JSON.stringify({ t: `claim`, steal: true }))
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
-
-    hub.onMessage(watcher, JSON.stringify({ t: `input`, data: `x` }))
-    expect(pub.framesOf(`input`).length).toBe(0)
-  })
-
-  test(`publisher takeover still trumps a stolen claim`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const member = connectMember(hub, { sub: `m`, perm: `steer` })
-    hub.onMessage(member, JSON.stringify({ t: `claim`, steal: true }))
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `m` })
-
-    hub.onMessage(pub, JSON.stringify({ t: `release` }))
-    expect(member.lastFrame(`presence`)).toMatchObject({ steererId: null })
-    hub.onMessage(member, JSON.stringify({ t: `input`, data: `x` }))
-    expect(pub.lastFrame(`input`)).toBeUndefined()
-    hub.onMessage(
-      member,
-      JSON.stringify({ t: `answer`, questionId: `q`, keys: [`1`] })
-    )
-    expect(pub.lastFrame(`answer`)).toBeUndefined()
   })
 })
 

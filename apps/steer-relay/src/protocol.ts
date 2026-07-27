@@ -67,7 +67,7 @@ export const inputFrame = z.object({
 // Semantic answer to a `question` activity event (EXP-249). Replaces blind
 // digit keystrokes: the client names the question it is answering, the
 // publisher maps `keys` onto whatever the TUI currently shows. Gated exactly
-// like `input` — the steer-perm viewer holding the claim.
+// like `input` — any joined steer-perm member.
 export const answerFrame = z.object({
   t: z.literal(`answer`),
   questionId: z.string().max(128),
@@ -75,14 +75,6 @@ export const answerFrame = z.object({
   keys: z.array(z.string().max(8)).min(1).max(10),
 })
 
-export const claimFrame = z.object({
-  t: z.literal(`claim`),
-  // steal:true (honored for perm `steer` only) overrides an existing steerer
-  // — last-writer-wins. A plain claim stays first-claim-wins. Publisher
-  // takeover still trumps everything.
-  steal: z.boolean().optional(),
-})
-export const releaseFrame = z.object({ t: z.literal(`release`) })
 export const killFrame = z.object({ t: z.literal(`kill`) })
 export const byeFrame = z.object({
   t: z.literal(`bye`),
@@ -215,8 +207,6 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   resizeFrame,
   inputFrame,
   answerFrame,
-  claimFrame,
-  releaseFrame,
   killFrame,
   byeFrame,
   activityFrame,
@@ -226,12 +216,6 @@ export const clientFrame = z.discriminatedUnion(`t`, [
 export type ClientFrame = z.infer<typeof clientFrame>
 
 // ── Relay → client control frames ────────────────────────────────────────────
-
-export interface PresenceViewer {
-  userId: string
-  name: string
-  perm: `view` | `steer`
-}
 
 /** Launch options a remote start may carry (EXP-149; agent/skipPermissions
  * are EXP-201). All optional — an absent field means "desktop settings
@@ -269,7 +253,6 @@ export interface StartInput {
 }
 
 export type ServerFrame =
-  | { t: `presence`; viewers: PresenceViewer[]; steererId: string | null }
   | ({ t: `start_session`; issueId: string } & StartSessionOptions)
   | ({
       t: `start_session`
@@ -289,7 +272,7 @@ export type ServerFrame =
       repo?: StartRepoGroup
       inputs?: StartInput[]
     } & StartSessionOptions)
-  | { t: `input`; data: string } // steerer keystrokes, relay → publisher
+  | { t: `input`; data: string } // steer-perm keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[] } // relay → publisher
   | { t: `kill` }
   | { t: `bye`; outcome?: string }

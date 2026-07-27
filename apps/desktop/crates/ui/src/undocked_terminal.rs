@@ -20,7 +20,7 @@ use gpui::{
 use gpui::AnyElement;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Root, Sizable as _,
 };
 // EXP-269: the vendored TitleBar — rounded window controls
 // (`crate::title_bar`).
@@ -38,7 +38,6 @@ pub(crate) struct UndockedTerminalWindow {
     /// Last title pushed to the OS window (OSC titles sync live).
     window_title: SharedString,
     _subscriptions: Vec<Subscription>,
-    _steer_subscription: Option<Subscription>,
 }
 
 impl UndockedTerminalWindow {
@@ -71,11 +70,6 @@ impl UndockedTerminalWindow {
         ));
         subscriptions.push(cx.observe(&manager, |_, _, cx| cx.notify()));
 
-        // §8.5 parity with the dock: repaint when a presence frame flips the
-        // remote steerer so the banner shows/hides live.
-        let steer_subscription =
-            crate::steer_wiring::observe_steer_presence(cx, |_, cx| cx.notify());
-
         // Titlebar-X ≡ Reattach: unregister (dock reshows the tab) and bring
         // it back into view in the owner window — without raising it, so a
         // plain close doesn't yank focus.
@@ -106,7 +100,6 @@ impl UndockedTerminalWindow {
             focus_handle: cx.focus_handle(),
             window_title: SharedString::default(),
             _subscriptions: subscriptions,
-            _steer_subscription: steer_subscription,
         }
     }
 
@@ -120,47 +113,6 @@ impl UndockedTerminalWindow {
         });
     }
 
-    /// The dock's §8.5 "Remote steering" banner, replicated for the undocked
-    /// surface so a steered coding tab never loses the signal.
-    fn render_steer_banner(
-        &self,
-        session_id: String,
-        steerer: String,
-        cx: &gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let accent = cx.theme().warning;
-        h_flex()
-            .gap_2()
-            .px_3()
-            .py_1()
-            .items_center()
-            .justify_between()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .bg(accent.opacity(0.12))
-            .text_xs()
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .items_center()
-                    .child(Icon::new(IconName::Eye).xsmall().text_color(accent))
-                    .child(
-                        div()
-                            .text_color(cx.theme().foreground)
-                            .child(SharedString::from(format!("Remote steering — {steerer}"))),
-                    ),
-            )
-            .child(
-                Button::new("undocked-steer-take-over")
-                    .outline()
-                    .xsmall()
-                    .label("Take over")
-                    .tooltip("Revoke the remote steerer — your typing is never blocked.")
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _window, cx| {
-                        crate::steer_wiring::take_over(&session_id, cx);
-                    })),
-            )
-    }
 }
 
 impl Focusable for UndockedTerminalWindow {
@@ -181,8 +133,6 @@ impl Render for UndockedTerminalWindow {
             self.window_title = title.clone();
             window.set_window_title(&title);
         }
-
-        let steer_banner = crate::steer_wiring::remote_steerer_for_tab(self.tab_id, cx);
 
         let reattach = Button::new("reattach-terminal-tab")
             .ghost()
@@ -227,9 +177,6 @@ impl Render for UndockedTerminalWindow {
         let notification_layer = Root::render_notification_layer(window, cx);
 
         let mut body = v_flex().size_full().child(header);
-        if let Some((session_id, steerer)) = steer_banner {
-            body = body.child(self.render_steer_banner(session_id, steerer, cx));
-        }
         if let Some(view) = view {
             body = body.child(div().flex_1().min_h_0().child(view));
         } else {

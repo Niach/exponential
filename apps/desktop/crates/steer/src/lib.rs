@@ -30,7 +30,6 @@
 //!    [`activity::spawn_emitter`] with `handle.activity_sender()`, the
 //!    session's [`hooks::HookServer`] receiver, and an [`activity::Steering`]
 //!    seam whose [`activity::AnswerLink`] also rides the publisher hooks. Call
-//!    `handle.take_over()` from the "Take over" banner button and
 //!    `handle.shutdown(Some("exit:<code>"))` from the exit hook.
 //! 2. **Control channel** — once per signed-in account, call
 //!    [`control_channel::spawn_control_channel`] with the persistent
@@ -67,8 +66,8 @@ pub use activity::{
     Steering,
 };
 pub use frames::{
-    ActivityEvent, ClientFrame, PresenceViewer, QuestionOption, ServerFrame, StartInput,
-    StartRepoGroup, SteerPerm, SteerRole, SubagentStatus, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
+    ActivityEvent, ClientFrame, QuestionOption, ServerFrame, StartInput, StartRepoGroup,
+    SteerPerm, SteerRole, SubagentStatus, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
     CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
 };
 pub use hooks::{
@@ -77,7 +76,7 @@ pub use hooks::{
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use publisher::{
-    publish, ActivitySender, KillSignal, Presence, PublishSpec, PublisherHandle, PublisherHooks,
+    publish, ActivitySender, KillSignal, PublishSpec, PublisherHandle, PublisherHooks,
     PublisherTickets, TrpcPublisherTickets,
 };
 

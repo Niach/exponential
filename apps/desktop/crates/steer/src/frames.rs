@@ -4,7 +4,7 @@
 //!
 //! Field-name discipline (each was a live native bug or a protocol subtlety):
 //! the relay JSON is **camelCase** (`deviceId`, `sessionId`, `issueId`,
-//! `steererId`, `userId`, `deviceLabel`); the tag values are **snake_case**
+//! `userId`, `deviceLabel`); the tag values are **snake_case**
 //! (`online`, `hello`, `start_session`, …); the input field is **`data`**
 //! (UTF-8 string, ≤ 8 KiB), never `bytes`. The relay zod-validates every text
 //! frame and silently drops non-conforming ones (`parseClientFrame` returns
@@ -89,8 +89,6 @@ pub enum ClientFrame<'a> {
     Input {
         data: String,
     },
-    Claim,
-    Release,
     Kill,
     Bye {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -325,15 +323,6 @@ impl ClientFrame<'_> {
 
 // ── Relay → client (TEXT frames) ────────────────────────────────────────────
 
-/// One presence entry (protocol.ts `PresenceViewer`).
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PresenceViewer {
-    pub user_id: String,
-    pub name: String,
-    pub perm: SteerPerm,
-}
-
 /// protocol.ts `StartRepoGroup` — a batch start's server-resolved repo (the
 /// desktop syncs no repositories collection, so fullName/defaultBranch ride
 /// the frame).
@@ -368,12 +357,6 @@ pub struct StartInput {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ServerFrame {
-    #[serde(rename_all = "camelCase")]
-    Presence {
-        viewers: Vec<PresenceViewer>,
-        /// `steererId` is `string | null` on the wire.
-        steerer_id: Option<String>,
-    },
     #[serde(rename_all = "camelCase")]
     StartSession {
         /// Exactly one of `issue_id` / `issue_ids` / `action_id` is set on
@@ -415,12 +398,12 @@ pub enum ServerFrame {
         #[serde(default)]
         skip_permissions: Option<bool>,
     },
-    /// Steerer keystrokes, relay → publisher.
+    /// Steer-perm keystrokes, relay → publisher.
     Input {
         data: String,
     },
     /// A SEMANTIC answer to an [`ActivityEvent::Question`] (EXP-249), relay →
-    /// publisher, forwarded verbatim from the steerer holding the claim (same
+    /// publisher, forwarded verbatim from a joined steer-perm member (same
     /// gating as `input`). `keys` are the option keys of THAT question — the
     /// publisher resolves them against its own live picker state instead of
     /// replaying blind keystrokes.
@@ -568,8 +551,6 @@ mod tests {
     #[test]
     fn bare_frames_serialize_tag_only() {
         assert_eq!(ClientFrame::Join.to_json(), r#"{"t":"join"}"#);
-        assert_eq!(ClientFrame::Claim.to_json(), r#"{"t":"claim"}"#);
-        assert_eq!(ClientFrame::Release.to_json(), r#"{"t":"release"}"#);
         assert_eq!(ClientFrame::Kill.to_json(), r#"{"t":"kill"}"#);
         assert_eq!(ClientFrame::Bye { outcome: None }.to_json(), r#"{"t":"bye"}"#);
         assert_eq!(
@@ -939,8 +920,6 @@ mod tests {
             ),
             (ClientFrame::Join, "join"),
             (ClientFrame::Input { data: String::new() }, "input"),
-            (ClientFrame::Claim, "claim"),
-            (ClientFrame::Release, "release"),
             (ClientFrame::Kill, "kill"),
             (ClientFrame::Bye { outcome: None }, "bye"),
             (ClientFrame::ActivityReset, "activity_reset"),
@@ -954,32 +933,18 @@ mod tests {
     // emits `JSON.stringify` of exactly these objects).
 
     #[test]
-    fn presence_deserializes_viewers_and_nullable_steerer() {
-        // hub.ts broadcastPresence: viewers from room.viewers.values(),
-        // steererId: room.steerer?.claims.sub ?? null.
-        let frame = ServerFrame::parse(
-            r#"{"t":"presence","viewers":[{"userId":"viewer-1","name":"Dennis","perm":"steer"}],"steererId":"viewer-1"}"#,
-        )
-        .unwrap();
+    fn legacy_presence_frames_parse_to_none() {
+        // EXP-312 removed the operator concept; an old relay's presence
+        // broadcast takes the same silent-drop path as any unknown frame.
         assert_eq!(
-            frame,
-            ServerFrame::Presence {
-                viewers: vec![PresenceViewer {
-                    user_id: "viewer-1".into(),
-                    name: "Dennis".into(),
-                    perm: SteerPerm::Steer,
-                }],
-                steerer_id: Some("viewer-1".into()),
-            }
+            ServerFrame::parse(
+                r#"{"t":"presence","viewers":[{"userId":"viewer-1","name":"Dennis","perm":"steer"}],"steererId":"viewer-1"}"#,
+            ),
+            None
         );
-        let frame =
-            ServerFrame::parse(r#"{"t":"presence","viewers":[],"steererId":null}"#).unwrap();
         assert_eq!(
-            frame,
-            ServerFrame::Presence {
-                viewers: vec![],
-                steerer_id: None,
-            }
+            ServerFrame::parse(r#"{"t":"presence","viewers":[],"steererId":null}"#),
+            None
         );
     }
 
