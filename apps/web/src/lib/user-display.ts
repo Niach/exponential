@@ -9,6 +9,12 @@ export function anonymousUserLabel(userId: string): string {
   return `Member ${userId.slice(-4).toUpperCase()}`
 }
 
+// Chrome surfaces (sidebar footer, desktop rail) show only the first name;
+// the full name + email live in account settings (EXP-311).
+export function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name
+}
+
 export function displayUserName(
   user: { name?: string | null; email?: string | null } | undefined,
   userId: string | null | undefined

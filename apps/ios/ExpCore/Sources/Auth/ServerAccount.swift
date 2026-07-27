@@ -76,8 +76,8 @@ public struct ServerAccount: Codable, Identifiable, Equatable, Hashable, Sendabl
     }
 
     public var displayName: String {
-        if instanceUrl == AppConstants.publicCloudUrl { return "Cloud" }
-        if instanceUrl == AppConstants.stagingCloudUrl { return "Staging" }
+        if instanceUrl == AppConstants.publicCloudUrl { return "Exponential Cloud" }
+        if instanceUrl == AppConstants.stagingCloudUrl { return "Staging Cloud" }
         return displayHost
     }
 }

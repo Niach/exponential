@@ -516,6 +516,7 @@ impl RailView {
         let shared = rail_shared_for_window(window, cx);
         let git_bar = shared.read(cx).git_bar.clone();
         let collections = Store::global(cx).collections().clone();
+        let avatar_cache = crate::user_avatar::AvatarCache::global(cx);
         let subscriptions = vec![
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -529,6 +530,10 @@ impl RailView {
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             // The Support dot is a live read over unread support_reply rows.
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
+            // EXP-311: the account button's avatar rides the users shape
+            // (profile image URL) plus the async avatar-byte cache.
+            cx.observe(&collections.users, |_, _, cx| cx.notify()),
+            cx.observe(&avatar_cache, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -619,20 +624,40 @@ impl RailView {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let account = crate::queries::active_account(cx);
-        let who: SharedString = account
-            .as_ref()
-            .map(|account| SharedString::from(account.email.clone()))
-            .unwrap_or_else(|| "Not signed in".into());
-        let label = who.clone();
-        // EXP-282: the expanded rail names the signed-in person (name over
-        // email, email alone when the account carries no name).
-        let display_name: SharedString = account
+        // EXP-311, web sidebar parity: the profile image (or hue-hashed
+        // initials) plus the FIRST name only — full name + email live in
+        // settings → Account. Name-less accounts (Apple sign-in) fall back
+        // to the email for the label/initials.
+        let full_name: SharedString = account
             .as_ref()
             .and_then(|account| account.name.clone())
             .filter(|name| !name.trim().is_empty())
+            .or_else(|| account.as_ref().map(|account| account.email.clone()))
             .map(SharedString::from)
-            .unwrap_or_else(|| who.clone());
-        let sub_label = (display_name != who).then(|| who.clone());
+            .unwrap_or_else(|| "Not signed in".into());
+        let short_name: SharedString =
+            SharedString::from(crate::user_avatar::first_name(&full_name).to_string());
+        // The avatar URL rides the synced users row, never accounts.json.
+        let image_url = crate::queries::active_user(cx).and_then(|user| user.image);
+        let avatar_image = crate::user_avatar::cached_avatar_image(cx, image_url.as_deref());
+        let make_avatar = {
+            let full_name = full_name.clone();
+            let signed_in = account.is_some();
+            move |size: gpui_component::Size, image: Option<std::sync::Arc<gpui::Image>>| {
+                // Signed out keeps the generic person placeholder instead of
+                // "NS" initials for "Not signed in".
+                let avatar = gpui_component::avatar::Avatar::new().with_size(size);
+                let avatar = if signed_in {
+                    avatar.name(full_name.clone())
+                } else {
+                    avatar
+                };
+                match image {
+                    Some(image) => avatar.src(image),
+                    None => avatar,
+                }
+            }
+        };
 
         // Captured snapshot for the lazy menu builder (overlay renders must
         // not read `self`): every team, checked on the active one.
@@ -664,41 +689,40 @@ impl RailView {
                                 .w_full()
                                 .gap_2()
                                 .items_center()
-                                .child(Icon::new(IconName::CircleUser).xsmall().flex_shrink_0())
+                                .child(make_avatar(
+                                    gpui_component::Size::Small,
+                                    avatar_image.clone(),
+                                ))
                                 .child(
-                                    v_flex()
+                                    div()
                                         .flex_1()
                                         .min_w_0()
-                                        .gap_0()
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .truncate()
-                                                .child(display_name.clone()),
-                                        )
-                                        .children(sub_label.clone().map(|email| {
-                                            div()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .truncate()
-                                                .child(email)
-                                        })),
+                                        .text_sm()
+                                        .truncate()
+                                        .child(short_name.clone()),
                                 ),
                         )
                 } else {
-                    button.icon(IconName::CircleUser).tooltip(who.clone())
+                    button
+                        .child(make_avatar(
+                            gpui_component::Size::XSmall,
+                            avatar_image.clone(),
+                        ))
+                        .tooltip(full_name.clone())
                 }
             })
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
                 // EXP-282: no "Settings" item — the rail's gear is the single
                 // settings entry. EXP-288: no "Account" item either — Account
                 // lives only in the settings nav's Personal group; this menu
-                // is team switching + session actions.
-                let mut menu = menu.label(label.clone());
+                // is team switching + session actions. EXP-311: no identity
+                // header either (web parity — the trigger already names the
+                // person; email lives in settings → Account).
+                let mut menu = menu;
                 // "Switch team" section — flat checked rows (the menu builder
                 // has no submenus); shown only with somewhere to switch to.
                 if teams.len() > 1 {
-                    menu = menu.separator().label("Switch team");
+                    menu = menu.label("Switch team");
                     for (id, name, active) in &teams {
                         menu = menu.menu_with_check(
                             SharedString::from(name.clone()),
@@ -708,8 +732,9 @@ impl RailView {
                             }),
                         );
                     }
+                    menu = menu.separator();
                 }
-                menu.separator()
+                menu
                     .menu_with_icon("New team", IconName::Plus, Box::new(CreateTeam))
                     .menu_with_icon("Join team", IconName::User, Box::new(JoinTeam))
                     .separator()

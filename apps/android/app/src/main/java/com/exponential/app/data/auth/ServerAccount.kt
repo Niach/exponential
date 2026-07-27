@@ -38,8 +38,8 @@ data class ServerAccount(
     // label should not change with the build flavor.
     val displayName: String
         get() = when (instanceUrl) {
-            "https://app.exponential.at" -> "Cloud"
-            "https://next.exponential.at" -> "Staging"
+            "https://app.exponential.at" -> "Exponential Cloud"
+            "https://next.exponential.at" -> "Staging Cloud"
             else -> displayHost
         }
 

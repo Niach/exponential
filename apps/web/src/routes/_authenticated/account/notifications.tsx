@@ -6,6 +6,9 @@ import { authClient } from "@/lib/auth/client"
 import type { NotificationType } from "@/lib/domain"
 import type { DigestCadence } from "@/lib/notification-email-policy"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { getInitials } from "@/lib/utils"
+import { useSession } from "@/hooks/use-session"
 import { DeleteAccountSection } from "@/components/account/delete-account-section"
 import {
   Card,
@@ -82,6 +85,11 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
 
 function AccountNotifications() {
   const { emailPrefs } = Route.useLoaderData()
+  const { data: session } = useSession()
+  // Name-less accounts (Apple sign-in stores an empty name) fall back to the
+  // email for initials instead of a bare "?".
+  const userLabel = session?.user?.name || session?.user?.email
+  const userInitials = userLabel ? getInitials(userLabel) : `?`
   const [emailEnabled, setEmailEnabled] = useState(emailPrefs.emailEnabled)
   const [typePrefs, setTypePrefs] = useState<
     Partial<Record<NotificationType, boolean>>
@@ -148,6 +156,25 @@ function AccountNotifications() {
           Email notification preferences and account management. In-app and
           push notifications are always on.
         </p>
+      </div>
+
+      {/* EXP-311: the chrome shows only the first name — the full identity
+          (name + email) lives here. */}
+      <div className="flex items-center gap-3">
+        <Avatar className="h-12 w-12">
+          {session?.user?.image && <AvatarImage src={session.user.image} />}
+          <AvatarFallback>{userInitials}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <div className="truncate font-medium">
+            {session?.user?.name || session?.user?.email}
+          </div>
+          {session?.user?.name && (
+            <div className="truncate text-sm text-muted-foreground">
+              {session.user.email}
+            </div>
+          )}
+        </div>
       </div>
 
       <Card>

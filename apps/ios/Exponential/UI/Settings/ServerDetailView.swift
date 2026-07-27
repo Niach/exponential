@@ -1,6 +1,7 @@
 import ExpUI
 import ExpCore
 import SwiftUI
+import GRDB
 
 /// Per-server management screen. Reached from Settings → Servers → tap a row.
 /// Centralizes the actions that used to be split between the top-of-Settings
@@ -16,9 +17,29 @@ struct ServerDetailView: View {
     @State private var deletingAccount = false
     @State private var deleteAccountError: String?
     @State private var resyncing = false
+    // EXP-311: the signed-in user's synced row — carries the profile image
+    // the account store doesn't. Nil until the users shape has landed.
+    @State private var user: UserEntity?
+    @State private var userObservationTask: Task<Void, Never>?
 
     private var account: ServerAccount? {
         deps.auth.accounts.first { $0.id == accountId }
+    }
+
+    /// The identity the header renders: the observed users row, else a
+    /// display-only stand-in from the account store so name/initials are
+    /// right even before the first sync.
+    private var identityUser: UserEntity? {
+        if let user { return user }
+        guard let account, let email = account.userEmail, !email.isEmpty else { return nil }
+        return UserEntity(
+            id: account.userId ?? "",
+            name: account.userName,
+            email: email,
+            image: nil,
+            createdAt: "",
+            updatedAt: ""
+        )
     }
 
     /// The bundled cloud (prod or staging) — "Remove server" is nonsensical for
@@ -46,6 +67,8 @@ struct ServerDetailView: View {
         }
         .navigationTitle(account?.displayName ?? "Server")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .onAppear { startObservingUser() }
+        .onDisappear { userObservationTask?.cancel() }
         .alert(
             "Remove \(account?.displayName ?? "server")?",
             isPresented: $showRemoveConfirm
@@ -122,23 +145,60 @@ struct ServerDetailView: View {
         dismiss()
     }
 
+    /// Watches the account's own users row for the profile image (EXP-311).
+    private func startObservingUser() {
+        guard userObservationTask == nil,
+              let userId = account?.userId,
+              let pool = try? deps.db.pool(forAccountId: accountId)
+        else { return }
+        userObservationTask = Task {
+            let obs = ValueObservation.tracking { db in
+                try UserEntity.fetchOne(db, key: userId)
+            }
+            do {
+                for try await item in obs.values(in: pool) {
+                    await MainActor.run { user = item }
+                }
+            } catch {}
+        }
+    }
+
+    /// EXP-311: signed in, the header is the ACCOUNT identity — avatar
+    /// (profile image / initials) + "Firstname Lastname" with the email
+    /// below, unified with the web account page. Signed out, the server
+    /// block stays so the row remains identifiable.
     private var identitySection: some View {
         sectionStack(title: nil) {
-            HStack(spacing: 10) {
-                AppIcon(AppIcons.settingsServers, size: AppIcon.Size.large)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(account?.displayName ?? "")
-                        .font(.body)
-                        .foregroundStyle(.white)
-                    if let email = account?.userEmail, !email.isEmpty {
-                        Text(email)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            HStack(spacing: 12) {
+                if account?.token != nil, let identityUser {
+                    UserAvatar(user: identityUser, id: account?.userId, size: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        let name = memberDisplayName(identityUser, id: account?.userId)
+                        Text(name)
+                            .font(.body)
+                            .foregroundStyle(.white)
+                        if let email = account?.userEmail, !email.isEmpty, email != name {
+                            Text(email)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
                     }
-                    Text(account?.token == nil ? "Signed out" : "Signed in")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                } else {
+                    AppIcon(AppIcons.settingsServers, size: AppIcon.Size.large)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(account?.displayName ?? "")
+                            .font(.body)
+                            .foregroundStyle(.white)
+                        if let email = account?.userEmail, !email.isEmpty {
+                            Text(email)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        Text(account?.token == nil ? "Signed out" : "Signed in")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                    }
                 }
                 Spacer()
             }
