@@ -20,6 +20,7 @@ public extension FetchedIssue {
             title: title,
             description: description,
             status: status,
+            statusId: statusId,
             priority: priority,
             assigneeId: assigneeId,
             creatorId: creatorId,

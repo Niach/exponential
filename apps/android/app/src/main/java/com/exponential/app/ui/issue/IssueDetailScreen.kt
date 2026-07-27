@@ -65,10 +65,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
-import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.issuePriorityOrder
-import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PriorityIcon
@@ -126,6 +126,8 @@ fun IssueDetailScreen(
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
     val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
+    // The board team's status rows (EXP-314) — picker vocabulary + chip label.
+    val teamStatuses by viewModel.teamStatuses.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
     // EXP-50: solo teams (one human member) hide the assignee chip/row.
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
@@ -386,7 +388,7 @@ fun IssueDetailScreen(
             return@Scaffold
         }
 
-        val status = IssueStatus.fromWire(issue.status)
+        val status = IssueStatusResolver.resolve(issue, teamStatuses)
         val priority = IssuePriority.fromWire(issue.priority)
 
         // Start-circle gating + content (EXP-240): hidden without steer /
@@ -711,7 +713,7 @@ fun IssueDetailScreen(
     if (propertiesOpen && issue != null && isModerator) {
         PropertiesSheet(
             issue = issue,
-            status = IssueStatus.fromWire(issue.status),
+            status = IssueStatusResolver.resolve(issue, teamStatuses),
             priority = IssuePriority.fromWire(issue.priority),
             assignee = state.assignee,
             hideAssignee = soloMemberId != null,
@@ -730,19 +732,21 @@ fun IssueDetailScreen(
     }
 
     if (activeSheet == IssueSheet.Status && issue != null && isModerator) {
-        val currentStatus = IssueStatus.fromWire(issue.status)
+        val currentStatus = IssueStatusResolver.resolve(issue, teamStatuses)
         IssuePickerSheet(
             title = "Status",
-            items = issueStatusOrder,
+            items = teamStatuses,
             selected = currentStatus,
-            labelOf = { it.label },
+            keyOf = { it.id },
+            labelOf = { it.name },
             leadingContent = { StatusIcon(it, size = 16.dp) },
             onSelect = {
-                // Duplicate = status interception (L27): picking `duplicate`
-                // opens the canonical-issue picker instead of writing the status
-                // directly; markDuplicate sets duplicateOfId + status='duplicate'
-                // atomically. Cancelling the picker leaves the status untouched.
-                if (it == IssueStatus.Duplicate) {
+                // Duplicate = status interception (L27): picking a
+                // duplicate-CATEGORY status opens the canonical-issue picker
+                // instead of writing the status directly; markDuplicate sets
+                // duplicateOfId + status='duplicate' atomically (still the enum
+                // path — EXP-314). Cancelling leaves the status untouched.
+                if (it.category == IssueStatusCategory.Duplicate) {
                     activeSheet = IssueSheet.Duplicate
                 } else {
                     viewModel.updateStatus(it)

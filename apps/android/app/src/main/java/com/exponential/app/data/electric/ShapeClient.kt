@@ -138,7 +138,7 @@ class ShapeClient<T : Any>(
     // App-lifecycle gate (REV2-38): false once the process has been in the
     // background past SyncManager's grace window. While closed the loop parks
     // instead of long-polling, and a poll already in flight is cancelled — a
-    // cached (not yet frozen) process must not keep 15 shape connections per
+    // cached (not yet frozen) process must not keep 16 shape connections per
     // account alive for data nobody can see.
     private val active: StateFlow<Boolean> = alwaysActive,
 ) {
@@ -346,7 +346,7 @@ class ShapeClient<T : Any>(
                 // is a JVM typealias for java.net's, so it is already covered
                 // here — only ConnectTimeoutException is a distinct class, and
                 // it is the one the field reports showed ("Connect timeout has
-                // expired" on all 15 shapes at once).
+                // expired" on all 16 shapes at once).
                 is java.net.SocketTimeoutException,
                 is io.ktor.client.network.sockets.ConnectTimeoutException,
                 -> true

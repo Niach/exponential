@@ -1,11 +1,14 @@
 import { FolderInput, Tag, UserRound, X } from "lucide-react"
 import type { Issue, Label, Board, User } from "@/db/schema"
+import { getIssuePriorityConfig, issuePriorityOptions } from "@/lib/domain"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import type { StatusRowOption } from "@/lib/team-statuses"
 import {
-  getIssuePriorityConfig,
-  getIssueStatusConfig,
-  issuePriorityOptions,
-  issueStatusOptions,
-} from "@/lib/domain"
+  StatusIcon,
+  statusColorClass,
+  statusColorStyle,
+} from "@/components/issue-properties/status-dropdown"
+import { ICON_COMPONENTS } from "@/lib/icons.generated"
 import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -21,9 +24,10 @@ import {
 } from "@/components/ui/context-menu"
 
 interface StatusSubmenuProps {
-  status: Issue[`status`]
+  // The RESOLVED team status row of this issue (EXP-314).
+  status: StatusRowOption
   topLevelValueClass: string
-  onSelect: (status: Issue[`status`]) => void
+  onSelect: (status: StatusRowOption) => void
 }
 
 export function StatusSubmenu({
@@ -33,31 +37,33 @@ export function StatusSubmenu({
 }: StatusSubmenuProps) {
   // Trigger mirrors the row's status icon: the CURRENT status, not a generic
   // glyph (EXP-59).
-  const statusConfig = getIssueStatusConfig(status)
-  const StatusIcon = statusConfig.icon
+  const { options } = useTeamStatusesContext()
 
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger>
-        <StatusIcon className={`size-4 ${statusConfig.color}`} />
+        <StatusIcon option={status} />
         Status
         <ContextMenuShortcut className={topLevelValueClass}>
-          {statusConfig.label}
+          {status.name}
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[14rem]">
-        <ContextMenuRadioGroup value={status}>
-          {issueStatusOptions.map((option) => {
-            const Icon = option.icon
+        <ContextMenuRadioGroup value={status.id}>
+          {options.map((option) => {
+            const Icon = ICON_COMPONENTS[option.icon]
 
             return (
               <ContextMenuRadioItem
-                key={option.value}
-                value={option.value}
-                onSelect={() => onSelect(option.value)}
+                key={option.id}
+                value={option.id}
+                onSelect={() => onSelect(option)}
               >
-                <Icon className={`size-4 ${option.color}`} />
-                {option.label}
+                <Icon
+                  className={`size-4 ${statusColorClass(option)}`}
+                  style={statusColorStyle(option)}
+                />
+                {option.name}
               </ContextMenuRadioItem>
             )
           })}

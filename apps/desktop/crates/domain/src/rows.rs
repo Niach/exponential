@@ -1,4 +1,4 @@
-//! Typed row structs for the 15 synced shapes (masterplan-v3 §5.1/§5.5) —
+//! Typed row structs for the 16 synced shapes (masterplan-v3 §5.1/§5.5) —
 //! hand-written mirrors of `packages/db-schema`, one per Electric shape,
 //! hydrated from the sync store's snake_case JSON objects.
 //!
@@ -92,7 +92,16 @@ pub struct Issue {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// The enum ANCHOR (EXP-314): still dual-written by the server for every
+    /// status change, so enum-only writers/readers stay correct. `status_id`
+    /// below is the precise per-team row.
     pub status: IssueStatus,
+    /// EXP-314 `issues.status_id` — the `issue_statuses` row this issue sits
+    /// in. `None` on rows synced before the column existed (and on writes
+    /// that only set the enum); [`crate::statuses::resolve_status`] falls
+    /// back to the anchor's builtin row.
+    #[serde(default)]
+    pub status_id: Option<String>,
     #[serde(default = "default_priority")]
     pub priority: IssuePriority,
     #[serde(default)]
@@ -416,10 +425,95 @@ pub struct ActionRow {
     pub updated_at: Option<String>,
 }
 
+/// `issue_statuses` shape row (EXP-314) — the 16th shape: one team's status
+/// vocabulary. `category` stays a RAW wire string (typed at use through
+/// [`crate::statuses::IssueStatusCategory::from_wire`]) so a newer server's
+/// category can never fail hydration and drop the row (§5.5).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct IssueStatusRow {
+    pub id: String,
+    pub team_id: String,
+    /// Wire value of `contract::ISSUE_STATUS_CATEGORY_VALUES`.
+    pub category: String,
+    pub name: String,
+    /// `#rrggbb`. Rendered only for CUSTOM rows — builtin rows render their
+    /// theme token (see the `statuses` module header).
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    /// `Some(wire)` on the 7 locked builtins, `None` on custom rows.
+    #[serde(default)]
+    pub builtin_key: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn issue_status_row_hydrates_tolerantly() {
+        // Wire numerics arrive as TEXT (§5.5), unknown categories survive, and
+        // a custom row's absent builtin_key/color decode to None.
+        let row: IssueStatusRow = serde_json::from_value(json!({
+            "id": "s-1",
+            "team_id": "t-1",
+            "category": "started",
+            "name": "Building",
+            "sort_order": "2",
+            "some_future_column": 7,
+        }))
+        .unwrap();
+        assert_eq!(row.sort_order, Some(2.0));
+        assert_eq!(row.builtin_key, None);
+        assert_eq!(row.color, None);
+
+        let row: IssueStatusRow = serde_json::from_value(json!({
+            "id": "s-2",
+            "team_id": "t-1",
+            "category": "triaged",
+            "name": "Triaged",
+            "color": "#22c55e",
+            "sort_order": serde_json::Value::Null,
+            "builtin_key": serde_json::Value::Null,
+        }))
+        .unwrap();
+        assert_eq!(row.category, "triaged");
+        assert_eq!(row.sort_order, None);
+        assert_eq!(row.color.as_deref(), Some("#22c55e"));
+    }
+
+    #[test]
+    fn issue_hydrates_status_id_when_present() {
+        let issue: Issue = serde_json::from_value(json!({
+            "id": "i-1",
+            "board_id": "b-1",
+            "number": 1,
+            "identifier": "EXP-1",
+            "title": "t",
+            "status": "todo",
+            "status_id": "s-1",
+        }))
+        .unwrap();
+        assert_eq!(issue.status_id.as_deref(), Some("s-1"));
+
+        // Pre-backfill rows carry no column at all.
+        let issue: Issue = serde_json::from_value(json!({
+            "id": "i-2",
+            "board_id": "b-1",
+            "number": 2,
+            "identifier": "EXP-2",
+            "title": "t",
+            "status": "todo",
+        }))
+        .unwrap();
+        assert_eq!(issue.status_id, None);
+    }
 
     #[test]
     fn member_fallback_uses_uppercased_last_four() {

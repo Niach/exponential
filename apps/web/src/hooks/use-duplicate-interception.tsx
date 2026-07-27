@@ -1,27 +1,28 @@
 import { useCallback, useState } from "react"
-import type { IssueStatus } from "@/lib/domain"
 import { trpc } from "@/lib/trpc-client"
 import { IssuePickerDialog } from "@/components/issue-picker-dialog"
+import type { StatusRowOption } from "@/lib/team-statuses"
 
-// Duplicate = status interception (masterplan §4.1 / L27). Selecting the
-// `duplicate` status from any control opens the canonical-issue picker instead
-// of firing a status write; confirming links `duplicateOfId` (the server keeps
-// status='duplicate' in lockstep) and cancelling leaves the control untouched
-// so it reverts to the issue's current status. Any other status flows straight
-// through to the caller's normal handler. Shared by every status sink so the
-// interception lives in exactly one place.
+// Duplicate = status interception (masterplan §4.1 / L27). Selecting a
+// duplicate-CATEGORY status from any control (EXP-314 — the category, not the
+// enum, so a team's own Duplicate row keeps working) opens the canonical-issue
+// picker instead of firing a status write; confirming links `duplicateOfId`
+// (the server keeps status='duplicate' in lockstep) and cancelling leaves the
+// control untouched so it reverts to the issue's current status. Any other
+// status flows straight through to the caller's normal handler. Shared by
+// every status sink so the interception lives in exactly one place.
 export function useDuplicateInterception({
   issueId,
   onStatusChange,
 }: {
   issueId: string
-  onStatusChange: (status: IssueStatus) => void | Promise<void>
+  onStatusChange: (status: StatusRowOption) => void | Promise<void>
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
 
   const handleStatusChange = useCallback(
-    (nextStatus: IssueStatus) => {
-      if (nextStatus === `duplicate`) {
+    (nextStatus: StatusRowOption) => {
+      if (nextStatus.category === `duplicate`) {
         // Defer past the menu/sheet close + focus restore so the dialog's
         // focus trap doesn't fight Radix.
         setTimeout(() => setPickerOpen(true), 0)

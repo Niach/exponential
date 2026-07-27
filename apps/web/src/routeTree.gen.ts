@@ -75,6 +75,7 @@ import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/in
 import { Route as TTeamSlugAgentsIndexRouteImport } from './routes/t/$teamSlug/agents/index'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
+import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
 import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$teamSlug/settings/repositories'
 import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
 import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
@@ -430,6 +431,12 @@ const TTeamSlugSettingsStorageRoute =
     path: '/storage',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
+const TTeamSlugSettingsStatusesRoute =
+  TTeamSlugSettingsStatusesRouteImport.update({
+    id: '/statuses',
+    path: '/statuses',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
 const TTeamSlugSettingsRepositoriesRoute =
   TTeamSlugSettingsRepositoriesRouteImport.update({
     id: '/repositories',
@@ -603,6 +610,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/agents/': typeof TTeamSlugAgentsIndexRoute
@@ -684,6 +692,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/agents': typeof TTeamSlugAgentsIndexRoute
@@ -770,6 +779,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/agents/': typeof TTeamSlugAgentsIndexRoute
@@ -856,6 +866,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/agents/'
@@ -937,6 +948,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/agents'
@@ -1022,6 +1034,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/agents/'
@@ -1554,6 +1567,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsStorageRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/statuses': {
+      id: '/t/$teamSlug/settings/statuses'
+      path: '/statuses'
+      fullPath: '/t/$teamSlug/settings/statuses'
+      preLoaderRoute: typeof TTeamSlugSettingsStatusesRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/repositories': {
       id: '/t/$teamSlug/settings/repositories'
       path: '/repositories'
@@ -1730,6 +1750,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
   TTeamSlugSettingsMembersRoute: typeof TTeamSlugSettingsMembersRoute
   TTeamSlugSettingsRepositoriesRoute: typeof TTeamSlugSettingsRepositoriesRoute
+  TTeamSlugSettingsStatusesRoute: typeof TTeamSlugSettingsStatusesRoute
   TTeamSlugSettingsStorageRoute: typeof TTeamSlugSettingsStorageRoute
   TTeamSlugSettingsWidgetRoute: typeof TTeamSlugSettingsWidgetRoute
   TTeamSlugSettingsIndexRoute: typeof TTeamSlugSettingsIndexRoute
@@ -1743,6 +1764,7 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
     TTeamSlugSettingsMembersRoute: TTeamSlugSettingsMembersRoute,
     TTeamSlugSettingsRepositoriesRoute: TTeamSlugSettingsRepositoriesRoute,
+    TTeamSlugSettingsStatusesRoute: TTeamSlugSettingsStatusesRoute,
     TTeamSlugSettingsStorageRoute: TTeamSlugSettingsStorageRoute,
     TTeamSlugSettingsWidgetRoute: TTeamSlugSettingsWidgetRoute,
     TTeamSlugSettingsIndexRoute: TTeamSlugSettingsIndexRoute,

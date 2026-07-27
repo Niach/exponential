@@ -62,10 +62,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.issuePriorityOrder
-import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.priorityIcon
-import com.exponential.app.domain.statusIcon
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
@@ -137,7 +137,13 @@ fun CreateIssueScreen(
 
     var title by remember { mutableStateOf(sharePrefill?.title ?: "") }
     var description by remember { mutableStateOf(sharePrefill?.description ?: "") }
-    var status by remember { mutableStateOf(IssueStatus.Backlog) }
+    // Default = the team's Backlog builtin (EXP-314); re-seeded whenever the
+    // team's status rows arrive or a share-mode board switch re-scopes them.
+    var status by remember {
+        mutableStateOf(
+            IssueStatusResolver.builtinDefaults.first { it.builtinKey == IssueStatus.Backlog }
+        )
+    }
     var priority by remember { mutableStateOf(IssuePriority.None) }
     var assigneeId by remember { mutableStateOf<String?>(null) }
     var dueDate by remember { mutableStateOf<String?>(null) }
@@ -159,6 +165,18 @@ fun CreateIssueScreen(
     LaunchedEffect(soloMemberId) {
         if (soloMemberId != null) assigneeId = soloMemberId
     }
+    // Re-point the picked status at the TEAM's rows once they arrive (and
+    // again after a share-mode board switch): keep the user's own pick when it
+    // still exists, else fall back to that team's backlog status.
+    val teamStatuses = state.teamStatuses
+    LaunchedEffect(teamStatuses) {
+        if (teamStatuses.isEmpty()) return@LaunchedEffect
+        status = teamStatuses.firstOrNull { it.id == status.id }
+            ?: teamStatuses.firstOrNull { it.builtinKey == IssueStatus.Backlog }
+            ?: teamStatuses.firstOrNull { it.category == IssueStatusCategory.Backlog }
+            ?: teamStatuses.first()
+    }
+
     val assigneeUser = users.firstOrNull { it.id == assigneeId }
     val isCreating = state.isCreating
     var confirmDiscard by remember { mutableStateOf(false) }
@@ -335,7 +353,7 @@ fun CreateIssueScreen(
                     MetaRow(label = "Status", enabled = isModerator, onClick = { statusMenuOpen = true }) {
                         StatusIcon(status, size = 14.dp)
                         Spacer(Modifier.width(6.dp))
-                        Text(status.label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text(status.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
                     MetaDivider()
                     MetaRow(label = "Priority", enabled = isModerator, onClick = { priorityMenuOpen = true }) {
@@ -470,10 +488,11 @@ fun CreateIssueScreen(
             title = "Status",
             // Duplicate = status interception (L27): a new issue can't be a
             // duplicate (nothing to link yet), so it's not a create option.
-            items = issueStatusOrder.filter { it != IssueStatus.Duplicate },
+            items = teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
             selected = status,
-            labelOf = { it.label },
-            iconOf = { statusIcon(it) },
+            keyOf = { it.id },
+            labelOf = { it.name },
+            leadingContent = { StatusIcon(it, size = 18.dp) },
             onSelect = { status = it },
             onDismiss = { statusMenuOpen = false },
         )

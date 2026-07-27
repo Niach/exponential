@@ -128,6 +128,23 @@ interface LabelDao {
 }
 
 @Dao
+interface IssueStatusDao {
+    // Canonical ORDERING is IssueStatusResolver.teamStatuses (category display
+    // order first); this query only needs a stable, deterministic feed.
+    @Query("SELECT * FROM issue_statuses WHERE team_id = :teamId ORDER BY sort_order, created_at, id")
+    fun observeByTeam(teamId: String): Flow<List<IssueStatusEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: IssueStatusEntity)
+
+    @Query("DELETE FROM issue_statuses WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM issue_statuses")
+    suspend fun clear()
+}
+
+@Dao
 interface IssueLabelDao {
     @Query("SELECT * FROM issue_labels WHERE issue_id = :issueId")
     fun observeByIssue(issueId: String): Flow<List<IssueLabelEntity>>

@@ -33,11 +33,9 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::options::get_issue_status_config;
-use domain::IssueStatus;
 
 use crate::actions::{CreateTeam, JoinTeam, NewBoard};
-use crate::icons::{option_icon, ExpIcon};
+use crate::icons::ExpIcon;
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, resolved_screen, screen_title, set_screen,
@@ -136,7 +134,10 @@ struct TabEntry {
 /// Non-issue tabs (and issue rows not yet synced) keep the plain
 /// `screen_title`.
 struct ChipContent {
-    status: Option<IssueStatus>,
+    /// EXP-314: the issue's RESOLVED status (custom rows included).
+    /// Resolution is per-issue, so it stays correct on this cross-team strip
+    /// — only GROUPING is team-scoped.
+    status: Option<domain::statuses::ResolvedStatus>,
     identifier: Option<gpui::SharedString>,
     title: Option<gpui::SharedString>,
 }
@@ -157,8 +158,9 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
                 _ if title.is_empty() => None,
                 _ => Some(gpui::SharedString::from(title.to_string())),
             };
+            let resolved = crate::queries::resolve_issue_status(cx, issue);
             return ChipContent {
-                status: Some(issue.status),
+                status: Some(resolved),
                 identifier: Some(gpui::SharedString::from(issue.identifier.clone())),
                 title,
             };
@@ -674,7 +676,7 @@ impl ScreensPanel {
                     // the title (issue-backed tabs only), mirroring the issue
                     // list row's glyph/mono-identifier treatment.
                     .when_some(content.status, |chip, status| {
-                        chip.child(option_icon(get_issue_status_config(status), cx).xsmall())
+                        chip.child(crate::icons::resolved_status_icon(&status, cx).xsmall())
                     })
                     .when_some(content.identifier, |chip, identifier| {
                         chip.child(
@@ -737,7 +739,11 @@ impl ScreensPanel {
             // on a visible chip, a team switch) shifts every index after it,
             // which would activate the wrong tab. Tabs are deduped by screen,
             // so it is a stable identity.
-            let hidden_entries: Vec<(Screen, Option<IssueStatus>, gpui::SharedString)> = hidden
+            let hidden_entries: Vec<(
+                Screen,
+                Option<domain::statuses::ResolvedStatus>,
+                gpui::SharedString,
+            )> = hidden
                 .iter()
                 .map(|&ix| {
                     let screen = self.tabs[ix].screen.clone();
@@ -770,9 +776,8 @@ impl ScreensPanel {
                             let panel = panel.clone();
                             let screen = screen.clone();
                             let mut item = PopupMenuItem::new(title.clone());
-                            if let Some(status) = *status {
-                                item =
-                                    item.icon(option_icon(get_issue_status_config(status), cx));
+                            if let Some(status) = status {
+                                item = item.icon(crate::icons::resolved_status_icon(status, cx));
                             }
                             menu = menu.item(item.on_click(
                                 move |_, window, cx| {

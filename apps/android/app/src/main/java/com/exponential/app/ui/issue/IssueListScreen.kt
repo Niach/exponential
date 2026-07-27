@@ -68,10 +68,11 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.issuePriorityOrder
-import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
@@ -130,7 +131,8 @@ fun IssueListScreen(
     var showCreateBoard by remember { mutableStateOf(false) }
     var showCreateTeam by remember { mutableStateOf(false) }
     var showJoinTeam by remember { mutableStateOf(false) }
-    var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
+    // Collapse state keys on the GROUP KEY (status row id / `builtin:<key>`).
+    var collapsed by remember { mutableStateOf(emptySet<String>()) }
 
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
     // the floating selection bar acts on the whole selection. Mode is active
@@ -156,8 +158,12 @@ fun IssueListScreen(
     val selectedEntries = remember(state.groups, selectedIds) {
         state.groups.flatMap { it.issues }.filter { it.issue.id in selectedIds }
     }
-    val sharedStatus = remember(selectedEntries) {
-        selectedEntries.map { IssueStatus.fromWire(it.issue.status) }.distinct().singleOrNull()
+    // Each row's resolved status IS its group's — no re-resolution needed.
+    val statusByIssueId = remember(state.groups) {
+        state.groups.flatMap { group -> group.issues.map { it.issue.id to group.status } }.toMap()
+    }
+    val sharedStatus = remember(statusByIssueId, selectedIds) {
+        selectedIds.mapNotNull { statusByIssueId[it] }.distinctBy { it.id }.singleOrNull()
     }
     val sharedPriority = remember(selectedEntries) {
         selectedEntries.map { IssuePriority.fromWire(it.issue.priority) }.distinct().singleOrNull()
@@ -384,8 +390,8 @@ fun IssueListScreen(
                     permissions = permissions,
                     soloMemberId = soloMemberId,
                     collapsed = collapsed,
-                    onToggleCollapsed = { status, isCollapsed ->
-                        collapsed = if (isCollapsed) collapsed - status else collapsed + status
+                    onToggleCollapsed = { groupKey, isCollapsed ->
+                        collapsed = if (isCollapsed) collapsed - groupKey else collapsed + groupKey
                     },
                     onOpenIssue = onOpenIssue,
                     onInlineStatus = { id -> inlineEdit = InlineEdit(id, InlineKind.Status) },
@@ -429,9 +435,11 @@ fun IssueListScreen(
     when (bulkSheet) {
         BulkSheet.Status -> IssuePickerSheet(
             title = "Status",
-            items = issueStatusOrder.filter { it != IssueStatus.Duplicate },
+            // Duplicate is set through the mark-duplicate flow, never picked.
+            items = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
             selected = sharedStatus,
-            labelOf = { it.label },
+            keyOf = { it.id },
+            labelOf = { it.name },
             leadingContent = { StatusIcon(it, size = 18.dp) },
             onSelect = {
                 viewModel.bulkUpdateStatus(selectedIds, it)
@@ -485,9 +493,10 @@ fun IssueListScreen(
         when (edit.kind) {
             InlineKind.Status -> IssuePickerSheet(
                 title = "Status",
-                items = issueStatusOrder.filter { it != IssueStatus.Duplicate },
-                selected = editIssue?.let { IssueStatus.fromWire(it.status) },
-                labelOf = { it.label },
+                items = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
+                selected = statusByIssueId[edit.issueId],
+                keyOf = { it.id },
+                labelOf = { it.name },
                 leadingContent = { StatusIcon(it, size = 18.dp) },
                 onSelect = { viewModel.updateStatus(edit.issueId, it) },
                 onDismiss = { inlineEdit = null },
@@ -508,6 +517,7 @@ fun IssueListScreen(
         IssueFilterSheet(
             filters = state.filters,
             labels = state.labels,
+            statuses = state.teamStatuses,
             onToggleStatus = viewModel::toggleStatus,
             onTogglePriority = viewModel::togglePriority,
             onToggleLabel = viewModel::toggleLabel,
@@ -631,8 +641,8 @@ private fun IssueListContent(
     state: IssueListState,
     permissions: TeamPermissions,
     soloMemberId: String?,
-    collapsed: Set<IssueStatus>,
-    onToggleCollapsed: (IssueStatus, Boolean) -> Unit,
+    collapsed: Set<String>,
+    onToggleCollapsed: (groupKey: String, collapsed: Boolean) -> Unit,
     onOpenIssue: (String) -> Unit,
     onInlineStatus: (String) -> Unit,
     onInlinePriority: (String) -> Unit,
@@ -661,6 +671,7 @@ private fun IssueListContent(
                     ActiveFilterPills(
                         filters = state.filters,
                         labels = state.labels,
+                        statuses = state.teamStatuses,
                         onToggleStatus = viewModel::toggleStatus,
                         onTogglePriority = viewModel::togglePriority,
                         onToggleLabel = viewModel::toggleLabel,
@@ -683,13 +694,13 @@ private fun IssueListContent(
                 }
             } else {
                 state.groups.forEach { group ->
-                    val isCollapsed = group.status in collapsed
-                    item(key = "header-${group.status.wire}") {
+                    val isCollapsed = group.status.id in collapsed
+                    item(key = "header-${group.status.id}") {
                         StatusHeader(
                             status = group.status,
                             count = group.issues.size,
                             collapsed = isCollapsed,
-                            onToggle = { onToggleCollapsed(group.status, isCollapsed) },
+                            onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
                         )
                     }
                     if (!isCollapsed) {
@@ -707,6 +718,8 @@ private fun IssueListContent(
                             IssueRow(
                                 issue = entry.issue,
                                 labels = entry.labels,
+                                // The row's status is its group's resolved row.
+                                resolvedStatus = group.status,
                                 // Solo teams hide the assignee avatar (one member).
                                 assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
                                 selected = if (selectionActive) entry.issue.id in selectedIds else null,
@@ -816,7 +829,7 @@ private fun FilterButton(count: Int, onClick: () -> Unit) {
 
 @Composable
 private fun StatusHeader(
-    status: IssueStatus,
+    status: ResolvedIssueStatus,
     count: Int,
     collapsed: Boolean,
     onToggle: () -> Unit,
@@ -838,7 +851,7 @@ private fun StatusHeader(
         StatusIcon(status, size = 14.dp)
         Spacer(Modifier.width(8.dp))
         Text(
-            status.label,
+            status.name,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
@@ -867,6 +880,11 @@ internal fun IssueRow(
     // Null leaves the glyphs as plain decorations (SearchScreen, selection mode).
     onStatusClick: (() -> Unit)? = null,
     onPriorityClick: (() -> Unit)? = null,
+    // EXP-314: the per-board list passes the issue's RESOLVED team status row
+    // (custom name/color/clock glyph). Cross-team callers (search, My Issues)
+    // leave it null and get the anchor-enum glyph, which is correct for the
+    // builtins and never wrong-team.
+    resolvedStatus: ResolvedIssueStatus? = null,
 ) {
     val status = IssueStatus.fromWire(issue.status)
     val priority = IssuePriority.fromWire(issue.priority)
@@ -928,7 +946,11 @@ internal fun IssueRow(
             modifier = Modifier.widthIn(min = 60.dp),
         )
         IconColumn(onClick = onStatusClick, onLongClick = onLongClick) {
-            StatusIcon(status, size = 16.dp)
+            if (resolvedStatus != null) {
+                StatusIcon(resolvedStatus, size = 16.dp)
+            } else {
+                StatusIcon(status, size = 16.dp)
+            }
         }
         Text(
             issue.title,
@@ -1051,7 +1073,7 @@ private fun IconColumn(
 @Composable
 private fun SelectionBar(
     count: Int,
-    sharedStatus: IssueStatus?,
+    sharedStatus: ResolvedIssueStatus?,
     sharedPriority: IssuePriority?,
     showAssignee: Boolean,
     showStartCoding: Boolean,

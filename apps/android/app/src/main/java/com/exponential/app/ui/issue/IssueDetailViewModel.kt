@@ -35,8 +35,9 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
-import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
@@ -123,6 +124,25 @@ class IssueDetailViewModel @Inject constructor(
             if (db == null || board == null) flowOf(emptyList())
             else db.labelDao().observeByTeam(board.teamId)
         }
+    // The board team's status rows (EXP-314) — the detail picker's vocabulary
+    // and the chip's label/glyph. Falls back to the constructed builtins until
+    // the issue_statuses shape has synced.
+    val teamStatuses: StateFlow<List<ResolvedIssueStatus>> =
+        combine(dbFlow, _board) { db, board -> db to board }
+            .flatMapLatest { (db, board) ->
+                if (db == null || board == null) flowOf(emptyList())
+                else db.issueStatusDao().observeByTeam(board.teamId)
+            }
+            .map { rows ->
+                if (rows.isEmpty()) IssueStatusResolver.builtinDefaults
+                else IssueStatusResolver.teamStatuses(rows)
+            }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                IssueStatusResolver.builtinDefaults,
+            )
+
     private val teamForBoard = combine(dbFlow, _board) { db, board -> db to board }
         .flatMapLatest { (db, board) ->
             if (db == null || board == null) flowOf(null)
@@ -834,11 +854,23 @@ class IssueDetailViewModel @Inject constructor(
         }
     }
 
-    fun updateStatus(status: IssueStatus) {
+    /**
+     * Write the picked status ROW (EXP-314). A constructed `builtin:<key>`
+     * fallback (the statuses shape hasn't synced yet) goes out as the enum
+     * anchor instead — the server takes `status` XOR `statusId`.
+     */
+    fun updateStatus(status: ResolvedIssueStatus) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, status = status.wire))
+                issuesApi.update(
+                    accountId,
+                    UpdateIssueInput(
+                        id = issueId,
+                        status = status.anchorWireOrNull(),
+                        statusId = status.rowId,
+                    ),
+                )
             }.onFailure { reportMutationFailure(it, "The status could not be changed") }
         }
     }
@@ -1145,7 +1177,9 @@ data class PendingFileUpload(
 )
 
 // Terminal issue statuses that make an issue ineligible to start a NEW coding
-// run (the current issue is exempt — see startCandidates).
+// run (the current issue is exempt — see startCandidates). An ANCHOR set
+// (EXP-314): every row still carries one of the 7 enum values, and a custom
+// status inherits its anchor's eligibility.
 private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")
 
 // Description saves fired while leaving the issue screen must outlive the

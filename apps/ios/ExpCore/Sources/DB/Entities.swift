@@ -199,7 +199,15 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let identifier: String?
     public let title: String
     public let description: String?
+    // The BUILTIN ANCHOR (EXP-314): still the 7-value `issue_status` enum, and
+    // still dual-written by the server for every status change. Custom statuses
+    // anchor to their category's builtin, so anchor-keyed surfaces (cross-team
+    // grouping, terminal-set checks, coding gates) keep working verbatim.
     public let status: String
+    /// The team's `issue_statuses` row this issue sits in (EXP-314). NULL on a
+    /// pre-backfill snapshot or an older server — resolution falls back to the
+    /// team row matching `status`, then to a constructed builtin default.
+    public let statusId: String?
     public let priority: String
     public let assigneeId: String?
     public let creatorId: String?
@@ -231,6 +239,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         title: String,
         description: String?,
         status: String,
+        statusId: String? = nil,
         priority: String,
         assigneeId: String?,
         creatorId: String?,
@@ -254,6 +263,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.title = title
         self.description = description
         self.status = status
+        self.statusId = statusId
         self.priority = priority
         self.assigneeId = assigneeId
         self.creatorId = creatorId
@@ -273,6 +283,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
 
     enum CodingKeys: String, CodingKey {
         case id, title, description, status, priority, number, identifier, branch, source
+        case statusId = "status_id"
         case boardId = "board_id"
         case assigneeId = "assignee_id"
         case creatorId = "creator_id"
@@ -303,6 +314,7 @@ extension IssueEntity: Codable {
         title = try container.decode(String.self, forKey: .title)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         status = try container.decode(String.self, forKey: .status)
+        statusId = try container.decodeIfPresent(String.self, forKey: .statusId)
         priority = try container.decode(String.self, forKey: .priority)
         assigneeId = try container.decodeIfPresent(String.self, forKey: .assigneeId)
         creatorId = try container.decodeIfPresent(String.self, forKey: .creatorId)
@@ -579,6 +591,81 @@ extension LabelEntity: Codable {
         name = try c.decode(String.self, forKey: .name)
         color = try c.decode(String.self, forKey: .color)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// MARK: - IssueStatus row
+
+// Custom issue statuses (EXP-314 — the 16th Electric shape). Team-scoped like
+// labels. Every team carries 7 LOCKED builtin rows (`builtin_key` = the
+// `issue_status` enum value they anchor); custom rows have a NULL
+// `builtin_key`. Builtin rows render TODAY's design-token colors, not the
+// synced `color` hex — see `ResolvedIssueStatus.color` in ExpUI.
+public struct IssueStatusEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "issue_statuses"
+
+    public let id: String
+    public let teamId: String
+    /// One of `DomainContract.issueStatusCategoryValues`. Kept as a raw string
+    /// so a newer server's category never fails hydration — it is typed
+    /// tolerantly at use through `IssueStatusCategory.from(_:)`.
+    public let category: String
+    public let name: String
+    /// Hex swatch from the shared label palette. Only CUSTOM rows render it.
+    public let color: String?
+    public let sortOrder: Double?
+    /// Non-nil ⇒ one of the 7 locked builtin rows; nil ⇒ a custom status.
+    public let builtinKey: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        category: String,
+        name: String,
+        color: String? = nil,
+        sortOrder: Double? = nil,
+        builtinKey: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.category = category
+        self.name = name
+        self.color = color
+        self.sortOrder = sortOrder
+        self.builtinKey = builtinKey
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, category, name, color
+        case teamId = "team_id"
+        case sortOrder = "sort_order"
+        case builtinKey = "builtin_key"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: sort_order arrives off the Electric wire as a JSON string
+// (Postgres text) but as a native number from tRPC/fixtures — the LabelEntity
+// pattern. A same-file extension keeps encode(to:) synthesis.
+extension IssueStatusEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        category = try c.decode(String.self, forKey: .category)
+        name = try c.decode(String.self, forKey: .name)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
+        builtinKey = try c.decodeIfPresent(String.self, forKey: .builtinKey)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

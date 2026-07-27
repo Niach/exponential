@@ -6,7 +6,7 @@
 //! tidiness for its own sake:
 //!
 //! * **One connection instead of fifteen.** The old `ureq` agent was HTTP/1.1
-//!   only, so each of the 15 shape threads dialled its own socket. Every launch
+//!   only, so each of the 16 shape threads dialled its own socket. Every launch
 //!   fired 15 simultaneous cold DNS lookups and TLS handshakes at the instance,
 //!   and that storm — not the amount of data — is what put ~10s between opening
 //!   a client and seeing current state (the mobile clients had the same shape of
@@ -41,7 +41,7 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// `sync::client::LIVE_READ_TIMEOUT`.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Idle connections kept per host. One per shape (15) plus tRPC headroom, so a
+/// Idle connections kept per host. One per shape (16) plus tRPC headroom, so a
 /// poll cycle reuses connections instead of re-dialling — HTTP/2 collapses
 /// these into one anyway, but the HTTP/1.1 fallback (plain-HTTP local dev)
 /// needs the room.
@@ -54,7 +54,7 @@ fn build() -> Client {
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(DEFAULT_TIMEOUT)
         .pool_max_idle_per_host(POOL_MAX_IDLE_PER_HOST)
-        // All 15 shape long-polls ride ONE connection once HTTP/2 is
+        // All 16 shape long-polls ride ONE connection once HTTP/2 is
         // negotiated, so a connection the network killed silently would stall
         // every one of them until its own 90s budget expired. TCP keepalive
         // probes surface that in ~30s — and, unlike HTTP/2 pings (which

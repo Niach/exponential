@@ -6,7 +6,11 @@ use std::collections::HashMap;
 
 use crate::enums::{IssuePriority, IssueStatus};
 use crate::filters::{matches_filters, IssueFilters};
-use crate::rows::{Issue, IssueLabel};
+use crate::rows::{Issue, IssueLabel, IssueStatusRow};
+use crate::statuses::{
+    resolve_status_sorted, sort_team_statuses, team_resolved_statuses, IssueStatusCategory,
+    ResolvedStatus,
+};
 
 /// Web `priorityRank` — sort weight inside a status group.
 fn priority_rank(priority: IssuePriority) -> u8 {
@@ -24,6 +28,12 @@ fn priority_rank(priority: IssuePriority) -> u8 {
 /// Web `isIssueOverdue`. `today` is a `YYYY-MM-DD` date string; `due_date`
 /// compares lexicographically (ISO dates order correctly as strings — the
 /// same `<` the TS uses).
+///
+/// EXP-314: deliberately ANCHOR-based. Every closed-ish CATEGORY writes one of
+/// these three anchors (`completed → done`, `cancelled → cancelled`,
+/// `duplicate → duplicate`), so a custom status is classified correctly
+/// without a status-row join — which keeps this usable from the cross-team
+/// surfaces (search, My Issues) that have no single team's rows.
 pub fn is_issue_overdue(issue: &Issue, today: &str) -> bool {
     match issue.due_date.as_deref() {
         Some(due) => {
@@ -36,30 +46,33 @@ pub fn is_issue_overdue(issue: &Issue, today: &str) -> bool {
     }
 }
 
-/// Web `compareIssuesForGroup(status, today)` — the EXP-38 canonical
-/// per-status comparator, identical on web / iOS / Android / desktop:
+/// Web `compareIssuesForGroup(category, today)` — the EXP-38 canonical
+/// per-group comparator, identical on web / iOS / Android / desktop. EXP-314
+/// switched the discriminant from the status ENUM to the group's resolved
+/// CATEGORY; the branches are unchanged (each old enum value is the anchor of
+/// exactly one of these categories):
 ///
-/// - **backlog / todo / in_progress**: overdue first, then priority rank
-///   ascending, then earliest due date (dated before undated), then issue
-///   `number` ascending — numerically, never identifier-string order (and
-///   never `sort_order`/`created_at`).
-/// - **done**: latest completed first — key `completed_at ?? updated_at`,
+/// - **backlog / unstarted / started (and unknown)**: overdue first, then
+///   priority rank ascending, then earliest due date (dated before undated),
+///   then issue `number` ascending — numerically, never identifier-string
+///   order (and never `sort_order`/`created_at`).
+/// - **completed**: latest completed first — key `completed_at ?? updated_at`,
 ///   descending.
 /// - **cancelled / duplicate**: `updated_at` descending.
-fn compare_issues_for_group(
+pub fn compare_issues_for_group(
     a: &Issue,
     b: &Issue,
-    status: IssueStatus,
+    category: IssueStatusCategory,
     today: &str,
 ) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
-    match status {
-        IssueStatus::Done => cmp_recency_desc(
+    match category {
+        IssueStatusCategory::Completed => cmp_recency_desc(
             a.completed_at.as_deref().or(a.updated_at.as_deref()),
             b.completed_at.as_deref().or(b.updated_at.as_deref()),
         ),
-        IssueStatus::Cancelled | IssueStatus::Duplicate => {
+        IssueStatusCategory::Cancelled | IssueStatusCategory::Duplicate => {
             cmp_recency_desc(a.updated_at.as_deref(), b.updated_at.as_deref())
         }
         _ => {
@@ -109,10 +122,11 @@ fn normalize_timestamp(ts: &str) -> String {
     ts.replacen(' ', "T", 1)
 }
 
-/// Web `interface IssueGroup`.
+/// Web `interface IssueGroup`. EXP-314: one group per TEAM STATUS ROW (keyed
+/// by [`ResolvedStatus::group_key`]), not per enum value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct IssueGroup {
-    pub status: IssueStatus,
+    pub status: ResolvedStatus,
     pub issues: Vec<Issue>,
 }
 
@@ -127,13 +141,17 @@ pub fn build_issue_label_ids_map(issue_labels: &[IssueLabel]) -> HashMap<String,
     map
 }
 
-/// Web `buildFilteredIssues(issues, issueLabelIdsMap, filters)`.
+/// Web `buildFilteredIssues(issues, issueLabelIdsMap, filters)`. EXP-314: the
+/// status filter matches on the issue's RESOLVED group key, so `team_rows`
+/// (the team's `issue_statuses`, any order) rides along.
 pub fn build_filtered_issues(
     issues: Vec<Issue>,
     issue_label_ids: &HashMap<String, Vec<String>>,
+    team_rows: &[IssueStatusRow],
     filters: &IssueFilters,
 ) -> Vec<Issue> {
     const NO_LABELS: &[String] = &[];
+    let sorted = sort_team_statuses(team_rows);
     issues
         .into_iter()
         .filter(|issue| {
@@ -141,41 +159,72 @@ pub fn build_filtered_issues(
                 .get(&issue.id)
                 .map(Vec::as_slice)
                 .unwrap_or(NO_LABELS);
-            matches_filters(issue, label_ids, filters)
+            let status_key = resolve_status_sorted(issue, &sorted).group_key;
+            matches_filters(issue, label_ids, &status_key, filters)
         })
         .collect()
 }
 
-/// Web `buildVisibleIssueGroups(issues, statuses)`: group by status in the
-/// domain display order (web `issueStatusOrder` == `DISPLAY_ORDER`), sort
-/// each group with the EXP-38 per-status comparator above, then EITHER keep
-/// exactly the status-filtered groups (even when empty) OR hide empty groups
-/// when no status filter is active. `today` is `YYYY-MM-DD` (web computes it
-/// via `formatDateForMutation(new Date())`).
-pub fn build_visible_issue_groups(
+/// EXP-314 `buildVisibleIssueGroups`: ONE group per team status row, in
+/// [`team_resolved_statuses`] order; each issue joins the group its
+/// [`resolve_status_sorted`] resolves to. Groups are sorted with the EXP-38
+/// per-CATEGORY comparator above, then EITHER exactly the status-filtered
+/// groups are kept (even when empty) OR empty groups are hidden when no
+/// status filter is active — unchanged web semantics. `today` is `YYYY-MM-DD`
+/// (web computes it via `formatDateForMutation(new Date())`).
+///
+/// `selected_group_keys` are group keys (row ids, or `builtin:<key>` for the
+/// constructed pre-sync vocabulary); unknown keys are simply never matched.
+pub fn build_status_groups(
     issues: &[Issue],
-    statuses: &[IssueStatus],
+    team_rows: &[IssueStatusRow],
+    selected_group_keys: &[String],
     today: &str,
 ) -> Vec<IssueGroup> {
-    let mut groups: Vec<IssueGroup> = IssueStatus::DISPLAY_ORDER
-        .iter()
-        .map(|&status| {
-            let mut group_issues: Vec<Issue> = issues
-                .iter()
-                .filter(|issue| issue.status == status)
-                .cloned()
-                .collect();
-            // `.sort()` in JS is stable; mirror with sort_by (stable in Rust).
-            group_issues.sort_by(|a, b| compare_issues_for_group(a, b, status, today));
-            IssueGroup {
-                status,
-                issues: group_issues,
-            }
-        })
-        .collect();
+    let sorted = sort_team_statuses(team_rows);
+    let vocabulary = team_resolved_statuses(&sorted);
 
-    if !statuses.is_empty() {
-        groups.retain(|group| statuses.contains(&group.status));
+    // Bucket every issue by its resolved group key. A key outside the
+    // vocabulary (an unknown anchor while real rows exist) still gets a group
+    // — an issue must never silently vanish from its board.
+    let mut buckets: HashMap<String, (ResolvedStatus, Vec<Issue>)> = HashMap::new();
+    let mut extra_order: Vec<String> = Vec::new();
+    for issue in issues {
+        let resolved = resolve_status_sorted(issue, &sorted);
+        let key = resolved.group_key.clone();
+        let entry = buckets.entry(key.clone()).or_insert_with(|| {
+            if !vocabulary.iter().any(|status| status.group_key == key) {
+                extra_order.push(key.clone());
+            }
+            (resolved, Vec::new())
+        });
+        entry.1.push(issue.clone());
+    }
+
+    let mut groups: Vec<IssueGroup> = Vec::with_capacity(vocabulary.len() + extra_order.len());
+    for status in vocabulary {
+        let issues = buckets
+            .remove(&status.group_key)
+            .map(|(_, issues)| issues)
+            .unwrap_or_default();
+        groups.push(IssueGroup { status, issues });
+    }
+    for key in extra_order {
+        if let Some((status, issues)) = buckets.remove(&key) {
+            groups.push(IssueGroup { status, issues });
+        }
+    }
+
+    for group in &mut groups {
+        // `.sort()` in JS is stable; mirror with sort_by (stable in Rust).
+        let category = group.status.category;
+        group
+            .issues
+            .sort_by(|a, b| compare_issues_for_group(a, b, category, today));
+    }
+
+    if !selected_group_keys.is_empty() {
+        groups.retain(|group| selected_group_keys.contains(&group.status.group_key));
         return groups;
     }
 
@@ -221,6 +270,7 @@ pub fn format_short_date(date: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::statuses::DEFAULT_STATUSES;
     use serde_json::json;
 
     fn issue(id: &str, status: &str, priority: &str, due: Option<&str>) -> Issue {
@@ -266,6 +316,50 @@ mod tests {
         serde_json::from_value(json!({ "issue_id": issue_id, "label_id": label_id })).unwrap()
     }
 
+    /// The 7 seeded builtin rows of one team (what every real team has).
+    fn builtin_rows() -> Vec<IssueStatusRow> {
+        DEFAULT_STATUSES
+            .iter()
+            .enumerate()
+            .map(|(ix, default)| {
+                serde_json::from_value(json!({
+                    "id": format!("row-{}", default.key),
+                    "team_id": "t-1",
+                    "category": default.category,
+                    "name": default.name,
+                    "color": "#a1a1aa",
+                    "sort_order": default.sort_order,
+                    "builtin_key": default.key,
+                    "created_at": format!("2026-01-01 00:00:0{ix}+00"),
+                }))
+                .unwrap()
+            })
+            .collect()
+    }
+
+    fn custom_row(id: &str, category: &str, name: &str, sort: f64) -> IssueStatusRow {
+        serde_json::from_value(json!({
+            "id": id,
+            "team_id": "t-1",
+            "category": category,
+            "name": name,
+            "color": "#22c55e",
+            "sort_order": sort,
+            "created_at": "2026-02-01 00:00:00+00",
+        }))
+        .unwrap()
+    }
+
+    /// `issues.status_id` pointing at a row.
+    fn with_status_id(mut issue: Issue, status_id: &str) -> Issue {
+        issue.status_id = Some(status_id.to_string());
+        issue
+    }
+
+    fn group_names(groups: &[IssueGroup]) -> Vec<&str> {
+        groups.iter().map(|g| g.status.name.as_str()).collect()
+    }
+
     const TODAY: &str = "2026-07-03";
 
     #[test]
@@ -279,7 +373,7 @@ mod tests {
             &issue("a", "todo", "none", Some("2026-07-03")),
             TODAY
         ));
-        // Closed-ish statuses are never overdue.
+        // Closed-ish anchors are never overdue.
         for closed in ["done", "cancelled", "duplicate"] {
             assert!(!is_issue_overdue(
                 &issue("a", closed, "none", Some("2020-01-01")),
@@ -301,7 +395,7 @@ mod tests {
             issue_n("high-n9", 9, "todo", "high", Some("2026-07-20")),
             issue_n("high-n8", 8, "todo", "high", Some("2026-07-20")),
         ];
-        let groups = build_visible_issue_groups(&issues, &[], TODAY);
+        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
         assert_eq!(groups.len(), 1);
         let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(
@@ -324,14 +418,14 @@ mod tests {
             issue_n("n10", 10, "todo", "none", None),
             issue_n("n2", 2, "todo", "none", None),
         ];
-        let groups = build_visible_issue_groups(&issues, &[], TODAY);
+        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
         let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
         // "10" < "2" as strings — numeric compare must win.
         assert_eq!(order, vec!["n2", "n10"]);
     }
 
     #[test]
-    fn done_group_sorts_latest_completed_first_with_updated_fallback() {
+    fn completed_group_sorts_latest_completed_first_with_updated_fallback() {
         let issues = vec![
             closed_issue(
                 "old-done",
@@ -350,7 +444,7 @@ mod tests {
             // Neither key → sorts last.
             closed_issue("keyless", "done", None, None),
         ];
-        let groups = build_visible_issue_groups(&issues, &[], TODAY);
+        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
         assert_eq!(groups.len(), 1);
         let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(order, vec!["fallback", "new-done", "old-done", "keyless"]);
@@ -366,7 +460,7 @@ mod tests {
                 // chronological position (the space→T normalization).
                 closed_issue("newest", status, None, Some("2026-07-02T09:00:00Z")),
             ];
-            let groups = build_visible_issue_groups(&issues, &[], TODAY);
+            let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
             assert_eq!(groups.len(), 1);
             let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
             assert_eq!(order, vec!["newest", "newer", "older"], "status {status}");
@@ -374,33 +468,88 @@ mod tests {
     }
 
     #[test]
-    fn groups_follow_display_order_and_hide_empty() {
+    fn custom_status_groups_use_their_categorys_comparator() {
+        // A custom `completed` status sorts by completed_at desc like Done,
+        // and a custom `started` one by the open branch.
+        let mut rows = builtin_rows();
+        rows.push(custom_row("shipped", "completed", "Shipped", 2.0));
+        rows.push(custom_row("qa", "started", "QA", 3.0));
+
+        let issues = vec![
+            with_status_id(
+                closed_issue("old", "done", Some("2026-07-01 08:00:00+00"), None),
+                "shipped",
+            ),
+            with_status_id(
+                closed_issue("new", "done", Some("2026-07-02 08:00:00+00"), None),
+                "shipped",
+            ),
+            with_status_id(issue_n("qa-low", 2, "in_progress", "low", None), "qa"),
+            with_status_id(issue_n("qa-urgent", 3, "in_progress", "urgent", None), "qa"),
+        ];
+        let groups = build_status_groups(&issues, &rows, &[], TODAY);
+        assert_eq!(group_names(&groups), vec!["QA", "Shipped"]);
+        let qa: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(qa, vec!["qa-urgent", "qa-low"]);
+        let shipped: Vec<&str> = groups[1].issues.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(shipped, vec!["new", "old"]);
+    }
+
+    #[test]
+    fn groups_follow_team_status_order_and_hide_empty() {
         let issues = vec![
             issue("d", "done", "none", None),
             issue("t", "todo", "none", None),
             issue("i", "in_progress", "none", None),
         ];
-        let groups = build_visible_issue_groups(&issues, &[], TODAY);
-        let statuses: Vec<IssueStatus> = groups.iter().map(|g| g.status).collect();
-        // Display order with empty groups (backlog/cancelled/duplicate) hidden.
-        assert_eq!(
-            statuses,
-            vec![IssueStatus::InProgress, IssueStatus::Todo, IssueStatus::Done]
-        );
+        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+        // Category display order with empty groups hidden.
+        assert_eq!(group_names(&groups), vec!["In Progress", "Todo", "Done"]);
+        // Group keys are the ROW ids.
+        assert_eq!(groups[0].status.group_key, "row-in_progress");
+    }
+
+    #[test]
+    fn groups_fall_back_to_the_constructed_vocabulary_before_the_shape_syncs() {
+        // No `issue_statuses` rows yet: the board still renders, keyed by the
+        // constructed `builtin:<key>` defaults.
+        let issues = vec![
+            issue("i", "in_progress", "none", None),
+            issue("t", "todo", "none", None),
+        ];
+        let groups = build_status_groups(&issues, &[], &[], TODAY);
+        assert_eq!(group_names(&groups), vec!["In Progress", "Todo"]);
+        assert_eq!(groups[0].status.group_key, "builtin:in_progress");
+        assert!(groups[0].status.is_fallback());
+    }
+
+    #[test]
+    fn an_unresolvable_issue_still_gets_a_group() {
+        // Forward-compat: an unknown anchor with real rows synced resolves to
+        // the CONSTRUCTED backlog default, whose key is not in the vocabulary
+        // — it must still render, appended after the known groups.
+        let issues = vec![
+            issue("known", "todo", "none", None),
+            issue("weird", "triaged", "none", None),
+        ];
+        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+        assert_eq!(group_names(&groups), vec!["Todo", "Backlog"]);
+        assert_eq!(groups[1].status.group_key, "builtin:backlog");
+        assert_eq!(groups[1].issues.len(), 1);
     }
 
     #[test]
     fn status_filter_keeps_selected_groups_even_when_empty() {
-        // web: `if (statuses.length > 0) return groups.filter((g) =>
-        // statuses.includes(g.status))` — WITHOUT the emptiness filter.
+        // web: `if (keys.length > 0) return groups.filter((g) =>
+        // keys.includes(g.key))` — WITHOUT the emptiness filter.
         let issues = vec![issue("t", "todo", "none", None)];
-        let groups = build_visible_issue_groups(
+        let groups = build_status_groups(
             &issues,
-            &[IssueStatus::InProgress, IssueStatus::Todo],
+            &builtin_rows(),
+            &["row-in_progress".to_string(), "row-todo".to_string()],
             TODAY,
         );
-        let statuses: Vec<IssueStatus> = groups.iter().map(|g| g.status).collect();
-        assert_eq!(statuses, vec![IssueStatus::InProgress, IssueStatus::Todo]);
+        assert_eq!(group_names(&groups), vec!["In Progress", "Todo"]);
         assert!(groups[0].issues.is_empty());
         assert_eq!(groups[1].issues.len(), 1);
     }
@@ -421,9 +570,26 @@ mod tests {
             issue("i-2", "todo", "none", None),
             issue("i-3", "todo", "none", None),
         ];
-        let filtered = build_filtered_issues(issues, &map, &filters);
+        let filtered = build_filtered_issues(issues, &map, &builtin_rows(), &filters);
         let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["i-1"]);
+    }
+
+    #[test]
+    fn status_filter_matches_the_resolved_group_key() {
+        let mut rows = builtin_rows();
+        rows.push(custom_row("qa", "started", "QA", 3.0));
+        let issues = vec![
+            with_status_id(issue("in-qa", "in_progress", "none", None), "qa"),
+            issue("in-progress", "in_progress", "none", None),
+        ];
+        let filters = IssueFilters {
+            status_keys: vec!["qa".to_string()],
+            ..Default::default()
+        };
+        let filtered = build_filtered_issues(issues, &HashMap::new(), &rows, &filters);
+        let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, vec!["in-qa"]);
     }
 
     #[test]
@@ -434,10 +600,9 @@ mod tests {
             issue_n("todo-low", 1, "todo", "low", None),
             issue("wip", "in_progress", "none", None),
         ];
-        // No status filter: empty groups (backlog/cancelled/duplicate) are
-        // already hidden; flatten preserves group display order + in-group
-        // comparator order.
-        let groups = build_visible_issue_groups(&issues, &[], TODAY);
+        // No status filter: empty groups are already hidden; flatten preserves
+        // group order + in-group comparator order.
+        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
         assert_eq!(
             flatten_group_issue_ids(&groups),
             vec!["wip", "todo-urgent", "todo-low", "done-1"]
@@ -445,9 +610,10 @@ mod tests {
 
         // Status-filtered boards keep selected-but-empty groups in the group
         // list — flatten must contribute nothing for them.
-        let groups = build_visible_issue_groups(
+        let groups = build_status_groups(
             &issues,
-            &[IssueStatus::Backlog, IssueStatus::Todo],
+            &builtin_rows(),
+            &["row-backlog".to_string(), "row-todo".to_string()],
             TODAY,
         );
         assert_eq!(

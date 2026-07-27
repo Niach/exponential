@@ -66,6 +66,10 @@ final class MyIssuesViewModel {
         boardTask = nil
     }
 
+    /// EXP-314: "Assigned to you" spans TEAMS, and status rows are
+    /// team-scoped — grouping by row id would split one "In Progress" into a
+    /// group per team. Cross-team surfaces therefore keep ANCHOR-enum
+    /// grouping; only the per-board list groups by resolved status row.
     func issuesForStatus(_ status: IssueStatus) -> [IssueEntity] {
         // Canonical in-group ordering (EXP-38) — same comparator as the
         // board board, so "Assigned to you" matches every other surface.

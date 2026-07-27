@@ -7,11 +7,12 @@ import kotlinx.coroutines.flow.flow
 
 /**
  * The shapes every issue surface reads from. A refresh waits on exactly these
- * (the other nine — comments, attachments, notifications, events, … — are not
+ * (the other ten — comments, attachments, notifications, events, … — are not
  * what "the list is stale" means), and the "Syncing…" chip watches the same
- * set.
+ * set. `issue_statuses` joined in EXP-314: the list's group headers ARE that
+ * shape's rows, so a stale one shows the wrong statuses.
  */
-val CORE_SHAPES = setOf("teams", "boards", "issues", "issue_labels", "labels")
+val CORE_SHAPES = setOf("teams", "boards", "issues", "issue_labels", "labels", "issue_statuses")
 
 /**
  * How long after a kick we keep admitting that we might be behind. An offline

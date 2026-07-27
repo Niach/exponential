@@ -2,6 +2,9 @@ package com.exponential.app.ui.theme
 
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ResolvedIssueStatus
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import org.junit.Assert.assertEquals
@@ -40,6 +43,49 @@ class StatusColorsTest {
         assertEquals(DesignTokens.Semantic.Yellow, statusColor(IssueStatus.InProgress))
         assertEquals(DesignTokens.Semantic.Green, statusColor(IssueStatus.InReview))
         assertEquals(DesignTokens.Semantic.Blue, statusColor(IssueStatus.Done))
+    }
+
+    /**
+     * EXP-314: a RESOLVED builtin row (and every constructed fallback) renders
+     * the same design token as before custom statuses existed — the synced
+     * near-neutral seed hex is deliberately NOT used for builtins.
+     */
+    @Test
+    fun resolvedBuiltinStatusesKeepTheirTokenColors() {
+        val byKey = IssueStatusResolver.builtinDefaults.associateBy { it.builtinKey }
+        for (status in IssueStatus.entries) {
+            assertEquals(statusColor(status), resolvedStatusColor(byKey.getValue(status)))
+        }
+    }
+
+    /** A custom row renders its own hex, never a status token. */
+    @Test
+    fun resolvedCustomStatusesUseTheirOwnColor() {
+        val custom = ResolvedIssueStatus(
+            id = "s1",
+            rowId = "s1",
+            name = "Blocked",
+            category = IssueStatusCategory.Started,
+            colorHex = "#EF4444",
+            builtinKey = null,
+            iconName = "progress-2-4",
+        )
+        assertNotEquals(statusColor(IssueStatus.InProgress), resolvedStatusColor(custom))
+    }
+
+    /** A custom row without a usable color stays neutral rather than blank. */
+    @Test
+    fun resolvedCustomStatusWithoutAColorIsNeutral() {
+        val custom = ResolvedIssueStatus(
+            id = "s2",
+            rowId = "s2",
+            name = "Blocked",
+            category = IssueStatusCategory.Backlog,
+            colorHex = null,
+            builtinKey = null,
+            iconName = "circle-dashed",
+        )
+        assertEquals(DesignTokens.Semantic.Neutral, resolvedStatusColor(custom))
     }
 
     @Test

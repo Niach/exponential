@@ -12,11 +12,11 @@ private let networkUnreadyBurst = 6
 
 /// The session every shape of ONE account shares (EXP-304).
 ///
-/// It used to be one session per shape, which meant 15 separate connections to
-/// the same host: app start fired 15 simultaneous cold DNS lookups and TLS
+/// It used to be one session per shape, which meant 16 separate connections to
+/// the same host: app start fired 16 simultaneous cold DNS lookups and TLS
 /// handshakes, and that storm — not the volume of data — is what put ~10s
 /// between launching the app and seeing current data. One session lets
-/// URLSession negotiate HTTP/2 and multiplex all 15 long-polls over a single
+/// URLSession negotiate HTTP/2 and multiplex all 16 long-polls over a single
 /// connection: one lookup, one handshake.
 ///
 /// Per ACCOUNT, never one global session: the cookie-off stance below is a

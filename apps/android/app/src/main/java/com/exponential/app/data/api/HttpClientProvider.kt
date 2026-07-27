@@ -47,14 +47,14 @@ object HttpClientModule {
         HttpClient(OkHttp) {
             expectSuccess = false
             // ENGINE CHOICE — OkHttp, not CIO (EXP-304). CIO is HTTP/1.1-only
-            // with a pure-Kotlin TLS stack, so the 15 Electric shape loops (per
+            // with a pure-Kotlin TLS stack, so the 16 Electric shape loops (per
             // signed-in account!) each opened their own connection: app start
-            // fired 15 simultaneous cold DNS lookups + TLS handshakes at the
+            // fired 16 simultaneous cold DNS lookups + TLS handshakes at the
             // same host, and that storm is what the "~10s before fresh data
             // shows up" reports were. Sync diagnostics caught it twice: 2x
-            // "Connect timeout has expired" on all 15 shapes (5s budget, twice
-            // = the reported 10s), then 10x UnresolvedAddressException on 14 of
-            // 15 while the fifteenth resolved fine — resolver contention, not a
+            // "Connect timeout has expired" on all 16 shapes (5s budget, twice
+            // = the reported 10s), then 10x UnresolvedAddressException on 15 of
+            // 16 while the sixteenth resolved fine — resolver contention, not a
             // down network. OkHttp negotiates HTTP/2 via ALPN and MULTIPLEXES
             // every shape long-poll (and every tRPC call) onto ONE connection:
             // one lookup, one handshake, one thing to keep alive. It also
@@ -65,15 +65,17 @@ object HttpClientModule {
                 config {
                     // OkHttp's Dispatcher defaults to maxRequestsPerHost = 5.
                     // The ktor OkHttp engine dispatches through `enqueue`, so
-                    // leaving that default would park 10 of the 15 shape loops
+                    // leaving that default would park 11 of the 16 shape loops
                     // behind the other 5 FOREVER — every one of them is a
                     // minutes-long live long-poll that never frees its slot.
-                    // Sized for several signed-in accounts (15 shapes each)
-                    // plus tRPC and image loads on top.
+                    // Sized for several signed-in accounts (16 shapes each,
+                    // EXP-314 added issue_statuses) plus tRPC and image loads
+                    // on top — the per-host cap MUST stay comfortably above
+                    // accounts × shapes or the extra loops starve.
                     dispatcher(
                         Dispatcher().apply {
-                            maxRequests = 128
-                            maxRequestsPerHost = 64
+                            maxRequests = 160
+                            maxRequestsPerHost = 80
                         }
                     )
                     connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))

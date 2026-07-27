@@ -849,6 +849,14 @@ pub fn prepare_with_hooks(
     // blocks the launch. Only backlog/todo flip: never downgrade
     // in_progress/in_review/done/cancelled/duplicate (client-side snapshot,
     // same guard the dialog's state hints use).
+    //
+    // EXP-314: this stays an ENUM-only write (an anchor). The gate is
+    // therefore correct for custom statuses too — an issue in a custom
+    // `started` status carries the `in_progress` anchor and is not flipped.
+    // An issue in a custom BACKLOG/UNSTARTED status IS flipped, and the
+    // server's trigger derives `status_id` from the enum, so it lands in the
+    // team's BUILTIN In Progress row (leaving its custom status). Accepted
+    // for v1: parking is a coding-flow convenience, not a status editor.
     let flip_ids: Vec<&str> = match req {
         PrepareRequest::Issue(issue_req) => matches!(
             issue_req.issue_status,

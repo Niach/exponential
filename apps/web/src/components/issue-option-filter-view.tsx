@@ -44,7 +44,12 @@ export function IssueOptionFilterView<TValue extends string>({
                   checked={selected.includes(option.value)}
                   className="pointer-events-none"
                 />
-                <Icon className={`!h-3.5 !w-3.5 ${option.color}`} />
+                <Icon
+                  className={`!h-3.5 !w-3.5 ${option.color}`}
+                  style={
+                    option.colorHex ? { color: option.colorHex } : undefined
+                  }
+                />
                 <span className="text-sm">{option.label}</span>
               </CommandItem>
             )

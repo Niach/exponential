@@ -17,6 +17,7 @@ import {
   buildIssueLabelMap,
   buildVisibleIssueGroups,
 } from "@/lib/board-view"
+import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import type { Issue, IssueLabel, Label, Board } from "@/db/schema"
 
 // Cross-board "My Issues" board data: every issue assigned to the current
@@ -84,6 +85,11 @@ export function useMyIssuesData({
   )
 
   const { userMap, users } = useTeamUsers(team?.id)
+  // EXP-314: My Issues is single-team, so it groups by the team's own status
+  // rows exactly like the board (cross-TEAM surfaces keep anchor grouping).
+  const { options: statusOptions, resolve: resolveStatus } = useTeamStatuses(
+    team?.id
+  )
 
   const issueList = (issues ?? []) as Issue[]
   const labelList = (labels ?? []) as Label[]
@@ -109,7 +115,13 @@ export function useMyIssuesData({
       totalIssueCount: issueList.length,
       users,
       userMap,
-      visibleGroups: buildVisibleIssueGroups(filteredIssues, filters.statuses),
+      visibleGroups: buildVisibleIssueGroups(
+        filteredIssues,
+        statusOptions,
+        resolveStatus,
+        filters.statusTokens
+      ),
+      statusOptions,
       team,
     }
   }, [
@@ -119,6 +131,8 @@ export function useMyIssuesData({
     issuesReady,
     labelList,
     boardMap,
+    statusOptions,
+    resolveStatus,
     userMap,
     users,
     team,

@@ -6,7 +6,7 @@
 //!
 //! * [`enums`] — typed enums with tolerant-unknown deserialization + the
 //!   board display orders (locked to the generated contract by test);
-//! * [`rows`] — the 15 hand-written shape row structs mirroring
+//! * [`rows`] — the 16 hand-written shape row structs mirroring
 //!   `packages/db-schema`, hydrated from the sync store's snake_case JSON;
 //! * [`hydrate`] — the tolerant `string → native` serde helpers (§5.5 — NOT
 //!   `BoolFromInt`; Electric booleans surface in many forms);
@@ -15,6 +15,9 @@
 //! * [`options`] — the status/priority icon+color option tables mirroring
 //!   `apps/web/src/lib/domain.ts` (§4.7; presentation as data — glyph names +
 //!   color tokens — so this crate stays gpui-free);
+//! * [`statuses`] — EXP-314 per-team custom statuses: category, tint, glyph
+//!   (the pie-clock parity table) and the resolve chain every surface renders
+//!   through;
 //! * [`board`] — `apps/web/src/lib/board-view.ts` grouping/sorting.
 //!
 //! gpui-free — headless-testable.
@@ -30,6 +33,7 @@ pub mod filters;
 pub mod hydrate;
 pub mod options;
 pub mod rows;
+pub mod statuses;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;

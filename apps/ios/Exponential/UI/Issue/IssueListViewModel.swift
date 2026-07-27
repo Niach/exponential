@@ -11,7 +11,11 @@ final class IssueListViewModel {
     var users: [UserEntity] = []
     var board: BoardEntity?
     var filters = IssueFilters()
-    var collapsedStatuses: Set<IssueStatus> = []
+    /// EXP-314: the team's `issue_statuses` rows (every synced team's rows land
+    /// in the pool; `teamStatuses` scopes them to this board's team).
+    var statusRows: [IssueStatusEntity] = []
+    /// Collapsed status GROUP KEYS (`ResolvedIssueStatus.id`), not enum values.
+    var collapsedStatuses: Set<String> = []
     var permissions: TeamPermissions = .denied
     // True while a signed-in viewer looks like a non-member ONLY because the
     // team_members shape hasn't synced yet — drives a "Syncing team…"
@@ -87,6 +91,19 @@ final class IssueListViewModel {
                 } catch {}
             }
 
+            // Observe issue statuses (team-scoped, EXP-314) — same pattern as
+            // labels: fetch all, scope to the board's team in `teamStatuses`.
+            let statusObservation = ValueObservation.tracking { db in
+                try IssueStatusEntity.fetchAll(db)
+            }
+            let statusTask = Task {
+                do {
+                    for try await rows in statusObservation.values(in: pool) {
+                        self.statusRows = rows
+                    }
+                } catch {}
+            }
+
             // Observe issue labels
             let issueLabelObservation = ValueObservation.tracking { db in
                 try IssueLabelEntity.fetchAll(db)
@@ -132,7 +149,7 @@ final class IssueListViewModel {
             }
 
             // Wait for cancellation
-            _ = await (boardTask.value, issueTask.value, labelTask.value, issueLabelTask.value, userTask.value, permsTask.value)
+            _ = await (boardTask.value, issueTask.value, labelTask.value, statusTask.value, issueLabelTask.value, userTask.value, permsTask.value)
         }
     }
 
@@ -143,22 +160,43 @@ final class IssueListViewModel {
 
     // MARK: - Computed
 
+    /// This board's team's statuses in render order (EXP-314), degrading to the
+    /// constructed builtin defaults while the shape is still syncing.
+    var teamStatuses: [ResolvedIssueStatus] {
+        guard let teamId = board?.teamId else { return IssueStatusResolver.builtinFallbackTeam }
+        return IssueStatusResolver.teamStatusesOrFallback(statusRows.filter { $0.teamId == teamId })
+    }
+
+    /// Statuses a picker may write: every team status except the duplicate
+    /// category — marking a duplicate needs the canonical-issue picker.
+    var pickableStatuses: [ResolvedIssueStatus] {
+        teamStatuses.filter { $0.category != .duplicate }
+    }
+
+    func resolved(_ issue: IssueEntity) -> ResolvedIssueStatus {
+        IssueStatusResolver.resolve(issue, team: teamStatuses)
+    }
+
     var filteredIssues: [IssueEntity] {
-        issues.filter { issue in
-            let status = IssueStatus.from(issue.status)
+        let team = teamStatuses
+        return issues.filter { issue in
+            let statusId = IssueStatusResolver.resolve(issue, team: team).id
             let priority = IssuePriority.from(issue.priority)
             let issueLabelSet = Set(issueLabels.filter { $0.issueId == issue.id }.map(\.labelId))
-            return matchesFilters(status: status, priority: priority, issueLabelIds: issueLabelSet, filters: filters)
+            return matchesFilters(statusId: statusId, priority: priority, issueLabelIds: issueLabelSet, filters: filters)
         }
     }
 
-    func issuesForStatus(_ status: IssueStatus) -> [IssueEntity] {
-        // Canonical in-group ordering (EXP-38, cross-platform contract):
-        // overdue → priority → due date → number for the non-terminal groups,
-        // resolution recency for done/cancelled/duplicate.
-        IssueSorting.sorted(
-            filteredIssues.filter { IssueStatus.from($0.status) == status },
-            status: status
+    /// One group's issues (EXP-314: grouped by resolved status row, not by the
+    /// anchor enum). Canonical in-group ordering (EXP-38, cross-platform
+    /// contract) now switches on the group's CATEGORY: overdue → priority →
+    /// due date → number for the open categories, resolution recency for
+    /// completed/cancelled/duplicate.
+    func issues(forGroup group: ResolvedIssueStatus) -> [IssueEntity] {
+        let team = teamStatuses
+        return IssueSorting.sorted(
+            filteredIssues.filter { IssueStatusResolver.resolve($0, team: team).id == group.id },
+            category: group.category
         )
     }
 
@@ -179,11 +217,11 @@ final class IssueListViewModel {
         return labels.filter { $0.teamId == teamId }
     }
 
-    func toggleStatus(_ status: IssueStatus) {
-        if filters.statuses.contains(status) {
-            filters.statuses.remove(status)
+    func toggleStatus(_ groupId: String) {
+        if filters.statusIds.contains(groupId) {
+            filters.statusIds.remove(groupId)
         } else {
-            filters.statuses.insert(status)
+            filters.statusIds.insert(groupId)
         }
     }
 
@@ -207,11 +245,11 @@ final class IssueListViewModel {
         filters = IssueFilters()
     }
 
-    func toggleStatusCollapsed(_ status: IssueStatus) {
-        if collapsedStatuses.contains(status) {
-            collapsedStatuses.remove(status)
+    func toggleStatusCollapsed(_ groupId: String) {
+        if collapsedStatuses.contains(groupId) {
+            collapsedStatuses.remove(groupId)
         } else {
-            collapsedStatuses.insert(status)
+            collapsedStatuses.insert(groupId)
         }
     }
 
@@ -224,6 +262,8 @@ final class IssueListViewModel {
     /// one-repository-per-run rule).
     func startCodingCandidates() -> [StartCodingSheet.IssueOption] {
         guard let board, let repoId = board.repositoryId else { return [] }
+        // ANCHOR set (EXP-314): a custom status anchors to one of these, so the
+        // enum check keeps gating custom terminal statuses correctly.
         let terminal: Set<String> = [
             IssueStatus.done.rawValue,
             IssueStatus.cancelled.rawValue,
@@ -250,9 +290,26 @@ final class IssueListViewModel {
 
     // MARK: - Mutations
 
+    /// Enum-only convenience write (swipe actions). Deliberately keeps sending
+    /// the ANCHOR: the server's derive trigger lands it on the team's builtin
+    /// row for that enum value, which is exactly what "swipe to done" means
+    /// (EXP-314).
     func setStatus(issueId: String, status: IssueStatus) async {
         do {
             try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, status: status.rawValue))
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Status-picker write (EXP-314): sends the row id. A CONSTRUCTED default
+    /// (the statuses shape hasn't synced) has no row id, so it falls back to
+    /// the anchor enum — the server resolves that to the same builtin row.
+    func setStatus(issueId: String, resolved: ResolvedIssueStatus) async {
+        do {
+            let input = resolved.rowId.map { UpdateIssueInput(id: issueId, statusId: $0) }
+                ?? UpdateIssueInput(id: issueId, status: resolved.anchor.rawValue)
+            try await issuesApi.update(accountId: accountId, input)
         } catch {
             self.error = error.localizedDescription
         }
@@ -292,12 +349,13 @@ final class IssueListViewModel {
     /// transactional, and past 25 ids the server deliberately drops the
     /// per-issue notification fan-out — looping `issues.update` bypassed that
     /// cap entirely (60 issues ⇒ 60 pushes) and could half-apply.
-    func bulkSetStatus(issueIds: [String], status: IssueStatus) async {
+    func bulkSetStatus(issueIds: [String], resolved: ResolvedIssueStatus) async {
         await runBulk(issueIds) { ids in
-            try await self.issuesApi.bulkUpdate(
-                accountId: self.accountId,
-                BulkUpdateIssuesInput(ids: ids, status: status.rawValue)
-            )
+            // Row id when there is one; anchor enum for a constructed default
+            // (EXP-314) — both land the selection on the same status.
+            let input = resolved.rowId.map { BulkUpdateIssuesInput(ids: ids, statusId: $0) }
+                ?? BulkUpdateIssuesInput(ids: ids, status: resolved.anchor.rawValue)
+            try await self.issuesApi.bulkUpdate(accountId: self.accountId, input)
         }
     }
 

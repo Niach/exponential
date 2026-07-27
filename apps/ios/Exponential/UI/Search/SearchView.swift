@@ -201,6 +201,9 @@ struct SearchView: View {
                     .lineLimit(1)
                     .frame(minWidth: identifierMinWidth, alignment: .leading)
 
+                // Anchor glyph (EXP-314): search spans teams, and status rows
+                // are team-scoped — the anchor renders correctly for builtins
+                // and is the right neutral fallback for customs.
                 AppIcon(IssueStatus.from(issue.status).iconName, size: AppIcon.Size.small)
                     .foregroundStyle(IssueStatus.from(issue.status).color)
                     .frame(width: 16)

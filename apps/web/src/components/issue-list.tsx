@@ -4,7 +4,8 @@ import type { Issue, Label, Board, User } from "@/db/schema"
 import { boardCollection } from "@/lib/collections"
 import {
   StatusDropdown,
-  getStatusConfig,
+  statusColorClass,
+  statusColorStyle,
 } from "@/components/issue-properties/status-dropdown"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
@@ -24,11 +25,17 @@ import {
 import { formatDate } from "@/lib/utils"
 import { formatDateForMutation, type IssueStatus } from "@/lib/domain"
 import { dueDateToneClass } from "@/lib/issue-due-date"
+import { ICON_COMPONENTS } from "@/lib/icons.generated"
+import { hexWithAlpha } from "@/lib/status-icons"
+import type { StatusRowOption } from "@/lib/team-statuses"
 import type { IssueGroup } from "@/lib/board-view"
 
 // Status-tinted washes for the sticky group headers — the Tailwind palette
 // colors the old rgba literals encoded (zinc-500/zinc-300/yellow-500/
 // green-500/blue-500), matching the status icon hues in lib/domain.ts.
+// EXP-314: BUILTIN rows keep these exact classes (keyed on the builtin key, so
+// the default team's headers are byte-identical to before); CUSTOM rows get a
+// 10%-alpha inline wash from their own hex.
 const statusHeaderBg: Record<IssueStatus, string> = {
   backlog: `bg-zinc-500/10`,
   todo: `bg-zinc-300/10`,
@@ -39,13 +46,26 @@ const statusHeaderBg: Record<IssueStatus, string> = {
   duplicate: `bg-zinc-500/10`,
 }
 
+function groupHeaderWash(option: StatusRowOption): {
+  className: string
+  style?: React.CSSProperties
+} {
+  if (option.builtinKey) {
+    return { className: statusHeaderBg[option.builtinKey] ?? `bg-zinc-500/10` }
+  }
+  return {
+    className: ``,
+    style: { backgroundColor: hexWithAlpha(option.colorHex, 0.1) },
+  }
+}
+
 interface IssueListProps {
   groups: IssueGroup[]
   issueLabelMap: Map<string, Label[]>
   labels: Label[]
   users: User[]
   userMap: Map<string, User>
-  onNewIssue: (status?: IssueStatus) => void
+  onNewIssue: (status?: StatusRowOption) => void
   onIssueClick: (issue: Issue) => void
   canCreate?: boolean
   canMutateIssue?: (issue: Issue) => boolean
@@ -164,7 +184,7 @@ export function IssueList({
       groups
         .filter(
           (group) =>
-            group.issues.length > 0 && !collapsedGroups.has(group.status)
+            group.issues.length > 0 && !collapsedGroups.has(group.status.id)
         )
         .flatMap((group) => group.issues),
     [groups, collapsedGroups]
@@ -293,13 +313,13 @@ export function IssueList({
         ? `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
         : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
 
-  const toggleGroup = (status: IssueStatus) => {
+  const toggleGroup = (groupKey: string) => {
     setCollapsedGroups((prev) => {
       const next = new Set(prev)
-      if (next.has(status)) {
-        next.delete(status)
+      if (next.has(groupKey)) {
+        next.delete(groupKey)
       } else {
-        next.add(status)
+        next.add(groupKey)
       }
       return next
     })
@@ -348,22 +368,26 @@ export function IssueList({
   return (
     <div ref={listRef}>
       {visibleGroups.map((group) => {
-        const config = getStatusConfig(group.status)
-        const Icon = config.icon
-        const isOpen = !collapsedGroups.has(group.status)
-        const headerBg = statusHeaderBg[group.status] ?? `bg-zinc-500/10`
+        const option = group.status
+        const Icon = ICON_COMPONENTS[option.icon]
+        const isOpen = !collapsedGroups.has(option.id)
+        const wash = groupHeaderWash(option)
         return (
           <CollapsiblePrimitive.Root
-            key={group.status}
+            key={option.id}
             open={isOpen}
-            onOpenChange={() => toggleGroup(group.status)}
-            data-testid={`issue-group-${group.status}`}
+            onOpenChange={() => toggleGroup(option.id)}
+            data-testid={`issue-group-${option.id}`}
+            // Stable across custom-status renames/ids: the builtin anchor key
+            // for builtin groups, the row id otherwise. E2E selects on this.
+            data-status-key={option.builtinKey ?? option.id}
           >
             {/* Group header */}
             {/* backdrop-blur is load-bearing: the tint is translucent and
                 rows scroll under the sticky header. */}
             <div
-              className={`group sticky top-0 z-10 flex items-center justify-between pl-3 pr-3 md:pr-6 py-1.5 border-b border-border/40 backdrop-blur-md ${headerBg}`}
+              className={`group sticky top-0 z-10 flex items-center justify-between pl-3 pr-3 md:pr-6 py-1.5 border-b border-border/40 backdrop-blur-md ${wash.className}`}
+              style={wash.style}
             >
               <div className="flex items-center gap-1.5">
                 <CollapsiblePrimitive.Trigger asChild>
@@ -376,8 +400,11 @@ export function IssueList({
                     />
                   </Button>
                 </CollapsiblePrimitive.Trigger>
-                <Icon className={`h-3.5 w-3.5 ${config.color}`} />
-                <span className="text-sm font-medium">{config.label}</span>
+                <Icon
+                  className={`h-3.5 w-3.5 ${statusColorClass(option)}`}
+                  style={statusColorStyle(option)}
+                />
+                <span className="text-sm font-medium">{option.name}</span>
                 <span className="text-xs text-muted-foreground">
                   {group.issues.length}
                 </span>
@@ -389,7 +416,7 @@ export function IssueList({
                   className="hidden md:inline-flex text-muted-foreground opacity-0 group-hover:opacity-100 hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation()
-                    onNewIssue(group.status)
+                    onNewIssue(option)
                   }}
                 >
                   <Plus className="size-3" />
@@ -461,6 +488,7 @@ export function IssueList({
                         <StatusDropdown
                           issueId={issue.id}
                           status={issue.status}
+                          statusId={issue.statusId}
                           disabled={!moderatorRowCanMutate}
                         />
                       </div>

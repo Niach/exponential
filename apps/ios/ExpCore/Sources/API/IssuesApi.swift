@@ -5,7 +5,12 @@ import Foundation
 public struct CreateIssueInput: Encodable, Sendable {
     public let boardId: String
     public let title: String
+    /// The builtin ANCHOR enum value. Mutually exclusive with `statusId`
+    /// server-side — send one or the other, never both (EXP-314).
     public var status: String?
+    /// A team `issue_statuses` row id (EXP-314). Status pickers send this;
+    /// the enum-only conveniences (swipes, toggles) keep sending `status`.
+    public var statusId: String?
     public var priority: String?
     public var assigneeId: String?
     public var description: String?
@@ -16,6 +21,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         boardId: String,
         title: String,
         status: String? = nil,
+        statusId: String? = nil,
         priority: String? = nil,
         assigneeId: String? = nil,
         description: String? = nil,
@@ -25,6 +31,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         self.boardId = boardId
         self.title = title
         self.status = status
+        self.statusId = statusId
         self.priority = priority
         self.assigneeId = assigneeId
         self.description = description
@@ -36,7 +43,11 @@ public struct CreateIssueInput: Encodable, Sendable {
 public struct UpdateIssueInput: Encodable, Sendable {
     public let id: String
     public var title: String?
+    /// The builtin ANCHOR enum value. Mutually exclusive with `statusId`
+    /// server-side, and with a non-null `duplicateOfId` (EXP-314).
     public var status: String?
+    /// A team `issue_statuses` row id (EXP-314) — what status pickers send.
+    public var statusId: String?
     public var priority: String?
     public var assigneeId: String?
     public var description: String?
@@ -53,6 +64,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         id: String,
         title: String? = nil,
         status: String? = nil,
+        statusId: String? = nil,
         priority: String? = nil,
         assigneeId: String? = nil,
         description: String? = nil,
@@ -63,6 +75,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         self.id = id
         self.title = title
         self.status = status
+        self.statusId = statusId
         self.priority = priority
         self.assigneeId = assigneeId
         self.description = description
@@ -72,7 +85,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, status, priority, assigneeId, description
+        case id, title, status, statusId, priority, assigneeId, description
         case dueDate
         case duplicateOfId
     }
@@ -82,6 +95,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         try c.encode(id, forKey: .id)
         try c.encodeIfPresent(title, forKey: .title)
         try c.encodeIfPresent(status, forKey: .status)
+        try c.encodeIfPresent(statusId, forKey: .statusId)
         try c.encodeIfPresent(priority, forKey: .priority)
         try encodeNullable(assigneeId, forKey: .assigneeId, in: &c)
         try encodeNullable(description, forKey: .description, in: &c)
@@ -105,7 +119,10 @@ public struct UpdateIssueInput: Encodable, Sendable {
 /// indistinguishable to the synthesized encoder.
 public struct BulkUpdateIssuesInput: Encodable, Sendable {
     public let ids: [String]
+    /// The builtin ANCHOR enum value; mutually exclusive with `statusId`.
     public var status: String?
+    /// A team `issue_statuses` row id (EXP-314) — what the bulk bar sends.
+    public var statusId: String?
     public var priority: String?
     public var assigneeId: String?
 
@@ -115,25 +132,28 @@ public struct BulkUpdateIssuesInput: Encodable, Sendable {
     public init(
         ids: [String],
         status: String? = nil,
+        statusId: String? = nil,
         priority: String? = nil,
         assigneeId: String? = nil,
         explicitNulls: Set<String> = []
     ) {
         self.ids = ids
         self.status = status
+        self.statusId = statusId
         self.priority = priority
         self.assigneeId = assigneeId
         self.explicitNulls = explicitNulls
     }
 
     enum CodingKeys: String, CodingKey {
-        case ids, status, priority, assigneeId
+        case ids, status, statusId, priority, assigneeId
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(ids, forKey: .ids)
         try c.encodeIfPresent(status, forKey: .status)
+        try c.encodeIfPresent(statusId, forKey: .statusId)
         try c.encodeIfPresent(priority, forKey: .priority)
         if assigneeId != nil {
             try c.encode(assigneeId, forKey: .assigneeId)
@@ -289,6 +309,8 @@ public struct FetchedIssue: Decodable, Sendable {
     public let title: String
     public let description: String?
     public let status: String
+    /// EXP-314 — nullable, and absent on older servers.
+    public let statusId: String?
     public let priority: String
     public let assigneeId: String?
     public let creatorId: String?

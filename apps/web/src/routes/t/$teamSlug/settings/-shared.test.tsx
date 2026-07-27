@@ -37,6 +37,28 @@ const firstVisible = (
   context: SettingsNavContext
 ) => items.find((item) => item.visible(permissions, context))
 
+// EXP-314: Statuses sits in the Team group right after Labels and, like
+// Labels, is visible to every member (the router gates writes).
+describe(`SETTINGS_NAV Statuses entry`, () => {
+  const team: SettingsNavContext = { isCloud: false, solo: false }
+
+  it(`follows Labels in the Team group`, () => {
+    const teamGroup = SETTINGS_NAV.find((group) => group.group === `Team`)!
+    const labels = teamGroup.items.findIndex((item) => item.label === `Labels`)
+    const statuses = teamGroup.items.findIndex(
+      (item) => item.label === `Statuses`
+    )
+    expect(statuses).toBe(labels + 1)
+    expect(teamGroup.items[statuses].to).toBe(`/t/$teamSlug/settings/statuses`)
+  })
+
+  it(`is visible to owners and plain members alike`, () => {
+    const statuses = items.find((item) => item.label === `Statuses`)!
+    expect(statuses.visible(permissionsFor(`owner`), team)).toBe(true)
+    expect(statuses.visible(permissionsFor(`member`), team)).toBe(true)
+  })
+})
+
 describe(`SETTINGS_NAV General visibility`, () => {
   const solo: SettingsNavContext = { isCloud: false, solo: true }
   const team: SettingsNavContext = { isCloud: false, solo: false }

@@ -6,9 +6,12 @@ import { Button } from "@/components/ui/button"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { trpc } from "@/lib/trpc-client"
-import type { IssueFilters } from "@/lib/filters"
-import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
+import type { IssueFilterSearch, IssueFilters } from "@/lib/filters"
+import {
+  issueFilterSearchFromFilters,
+  issueFiltersFromSearch,
+  parseIssueFilterSearch,
+} from "@/lib/filters"
 import { cn } from "@/lib/utils"
 
 // The merged personal surface (EXP-186): ONE sidebar entry ("Inbox") with two
@@ -16,42 +19,17 @@ import { cn } from "@/lib/utils"
 // the mobile apps' segmented My Work screen. The active tab lives in the URL
 // (?tab=my-issues; absent = inbox) alongside the My Issues filter params so
 // both tabs stay shareable and survive refresh.
-type InboxSearch = {
+type InboxSearch = IssueFilterSearch & {
   tab?: `my-issues`
-  status?: string
-  priority?: string
-  labels?: string
-}
-
-const STATUS_VALUES = issueStatusOptions.map((o) => o.value)
-const PRIORITY_VALUES = issuePriorityOptions.map((o) => o.value)
-
-// Coerce a raw search value (array or comma string) to a validated,
-// comma-joined string, or undefined when empty (mirrors the board index).
-function validatedCsv(
-  raw: unknown,
-  allowed?: readonly string[]
-): string | undefined {
-  let arr: string[]
-  if (Array.isArray(raw)) {
-    arr = raw.filter((v): v is string => typeof v === `string`)
-  } else if (typeof raw === `string` && raw.length > 0) {
-    arr = raw.split(`,`)
-  } else {
-    return undefined
-  }
-  const cleaned = allowed
-    ? arr.filter((v) => allowed.includes(v))
-    : arr.filter((v) => v.length > 0)
-  return cleaned.length ? cleaned.join(`,`) : undefined
 }
 
 export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
+  // Filter parse/serialize is shared with the board routes (lib/filters.ts) so
+  // the two surfaces can't drift — EXP-314 widened `status` to accept
+  // issue_statuses row uuids alongside the legacy anchor-enum tokens.
   validateSearch: (search: Record<string, unknown>): InboxSearch => ({
     tab: search.tab === `my-issues` ? `my-issues` : undefined,
-    status: validatedCsv(search.status, STATUS_VALUES),
-    priority: validatedCsv(search.priority, PRIORITY_VALUES),
-    labels: validatedCsv(search.labels),
+    ...parseIssueFilterSearch(search),
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -103,15 +81,7 @@ function InboxPage() {
   const tab = search.tab === `my-issues` ? `my-issues` : `inbox`
 
   const filters = useMemo<IssueFilters>(
-    () => ({
-      statuses: search.status
-        ? (search.status.split(`,`) as IssueStatus[])
-        : [],
-      priorities: search.priority
-        ? (search.priority.split(`,`) as IssuePriority[])
-        : [],
-      labelIds: search.labels ? search.labels.split(`,`) : [],
-    }),
+    () => issueFiltersFromSearch(search),
     [search.status, search.priority, search.labels]
   )
 
@@ -121,11 +91,7 @@ function InboxPage() {
       params: { teamSlug },
       search: {
         tab: `my-issues`,
-        status: next.statuses.length ? next.statuses.join(`,`) : undefined,
-        priority: next.priorities.length
-          ? next.priorities.join(`,`)
-          : undefined,
-        labels: next.labelIds.length ? next.labelIds.join(`,`) : undefined,
+        ...issueFilterSearchFromFilters(next),
       },
       replace: true,
     })

@@ -181,12 +181,12 @@ test(`creates and edits an issue through the shared issue editor`, async ({
 
   await expect(
     page.locator(
-      `[data-testid="issue-group-in_progress"] [data-testid="issue-row-${identifier}"]`
+      `[data-status-key="in_progress"] [data-testid="issue-row-${identifier}"]`
     )
   ).toHaveCount(0)
   await expect(
     page.locator(
-      `[data-testid="issue-group-done"] [data-testid="issue-row-${identifier}"]`
+      `[data-status-key="done"] [data-testid="issue-row-${identifier}"]`
     )
   ).toBeVisible()
 
@@ -203,7 +203,7 @@ test(`creates and edits an issue through the shared issue editor`, async ({
   await page.getByRole(`button`, { name: `Clear all` }).click()
   await expect(
     page.locator(
-      `[data-testid="issue-group-done"] [data-testid="issue-row-${identifier}"]`
+      `[data-status-key="done"] [data-testid="issue-row-${identifier}"]`
     )
   ).toBeVisible()
 })

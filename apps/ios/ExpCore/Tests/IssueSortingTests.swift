@@ -149,6 +149,63 @@ final class IssueSortingTests: XCTestCase {
         XCTAssertFalse(IssueSorting.isOverdue(makeIssue(id: "d", dueDate: nil), today: today))
     }
 
+    // EXP-314: the category overload IS the contract now — the enum overload
+    // just delegates through the anchor's category, so both must agree, and a
+    // CUSTOM status of a category must sort like the builtin it anchors to.
+    func testCategoryOverloadMatchesTheEnumOverload() {
+        let a = makeIssue(id: "a", number: 2, priority: .low, dueDate: "2026-07-01")
+        let b = makeIssue(id: "b", number: 1, priority: .urgent)
+        for (status, category) in [
+            (IssueStatus.backlog, IssueStatusCategory.backlog),
+            (.todo, .unstarted),
+            (.inProgress, .started),
+            (.inReview, .started),
+            (.done, .completed),
+            (.cancelled, .cancelled),
+            (.duplicate, .duplicate),
+        ] {
+            XCTAssertEqual(
+                IssueSorting.sorted([b, a], status: status, today: today).map(\.id),
+                IssueSorting.sorted([b, a], category: category, today: today).map(\.id),
+                "\(status.rawValue) vs \(category.rawValue)"
+            )
+        }
+    }
+
+    // completed → (completedAt ?? updatedAt) DESC, whatever the group's name.
+    func testCompletedCategorySortsByResolutionRecency() {
+        let older = makeIssue(id: "older", number: 1, status: .done, completedAt: "2026-07-01 09:00:00+00")
+        let newer = makeIssue(id: "newer", number: 2, status: .done, completedAt: "2026-07-05 09:00:00+00")
+        XCTAssertEqual(
+            IssueSorting.sorted([older, newer], category: .completed, today: today).map(\.id),
+            ["newer", "older"]
+        )
+    }
+
+    // cancelled | duplicate → updatedAt DESC.
+    func testCancelledCategorySortsByUpdatedAt() {
+        let older = makeIssue(id: "older", number: 1, updatedAt: "2026-07-01 09:00:00+00")
+        let newer = makeIssue(id: "newer", number: 2, updatedAt: "2026-07-06 09:00:00+00")
+        for category in [IssueStatusCategory.cancelled, .duplicate] {
+            XCTAssertEqual(
+                IssueSorting.sorted([older, newer], category: category, today: today).map(\.id),
+                ["newer", "older"]
+            )
+        }
+    }
+
+    // Everything else takes the ACTIVE branch: overdue → priority → due → number.
+    func testOpenCategoriesTakeTheActiveBranch() {
+        let overdueLow = makeIssue(id: "overdue-low", number: 1, priority: .low, dueDate: "2026-07-01")
+        let urgent = makeIssue(id: "urgent", number: 2, priority: .urgent)
+        for category in [IssueStatusCategory.backlog, .unstarted, .started] {
+            XCTAssertEqual(
+                IssueSorting.sorted([urgent, overdueLow], category: category, today: today).map(\.id),
+                ["overdue-low", "urgent"]
+            )
+        }
+    }
+
     func testTodayStringFormat() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!

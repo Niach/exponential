@@ -16,6 +16,7 @@ use gpui::{
 use gpui_component::{h_flex, input::InputState, v_flex, Icon, IconName, Sizable as _};
 
 use domain::rows::Label;
+use domain::statuses::ResolvedStatus;
 use domain::{has_active_filters, IssueFilters};
 
 use crate::actions::NewIssue;
@@ -28,6 +29,9 @@ pub struct IssueFilterBar {
     title: SharedString,
     filters: IssueFilters,
     labels: Vec<Label>,
+    /// EXP-314: the scope team's status vocabulary — the popover's Status
+    /// pane and the pills both render from it.
+    statuses: Vec<ResolvedStatus>,
     popover_view: FilterView,
     label_query: Entity<InputState>,
     on_filters_change: OnFiltersChange,
@@ -41,6 +45,7 @@ impl IssueFilterBar {
         title: impl Into<SharedString>,
         filters: IssueFilters,
         labels: Vec<Label>,
+        statuses: Vec<ResolvedStatus>,
         popover_view: FilterView,
         label_query: Entity<InputState>,
         on_filters_change: OnFiltersChange,
@@ -51,6 +56,7 @@ impl IssueFilterBar {
             title: title.into(),
             filters,
             labels,
+            statuses,
             popover_view,
             label_query,
             on_filters_change,
@@ -84,6 +90,7 @@ impl RenderOnce for IssueFilterBar {
                     .child(IssueFilterPopover::new(
                         self.filters.clone(),
                         self.labels.clone(),
+                        self.statuses.clone(),
                         self.popover_view,
                         self.label_query.clone(),
                         self.on_filters_change.clone(),
@@ -122,6 +129,7 @@ impl RenderOnce for IssueFilterBar {
                 bar.child(ActiveFilterPills::new(
                     self.filters.clone(),
                     self.labels.clone(),
+                    self.statuses.clone(),
                     self.on_filters_change.clone(),
                 ))
             })

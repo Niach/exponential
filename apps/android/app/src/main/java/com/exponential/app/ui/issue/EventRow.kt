@@ -85,13 +85,16 @@ internal fun eventPhrase(
         (payload?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
     return when (event.type) {
         "status_changed" -> {
-            val to = field("to")
-            val from = field("from")
+            // EXP-314: newer payloads carry the status ROWS' display names
+            // (toName/fromName) alongside the legacy enum anchors — prefer
+            // them so a custom status reads by its real name; older rows fall
+            // back to the anchor munge.
+            val to = field("toName") ?: field("to")?.let { IssueStatus.labelFor(it) }
+            val from = field("fromName") ?: field("from")?.let { IssueStatus.labelFor(it) }
             when {
                 to == null -> eventVerb(event.type)
-                from != null ->
-                    "changed the status from ${IssueStatus.labelFor(from)} to ${IssueStatus.labelFor(to)}"
-                else -> "changed the status to ${IssueStatus.labelFor(to)}"
+                from != null -> "changed the status from $from to $to"
+                else -> "changed the status to $to"
             }
         }
         "assignee_changed" -> {

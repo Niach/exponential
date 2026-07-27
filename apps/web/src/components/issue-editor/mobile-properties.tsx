@@ -2,12 +2,12 @@ import type { ReactNode } from "react"
 import { forwardRef } from "react"
 import { CalendarDays, Tag, User as UserIcon } from "lucide-react"
 import type { Label as LabelRow, User } from "@/db/schema"
+import { ISSUE_PRIORITY_FALLBACK, type IssuePriority } from "@/lib/domain"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
-  ISSUE_PRIORITY_FALLBACK,
-  ISSUE_STATUS_FALLBACK,
-  type IssuePriority,
-  type IssueStatus,
-} from "@/lib/domain"
+  creatableStatusOptions,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
 import { formatDate, getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
@@ -16,8 +16,7 @@ import {
   priorities,
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
-import { creatableStatuses } from "@/components/issue-editor/chips"
+import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import {
   MobilePopover,
@@ -56,7 +55,7 @@ const PropertyRow = forwardRef<
 })
 
 export interface IssueEditorMobilePropertiesProps {
-  status: IssueStatus
+  status: StatusRowOption
   priority: IssuePriority
   assigneeId: string | null
   selectedLabelIds: string[]
@@ -69,7 +68,7 @@ export interface IssueEditorMobilePropertiesProps {
   disabled?: boolean
   createMore?: boolean
   onCreateMoreChange?: (checked: boolean) => void
-  onStatusChange: (status: IssueStatus) => void | Promise<void>
+  onStatusChange: (status: StatusRowOption) => void | Promise<void>
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
@@ -96,6 +95,8 @@ export function IssueEditorMobileProperties({
   onToggleLabel,
   onDueDateSelect,
 }: IssueEditorMobilePropertiesProps) {
+  const { options, byId } = useTeamStatusesContext()
+  const statusOptions = creatableStatusOptions(options)
   const assignee = assigneeId
     ? users.find((user) => user.id === assigneeId)
     : undefined
@@ -103,24 +104,37 @@ export function IssueEditorMobileProperties({
   return (
     <div className="mx-3 my-3 divide-y divide-border/40 overflow-hidden rounded-xl border border-border/60 bg-accent/20">
       <OptionDropdownMenu
-        value={status}
-        fallbackValue={ISSUE_STATUS_FALLBACK}
+        value={status.id}
+        fallbackValue={status.id}
         disabled={disabled || disableStatus}
-        options={creatableStatuses}
-        onSelect={onStatusChange}
+        options={toStatusMenuOptions(statusOptions)}
+        onSelect={(id) => {
+          const picked = byId.get(id)
+          if (picked) void onStatusChange(picked)
+        }}
         mobileTitle="Status"
-        renderTrigger={(selected) => (
-          <PropertyRow
-            label="Status"
-            disabled={disabled || disableStatus}
-            value={
-              <>
-                <StatusIcon status={selected.value} className="!h-3.5 !w-3.5" />
-                {selected.label}
-              </>
-            }
-          />
-        )}
+        renderTrigger={(selected) => {
+          const Icon = selected.icon
+          return (
+            <PropertyRow
+              label="Status"
+              disabled={disabled || disableStatus}
+              value={
+                <>
+                  <Icon
+                    className={`!h-3.5 !w-3.5 ${selected.color}`}
+                    style={
+                      selected.colorHex
+                        ? { color: selected.colorHex }
+                        : undefined
+                    }
+                  />
+                  {selected.label}
+                </>
+              }
+            />
+          )
+        }}
       />
 
       <OptionDropdownMenu

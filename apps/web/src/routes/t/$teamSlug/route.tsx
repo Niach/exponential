@@ -18,6 +18,7 @@ import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { WebMcpProvider } from "@/components/webmcp-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
+import { TeamStatusesProvider } from "@/hooks/use-team-statuses"
 import { MentionProvider } from "@/components/mention-provider"
 import { AgentDockProvider } from "@/components/agent-dock/agent-dock-provider"
 import { AgentDock } from "@/components/agent-dock/agent-dock"
@@ -119,6 +120,10 @@ function TeamLayout() {
       {/* Team-scoped `#IDENTIFIER` + `@email` resolution for pill
           rendering, the editor/composer autocompletes and the duplicate-of
           picker. */}
+      {/* EXP-314: one live query for the team's issue_statuses rows, shared by
+          every status renderer below (lists, pickers, filter pills, submenus)
+          — a 200-row list must not open 200 queries. */}
+      <TeamStatusesProvider teamId={team?.id}>
       <IssueRefProvider
         teamId={team?.id}
         teamSlug={teamSlug}
@@ -178,6 +183,7 @@ function TeamLayout() {
           </AgentDockProvider>
         </MentionProvider>
       </IssueRefProvider>
+      </TeamStatusesProvider>
     </SidebarProvider>
   )
 }

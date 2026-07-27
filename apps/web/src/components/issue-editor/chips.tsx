@@ -1,12 +1,12 @@
 import type { ReactNode } from "react"
 import { CalendarDays, MoreHorizontal } from "lucide-react"
 import type { User } from "@/db/schema"
+import { ISSUE_PRIORITY_FALLBACK, type IssuePriority } from "@/lib/domain"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
-  ISSUE_PRIORITY_FALLBACK,
-  ISSUE_STATUS_FALLBACK,
-  type IssuePriority,
-  type IssueStatus,
-} from "@/lib/domain"
+  creatableStatusOptions,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
 import { formatDate } from "@/lib/utils"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
@@ -14,18 +14,7 @@ import {
   priorities,
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
-import {
-  statuses,
-  StatusIcon,
-} from "@/components/issue-properties/status-dropdown"
-
-// Marking a brand-new issue as a duplicate is nonsense (there is nothing yet to
-// dedupe), so the create/edit chip row never offers `duplicate` — the status is
-// only ever reached via the duplicate-picker interception on an existing issue
-// (masterplan §4.1 / L27).
-export const creatableStatuses = statuses.filter(
-  (option) => option.value !== `duplicate`
-)
+import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -41,7 +30,9 @@ import {
 } from "@/components/ui/popover"
 
 export interface IssueEditorChipsProps {
-  status: IssueStatus
+  // EXP-314: the RESOLVED team status row (never a bare enum) so a custom
+  // status survives a round-trip through the editor.
+  status: StatusRowOption
   priority: IssuePriority
   assigneeId: string | null
   selectedLabelIds: string[]
@@ -54,7 +45,7 @@ export interface IssueEditorChipsProps {
   disabled?: boolean
   chipRowExtras?: ReactNode
   overflowMenuItems?: ReactNode
-  onStatusChange: (status: IssueStatus) => void | Promise<void>
+  onStatusChange: (status: StatusRowOption) => void | Promise<void>
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
@@ -81,26 +72,40 @@ export function IssueEditorChips({
   onToggleLabel,
   onDueDateSelect,
 }: IssueEditorChipsProps) {
+  const { options, byId } = useTeamStatusesContext()
+  const statusOptions = creatableStatusOptions(options)
+
   return (
     <>
       <OptionDropdownMenu
-        value={status}
-        fallbackValue={ISSUE_STATUS_FALLBACK}
+        value={status.id}
+        fallbackValue={status.id}
         disabled={disabled || disableStatus}
-        options={creatableStatuses}
-        onSelect={onStatusChange}
+        options={toStatusMenuOptions(statusOptions)}
+        onSelect={(id) => {
+          const picked = byId.get(id)
+          if (picked) void onStatusChange(picked)
+        }}
         mobileTitle="Status"
-        renderTrigger={(selected) => (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground shrink-0"
-            disabled={disabled || disableStatus}
-          >
-            <StatusIcon status={selected.value} className="!h-3 !w-3" />
-            {selected.label}
-          </Button>
-        )}
+        renderTrigger={(selected) => {
+          const Icon = selected.icon
+          return (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground shrink-0"
+              disabled={disabled || disableStatus}
+            >
+              <Icon
+                className={`!h-3 !w-3 ${selected.color}`}
+                style={
+                  selected.colorHex ? { color: selected.colorHex } : undefined
+                }
+              />
+              {selected.label}
+            </Button>
+          )
+        }}
       />
 
       <OptionDropdownMenu

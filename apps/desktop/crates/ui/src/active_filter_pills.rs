@@ -20,12 +20,13 @@ use gpui_component::{
     h_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 
-use domain::options::{get_issue_priority_config, get_issue_status_config};
+use domain::options::get_issue_priority_config;
 use domain::rows::Label;
-use domain::{empty_filters, IssueFilters, IssuePriority, IssueStatus};
+use domain::statuses::ResolvedStatus;
+use domain::{empty_filters, IssueFilters, IssuePriority};
 
 use crate::filter_popover::OnFiltersChange;
-use crate::icons::option_icon;
+use crate::icons::{option_icon, resolved_status_icon};
 use crate::issue_list::parse_hex_color;
 
 /// Compact pill height (web `h-6` = 24px, compact density).
@@ -35,6 +36,9 @@ const PILL_HEIGHT: f32 = 20.;
 pub struct ActiveFilterPills {
     filters: IssueFilters,
     labels: Vec<Label>,
+    /// EXP-314: the scope team's status vocabulary — a pill renders the
+    /// RESOLVED name/icon of its group key.
+    statuses: Vec<ResolvedStatus>,
     on_filters_change: OnFiltersChange,
 }
 
@@ -42,11 +46,13 @@ impl ActiveFilterPills {
     pub fn new(
         filters: IssueFilters,
         labels: Vec<Label>,
+        statuses: Vec<ResolvedStatus>,
         on_filters_change: OnFiltersChange,
     ) -> Self {
         Self {
             filters,
             labels,
+            statuses,
             on_filters_change,
         }
     }
@@ -58,17 +64,19 @@ impl RenderOnce for ActiveFilterPills {
         // INSIDE the bar's own horizontal padding — copied as-is, compacted).
         let mut row = h_flex().flex_wrap().items_center().gap_1p5().px_4().py_1();
 
-        // Pills read in the contract display order (REV2-85), not in the order
+        // Pills read in the TEAM's status order (EXP-314), not in the order
         // the user happened to tick the boxes — the same vocabulary order the
-        // popover lists them in.
-        let statuses = IssueStatus::DISPLAY_ORDER
+        // popover lists them in. A key with no matching status (the row was
+        // deleted) renders NOTHING, and toggling any pill prunes it.
+        let picked = self
+            .statuses
             .iter()
-            .copied()
-            .filter(|status| self.filters.statuses.contains(status));
-        for (ix, status) in statuses.enumerate() {
+            .filter(|status| self.filters.status_keys.contains(&status.group_key));
+        for (ix, status) in picked.enumerate() {
             row = row.child(status_pill(
                 ix,
                 status,
+                &self.statuses,
                 self.filters.clone(),
                 self.on_filters_change.clone(),
                 cx,
@@ -139,19 +147,27 @@ fn pill_close_icon(cx: &App) -> impl IntoElement {
 
 fn status_pill(
     ix: usize,
-    status: IssueStatus,
+    status: &ResolvedStatus,
+    known: &[ResolvedStatus],
     filters: IssueFilters,
     on_change: OnFiltersChange,
     cx: &App,
 ) -> impl IntoElement {
-    let config = get_issue_status_config(status);
+    let key = status.group_key.clone();
+    // Any key that no longer names a live status is pruned on the next toggle
+    // (a deleted status must not linger as an invisible active filter).
+    let live: Vec<String> = known
+        .iter()
+        .map(|status| status.group_key.clone())
+        .collect();
     pill_base(("filter-pill-status", ix), cx)
-        .child(option_icon(config, cx).size_3())
-        .child(SharedString::from(config.label))
+        .child(resolved_status_icon(status, cx).size_3())
+        .child(SharedString::from(status.name.clone()))
         .child(pill_close_icon(cx))
         .on_click(move |_, window, cx| {
             let mut next = filters.clone();
-            next.statuses.retain(|s| *s != status);
+            next.status_keys
+                .retain(|candidate| *candidate != key && live.contains(candidate));
             on_change(next, window, cx);
         })
 }

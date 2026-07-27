@@ -2,7 +2,7 @@ import type { User } from "@/db/schema"
 import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
 
 // The candidate rows of the @mention / #issue autocomplete menus — shared
@@ -76,7 +76,7 @@ export function IssueCandidateRow({
         active ? `bg-accent` : ``
       }`}
     >
-      <StatusIcon status={issue.status} className="size-4 shrink-0" />
+      <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
       <span className="shrink-0 font-mono text-xs text-muted-foreground">
         {issue.identifier}
       </span>

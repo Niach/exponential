@@ -30,7 +30,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
-import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.PriorityIcon
@@ -56,7 +56,7 @@ import com.exponential.app.ui.theme.glassButton
 @Composable
 fun PropertiesSheet(
     issue: IssueEntity,
-    status: IssueStatus,
+    status: ResolvedIssueStatus,
     priority: IssuePriority,
     assignee: UserEntity?,
     hideAssignee: Boolean,
@@ -81,7 +81,7 @@ fun PropertiesSheet(
             GlassSheetRow(
                 label = "Status",
                 leading = { StatusIcon(status, size = 16.dp) },
-                trailing = { ValueWithChevron(status.label) },
+                trailing = { ValueWithChevron(status.name) },
                 onClick = onOpenStatus,
             )
             GlassSheetRow(

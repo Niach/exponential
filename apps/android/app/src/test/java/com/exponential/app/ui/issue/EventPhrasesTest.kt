@@ -71,6 +71,25 @@ class EventPhrasesTest {
         )
     }
 
+    /** EXP-314: the status ROWS' names win over the legacy enum anchors. */
+    @Test
+    fun statusChangedPrefersTheStatusRowNames() {
+        assertEquals(
+            "changed the status from Triage to Shipping",
+            phrase(
+                event(
+                    "status_changed",
+                    """{"from":"backlog","to":"in_progress","fromName":"Triage","toName":"Shipping"}""",
+                )
+            ),
+        )
+        // Only a toName: the from side still falls back to the anchor label.
+        assertEquals(
+            "changed the status from Backlog to Shipping",
+            phrase(event("status_changed", """{"from":"backlog","to":"in_progress","toName":"Shipping"}""")),
+        )
+    }
+
     @Test
     fun statusChangedWithoutPayloadFallsBack() {
         assertEquals("changed the status", phrase(event("status_changed", null)))

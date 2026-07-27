@@ -74,6 +74,7 @@ pub mod patch;
 pub mod boards;
 pub mod device_identity;
 pub mod repositories;
+pub mod statuses;
 pub mod steer;
 pub mod token_store;
 pub mod trpc;

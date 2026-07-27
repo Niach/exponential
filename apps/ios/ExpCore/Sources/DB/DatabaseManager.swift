@@ -712,6 +712,40 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v13 (EXP-314 custom issue statuses): the 16th Electric shape
+        // `issue_statuses` (team-scoped, 7 locked builtin rows + customs) gets
+        // a local table, and `issues` gains the nullable `status_id` FK the
+        // shape now carries. Both additive: `ifNotExists` for the table, a
+        // presence guard for the column (the v11 pattern) so fresh installs —
+        // which create `issues` without it above — and re-runs converge. Never
+        // bump the `-v5` file suffix for an additive change (that would wipe
+        // every local snapshot). The brand-new shape has no offset row and
+        // snapshots from scratch; `issues` rotates its shape identity
+        // server-side, so the atomic refetch backfills status_id.
+        migrator.registerMigration("v13_issue_statuses") { db in
+            try db.create(table: "issue_statuses", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("team_id", .text).notNull().indexed()
+                t.column("category", .text).notNull()
+                t.column("name", .text).notNull()
+                // Only CUSTOM rows render this hex; builtins keep the
+                // platform's design-token colors.
+                t.column("color", .text)
+                t.column("sort_order", .double).notNull().defaults(to: 0)
+                // Non-null on the 7 locked builtin rows, null on customs.
+                t.column("builtin_key", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+
+            guard try db.tableExists("issues") else { return }
+            let existing = Set(try db.columns(in: "issues").map(\.name))
+            guard !existing.contains("status_id") else { return }
+            try db.alter(table: "issues") { t in
+                t.add(column: "status_id", .text)
+            }
+        }
+
         return migrator
     }
 
@@ -727,6 +761,10 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM attachments")
             try db.execute(sql: "DELETE FROM comments")
             try db.execute(sql: "DELETE FROM issue_labels")
+            // EXP-314: must be wiped with everything else — a "Resync now" that
+            // left stale status rows behind would keep resolving issues into
+            // statuses the server has since renamed or deleted.
+            try db.execute(sql: "DELETE FROM issue_statuses")
             try db.execute(sql: "DELETE FROM issues")
             try db.execute(sql: "DELETE FROM labels")
             try db.execute(sql: "DELETE FROM boards")

@@ -44,15 +44,14 @@ use sync::Store;
 use theme::tokens as t;
 
 use domain::board::format_short_date;
-use domain::options::{
-    get_issue_priority_config, get_issue_status_config, ColorToken, IssueOption,
-    ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_OPTIONS,
-};
+use domain::options::{get_issue_priority_config, ColorToken, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::{Issue, Label, Board, User};
+use domain::statuses::{ResolvedStatus, StatusTint};
 use domain::{IssueFilters, IssueStatus};
 
-use crate::icons::{option_icon, ExpIcon};
+use crate::icons::{option_icon, resolved_status_icon, ExpIcon};
 use crate::issue_detail::{apply_status_selection, set_duplicate_of};
+use crate::pickers::{option_item, status_menu, StatusPick};
 use crate::navigation::{navigate, Screen};
 use crate::properties_panel::toggle_label;
 use crate::queries::{self, BoardData};
@@ -117,7 +116,7 @@ pub enum IssueQuery {
 /// header's ~10).
 enum ListRow {
     Header {
-        status: IssueStatus,
+        status: Box<ResolvedStatus>,
         count: usize,
         collapsed: bool,
     },
@@ -130,8 +129,9 @@ enum ListRow {
 pub struct IssueListView {
     query: IssueQuery,
     filters: IssueFilters,
-    /// Collapsed status groups (web `collapsedGroups`).
-    collapsed: HashSet<IssueStatus>,
+    /// Collapsed status groups, keyed by resolved group key (web
+    /// `collapsedGroups`).
+    collapsed: HashSet<String>,
     /// Bulk-selected issue ids (web `selectedIds`). Pruned in `render`
     /// against the current data set; collapsing a group hides rows but keeps
     /// them selected (web parity).
@@ -149,6 +149,10 @@ pub struct IssueListView {
     /// Rows of the CURRENT render — rebuilt in `render`, read by the
     /// virtual-list range closure afterwards.
     rows: Rc<Vec<ListRow>>,
+    /// EXP-314: the scope team's resolved status vocabulary for the CURRENT
+    /// render — the row dropdowns and the context menu read it instead of
+    /// re-querying the collections once per row.
+    team_statuses: Rc<Vec<ResolvedStatus>>,
     scroll_handle: VirtualListScrollHandle,
     _subscriptions: Vec<gpui::Subscription>,
 }
@@ -163,6 +167,8 @@ impl IssueListView {
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            // EXP-314: the group vocabulary itself is synced data now.
+            cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -175,6 +181,7 @@ impl IssueListView {
             solo_team: false,
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
+            team_statuses: Rc::new(Vec::new()),
             scroll_handle: VirtualListScrollHandle::new(),
             _subscriptions: subscriptions,
         }
@@ -216,9 +223,9 @@ impl IssueListView {
         }
     }
 
-    fn toggle_group(&mut self, status: IssueStatus, cx: &mut gpui::Context<Self>) {
-        if !self.collapsed.remove(&status) {
-            self.collapsed.insert(status);
+    fn toggle_group(&mut self, group_key: String, cx: &mut gpui::Context<Self>) {
+        if !self.collapsed.remove(&group_key) {
+            self.collapsed.insert(group_key);
         }
         cx.notify();
     }
@@ -328,7 +335,7 @@ impl IssueListView {
                 count,
                 collapsed,
             } => self
-                .render_group_header(*status, *count, *collapsed, cx)
+                .render_group_header(status, *count, *collapsed, cx)
                 .into_any_element(),
             ListRow::Issue { issue, labels } => {
                 self.render_issue_row(issue, labels, cx).into_any_element()
@@ -345,17 +352,17 @@ impl IssueListView {
     /// [`status_header_tint`] for why it came back).
     fn render_group_header(
         &self,
-        status: IssueStatus,
+        status: &ResolvedStatus,
         count: usize,
         collapsed: bool,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let config = get_issue_status_config(status);
         let chevron = if collapsed {
             IconName::ChevronRight
         } else {
             IconName::ChevronDown
         };
+        let group_key = status.group_key.clone();
 
         h_flex()
             .h(px(HEADER_HEIGHT))
@@ -366,24 +373,24 @@ impl IssueListView {
             // EXP-293: a wash in the status' hue so the header reads as a group
             // divider and not as one more issue row (the hairline alone was too
             // little). Web parity — `statusHeaderBg` in issue-list.tsx.
-            .bg(status_header_tint(status))
+            .bg(status_header_tint(&status.tint))
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.5))
             .child(
-                Button::new(header_id("collapse", status))
+                Button::new(header_id("collapse", &status.group_key))
                     .ghost()
                     .xsmall()
                     .icon(Icon::new(chevron).text_color(cx.theme().muted_foreground))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_group(status, cx);
+                        this.toggle_group(group_key.clone(), cx);
                     })),
             )
-            .child(option_icon(config, cx).xsmall())
+            .child(resolved_status_icon(status, cx).xsmall())
             .child(
                 div()
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .child(SharedString::from(config.label)),
+                    .child(SharedString::from(status.name.clone())),
             )
             .child(
                 div()
@@ -404,6 +411,7 @@ impl IssueListView {
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
         let menu_issue = issue.clone();
+        let menu_statuses = self.team_statuses.clone();
         let is_selected = self.selected.contains(&issue.id);
         let any_selected = !self.selected.is_empty();
         let solo_team = self.solo_team;
@@ -490,7 +498,7 @@ impl IssueListView {
             .child(
                 control_cell(row_id("status-cell", &issue.id))
                     .w_6()
-                    .child(status_dropdown(issue, cx)),
+                    .child(status_dropdown(issue, &self.team_statuses, cx)),
             )
             // 1fr title (truncating).
             .child(
@@ -532,7 +540,7 @@ impl IssueListView {
             .child(due_cell(issue, cx))
             // Right-click context menu (web `IssueRowContextMenu`, §4.2/§4.6).
             .context_menu(move |menu, window, cx| {
-                build_row_context_menu(menu, &menu_issue, window, cx)
+                build_row_context_menu(menu, &menu_issue, &menu_statuses, window, cx)
             })
     }
 
@@ -595,6 +603,7 @@ impl IssueListView {
         let status_menu = {
             let ids = ids.clone();
             let list = list.clone();
+            let team_id = team_id.clone();
             Button::new("bulk-status")
                 .ghost()
                 .small()
@@ -602,19 +611,21 @@ impl IssueListView {
                 .tooltip("Status")
                 .disabled(busy)
                 .dropdown_menu(move |menu, _window, cx| {
-                    let mut menu = menu.check_side(Side::Right);
-                    // No Duplicate here: bulk marking has no canonical-issue
-                    // picker, and status='duplicate' without duplicate_of_id
-                    // breaks the pairing invariant (the single-issue path
-                    // intercepts via apply_status_selection's picker).
-                    for option in ISSUE_STATUS_OPTIONS
-                        .iter()
-                        .filter(|option| option.value != IssueStatus::Duplicate)
-                    {
-                        let ids = ids.clone();
-                        let list = list.clone();
-                        let value = option.value;
-                        menu = menu.item(option_item(option, false, cx, move |_window, cx| {
+                    // The team's own vocabulary (EXP-314). Duplicate-category
+                    // rows are filtered out inside `status_menu`: bulk marking
+                    // has no canonical-issue picker, and status='duplicate'
+                    // without duplicate_of_id breaks the pairing invariant
+                    // (the single-issue path intercepts via
+                    // apply_status_selection's picker).
+                    let statuses = queries::team_status_options(cx, &team_id);
+                    let ids = ids.clone();
+                    let list = list.clone();
+                    status_menu(
+                        menu,
+                        &statuses,
+                        "",
+                        Rc::new(move |pick: StatusPick, _window, cx| {
+                            let pick = pick.clone();
                             spawn_bulk_op(
                                 list.clone(),
                                 cx,
@@ -624,13 +635,13 @@ impl IssueListView {
                                 move |trpc, chunk| {
                                     let mut input =
                                         api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
-                                    input.status = Some(value);
+                                    pick.apply_to_bulk(&mut input);
                                     api::issues::issues_bulk_update(trpc, &input).map(|_| ())
                                 },
                             );
-                        }));
-                    }
-                    menu
+                        }),
+                        cx,
+                    )
                 })
         };
 
@@ -649,21 +660,26 @@ impl IssueListView {
                         let ids = ids.clone();
                         let list = list.clone();
                         let value = option.value;
-                        menu = menu.item(option_item(option, false, cx, move |_window, cx| {
-                            spawn_bulk_op(
-                                list.clone(),
-                                cx,
-                                ids.clone(),
-                                false,
-                                "issues.bulkUpdate",
-                                move |trpc, chunk| {
-                                    let mut input =
-                                        api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
-                                    input.priority = Some(value);
-                                    api::issues::issues_bulk_update(trpc, &input).map(|_| ())
-                                },
-                            );
-                        }));
+                        menu = menu.item(option_item(
+                            SharedString::from(option.label),
+                            option_icon(option, cx),
+                            false,
+                            move |_window, cx| {
+                                spawn_bulk_op(
+                                    list.clone(),
+                                    cx,
+                                    ids.clone(),
+                                    false,
+                                    "issues.bulkUpdate",
+                                    move |trpc, chunk| {
+                                        let mut input =
+                                            api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
+                                        input.priority = Some(value);
+                                        api::issues::issues_bulk_update(trpc, &input).map(|_| ())
+                                    },
+                                );
+                            },
+                        ));
                     }
                     menu
                 })
@@ -1005,6 +1021,14 @@ impl Render for IssueListView {
         // Solo teams drop the per-row assignee cell — resolved once per frame
         // (the whole list is one team) so no per-row membership query runs.
         self.solo_team = self.is_solo_team(cx);
+        // EXP-314: same once-per-frame treatment for the status vocabulary —
+        // the whole list is one team, and every row dropdown + the context
+        // menu read this snapshot.
+        self.team_statuses = Rc::new(
+            self.bulk_team_id(cx)
+                .map(|team_id| queries::team_status_options(cx, &team_id))
+                .unwrap_or_else(domain::statuses::default_resolved_statuses),
+        );
 
         // Base surface: NONE — the list sits directly on the window's page
         // gradient (EXP-282; `colors.list` has been transparent since the
@@ -1085,9 +1109,9 @@ impl Render for IssueListView {
                 // web's empty Collapsible body.
                 continue;
             }
-            let collapsed = self.collapsed.contains(&group.status);
+            let collapsed = self.collapsed.contains(&group.status.group_key);
             rows.push(ListRow::Header {
-                status: group.status,
+                status: Box::new(group.status.clone()),
                 count: group.issues.len(),
                 collapsed,
             });
@@ -1180,42 +1204,72 @@ fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
         .dropdown_menu(move |menu, _window, cx| {
             let mut menu = menu.check_side(Side::Right);
             for option in &ISSUE_PRIORITY_OPTIONS {
-                menu = menu.item(option_item(option, option.value == current, cx, {
-                    let issue_id = issue_id.clone();
-                    let value = option.value;
+                let issue_id = issue_id.clone();
+                let value = option.value;
+                menu = menu.item(option_item(
+                    SharedString::from(option.label),
+                    option_icon(option, cx),
+                    option.value == current,
                     move |_window, cx| {
                         let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                         input.priority = Some(value);
                         spawn_issue_update(cx, input);
-                    }
-                }));
+                    },
+                ));
             }
             menu
         })
 }
 
-/// Status dropdown (web `StatusDropdown`). Selecting `duplicate` is intercepted
-/// into the duplicate picker (L27), never a direct status write.
-fn status_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
-    let config = get_issue_status_config(issue.status);
-    let current = issue.status;
+/// Status dropdown (web `StatusDropdown`). EXP-314: the trigger renders the
+/// issue's RESOLVED status and the menu lists the team's own vocabulary;
+/// picking a duplicate-category status is intercepted into the duplicate
+/// picker (L27), never a direct status write.
+fn status_dropdown(issue: &Issue, statuses: &[ResolvedStatus], cx: &App) -> impl IntoElement {
+    let resolved = resolve_in(issue, statuses);
+    let current_key = resolved.group_key.clone();
+    let statuses = statuses.to_vec();
     let issue_id = issue.id.clone();
 
     Button::new(row_id("status", &issue.id))
         .ghost()
         .xsmall()
-        .icon(option_icon(config, cx))
+        .icon(resolved_status_icon(&resolved, cx))
         .dropdown_menu(move |menu, _window, cx| {
-            let mut menu = menu.check_side(Side::Right);
-            for option in &ISSUE_STATUS_OPTIONS {
-                menu = menu.item(option_item(option, option.value == current, cx, {
-                    let issue_id = issue_id.clone();
-                    let value = option.value;
-                    move |window, cx| apply_status_selection(issue_id.clone(), value, window, cx)
-                }));
-            }
-            menu
+            let issue_id = issue_id.clone();
+            status_menu(
+                menu,
+                &statuses,
+                &current_key,
+                Rc::new(move |pick, window, cx| {
+                    apply_status_selection(issue_id.clone(), pick, window, cx)
+                }),
+                cx,
+            )
         })
+}
+
+/// The issue's status within a PRE-RESOLVED team vocabulary (the frame's
+/// `team_statuses`): a straight group-key hit, else the resolution chain over
+/// the collections. Keeps the row icon in step with its group header.
+fn resolve_in(issue: &Issue, statuses: &[ResolvedStatus]) -> ResolvedStatus {
+    if let Some(status_id) = issue.status_id.as_deref() {
+        if let Some(found) = statuses
+            .iter()
+            .find(|status| status.row_id.as_deref() == Some(status_id))
+        {
+            return found.clone();
+        }
+    }
+    if let Some(wire) = issue.status.as_wire() {
+        if let Some(found) = statuses
+            .iter()
+            .find(|status| status.builtin_key.as_deref() == Some(wire))
+        {
+            return found.clone();
+        }
+    }
+    domain::statuses::constructed_default(issue.status)
 }
 
 /// Assignee dropdown (web `AssigneeDropdown`): avatar trigger when assigned,
@@ -1355,6 +1409,7 @@ fn assignable_users(board_id: &str, current: Option<&str>, cx: &App) -> Vec<User
 fn build_row_context_menu(
     menu: PopupMenu,
     issue: &Issue,
+    statuses: &Rc<Vec<ResolvedStatus>>,
     window: &mut Window,
     cx: &mut gpui::Context<PopupMenu>,
 ) -> PopupMenu {
@@ -1380,7 +1435,10 @@ fn build_row_context_menu(
         );
     }
 
-    // Mark as done / Move to todo (web toggles done ↔ todo).
+    // Mark as done / Move to todo (web toggles done ↔ todo). EXP-314: this
+    // convenience toggle stays an ENUM write — the server's trigger derives
+    // `status_id` from it, so it lands on the team's BUILTIN Done/Todo rows
+    // (an issue in a custom status leaves it, by design).
     {
         let is_done = issue.status == IssueStatus::Done;
         let (label, icon) = if is_done {
@@ -1436,19 +1494,23 @@ fn build_row_context_menu(
     // the row's status icon: the CURRENT status, not a generic glyph (EXP-59).
     {
         let issue_id = issue.id.clone();
-        let current = issue.status;
-        let icon = option_icon(get_issue_status_config(current), cx);
+        let resolved = resolve_in(issue, statuses);
+        let current_key = resolved.group_key.clone();
+        let statuses = statuses.clone();
+        let icon = resolved_status_icon(&resolved, cx);
         menu = menu.submenu_with_icon(Some(icon), "Status", window, cx, move |menu, _, cx| {
-            let mut menu = menu.check_side(Side::Right);
-            for option in &ISSUE_STATUS_OPTIONS {
-                menu = menu.item(option_item(option, option.value == current, cx, {
-                    let issue_id = issue_id.clone();
-                    let value = option.value;
-                    // L27: `duplicate` opens the picker; every other status writes.
-                    move |window, cx| apply_status_selection(issue_id.clone(), value, window, cx)
-                }));
-            }
-            menu
+            let issue_id = issue_id.clone();
+            status_menu(
+                menu,
+                &statuses,
+                &current_key,
+                // L27: a duplicate-category pick opens the picker; every other
+                // status writes.
+                Rc::new(move |pick, window, cx| {
+                    apply_status_selection(issue_id.clone(), pick, window, cx)
+                }),
+                cx,
+            )
         });
     }
 
@@ -1479,15 +1541,18 @@ fn build_row_context_menu(
         menu = menu.submenu_with_icon(Some(icon), "Priority", window, cx, move |menu, _, cx| {
             let mut menu = menu.check_side(Side::Right);
             for option in &ISSUE_PRIORITY_OPTIONS {
-                menu = menu.item(option_item(option, option.value == current, cx, {
-                    let issue_id = issue_id.clone();
-                    let value = option.value;
+                let issue_id = issue_id.clone();
+                let value = option.value;
+                menu = menu.item(option_item(
+                    SharedString::from(option.label),
+                    option_icon(option, cx),
+                    option.value == current,
                     move |_window, cx| {
                         let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                         input.priority = Some(value);
                         spawn_issue_update(cx, input);
-                    }
-                }));
+                    },
+                ));
             }
             menu
         });
@@ -1756,20 +1821,6 @@ pub(crate) fn spawn_issue_delete(cx: &mut App, issue_id: String) {
         .detach();
 }
 
-/// One option row: `domain`-table icon (colored) + label + check when
-/// current (never an iconless native menu).
-fn option_item<V: Copy + 'static>(
-    option: &'static IssueOption<V>,
-    checked: bool,
-    cx: &App,
-    on_select: impl Fn(&mut Window, &mut App) + 'static,
-) -> PopupMenuItem {
-    PopupMenuItem::new(SharedString::from(option.label))
-        .icon(option_icon(option, cx))
-        .checked(checked)
-        .on_click(move |_, window, cx| on_select(window, cx))
-}
-
 /// §4.1 un-gated inline mutation: fire `issues.update` on a background
 /// thread; the UI reflects the change when the Electric echo lands (observe →
 /// re-render). Errors are logged — the row simply stays put (the echo never
@@ -1892,14 +1943,22 @@ const HEADER_TINT_ALPHA: f32 = 0.10;
 /// literals) and EXP-285 flattened the remaining glass band, leaving headers
 /// bare on the page gradient with only a hairline — at 28px row height that
 /// made them near-indistinguishable from issue rows. The tint is back, but
-/// token-locked this time: the hue comes from the status' own [`ColorToken`]
-/// (`domain::options` — "status/priority accents are token-locked, never loose
-/// hex in Rust"), so header, icon and every other status affordance can never
-/// drift apart.
-fn status_header_tint(status: IssueStatus) -> gpui::Hsla {
-    status_tint_base(get_issue_status_config(status).color)
-        .to_hsla()
-        .opacity(HEADER_TINT_ALPHA)
+/// token-locked this time: for a BUILTIN status the hue comes from its own
+/// [`ColorToken`] (`domain::options` — "status/priority accents are
+/// token-locked, never loose hex in Rust"), so header, icon and every other
+/// status affordance can never drift apart.
+///
+/// EXP-314: a CUSTOM status washes with its stored hex (the same 20-swatch
+/// palette the labels use — all mid-tone, so the same alpha reads correctly),
+/// degrading to the neutral accent when the hex does not parse.
+fn status_header_tint(tint: &StatusTint) -> gpui::Hsla {
+    let base = match tint {
+        StatusTint::Token(token) => status_tint_base(*token).to_hsla(),
+        StatusTint::Hex(hex) => {
+            crate::settings::parse_hex_color(hex).unwrap_or_else(|| t::NEUTRAL.to_hsla())
+        }
+    };
+    base.opacity(HEADER_TINT_ALPHA)
 }
 
 /// Hue source for [`status_header_tint`] — the generated design token behind a
@@ -1986,11 +2045,10 @@ fn row_id(kind: &str, issue_id: &str) -> ElementId {
     ElementId::Name(SharedString::from(format!("{kind}-{issue_id}")))
 }
 
-fn header_id(kind: &str, status: IssueStatus) -> ElementId {
-    ElementId::Name(SharedString::from(format!(
-        "{kind}-{}",
-        status.as_wire().unwrap_or("unknown")
-    )))
+/// Stable per-group element id: `{kind}-{group_key}` (EXP-314 — a status ROW
+/// id, or `builtin:<key>` before the statuses shape syncs).
+fn header_id(kind: &str, group_key: &str) -> ElementId {
+    ElementId::Name(SharedString::from(format!("{kind}-{group_key}")))
 }
 
 #[cfg(test)]
@@ -2035,28 +2093,59 @@ mod tests {
         // EXP-293 web parity (`statusHeaderBg`): in_progress yellow, in_review
         // green, done blue; every grey status shares the neutral accent. Locked
         // to the GENERATED tokens so the header wash can never drift from the
-        // status icon beside it.
-        for (status, want) in [
-            (IssueStatus::InProgress, t::YELLOW),
-            (IssueStatus::InReview, t::GREEN),
-            (IssueStatus::Done, t::BLUE),
-            (IssueStatus::Backlog, t::NEUTRAL),
-            (IssueStatus::Todo, t::NEUTRAL),
-            (IssueStatus::Cancelled, t::NEUTRAL),
-            (IssueStatus::Duplicate, t::NEUTRAL),
-            // Forward-compat: an unknown wire value falls back to backlog's
-            // config (`get_issue_status_config`), so it must still get a tint.
-            (IssueStatus::Unknown, t::NEUTRAL),
+        // status icon beside it. EXP-314 keeps this BYTE-identical for the 7
+        // builtins (their tint is still a ColorToken, never the synced hex).
+        for (builtin_key, want) in [
+            ("in_progress", t::YELLOW),
+            ("in_review", t::GREEN),
+            ("done", t::BLUE),
+            ("backlog", t::NEUTRAL),
+            ("todo", t::NEUTRAL),
+            ("cancelled", t::NEUTRAL),
+            ("duplicate", t::NEUTRAL),
+            // Forward-compat: an unknown builtin key falls back to muted →
+            // the neutral accent, so it still gets a tint.
+            ("brand_new", t::NEUTRAL),
         ] {
-            let tint = status_header_tint(status);
+            let tint = status_header_tint(&StatusTint::Token(
+                domain::statuses::builtin_color_token(builtin_key),
+            ));
             let want = want.to_hsla();
             assert!(
                 (tint.h - want.h).abs() < 0.001 && (tint.s - want.s).abs() < 0.001,
-                "{status:?} tint hue/sat {tint:?} != token {want:?}"
+                "{builtin_key} tint hue/sat {tint:?} != token {want:?}"
             );
             assert!(
                 (tint.a - HEADER_TINT_ALPHA).abs() < 0.001,
-                "{status:?} tint alpha: {tint:?}"
+                "{builtin_key} tint alpha: {tint:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_status_headers_wash_with_their_stored_hex() {
+        // EXP-314: a CUSTOM row has no token — its hex washes at the same
+        // alpha, and an unparseable value degrades to the neutral accent.
+        let tint = status_header_tint(&StatusTint::Hex("#22c55e".to_string()));
+        let want: gpui::Hsla = gpui::Rgba {
+            r: 0x22 as f32 / 255.,
+            g: 0xc5 as f32 / 255.,
+            b: 0x5e as f32 / 255.,
+            a: 1.0,
+        }
+        .into();
+        assert!(
+            (tint.h - want.h).abs() < 0.001 && (tint.s - want.s).abs() < 0.001,
+            "custom tint {tint:?} != hex {want:?}"
+        );
+        assert!((tint.a - HEADER_TINT_ALPHA).abs() < 0.001);
+
+        for bad in ["", "nope", "22c55e"] {
+            let tint = status_header_tint(&StatusTint::Hex(bad.to_string()));
+            let neutral = t::NEUTRAL.to_hsla();
+            assert!(
+                (tint.h - neutral.h).abs() < 0.001 && (tint.s - neutral.s).abs() < 0.001,
+                "{bad:?} should degrade to neutral, got {tint:?}"
             );
         }
     }

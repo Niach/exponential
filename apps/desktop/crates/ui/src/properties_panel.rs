@@ -37,7 +37,7 @@ use sync::Store;
 use theme::tokens as t;
 
 use domain::board::format_short_date;
-use domain::options::{get_issue_priority_config, get_issue_status_config};
+use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
@@ -154,6 +154,8 @@ impl PropertiesPanel {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_subscribers, |_, _, cx| cx.notify()),
+            // EXP-314: a status rename/recolor re-renders the status control.
+            cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
         ] {
             subscriptions.push(subscription);
@@ -307,26 +309,35 @@ impl PropertiesPanel {
     // -- controls ---------------------------------------------------------------
 
     fn status_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let config = get_issue_status_config(issue.status);
-        let current = issue.status;
+        // EXP-314: the trigger renders the issue's RESOLVED status (custom
+        // rows included), and the menu lists the team's own vocabulary.
+        let resolved = crate::queries::resolve_issue_status(cx, issue);
+        let current_key = resolved.group_key.clone();
+        let team_id = self.team_id_of(issue, cx);
         let issue_id = issue.id.clone();
         picker_trigger(
             "prop-status",
-            Some(option_icon(config, cx)),
-            SharedString::from(config.label),
+            Some(crate::icons::resolved_status_icon(&resolved, cx)),
+            SharedString::from(resolved.name.clone()),
             false,
             cx,
         )
         .dropdown_menu(move |menu, _, cx| {
             let issue_id = issue_id.clone();
+            let statuses = match &team_id {
+                Some(team_id) => crate::queries::team_status_options(cx, team_id),
+                None => domain::statuses::default_resolved_statuses(),
+            };
             crate::pickers::status_menu(
                 menu.min_w(px(SIDEBAR_INNER_WIDTH)),
-                current,
-                // L27: `duplicate` opens the picker; every other status writes.
-                Rc::new(move |value, window, cx| {
+                &statuses,
+                &current_key,
+                // L27: a duplicate-category pick opens the picker; every other
+                // status writes.
+                Rc::new(move |pick, window, cx| {
                     crate::issue_detail::apply_status_selection(
                         issue_id.clone(),
-                        value,
+                        pick,
                         window,
                         cx,
                     );
@@ -334,6 +345,16 @@ impl PropertiesPanel {
                 cx,
             )
         })
+    }
+
+    /// The team behind an issue (via its board) — scopes the status menu.
+    fn team_id_of(&self, issue: &Issue, cx: &gpui::App) -> Option<String> {
+        Store::global(cx)
+            .collections()
+            .boards
+            .read(cx)
+            .get(&issue.board_id)
+            .map(|board| board.team_id.clone())
     }
 
     fn priority_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {

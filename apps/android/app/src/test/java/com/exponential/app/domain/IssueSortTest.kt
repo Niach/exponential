@@ -166,6 +166,54 @@ class IssueSortTest {
         }
     }
 
+    // --- category-keyed variant (EXP-314) -------------------------------------
+
+    private fun sortedIdsByCategory(
+        category: IssueStatusCategory,
+        issues: List<IssueEntity>,
+    ): List<String> =
+        sortIssuesForCategory(category = category, issues = issues, today = today) { it }.map { it.id }
+
+    /**
+     * The per-board list groups by status ROW now, so the in-group comparator
+     * keys on the row's CATEGORY. Every branch must stay byte-identical to the
+     * anchor-enum comparator above.
+     */
+    @Test
+    fun categoryComparatorMatchesTheAnchorComparatorBranchForBranch() {
+        val active = listOf(
+            issue("none", number = 1, priority = "none"),
+            issue("urgent", number = 2, priority = "urgent"),
+            issue("overdue", number = 3, priority = "low", dueDate = "2026-07-01"),
+        )
+        val expectedActive = sortedIds(IssueStatus.Todo, active)
+        for (category in listOf(
+            IssueStatusCategory.Backlog,
+            IssueStatusCategory.Unstarted,
+            IssueStatusCategory.Started,
+        )) {
+            assertEquals(expectedActive, sortedIdsByCategory(category, active))
+        }
+
+        val completed = listOf(
+            issue("first", status = "done", completedAt = "2026-07-01 10:00:00+00"),
+            issue("latest", status = "done", completedAt = "2026-07-09T10:00:00.000Z"),
+            issue("no-stamp", status = "done", updatedAt = "2026-07-05 10:00:00+00"),
+        )
+        assertEquals(
+            sortedIds(IssueStatus.Done, completed),
+            sortedIdsByCategory(IssueStatusCategory.Completed, completed),
+        )
+
+        val terminal = listOf(
+            issue("older", status = "cancelled", updatedAt = "2026-07-01 10:00:00+00"),
+            issue("newest", status = "cancelled", updatedAt = "2026-07-09T10:00:00.000Z"),
+        )
+        for (category in listOf(IssueStatusCategory.Cancelled, IssueStatusCategory.Duplicate)) {
+            assertEquals(listOf("newest", "older"), sortedIdsByCategory(category, terminal))
+        }
+    }
+
     // --- timestamp normalization ---------------------------------------------
 
     @Test

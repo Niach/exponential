@@ -159,7 +159,9 @@ struct IssueListView: View {
                     .padding(.bottom, 8)
             }
 
-            if IssueStatus.displayOrder.allSatisfy({ vm.issuesForStatus($0).isEmpty }) {
+            // EXP-314: one group per TEAM STATUS row, in the resolver's order.
+            let groups = vm.teamStatuses
+            if groups.allSatisfy({ vm.issues(forGroup: $0).isEmpty }) {
                 // Android parity: an empty (or fully filtered-out) board says
                 // so instead of rendering a blank list.
                 VStack {
@@ -172,11 +174,11 @@ struct IssueListView: View {
                 .frame(maxWidth: .infinity)
             } else {
                 List {
-                    ForEach(IssueStatus.displayOrder, id: \.self) { status in
-                        let statusIssues = vm.issuesForStatus(status)
+                    ForEach(groups, id: \.id) { group in
+                        let statusIssues = vm.issues(forGroup: group)
                         if !statusIssues.isEmpty {
                             Section {
-                                if !vm.collapsedStatuses.contains(status) {
+                                if !vm.collapsedStatuses.contains(group.id) {
                                     ForEach(statusIssues, id: \.id) { issue in
                                         issueRow(issue: issue, vm: vm)
                                             .listRowBackground(Color.clear)
@@ -185,6 +187,9 @@ struct IssueListView: View {
                                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                                 // Swipes pause while multi-select is active — the
                                                 // bar owns bulk mutations then (EXP-239).
+                                                // Enum-only convenience writes (EXP-314): the swipes
+                                                // deliberately send the ANCHOR, which the server derives
+                                                // onto the team's builtin Done/Cancelled/Backlog row.
                                                 if !selectionActive, vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
                                                     Button {
                                                         Task { await vm.setStatus(issueId: issue.id, status: .done) }
@@ -215,7 +220,7 @@ struct IssueListView: View {
                                     }
                                 }
                             } header: {
-                                statusHeader(status: status, count: statusIssues.count, vm: vm)
+                                statusHeader(group: group, count: statusIssues.count, vm: vm)
                                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                                     .listRowBackground(Color.clear)
                             }
@@ -304,9 +309,9 @@ struct IssueListView: View {
     private func activeFilterPills(_ vm: IssueListViewModel) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(IssueStatus.displayOrder.filter { vm.filters.statuses.contains($0) }, id: \.self) { status in
-                    filterPill(icon: status.iconName, iconColor: status.color, text: status.label) {
-                        vm.toggleStatus(status)
+                ForEach(vm.teamStatuses.filter { vm.filters.statusIds.contains($0.id) }, id: \.id) { status in
+                    filterPill(icon: status.iconName, iconColor: status.color, text: status.name) {
+                        vm.toggleStatus(status.id)
                     }
                 }
                 ForEach(IssuePriority.displayOrder.filter { vm.filters.priorities.contains($0) }, id: \.self) { priority in
@@ -370,20 +375,20 @@ struct IssueListView: View {
     }
 
     @ViewBuilder
-    private func statusHeader(status: IssueStatus, count: Int, vm: IssueListViewModel) -> some View {
+    private func statusHeader(group: ResolvedIssueStatus, count: Int, vm: IssueListViewModel) -> some View {
         Button {
-            vm.toggleStatusCollapsed(status)
+            vm.toggleStatusCollapsed(group.id)
         } label: {
             HStack(spacing: 8) {
-                AppIcon(vm.collapsedStatuses.contains(status) ? AppIcons.uiChevronRight : AppIcons.uiChevronDown,
+                AppIcon(vm.collapsedStatuses.contains(group.id) ? AppIcons.uiChevronRight : AppIcons.uiChevronDown,
                         size: 11, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(width: 12)
 
-                AppIcon(status.iconName, size: AppIcon.Size.small)
-                    .foregroundStyle(status.color)
+                AppIcon(group.iconName, size: AppIcon.Size.small)
+                    .foregroundStyle(group.color)
 
-                Text(status.label)
+                Text(group.name)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
@@ -474,10 +479,11 @@ struct IssueListView: View {
                     .lineLimit(1)
                     .frame(minWidth: identifierMinWidth, alignment: .leading)
 
-                // Status icon
+                // Status icon — resolved against the team's status rows (EXP-314).
+                let resolvedStatus = vm.resolved(issue)
                 inlineEditableIcon(
-                    iconName: IssueStatus.from(issue.status).iconName,
-                    color: IssueStatus.from(issue.status).color,
+                    iconName: resolvedStatus.iconName,
+                    color: resolvedStatus.color,
                     onTap: onTapStatus.map { tap in { tap(issue) } },
                     onLongPress: onIconLongPress
                 )
@@ -745,10 +751,12 @@ struct IssueListView: View {
         vm.issues.filter { selectedIds.contains($0.id) }
     }
 
-    /// The status shared by every selected issue, or nil when they differ.
-    private func sharedStatus(_ vm: IssueListViewModel) -> IssueStatus? {
-        let statuses = Set(selectedIssues(vm).map { IssueStatus.from($0.status) })
-        return statuses.count == 1 ? statuses.first : nil
+    /// The resolved status shared by every selected issue, or nil when they
+    /// differ (compared by group key — EXP-314).
+    private func sharedStatus(_ vm: IssueListViewModel) -> ResolvedIssueStatus? {
+        let statuses = selectedIssues(vm).map { vm.resolved($0) }
+        let ids = Set(statuses.map(\.id))
+        return ids.count == 1 ? statuses.first : nil
     }
 
     /// The priority shared by every selected issue, or nil when they differ.
@@ -768,16 +776,17 @@ struct IssueListView: View {
     private func bulkSheetContent(_ sheet: BulkSheet, vm: IssueListViewModel) -> some View {
         switch sheet {
         case .status:
-            // No duplicate: bulk marking has no canonical-issue picker (web parity).
+            // No duplicate category: bulk marking has no canonical-issue picker
+            // (web parity).
             GlassPickerSheet(
                 title: "Status",
-                items: IssueStatus.displayOrder.filter { $0 != .duplicate },
+                items: vm.pickableStatuses,
                 selectedID: sharedStatus(vm)?.id,
                 idFor: { $0.id },
                 onSelect: { selected in bulkSetStatus(vm, selected) }
             ) { status in
                 Label {
-                    Text(status.label)
+                    Text(status.name)
                 } icon: {
                     AppIcon(status.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(status.color)
@@ -835,15 +844,15 @@ struct IssueListView: View {
         case .status:
             GlassPickerSheet(
                 title: "Status",
-                items: IssueStatus.displayOrder.filter { $0 != .duplicate },
-                selectedID: IssueStatus.from(edit.issue.status).id,
+                items: vm.pickableStatuses,
+                selectedID: vm.resolved(edit.issue).id,
                 idFor: { $0.id },
                 onSelect: { selected in
-                    Task { await vm.setStatus(issueId: edit.issue.id, status: selected) }
+                    Task { await vm.setStatus(issueId: edit.issue.id, resolved: selected) }
                 }
             ) { status in
                 Label {
-                    Text(status.label)
+                    Text(status.name)
                 } icon: {
                     AppIcon(status.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(status.color)
@@ -869,10 +878,10 @@ struct IssueListView: View {
         }
     }
 
-    private func bulkSetStatus(_ vm: IssueListViewModel, _ status: IssueStatus) {
+    private func bulkSetStatus(_ vm: IssueListViewModel, _ status: ResolvedIssueStatus) {
         let ids = Array(selectedIds)
         exitSelection()
-        Task { await vm.bulkSetStatus(issueIds: ids, status: status) }
+        Task { await vm.bulkSetStatus(issueIds: ids, resolved: status) }
     }
 
     private func bulkSetPriority(_ vm: IssueListViewModel, _ priority: IssuePriority) {

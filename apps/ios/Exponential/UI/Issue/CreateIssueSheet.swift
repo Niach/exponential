@@ -13,7 +13,11 @@ struct CreateIssueSheet: View {
 
     @State private var title = ""
     @State private var editor = IssueEditorModel()
-    @State private var status: IssueStatus = .backlog
+    /// EXP-314: the team's statuses in render order — the constructed builtin
+    /// defaults until the `issue_statuses` rows load.
+    @State private var teamStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
+    /// The picked status. Defaults to the team's backlog builtin.
+    @State private var status: ResolvedIssueStatus = IssueStatusResolver.builtinDefault(for: .backlog)
     @State private var priority: IssuePriority = .none
     @State private var dueDate: Date?
     @State private var assigneeId: String?
@@ -79,7 +83,7 @@ struct CreateIssueSheet: View {
                                     Button {
                                         showStatusPicker = true
                                     } label: {
-                                        Text(status.label)
+                                        Text(status.name)
                                             .font(.subheadline)
                                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                     }
@@ -274,6 +278,22 @@ struct CreateIssueSheet: View {
                         singleMemberTeam = true
                         assigneeId = humanIds.first
                     }
+                    // Statuses are team-scoped like labels (EXP-314); keep the
+                    // constructed defaults until the rows land, and re-pin the
+                    // default pick to the team's own backlog builtin.
+                    if let wsId = team?.id,
+                       let loadedStatuses = try? await pool.read({ db in
+                           try IssueStatusEntity
+                               .filter(Column("team_id") == wsId)
+                               .fetchAll(db)
+                       }) {
+                        let resolved = IssueStatusResolver.teamStatusesOrFallback(loadedStatuses)
+                        teamStatuses = resolved
+                        if let backlog = resolved.first(where: { $0.builtinKey == .backlog })
+                            ?? resolved.first(where: { $0.category == .backlog }) {
+                            status = backlog
+                        }
+                    }
                     // Labels are team-scoped; a shared DB pool can hold more
                     // than one team, so filter to this board's team.
                     if let wsId = team?.id,
@@ -296,17 +316,17 @@ struct CreateIssueSheet: View {
             .sheet(isPresented: $showStatusPicker) {
                 PickerSheet(
                     title: "Status",
-                    // Duplicate = status interception (L27): a new issue can't be a
-                    // duplicate (nothing to link yet), so it's not a create option.
-                    // Contract display order — the ONE picker vocabulary
-                    // (REV2-85), same as the filter sheet.
-                    items: IssueStatus.displayOrder.filter { $0 != .duplicate },
+                    // Duplicate CATEGORY = status interception (L27): a new issue
+                    // can't be a duplicate (nothing to link yet), so it's not a
+                    // create option. The team's own status order — the ONE picker
+                    // vocabulary (REV2-85), same as the filter sheet.
+                    items: teamStatuses.filter { $0.category != .duplicate },
                     selectedID: status.id,
                     idFor: { $0.id },
                     onSelect: { status = $0 }
                 ) { s in
                     Label {
-                        Text(s.label)
+                        Text(s.name)
                     } icon: {
                         AppIcon(s.iconName, size: AppIcon.Size.medium)
                             .foregroundStyle(s.color)
@@ -430,7 +450,10 @@ struct CreateIssueSheet: View {
         let input = CreateIssueInput(
             boardId: boardId,
             title: title,
-            status: status.rawValue,
+            // A CONSTRUCTED default (statuses shape not synced) has no row id,
+            // so it falls back to the anchor enum (EXP-314).
+            status: status.rowId == nil ? status.anchor.rawValue : nil,
+            statusId: status.rowId,
             priority: priority.rawValue,
             assigneeId: assigneeId,
             description: stripped.isEmpty ? nil : stripped,

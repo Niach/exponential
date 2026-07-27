@@ -15,13 +15,15 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { ListFilter, ChevronRight, ArrowLeft } from "lucide-react"
-import { statuses } from "@/components/issue-properties/status-dropdown"
+import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import { priorities } from "@/components/issue-properties/priority-dropdown"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { statusFilterToken } from "@/lib/team-statuses"
 import { IssueOptionFilterView } from "@/components/issue-option-filter-view"
 import type { IssueFilters } from "@/lib/filters"
 import { activeFilterCount } from "@/lib/filters"
 import type { Label } from "@/db/schema"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
+import type { IssuePriority } from "@/lib/domain"
 
 type View = `categories` | `status` | `priority` | `labels`
 
@@ -38,14 +40,34 @@ export function IssueFilterPopover({
 }: IssueFilterPopoverProps) {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<View>(`categories`)
+  const { options: statusOptions } = useTeamStatusesContext()
 
   const count = activeFilterCount(filters)
 
-  const toggleStatus = (value: IssueStatus) => {
-    const next = filters.statuses.includes(value)
-      ? filters.statuses.filter((s) => s !== value)
-      : [...filters.statuses, value]
-    onFiltersChange({ ...filters, statuses: next })
+  // EXP-314 dual-token selection: a legacy enum token from an older URL shows
+  // the matching builtin row ticked, and ANY toggle normalizes the whole set
+  // to row ids (dropping enum tokens whose row is on screen).
+  const selectedStatusIds = statusOptions
+    .filter((option) =>
+      filters.statusTokens.some(
+        (token) => token === option.id || token === option.builtinKey
+      )
+    )
+    .map((option) => option.id)
+
+  const toggleStatus = (value: string) => {
+    const nextIds = selectedStatusIds.includes(value)
+      ? selectedStatusIds.filter((s) => s !== value)
+      : [...selectedStatusIds, value]
+    // Tokens the on-screen rows can't represent (a status deleted while the
+    // URL was open) are dropped by the normalization — that is the point.
+    // Constructed fallback rows (shape unsynced) emit their anchor ENUM: a
+    // synthetic `builtin:<key>` id would fail the URL allowlist.
+    const next = nextIds.map((id) => {
+      const option = statusOptions.find((o) => o.id === id)!
+      return statusFilterToken(option)
+    })
+    onFiltersChange({ ...filters, statusTokens: next })
   }
 
   const togglePriority = (value: IssuePriority) => {
@@ -92,8 +114,8 @@ export function IssueFilterPopover({
         {view === `status` && (
           <IssueOptionFilterView
             title="Status"
-            options={statuses}
-            selected={filters.statuses}
+            options={toStatusMenuOptions(statusOptions)}
+            selected={selectedStatusIds}
             onToggle={toggleStatus}
             onBack={() => setView(`categories`)}
           />
@@ -128,7 +150,11 @@ function CategoriesView({
   onNavigate: (view: View) => void
 }) {
   const categories = [
-    { key: `status` as View, label: `Status`, count: filters.statuses.length },
+    {
+      key: `status` as View,
+      label: `Status`,
+      count: filters.statusTokens.length,
+    },
     {
       key: `priority` as View,
       label: `Priority`,

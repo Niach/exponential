@@ -81,8 +81,15 @@ pub struct IssueOut {
 pub struct IssuesCreateInput {
     pub board_id: String,
     pub title: String,
+    /// EXP-314: the enum ANCHOR. Mutually exclusive with [`Self::status_id`]
+    /// server-side — set one or the other, never both.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<IssueStatus>,
+    /// EXP-314: the precise `issue_statuses` row. Pickers send this; the
+    /// enum above stays for the pre-sync constructed fallbacks and the
+    /// enum-only convenience writes.
+    #[serde(rename = "statusId", skip_serializing_if = "Option::is_none")]
+    pub status_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<IssuePriority>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,6 +111,7 @@ impl IssuesCreateInput {
             board_id: board_id.into(),
             title: title.into(),
             status: None,
+            status_id: None,
             priority: None,
             assignee_id: None,
             description: None,
@@ -131,8 +139,13 @@ pub struct IssuesUpdateInput {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// EXP-314: the enum ANCHOR (mutually exclusive with
+    /// [`Self::status_id`], and with a non-null `duplicate_of_id`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<IssueStatus>,
+    /// EXP-314: the precise `issue_statuses` row.
+    #[serde(rename = "statusId", skip_serializing_if = "Option::is_none")]
+    pub status_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<IssuePriority>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
@@ -154,6 +167,7 @@ impl IssuesUpdateInput {
             id: id.into(),
             title: None,
             status: None,
+            status_id: None,
             priority: None,
             assignee_id: Patch::Omit,
             description: Patch::Omit,
@@ -246,8 +260,13 @@ pub fn issues_move(
 #[serde(rename_all = "camelCase")]
 pub struct IssuesBulkUpdateInput {
     pub ids: Vec<String>,
+    /// EXP-314: the enum ANCHOR (mutually exclusive with
+    /// [`Self::status_id`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<IssueStatus>,
+    /// EXP-314: the precise `issue_statuses` row.
+    #[serde(rename = "statusId", skip_serializing_if = "Option::is_none")]
+    pub status_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<IssuePriority>,
     /// zod `.nullable().optional()` — `Null` unassigns every issue.
@@ -261,6 +280,7 @@ impl IssuesBulkUpdateInput {
         Self {
             ids,
             status: None,
+            status_id: None,
             priority: None,
             assignee_id: Patch::Omit,
         }
@@ -373,7 +393,13 @@ pub struct IssueSearchHit {
     pub identifier: String,
     pub title: String,
     pub board_id: String,
+    /// The enum ANCHOR — search is CROSS-BOARD but single-team, so a hit can
+    /// still be resolved against the team's status rows via `status_id`.
     pub status: IssueStatus,
+    /// EXP-314 `issues.search` projection: the precise status row, `None` on
+    /// an older server.
+    #[serde(default)]
+    pub status_id: Option<String>,
     pub priority: IssuePriority,
 }
 
@@ -534,6 +560,10 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].identifier, "EXP-1");
         assert_eq!(out[0].status, IssueStatus::Todo);
+        // EXP-314: `statusId` is optional on the wire — an older server (or a
+        // pre-backfill row) decodes to None and the hit still renders via its
+        // anchor.
+        assert_eq!(out[0].status_id, None);
         // Tolerant-unknown (§5.5): a new server enum value never drops the hit.
         assert_eq!(out[1].status, IssueStatus::Unknown);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -554,6 +584,41 @@ mod tests {
         assert_eq!(
             json,
             r#"{"id":"11111111-1111-1111-1111-111111111111","status":"in_progress"}"#
+        );
+    }
+
+    #[test]
+    fn status_writes_send_either_the_row_id_or_the_anchor() {
+        // EXP-314: a picker pick on a SYNCED row sends `statusId` alone —
+        // sending both is a server-side BAD_REQUEST (mutually exclusive).
+        let mut input = IssuesUpdateInput::new("i-1");
+        input.status_id = Some("s-1".to_string());
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"id":"i-1","statusId":"s-1"}"#
+        );
+
+        // A pick on a CONSTRUCTED `builtin:<key>` fallback (statuses shape not
+        // synced) degrades to the enum anchor.
+        let mut input = IssuesUpdateInput::new("i-1");
+        input.status = Some(IssueStatus::Done);
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"id":"i-1","status":"done"}"#
+        );
+
+        // Same on create + bulk.
+        let mut input = IssuesCreateInput::new("b-1", "Title");
+        input.status_id = Some("s-2".to_string());
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"boardId":"b-1","title":"Title","statusId":"s-2"}"#
+        );
+        let mut input = IssuesBulkUpdateInput::new(vec!["i-1".to_string()]);
+        input.status_id = Some("s-3".to_string());
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"ids":["i-1"],"statusId":"s-3"}"#
         );
     }
 

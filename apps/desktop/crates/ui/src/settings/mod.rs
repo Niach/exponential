@@ -27,6 +27,7 @@
 mod account;
 mod agents;
 mod labels;
+mod statuses;
 mod local_repos;
 mod members;
 mod notifications_prefs;
@@ -59,6 +60,7 @@ use crate::queries;
 use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared};
 
 use labels::LabelsPane;
+use statuses::StatusesPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
 use agents::AgentsPane;
@@ -77,6 +79,9 @@ pub(crate) enum SettingsSection {
     General,
     Members,
     Labels,
+    /// EXP-314 per-team custom issue statuses. Member-editable like Labels
+    /// (the server's writes are `mutate_resources`, NOT owner-only).
+    Statuses,
     /// EXP-297 team file manager: every attachment via
     /// `attachments.listForTeam` + per-file delete + the unreferenced-image
     /// sweep. Owner-only, like the router behind it.
@@ -125,6 +130,12 @@ const NAV_GROUPS: &[NavGroup] = &[
                 label: "Labels",
                 section: SettingsSection::Labels,
             },
+            // EXP-314: right after Labels — the two team vocabularies sit
+            // together, and both are member-editable.
+            NavItem {
+                label: "Issue statuses",
+                section: SettingsSection::Statuses,
+            },
             // EXP-297: after Labels — the web nav's Team group order minus
             // the web-only Plan & Billing entry between them.
             NavItem {
@@ -166,6 +177,8 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::General => Icon::new(IconName::Building2),
         SettingsSection::Members => Icon::new(IconName::User),
         SettingsSection::Labels => Icon::from(crate::icons::ExpIcon::Tag),
+        // The shared registry's `settings-statuses` concept (EXP-273/EXP-314).
+        SettingsSection::Statuses => Icon::from(crate::icons::registry::SETTINGS_STATUSES),
         SettingsSection::Storage => Icon::from(crate::icons::ExpIcon::HardDrive),
         SettingsSection::Board(_) => Icon::from(crate::icons::ExpIcon::SquareKanban),
         SettingsSection::Repositories => Icon::new(IconName::Github),
@@ -251,6 +264,8 @@ pub struct SettingsView {
     general: Entity<GeneralPane>,
     members: Entity<MembersPane>,
     labels: Entity<LabelsPane>,
+    /// EXP-314 per-team issue statuses — un-gated (member-editable).
+    statuses: Entity<StatusesPane>,
     /// EXP-297 owner-only attachment manager (fetch-on-open server read).
     storage: Entity<StoragePane>,
     /// EXP-288: ONE per-board detail pane — it reads the selected `Board(id)`
@@ -281,6 +296,7 @@ impl SettingsView {
         let general = cx.new(|cx| GeneralPane::new(nav.clone(), window, cx));
         let members = cx.new(|cx| MembersPane::new(nav.clone(), window, cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
+        let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
@@ -308,6 +324,7 @@ impl SettingsView {
             general,
             members,
             labels,
+            statuses,
             storage,
             board_detail,
             repositories,
@@ -348,6 +365,7 @@ impl Render for SettingsView {
             SettingsSection::General => self.general.clone().into_any_element(),
             SettingsSection::Members => self.members.clone().into_any_element(),
             SettingsSection::Labels => self.labels.clone().into_any_element(),
+            SettingsSection::Statuses => self.statuses.clone().into_any_element(),
             SettingsSection::Storage => self.storage.clone().into_any_element(),
             // The pane reads the selected board id from the shared selection
             // itself (it needs to flush a pending rename on board switches).

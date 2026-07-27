@@ -2,11 +2,11 @@ import { CalendarDays, Megaphone } from "lucide-react"
 import type { User } from "@/db/schema"
 import {
   ISSUE_PRIORITY_FALLBACK,
-  ISSUE_STATUS_FALLBACK,
   type IssuePriority,
   type IssueSource,
-  type IssueStatus,
 } from "@/lib/domain"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import type { StatusRowOption } from "@/lib/team-statuses"
 import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/utils"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
@@ -14,10 +14,7 @@ import {
   priorities,
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
-import {
-  statuses,
-  StatusIcon,
-} from "@/components/issue-properties/status-dropdown"
+import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
@@ -31,8 +28,10 @@ import {
 
 export interface IssuePropertiesPanelProps {
   layout: `sidebar` | `chiprow`
-  status: IssueStatus
-  onStatusChange: (status: IssueStatus) => void | Promise<void>
+  // EXP-314: the RESOLVED team status row. The duplicate-category row stays in
+  // the menu (the picker intercepts it), matching the pre-EXP-314 control.
+  status: StatusRowOption
+  onStatusChange: (status: StatusRowOption) => void | Promise<void>
   priority: IssuePriority
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   assigneeId: string | null
@@ -160,30 +159,43 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   // list; length 0 means still loading (never a genuine empty), so multi-member
   // teams never briefly read as solo.
   const isSolo = users.length === 1
+  const { options: teamStatusOptions, byId: statusById } =
+    useTeamStatusesContext()
 
   const statusControl = (
     <OptionDropdownMenu
-      value={status}
-      fallbackValue={ISSUE_STATUS_FALLBACK}
+      value={status.id}
+      fallbackValue={status.id}
       disabled={disabled}
-      options={statuses}
-      onSelect={onStatusChange}
+      options={toStatusMenuOptions(teamStatusOptions)}
+      onSelect={(id) => {
+        const picked = statusById.get(id)
+        if (picked) void onStatusChange(picked)
+      }}
       mobileTitle="Status"
-      renderTrigger={(selected) => (
-        <Button
-          variant="ghost"
-          size="xs"
-          className={
-            layout === `sidebar`
-              ? `justify-start text-muted-foreground hover:text-foreground`
-              : `text-muted-foreground shrink-0`
-          }
-          disabled={disabled}
-        >
-          <StatusIcon status={selected.value} className="!h-3 !w-3" />
-          {selected.label}
-        </Button>
-      )}
+      renderTrigger={(selected) => {
+        const Icon = selected.icon
+        return (
+          <Button
+            variant="ghost"
+            size="xs"
+            className={
+              layout === `sidebar`
+                ? `justify-start text-muted-foreground hover:text-foreground`
+                : `text-muted-foreground shrink-0`
+            }
+            disabled={disabled}
+          >
+            <Icon
+              className={`!h-3 !w-3 ${selected.color}`}
+              style={
+                selected.colorHex ? { color: selected.colorHex } : undefined
+              }
+            />
+            {selected.label}
+          </Button>
+        )
+      }}
     />
   )
 

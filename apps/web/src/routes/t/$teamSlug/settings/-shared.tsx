@@ -25,6 +25,7 @@ import {
   type TeamPermissions,
 } from "@/hooks/use-team-permissions"
 import { getRuntimeConfig, type RuntimeConfig } from "@/lib/runtime-config"
+import { conceptIcon } from "@/lib/icons.generated"
 
 export interface SettingsNavContext {
   isCloud: boolean
@@ -37,6 +38,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/general`
   | `/t/$teamSlug/settings/members`
   | `/t/$teamSlug/settings/labels`
+  | `/t/$teamSlug/settings/statuses`
   | `/t/$teamSlug/settings/billing`
   | `/t/$teamSlug/settings/storage`
   | `/t/$teamSlug/settings/boards`
@@ -78,6 +80,14 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         label: `Labels`,
         to: `/t/$teamSlug/settings/labels`,
         icon: Tags,
+        visible: () => true,
+      },
+      // EXP-314 custom issue statuses. Member-editable like Labels (the
+      // router gates writes at `mutate_resources`), so visible to everyone.
+      {
+        label: `Statuses`,
+        to: `/t/$teamSlug/settings/statuses`,
+        icon: conceptIcon(`settings-statuses`),
         visible: () => true,
       },
       {

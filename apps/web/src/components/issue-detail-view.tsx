@@ -45,6 +45,8 @@ import { Separator } from "@/components/ui/separator"
 import type { IssueFilterSearch } from "@/lib/filters"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { statusUpdatePayload } from "@/lib/team-statuses"
 import {
   MarkdownEditor,
   type MarkdownEditorRef,
@@ -246,11 +248,17 @@ export function IssueDetailView({
   const [activeUploadCount, setActiveUploadCount] = useState(0)
   const [linkCopied, setLinkCopied] = useState(false)
 
+  const { resolve: resolveStatus } = useTeamStatusesContext()
+  const statusOption = resolveStatus(issue)
+
   const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
     issueId: issue.id,
-    onStatusChange: async (status) => {
+    onStatusChange: async (next) => {
       if (readOnly) return
-      await trpc.issues.update.mutate({ id: issue.id, status })
+      await trpc.issues.update.mutate({
+        id: issue.id,
+        ...statusUpdatePayload(next),
+      })
     },
   })
 
@@ -495,7 +503,7 @@ export function IssueDetailView({
   const propsPanel = (
     <IssuePropertiesPanel
       layout={isMobile ? `chiprow` : `sidebar`}
-      status={issue.status}
+      status={statusOption}
       onStatusChange={handleStatusChange}
       priority={issue.priority}
       onPriorityChange={async (priority) => {

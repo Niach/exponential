@@ -17,7 +17,11 @@ import kotlinx.serialization.json.put
 data class CreateIssueInput(
     @SerialName("boardId") val boardId: String,
     val title: String,
+    // Anchor enum value (`status`) XOR status ROW id (`statusId`) — the server
+    // rejects both at once (EXP-314). Pickers send statusId; enum-only
+    // conveniences keep sending status.
     val status: String? = null,
+    @SerialName("statusId") val statusId: String? = null,
     val priority: String? = null,
     val description: String? = null,
     @SerialName("assigneeId") val assigneeId: String? = null,
@@ -31,7 +35,11 @@ data class CreateIssueInput(
 data class UpdateIssueInput(
     val id: String,
     val title: String? = null,
+    // Anchor enum value (`status`) XOR status ROW id (`statusId`) — mutually
+    // exclusive server-side (EXP-314), and statusId may not ride along with a
+    // non-null duplicateOfId.
     val status: String? = null,
+    @SerialName("statusId") val statusId: String? = null,
     val priority: String? = null,
     val description: String? = null,
     // NOTE: a null here means "don't touch" — the shared Json omits it. Use
@@ -245,6 +253,7 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
         accountId: String,
         ids: List<String>,
         status: String? = null,
+        statusId: String? = null,
         priority: String? = null,
         assigneeId: String? = null,
         clearAssignee: Boolean = false,
@@ -255,6 +264,7 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             input = buildJsonObject {
                 put("ids", JsonArray(ids.map { JsonPrimitive(it) }))
                 if (status != null) put("status", status)
+                if (statusId != null) put("statusId", statusId)
                 if (priority != null) put("priority", priority)
                 if (assigneeId != null) put("assigneeId", assigneeId)
                 else if (clearAssignee) put("assigneeId", JsonNull)

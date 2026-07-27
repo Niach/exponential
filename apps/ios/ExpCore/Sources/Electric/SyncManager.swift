@@ -8,7 +8,7 @@ private let logger = Logger(subsystem: "at.exponential", category: "SyncManager"
 // Web uses @electric-sql/client; iOS and Android implement the same wire
 // format by hand. See packages/electric-protocol/README.md for the contract.
 //
-// Multi-account: each signed-in account runs its own set of 15 shape Tasks in
+// Multi-account: each signed-in account runs its own set of 16 shape Tasks in
 // parallel, each writing to that account's per-account SQLite pool. There is
 // no global active account here — sign-out on one account just cancels its
 // pipeline without affecting any others.
@@ -21,7 +21,7 @@ public final class SyncManager: @unchecked Sendable {
     private var observationTask: Task<Void, Never>?
     // Accounts with a resync in flight — a concurrent second resync would
     // relaunch the pipeline and overwrite `pipelines[accountId]`, orphaning
-    // 15 uncancellable shape Tasks (duplicate long-polls racing the wipe).
+    // 16 uncancellable shape Tasks (duplicate long-polls racing the wipe).
     private var resyncing: Set<String> = []
     // When the scene last left the foreground, and when the last all-account
     // restart ran. Both lock-guarded like everything else here: the scene
@@ -80,7 +80,7 @@ public final class SyncManager: @unchecked Sendable {
 
     /// Full local resync ("Resync now"): cancel the account's pipeline, purge
     /// any URL-cached shape responses (poisoned-cache guard), wipe every synced
-    /// row + saved offset, then relaunch so all 15 shapes refetch from scratch.
+    /// row + saved offset, then relaunch so all 16 shapes refetch from scratch.
     public func resync(accountId: String) async {
         // Serialize per account: bail if a resync is already running so a
         // double-trigger can never launch a second pipeline over the first.
@@ -131,7 +131,7 @@ public final class SyncManager: @unchecked Sendable {
     /// the iOS analog of the web join gate's hard reload.
     public func restartPipeline(accountId: String, reason: String = "membership change") async {
         // Reuse the resync guard: a concurrent resync/restart would relaunch
-        // the pipeline over this one and orphan 15 uncancellable shape Tasks.
+        // the pipeline over this one and orphan 16 uncancellable shape Tasks.
         let alreadyBusy = lock.withLock { !resyncing.insert(accountId).inserted }
         if alreadyBusy {
             SyncDebug.shared.log("[restart] resync/restart already in flight, ignoring")
@@ -265,11 +265,11 @@ public final class SyncManager: @unchecked Sendable {
     // MARK: - Per-account shape launch
 
     private func launchPipeline(accountId: String, pool: DatabasePool) {
-        logger.info("Launching live shape sync (15 shapes) for account \(accountId, privacy: .public)")
+        logger.info("Launching live shape sync (16 shapes) for account \(accountId, privacy: .public)")
         // A visible "we got past pool open + migrations and started polling"
         // marker in the diagnostics log — the positive counterpart to the
         // fatal path above (§9.1: pipeline launched must never be ambiguous).
-        SyncDebug.shared.log("[pipeline] launched 15 shapes")
+        SyncDebug.shared.log("[pipeline] launched 16 shapes")
         SyncDebug.shared.clearFatal()
 
         let auth = self.auth
@@ -283,8 +283,8 @@ public final class SyncManager: @unchecked Sendable {
             auth.accounts.first { $0.id == accountId }?.token
         }
 
-        // ONE session for all 15 shapes of this account (EXP-304). Per shape it
-        // meant 15 separate connections, so every launch fired 15 simultaneous
+        // ONE session for all 16 shapes of this account (EXP-304). Per shape it
+        // meant 16 separate connections, so every launch fired 16 simultaneous
         // cold DNS lookups + TLS handshakes at the same host — the storm behind
         // "~10s before fresh data shows up". Sharing lets URLSession negotiate
         // HTTP/2 and multiplex them over a single connection. Per ACCOUNT, not
@@ -366,6 +366,12 @@ public final class SyncManager: @unchecked Sendable {
         tasks.append(makeShapeTask(
             name: "actions", path: "/api/shapes/actions", table: "actions",
             type: ActionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        // EXP-314: custom issue statuses — team-scoped like labels.
+        tasks.append(makeShapeTask(
+            name: "issue-statuses", path: "/api/shapes/issue-statuses", table: "issue_statuses",
+            type: IssueStatusEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
 

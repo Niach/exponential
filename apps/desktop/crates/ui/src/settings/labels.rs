@@ -577,8 +577,9 @@ impl Render for LabelsPane {
 
 /// Web `ColorSwatchGrid`: the fixed 20-color palette as clickable dots, ring
 /// on the selected one. Shared by the label rows' popover and the create
-/// form.
-fn swatch_grid(
+/// form — and, since EXP-314, by the Issue statuses pane (custom statuses
+/// draw from the same palette, so the two panes can never drift).
+pub(crate) fn swatch_grid(
     id_prefix: &str,
     current: Option<&str>,
     on_pick: impl Fn(&str, &mut Window, &mut gpui::App) + Clone + 'static,

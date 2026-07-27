@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import {
   useIssueRefs,
   type ResolvedIssueRef,
@@ -103,7 +103,7 @@ export function IssuePickerDialog({
               onClick={() => handlePick(issue)}
               className="flex h-auto w-full items-center justify-start gap-3 rounded-none px-4 py-3 text-left font-normal hover:bg-accent active:bg-accent/70 border-b border-border/30"
             >
-              <StatusIcon status={issue.status} className="size-4 shrink-0" />
+              <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
               <span className="shrink-0 font-mono text-xs text-muted-foreground">
                 {issue.identifier}
               </span>

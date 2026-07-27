@@ -18,6 +18,7 @@ import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.IssueLabelEntity
+import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
@@ -50,7 +51,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
-/// Multi-account sync orchestrator. Maintains one set of 15 shape jobs per
+/// Multi-account sync orchestrator. Maintains one set of 16 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
 /// instance (`exponential-<accountId>-v2.db`). Sign-out on one account cancels
 /// just that pipeline; other accounts keep syncing.
@@ -66,7 +67,7 @@ class SyncManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
 
-    /** One account's 15 shape loops, plus the clients a [kick] has to reach. */
+    /** One account's 16 shape loops, plus the clients a [kick] has to reach. */
     private class Pipeline(val jobs: List<Job>, val clients: List<ShapeClient<*>>)
 
     private val pipelines = mutableMapOf<String, Pipeline>()
@@ -76,7 +77,7 @@ class SyncManager @Inject constructor(
     private val _lastKickAt = MutableStateFlow(0L)
     val lastKickAt: StateFlow<Long> = _lastKickAt.asStateFlow()
 
-    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 15 shape
+    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 16 shape
     // loops PER signed-in account must not keep long-polling for a process the
     // user can't see (Android caches backgrounded processes and only freezes
     // them ~10min later on 12+, OEM-configurable, never below it). Starts
@@ -92,7 +93,7 @@ class SyncManager @Inject constructor(
     private var parkJob: Job? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 15 shapes each
+    // several pushes can land within the same second, and 16 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -171,7 +172,7 @@ class SyncManager @Inject constructor(
                 ) {
                     // Only the edge INTO validated matters; this fires often
                     // (signal strength, metered-ness) and re-kicking on every
-                    // tick would drop 15 healthy long-polls for nothing.
+                    // tick would drop 16 healthy long-polls for nothing.
                     val validated =
                         capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                     if (validated && !lastNetworkValidated.getAndSet(true)) {
@@ -186,7 +187,7 @@ class SyncManager @Inject constructor(
                     linkProperties: LinkProperties,
                 ) {
                     // DNS servers appearing (or being swapped by a VPN) is
-                    // exactly the "UnresolvedAddressException on 14 of 15
+                    // exactly the "UnresolvedAddressException on 15 of 16
                     // shapes" case; anything else here is harmless noise the
                     // debounce absorbs.
                     if (linkProperties.dnsServers.isNotEmpty()) kick("network-dns")
@@ -207,7 +208,7 @@ class SyncManager @Inject constructor(
      *
      * Foreground reopens the gate immediately; background parks the shape loops
      * after [BACKGROUND_PARK_DELAY_MS], so a quick app switch, a share-sheet
-     * hop or a configuration change never tears down 15 live connections per
+     * hop or a configuration change never tears down 16 live connections per
      * account. Parking cancels in-flight long-polls, so the process holds no
      * shape connections while cached — resume is a catch-up poll from the
      * per-shape Room offsets, never a re-snapshot.
@@ -325,7 +326,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (15 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (16 shapes) for $accountId")
             }
         }
     }
@@ -375,6 +376,7 @@ class SyncManager @Inject constructor(
         val boardDao = db.boardDao()
         val issueDao = db.issueDao()
         val labelDao = db.labelDao()
+        val issueStatusDao = db.issueStatusDao()
         val issueLabelDao = db.issueLabelDao()
         val userDao = db.userDao()
         val teamMemberDao = db.teamMemberDao()
@@ -427,6 +429,16 @@ class SyncManager @Inject constructor(
                 onUpdate = { labelDao.upsert(it) },
                 onDelete = { labelDao.deleteById(it.id) },
                 onRefetch = { labelDao.clear() },
+            ),
+            launchShape(
+                shape = "issue_statuses", path = "/api/shapes/issue-statuses", tableName = "issue_statuses",
+                serializer = IssueStatusEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("issue_statuses"),
+                onInsert = { issueStatusDao.upsert(it) },
+                onUpdate = { issueStatusDao.upsert(it) },
+                onDelete = { issueStatusDao.deleteById(it.id) },
+                onRefetch = { issueStatusDao.clear() },
             ),
             launchShape(
                 shape = "issue_labels", path = "/api/shapes/issue-labels", tableName = "issue_labels",
@@ -622,7 +634,7 @@ class SyncManager @Inject constructor(
 }
 
 // One unforced kick per second at most: app-foreground, network-available and a
-// burst of pushes routinely coincide, and each kick drops 15 live long-polls.
+// burst of pushes routinely coincide, and each kick drops 16 live long-polls.
 private const val KICK_DEBOUNCE_MS = 1_000L
 
 // Grace window between ON_STOP and parking the shape loops (REV2-38). Long

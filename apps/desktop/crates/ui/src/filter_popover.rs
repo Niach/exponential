@@ -30,11 +30,12 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 
-use domain::options::{IssueOption, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_OPTIONS};
+use domain::options::{IssueOption, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::Label;
+use domain::statuses::{IssueStatusCategory, ResolvedStatus};
 use domain::{active_filter_count, IssueFilters};
 
-use crate::icons::{option_icon, ExpIcon};
+use crate::icons::{option_icon, resolved_status_icon, ExpIcon};
 use crate::issue_list::parse_hex_color;
 
 /// Which pane the popover shows (web `type View`).
@@ -97,6 +98,9 @@ pub(crate) fn count_badge(count: usize) -> impl IntoElement {
 pub struct IssueFilterPopover {
     filters: IssueFilters,
     labels: Vec<Label>,
+    /// EXP-314: the scope team's status vocabulary (resolved rows). The
+    /// status pane lists these instead of the static enum table.
+    statuses: Vec<ResolvedStatus>,
     view: FilterView,
     label_query: Entity<InputState>,
     on_filters_change: OnFiltersChange,
@@ -107,6 +111,7 @@ impl IssueFilterPopover {
     pub fn new(
         filters: IssueFilters,
         labels: Vec<Label>,
+        statuses: Vec<ResolvedStatus>,
         view: FilterView,
         label_query: Entity<InputState>,
         on_filters_change: OnFiltersChange,
@@ -115,6 +120,7 @@ impl IssueFilterPopover {
         Self {
             filters,
             labels,
+            statuses,
             view,
             label_query,
             on_filters_change,
@@ -151,20 +157,10 @@ impl RenderOnce for IssueFilterPopover {
                 cx,
             )
             .into_any_element(),
-            FilterView::Status => option_filter_view(
-                "filter-status",
-                "Status",
-                &ISSUE_STATUS_OPTIONS,
-                self.filters.statuses.clone(),
-                {
-                    let filters = self.filters.clone();
-                    let on_change = self.on_filters_change.clone();
-                    Rc::new(move |value, window, cx| {
-                        let mut next = filters.clone();
-                        toggle_value(&mut next.statuses, value);
-                        on_change(next, window, cx);
-                    })
-                },
+            FilterView::Status => status_filter_view(
+                &self.statuses,
+                &self.filters,
+                self.on_filters_change.clone(),
                 self.on_view_change.clone(),
                 cx,
             )
@@ -252,7 +248,7 @@ fn categories_view(
     cx: &App,
 ) -> impl IntoElement {
     let categories: [(FilterView, &'static str, usize); 3] = [
-        (FilterView::Status, "Status", filters.statuses.len()),
+        (FilterView::Status, "Status", filters.status_keys.len()),
         (FilterView::Priority, "Priority", filters.priorities.len()),
         (FilterView::Labels, "Labels", filters.label_ids.len()),
     ];
@@ -319,6 +315,70 @@ fn option_filter_view<V: Copy + PartialEq + 'static>(
                 .child(option_icon(option, cx).size_3p5())
                 .child(SharedString::from(option.label))
                 .on_click(move |_, window, cx| on_toggle(value, window, cx)),
+        );
+    }
+    list
+}
+
+/// EXP-314 status pane: the same checkbox rows as [`option_filter_view`], but
+/// over the TEAM's resolved statuses (row ids as the filter values). The
+/// duplicate-category row IS listed — filtering to duplicates is meaningful
+/// even though picking the status is not.
+fn status_filter_view(
+    statuses: &[ResolvedStatus],
+    filters: &IssueFilters,
+    on_filters_change: OnFiltersChange,
+    on_view_change: OnViewChange,
+    cx: &App,
+) -> impl IntoElement {
+    let mut list = v_flex().w_full().child(back_row(
+        ("filter-back", 0usize),
+        "Status",
+        on_view_change,
+        cx,
+    ));
+
+    if statuses.is_empty() {
+        return list.child(
+            div()
+                .py_4()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .text_center()
+                .child("No statuses yet."),
+        );
+    }
+
+    for (ix, status) in statuses.iter().enumerate() {
+        let checked = filters.status_keys.contains(&status.group_key);
+        let on_toggle: OnToggleRow = Rc::new({
+            let filters = filters.clone();
+            let on_change = on_filters_change.clone();
+            let key = status.group_key.clone();
+            move |window, cx| {
+                let mut next = filters.clone();
+                toggle_value(&mut next.status_keys, key.clone());
+                on_change(next, window, cx);
+            }
+        });
+        // A muted hint keeps the duplicate row readable as the odd one out.
+        let muted = status.category == IssueStatusCategory::Duplicate;
+        list = list.child(
+            command_item(("filter-status", ix), cx)
+                // Row owns the click (see option_filter_view).
+                .child(Checkbox::new(("filter-status-check", ix)).checked(checked))
+                .child(resolved_status_icon(status, cx).size_3p5())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .when(muted, |row| row.text_color(cx.theme().muted_foreground))
+                        .child(SharedString::from(status.name.clone())),
+                )
+                .on_click(move |_, window, cx| on_toggle(window, cx)),
         );
     }
     list

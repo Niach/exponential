@@ -137,7 +137,7 @@ pub trait ShapeTransport: Send + Sync {
 /// **No cache middleware, ever.**
 ///
 /// EXP-304: this used to be a `ureq::Agent`, which is HTTP/1.1-only and — with
-/// ureq's default of ONE idle connection per host — had the 15 shape threads
+/// ureq's default of ONE idle connection per host — had the 16 shape threads
 /// re-dialling constantly. reqwest negotiates HTTP/2 via ALPN and multiplexes
 /// all 15 long-polls (plus tRPC, which shares this client) onto one connection.
 pub struct HttpTransport {

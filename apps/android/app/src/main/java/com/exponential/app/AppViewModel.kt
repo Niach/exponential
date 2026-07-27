@@ -138,7 +138,7 @@ class AppViewModel @Inject constructor(
                 }
         }
         // REV2-18: a server that 426s rejects every request from this build, so
-        // keep its 15 shape loops from polling forever — for the active account
+        // keep its 16 shape loops from polling forever — for the active account
         // (whose screen is the blocking gate) and, crucially, for background
         // accounts, which used to keep re-triggering the process-global latch.
         viewModelScope.launch {
@@ -152,7 +152,7 @@ class AppViewModel @Inject constructor(
                 // stop issued here can land BEFORE the relaunch it is meant to
                 // undo — and nothing re-emits afterwards to fix it up (the latch
                 // is first-wins, so later 426s yield an equal map the StateFlow
-                // dedupes), leaving that account's 15 loops polling a server
+                // dedupes), leaving that account's 16 loops polling a server
                 // that answers nothing but 426. Cancelling an already-cancelled
                 // pipeline is a map lookup against an equal stats map, so the
                 // steady-state cost is a no-op tick a minute, and collectLatest

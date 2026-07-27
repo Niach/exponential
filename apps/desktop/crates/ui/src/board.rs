@@ -59,6 +59,8 @@ impl BoardView {
             // (team resolution); the list observes its own collections.
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            // EXP-314: the filter vocabulary is synced data now.
+            cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
             // Live label search re-filters the popover's label rows.
             cx.observe(&label_query, |_, _, cx| cx.notify()),
             // EXP-289: the floating bulk bar lives in THIS view's tree, so a
@@ -182,10 +184,16 @@ fn labels_in_team(team_id: &str, cx: &App) -> Vec<Label> {
 
 impl Render for BoardView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let labels = self
-            .team_id(cx)
-            .map(|team_id| labels_in_team(&team_id, cx))
+        let team_id = self.team_id(cx);
+        let labels = team_id
+            .as_deref()
+            .map(|team_id| labels_in_team(team_id, cx))
             .unwrap_or_default();
+        // EXP-314: the filter popover/pills render the TEAM's status rows.
+        let statuses = team_id
+            .as_deref()
+            .map(|team_id| crate::queries::team_status_options(cx, team_id))
+            .unwrap_or_else(domain::statuses::default_resolved_statuses);
 
         let entity = cx.entity().downgrade();
         let on_filters_change: OnFiltersChange = Rc::new(move |next, _window, cx| {
@@ -216,6 +224,7 @@ impl Render for BoardView {
                 self.title(),
                 self.filters.clone(),
                 labels,
+                statuses,
                 self.popover_view,
                 self.label_query.clone(),
                 on_filters_change,
