@@ -206,6 +206,7 @@ struct CommentThreadView: View {
                 httpClient: deps.httpClient,
                 mentionMembers: users.values.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
                 resolveIssueRef: { identifier in resolveIssueRef(identifier) },
+                resolveIssueRefTitle: { identifier in resolveIssueRefTitle(identifier) },
                 onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
                 onEdit: {
                     // Fresh model per edit, seeded from the comment's markdown — the
@@ -260,6 +261,12 @@ struct CommentThreadView: View {
     /// refs stay plain text).
     private func resolveIssueRef(_ identifier: String) -> String? {
         IssueRefLookup.resolve(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
+    }
+
+    /// identifier → issue title for the read-only chips (`#ID <title>`,
+    /// EXP-307); same team scoping as the id resolver.
+    private func resolveIssueRefTitle(_ identifier: String) -> String? {
+        IssueRefLookup.resolveTitle(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
     }
 
     /// Issues offered by the comment editors' #-autocomplete (team-scoped;
@@ -393,6 +400,7 @@ private struct RegularCommentRow: View {
     let httpClient: HTTPClient?
     let mentionMembers: [MentionMember]
     let resolveIssueRef: (String) -> String?
+    let resolveIssueRefTitle: (String) -> String?
     let onOpenIssue: (String) -> Void
     let onEdit: () -> Void
     let onCancelEdit: () -> Void
@@ -497,6 +505,10 @@ private struct RegularCommentRow: View {
                     let model = IssueEditorModel()
                     model.mentionMembers = mentionMembers
                     model.issueRefResolver = resolveIssueRef
+                    // Display-only model: chips render as `#ID <title>`
+                    // (EXP-307). The edit path reseeds from the raw stored
+                    // markdown, so the appended title never persists.
+                    model.issueRefTitleResolver = resolveIssueRefTitle
                     model.load(markdown: text, baseURL: baseURL)
                     displayModel = model
                 }

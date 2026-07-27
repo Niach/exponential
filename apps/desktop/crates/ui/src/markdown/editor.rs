@@ -61,16 +61,17 @@ use super::toolbar::{self, LinePrefix};
 
 /// `email` → member display name (None ⇒ not a known member; stays text).
 pub type MemberNameResolver = Rc<dyn Fn(&str, &App) -> Option<String>>;
-/// `IDENTIFIER` → does the issue exist in this team?
-pub type IssueExistsResolver = Rc<dyn Fn(&str, &App) -> bool>;
+/// `IDENTIFIER` → the issue's title (None ⇒ no such issue; stays text).
+pub type IssueTitleResolver = Rc<dyn Fn(&str, &App) -> Option<String>>;
 
 /// Resolves decoration tokens against the synced collections at render time.
 #[derive(Clone)]
 pub struct RefResolver {
     /// `email` → member display name (None ⇒ not a known member; stays text).
     pub member_name: MemberNameResolver,
-    /// `IDENTIFIER` → does the issue exist in this team?
-    pub issue_exists: IssueExistsResolver,
+    /// `IDENTIFIER` → the issue's title (None ⇒ no such issue; stays text) —
+    /// EXP-307: the pill shows `#IDENT Title`, not just the short code.
+    pub issue_title: IssueTitleResolver,
 }
 
 impl RefResolver {
@@ -97,12 +98,13 @@ impl RefResolver {
                     })
                     .map(|u| u.name.clone().unwrap_or_else(|| email.to_string()))
             }),
-            issue_exists: Rc::new(move |identifier, cx| {
+            issue_title: Rc::new(move |identifier, cx| {
                 let collections = sync::Store::global(cx).collections();
                 collections
                     .issues_in_team(&ws_issues, cx)
                     .iter()
-                    .any(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
+                    .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
+                    .map(|issue| issue.title.clone())
             }),
         }
     }
@@ -111,7 +113,7 @@ impl RefResolver {
     pub fn disabled() -> Self {
         Self {
             member_name: Rc::new(|_, _| None),
-            issue_exists: Rc::new(|_, _| false),
+            issue_title: Rc::new(|_, _| None),
         }
     }
 }
@@ -2382,10 +2384,17 @@ fn build_display_line(
                 continue;
             }
             let identifier = line[token.start + 1..token.end].to_uppercase();
-            if (resolver.issue_exists)(&identifier, cx) {
+            if let Some(title) = (resolver.issue_title)(&identifier, cx) {
+                // EXP-307: the chip shows the whole title next to the short
+                // code (web parity — the web pill renders the same suffix
+                // via CSS). The document text stays the plain token.
                 decorations.push(Decoration {
                     range: token.clone(),
-                    display_text: line[token.clone()].to_string(),
+                    display_text: format!(
+                        "{} {}",
+                        &line[token.clone()],
+                        truncate_chip_title(&title)
+                    ),
                     style: DecorationStyle::IssuePill(identifier),
                 });
             }
@@ -2562,6 +2571,18 @@ fn build_display_line(
         code_ranges,
         targets,
     }
+}
+
+/// Keep issue chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` in
+/// `issue-ref-extension.ts` — 60 chars, ellipsis beyond).
+fn truncate_chip_title(title: &str) -> String {
+    const MAX_CHIP_TITLE_CHARS: usize = 60;
+    let trimmed = title.trim();
+    if trimmed.chars().count() <= MAX_CHIP_TITLE_CHARS {
+        return trimmed.to_string();
+    }
+    let cut: String = trimmed.chars().take(MAX_CHIP_TITLE_CHARS - 1).collect();
+    format!("{}…", cut.trim_end())
 }
 
 // -- Token scanners (mirror web `mentions.ts` / `issue-refs.ts`) ------------

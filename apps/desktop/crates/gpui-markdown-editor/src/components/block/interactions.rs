@@ -1550,6 +1550,21 @@ impl Block {
             return;
         }
 
+        // EXP-307 vendoring: an issue-ref pill is a chip — a plain stationary
+        // click opens it too (the host routes it). Mention pills keep
+        // plain-click editing, and a drag that ends on a pill still selects
+        // text (the selection is non-empty by then, so it falls through).
+        if !event.modifiers.secondary()
+            && event.click_count == 1
+            && self.selected_range.is_empty()
+            && let Some((kind, value)) = self.pointer_reference_hit(event.position)
+            && kind == crate::host::ReferenceKind::IssueRef
+        {
+            cx.stop_propagation();
+            cx.emit(BlockEvent::RequestOpenReference { kind, value });
+            return;
+        }
+
         if event.click_count >= 2 {
             let footnote = self
                 .last_layout

@@ -20,6 +20,11 @@ class MarkdownAnnotateTest {
         onOpen = {},
     )
 
+    private fun refsTitled(vararg pairs: Pair<String, String>) = IssueRefHandler(
+        candidates = pairs.map { (id, title) -> IssueRefTarget("id-$id", id, title) },
+        onOpen = {},
+    )
+
     private fun mentions(vararg members: Pair<String, String>) = MentionResolver(
         members.map { (name, email) -> MentionMember(name, email) },
     )
@@ -106,6 +111,62 @@ class MarkdownAnnotateTest {
         val links = result.getLinkAnnotations(0, result.length)
         assertEquals(1, links.size)
         assertTrue("end coerced within text", links[0].end <= text.length)
+        assertNoOverlappingLinks(result)
+    }
+
+    // --- EXP-307: chips show the whole issue title next to the short code. ---
+
+    @Test
+    fun resolvedRefChipAppendsTheIssueTitle() {
+        val result = annotate(
+            "closes #MET-1 now",
+            emptyList(),
+            refsTitled("MET-1" to "Fix login flow"),
+        )
+        assertEquals("closes #MET-1 Fix login flow now", result.text)
+        val links = result.getLinkAnnotations(0, result.length)
+        assertEquals(1, links.size)
+        // The tappable chip covers the token AND the title.
+        assertEquals("#MET-1 Fix login flow", result.text.substring(links[0].start, links[0].end))
+        assertNoOverlappingLinks(result)
+    }
+
+    @Test
+    fun blankTitleKeepsTheBareToken() {
+        val text = "closes #MET-1 now"
+        val result = annotate(text, emptyList(), refs("MET-1"))
+        assertEquals(text, result.text)
+    }
+
+    @Test
+    fun longChipTitlesAreTruncatedWithAnEllipsis() {
+        val title = "x".repeat(80)
+        val result = annotate("#MET-1", emptyList(), refsTitled("MET-1" to title))
+        assertEquals("#MET-1 " + "x".repeat(59) + "…", result.text)
+    }
+
+    @Test
+    fun marksAfterATitledChipAreRemappedOntoTheDisplayText() {
+        // "see #MET-1 and **bold**" — the appended title shifts later offsets.
+        val text = "see #MET-1 and bold"
+        val marks = listOf(InlineMark(15, 19, InlineKind.Bold))
+        val result = annotate(text, marks, refsTitled("MET-1" to "Fix it"))
+        assertEquals("see #MET-1 Fix it and bold", result.text)
+        assertNoOverlappingLinks(result)
+    }
+
+    @Test
+    fun mentionAndTitledChipComposeOnOneLine() {
+        val result = annotate(
+            "@dev@example.com bug #MET-1 done",
+            emptyList(),
+            refsTitled("MET-1" to "Crash"),
+            mentions("Ada" to "dev@example.com"),
+        )
+        assertEquals("@Ada bug #MET-1 Crash done", result.text)
+        val links = result.getLinkAnnotations(0, result.length)
+        assertEquals(1, links.size)
+        assertEquals("#MET-1 Crash", result.text.substring(links[0].start, links[0].end))
         assertNoOverlappingLinks(result)
     }
 

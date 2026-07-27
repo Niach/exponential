@@ -8,9 +8,11 @@ import { createIssueRefRegExp } from "@/lib/issue-refs"
 // decorations — the document text stays the plain token, so the GFM markdown
 // round-trip is untouched (mirrors how `@email` mentions stay plain text).
 // A token is only decorated when it resolves to a visible issue; unresolved
-// tokens render as plain text. Clicking a pill navigates: plain click in
-// read-only editors (comments, public views), Cmd/Ctrl+click while editing
-// (so the caret still works, mirroring link behavior).
+// tokens render as plain text. The chip shows the identifier plus the issue
+// title (the title rides a data attribute rendered by CSS ::after, so the
+// editable text stays exactly the token), and clicking it navigates — plain
+// click in read-only AND editable editors (EXP-307; the caret can still be
+// placed via the surrounding text or the keyboard).
 
 export interface IssueRefOptions {
   /** Resolve an identifier to display info, or null when unknown. Called on
@@ -18,6 +20,16 @@ export interface IssueRefOptions {
   getResolved: (identifier: string) => { title: string } | null
   /** Navigate to the referenced issue. */
   onOpen: (identifier: string) => void
+}
+
+/** Keep chips readable — the full title stays available as the tooltip. */
+const MAX_CHIP_TITLE_LENGTH = 60
+
+function chipTitle(title: string): string {
+  const trimmed = title.trim()
+  return trimmed.length > MAX_CHIP_TITLE_LENGTH
+    ? `${trimmed.slice(0, MAX_CHIP_TITLE_LENGTH - 1).trimEnd()}…`
+    : trimmed
 }
 
 function buildDecorations(
@@ -41,6 +53,7 @@ function buildDecorations(
         Decoration.inline(from, from + match[0].length, {
           class: `issue-ref-pill`,
           "data-issue-ref": identifier,
+          "data-issue-title": chipTitle(resolved.title),
           title: resolved.title,
         })
       )
@@ -72,17 +85,16 @@ export const IssueRefExtension = Extension.create<IssueRefOptions>({
               buildDecorations(state.doc, options.getResolved)
             )
           },
-          handleClick(view, _pos, event) {
+          handleClick(_view, _pos, event) {
             const target =
               event.target instanceof Element
                 ? event.target.closest(`[data-issue-ref]`)
                 : null
             if (!target) return false
-            // While editing, plain click just places the caret (like links);
-            // navigation needs a modifier.
-            if (view.editable && !(event.metaKey || event.ctrlKey)) {
-              return false
-            }
+            // EXP-307: a chip is a chip — plain click navigates even while
+            // editing (clicking a pill used to just drop the caret into the
+            // token, which popped the #-autocomplete instead of opening the
+            // issue).
             const identifier = target.getAttribute(`data-issue-ref`)
             if (!identifier) return false
             options.onOpen(identifier)

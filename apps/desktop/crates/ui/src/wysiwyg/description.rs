@@ -17,8 +17,9 @@ use gpui::{
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{notification::Notification, v_flex, ActiveTheme as _, WindowExt as _};
 use gpui_markdown_editor::{
-    FormatCommand, ImageSourceResolution, MarkdownEditor as VendoredEditor, MarkdownEditorEvent,
-    MarkdownEditorMode, MarkdownEditorOptions, ReferenceKind,
+    DismissTransientUi, FocusNext, FocusPrev, FormatCommand, ImageSourceResolution, IndentBlock,
+    MarkdownEditor as VendoredEditor, MarkdownEditorEvent, MarkdownEditorMode,
+    MarkdownEditorOptions, Newline, ReferenceKind,
 };
 
 use super::images::{self, SharedImageState, WysiwygImageResolver, WysiwygPasteHandler};
@@ -757,8 +758,75 @@ impl WysiwygDescription {
         }
     }
 
-    /// Capture-phase keys while the popup is open — runs BEFORE the vendored
-    /// editor's own capture handlers (this wrapper is its ancestor).
+    /// EXP-307: capture-phase ACTION handlers while the popup is open. gpui
+    /// dispatches matched key BINDINGS before any key-down listener runs, and
+    /// the vendored editor binds enter/up/down/tab/escape in its own key
+    /// context — so while a block is focused those keys arrive here as the
+    /// editor's actions (`Newline`, `FocusPrev`, …), never as raw key events.
+    /// This wrapper is the focused block's ancestor, so its capture handlers
+    /// run before the editor's own and can claim the keystroke for the
+    /// completion popup (the block-editor comment composer does the same with
+    /// gpui-component's input actions).
+    fn on_editor_newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
+        if self.link_input.is_some() {
+            self.apply_link(window, cx);
+            cx.stop_propagation();
+            return;
+        }
+        if let Some(selected) = self.completion.as_ref().map(|completion| completion.selected) {
+            self.accept_completion(selected, window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_editor_indent(&mut self, _: &IndentBlock, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(selected) = self.completion.as_ref().map(|completion| completion.selected) {
+            self.accept_completion(selected, window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_editor_focus_prev(&mut self, _: &FocusPrev, _: &mut Window, cx: &mut Context<Self>) {
+        if self.completion.is_some() {
+            self.move_completion(-1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_editor_focus_next(&mut self, _: &FocusNext, _: &mut Window, cx: &mut Context<Self>) {
+        if self.completion.is_some() {
+            self.move_completion(1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_editor_dismiss(
+        &mut self,
+        _: &DismissTransientUi,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.image_menu.is_some() {
+            self.image_menu = None;
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
+        if self.link_input.is_some() {
+            self.close_link_editor(cx);
+            cx.stop_propagation();
+            return;
+        }
+        if self.completion.is_some() {
+            self.completion = None;
+            cx.notify();
+            cx.stop_propagation();
+        }
+    }
+
+    /// Capture-phase keys while the popup is open — the fallback for keys the
+    /// vendored editor does NOT bind (when a binding matches, gpui dispatches
+    /// the action instead and the handlers above run).
     fn on_key_down_capture(
         &mut self,
         event: &gpui::KeyDownEvent,
@@ -1062,6 +1130,11 @@ impl Render for WysiwygDescription {
             .flex_1()
             .track_focus(&self.focus_handle)
             .capture_key_down(cx.listener(Self::on_key_down_capture))
+            .capture_action(cx.listener(Self::on_editor_newline))
+            .capture_action(cx.listener(Self::on_editor_indent))
+            .capture_action(cx.listener(Self::on_editor_focus_prev))
+            .capture_action(cx.listener(Self::on_editor_focus_next))
+            .capture_action(cx.listener(Self::on_editor_dismiss))
             .children(toolbar)
             .child(self.editor.clone())
             .child(
@@ -1085,6 +1158,108 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
+    use crate::markdown::autocomplete::{CompletionItem, CompletionTrigger};
+
+    /// One fixed `#EXP-42` candidate for every query — enough to open the
+    /// popup without a synced Store behind it.
+    struct StubCompletionSource;
+
+    impl CompletionSource for StubCompletionSource {
+        fn query(
+            &self,
+            trigger: CompletionTrigger,
+            _query: &str,
+            _cx: &gpui::App,
+        ) -> Vec<CompletionItem> {
+            vec![CompletionItem {
+                trigger,
+                insert: "#EXP-42".to_string(),
+                label: "EXP-42".into(),
+                detail: "Editor chip improvements".into(),
+            }]
+        }
+    }
+
+    // EXP-307: enter/tab must ACCEPT the open `#` completion instead of
+    // reaching the vendored editor. gpui dispatches matched key bindings
+    // before any key-down listener, and the editor binds enter/tab in its own
+    // key context — so the old `capture_key_down`-only wiring never saw the
+    // keystroke and enter split the block under the popup. The capture-phase
+    // ACTION handlers claim it first.
+    #[gpui::test]
+    async fn enter_and_tab_accept_the_open_completion(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            cx.bind_keys(gpui_markdown_editor::default_key_bindings());
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            let mut view =
+                WysiwygDescription::new(None, None, "Add description...", "", None, window, cx);
+            view.completion_source = Some(Rc::new(StubCompletionSource));
+            view
+        });
+
+        let draw_frames = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..2 {
+                cx.update(|window, cx| window.draw(cx).clear());
+                cx.run_until_parked();
+            }
+        };
+
+        // Focus applies during the next render (pending-focus handshake).
+        cx.update(|window, cx| view.update(cx, |view, cx| view.focus(window, cx)));
+        draw_frames(cx);
+
+        // Type the pending token through the normal typed-edit path; the
+        // Changed event runs refresh_completion against the stub source.
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.editor.update(cx, |editor, cx| {
+                    editor.replace_text_before_caret(0, "#EX", window, cx);
+                });
+            });
+        });
+        draw_frames(cx);
+        view.read_with(cx, |view, _| {
+            assert!(view.completion.is_some(), "typing `#EX` opens the popup");
+        });
+
+        cx.simulate_keystrokes("enter");
+        view.read_with(cx, |view, cx| {
+            assert!(view.completion.is_none(), "enter closed the popup");
+            // Acceptance inserts the token plus a trailing space (block-editor
+            // parity).
+            assert_eq!(
+                view.markdown(cx).trim_end(),
+                "#EXP-42",
+                "enter accepted the item"
+            );
+        });
+
+        // Same again via tab.
+        draw_frames(cx);
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.editor.update(cx, |editor, cx| {
+                    editor.replace_text_before_caret(0, "#EX", window, cx);
+                });
+            });
+        });
+        draw_frames(cx);
+        view.read_with(cx, |view, _| {
+            assert!(view.completion.is_some(), "typing `#EX` re-opens the popup");
+        });
+        cx.simulate_keystrokes("tab");
+        view.read_with(cx, |view, cx| {
+            assert!(view.completion.is_none(), "tab closed the popup");
+            assert_eq!(
+                view.markdown(cx).trim_end(),
+                "#EXP-42 #EXP-42",
+                "tab accepted the item in place of the pending token"
+            );
+        });
+    }
 
     // Construction + round-trip through the full wrapper: theme bridge,
     // embedded vendored editor, image/reference seams — all with no

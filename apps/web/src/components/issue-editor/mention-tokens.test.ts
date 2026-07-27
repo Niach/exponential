@@ -92,24 +92,46 @@ describe(`mention/issue-ref markdown round-trip`, () => {
   })
 })
 
+/** Simulate typing `text` at the end of the document — the autocomplete only
+ *  OPENS on doc changes (EXP-307), so tests must type like a user instead of
+ *  merely parking the caret after pre-loaded content. */
+function typeAtEnd(editor: Editor, text: string) {
+  editor.commands.setTextSelection(endOfDoc(editor))
+  editor.commands.insertContent(text)
+}
+
 describe(`editor autocomplete`, () => {
   it(`reports an in-progress @mention at the caret`, () => {
-    const { editor, states } = makeEditor(`Hello @ad`)
-    editor.commands.setTextSelection(endOfDoc(editor))
+    const { editor, states } = makeEditor(`Hello`)
+    typeAtEnd(editor, ` @ad`)
     expect(states.at(-1)).toMatchObject({ kind: `mention`, query: `ad` })
     editor.destroy()
   })
 
   it(`reports an in-progress #issue ref at the caret`, () => {
-    const { editor, states } = makeEditor(`Fixes #EX`)
-    editor.commands.setTextSelection(endOfDoc(editor))
+    const { editor, states } = makeEditor(`Fixes`)
+    typeAtEnd(editor, ` #EX`)
     expect(states.at(-1)).toMatchObject({ kind: `issueRef`, query: `EX` })
     editor.destroy()
   })
 
-  it(`inserts the plain @<email> interchange text on selection`, () => {
-    const { editor, states } = makeEditor(`Hello @ad`)
+  it(`does not open on a pure caret move onto an existing token`, () => {
+    // Clicking right after a complete `#EXP-42` used to pop the picker
+    // instead of leaving the chip clickable (EXP-307): the caret lands where
+    // the at-caret regex matches, but nothing was typed.
+    const { editor, states } = makeEditor(`Fixes #EXP-42`)
     editor.commands.setTextSelection(endOfDoc(editor))
+    expect(states.at(-1) ?? null).toBeNull()
+
+    // Typing right there still opens it.
+    editor.commands.insertContent(`3`)
+    expect(states.at(-1)).toMatchObject({ kind: `issueRef`, query: `EXP-423` })
+    editor.destroy()
+  })
+
+  it(`inserts the plain @<email> interchange text on selection`, () => {
+    const { editor, states } = makeEditor(`Hello`)
+    typeAtEnd(editor, ` @ad`)
     const active = states.at(-1)
     expect(active).not.toBeNull()
     // Mirrors markdown-editor.tsx insertToken: plain insertText, never a node.
@@ -127,8 +149,8 @@ describe(`editor autocomplete`, () => {
   })
 
   it(`inserts the plain #<IDENTIFIER> interchange text on selection`, () => {
-    const { editor, states } = makeEditor(`Fixes #EX`)
-    editor.commands.setTextSelection(endOfDoc(editor))
+    const { editor, states } = makeEditor(`Fixes`)
+    typeAtEnd(editor, ` #EX`)
     const active = states.at(-1)
     expect(active).not.toBeNull()
     editor
@@ -144,13 +166,13 @@ describe(`editor autocomplete`, () => {
   })
 
   it(`does not trigger mid-word or inside code blocks`, () => {
-    const glued = makeEditor(`hello@ad`)
-    glued.editor.commands.setTextSelection(endOfDoc(glued.editor))
+    const glued = makeEditor(`hello`)
+    typeAtEnd(glued.editor, `@ad`)
     expect(glued.states.at(-1) ?? null).toBeNull()
     glued.editor.destroy()
 
-    const code = makeEditor(`\`\`\`\nhello @ad\n\`\`\``)
-    code.editor.commands.setTextSelection(endOfDoc(code.editor))
+    const code = makeEditor(`\`\`\`\nhello\n\`\`\``)
+    typeAtEnd(code.editor, ` @ad`)
     expect(code.states.at(-1) ?? null).toBeNull()
     code.editor.destroy()
   })
