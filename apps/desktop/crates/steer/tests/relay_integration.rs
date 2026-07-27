@@ -13,10 +13,9 @@
 //! * publisher `hello` → the EXP-249 history re-publish (`activity_reset` +
 //!   the journal) → a viewer joining `channel:'activity'` gets its own reset +
 //!   the relay-side replay, then the live tail;
-//! * a steer-perm viewer's `input` reaches the publisher's PTY-writer hook
-//!   with no claim prelude (EXP-312 — steering is seamless), and an `answer`
-//!   frame reaches the emitter seam instead (never the PTY); legacy
-//!   `claim`/`release` frames from old clients are silently ignored;
+//! * a joined viewer's `input` reaches the publisher's PTY-writer hook
+//!   (EXP-312 — steering is seamless and owner-only: no claim, no perm tier),
+//!   and an `answer` frame reaches the emitter seam instead (never the PTY);
 //! * a `pty`/channel-less join is refused with `pty_removed` (EXP-249);
 //! * viewer `kill` → publisher kill hook + clean `bye` → the relay closes the
 //!   room (`CLOSE_SESSION_ENDED` at the viewer);
@@ -171,18 +170,18 @@ fn ws_url(port: u16, ticket: &str) -> String {
 
 fn publisher_claims() -> String {
     format!(
-        r#"{{"sub":"user-int","team":"team-int","sessionId":"{SESSION_ID}","role":"publisher","perm":"steer"}}"#
+        r#"{{"sub":"user-int","team":"team-int","sessionId":"{SESSION_ID}","role":"publisher"}}"#
     )
 }
 
 fn viewer_claims() -> String {
     format!(
-        r#"{{"sub":"viewer-int","team":"team-int","name":"Phone","sessionId":"{SESSION_ID}","role":"viewer","perm":"steer"}}"#
+        r#"{{"sub":"viewer-int","team":"team-int","sessionId":"{SESSION_ID}","role":"viewer"}}"#
     )
 }
 
 const CONTROL_CLAIMS: &str =
-    r#"{"sub":"user-int","team":"","deviceLabel":"IntTestBox","role":"control","perm":"steer"}"#;
+    r#"{"sub":"user-int","team":"","deviceLabel":"IntTestBox","role":"control"}"#;
 
 // ---------------------------------------------------------------------------
 // Test doubles over the production traits
@@ -575,16 +574,15 @@ fn full_protocol_flow_against_the_real_relay() {
     });
     wait_for("replay at the viewer", || viewer.saw_activity("early-scrollback"));
 
-    // ── Steer input reaches the PTY-writer hook — no claim needed (EXP-312),
-    // and a legacy claim from an old client is silently ignored ───────────
-    viewer.send_text(r#"{"t":"claim","steal":true}"#);
+    // ── Steer input reaches the PTY-writer hook directly (EXP-312 —
+    // seamless and owner-only: no claim, no perm tier) ────────────────────
     viewer.send_text(r#"{"t":"input","data":"echo hi\r"}"#);
     wait_for("input injected", || {
         recorded.inputs.lock().unwrap().iter().any(|bytes| bytes == b"echo hi\r")
     });
 
-    // ── EXP-249: a semantic `answer` rides the same perm gate, and reaches
-    // the emitter seam instead of the PTY writer ─────────────────────────
+    // ── EXP-249: a semantic `answer` rides the same membership gate, and
+    // reaches the emitter seam instead of the PTY writer ─────────────────
     viewer.send_text(r#"{"t":"answer","questionId":"toolu_1#0","askId":"toolu_1","keys":["2"]}"#);
     let answer = answers_rx
         .recv_timeout(Duration::from_secs(10))
@@ -606,13 +604,6 @@ fn full_protocol_flow_against_the_real_relay() {
     // ── Live tail: a fresh activity event reaches the joined viewer ───────
     activity.send(ActivityEvent::tool("Edit", Some("src/main.rs".to_string())));
     wait_for("live tail at the viewer", || viewer.saw_activity("src/main.rs"));
-
-    // ── A legacy `release` is equally ignored — input keeps flowing ───────
-    viewer.send_text(r#"{"t":"release"}"#);
-    viewer.send_text(r#"{"t":"input","data":"still flows\r"}"#);
-    wait_for("input after legacy release", || {
-        recorded.inputs.lock().unwrap().iter().any(|bytes| bytes == b"still flows\r")
-    });
 
     // ── Kill from the phone: publisher tears down, room closes (§8.4) ─────
     viewer.send_text(r#"{"t":"kill"}"#);

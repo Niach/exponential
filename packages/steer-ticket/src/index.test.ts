@@ -12,10 +12,8 @@ function claims(overrides: Partial<SteerTicketClaims> = {}): SteerTicketClaims {
   return {
     sub: `user-1`,
     team: `team-1`,
-    name: `Dennis`,
     sessionId: `sess-1`,
     role: `viewer`,
-    perm: `steer`,
     iat: now,
     exp: now + 60,
     ...overrides,
@@ -35,7 +33,7 @@ describe(`steer tickets`, () => {
     const token = signSteerTicket(claims(), SECRET)
     const [payload, sig] = token.split(`.`)
     const forged = Buffer.from(
-      JSON.stringify({ ...claims(), perm: `steer`, sub: `attacker` }),
+      JSON.stringify({ ...claims(), sub: `attacker` }),
       `utf8`
     ).toString(`base64url`)
     const result = verifySteerTicket(`${forged}.${sig}`, SECRET)

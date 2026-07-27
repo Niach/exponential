@@ -65,9 +65,9 @@ export const STEER_TICKET_TTL_SECONDS = 60
 
 // EXP-312: there is no view/steer perm distinction anymore — a live session
 // is visible and steerable ONLY by its owner (the account that started it),
-// enforced at mint time in the tRPC router. Every minted ticket carries the
-// legacy wire field `perm: "steer"` because shipped clients decode it to show
-// their composer and deployed relays gate input on it.
+// enforced at mint time in the tRPC router. A ticket in hand IS full access
+// to its session; the old `perm` claim is gone from the wire (clean cut —
+// bump CLIENT_MIN_VERSION_* past pre-EXP-312 builds when deploying).
 export type SteerTicketSeed =
   | { kind: `control`; userId: string; deviceLabel?: string }
   | {
@@ -100,7 +100,6 @@ export function buildSteerTicketClaims(
         ...base,
         team: ``,
         role: `control`,
-        perm: `steer`,
         ...(seed.deviceLabel ? { deviceLabel: seed.deviceLabel } : {}),
       }
     case `publisher`:
@@ -109,7 +108,6 @@ export function buildSteerTicketClaims(
         team: seed.teamId,
         sessionId: seed.sessionId,
         role: `publisher`,
-        perm: `steer`,
       }
     case `viewer`:
       return {
@@ -117,7 +115,6 @@ export function buildSteerTicketClaims(
         team: seed.teamId,
         sessionId: seed.sessionId,
         role: `viewer`,
-        perm: `steer`,
       }
   }
 }

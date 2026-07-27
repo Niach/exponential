@@ -28,14 +28,6 @@ pub const CLOSE_REPLACED: u16 = 4002;
 pub const CLOSE_UNAUTHORIZED: u16 = 4003;
 pub const CLOSE_SLOW_CONSUMER: u16 = 4008;
 
-/// `view` | `steer` — mirrors `packages/steer-ticket` `SteerPerm`.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum SteerPerm {
-    View,
-    Steer,
-}
-
 /// `control` | `publisher` | `viewer` — mirrors `SteerRole`.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -398,13 +390,13 @@ pub enum ServerFrame {
         #[serde(default)]
         skip_permissions: Option<bool>,
     },
-    /// Steer-perm keystrokes, relay → publisher.
+    /// Viewer keystrokes, relay → publisher.
     Input {
         data: String,
     },
     /// A SEMANTIC answer to an [`ActivityEvent::Question`] (EXP-249), relay →
-    /// publisher, forwarded verbatim from a joined steer-perm member (same
-    /// gating as `input`). `keys` are the option keys of THAT question — the
+    /// publisher, forwarded verbatim from a joined viewer (same gating as
+    /// `input`). `keys` are the option keys of THAT question — the
     /// publisher resolves them against its own live picker state instead of
     /// replaying blind keystrokes.
     #[serde(rename_all = "camelCase")]
@@ -931,22 +923,6 @@ mod tests {
 
     // ── ServerFrame vectors — captured relay strings (hub.ts `frame(...)`
     // emits `JSON.stringify` of exactly these objects).
-
-    #[test]
-    fn legacy_presence_frames_parse_to_none() {
-        // EXP-312 removed the operator concept; an old relay's presence
-        // broadcast takes the same silent-drop path as any unknown frame.
-        assert_eq!(
-            ServerFrame::parse(
-                r#"{"t":"presence","viewers":[{"userId":"viewer-1","name":"Dennis","perm":"steer"}],"steererId":"viewer-1"}"#,
-            ),
-            None
-        );
-        assert_eq!(
-            ServerFrame::parse(r#"{"t":"presence","viewers":[],"steererId":null}"#),
-            None
-        );
-    }
 
     #[test]
     fn start_session_deserializes_camel_issue_id() {

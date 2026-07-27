@@ -67,7 +67,7 @@ export const inputFrame = z.object({
 // Semantic answer to a `question` activity event (EXP-249). Replaces blind
 // digit keystrokes: the client names the question it is answering, the
 // publisher maps `keys` onto whatever the TUI currently shows. Gated exactly
-// like `input` — any joined steer-perm member.
+// like `input` — any joined viewer (tickets are minted owner-only, EXP-312).
 export const answerFrame = z.object({
   t: z.literal(`answer`),
   questionId: z.string().max(128),
@@ -272,7 +272,7 @@ export type ServerFrame =
       repo?: StartRepoGroup
       inputs?: StartInput[]
     } & StartSessionOptions)
-  | { t: `input`; data: string } // steer-perm keystrokes, relay → publisher
+  | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[] } // relay → publisher
   | { t: `kill` }
   | { t: `bye`; outcome?: string }

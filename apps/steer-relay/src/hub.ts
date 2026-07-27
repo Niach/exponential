@@ -330,13 +330,10 @@ export class Hub {
       case `input`: {
         const room = this.roomFor(conn)
         if (!room || !room.publisher) return
-        // Steering is seamless (EXP-312): a joined viewer's keystrokes flow —
-        // no single-operator claim. The perm gate stays as ticket-honoring
-        // hardening: current servers mint viewer tickets owner-only and
-        // always with perm steer, but a legacy `view` ticket from an older
-        // web server must stay read-only.
+        // Steering is seamless and owner-only (EXP-312): tickets are minted
+        // exclusively for the session owner, so a joined viewer's keystrokes
+        // just flow — no operator claim, no perm tier.
         if (!room.activityMembers.has(conn)) return
-        if (conn.claims.perm !== `steer`) return
         room.publisher.sock.send(frame({ t: `input`, data: msg.data }))
         return
       }
@@ -346,7 +343,6 @@ export class Hub {
         if (!room || !room.publisher) return
         // Same gating as `input`.
         if (!room.activityMembers.has(conn)) return
-        if (conn.claims.perm !== `steer`) return
         room.publisher.sock.send(
           frame({
             t: `answer`,
@@ -361,7 +357,8 @@ export class Hub {
       case `kill`: {
         const room = this.roomFor(conn)
         if (!room || !room.publisher) return
-        if (conn.claims.perm !== `steer`) return
+        // Same gating as `input` — a joined (owner-minted) viewer.
+        if (!room.activityMembers.has(conn)) return
         room.publisher.sock.send(frame({ t: `kill` }))
         return
       }

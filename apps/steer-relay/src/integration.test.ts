@@ -30,7 +30,6 @@ function ticket(overrides: Partial<SteerTicketClaims>): string {
       sub: `user-1`,
       team: `team-1`,
       role: `viewer`,
-      perm: `view`,
       iat: now,
       exp: now + 60,
       ...overrides,
@@ -95,7 +94,6 @@ describe(`steer relay end-to-end`, () => {
     const stale = ticket({
       role: `public_viewer`,
       sub: `anon`,
-      perm: `view`,
       sessionId: `sess-x`,
     } as unknown as Partial<SteerTicketClaims>)
     const res = await fetch(`${base}/ws?ticket=${encodeURIComponent(stale)}`, {
@@ -149,13 +147,7 @@ describe(`steer relay end-to-end`, () => {
     )
 
     const member = await connect(
-      ticket({
-        role: `viewer`,
-        sub: `member-user`,
-        name: `Member`,
-        perm: `steer`,
-        sessionId,
-      })
+      ticket({ role: `viewer`, sub: `member-user`, sessionId })
     )
     const memberIn = collector(member)
     member.send(JSON.stringify({ t: `join`, channel: `activity` }))
@@ -189,10 +181,8 @@ describe(`steer relay end-to-end`, () => {
     pub.send(JSON.stringify({ t: `activity`, event: question }))
     expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: question })
 
-    // A steer-perm member's input and answers reach the publisher directly —
-    // no claim prelude (EXP-312: steering is seamless). A legacy claim from
-    // an old client is silently ignored.
-    member.send(JSON.stringify({ t: `claim`, steal: true }))
+    // A joined viewer's input and answers reach the publisher directly
+    // (EXP-312: steering is seamless and owner-only — no claim, no perm).
     member.send(JSON.stringify({ t: `input`, data: `yes\n` }))
     expect(await pubIn.nextJson()).toMatchObject({ t: `input`, data: `yes\n` })
 
@@ -251,7 +241,7 @@ describe(`steer relay end-to-end`, () => {
       event: { kind: `narration`, text: `republished` },
     })
 
-    // Kill from the steer-perm member reaches the publisher.
+    // Kill from the joined viewer reaches the publisher.
     member.send(JSON.stringify({ t: `kill` }))
     expect(await pubIn.nextJson()).toMatchObject({ t: `kill` })
 
@@ -277,7 +267,7 @@ describe(`steer relay end-to-end`, () => {
     // An old viewer joining the removed PTY mirror gets a typed error and
     // enters no audience.
     const legacy = await connect(
-      ticket({ role: `viewer`, sub: `old-client`, perm: `steer`, sessionId })
+      ticket({ role: `viewer`, sub: `old-client`, sessionId })
     )
     const legacyIn = collector(legacy)
     legacy.send(JSON.stringify({ t: `join` }))
@@ -294,7 +284,7 @@ describe(`steer relay end-to-end`, () => {
     // An old desktop's binary output frame and resize are swallowed; the room
     // stays live and activity still flows to a real member.
     const member = await connect(
-      ticket({ role: `viewer`, sub: `member-user`, perm: `view`, sessionId })
+      ticket({ role: `viewer`, sub: `member-user`, sessionId })
     )
     const memberIn = collector(member)
     member.send(JSON.stringify({ t: `join`, channel: `activity` }))

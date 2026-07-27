@@ -13,26 +13,21 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 // EXP-90 — the relay rejects tickets carrying any unknown role, so stale
 // instances that still mint it get a closed socket, never data.
 export type SteerRole = `control` | `publisher` | `viewer`
-// EXP-312: the view/steer distinction is gone — sessions are owner-only and
-// current servers mint `steer` exclusively. The field stays on the wire
-// because shipped clients decode it for their composer and deployed relays
-// gate input on it; `view` survives only as the value legacy tickets carry.
-export type SteerPerm = `view` | `steer`
 
+// EXP-312: the old `perm` (view|steer) and `name` claims are GONE — a live
+// session is visible and steerable only by its owner, enforced at mint time,
+// so a ticket in hand IS full access to its session. Clean wire cut: bump
+// CLIENT_MIN_VERSION_* past pre-EXP-312 builds when deploying.
 export interface SteerTicketClaims {
   /** userId of the authenticated caller. */
   sub: string
   /** teamId the ticket is scoped to (empty string for control tickets). */
   team: string
-  /** Display name — legacy (fed the removed viewer presence); no longer
-   *  minted. */
-  name?: string
   /** Human device label (control tickets). */
   deviceLabel?: string
   /** coding_sessions.id (publisher/viewer tickets). */
   sessionId?: string
   role: SteerRole
-  perm: SteerPerm
   /** Unix seconds. */
   iat: number
   /** Unix seconds — connect window; the socket outlives it once established. */

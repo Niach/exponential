@@ -44,7 +44,6 @@ function claims(overrides: Partial<SteerTicketClaims>): SteerTicketClaims {
     sub: `user-1`,
     team: `team-1`,
     role: `viewer`,
-    perm: `view`,
     iat: now,
     exp: now + 60,
     ...overrides,
@@ -53,7 +52,7 @@ function claims(overrides: Partial<SteerTicketClaims>): SteerTicketClaims {
 
 function connectPublisher(hub: Hub, sessionId = `sess-1`) {
   const sock = new FakeSocket()
-  hub.onOpen(sock, claims({ role: `publisher`, sessionId, perm: `view` }))
+  hub.onOpen(sock, claims({ role: `publisher`, sessionId }))
   hub.onMessage(
     sock,
     JSON.stringify({ t: `hello`, sessionId, issueId: `issue-1` })
@@ -61,11 +60,12 @@ function connectPublisher(hub: Hub, sessionId = `sess-1`) {
   return sock
 }
 
-/** An authenticated member on a viewer ticket joining the scrubbed activity
- *  channel — the ONLY audience since EXP-249 removed the PTY mirror. */
+/** The session owner on a viewer ticket (EXP-312: viewer tickets are minted
+ *  owner-only) joining the scrubbed activity channel — the ONLY audience
+ *  since EXP-249 removed the PTY mirror. */
 function connectMember(
   hub: Hub,
-  opts: { sub?: string; name?: string; perm?: `view` | `steer`; sessionId?: string } = {}
+  opts: { sub?: string; sessionId?: string } = {}
 ) {
   const sock = new FakeSocket()
   hub.onOpen(
@@ -73,8 +73,6 @@ function connectMember(
     claims({
       role: `viewer`,
       sub: opts.sub ?? `member-1`,
-      name: opts.name ?? `Member`,
-      perm: opts.perm ?? `steer`,
       sessionId: opts.sessionId ?? `sess-1`,
     })
   )
@@ -92,7 +90,6 @@ function connectStalePublicViewer(hub: Hub, sessionId = `sess-1`) {
     claims({
       role: `public_viewer`,
       sub: `anon`,
-      perm: `view`,
       sessionId,
     } as unknown as Partial<SteerTicketClaims>)
   )
@@ -411,7 +408,7 @@ describe(`session rooms`, () => {
     const legacy = new FakeSocket()
     hub.onOpen(
       legacy,
-      claims({ role: `viewer`, sub: `old`, perm: `steer`, sessionId: `sess-1` })
+      claims({ role: `viewer`, sub: `old`, sessionId: `sess-1` })
     )
     hub.onMessage(legacy, JSON.stringify({ t: `join` }))
     expect(legacy.frames()).toEqual([{ t: `error`, code: `pty_removed` }])
@@ -436,52 +433,38 @@ describe(`session rooms`, () => {
     expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
   })
 
-  test(`steer perm + membership gate input forwarding — no claim needed (EXP-312)`, () => {
+  test(`room membership gates input forwarding — no claim, no perm tier (EXP-312)`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
-    const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
-    const watcher = connectMember(hub, { sub: `w`, perm: `view` })
+    const steerer = connectMember(hub, { sub: `s` })
 
-    // A joined steer-perm member's input flows immediately — seamless.
+    // A joined viewer's input flows immediately — seamless.
     hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `ls\n` }))
     expect(pub.lastFrame(`input`)).toMatchObject({ data: `ls\n` })
 
-    // view-perm input never reaches the publisher.
-    hub.onMessage(watcher, JSON.stringify({ t: `input`, data: `rm -rf /\n` }))
+    // A viewer that never joined the room is dropped.
+    const stranger = new FakeSocket()
+    hub.onOpen(stranger, claims({ role: `viewer`, sub: `x`, sessionId: `sess-1` }))
+    hub.onMessage(stranger, JSON.stringify({ t: `input`, data: `rm -rf /\n` }))
     expect(pub.framesOf(`input`).length).toBe(1)
 
-    // Multiple steer-perm members steer concurrently — no single operator.
-    const second = connectMember(hub, { sub: `r`, perm: `steer` })
+    // Multiple joined sockets steer concurrently — no single operator.
+    const second = connectMember(hub, { sub: `s2` })
     hub.onMessage(second, JSON.stringify({ t: `input`, data: `pwd\n` }))
     expect(pub.lastFrame(`input`)).toMatchObject({ data: `pwd\n` })
     hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `id\n` }))
     expect(pub.lastFrame(`input`)).toMatchObject({ data: `id\n` })
   })
 
-  test(`legacy claim/release frames from old clients are silently ignored`, () => {
+  test(`kill requires room membership and reaches the publisher`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
-    const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
-
-    // Shipped clients still send a claim prelude before every input; the
-    // retired frames parse to nothing and must not break the connection.
-    hub.onMessage(steerer, JSON.stringify({ t: `claim`, steal: true }))
-    hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `x` }))
-    expect(pub.lastFrame(`input`)).toMatchObject({ data: `x` })
-    hub.onMessage(steerer, JSON.stringify({ t: `release` }))
-    hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `y` }))
-    expect(pub.lastFrame(`input`)).toMatchObject({ data: `y` })
-    expect(steerer.closed).toBeNull()
-  })
-
-  test(`kill requires steer perm and reaches the publisher`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const watcher = connectMember(hub, { perm: `view`, sub: `w` })
-    hub.onMessage(watcher, JSON.stringify({ t: `kill` }))
+    const stranger = new FakeSocket()
+    hub.onOpen(stranger, claims({ role: `viewer`, sub: `x`, sessionId: `sess-1` }))
+    hub.onMessage(stranger, JSON.stringify({ t: `kill` }))
     expect(pub.lastFrame(`kill`)).toBeUndefined()
 
-    const steerer = connectMember(hub, { perm: `steer`, sub: `s` })
+    const steerer = connectMember(hub, { sub: `s` })
     hub.onMessage(steerer, JSON.stringify({ t: `kill` }))
     expect(pub.lastFrame(`kill`)).toMatchObject({ t: `kill` })
   })
@@ -512,7 +495,7 @@ describe(`session rooms`, () => {
   test(`disconnect evicts the member from the activity audience`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
-    const member = connectMember(hub, { sub: `m`, perm: `steer` })
+    const member = connectMember(hub, { sub: `m` })
 
     hub.onClose(member)
 
@@ -592,7 +575,7 @@ describe(`PTY mirror removal (EXP-249)`, () => {
   test(`hello still accepts (and ignores) legacy geometry + activityPublic`, () => {
     const hub = new Hub()
     const sock = new FakeSocket()
-    hub.onOpen(sock, claims({ role: `publisher`, sessionId: `sess-1`, perm: `view` }))
+    hub.onOpen(sock, claims({ role: `publisher`, sessionId: `sess-1` }))
     hub.onMessage(
       sock,
       JSON.stringify({
@@ -611,7 +594,7 @@ describe(`PTY mirror removal (EXP-249)`, () => {
     // A re-hello with different geometry no longer broadcasts anything.
     hub.onClose(sock)
     const pub2 = new FakeSocket()
-    hub.onOpen(pub2, claims({ role: `publisher`, sessionId: `sess-1`, perm: `view` }))
+    hub.onOpen(pub2, claims({ role: `publisher`, sessionId: `sess-1` }))
     const before = member.sent.length
     hub.onMessage(
       pub2,
@@ -767,11 +750,10 @@ describe(`activity event kinds`, () => {
 })
 
 describe(`semantic answers (EXP-249)`, () => {
-  test(`a steer-perm member's answer reaches the publisher, verbatim`, () => {
+  test(`a joined viewer's answer reaches the publisher, verbatim`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
-    const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
-    const watcher = connectMember(hub, { sub: `w`, perm: `view` })
+    const steerer = connectMember(hub, { sub: `s` })
 
     hub.onMessage(
       steerer,
@@ -789,9 +771,11 @@ describe(`semantic answers (EXP-249)`, () => {
       keys: [`1`, `3`],
     })
 
-    // A view-perm member's answer never flows.
+    // A viewer that never joined the room is dropped.
+    const stranger = new FakeSocket()
+    hub.onOpen(stranger, claims({ role: `viewer`, sub: `x`, sessionId: `sess-1` }))
     hub.onMessage(
-      watcher,
+      stranger,
       JSON.stringify({ t: `answer`, questionId: `toolu_1#0`, keys: [`2`] })
     )
     expect(pub.framesOf(`answer`).length).toBe(1)
@@ -809,14 +793,13 @@ describe(`semantic answers (EXP-249)`, () => {
 
     // Answers are never echoed to the audience.
     expect(steerer.framesOf(`answer`).length).toBe(0)
-    expect(watcher.framesOf(`answer`).length).toBe(0)
   })
 
-  test(`answers from every steer-perm member flow — no single operator`, () => {
+  test(`answers from every joined socket flow — no single operator`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
-    const first = connectMember(hub, { sub: `first`, perm: `steer` })
-    const boss = connectMember(hub, { sub: `boss`, perm: `steer` })
+    const first = connectMember(hub, { sub: `first` })
+    const boss = connectMember(hub, { sub: `boss` })
 
     hub.onMessage(
       first,
@@ -833,7 +816,7 @@ describe(`semantic answers (EXP-249)`, () => {
   test(`malformed answers are dropped by the schema`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
-    const steerer = connectMember(hub, { sub: `s`, perm: `steer` })
+    const steerer = connectMember(hub, { sub: `s` })
 
     hub.onMessage(steerer, JSON.stringify({ t: `answer`, keys: [`1`] }))
     hub.onMessage(steerer, JSON.stringify({ t: `answer`, questionId: `q` }))

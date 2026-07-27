@@ -97,7 +97,7 @@ describe(`relay URL derivation`, () => {
 })
 
 describe(`ticket claim composition`, () => {
-  it(`control: any user, empty ws scope, steer perm, deviceLabel passthrough`, () => {
+  it(`control: any user, empty ws scope, deviceLabel passthrough`, () => {
     expect(
       buildSteerTicketClaims(
         { kind: `control`, userId: `user-1`, deviceLabel: `My MacBook` },
@@ -107,7 +107,6 @@ describe(`ticket claim composition`, () => {
       sub: `user-1`,
       team: ``,
       role: `control`,
-      perm: `steer`,
       deviceLabel: `My MacBook`,
       iat: NOW,
       exp: NOW + STEER_TICKET_TTL_SECONDS,
@@ -122,7 +121,7 @@ describe(`ticket claim composition`, () => {
     expect(claims).not.toHaveProperty(`deviceLabel`)
   })
 
-  it(`publisher: team-scoped, session-bound, steer perm`, () => {
+  it(`publisher: team-scoped, session-bound`, () => {
     expect(
       buildSteerTicketClaims(
         {
@@ -138,13 +137,12 @@ describe(`ticket claim composition`, () => {
       team: `ws-1`,
       sessionId: `session-1`,
       role: `publisher`,
-      perm: `steer`,
       iat: NOW,
       exp: NOW + STEER_TICKET_TTL_SECONDS,
     })
   })
 
-  it(`viewer: session-bound, always steer perm (EXP-312 — owner-only at mint, no view/steer distinction)`, () => {
+  it(`viewer: session-bound (EXP-312 — owner-only at mint, no perm claim)`, () => {
     expect(
       buildSteerTicketClaims(
         {
@@ -160,9 +158,6 @@ describe(`ticket claim composition`, () => {
       team: `ws-1`,
       sessionId: `session-1`,
       role: `viewer`,
-      // The legacy wire field: shipped clients show their composer on it and
-      // deployed relays gate input on it — always "steer" now.
-      perm: `steer`,
       iat: NOW,
       exp: NOW + STEER_TICKET_TTL_SECONDS,
     })
@@ -200,7 +195,6 @@ describe(`mintSteerTicket`, () => {
       team: `ws-1`,
       sessionId: `session-1`,
       role: `viewer`,
-      perm: `steer`,
       exp: NOW + STEER_TICKET_TTL_SECONDS,
     })
   })

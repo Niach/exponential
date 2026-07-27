@@ -12,9 +12,10 @@
 //! gates the terminal. Control frames and activity events ride ONE unbounded
 //! channel that is never dropped or reordered.
 //!
-//! Steering is seamless (EXP-312): there is no operator claim and the LOCAL
-//! user is never gated — their keystrokes go straight to the PTY, and the
-//! relay forwards any joined steer-perm member's input.
+//! Steering is seamless and owner-only (EXP-312): there is no operator claim
+//! and no perm tier, viewer tickets are minted only for the session owner,
+//! and the LOCAL user is never gated — their keystrokes go straight to the
+//! PTY while the relay forwards the joined viewer's input.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -923,11 +924,11 @@ mod tests {
         );
         assert_eq!(recorded.inputs.lock().unwrap().len(), 1, "answers never keystroke");
 
-        // 6) a legacy `presence` frame from an old relay parses to None and is
-        // ignored — the pump keeps running (the kill below still lands).
+        // 6) an unknown frame parses to None and is ignored — the pump keeps
+        // running (the kill below still lands).
         inject_tx
             .send(Message::Text(
-                r#"{"t":"presence","viewers":[{"userId":"v1","name":"Phone","perm":"steer"}],"steererId":"v1"}"#.to_string(),
+                r#"{"t":"presence","viewers":[],"steererId":null}"#.to_string(),
             ))
             .unwrap();
 

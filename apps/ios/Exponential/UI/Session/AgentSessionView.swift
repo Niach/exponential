@@ -641,7 +641,7 @@ private struct QuestionCard: View {
     var priorSteps: [AgentQuestion] = []
     /// Still answerable per the feed — the session is blocked on this card.
     let active: Bool
-    /// Live + steer perm — whether this client may answer at all.
+    /// Live (and not ended) — whether this client may answer at all.
     let canAnswer: Bool
     /// An answer is already out (or confirmed) for this card — every control
     /// stays dead until the desktop resolves it or the lock expires.
