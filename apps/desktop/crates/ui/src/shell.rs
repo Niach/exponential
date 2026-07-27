@@ -149,15 +149,20 @@ fn traffic_tongue() -> impl IntoElement {
                     let r = bounds.size.width.min(bounds.size.height);
                     let o = bounds.origin;
                     let at = |x: f32, y: f32| gpui::point(o.x + r * x, o.y + r * y);
-                    // Notch: from the arc's top end, along the arc to its
-                    // left end, then out to the corner and back — the region
-                    // between the tongue's curve and the strip.
-                    let mut path = gpui::Path::new(at(1., 0.));
-                    path.curve_to(at(0.7071, 0.7071), at(1., 0.4142));
-                    path.curve_to(at(0., 1.), at(0.4142, 1.));
-                    path.line_to(at(1., 1.));
-                    path.line_to(at(1., 0.));
-                    window.paint_path(path, notch_fill);
+                    // Notch: from the arc's top end, along the tongue's convex
+                    // arc to its left end, then out to the corner and close —
+                    // the region between the curve and the strip. Built with
+                    // the lyon-backed PathBuilder: the raw scene Path fans its
+                    // fill triangles from the start vertex and rendered this
+                    // concave shape as a straight-edged triangle.
+                    let mut builder = gpui::PathBuilder::fill();
+                    builder.move_to(at(1., 0.));
+                    builder.arc_to(gpui::point(r, r), px(0.), false, true, at(0., 1.));
+                    builder.line_to(at(1., 1.));
+                    builder.close();
+                    if let Ok(path) = builder.build() {
+                        window.paint_path(path, notch_fill);
+                    }
                 },
             )
             .absolute()
