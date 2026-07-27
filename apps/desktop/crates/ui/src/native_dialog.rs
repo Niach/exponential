@@ -4,22 +4,31 @@
 //! The shared shape is [`open_dialog_window`] (content dialogs) and
 //! [`open_alert`] (confirm/alert dialogs) over one [`DialogShell`] root view:
 //!
-//! - **Window options** (EXP-287): a dialog is an ORDINARY secondary app
-//!   window — `WindowKind::Normal` with the main window's chrome
-//!   (`gpui_component::TitleBar::title_bar_options()`), minimizable, sharing
-//!   `undock`'s options set verbatim. That is what earns it its own
-//!   taskbar/window-list button, which is the point: dialogs are managed by
-//!   hand now, so they must be findable. The previous `WindowKind::Floating`
-//!   could not deliver that — it allocs an `NSPanel` on macOS (never listed,
+//! - **Window options** (EXP-287, Linux split in EXP-308): on macOS/Windows a
+//!   dialog is an ORDINARY secondary app window — `WindowKind::Normal` with
+//!   the main window's chrome (`gpui_component::TitleBar::title_bar_options()`),
+//!   minimizable, sharing `undock`'s options set verbatim. That is what earns
+//!   it its own taskbar/window-list button, which is the point: dialogs are
+//!   managed by hand now, so they must be findable. `WindowKind::Floating`
+//!   could not deliver that on macOS — it allocs an `NSPanel` (never listed,
 //!   and `hidesOnDeactivate` defaults YES, so every dialog blinked out
-//!   whenever the app deactivated) and stamps `WM_TRANSIENT_FOR` /
-//!   `xdg_toplevel.set_parent` on Linux, which is exactly what makes a
-//!   taskbar fold a window into its parent's button. `Floating` survives for
-//!   [`DialogSpec::chromeless`] dialogs only (the ⌘K palette, the image
-//!   lightbox): a palette is not a document window and wants to stay above
-//!   its opener.
+//!   whenever the app deactivated). On LINUX the trade goes the other way
+//!   (EXP-308): `Normal` dialogs opened wherever the WM's placement policy
+//!   dropped them (top-left cascade on GNOME) instead of over the IDE window,
+//!   because our centered origin never survives — gpui's X11 backend sets no
+//!   position hint in `WM_NORMAL_HINTS`, so the WM ignores the CreateWindow
+//!   origin, and Wayland has no client positioning at all. The ONLY
+//!   parent-centered placement either backend offers is the transient parent
+//!   relationship, so Linux dialogs are `Floating` (`WM_TRANSIENT_FOR` /
+//!   `xdg_toplevel.set_parent` on the opener — WMs center transients over
+//!   their parent), accepting that the taskbar folds them into the opener's
+//!   button; a lost dialog is still recoverable by re-triggering its opener
+//!   ([`raise_existing_dialog`]). `Floating` also survives everywhere for
+//!   [`DialogSpec::chromeless`] dialogs (the ⌘K palette, the image lightbox):
+//!   a palette is not a document window and wants to stay above its opener.
 //! - **Parent-relative positioning**: bounds are centered over the opener's
-//!   window bounds at open time.
+//!   window bounds at open time (honoured on macOS/Windows; on Linux the
+//!   WM/compositor centers the transient itself — see above).
 //! - **Focus/dismiss semantics**: a dialog closes only when the user says so
 //!   — Escape, the titlebar's close control, or the OS close request
 //!   (Alt-F4 / WM close), all gated by the per-dialog `can_close` so a busy
@@ -423,14 +432,25 @@ pub(crate) fn open_dialog_window(
             // hand-managed, never-auto-dismissed dialog needs. `Floating`
             // cannot: on macOS it allocs an NSPanel (never listed, and
             // `hidesOnDeactivate` defaults YES, which blinked every dialog out
-            // whenever the app deactivated) and on Linux it stamps
-            // WM_TRANSIENT_FOR / `xdg_toplevel.set_parent`, which is what
-            // folds a window into its parent's taskbar button.
+            // whenever the app deactivated).
             //
-            // Chromeless dialogs stay `Floating` on purpose: the ⌘K palette
-            // and the image lightbox are transient surfaces, not windows the
-            // user manages, and both want to stay above their opener.
-            kind: if native_chrome {
+            // EXP-308: Linux is the exception — `Normal` dialogs landed
+            // wherever the WM's placement policy put them (top-left cascade)
+            // instead of over the opener: gpui's X11 backend sets no position
+            // hint in WM_NORMAL_HINTS so the WM discards `bounds.origin`, and
+            // Wayland cannot position toplevels at all. The transient parent
+            // relationship `Floating` stamps (WM_TRANSIENT_FOR /
+            // `xdg_toplevel.set_parent` on the keyboard-focused opener) is the
+            // one mechanism both backends have that centers a window over its
+            // parent, so Linux trades the dialog's own taskbar button for
+            // correct placement (`raise_existing_dialog` keeps a buried dialog
+            // recoverable from its opener).
+            //
+            // Chromeless dialogs stay `Floating` on every platform: the ⌘K
+            // palette and the image lightbox are transient surfaces, not
+            // windows the user manages, and both want to stay above their
+            // opener.
+            kind: if native_chrome && !cfg!(target_os = "linux") {
                 WindowKind::Normal
             } else {
                 WindowKind::Floating
@@ -446,7 +466,10 @@ pub(crate) fn open_dialog_window(
             }),
             is_resizable: min_size.is_some(),
             // EXP-287: a window with its own taskbar button must minimize.
-            is_minimizable: true,
+            // EXP-308: on Linux a dialog is a transient with NO taskbar
+            // button, so minimizing it would strand it with no restore
+            // affordance.
+            is_minimizable: !cfg!(target_os = "linux"),
             window_min_size: min_size,
             app_id: Some(CHANNEL_APP_ID.to_string()),
             // EXP-290 glass: non-opaque + behind-window blur, same as the shell
@@ -516,10 +539,10 @@ pub(crate) fn open_dialog_window(
             let _ = cx;
         })?;
 
-        // EXP-287: a dialog is a listed window now, so on X11 it needs the
-        // `_NET_WM_ICON` stamp its brand-new taskbar button reads (the
-        // launch-time pass in `app::x11_window_icon` is long gone by the time
-        // one opens). No-op everywhere else.
+        // EXP-287: on X11 the dialog needs the `_NET_WM_ICON` stamp — alt-tab
+        // (and, pre-EXP-308, its taskbar button) reads it, and the launch-time
+        // pass in `app::x11_window_icon` is long gone by the time one opens.
+        // No-op everywhere else.
         cx.update(|cx| crate::window_hooks::notify_window_opened(cx));
         anyhow::Ok(())
     })
@@ -654,8 +677,12 @@ impl Render for DialogShell {
             if crate::app_title_bar::client_chrome(window) {
                 crate::title_bar::TitleBar::new()
                     // A fixed-size dialog has no maximize affordance at the OS
-                    // level, so the control would be dead chrome.
-                    .window_controls(true, self.resizable)
+                    // level, so the control would be dead chrome. EXP-308: on
+                    // Linux the dialog is a taskbar-less transient, so the
+                    // minimize control goes too — the strip's Linux handler
+                    // calls `minimize_window()` directly, which would strand
+                    // the window with nothing to restore it from.
+                    .window_controls(!cfg!(target_os = "linux"), self.resizable)
                     // Linux only (upstream's gate, kept): `remove_window` never
                     // consults `on_window_should_close`, so this is the only
                     // place a busy submit can refuse the strip's own ✕. The
