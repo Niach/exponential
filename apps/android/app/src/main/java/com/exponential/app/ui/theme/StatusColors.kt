@@ -3,6 +3,8 @@ package com.exponential.app.ui.theme
 import androidx.compose.ui.graphics.Color
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.parseIsoDateOrNull
 import java.time.LocalDate
 
@@ -35,6 +37,19 @@ fun statusColor(status: IssueStatus): Color = when (status) {
     // the web/desktop treatment, adopted everywhere by REV2-85.
     IssueStatus.Cancelled -> Neutral
     IssueStatus.Duplicate -> Neutral
+}
+
+/**
+ * Color for a RESOLVED status row (EXP-314). Builtin rows and the constructed
+ * fallbacks keep rendering the semantic design tokens above — byte-identical to
+ * before custom statuses existed, and theme-safe (the seeded builtin hexes are
+ * near-neutral and would read wrong). Only CUSTOM rows use their stored hex,
+ * through the same [parseColor] path labels use; a missing hex stays neutral.
+ */
+fun resolvedStatusColor(status: ResolvedIssueStatus): Color {
+    status.builtinKey?.let { return statusColor(it) }
+    val hex = status.colorHex?.takeIf { it.isNotBlank() } ?: return Neutral
+    return parseColor(hex)
 }
 
 fun priorityColor(priority: IssuePriority): Color = when (priority) {

@@ -1,4 +1,4 @@
-//! The 15 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 16 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,10 +80,10 @@ impl ShapeSpec {
     }
 }
 
-/// The 15 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 16 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, and no `body` on `actions`).
-pub const SHAPES: [ShapeSpec; 15] = [
+pub const SHAPES: [ShapeSpec; 16] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -145,7 +145,12 @@ pub const SHAPES: [ShapeSpec; 15] = [
             "identifier",
             "title",
             "description",
+            // EXP-314: `status` stays the dual-written enum ANCHOR;
+            // `status_id` is the precise per-team `issue_statuses` row.
+            // `heal_missing_columns` ALTERs it onto existing store tables and
+            // the shape-identity rotation's refetch backfills real values.
             "status",
+            "status_id",
             "priority",
             "assignee_id",
             "creator_id",
@@ -372,6 +377,27 @@ pub const SHAPES: [ShapeSpec; 15] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "issue_statuses",
+        path: "/api/shapes/issue-statuses",
+        // EXP-314 — one team's status vocabulary. Team-scoped like `labels`
+        // (statuses aren't board children, so no trash predicate).
+        // `builtin_key` marks the 7 locked rows; `color` is only RENDERED for
+        // custom rows (builtins render their theme token — see
+        // `domain::statuses`).
+        columns: &[
+            "id",
+            "team_id",
+            "category",
+            "name",
+            "color",
+            "sort_order",
+            "builtin_key",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -384,8 +410,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_15_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 15);
+    fn registry_has_16_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 16);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -439,6 +465,18 @@ mod tests {
         assert!(!spec.columns.contains(&"due_time"));
         assert!(!spec.columns.contains(&"end_time"));
         assert!(spec.columns.contains(&"due_date"));
+    }
+
+    #[test]
+    fn issues_sync_the_custom_status_row_pointer() {
+        // EXP-314: dropping `status_id` from the allowlist silently degrades
+        // every board to anchor-only grouping (custom statuses vanish).
+        let spec = shape_by_name("issues").unwrap();
+        assert!(spec.columns.contains(&"status"), "the anchor stays");
+        assert!(spec.columns.contains(&"status_id"));
+        let statuses = shape_by_name("issue_statuses").unwrap();
+        assert!(statuses.columns.contains(&"builtin_key"));
+        assert!(statuses.columns.contains(&"category"));
     }
 
     #[test]

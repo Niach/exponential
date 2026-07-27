@@ -27,7 +27,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
-import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.UserAvatar
@@ -52,7 +52,7 @@ import com.exponential.app.ui.theme.glassSection
 @Composable
 fun IssuePropertyChips(
     issue: IssueEntity,
-    status: IssueStatus,
+    status: ResolvedIssueStatus,
     priority: IssuePriority,
     assignee: UserEntity?,
     issueLabels: List<LabelEntity>,
@@ -80,7 +80,7 @@ fun IssuePropertyChips(
         PropertyChip(enabled = isModerator, onClick = onOpenStatus) {
             StatusIcon(status, size = 14.dp)
             Spacer(Modifier.width(6.dp))
-            ChipLabel(status.label)
+            ChipLabel(status.name)
         }
         PropertyChip(enabled = isModerator, onClick = onOpenPriority) {
             PriorityIcon(priority, size = 14.dp)

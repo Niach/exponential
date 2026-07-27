@@ -31,6 +31,19 @@ extension IssueStatus {
     }
 }
 
+// EXP-314: a resolved status carries its own registry glyph name; only the
+// COLOR needs the platform seam. Builtin rows (and the constructed defaults)
+// deliberately IGNORE the synced hex and keep today's design tokens — the
+// tokens are theme-aware and the seeded near-neutral hexes are not, so this
+// also keeps builtin rendering byte-identical to before the feature. Custom
+// rows go through the label-color hex path, muted-gray on a parse failure.
+extension ResolvedIssueStatus {
+    public var color: Color {
+        if let builtinKey { return builtinKey.color }
+        return Color(hex: colorHex) ?? StatusColor.backlog
+    }
+}
+
 extension IssuePriority {
     /// Shared-registry icon name (EXP-273) — render through `AppIcon`.
     public var iconName: String {

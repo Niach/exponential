@@ -48,7 +48,7 @@ struct IssueFilterSheet: View {
             }
             .padding(.bottom, 8)
 
-            categoryRow("Status", count: vm.filters.statuses.count) { view = .status }
+            categoryRow("Status", count: vm.filters.statusIds.count) { view = .status }
             categoryRow("Priority", count: vm.filters.priorities.count) { view = .priority }
             categoryRow("Labels", count: vm.filters.labelIds.count) { view = .labels }
         }
@@ -79,14 +79,16 @@ struct IssueFilterSheet: View {
 
     private var statusView: some View {
         subView(title: "Status") {
-            ForEach(IssueStatus.displayOrder, id: \.self) { status in
-                checkRow(selected: vm.filters.statuses.contains(status)) {
+            // EXP-314: the team's own statuses, keyed by group id (a row id, or
+            // `builtin:<key>` while the statuses shape is still syncing).
+            ForEach(vm.teamStatuses, id: \.id) { status in
+                checkRow(selected: vm.isStatusFiltered(status)) {
                     vm.toggleStatus(status)
                 } content: {
                     AppIcon(status.iconName, size: AppIcon.Size.small)
                         .foregroundStyle(status.color)
                         .frame(width: 18)
-                    Text(status.label)
+                    Text(status.name)
                         .font(.body)
                         .foregroundStyle(.white)
                 }

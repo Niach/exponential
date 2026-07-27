@@ -976,7 +976,7 @@ fn manager_runs_all_15_shapes_and_stops_cleanly() {
     assert!(!manager.start_account(config()).unwrap());
     assert_eq!(manager.running_accounts(), vec!["acct-1".to_string()]);
 
-    // Every one of the 15 shape proxies gets polled (with the bearer).
+    // Every one of the 16 shape proxies gets polled (with the bearer).
     let expected: HashSet<&str> = SHAPES.iter().map(|s| s.path).collect();
     assert!(
         wait_until(Duration::from_secs(10), || {

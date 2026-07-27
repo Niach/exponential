@@ -76,7 +76,12 @@ export function OptionDropdownMenu<TValue extends string>({
                     setOpen(false)
                   }}
                 >
-                  <Icon className={`h-4 w-4 shrink-0 ${option.color}`} />
+                      <Icon
+                    className={`h-4 w-4 shrink-0 ${option.color}`}
+                    style={
+                      option.colorHex ? { color: option.colorHex } : undefined
+                    }
+                  />
                   <span className="flex-1 truncate">{option.label}</span>
                   {isSelected && (
                     <Check className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -106,7 +111,10 @@ export function OptionDropdownMenu<TValue extends string>({
                 void onSelect(option.value)
               }}
             >
-              <Icon className={`mr-2 h-4 w-4 ${option.color}`} />
+              <Icon
+                className={`mr-2 h-4 w-4 ${option.color}`}
+                style={option.colorHex ? { color: option.colorHex } : undefined}
+              />
               {option.label}
             </DropdownMenuItem>
           )

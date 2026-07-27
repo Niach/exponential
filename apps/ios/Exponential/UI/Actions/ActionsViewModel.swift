@@ -145,6 +145,8 @@ final class ActionsViewModel {
                 repoByBoard[board.id] = repoId
             }
         }
+        // ANCHOR set (EXP-314): custom statuses anchor to one of these enum
+        // values, so the check keeps gating them correctly.
         let terminal: Set<String> = [
             IssueStatus.done.rawValue,
             IssueStatus.cancelled.rawValue,

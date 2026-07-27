@@ -529,14 +529,21 @@ fn event_phrase(
 
     match event.kind.as_deref()? {
         "status_changed" => {
-            let to = payload_str("to").unwrap_or_default();
-            let phrase = match payload_str("from") {
-                Some(from) if !from.is_empty() && !to.is_empty() => format!(
-                    "changed status from {} to {}",
-                    status_label(&from),
-                    status_label(&to)
-                ),
-                _ => format!("changed status to {}", status_label(&to)),
+            // EXP-314: the payload now carries the human NAMES of the status
+            // rows (`fromName`/`toName`) alongside the legacy enum anchors.
+            // Prefer them — a custom status has no enum value to munge — and
+            // fall back to the anchor munge for rows written before EXP-314.
+            let to = payload_str("toName")
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| status_label(&payload_str("to").unwrap_or_default()));
+            let from = payload_str("fromName")
+                .filter(|name| !name.is_empty())
+                .or_else(|| payload_str("from").map(|from| status_label(&from)));
+            let phrase = match from {
+                Some(from) if !from.is_empty() && !to.is_empty() => {
+                    format!("changed status from {from} to {to}")
+                }
+                _ => format!("changed status to {to}"),
             };
             Some((ExpIcon::CircleDot, phrase, None))
         }
@@ -723,6 +730,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(phrase, "changed status from todo to in progress");
+
+        // EXP-314: a status-row payload renders the ROW NAMES (a custom status
+        // has no enum value to munge), and a missing `fromName` still falls
+        // back to the anchor munge.
+        let (_, phrase, _) = event_phrase(
+            &event(
+                "status_changed",
+                json!({
+                    "from": "in_progress",
+                    "to": "in_progress",
+                    "fromStatusId": "s-1",
+                    "toStatusId": "s-2",
+                    "fromName": "Building",
+                    "toName": "In QA"
+                }),
+            ),
+            &users,
+            &labels,
+            &boards,
+        )
+        .unwrap();
+        assert_eq!(phrase, "changed status from Building to In QA");
+
+        let (_, phrase, _) = event_phrase(
+            &event("status_changed", json!({ "to": "in_progress", "toName": "In QA" })),
+            &users,
+            &labels,
+            &boards,
+        )
+        .unwrap();
+        assert_eq!(phrase, "changed status to In QA");
 
         let (_, phrase, _) = event_phrase(
             &event("assignee_changed", json!({ "to": "u-1" })),

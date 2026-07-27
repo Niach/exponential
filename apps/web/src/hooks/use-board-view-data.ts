@@ -18,6 +18,7 @@ import {
   buildIssueLabelMap,
   buildVisibleIssueGroups,
 } from "@/lib/board-view"
+import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import type { Issue, IssueLabel, Label, Board } from "@/db/schema"
 
 export function useBoardViewData({
@@ -82,6 +83,11 @@ export function useBoardViewData({
   )
 
   const { userMap, users } = useTeamUsers(team?.id)
+  // EXP-314: group by the team's own status rows (constructed defaults until
+  // the issue_statuses shape lands, so the board renders from frame one).
+  const { options: statusOptions, resolve: resolveStatus } = useTeamStatuses(
+    team?.id
+  )
 
   const issueList = (issues ?? []) as Issue[]
   const labelList = (labels ?? []) as Label[]
@@ -93,7 +99,8 @@ export function useBoardViewData({
     const filteredIssues = buildFilteredIssues(
       issueList,
       issueLabelIdsMap,
-      filters
+      filters,
+      resolveStatus
     )
 
     return {
@@ -113,7 +120,13 @@ export function useBoardViewData({
       totalIssueCount: issueList.length,
       users,
       userMap,
-      visibleGroups: buildVisibleIssueGroups(filteredIssues, filters.statuses),
+      visibleGroups: buildVisibleIssueGroups(
+        filteredIssues,
+        statusOptions,
+        resolveStatus,
+        filters.statusTokens
+      ),
+      statusOptions,
       team,
     }
   }, [
@@ -124,6 +137,8 @@ export function useBoardViewData({
     labelList,
     board,
     boardReady,
+    statusOptions,
+    resolveStatus,
     userMap,
     users,
     team,

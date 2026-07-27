@@ -6,10 +6,50 @@ import {
   buildFilteredIssues,
   buildIssueLabelIdsMap,
   buildIssueLabelMap,
-  buildVisibleIssueGroups,
+  buildVisibleIssueGroups as buildGroups,
   compareIssuesForGroup,
   findIssuePosition,
 } from "@/lib/board-view"
+import {
+  buildStatusOptions,
+  defaultStatusOptions,
+  resolveIssueStatus,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
+
+// The default (unsynced / freshly-seeded) team: the 7 constructed builtin
+// rows, so these legacy expectations still describe a real team's grouping.
+const DEFAULT_OPTIONS = defaultStatusOptions()
+const DEFAULT_BY_ID = new Map(DEFAULT_OPTIONS.map((o) => [o.id, o]))
+const optionFor = (key: string): StatusRowOption =>
+  DEFAULT_OPTIONS.find((option) => option.builtinKey === key)!
+
+function buildVisibleIssueGroups(
+  issues: Issue[],
+  statusTokens: string[] = [],
+  options: StatusRowOption[] = DEFAULT_OPTIONS
+) {
+  const byId = new Map(options.map((o) => [o.id, o]))
+  return buildGroups(
+    issues,
+    options,
+    (issue) => resolveIssueStatus(issue, options, byId),
+    statusTokens
+  ).map((group) => ({
+    status: group.status.builtinKey ?? group.status.id,
+    issues: group.issues,
+  }))
+}
+
+// The un-mapped form, for findIssuePosition (which takes real IssueGroups).
+function rawGroups(issues: Issue[], statusTokens: string[] = []) {
+  return buildGroups(
+    issues,
+    DEFAULT_OPTIONS,
+    (issue) => resolveIssueStatus(issue, DEFAULT_OPTIONS, DEFAULT_BY_ID),
+    statusTokens
+  )
+}
 
 function makeIssue(overrides: Partial<Issue>): Issue {
   return {
@@ -35,6 +75,7 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     prMergedAt: null,
     sortOrder: 0,
     status: `backlog`,
+    statusId: null,
     title: `Issue`,
     updatedAt: new Date(`2026-03-06T10:00:00.000Z`),
     ...overrides,
@@ -261,7 +302,7 @@ describe(`board-view helpers`, () => {
   // strings — Electric's `YYYY-MM-DD hh:mm:ss+00` and ISO `…T…Z` must compare
   // as the same instants.
   it(`compares mixed string/Date timestamp formats as instants`, () => {
-    const compare = compareIssuesForGroup(`done`, `2026-03-06`)
+    const compare = compareIssuesForGroup(`completed`, `2026-03-06`)
     const electricFormat = {
       priority: `none` as const,
       dueDate: null,
@@ -313,9 +354,9 @@ describe(`board-view helpers`, () => {
       status: `backlog`,
     })
 
-    // Flattened sequence: [todo-urgent, todo-low, backlog-1] (todo group
-    // precedes backlog in issueStatusOrder).
-    const groups = buildVisibleIssueGroups([backlog, todoLow, todoUrgent], [])
+    // Flattened sequence: [todo-urgent, todo-low, backlog-1] (the unstarted
+    // group precedes backlog in the category display order).
+    const groups = rawGroups([backlog, todoLow, todoUrgent])
 
     expect(findIssuePosition(groups, `todo-urgent`)).toEqual({
       index: 1,
@@ -342,7 +383,7 @@ describe(`board-view helpers`, () => {
     const todo = makeIssue({ id: `todo-1`, status: `todo` })
 
     // Status filter hides the done issue from the sequence entirely.
-    const groups = buildVisibleIssueGroups([todo], [`todo`])
+    const groups = rawGroups([todo], [`todo`])
 
     expect(findIssuePosition(groups, done.id)).toBeNull()
     expect(findIssuePosition(groups, todo.id)).toEqual({
@@ -357,12 +398,150 @@ describe(`board-view helpers`, () => {
     expect(findIssuePosition([], `missing`)).toBeNull()
 
     const only = makeIssue({ id: `only`, status: `backlog` })
-    const groups = buildVisibleIssueGroups([only], [])
+    const groups = rawGroups([only])
     expect(findIssuePosition(groups, `only`)).toEqual({
       index: 1,
       total: 1,
       prev: null,
       next: null,
     })
+  })
+})
+
+// EXP-314: grouping is per TEAM STATUS ROW, keyed by row id, with the
+// comparator switching on the row's CATEGORY.
+describe(`board-view custom statuses`, () => {
+  const CUSTOM_ID = `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`
+  const DONE_ID = `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`
+  const customOptions = buildStatusOptions([
+    {
+      id: CUSTOM_ID,
+      name: `Designing`,
+      color: `#FF00AA`,
+      category: `started`,
+      builtinKey: null,
+      sortOrder: 1,
+      createdAt: new Date(`2026-01-01T00:00:00.000Z`),
+    },
+    {
+      id: DONE_ID,
+      name: `Shipped`,
+      color: `#3B82F6`,
+      category: `completed`,
+      builtinKey: `done`,
+      sortOrder: 1,
+      createdAt: new Date(`2026-01-01T00:00:00.000Z`),
+    },
+  ])
+
+  it(`groups by row id and keeps the team's row order`, () => {
+    const custom = makeIssue({
+      id: `custom-1`,
+      status: `in_progress`,
+      statusId: CUSTOM_ID,
+    })
+    const shipped = makeIssue({
+      id: `shipped-1`,
+      status: `done`,
+      statusId: DONE_ID,
+    })
+
+    const groups = buildGroups(
+      [shipped, custom],
+      customOptions,
+      (issue) => resolveIssueStatus(issue, customOptions),
+      []
+    )
+
+    expect(groups.map((group) => group.status.id)).toEqual([
+      CUSTOM_ID,
+      DONE_ID,
+    ])
+    expect(groups[0].status.name).toBe(`Designing`)
+    expect(groups[0].issues).toEqual([custom])
+    expect(groups[1].issues).toEqual([shipped])
+  })
+
+  it(`sorts a custom completed group by completion recency`, () => {
+    const older = makeIssue({
+      id: `older`,
+      status: `done`,
+      statusId: DONE_ID,
+      priority: `urgent`,
+      completedAt: new Date(`2026-03-01T10:00:00.000Z`),
+    })
+    const newer = makeIssue({
+      id: `newer`,
+      status: `done`,
+      statusId: DONE_ID,
+      completedAt: new Date(`2026-03-05T10:00:00.000Z`),
+    })
+
+    const groups = buildGroups(
+      [older, newer],
+      customOptions,
+      (issue) => resolveIssueStatus(issue, customOptions),
+      []
+    )
+    expect(groups[0].issues).toEqual([newer, older])
+  })
+
+  it(`filters groups by row-id AND legacy enum tokens`, () => {
+    const custom = makeIssue({
+      id: `custom-1`,
+      status: `in_progress`,
+      statusId: CUSTOM_ID,
+    })
+    const shipped = makeIssue({
+      id: `shipped-1`,
+      status: `done`,
+      statusId: DONE_ID,
+    })
+    const resolve = (issue: { status: string; statusId: string | null }) =>
+      resolveIssueStatus(issue, customOptions)
+
+    expect(
+      buildGroups([custom, shipped], customOptions, resolve, [CUSTOM_ID]).map(
+        (g) => g.status.id
+      )
+    ).toEqual([CUSTOM_ID])
+    // `done` is the Shipped row's anchor — an old ?status=done URL still works.
+    expect(
+      buildGroups([custom, shipped], customOptions, resolve, [`done`]).map(
+        (g) => g.status.id
+      )
+    ).toEqual([DONE_ID])
+  })
+
+  it(`falls back to a constructed group for an unknown status`, () => {
+    const orphan = makeIssue({
+      id: `orphan`,
+      status: `cancelled`,
+      statusId: null,
+    })
+    const groups = buildGroups(
+      [orphan],
+      customOptions,
+      (issue) => resolveIssueStatus(issue, customOptions),
+      []
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0].status.id).toBe(`builtin:cancelled`)
+    expect(groups[0].issues).toEqual([orphan])
+  })
+
+  it(`exposes the resolved option (name/icon/color) on each group`, () => {
+    const groups = buildVisibleIssueGroupsRaw()
+    expect(groups[0].status.name).toBe(`Todo`)
+    expect(groups[0].status.icon).toBe(`circle`)
+  })
+
+  function buildVisibleIssueGroupsRaw() {
+    return rawGroups([makeIssue({ id: `t`, status: `todo` })])
+  }
+
+  it(`keeps optionFor in step with the constructed defaults`, () => {
+    expect(optionFor(`in_progress`).icon).toBe(`progress-2-4`)
+    expect(optionFor(`backlog`).name).toBe(`Backlog`)
   })
 })

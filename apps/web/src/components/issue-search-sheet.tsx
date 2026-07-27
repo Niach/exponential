@@ -16,7 +16,7 @@ import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { Search } from "lucide-react"
 import type { Issue, Board } from "@/db/schema"
 
@@ -36,6 +36,9 @@ interface SearchResult {
   title: string
   boardId: string
   status: string
+  // EXP-314: server FTS hits carry it too, so status icons resolve to the
+  // team's own rows for issues that aren't synced locally.
+  statusId: string | null
 }
 
 type ServerHit = Awaited<ReturnType<typeof trpc.issues.search.query>>[number]
@@ -165,7 +168,7 @@ export function IssueSearchSheet({
     const board = boardMap.get(issue.boardId)
     return (
       <>
-        <StatusIcon status={issue.status} className="size-4 shrink-0" />
+        <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
         <div className="flex flex-col flex-1 min-w-0">
           <span className="text-sm truncate">{issue.title}</span>
           {board && (

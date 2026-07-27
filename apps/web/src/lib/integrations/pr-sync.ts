@@ -4,6 +4,7 @@ import {
   codingSessions,
   issueEvents,
   issues,
+  issueStatuses,
   boards,
   repositories,
 } from "@/db/schema"
@@ -133,14 +134,41 @@ export async function applyPrLifecycleStatusInTx(
       )
   }
 
+  // Eligibility gates on the ANCHOR enum (EXP-314): an issue parked in a
+  // CUSTOM started/unstarted status anchors into these sets and IS flipped —
+  // PR automation deliberately exits custom statuses into the team's builtin
+  // In Review/Done (per-status automation targets are v2). Explicit human
+  // resolutions (cancelled/duplicate anchors) stay never-overridden.
   const eligible =
     opts.to === `done` ? DONE_FROM_STATUSES : IN_REVIEW_FROM_STATUSES
   if (!eligible.has(opts.currentStatus)) return
+
+  // The precise from-row (for the event's name snapshot) and the builtin
+  // target row. A missing target (unseeded team) leaves statusId to the
+  // populate_issue_status_id trigger, which resolves to NULL — never an
+  // error; clients fall back to the anchor.
+  const [fromRow] = await tx
+    .select({ statusId: issues.statusId, fromName: issueStatuses.name })
+    .from(issues)
+    .leftJoin(issueStatuses, eq(issueStatuses.id, issues.statusId))
+    .where(eq(issues.id, opts.issueId))
+    .limit(1)
+  const [target] = await tx
+    .select({ id: issueStatuses.id, name: issueStatuses.name })
+    .from(issueStatuses)
+    .where(
+      and(
+        eq(issueStatuses.teamId, opts.teamId),
+        eq(issueStatuses.builtinKey, opts.to)
+      )
+    )
+    .limit(1)
 
   await tx
     .update(issues)
     .set({
       status: opts.to,
+      ...(target ? { statusId: target.id } : {}),
       completedAt: opts.to === `done` ? new Date() : null,
     })
     .where(eq(issues.id, opts.issueId))
@@ -150,7 +178,14 @@ export async function applyPrLifecycleStatusInTx(
     teamId: opts.teamId,
     actorUserId: opts.actorUserId,
     type: `status_changed`,
-    payload: { from: opts.currentStatus, to: opts.to },
+    payload: {
+      from: opts.currentStatus,
+      to: opts.to,
+      fromStatusId: fromRow?.statusId ?? null,
+      toStatusId: target?.id ?? null,
+      fromName: fromRow?.fromName ?? null,
+      toName: target?.name ?? null,
+    },
   })
 }
 

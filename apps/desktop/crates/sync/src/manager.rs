@@ -2,7 +2,7 @@
 //! gpui-free; a direct port of the proven iOS `SyncManager.reconcile`.
 //!
 //! One manager owns every running sync pipeline. A pipeline is one account's
-//! 15 shape threads (one dedicated `std::thread` per shape, §5.3) plus its
+//! 16 shape threads (one dedicated `std::thread` per shape, §5.3) plus its
 //! per-account rusqlite/WAL store (§5.4). Reconciling against the signed-in
 //! account set:
 //!
@@ -136,7 +136,7 @@ impl SyncManager {
     }
 
     /// Start (or restart) one account's pipeline: open the per-account store
-    /// and spawn the 15 shape threads (§5.3), each named after its shape.
+    /// and spawn the 16 shape threads (§5.3), each named after its shape.
     /// Returns `Ok(false)` when the account is already running (no-op); a
     /// dead entry (self-torn-down after a 401) is swept and restarted.
     pub fn start_account(&self, config: AccountSyncConfig) -> Result<bool, StoreError> {

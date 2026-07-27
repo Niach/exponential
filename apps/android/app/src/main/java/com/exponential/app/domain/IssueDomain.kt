@@ -136,17 +136,42 @@ fun issueComparatorForGroup(
     today: String = LocalDate.now().toString(),
 ): Comparator<IssueEntity> = when (status) {
     IssueStatus.Backlog, IssueStatus.Todo, IssueStatus.InProgress, IssueStatus.InReview ->
-        // false < true, so overdue rows (dueDate < today) come first.
-        compareBy<IssueEntity> { !(it.dueDate != null && it.dueDate < today) }
-            .thenBy { issuePriorityRank(IssuePriority.fromWire(it.priority)) }
-            .thenBy { it.dueDate == null } // null due dates last
-            .thenBy { it.dueDate ?: "" }
-            .thenBy { it.number }
-    IssueStatus.Done ->
-        compareByDescending { sortableTimestamp(it.completedAt ?: it.updatedAt) }
-    IssueStatus.Cancelled, IssueStatus.Duplicate ->
-        compareByDescending { sortableTimestamp(it.updatedAt) }
+        activeIssueComparator(today)
+    IssueStatus.Done -> completedIssueComparator()
+    IssueStatus.Cancelled, IssueStatus.Duplicate -> updatedDescComparator()
 }
+
+/**
+ * The same comparator keyed on a status CATEGORY (EXP-314) — the per-board list
+ * groups by team status ROW now, and a custom row's ordering follows its
+ * category. Branches are identical to [issueComparatorForGroup]: completed →
+ * (completedAt ?? updatedAt) desc, cancelled/duplicate → updatedAt desc,
+ * everything else (backlog/unstarted/started, and any unknown category) → the
+ * active branch.
+ */
+fun issueComparatorForCategory(
+    category: IssueStatusCategory,
+    today: String = LocalDate.now().toString(),
+): Comparator<IssueEntity> = when (category) {
+    IssueStatusCategory.Completed -> completedIssueComparator()
+    IssueStatusCategory.Cancelled, IssueStatusCategory.Duplicate -> updatedDescComparator()
+    IssueStatusCategory.Backlog, IssueStatusCategory.Unstarted, IssueStatusCategory.Started ->
+        activeIssueComparator(today)
+}
+
+private fun activeIssueComparator(today: String): Comparator<IssueEntity> =
+    // false < true, so overdue rows (dueDate < today) come first.
+    compareBy<IssueEntity> { !(it.dueDate != null && it.dueDate < today) }
+        .thenBy { issuePriorityRank(IssuePriority.fromWire(it.priority)) }
+        .thenBy { it.dueDate == null } // null due dates last
+        .thenBy { it.dueDate ?: "" }
+        .thenBy { it.number }
+
+private fun completedIssueComparator(): Comparator<IssueEntity> =
+    compareByDescending { sortableTimestamp(it.completedAt ?: it.updatedAt) }
+
+private fun updatedDescComparator(): Comparator<IssueEntity> =
+    compareByDescending { sortableTimestamp(it.updatedAt) }
 
 /** Sort one status group's issues by the canonical in-group order (EXP-38). */
 fun <T> sortIssuesForGroup(
@@ -156,5 +181,16 @@ fun <T> sortIssuesForGroup(
     issueOf: (T) -> IssueEntity,
 ): List<T> {
     val comparator = issueComparatorForGroup(status, today)
+    return issues.sortedWith(Comparator { a, b -> comparator.compare(issueOf(a), issueOf(b)) })
+}
+
+/** [sortIssuesForGroup] for a status-ROW group, keyed on its category (EXP-314). */
+fun <T> sortIssuesForCategory(
+    category: IssueStatusCategory,
+    issues: List<T>,
+    today: String = LocalDate.now().toString(),
+    issueOf: (T) -> IssueEntity,
+): List<T> {
+    val comparator = issueComparatorForCategory(category, today)
     return issues.sortedWith(Comparator { a, b -> comparator.compare(issueOf(a), issueOf(b)) })
 }

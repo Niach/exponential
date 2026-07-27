@@ -1,0 +1,652 @@
+import { useMemo, useState } from "react"
+import { useLiveQuery, inArray } from "@tanstack/react-db"
+import {
+  ChevronDown,
+  ChevronUp,
+  Lock,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from "lucide-react"
+import { issueCollection, issueStatusCollection } from "@/lib/collections"
+import { trpc } from "@/lib/trpc-client"
+import type { Issue } from "@/db/schema"
+import {
+  ISSUE_STATUS_STARTED_MAX,
+  issueStatusCategorySettingsOrder,
+  type IssueStatusCategory,
+} from "@/lib/domain"
+import { useTeamBoards } from "@/hooks/use-team-data"
+import { useTeamStatuses } from "@/hooks/use-team-statuses"
+import {
+  resolveIssueStatus,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
+import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import { IconTooltip } from "@/components/icon-tooltip"
+import { hexWithAlpha } from "@/lib/status-icons"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { LABEL_COLORS } from "@/lib/label-colors"
+import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
+
+const CATEGORY_LABEL: Record<IssueStatusCategory, string> = {
+  backlog: `Backlog`,
+  unstarted: `Unstarted`,
+  started: `Started`,
+  completed: `Completed`,
+  cancelled: `Cancelled`,
+  duplicate: `Duplicate`,
+}
+
+const CATEGORY_HINT: Record<IssueStatusCategory, string> = {
+  backlog: `Ideas and unplanned work.`,
+  unstarted: `Planned, not started yet.`,
+  started: `Work in flight — each started status gets its own progress clock.`,
+  completed: `Finished work. Issues here get a completion timestamp.`,
+  cancelled: `Dropped work. Hidden from active lists.`,
+  duplicate: `A fixed status: marking a duplicate links the canonical issue.`,
+}
+
+/** The 10%-alpha tile behind a status glyph — the settings-page echo of the
+ * board's group-header wash. Builtins keep their token color class. */
+function StatusTile({ option }: { option: StatusRowOption }) {
+  return (
+    <span
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+      style={
+        option.builtinKey
+          ? undefined
+          : { backgroundColor: hexWithAlpha(option.colorHex, 0.1) }
+      }
+    >
+      <StatusIcon option={option} />
+    </span>
+  )
+}
+
+/**
+ * ONE live query over the team's synced issues, bucketed by resolved group
+ * key. Scoped through the team's BOARDS — the issues shape deliberately
+ * excludes team_id (REV2-5 scoping column), so a teamId filter would match
+ * nothing client-side. These are board-VISIBLE counts: the server counts ALL
+ * referencing rows (trashed boards included), so its PRECONDITION_FAILED can
+ * fire even when a row reads 0 here — the delete flow always honors it.
+ */
+function useIssueCountsByStatus(
+  teamId: string,
+  options: StatusRowOption[]
+): Map<string, number> {
+  const boards = useTeamBoards(teamId)
+  const boardIds = useMemo(() => boards.map((board) => board.id), [boards])
+  const { data: rows } = useLiveQuery(
+    (q) =>
+      boardIds.length > 0
+        ? q
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.boardId, boardIds))
+        : undefined,
+    [boardIds.join(`,`)]
+  )
+  return useMemo(() => {
+    const counts = new Map<string, number>(
+      options.map((option) => [option.id, 0])
+    )
+    for (const issue of (rows ?? []) as Issue[]) {
+      const key = resolveIssueStatus(issue, options).id
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    return counts
+  }, [rows, options])
+}
+
+function StatusRow({
+  teamId,
+  option,
+  count,
+  isFirst,
+  isLast,
+  isDefault,
+  onRequestDelete,
+}: {
+  teamId: string
+  option: StatusRowOption
+  count: number
+  isFirst: boolean
+  isLast: boolean
+  isDefault: boolean
+  onRequestDelete: (option: StatusRowOption, count: number) => void
+}) {
+  const [name, setName] = useState(option.name)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const isBuiltin = option.builtinKey !== null
+
+  const persistName = async () => {
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === option.name) {
+      setName(option.name)
+      setError(null)
+      return
+    }
+    setBusy(true)
+    try {
+      const { txId } = await trpc.statuses.update.mutate({
+        teamId,
+        statusId: option.id,
+        name: trimmed,
+      })
+      await issueStatusCollection.utils.awaitTxId(txId)
+      setError(null)
+    } catch (err) {
+      setName(option.name)
+      setError(err instanceof Error ? err.message : `Failed to rename status.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const persistColor = async (color: string) => {
+    if (color === option.colorHex) return
+    setBusy(true)
+    try {
+      const { txId } = await trpc.statuses.update.mutate({
+        teamId,
+        statusId: option.id,
+        color,
+      })
+      await issueStatusCollection.utils.awaitTxId(txId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to set color.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const move = async (direction: `up` | `down`) => {
+    setBusy(true)
+    try {
+      const { txId } = await trpc.statuses.move.mutate({
+        teamId,
+        statusId: option.id,
+        direction,
+      })
+      await issueStatusCollection.utils.awaitTxId(txId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to move status.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-md border px-3 py-2">
+      <div className="flex items-center gap-3">
+        {isBuiltin ? (
+          <StatusTile option={option} />
+        ) : (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Change color of ${option.name}`}
+                disabled={busy}
+                className="rounded-md hover:opacity-80"
+              >
+                <StatusTile option={option} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-2" align="start">
+              <ColorSwatchGrid
+                value={option.colorHex}
+                onChange={persistColor}
+              />
+            </PopoverContent>
+          </Popover>
+        )}
+
+        {isBuiltin ? (
+          <span className="flex-1 truncate px-1 text-sm">{option.name}</span>
+        ) : (
+          <Input
+            value={name}
+            aria-label={`Status name`}
+            onChange={(e) => {
+              setName(e.target.value)
+              setError(null)
+            }}
+            onBlur={persistName}
+            onKeyDown={(e) => {
+              if (e.key === `Enter`) {
+                e.preventDefault()
+                ;(e.target as HTMLInputElement).blur()
+              }
+              if (e.key === `Escape`) {
+                setName(option.name)
+                setError(null)
+                ;(e.target as HTMLInputElement).blur()
+              }
+            }}
+            disabled={busy}
+            className="h-8 flex-1 border-none px-1 shadow-none focus-visible:ring-0"
+          />
+        )}
+
+        {isDefault && (
+          <Badge variant="secondary" className="font-normal">
+            Default
+          </Badge>
+        )}
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {count} issue{count === 1 ? `` : `s`}
+        </span>
+
+        {isBuiltin && (
+          <IconTooltip label="Built-in status — reorderable, but not renamable, recolorable or deletable.">
+            <span className="flex h-7 w-7 items-center justify-center text-muted-foreground">
+              <Lock className="h-3.5 w-3.5" />
+            </span>
+          </IconTooltip>
+        )}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground"
+              disabled={busy}
+              aria-label={`Status actions for ${option.name}`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              disabled={isFirst}
+              onSelect={() => void move(`up`)}
+            >
+              <ChevronUp className="h-4 w-4" />
+              Move up
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={isLast}
+              onSelect={() => void move(`down`)}
+            >
+              <ChevronDown className="h-4 w-4" />
+              Move down
+            </DropdownMenuItem>
+            {!isBuiltin && (
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => onRequestDelete(option, count)}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {error && <p className="mt-1 px-1 text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+function ReassignDialog({
+  teamId,
+  target,
+  options,
+  onOpenChange,
+  onDeleted,
+}: {
+  teamId: string
+  target: { option: StatusRowOption; count: number } | null
+  options: StatusRowOption[]
+  onOpenChange: (open: boolean) => void
+  onDeleted: () => void
+}) {
+  const candidates = options.filter(
+    (option) =>
+      option.category !== `duplicate` && option.id !== target?.option.id
+  )
+  const backlogDefault =
+    candidates.find((option) => option.builtinKey === `backlog`) ??
+    candidates[0]
+  const [reassignToId, setReassignToId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Self-correcting: a stale pick from a previous target (or the row being
+  // deleted) falls back to the team's Backlog builtin.
+  const selectedId =
+    (reassignToId && candidates.some((o) => o.id === reassignToId)
+      ? reassignToId
+      : null) ??
+    backlogDefault?.id ??
+    null
+
+  const confirm = async () => {
+    if (!target || !selectedId) return
+    setBusy(true)
+    try {
+      const { txId } = await trpc.statuses.delete.mutate({
+        teamId,
+        statusId: target.option.id,
+        reassignToId: selectedId,
+      })
+      await issueStatusCollection.utils.awaitTxId(txId)
+      onDeleted()
+      onOpenChange(false)
+      setReassignToId(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to delete status.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={target !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete {target?.option.name}?</DialogTitle>
+          <DialogDescription>
+            {target?.count === 0
+              ? `Issues on trashed boards may still use this status. Pick where they should go.`
+              : `${target?.count} issue${target?.count === 1 ? `` : `s`} (plus any on trashed boards) will move to the status you pick.`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-64 space-y-1 overflow-y-auto">
+          {candidates.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setReassignToId(option.id)}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent ${
+                selectedId === option.id ? `bg-accent` : ``
+              }`}
+            >
+              <StatusIcon option={option} />
+              <span className="truncate">{option.name}</span>
+            </button>
+          ))}
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={busy || !selectedId}
+            onClick={() => void confirm()}
+          >
+            {busy ? `Deleting…` : `Delete status`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function CreateStatusForm({
+  teamId,
+  category,
+  onDone,
+}: {
+  teamId: string
+  category: IssueStatusCategory
+  onDone: () => void
+}) {
+  const [name, setName] = useState(``)
+  const [color, setColor] = useState(LABEL_COLORS[6])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const create = async () => {
+    const trimmed = name.trim()
+    if (!trimmed || busy) return
+    setBusy(true)
+    try {
+      const { txId } = await trpc.statuses.create.mutate({
+        teamId,
+        category,
+        name: trimmed,
+        color,
+      })
+      await issueStatusCollection.utils.awaitTxId(txId)
+      onDone()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to create status.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-3 rounded-md border p-3">
+      <Input
+        value={name}
+        onChange={(e) => {
+          setName(e.target.value)
+          setError(null)
+        }}
+        placeholder={`New ${CATEGORY_LABEL[category].toLowerCase()} status`}
+        autoFocus
+        className="h-8 text-sm"
+        onKeyDown={(e) => {
+          if (e.key === `Enter`) {
+            e.preventDefault()
+            void create()
+          }
+          if (e.key === `Escape`) onDone()
+        }}
+      />
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <div>
+        <span className="mb-1.5 block text-xs text-muted-foreground">
+          Color
+        </span>
+        <ColorSwatchGrid value={color} onChange={setColor} />
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          size="xs"
+          variant="brand"
+          disabled={!name.trim() || busy}
+          onClick={() => void create()}
+        >
+          {busy ? `Creating...` : `Create status`}
+        </Button>
+        <Button size="xs" variant="ghost" disabled={busy} onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+export function TeamStatusesSection({ teamId }: { teamId: string }) {
+  const { options, ready } = useTeamStatuses(teamId)
+  const counts = useIssueCountsByStatus(teamId, options)
+  const [creatingIn, setCreatingIn] = useState<IssueStatusCategory | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    option: StatusRowOption
+    count: number
+  } | null>(null)
+
+  // An unreferenced status deletes straight away; anything the server still
+  // finds issues for (including issues on TRASHED boards, which never reach
+  // the client) comes back PRECONDITION_FAILED and opens the reassign picker.
+  const requestDelete = async (option: StatusRowOption, count: number) => {
+    if (count > 0) {
+      setDeleteTarget({ option, count })
+      return
+    }
+    try {
+      const { txId } = await trpc.statuses.delete.mutate({
+        teamId,
+        statusId: option.id,
+      })
+      await issueStatusCollection.utils.awaitTxId(txId)
+    } catch {
+      setDeleteTarget({ option, count })
+    }
+  }
+
+  const byCategory = useMemo(() => {
+    const map = new Map<IssueStatusCategory, StatusRowOption[]>()
+    for (const category of issueStatusCategorySettingsOrder) map.set(category, [])
+    for (const option of options) map.get(option.category)?.push(option)
+    return map
+  }, [options])
+
+  // The "Default" badge marks where a brand-new issue lands.
+  const defaultOptionId = resolveIssueStatus(
+    { status: `backlog`, statusId: null },
+    options
+  ).id
+
+  const customCount = options.filter(
+    (option) => option.builtinKey === null
+  ).length
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Statuses</CardTitle>
+          <CardDescription>
+            {customCount} custom status{customCount === 1 ? `` : `es`} on top of
+            the 7 built-ins. Every status belongs to a fixed category that
+            drives automation (PR flow, completion timestamps) and list
+            ordering; built-ins can be reordered but not renamed or deleted.
+            {!ready && ` Loading this team's statuses…`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {issueStatusCategorySettingsOrder.map((category) => {
+            const rows = byCategory.get(category) ?? []
+            const atStartedCap =
+              category === `started` && rows.length >= ISSUE_STATUS_STARTED_MAX
+            const canAdd = category !== `duplicate`
+
+            return (
+              <div key={category}>
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-medium">
+                      {CATEGORY_LABEL[category]}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {CATEGORY_HINT[category]}
+                    </p>
+                  </div>
+                  {canAdd &&
+                    (atStartedCap ? (
+                      <IconTooltip
+                        label={`A team can have at most ${ISSUE_STATUS_STARTED_MAX} started statuses.`}
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          disabled
+                          aria-label={`Add ${CATEGORY_LABEL[category]} status`}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </IconTooltip>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() =>
+                          setCreatingIn(
+                            creatingIn === category ? null : category
+                          )
+                        }
+                        aria-label={`Add ${CATEGORY_LABEL[category]} status`}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    ))}
+                </div>
+
+                <div className="space-y-2">
+                  {rows.map((option, index) => (
+                    <StatusRow
+                      // Re-mount on rename/recolor so the inline editor's
+                      // local state can never shadow a synced change
+                      // (LabelRow convention).
+                      key={`${option.id}:${option.name}:${option.colorHex}`}
+                      teamId={teamId}
+                      option={option}
+                      count={counts.get(option.id) ?? 0}
+                      isFirst={index === 0}
+                      isLast={index === rows.length - 1}
+                      isDefault={option.id === defaultOptionId}
+                      onRequestDelete={(target, targetCount) =>
+                        void requestDelete(target, targetCount)
+                      }
+                    />
+                  ))}
+                </div>
+
+                {creatingIn === category && (
+                  <CreateStatusForm
+                    teamId={teamId}
+                    category={category}
+                    onDone={() => setCreatingIn(null)}
+                  />
+                )}
+              </div>
+            )
+          })}
+        </CardContent>
+      </Card>
+
+      <ReassignDialog
+        teamId={teamId}
+        target={deleteTarget}
+        options={options}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        onDeleted={() => setDeleteTarget(null)}
+      />
+    </>
+  )
+}

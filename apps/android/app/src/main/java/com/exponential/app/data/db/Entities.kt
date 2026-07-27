@@ -72,7 +72,13 @@ data class IssueEntity(
     val identifier: String,
     val title: String,
     @Serializable(with = JsonAsStringSerializer::class) val description: String? = null,
+    // The dual-written builtin ANCHOR (EXP-314): still one of the 7 enum wire
+    // values on every row, so enum-only writers and old clients keep working.
     val status: String,
+    // The issue's team status ROW (EXP-314). Nullable: pre-backfill rows and
+    // enum-only writes rely on the server trigger deriving it, and clients
+    // resolve status_id → anchor → constructed default (IssueStatusResolver).
+    @ColumnInfo(name = "status_id") @SerialName("status_id") @JsonNames("statusId") val statusId: String? = null,
     val priority: String,
     @ColumnInfo(name = "assignee_id") @SerialName("assignee_id") @JsonNames("assigneeId") val assigneeId: String? = null,
     @ColumnInfo(name = "creator_id") @SerialName("creator_id") @JsonNames("creatorId") val creatorId: String? = null,
@@ -102,6 +108,33 @@ data class LabelEntity(
     val name: String,
     val color: String,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+// A team's issue statuses (EXP-314, the 16th Electric shape). Every team owns
+// 7 LOCKED builtin rows (builtin_key = the anchor enum value) plus any number
+// of custom rows; `category` drives glyph/sort/duplicate semantics. Builtin
+// rows (and the constructed fallbacks) render today's design-token colors —
+// the synced `color` hex is only used for CUSTOM rows (IssueStatusResolver +
+// resolvedStatusColor).
+@Entity(
+    tableName = "issue_statuses",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class IssueStatusEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
+    // One of DomainContract.issueStatusCategoryValues; an unknown value from a
+    // newer server degrades to the backlog treatment instead of failing.
+    val category: String,
+    val name: String,
+    val color: String? = null,
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    // Non-null on the 7 locked builtin rows (the anchor enum wire value);
+    // null on custom rows.
+    @ColumnInfo(name = "builtin_key") @SerialName("builtin_key") @JsonNames("builtinKey") val builtinKey: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

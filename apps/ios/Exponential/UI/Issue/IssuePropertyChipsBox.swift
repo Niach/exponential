@@ -10,6 +10,8 @@ import SwiftUI
 /// Non-moderators see it dimmed and inert, with the "+" chip hidden.
 struct IssuePropertyChipsBox: View {
     let issue: IssueEntity
+    /// EXP-314: the issue's status resolved against its team's status rows.
+    let status: ResolvedIssueStatus
     let assignee: UserEntity?
     /// Assigned labels only, name-sorted by the caller.
     let assignedLabels: [LabelEntity]
@@ -18,13 +20,12 @@ struct IssuePropertyChipsBox: View {
     let onTap: (IssueDetailSheet) -> Void
 
     var body: some View {
-        let status = IssueStatus.from(issue.status)
         let priority = IssuePriority.from(issue.priority)
         FlowLayout(spacing: 6) {
             chip(target: .status) {
                 AppIcon(status.iconName, size: AppIcon.Size.small)
                     .foregroundStyle(status.color)
-                Text(status.label)
+                Text(status.name)
                     .font(.caption)
                     .foregroundStyle(.white)
             }

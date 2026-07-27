@@ -14,7 +14,6 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.sortIssuesForGroup
-import com.exponential.app.ui.issue.IssueGroup
 import com.exponential.app.ui.issue.IssueWithLabels
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -32,8 +31,13 @@ import kotlinx.coroutines.launch
 // status like the board board. No new column, no new shape, no filter
 // machinery — pure client work over the already-synced issues shape.
 
+// My Issues spans TEAMS, so it keeps ANCHOR-enum grouping (EXP-314): status
+// ROWS are team-scoped, and grouping by row id would split "In Progress" into
+// one group per team. Row glyphs stay anchor-based here for the same reason.
+data class MyIssuesGroup(val status: IssueStatus, val issues: List<IssueWithLabels>)
+
 data class MyIssuesState(
-    val groups: List<IssueGroup> = emptyList(),
+    val groups: List<MyIssuesGroup> = emptyList(),
     val boardsById: Map<String, BoardEntity> = emptyMap(),
     val loaded: Boolean = false,
 )
@@ -92,7 +96,7 @@ class MyIssuesViewModel @Inject constructor(
         // Canonical in-group order (EXP-38) — shared with the board board and
         // the other clients; see sortIssuesForGroup in domain/IssueDomain.kt.
         val groups = issueStatusOrder.map { status ->
-            IssueGroup(
+            MyIssuesGroup(
                 status = status,
                 issues = sortIssuesForGroup(
                     status = status,
@@ -104,6 +108,13 @@ class MyIssuesViewModel @Inject constructor(
         return MyIssuesState(groups = groups, boardsById = boardsById, loaded = true)
     }
 
+    /**
+     * The long-press quick actions (Mark done / Move to backlog) stay ENUM
+     * writes (EXP-314): the server trigger derives status_id, so they land on
+     * the team's builtin Done / Backlog row. An issue sitting in a CUSTOM
+     * status therefore leaves it — the intended, explicit meaning of both
+     * actions.
+     */
     fun updateIssueStatus(issueId: String, status: IssueStatus) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch

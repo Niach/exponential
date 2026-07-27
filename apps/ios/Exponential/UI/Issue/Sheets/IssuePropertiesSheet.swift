@@ -13,6 +13,8 @@ import SwiftUI
 /// move.
 struct IssuePropertiesSheet: View {
     let issue: IssueEntity
+    /// EXP-314: the issue's status resolved against its team's status rows.
+    let status: ResolvedIssueStatus
     let assignee: UserEntity?
     /// The issue's team's labels, name-sorted by the caller.
     let labels: [LabelEntity]
@@ -25,14 +27,13 @@ struct IssuePropertiesSheet: View {
     let onToggleLabel: (String) -> Void
 
     var body: some View {
-        let status = IssueStatus.from(issue.status)
         let priority = IssuePriority.from(issue.priority)
         GlassSheetChrome(title: "Properties", detents: [.medium, .large]) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     propertyRow(
                         label: "Status",
-                        value: status.label,
+                        value: status.name,
                         target: .status
                     ) {
                         AppIcon(status.iconName, size: AppIcon.Size.medium)

@@ -2,7 +2,8 @@ import { useCallback, useRef } from "react"
 import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react"
 import { ArrowUp, ChevronRight, LoaderCircle, X } from "lucide-react"
 import type { User } from "@/db/schema"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
+import type { IssuePriority } from "@/lib/domain"
+import type { StatusRowOption } from "@/lib/team-statuses"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   MarkdownEditor,
@@ -66,7 +67,7 @@ interface IssueEditorDialogShellProps {
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
   onOpenChange: (open: boolean) => void
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
-  onStatusChange: (status: IssueStatus) => void | Promise<void>
+  onStatusChange: (status: StatusRowOption) => void | Promise<void>
   onTitleBlur?: () => void
   onTitleChange: (value: string) => void
   onToggleLabel: (labelId: string) => void | Promise<void>
@@ -82,7 +83,7 @@ interface IssueEditorDialogShellProps {
   boardColor: string
   boardPrefix: string
   selectedLabelIds: string[]
-  status: IssueStatus
+  status: StatusRowOption
   title: string
   titleRef?: Ref<HTMLInputElement>
   users: User[]

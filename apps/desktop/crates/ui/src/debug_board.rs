@@ -1,10 +1,10 @@
-//! Debug board — the Phase-2 "live sync of the 15 shapes renders a board"
+//! Debug board — the Phase-2 "live sync of the 16 shapes renders a board"
 //! gate surface (masterplan-v3 §11.4 Phase 2; §5.11 gate 2). Phase 3 replaces
 //! it with the real virtualized board view.
 //!
 //! Renders, live off the sync collections:
 //! * a per-shape **status line** — name + sync phase
-//!   (waiting/snapshot/live/refetching) + row count for all 15 shapes — the
+//!   (waiting/snapshot/live/refetching) + row count for all 16 shapes — the
 //!   runtime-verification instrument for the §5.11 gates (cursor resume,
 //!   atomic refetch, long-poll pacing);
 //! * the issues grouped by status in the domain display order, identifier +
@@ -43,7 +43,7 @@ impl DebugBoardPanel {
         }
     }
 
-    /// The 15-shape status line — snapshot/live/refetching + row counts.
+    /// The 16-shape status line — snapshot/live/refetching + row counts.
     fn render_status_line(&self, cx: &App) -> impl IntoElement {
         let statuses = Store::global(cx).shape_statuses(cx);
         h_flex()
@@ -71,6 +71,11 @@ impl DebugBoardPanel {
 
     /// Issues grouped by status in the domain display order (§4.1's board
     /// query as a plain in-memory filter/sort — no SQL at render time).
+    ///
+    /// EXP-314: deliberately ANCHOR-based. This debug surface lists EVERY
+    /// synced issue across every team, and per-team status rows would split
+    /// one lifecycle into one group per team (the cross-team rule the real
+    /// board list is exempt from — it is single-team).
     fn render_groups(&self, cx: &App) -> impl IntoElement {
         let collections = Store::global(cx).collections();
         let issues = collections.issues.read(cx);

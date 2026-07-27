@@ -406,6 +406,10 @@ impl StartCodingDialogView {
             if !scope_boards.is_empty() && !scope_boards.contains(&issue.board_id) {
                 return false;
             }
+            // EXP-314: ANCHOR-based on purpose — every closed-ish CATEGORY
+            // writes one of these three anchors, so a custom completed /
+            // cancelled status is classified correctly with no status-row
+            // join (this picker spans boards).
             let closed = matches!(
                 issue.status,
                 IssueStatus::Done | IssueStatus::Cancelled | IssueStatus::Duplicate

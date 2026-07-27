@@ -1407,7 +1407,8 @@ pub(crate) fn set_duplicate_of(issue_id: String, canonical_id: Option<String>, c
     spawn_issue_update(cx, input);
 }
 
-/// L27 status interception: selecting `duplicate` from ANY status control
+/// L27 status interception: selecting a `duplicate`-category status from ANY
+/// status control
 /// opens the duplicate picker (the server links `duplicate_of_id` and sets
 /// `status='duplicate'` atomically) instead of writing the status directly;
 /// every other status flows straight through to `issues.update`. Cancelling
@@ -1416,16 +1417,18 @@ pub(crate) fn set_duplicate_of(issue_id: String, canonical_id: Option<String>, c
 /// status dropdown and the row context menu (web `useDuplicateInterception`).
 pub(crate) fn apply_status_selection(
     issue_id: String,
-    status: domain::IssueStatus,
+    pick: crate::pickers::StatusPick,
     window: &mut Window,
     cx: &mut App,
 ) {
-    if status == domain::IssueStatus::Duplicate {
+    // EXP-314: the interception now keys on the resolved CATEGORY (only the
+    // locked builtin Duplicate row can carry it), not on the enum value.
+    if pick.category == domain::statuses::IssueStatusCategory::Duplicate {
         open_duplicate_picker(issue_id, window, cx);
         return;
     }
     let mut input = api::issues::IssuesUpdateInput::new(issue_id);
-    input.status = Some(status);
+    pick.apply_to_update(&mut input);
     spawn_issue_update(cx, input);
 }
 

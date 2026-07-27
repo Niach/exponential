@@ -52,12 +52,10 @@ use sync::{SessionPhase, Store};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use coding::clone_path;
-use domain::options::get_issue_status_config;
 use domain::IssueStatus;
 
 use crate::actions::OpenSearch;
 use crate::coding_flow::CodingHub;
-use crate::icons::option_icon;
 use crate::issue_list::parse_hex_color;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, Navigation, Screen,
@@ -200,9 +198,38 @@ struct SearchHit {
     issue_id: String,
     identifier: String,
     title: String,
-    status: IssueStatus,
+    /// EXP-314: the RESOLVED status. The sheet is single-TEAM, so resolution
+    /// against the team's rows is exact — a server hit that is not synced
+    /// locally resolves from its `status_id`/anchor pair.
+    status: domain::statuses::ResolvedStatus,
     board_name: Option<String>,
     board_color: Option<String>,
+}
+
+/// EXP-314: resolve a NOT-locally-synced server hit — the same chain
+/// `resolve_status_sorted` walks, over the hit's own `status_id`/anchor pair.
+fn resolve_search_hit_status(
+    status_id: Option<&str>,
+    anchor: IssueStatus,
+    sorted: &[domain::rows::IssueStatusRow],
+) -> domain::statuses::ResolvedStatus {
+    if let Some(status_id) = status_id {
+        if let Some(index) = sorted.iter().position(|row| row.id == status_id) {
+            return domain::statuses::resolve_row(sorted, index);
+        }
+    }
+    // Unknown forward-compat anchors normalize to backlog before the lookup,
+    // so a hit still shows the team's real Backlog row.
+    let anchor = domain::statuses::normalized_anchor(anchor);
+    if let Some(wire) = anchor.as_wire() {
+        if let Some(index) = sorted
+            .iter()
+            .position(|row| row.builtin_key.as_deref() == Some(wire))
+        {
+            return domain::statuses::resolve_row(sorted, index);
+        }
+    }
+    domain::statuses::constructed_default(anchor)
 }
 
 /// One `git grep` content hit.
@@ -292,6 +319,7 @@ impl SearchDelegate {
         }
         let collections = Store::global(cx).collections();
         let boards = collections.boards.read(cx);
+        let statuses = crate::queries::team_statuses(cx, &self.team_id);
         self.issue_hits = collections
             .issues_in_team(&self.team_id, cx)
             .into_iter()
@@ -302,11 +330,12 @@ impl SearchDelegate {
             .take(MAX_RESULTS)
             .map(|issue| {
                 let board = boards.get(&issue.board_id);
+                let status = domain::statuses::resolve_status_sorted(&issue, &statuses);
                 SearchHit {
                     issue_id: issue.id,
                     identifier: issue.identifier,
                     title: issue.title,
-                    status: issue.status,
+                    status,
                     board_name: board.map(|p| p.name.clone()),
                     board_color: board.and_then(|p| p.color.clone()),
                 }
@@ -327,6 +356,7 @@ impl SearchDelegate {
         let collections = Store::global(cx).collections();
         let issues = collections.issues.read(cx);
         let boards = collections.boards.read(cx);
+        let statuses = crate::queries::team_statuses(cx, &self.team_id);
         for hit in server_hits {
             if self.issue_hits.len() >= MAX_RESULTS {
                 break;
@@ -334,14 +364,22 @@ impl SearchDelegate {
             if seen.contains(&hit.id) {
                 continue;
             }
+            // Prefer the LOCAL synced row (fresher than the search snapshot);
+            // fall back to the hit's own `status_id`/anchor pair, resolved
+            // against the same team vocabulary.
             let (identifier, title, status, board_id) = match issues.get(&hit.id) {
                 Some(issue) => (
                     issue.identifier.clone(),
                     issue.title.clone(),
-                    issue.status,
+                    domain::statuses::resolve_status_sorted(issue, &statuses),
                     issue.board_id.clone(),
                 ),
-                None => (hit.identifier, hit.title, hit.status, hit.board_id),
+                None => (
+                    hit.identifier,
+                    hit.title,
+                    resolve_search_hit_status(hit.status_id.as_deref(), hit.status, &statuses),
+                    hit.board_id,
+                ),
             };
             let board = boards.get(&board_id);
             self.issue_hits.push(SearchHit {
@@ -507,7 +545,6 @@ impl SearchDelegate {
 
     fn render_issue_row(&self, ix: IndexPath, cx: &App) -> Option<ListItem> {
         let hit = self.issue_hits.get(ix.row)?;
-        let status_config = get_issue_status_config(hit.status);
         let board_dot = hit
             .board_color
             .as_deref()
@@ -525,7 +562,7 @@ impl SearchDelegate {
                         .gap_3()
                         .items_center()
                         .overflow_hidden()
-                        .child(option_icon(status_config, cx).small())
+                        .child(crate::icons::resolved_status_icon(&hit.status, cx).small())
                         .child(
                             v_flex()
                                 .flex_1()

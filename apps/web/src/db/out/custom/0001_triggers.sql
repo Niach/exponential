@@ -21,6 +21,7 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issues FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON labels FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_statuses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON comments FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
   EXECUTE FUNCTION update_updated_at();
@@ -319,3 +320,92 @@ CREATE OR REPLACE TRIGGER propagate_board_deleted_at
   FOR EACH ROW
   WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
   EXECUTE FUNCTION propagate_board_deleted_at();
+
+-- 10. Seed the 7 locked builtin issue statuses for every NEW team (EXP-314).
+--     A trigger rather than teams.create code because teams are inserted from
+--     TWO places (trpc/teams.ts and bootstrap-cloud's feedback team) and any
+--     future path must never produce a team without builtins — the
+--     populate_issue_status_id derivation below depends on them. The VALUES
+--     rows mirror contract.json's issueStatusDefaults byte-for-byte
+--     (parity-locked by apps/web's domain-contract test); the migration 0052
+--     backfill covers pre-existing teams with the same rows. ON CONFLICT via
+--     uniq_issue_statuses_team_builtin makes re-application harmless.
+CREATE OR REPLACE FUNCTION seed_builtin_issue_statuses()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO issue_statuses (team_id, category, name, color, sort_order, builtin_key)
+  VALUES
+    (NEW.id, 'backlog', 'Backlog', '#A1A1AA', 1, 'backlog'),
+    (NEW.id, 'unstarted', 'Todo', '#FAFAFA', 1, 'todo'),
+    (NEW.id, 'started', 'In Progress', '#EAB308', 1, 'in_progress'),
+    (NEW.id, 'started', 'In Review', '#22C55E', 2, 'in_review'),
+    (NEW.id, 'completed', 'Done', '#3B82F6', 1, 'done'),
+    (NEW.id, 'cancelled', 'Cancelled', '#A1A1AA', 1, 'cancelled'),
+    (NEW.id, 'duplicate', 'Duplicate', '#A1A1AA', 1, 'duplicate')
+  ON CONFLICT DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER seed_builtin_issue_statuses
+  AFTER INSERT ON teams
+  FOR EACH ROW EXECUTE FUNCTION seed_builtin_issue_statuses();
+
+-- Heal pass: teams inserted in the window between `migrate` (0052) and this
+-- file's (re-)application never fired the trigger above — backfill them on
+-- every boot (applyCustomSql re-runs this file), so a gap team can never
+-- permanently lack its builtins. Idempotent via the partial unique index.
+INSERT INTO issue_statuses (team_id, category, name, color, sort_order, builtin_key)
+SELECT t.id, d.category::issue_status_category, d.name, d.color, d.sort_order, d.key::issue_status
+FROM teams t
+CROSS JOIN (VALUES
+  ('backlog', 'backlog', 'Backlog', '#A1A1AA', 1),
+  ('todo', 'unstarted', 'Todo', '#FAFAFA', 1),
+  ('in_progress', 'started', 'In Progress', '#EAB308', 1),
+  ('in_review', 'started', 'In Review', '#22C55E', 2),
+  ('done', 'completed', 'Done', '#3B82F6', 1),
+  ('cancelled', 'cancelled', 'Cancelled', '#A1A1AA', 1),
+  ('duplicate', 'duplicate', 'Duplicate', '#A1A1AA', 1)
+) AS d(key, category, name, color, sort_order)
+WHERE NOT EXISTS (
+  SELECT 1 FROM issue_statuses s
+  WHERE s.team_id = t.id AND s.builtin_key = d.key::issue_status
+)
+ON CONFLICT DO NOTHING;
+
+-- 11. Derive issues.status_id from the anchor enum for enum-only writers
+--     (EXP-314). New clients dual-write {status_id, status}; old clients,
+--     pr-sync, MCP tools, the widget service and the desktop launcher's
+--     parking write only the `status` enum — this trigger re-anchors
+--     status_id to the team's builtin row for them, so the pair can never
+--     disagree. On UPDATE it only acts when the enum changed AND status_id
+--     was NOT explicitly changed in the same write: an enum-only re-send of
+--     the current anchor (old client "picking" the status it already sees)
+--     deliberately leaves a custom status in place. Fires AFTER
+--     populate_issue_board_context (BEFORE triggers run alphabetically:
+--     'populate_issue_b…' < 'populate_issue_s…'), so NEW.team_id is settled;
+--     issues never move across teams (issues.move rejects), so no team-change
+--     clause is needed. A missing builtin row (pre-seed race) leaves
+--     status_id NULL — clients render the anchor fallback; never an error.
+CREATE OR REPLACE FUNCTION populate_issue_status_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status_id IS NULL THEN
+      SELECT id INTO NEW.status_id FROM issue_statuses
+        WHERE team_id = NEW.team_id AND builtin_key = NEW.status;
+    END IF;
+  ELSE
+    IF NEW.status IS DISTINCT FROM OLD.status
+       AND NEW.status_id IS NOT DISTINCT FROM OLD.status_id THEN
+      SELECT id INTO NEW.status_id FROM issue_statuses
+        WHERE team_id = NEW.team_id AND builtin_key = NEW.status;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER populate_issue_status_id
+  BEFORE INSERT OR UPDATE ON issues
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_status_id();

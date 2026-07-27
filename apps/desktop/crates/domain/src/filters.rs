@@ -7,13 +7,17 @@
 //! or matching semantics here, update the other three to keep the clients in
 //! lockstep (no shared package yet).
 
-use crate::enums::{IssuePriority, IssueStatus};
+use crate::enums::IssuePriority;
 use crate::rows::Issue;
+use crate::statuses::{status_key_matches, ResolvedStatus};
 
 /// `IssueFilters` — web `interface IssueFilters`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IssueFilters {
-    pub statuses: Vec<IssueStatus>,
+    /// EXP-314: RESOLVED status group keys (an `issue_statuses` row id, or
+    /// `builtin:<key>` while the statuses shape has not synced) — not enum
+    /// values. An issue matches when its resolved group key is in the set.
+    pub status_keys: Vec<String>,
     pub priorities: Vec<IssuePriority>,
     pub label_ids: Vec<String>,
 }
@@ -30,11 +34,24 @@ impl IssueFilters {
     }
 }
 
-/// Web `matchesFilters(issue, issueLabelIds, filters)`. Each active category
-/// must match (AND across categories); within a category any value matches
-/// (OR). An empty category is a pass.
-pub fn matches_filters(issue: &Issue, issue_label_ids: &[String], filters: &IssueFilters) -> bool {
-    if !filters.statuses.is_empty() && !filters.statuses.contains(&issue.status) {
+/// Web `matchesFilters(issue, issueLabelIds, filters, resolvedStatus)`. Each
+/// active category must match (AND across categories); within a category any
+/// value matches (OR). An empty category is a pass. `status` is the issue's
+/// RESOLVED status (`domain::statuses::resolve_status`) — matching goes
+/// through [`status_key_matches`], so a `builtin:<key>` token stored before
+/// the statuses shape synced keeps selecting the synced row it re-keyed to.
+pub fn matches_filters(
+    issue: &Issue,
+    issue_label_ids: &[String],
+    status: &ResolvedStatus,
+    filters: &IssueFilters,
+) -> bool {
+    if !filters.status_keys.is_empty()
+        && !filters
+            .status_keys
+            .iter()
+            .any(|token| status_key_matches(status, token))
+    {
         return false;
     }
     if !filters.priorities.is_empty() && !filters.priorities.contains(&issue.priority) {
@@ -53,7 +70,7 @@ pub fn matches_filters(issue: &Issue, issue_label_ids: &[String], filters: &Issu
 
 /// Web `activeFilterCount(filters)`.
 pub fn active_filter_count(filters: &IssueFilters) -> usize {
-    filters.statuses.len() + filters.priorities.len() + filters.label_ids.len()
+    filters.status_keys.len() + filters.priorities.len() + filters.label_ids.len()
 }
 
 /// Web `hasActiveFilters(filters)`.
@@ -64,7 +81,31 @@ pub fn has_active_filters(filters: &IssueFilters) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::options::{ColorToken, IconGlyph};
+    use crate::statuses::{IssueStatusCategory, StatusTint};
     use serde_json::json;
+
+    /// A synced status row as the UI resolved it (`group_key` = row uuid).
+    fn synced(group_key: &str, builtin_key: Option<&str>) -> ResolvedStatus {
+        ResolvedStatus {
+            group_key: group_key.to_string(),
+            row_id: Some(group_key.to_string()),
+            name: group_key.to_string(),
+            category: IssueStatusCategory::Unstarted,
+            tint: StatusTint::Token(ColorToken::Foreground),
+            glyph: IconGlyph::Circle,
+            builtin_key: builtin_key.map(str::to_string),
+        }
+    }
+
+    /// A CONSTRUCTED fallback (`group_key` = `builtin:<key>`).
+    fn fallback(builtin_key: &str) -> ResolvedStatus {
+        ResolvedStatus {
+            group_key: format!("builtin:{builtin_key}"),
+            row_id: None,
+            ..synced(builtin_key, Some(builtin_key))
+        }
+    }
 
     fn issue(status: &str, priority: &str) -> Issue {
         serde_json::from_value(json!({
@@ -82,7 +123,7 @@ mod tests {
     #[test]
     fn empty_filters_is_empty() {
         let filters = empty_filters();
-        assert!(filters.statuses.is_empty());
+        assert!(filters.status_keys.is_empty());
         assert!(filters.priorities.is_empty());
         assert!(filters.label_ids.is_empty());
         assert_eq!(filters, IssueFilters::empty());
@@ -91,23 +132,98 @@ mod tests {
     #[test]
     fn matches_filters_passes_everything_when_empty() {
         let filters = empty_filters();
-        assert!(matches_filters(&issue("todo", "none"), &[], &filters));
+        assert!(matches_filters(&issue("todo", "none"), &[], &synced("s-1", None), &filters));
         assert!(matches_filters(
             &issue("done", "urgent"),
             &["l-1".to_string()],
+            &fallback("done"),
             &filters
         ));
     }
 
     #[test]
-    fn matches_filters_status_category() {
+    fn matches_filters_status_category_is_group_keys() {
         let filters = IssueFilters {
-            statuses: vec![IssueStatus::Todo, IssueStatus::InProgress],
+            status_keys: vec!["s-todo".to_string(), "s-qa".to_string()],
             ..Default::default()
         };
-        assert!(matches_filters(&issue("todo", "none"), &[], &filters));
-        assert!(matches_filters(&issue("in_progress", "none"), &[], &filters));
-        assert!(!matches_filters(&issue("done", "none"), &[], &filters));
+        assert!(matches_filters(
+            &issue("todo", "none"),
+            &[],
+            &synced("s-todo", Some("todo")),
+            &filters
+        ));
+        // A custom started status matches by KEY, not by its `in_progress`
+        // anchor.
+        assert!(matches_filters(
+            &issue("in_progress", "none"),
+            &[],
+            &synced("s-qa", None),
+            &filters
+        ));
+        assert!(!matches_filters(
+            &issue("in_progress", "none"),
+            &[],
+            &synced("s-in-progress", Some("in_progress")),
+            &filters
+        ));
+        // Pre-sync fallback keys work the same way.
+        let filters = IssueFilters {
+            status_keys: vec!["builtin:todo".to_string()],
+            ..Default::default()
+        };
+        assert!(matches_filters(
+            &issue("todo", "none"),
+            &[],
+            &fallback("todo"),
+            &filters
+        ));
+    }
+
+    #[test]
+    fn a_builtin_token_still_matches_the_synced_row_it_rekeyed_to() {
+        // Stored while only the constructed vocabulary existed; the shape has
+        // since synced and the group key is the row uuid now.
+        let filters = IssueFilters {
+            status_keys: vec!["builtin:in_progress".to_string()],
+            ..Default::default()
+        };
+        assert!(matches_filters(
+            &issue("in_progress", "none"),
+            &[],
+            &synced("row-wip", Some("in_progress")),
+            &filters
+        ));
+        // …but it must not select a different builtin, nor a custom row.
+        assert!(!matches_filters(
+            &issue("todo", "none"),
+            &[],
+            &synced("row-todo", Some("todo")),
+            &filters
+        ));
+        assert!(!matches_filters(
+            &issue("in_progress", "none"),
+            &[],
+            &synced("row-qa", None),
+            &filters
+        ));
+        // A row-uuid token keeps matching exactly one row.
+        let filters = IssueFilters {
+            status_keys: vec!["row-wip".to_string()],
+            ..Default::default()
+        };
+        assert!(matches_filters(
+            &issue("in_progress", "none"),
+            &[],
+            &synced("row-wip", Some("in_progress")),
+            &filters
+        ));
+        assert!(!matches_filters(
+            &issue("in_progress", "none"),
+            &[],
+            &fallback("in_progress"),
+            &filters
+        ));
     }
 
     #[test]
@@ -116,8 +232,13 @@ mod tests {
             priorities: vec![IssuePriority::Urgent],
             ..Default::default()
         };
-        assert!(matches_filters(&issue("todo", "urgent"), &[], &filters));
-        assert!(!matches_filters(&issue("todo", "low"), &[], &filters));
+        assert!(matches_filters(
+            &issue("todo", "urgent"),
+            &[],
+            &synced("s-1", None),
+            &filters
+        ));
+        assert!(!matches_filters(&issue("todo", "low"), &[], &synced("s-1", None), &filters));
     }
 
     #[test]
@@ -130,32 +251,36 @@ mod tests {
         assert!(matches_filters(
             &issue("todo", "none"),
             &["l-2".to_string(), "l-9".to_string()],
+            &synced("s-1", None),
             &filters
         ));
         assert!(!matches_filters(
             &issue("todo", "none"),
             &["l-9".to_string()],
+            &synced("s-1", None),
             &filters
         ));
-        assert!(!matches_filters(&issue("todo", "none"), &[], &filters));
+        assert!(!matches_filters(&issue("todo", "none"), &[], &synced("s-1", None), &filters));
     }
 
     #[test]
     fn matches_filters_is_and_across_categories() {
         let filters = IssueFilters {
-            statuses: vec![IssueStatus::Todo],
+            status_keys: vec!["s-todo".to_string()],
             priorities: vec![IssuePriority::High],
             label_ids: vec!["l-1".to_string()],
         };
         assert!(matches_filters(
             &issue("todo", "high"),
             &["l-1".to_string()],
+            &synced("s-todo", Some("todo")),
             &filters
         ));
         // Right status + label, wrong priority → fail.
         assert!(!matches_filters(
             &issue("todo", "low"),
             &["l-1".to_string()],
+            &synced("s-todo", Some("todo")),
             &filters
         ));
     }
@@ -163,7 +288,7 @@ mod tests {
     #[test]
     fn active_filter_count_sums_all_categories() {
         let filters = IssueFilters {
-            statuses: vec![IssueStatus::Todo, IssueStatus::Done],
+            status_keys: vec!["s-todo".to_string(), "s-done".to_string()],
             priorities: vec![IssuePriority::Low],
             label_ids: vec!["l-1".to_string()],
         };

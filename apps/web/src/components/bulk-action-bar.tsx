@@ -12,8 +12,19 @@ import {
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
-import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
+import { issuePriorityOptions } from "@/lib/domain"
+import type { IssuePriority } from "@/lib/domain"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import {
+  creatableStatusOptions,
+  statusUpdatePayload,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
+import {
+  statusColorClass,
+  statusColorStyle,
+} from "@/components/issue-properties/status-dropdown"
+import { ICON_COMPONENTS } from "@/lib/icons.generated"
 import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -61,6 +72,7 @@ export function BulkActionBar({
 }: BulkActionBarProps) {
   const [busy, setBusy] = useState(false)
   const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
+  const { options: teamStatusOptions } = useTeamStatusesContext()
 
   const orderedUsers = useMemo(
     () => [...users].sort((left, right) => left.name.localeCompare(right.name)),
@@ -91,9 +103,13 @@ export function BulkActionBar({
     }
   }
 
-  const applyStatus = (status: IssueStatus) =>
+  const applyStatus = (option: StatusRowOption) =>
     runBulk(
-      (ids) => trpc.issues.bulkUpdate.mutate({ ids, status }),
+      (ids) =>
+        trpc.issues.bulkUpdate.mutate({
+          ids,
+          ...statusUpdatePayload(option),
+        }),
       (txId) => issueCollection.utils.awaitTxId(txId)
     )
 
@@ -192,23 +208,25 @@ export function BulkActionBar({
           collisionPadding={12}
           className="w-[11rem]"
         >
-          {/* No `duplicate` here: bulk marking has no canonical-issue picker,
-              and status='duplicate' without duplicateOfId breaks the pairing
-              invariant (single-issue paths intercept via the picker). */}
-          {issueStatusOptions
-            .filter((option) => option.value !== `duplicate`)
-            .map((option) => {
-              const Icon = option.icon
-              return (
-                <DropdownMenuItem
-                  key={option.value}
-                  onSelect={() => void applyStatus(option.value)}
-                >
-                  <Icon className={`size-4 ${option.color}`} />
-                  {option.label}
-                </DropdownMenuItem>
-              )
-            })}
+          {/* No duplicate-CATEGORY row here: bulk marking has no
+              canonical-issue picker, and status='duplicate' without
+              duplicateOfId breaks the pairing invariant (single-issue paths
+              intercept via the picker). */}
+          {creatableStatusOptions(teamStatusOptions).map((option) => {
+            const Icon = ICON_COMPONENTS[option.icon]
+            return (
+              <DropdownMenuItem
+                key={option.id}
+                onSelect={() => void applyStatus(option)}
+              >
+                <Icon
+                  className={`size-4 ${statusColorClass(option)}`}
+                  style={statusColorStyle(option)}
+                />
+                {option.name}
+              </DropdownMenuItem>
+            )
+          })}
         </DropdownMenuContent>
       </DropdownMenu>
 

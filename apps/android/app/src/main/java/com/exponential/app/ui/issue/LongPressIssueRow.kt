@@ -35,6 +35,11 @@ import com.exponential.app.ui.icons.ExpIcons
  *
  * A plain tap always opens the issue via [onClick]. When [canMutate] is false
  * the long-press affordance is omitted (read-only row).
+ *
+ * The two quick actions stay ENUM writes (EXP-314) — they mean "the builtin
+ * Done / Backlog status", and the server trigger derives the matching status
+ * row. This row is also used by the cross-team My Issues list, so it renders
+ * the ANCHOR status glyph rather than a resolved team row.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

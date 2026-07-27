@@ -16,8 +16,12 @@ import {
   normalizeIssueDescriptionText,
   toIssueDescription,
   type IssuePriority,
-  type IssueStatus,
 } from "@/lib/domain"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import {
+  statusUpdatePayload,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
 import {
   extractMarkdownImageOccurrences,
   collectMarkdownImageUrls,
@@ -49,7 +53,9 @@ type CreateIssueSubmitPhase =
   | `created_with_image_errors`
 
 interface CreateIssueDialogProps {
-  defaultStatus?: IssueStatus
+  // The team status row the "+" in a group header seeds; absent = the team's
+  // Backlog builtin.
+  defaultStatus?: StatusRowOption
   onOpenChange: (open: boolean) => void
   open: boolean
   prefill?: { title?: string; description?: string }
@@ -73,7 +79,16 @@ export function CreateIssueDialog({
 }: CreateIssueDialogProps) {
   const [title, setTitle] = useState(prefill?.title ?? ``)
   const [description, setDescription] = useState(prefill?.description ?? ``)
-  const [status, setStatus] = useState<IssueStatus>(defaultStatus ?? `backlog`)
+  const { resolve: resolveStatus } = useTeamStatusesContext()
+  // `null` = "no explicit pick yet", which resolves live to the group seed or
+  // the team's Backlog builtin — so a status_statuses snapshot landing while
+  // the dialog is open upgrades the constructed fallback in place without
+  // clobbering a pick the user already made.
+  const [pickedStatus, setPickedStatus] = useState<StatusRowOption | null>(null)
+  const status =
+    pickedStatus ??
+    defaultStatus ??
+    resolveStatus({ status: `backlog`, statusId: null })
   const [priority, setPriority] = useState<IssuePriority>(`none`)
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
@@ -97,7 +112,7 @@ export function CreateIssueDialog({
 
   useEffect(() => {
     if (open) {
-      setStatus(defaultStatus ?? `backlog`)
+      setPickedStatus(null)
       if (prefill?.title) {
         setTitle(prefill.title)
       }
@@ -165,7 +180,7 @@ export function CreateIssueDialog({
     setAttachmentStatus(null)
     setSubmitPhase(`idle`)
     editorRef.current?.setMarkdown(``)
-    setStatus(defaultStatus ?? `backlog`)
+    setPickedStatus(null)
     setPriority(`none`)
     setAssigneeId(soleMemberId)
     setSelectedLabelIds([])
@@ -320,7 +335,9 @@ export function CreateIssueDialog({
       const { issue } = await trpc.issues.create.mutate({
         boardId,
         title: title.trim(),
-        status,
+        // EXP-314: real rows write `statusId`; a constructed fallback row
+        // (issue_statuses not synced yet) writes the anchor enum instead.
+        ...statusUpdatePayload(status),
         priority,
         assigneeId: assigneeId ?? undefined,
         description: toIssueDescription(strippedDescription) ?? undefined,
@@ -464,7 +481,7 @@ export function CreateIssueDialog({
           onOtherFiles: handleAttachFiles,
         }}
         status={status}
-        onStatusChange={setStatus}
+        onStatusChange={setPickedStatus}
         priority={priority}
         onPriorityChange={setPriority}
         teamId={teamId}

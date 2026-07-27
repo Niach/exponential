@@ -9,6 +9,7 @@ import androidx.room.RoomDatabase
         BoardEntity::class,
         IssueEntity::class,
         LabelEntity::class,
+        IssueStatusEntity::class,
         IssueLabelEntity::class,
         UserEntity::class,
         TeamMemberEntity::class,
@@ -127,9 +128,16 @@ import androidx.room.RoomDatabase
     //      issues.end_time dropped from the entity (and the schema/shape
     //      server-side); the due DATE stays. Removing a column is decode-safe
     //      (ignoreUnknownKeys) and the destructive fallback wipes + resyncs.
+    // v32 (EXP-314): custom issue statuses — the issue_statuses table (the
+    //      16th Electric shape: team-scoped rows with category / name / color /
+    //      sort_order / builtin_key) plus issues.status_id, the nullable FK to
+    //      the issue's status ROW (issues.status stays as the dual-written
+    //      builtin anchor). No Migration object: the destructive fallback wipes
+    //      the local cache and re-syncs ALL 16 shapes on first launch after the
+    //      update — expected, but user-visible as one full re-snapshot.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 31,
+    version = 32,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -137,6 +145,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun boardDao(): BoardDao
     abstract fun issueDao(): IssueDao
     abstract fun labelDao(): LabelDao
+    abstract fun issueStatusDao(): IssueStatusDao
     abstract fun issueLabelDao(): IssueLabelDao
     abstract fun userDao(): UserDao
     abstract fun teamMemberDao(): TeamMemberDao

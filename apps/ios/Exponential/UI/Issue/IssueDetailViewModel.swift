@@ -24,6 +24,9 @@ struct PendingFileUpload: Identifiable, Sendable {
 final class IssueDetailViewModel {
     var issue: IssueEntity?
     var labels: [LabelEntity] = []
+    /// EXP-314: every synced team's `issue_statuses` rows; scoped to this
+    /// issue's team by `teamStatuses`.
+    var statusRows: [IssueStatusEntity] = []
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
     /// Live coding sessions for this issue (synced coding_sessions shape) —
@@ -232,6 +235,14 @@ final class IssueDetailViewModel {
             Task {
                 for try await labels in labelObs.values(in: pool) {
                     self.labels = labels
+                }
+            }
+
+            // Team statuses (EXP-314) — same pattern as labels.
+            let statusObs = ValueObservation.tracking { db in try IssueStatusEntity.fetchAll(db) }
+            Task {
+                for try await rows in statusObs.values(in: pool) {
+                    self.statusRows = rows
                 }
             }
 
@@ -755,9 +766,34 @@ final class IssueDetailViewModel {
         Task { [weak self] in await self?.commitDescription() }
     }
 
+    /// This issue's team's statuses in render order (EXP-314), degrading to
+    /// the constructed builtin defaults while the shape is still syncing.
+    var teamStatuses: [ResolvedIssueStatus] {
+        guard let teamId = board?.teamId else { return IssueStatusResolver.builtinFallbackTeam }
+        return IssueStatusResolver.teamStatusesOrFallback(statusRows.filter { $0.teamId == teamId })
+    }
+
+    /// The issue's status, resolved against the team's rows. Never fails.
+    var resolvedStatus: ResolvedIssueStatus {
+        guard let issue else { return IssueStatusResolver.builtinDefault(for: .backlog) }
+        return IssueStatusResolver.resolve(issue, team: teamStatuses)
+    }
+
+    /// Enum-only write, kept for the anchor-driven paths (duplicate marking).
     func setStatus(_ status: IssueStatus) async {
         guard let issue else { return }
         await update(UpdateIssueInput(id: issue.id, status: status.rawValue))
+    }
+
+    /// Status-picker write (EXP-314): the row id, or the anchor enum when the
+    /// pick is a CONSTRUCTED default with no row behind it.
+    func setStatus(_ resolved: ResolvedIssueStatus) async {
+        guard let issue else { return }
+        if let rowId = resolved.rowId {
+            await update(UpdateIssueInput(id: issue.id, statusId: rowId))
+        } else {
+            await update(UpdateIssueInput(id: issue.id, status: resolved.anchor.rawValue))
+        }
     }
 
     func setPriority(_ priority: IssuePriority) async {
@@ -884,6 +920,8 @@ final class IssueDetailViewModel {
                 guard let repoId = board.repositoryId else { continue }
                 repoByBoard[board.id] = repoId
             }
+            // ANCHOR set (EXP-314): custom statuses anchor to one of these
+            // enum values, so the check keeps gating them correctly.
             let terminal: Set<String> = [
                 IssueStatus.done.rawValue,
                 IssueStatus.cancelled.rawValue,

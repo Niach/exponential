@@ -152,6 +152,7 @@ struct IssueDetailView: View {
                         // properties / times / labels sections.
                         IssuePropertyChipsBox(
                             issue: issue,
+                            status: vm.resolvedStatus,
                             assignee: vm.assignee(),
                             assignedLabels: vm.assignedLabels,
                             singleMemberTeam: vm.singleMemberTeam,
@@ -437,17 +438,18 @@ struct IssueDetailView: View {
         case .status:
             GlassPickerSheet(
                 title: "Status",
-                // Contract display order — the ONE picker vocabulary (REV2-85).
-                items: IssueStatus.displayOrder,
-                selectedID: IssueStatus.from(issue.status).id,
+                // The team's own statuses in render order — the ONE picker
+                // vocabulary (REV2-85, EXP-314).
+                items: vm.teamStatuses,
+                selectedID: vm.resolvedStatus.id,
                 idFor: { $0.id },
                 onSelect: { selected in
-                    // Duplicate = status interception (L27): picking
-                    // `duplicate` opens the canonical-issue picker instead
-                    // of writing the status directly; markDuplicate sets
-                    // duplicateOfId + status='duplicate' atomically.
-                    // Cancelling the picker leaves the status untouched.
-                    if selected == .duplicate {
+                    // Duplicate CATEGORY = status interception (L27): picking
+                    // it opens the canonical-issue picker instead of writing
+                    // the status directly; markDuplicate sets duplicateOfId +
+                    // status='duplicate' atomically. Cancelling the picker
+                    // leaves the status untouched.
+                    if selected.category == .duplicate {
                         handOff(to: .duplicateOf)
                     } else {
                         Task { await vm.setStatus(selected) }
@@ -455,7 +457,7 @@ struct IssueDetailView: View {
                 }
             ) { status in
                 Label {
-                    Text(status.label)
+                    Text(status.name)
                 } icon: {
                     AppIcon(status.iconName, size: AppIcon.Size.medium)
                         .foregroundStyle(status.color)
@@ -505,6 +507,7 @@ struct IssueDetailView: View {
         case .properties:
             IssuePropertiesSheet(
                 issue: issue,
+                status: vm.resolvedStatus,
                 assignee: vm.assignee(),
                 labels: vm.teamLabels,
                 assignedIds: vm.assignedLabelIds,

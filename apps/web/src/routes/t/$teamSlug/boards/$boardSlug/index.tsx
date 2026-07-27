@@ -15,8 +15,9 @@ import {
   issueFiltersFromSearch,
   parseIssueFilterSearch,
 } from "@/lib/filters"
+import { emptyFilters } from "@/lib/filters"
 import type { IssueFilterSearch, IssueFilters } from "@/lib/filters"
-import type { IssueStatus } from "@/lib/domain"
+import type { StatusRowOption } from "@/lib/team-statuses"
 
 // Filters live in the URL so a filtered board is shareable and survives a
 // refresh (parse/serialize helpers shared with the issue-detail route in
@@ -45,7 +46,9 @@ function BoardPage() {
   const search = Route.useSearch()
   const navigate = useNavigate()
   const [createIssueOpen, setCreateIssueOpen] = useState(false)
-  const [defaultStatus, setDefaultStatus] = useState<IssueStatus | undefined>()
+  const [defaultStatus, setDefaultStatus] = useState<
+    StatusRowOption | undefined
+  >()
   const [prefill, setPrefill] = useState<
     { title?: string; description?: string } | undefined
   >(undefined)
@@ -120,7 +123,7 @@ function BoardPage() {
     [visibleGroups, selectedIds]
   )
 
-  const handleNewIssue = (status?: IssueStatus) => {
+  const handleNewIssue = (status?: StatusRowOption) => {
     if (!permissions.canCreate) return
     setDefaultStatus(status)
     setCreateIssueOpen(true)
@@ -200,9 +203,7 @@ function BoardPage() {
           isLoading={!issuesReady}
           hasAnyIssues={totalIssueCount > 0}
           hasActiveFilters={filtersActive(filters)}
-          onClearFilters={() =>
-            setFilters({ statuses: [], priorities: [], labelIds: [] })
-          }
+          onClearFilters={() => setFilters(emptyFilters)}
           // Members only — the guidance block is meaningless before the
           // viewer's own member row has synced.
           emptyStateExtra={

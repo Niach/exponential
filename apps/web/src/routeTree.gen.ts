@@ -52,6 +52,7 @@ import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shapes/issue-subscribers'
+import { Route as ApiShapesIssueStatusesRouteImport } from './routes/api/shapes/issue-statuses'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
 import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
@@ -74,6 +75,7 @@ import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/in
 import { Route as TTeamSlugAgentsIndexRouteImport } from './routes/t/$teamSlug/agents/index'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
+import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
 import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$teamSlug/settings/repositories'
 import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
 import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
@@ -311,6 +313,11 @@ const ApiShapesIssueSubscribersRoute =
     path: '/api/shapes/issue-subscribers',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiShapesIssueStatusesRoute = ApiShapesIssueStatusesRouteImport.update({
+  id: '/api/shapes/issue-statuses',
+  path: '/api/shapes/issue-statuses',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesIssueLabelsRoute = ApiShapesIssueLabelsRouteImport.update({
   id: '/api/shapes/issue-labels',
   path: '/api/shapes/issue-labels',
@@ -422,6 +429,12 @@ const TTeamSlugSettingsStorageRoute =
   TTeamSlugSettingsStorageRouteImport.update({
     id: '/storage',
     path: '/storage',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsStatusesRoute =
+  TTeamSlugSettingsStatusesRouteImport.update({
+    id: '/statuses',
+    path: '/statuses',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugSettingsRepositoriesRoute =
@@ -563,6 +576,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -587,8 +601,8 @@ export interface FileRoutesByFullPath {
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
@@ -596,6 +610,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/agents/': typeof TTeamSlugAgentsIndexRoute
@@ -643,6 +658,7 @@ export interface FileRoutesByTo {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -667,8 +683,8 @@ export interface FileRoutesByTo {
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
@@ -676,6 +692,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/agents': typeof TTeamSlugAgentsIndexRoute
@@ -728,6 +745,7 @@ export interface FileRoutesById {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -752,8 +770,8 @@ export interface FileRoutesById {
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
@@ -761,6 +779,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/agents/': typeof TTeamSlugAgentsIndexRoute
@@ -813,6 +832,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-statuses'
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -837,8 +857,8 @@ export interface FileRouteTypes {
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
-    | '/api/issues/$issueId/images'
     | '/api/issues/$issueId/files'
+    | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
@@ -846,6 +866,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/agents/'
@@ -893,6 +914,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-statuses'
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -917,8 +939,8 @@ export interface FileRouteTypes {
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
-    | '/api/issues/$issueId/images'
     | '/api/issues/$issueId/files'
+    | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
@@ -926,6 +948,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/agents'
@@ -977,6 +1000,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-statuses'
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -1001,8 +1025,8 @@ export interface FileRouteTypes {
     | '/_authenticated/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
-    | '/api/issues/$issueId/images'
     | '/api/issues/$issueId/files'
+    | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
@@ -1010,6 +1034,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/agents/'
@@ -1055,6 +1080,7 @@ export interface RootRouteChildren {
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesIssueEventsRoute: typeof ApiShapesIssueEventsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
+  ApiShapesIssueStatusesRoute: typeof ApiShapesIssueStatusesRoute
   ApiShapesIssueSubscribersRoute: typeof ApiShapesIssueSubscribersRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
@@ -1073,8 +1099,8 @@ export interface RootRouteChildren {
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
-  ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
+  ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1380,6 +1406,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesIssueSubscribersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/issue-statuses': {
+      id: '/api/shapes/issue-statuses'
+      path: '/api/shapes/issue-statuses'
+      fullPath: '/api/shapes/issue-statuses'
+      preLoaderRoute: typeof ApiShapesIssueStatusesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/issue-labels': {
       id: '/api/shapes/issue-labels'
       path: '/api/shapes/issue-labels'
@@ -1532,6 +1565,13 @@ declare module '@tanstack/react-router' {
       path: '/storage'
       fullPath: '/t/$teamSlug/settings/storage'
       preLoaderRoute: typeof TTeamSlugSettingsStorageRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/statuses': {
+      id: '/t/$teamSlug/settings/statuses'
+      path: '/statuses'
+      fullPath: '/t/$teamSlug/settings/statuses'
+      preLoaderRoute: typeof TTeamSlugSettingsStatusesRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
     '/t/$teamSlug/settings/repositories': {
@@ -1710,6 +1750,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
   TTeamSlugSettingsMembersRoute: typeof TTeamSlugSettingsMembersRoute
   TTeamSlugSettingsRepositoriesRoute: typeof TTeamSlugSettingsRepositoriesRoute
+  TTeamSlugSettingsStatusesRoute: typeof TTeamSlugSettingsStatusesRoute
   TTeamSlugSettingsStorageRoute: typeof TTeamSlugSettingsStorageRoute
   TTeamSlugSettingsWidgetRoute: typeof TTeamSlugSettingsWidgetRoute
   TTeamSlugSettingsIndexRoute: typeof TTeamSlugSettingsIndexRoute
@@ -1723,6 +1764,7 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
     TTeamSlugSettingsMembersRoute: TTeamSlugSettingsMembersRoute,
     TTeamSlugSettingsRepositoriesRoute: TTeamSlugSettingsRepositoriesRoute,
+    TTeamSlugSettingsStatusesRoute: TTeamSlugSettingsStatusesRoute,
     TTeamSlugSettingsStorageRoute: TTeamSlugSettingsStorageRoute,
     TTeamSlugSettingsWidgetRoute: TTeamSlugSettingsWidgetRoute,
     TTeamSlugSettingsIndexRoute: TTeamSlugSettingsIndexRoute,
@@ -1800,6 +1842,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesIssueEventsRoute: ApiShapesIssueEventsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
+  ApiShapesIssueStatusesRoute: ApiShapesIssueStatusesRoute,
   ApiShapesIssueSubscribersRoute: ApiShapesIssueSubscribersRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
@@ -1818,8 +1861,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
-  ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
+  ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

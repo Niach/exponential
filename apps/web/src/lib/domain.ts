@@ -19,6 +19,10 @@ export * from "@exp/db-schema/domain"
 
 export interface IssueOption<TValue extends string> {
   color: string
+  // EXP-314: custom issue statuses carry a per-row hex instead of a Tailwind
+  // token class. When present it wins (applied as an inline `color` style);
+  // priorities and builtin statuses leave it undefined and keep `color`.
+  colorHex?: string
   icon: LucideIcon
   label: string
   value: TValue
@@ -29,6 +33,14 @@ export interface IssueOption<TValue extends string> {
 // (packages/domain-contract/contract.json), the same order the board groups
 // use, so picker muscle memory transfers between web, desktop, iOS and
 // Android. Locked against the contract by lib/domain-contract.test.ts.
+//
+// EXP-314: `issueStatusOptions` / `getIssueStatusConfig` are now the ANCHOR
+// FALLBACK layer, not the status vocabulary. Status UI resolves per-team rows
+// through `useTeamStatuses` (hooks/use-team-statuses.tsx); these tables supply
+// (a) the LEGACY token colors builtin rows still render with, (b) the enum
+// fallback for legacy URL tokens / old timeline payloads, and (c) anchor-keyed
+// logic (`CODEABLE_STATUSES` and friends). New UI must not group or pick from
+// them directly.
 export const issueStatusOptions = [
   {
     value: `in_progress`,

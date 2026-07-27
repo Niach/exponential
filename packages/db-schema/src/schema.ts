@@ -33,6 +33,8 @@ import {
   issuePriorityValues,
   issueSourceSchema,
   issueSourceValues,
+  issueStatusCategorySchema,
+  issueStatusCategoryValues,
   issueStatusSchema,
   issueStatusValues,
   type NotificationType,
@@ -57,6 +59,12 @@ const { createInsertSchema, createSelectSchema } = createSchemaFactory({
 // ---------------------------------------------------------------------------
 
 export const issueStatusEnum = pgEnum(`issue_status`, issueStatusValues)
+
+// EXP-314: the fixed category a custom/builtin issue status belongs to.
+export const issueStatusCategoryEnum = pgEnum(
+  `issue_status_category`,
+  issueStatusCategoryValues
+)
 
 export const issuePriorityEnum = pgEnum(`issue_priority`, issuePriorityValues)
 
@@ -292,6 +300,14 @@ export const issues = pgTable(
     // Plain GFM markdown (was jsonb `{ text }`).
     description: text(),
     status: issueStatusEnum().notNull().default(`backlog`),
+    // EXP-314: the precise per-team status row; `status` above stays the
+    // dual-written builtin anchor. NULLABLE + SET NULL so a status delete or
+    // team cascade can never wedge an issue; the populate_issue_status_id
+    // trigger derives it for enum-only writers and clients fall back to the
+    // anchor when it's NULL/unresolvable.
+    statusId: uuid(`status_id`).references(() => issueStatuses.id, {
+      onDelete: `set null`,
+    }),
     priority: issuePriorityEnum().notNull().default(`none`),
     assigneeId: text(`assignee_id`).references(() => users.id, {
       onDelete: `set null`,
@@ -346,6 +362,11 @@ export const issues = pgTable(
     index(`idx_issues_duplicate_of`)
       .on(table.duplicateOfId)
       .where(sql`duplicate_of_id IS NOT NULL`),
+    // Serves the status_id FK's SET NULL sweep and the statuses.delete
+    // reassignment scan (same rationale as idx_issues_duplicate_of).
+    index(`idx_issues_status_id`)
+      .on(table.statusId)
+      .where(sql`status_id IS NOT NULL`),
     // Backstop under generate_issue_number()'s counter allocator (see
     // issue_number_counters below): any residual allocation race fails loudly
     // instead of committing two issues with the same identifier.
@@ -391,6 +412,45 @@ export const labels = pgTable(
       table.teamId,
       sql`lower(${table.name})`
     ),
+  ]
+)
+
+// EXP-314 — per-team custom issue statuses (Linear-style), grouped into the
+// fixed issue_status_category set. Every team carries 7 locked builtin rows
+// (builtin_key != NULL, seeded by the seed_builtin_issue_statuses trigger and
+// the migration backfill; values mirror contract.json issueStatusDefaults) —
+// not renamable, not recolorable, not deletable; customs (builtin_key NULL)
+// are member-managed. `issues.status_id` points here while `issues.status`
+// keeps the dual-written builtin ANCHOR (CATEGORY_ANCHOR in domain.ts) so
+// every enum-keyed subsystem and old client keeps working.
+export const issueStatuses = pgTable(
+  `issue_statuses`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Immutable after create (router-enforced — no update path accepts it).
+    category: issueStatusCategoryEnum().notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    color: varchar({ length: 7 }).notNull(),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    // NULL = custom status; non-null marks the locked builtin row for that
+    // enum value (at most one per team).
+    builtinKey: issueStatusEnum(`builtin_key`),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_issue_statuses_team`).on(table.teamId),
+    // One status per (team, name), case-insensitive — statuses.create/update
+    // pre-check and map its violation to a readable CONFLICT (labels pattern).
+    uniqueIndex(`uniq_issue_statuses_team_name_ci`).on(
+      table.teamId,
+      sql`lower(${table.name})`
+    ),
+    uniqueIndex(`uniq_issue_statuses_team_builtin`)
+      .on(table.teamId, table.builtinKey)
+      .where(sql`builtin_key IS NOT NULL`),
   ]
 )
 
@@ -1288,6 +1348,12 @@ export const createLabelSchema = createInsertSchema(labels).omit({
   updatedAt: true,
 })
 
+// Named *Row* to keep clear of the IssueStatus ENUM type in domain.ts.
+export const selectIssueStatusRowSchema = createSelectSchema(issueStatuses, {
+  category: issueStatusCategorySchema,
+  builtinKey: issueStatusSchema.nullable(),
+})
+
 export const selectIssueLabelSchema = createSelectSchema(issueLabels)
 
 export const selectUserSchema = createSelectSchema(users)
@@ -1353,6 +1419,7 @@ export type TeamInvite = InferSelectModel<typeof teamInvites>
 export type Board = InferSelectModel<typeof boards>
 export type Issue = InferSelectModel<typeof issues>
 export type Label = InferSelectModel<typeof labels>
+export type IssueStatusRow = InferSelectModel<typeof issueStatuses>
 export type IssueLabel = InferSelectModel<typeof issueLabels>
 export type Comment = InferSelectModel<typeof comments>
 export type Attachment = InferSelectModel<typeof attachments>

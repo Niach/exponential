@@ -22,7 +22,8 @@ import XCTest
 // v10_action_icon (EXP-273) the ninth, v11_drop_archived_at (REV2-103:
 // archiving deleted from the product) the tenth, and v12_drop_issue_times
 // (REV2-103/REV2-49: issue time-of-day deleted from the product — due DATE
-// stays) the eleventh.
+// stays) the eleventh, and v13_issue_statuses (EXP-314: the synced
+// issue_statuses table, 16th shape, + issues.status_id) the twelfth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -64,7 +65,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
-             "v11_drop_archived_at", "v12_drop_issue_times"]
+             "v11_drop_archived_at", "v12_drop_issue_times",
+             "v13_issue_statuses"]
         )
     }
 
@@ -80,7 +82,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
-             "v11_drop_archived_at", "v12_drop_issue_times"]
+             "v11_drop_archived_at", "v12_drop_issue_times",
+             "v13_issue_statuses"]
         )
     }
 
@@ -124,7 +127,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
-             "v11_drop_archived_at", "v12_drop_issue_times"]
+             "v11_drop_archived_at", "v12_drop_issue_times",
+             "v13_issue_statuses"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -188,7 +192,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
-             "v11_drop_archived_at", "v12_drop_issue_times"]
+             "v11_drop_archived_at", "v12_drop_issue_times",
+             "v13_issue_statuses"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -330,7 +335,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "users", "team_members", "team_invites", "comments",
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
-                      "electric_offsets"] {
+                      "issue_statuses", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -399,6 +404,21 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(actionCols.contains("team_id"))
         XCTAssertTrue(actionCols.contains("inputs"))
         XCTAssertFalse(actionCols.contains("body"))
+
+        // Custom issue statuses (EXP-314, 16th shape): the team-scoped table
+        // plus the nullable `status_id` on issues. `issues.status` STAYS as the
+        // dual-written builtin anchor.
+        let statusCols = try columnNames(pool, "issue_statuses")
+        XCTAssertTrue(statusCols.contains("team_id"))
+        XCTAssertTrue(statusCols.contains("category"))
+        XCTAssertTrue(statusCols.contains("builtin_key"))
+        XCTAssertTrue(statusCols.contains("sort_order"))
+        XCTAssertTrue(try columnNames(pool, "issues").contains("status"))
+        let issueStatusId = try pool.read { db in
+            try db.columns(in: "issues").first { $0.name == "status_id" }
+        }
+        XCTAssertNotNil(issueStatusId)
+        XCTAssertFalse(issueStatusId?.isNotNull ?? true)
 
         // The public-board columns (and the legacy `type` relic) are gone.
         let boardCols = try columnNames(pool, "boards")

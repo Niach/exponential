@@ -32,11 +32,12 @@ use gpui_component::{
 };
 use theme::tokens as t;
 
-use domain::options::{IssueOption, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_OPTIONS};
+use domain::options::ISSUE_PRIORITY_OPTIONS;
 use domain::rows::{Board, Label, User};
+use domain::statuses::{IssueStatusCategory, ResolvedStatus};
 use domain::{IssuePriority, IssueStatus};
 
-use crate::icons::option_icon;
+use crate::icons::{option_icon, resolved_status_icon};
 use crate::settings::parse_hex_color;
 
 /// A pick callback (the host owns the mutation — tRPC write vs local draft).
@@ -124,16 +125,19 @@ pub(crate) fn empty_picker_row(message: &'static str, cx: &App) -> impl IntoElem
         .child(message)
 }
 
-/// One option row (same as the board's): table icon + label + right-side
-/// check.
-pub(crate) fn option_item<V: Copy + 'static>(
-    option: &'static IssueOption<V>,
+/// One option row (same as the board's): icon + label + right-side check.
+///
+/// EXP-314 took this OWNED (`SharedString` + `Icon` instead of a
+/// `&'static IssueOption<V>`): the status vocabulary is per-team data now, so
+/// the rows cannot come from a compile-time table.
+pub(crate) fn option_item(
+    label: SharedString,
+    icon: Icon,
     checked: bool,
-    cx: &App,
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
-    PopupMenuItem::new(SharedString::from(option.label))
-        .icon(option_icon(option, cx))
+    PopupMenuItem::new(label)
+        .icon(icon)
         .checked(checked)
         .on_click(move |_, window, cx| on_select(window, cx))
 }
@@ -142,21 +146,111 @@ pub(crate) fn option_item<V: Copy + 'static>(
 // Single-pick menus (status / priority / assignee)
 // ---------------------------------------------------------------------------
 
-/// The status options as menu items. The caller pre-configures the menu
-/// (min_w etc.) and owns the trigger.
+/// What a status picker emits (EXP-314). `status_id` is `Some` for a SYNCED
+/// row (the write sends `statusId`); `None` for a constructed
+/// `builtin:<key>` fallback, where the write degrades to the enum `anchor`.
+/// The two are mutually exclusive server-side.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct StatusPick {
+    pub status_id: Option<String>,
+    pub anchor: IssueStatus,
+    pub category: IssueStatusCategory,
+}
+
+impl StatusPick {
+    pub(crate) fn from_resolved(status: &ResolvedStatus) -> Self {
+        Self {
+            status_id: status.row_id.clone(),
+            anchor: status.anchor(),
+            category: status.category,
+        }
+    }
+
+    /// Stamp this pick onto an `issues.update` input — exactly one of
+    /// `statusId` / `status`.
+    pub(crate) fn apply_to_update(&self, input: &mut api::issues::IssuesUpdateInput) {
+        match &self.status_id {
+            Some(id) => input.status_id = Some(id.clone()),
+            None => input.status = Some(self.anchor),
+        }
+    }
+
+    /// Stamp this pick onto an `issues.bulkUpdate` input.
+    pub(crate) fn apply_to_bulk(&self, input: &mut api::issues::IssuesBulkUpdateInput) {
+        match &self.status_id {
+            Some(id) => input.status_id = Some(id.clone()),
+            None => input.status = Some(self.anchor),
+        }
+    }
+
+    /// Stamp this pick onto an `issues.create` input.
+    pub(crate) fn apply_to_create(&self, input: &mut api::issues::IssuesCreateInput) {
+        match &self.status_id {
+            Some(id) => input.status_id = Some(id.clone()),
+            None => input.status = Some(self.anchor),
+        }
+    }
+}
+
+/// Which slice of the team vocabulary a status menu offers (EXP-314 / L27).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StatusMenuScope {
+    /// Single-issue surfaces (row dropdown, row context submenu, the detail
+    /// properties panel): the FULL vocabulary, `duplicate`-category rows
+    /// INCLUDED — picking one is intercepted by `apply_status_selection` into
+    /// the duplicate-canonical picker, which is the only way to mark a
+    /// duplicate on desktop.
+    SingleIssue,
+    /// Bulk bars + create dialogs: `duplicate`-category rows are excluded —
+    /// there is no canonical-issue picker on those paths, and a bare
+    /// `status='duplicate'` without `duplicate_of_id` breaks the pairing
+    /// invariant.
+    Assignable,
+}
+
+impl StatusMenuScope {
+    fn allows(&self, status: &ResolvedStatus) -> bool {
+        match self {
+            StatusMenuScope::SingleIssue => true,
+            StatusMenuScope::Assignable => status.category != IssueStatusCategory::Duplicate,
+        }
+    }
+}
+
+/// The rows a status menu of `scope` offers — the pure half of
+/// [`status_menu`], so the duplicate-visibility contract is unit-testable.
+pub(crate) fn status_menu_options<'a>(
+    statuses: &'a [ResolvedStatus],
+    scope: StatusMenuScope,
+) -> Vec<&'a ResolvedStatus> {
+    statuses
+        .iter()
+        .filter(|status| scope.allows(status))
+        .collect()
+}
+
+/// The team's statuses as menu items (EXP-314). The caller pre-configures the
+/// menu (min_w etc.) and owns the trigger; `current_key` is the picked
+/// issue's resolved group key, and `scope` decides whether the
+/// `duplicate`-category row is offered (see [`StatusMenuScope`]).
 pub(crate) fn status_menu(
     menu: PopupMenu,
-    current: IssueStatus,
-    on_pick: OnPick<IssueStatus>,
+    statuses: &[ResolvedStatus],
+    current_key: &str,
+    scope: StatusMenuScope,
+    on_pick: OnPick<StatusPick>,
     cx: &App,
 ) -> PopupMenu {
     let mut menu = menu.check_side(Side::Right);
-    for option in &ISSUE_STATUS_OPTIONS {
+    for status in status_menu_options(statuses, scope) {
         let on_pick = on_pick.clone();
-        let value = option.value;
-        menu = menu.item(option_item(option, option.value == current, cx, {
-            move |window, cx| on_pick(value, window, cx)
-        }));
+        let pick = StatusPick::from_resolved(status);
+        menu = menu.item(option_item(
+            SharedString::from(status.name.clone()),
+            resolved_status_icon(status, cx),
+            status.group_key == current_key,
+            move |window, cx| on_pick(pick.clone(), window, cx),
+        ));
     }
     menu
 }
@@ -172,9 +266,12 @@ pub(crate) fn priority_menu(
     for option in &ISSUE_PRIORITY_OPTIONS {
         let on_pick = on_pick.clone();
         let value = option.value;
-        menu = menu.item(option_item(option, option.value == current, cx, {
-            move |window, cx| on_pick(value, window, cx)
-        }));
+        menu = menu.item(option_item(
+            SharedString::from(option.label),
+            option_icon(option, cx),
+            option.value == current,
+            move |window, cx| on_pick(value, window, cx),
+        ));
     }
     menu
 }
@@ -495,4 +592,55 @@ pub(crate) fn due_date_popover(
             }
             content
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use domain::statuses::default_resolved_statuses;
+
+    /// L27: the single-issue surfaces MUST offer the duplicate row (their
+    /// `apply_status_selection` intercepts it into the canonical picker — it
+    /// is desktop's only path to marking a duplicate); bulk bars and the
+    /// create dialog must not.
+    #[test]
+    fn duplicate_row_is_single_issue_only() {
+        let statuses = default_resolved_statuses();
+        let names = |scope| -> Vec<String> {
+            status_menu_options(&statuses, scope)
+                .into_iter()
+                .map(|status| status.name.clone())
+                .collect()
+        };
+
+        let single = names(StatusMenuScope::SingleIssue);
+        assert_eq!(single.len(), statuses.len());
+        assert!(single.iter().any(|name| name == "Duplicate"));
+
+        let assignable = names(StatusMenuScope::Assignable);
+        assert_eq!(assignable.len(), statuses.len() - 1);
+        assert!(!assignable.iter().any(|name| name == "Duplicate"));
+
+        // Everything else is untouched, in vocabulary order.
+        let expected: Vec<String> = single
+            .iter()
+            .filter(|name| name.as_str() != "Duplicate")
+            .cloned()
+            .collect();
+        assert_eq!(assignable, expected);
+    }
+
+    /// The pick a single-issue duplicate row emits must carry the duplicate
+    /// CATEGORY — that is what `apply_status_selection` intercepts on.
+    #[test]
+    fn duplicate_pick_carries_the_duplicate_category() {
+        let statuses = default_resolved_statuses();
+        let duplicate = status_menu_options(&statuses, StatusMenuScope::SingleIssue)
+            .into_iter()
+            .find(|status| status.category == IssueStatusCategory::Duplicate)
+            .expect("duplicate row is offered on single-issue surfaces");
+        let pick = StatusPick::from_resolved(duplicate);
+        assert_eq!(pick.category, IssueStatusCategory::Duplicate);
+        assert_eq!(pick.anchor, IssueStatus::Duplicate);
+    }
 }

@@ -58,11 +58,18 @@ func eventPhrase(
 ) -> String {
     switch event.type {
     case "status_changed":
-        guard let to = eventField(event.payload, "to") else { return "changed the status" }
-        if let from = eventField(event.payload, "from") {
-            return "changed status from \(statusLabel(from)) to \(statusLabel(to))"
+        // EXP-314: newer events carry the real status NAMES (custom statuses
+        // have no enum label at all); older rows only have the enum anchors, so
+        // fall back to the munge.
+        let toName = eventField(event.payload, "toName")
+        let fromName = eventField(event.payload, "fromName")
+        guard let to = toName ?? eventField(event.payload, "to").map(statusLabel) else {
+            return "changed the status"
         }
-        return "changed status to \(statusLabel(to))"
+        if let from = fromName ?? eventField(event.payload, "from").map(statusLabel) {
+            return "changed status from \(from) to \(to)"
+        }
+        return "changed status to \(to)"
     case "assignee_changed":
         guard let to = eventField(event.payload, "to") else { return "unassigned this issue" }
         return "assigned \(memberDisplayName(users[to], id: to))"

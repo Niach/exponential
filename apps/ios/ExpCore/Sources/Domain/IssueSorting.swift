@@ -2,14 +2,16 @@ import Foundation
 
 /// Canonical in-group issue ordering (EXP-38) — the cross-platform contract all
 /// four clients implement with identical semantics (web `lib/board-view.ts`,
-/// Android, desktop). Group ORDER itself is unchanged
-/// (`IssueStatus.displayOrder`); this governs order WITHIN a status group:
+/// Android, desktop). Group ORDER itself lives elsewhere (EXP-314:
+/// `IssueStatusResolver.teamStatuses`); this governs order WITHIN one status
+/// group and switches on that group's CATEGORY, so a CUSTOM status sorts
+/// exactly like the builtin it anchors to:
 ///
-/// - backlog / todo / in_progress / in_review: OVERDUE FIRST (dueDate < today), then
+/// - backlog / unstarted / started: OVERDUE FIRST (dueDate < today), then
 ///   priority rank urgent(0) → none(4) ascending, then dueDate ascending with
 ///   nil LAST, then issue `number` ascending NUMERICALLY (nil last — never the
 ///   identifier string, which sorts "EXP-9" after "EXP-10").
-/// - done: key = (completedAt ?? updatedAt), DESCENDING (latest first).
+/// - completed: key = (completedAt ?? updatedAt), DESCENDING (latest first).
 /// - cancelled / duplicate: updatedAt DESCENDING.
 ///
 /// The fractional `sortOrder` column is deliberately NOT consulted anymore.
@@ -33,14 +35,30 @@ public enum IssueSorting {
     public static func sorted(
         _ issues: [IssueEntity], status: IssueStatus, today: String = todayString()
     ) -> [IssueEntity] {
-        issues.sorted { compare($0, $1, status: status, today: today) == .orderedAscending }
+        sorted(issues, category: IssueStatusResolver.categoryOf(status), today: today)
+    }
+
+    /// EXP-314: the same contract keyed on the group's CATEGORY, so a CUSTOM
+    /// status sorts exactly like the builtin it anchors to. The branches are
+    /// identical to the enum switch above; an unknown category takes the
+    /// active branch.
+    public static func sorted(
+        _ issues: [IssueEntity], category: IssueStatusCategory, today: String = todayString()
+    ) -> [IssueEntity] {
+        issues.sorted { compare($0, $1, category: category, today: today) == .orderedAscending }
     }
 
     static func compare(
         _ a: IssueEntity, _ b: IssueEntity, status: IssueStatus, today: String
     ) -> ComparisonResult {
-        switch status {
-        case .done:
+        compare(a, b, category: IssueStatusResolver.categoryOf(status), today: today)
+    }
+
+    static func compare(
+        _ a: IssueEntity, _ b: IssueEntity, category: IssueStatusCategory, today: String
+    ) -> ComparisonResult {
+        switch category {
+        case .completed:
             let ka = a.completedAt ?? a.updatedAt
             let kb = b.completedAt ?? b.updatedAt
             if ka != kb { return kb < ka ? .orderedAscending : .orderedDescending }
@@ -48,7 +66,7 @@ public enum IssueSorting {
             if a.updatedAt != b.updatedAt {
                 return b.updatedAt < a.updatedAt ? .orderedAscending : .orderedDescending
             }
-        case .backlog, .todo, .inProgress, .inReview:
+        case .backlog, .unstarted, .started:
             let aOverdue = isOverdue(a, today: today)
             let bOverdue = isOverdue(b, today: today)
             if aOverdue != bOverdue { return aOverdue ? .orderedAscending : .orderedDescending }

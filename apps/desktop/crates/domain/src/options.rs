@@ -23,10 +23,26 @@ pub enum IconGlyph {
     CircleDashed,
     /// web `Circle` — status todo.
     Circle,
-    /// web `Timer` — status in_progress.
+    /// web `Timer` — the pre-EXP-314 in_progress glyph. Kept: the registry
+    /// still ships `timer.svg` and the variant costs nothing.
     Timer,
-    /// web `GitPullRequest` — status in_review.
+    /// web `GitPullRequest` — PR affordances (and the pre-EXP-314 in_review
+    /// status glyph).
     GitPullRequest,
+    /// EXP-314 pie clock 1/4 — a `started` status at position 0 of 3.
+    Progress14,
+    /// EXP-314 pie clock 2/4 — a `started` status at position 0 of ≤2.
+    Progress24,
+    /// EXP-314 pie clock 3/4 — a `started` status at position 1 of ≤2.
+    Progress34,
+    /// EXP-314 pie clock 1/5 — a `started` status at position 0 of ≥4.
+    Progress15,
+    /// EXP-314 pie clock 2/5 — a `started` status at position 1 of ≥4.
+    Progress25,
+    /// EXP-314 pie clock 3/5 — a `started` status at position 2 of ≥4.
+    Progress35,
+    /// EXP-314 pie clock 4/5 — a `started` status at position 3 of ≥4.
+    Progress45,
     /// web `CircleCheck` — status done.
     CircleCheck,
     /// web `CircleX` — status cancelled.
@@ -54,6 +70,13 @@ impl IconGlyph {
             IconGlyph::Circle => "circle",
             IconGlyph::Timer => "timer",
             IconGlyph::GitPullRequest => "git-pull-request",
+            IconGlyph::Progress14 => "progress-1-4",
+            IconGlyph::Progress24 => "progress-2-4",
+            IconGlyph::Progress34 => "progress-3-4",
+            IconGlyph::Progress15 => "progress-1-5",
+            IconGlyph::Progress25 => "progress-2-5",
+            IconGlyph::Progress35 => "progress-3-5",
+            IconGlyph::Progress45 => "progress-4-5",
             IconGlyph::CircleCheck => "circle-check",
             IconGlyph::CircleX => "circle-x",
             IconGlyph::Copy => "copy",
@@ -108,20 +131,25 @@ const fn opt<V>(value: V, label: &'static str, icon: IconGlyph, color: ColorToke
 /// Web `issueStatusOptions` — same order, labels, glyphs, colors.
 ///
 /// REV2-85: the table is ordered by the contract `displayOrder`
-/// (`contract::ISSUE_STATUS_DISPLAY_ORDER`, locked by test) — the ONE picker
-/// vocabulary every client walks, so a status menu reads the same here, on
-/// web and on both phones.
+/// (`contract::ISSUE_STATUS_DISPLAY_ORDER`, locked by test).
+///
+/// EXP-314: this static table is no longer the picker vocabulary — per-team
+/// [`crate::statuses`] rows are. It survives as the **anchor-enum fallback**
+/// vocabulary the cross-team surfaces (search, tab chips, My Issues) render
+/// from, and as the source of the builtin color tokens. The in_progress /
+/// in_review glyphs moved to the pie clocks in step with the shared registry's
+/// `status-in-progress` / `status-in-review` concepts.
 pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 7] = [
     opt(
         IssueStatus::InProgress,
         "In Progress",
-        IconGlyph::Timer,
+        IconGlyph::Progress24,
         ColorToken::Yellow,
     ),
     opt(
         IssueStatus::InReview,
         "In Review",
-        IconGlyph::GitPullRequest,
+        IconGlyph::Progress34,
         ColorToken::Green,
     ),
     opt(

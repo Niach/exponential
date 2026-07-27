@@ -30,11 +30,12 @@ import com.exponential.app.data.electric.isCatchingUp
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
-import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
-import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.matchesFilters
-import com.exponential.app.domain.sortIssuesForGroup
+import com.exponential.app.domain.sortIssuesForCategory
+import com.exponential.app.domain.toggleStatus
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
@@ -61,7 +62,9 @@ import kotlinx.coroutines.launch
 // out as sequential chunks, matching the web bar's BULK_CHUNK_SIZE.
 private const val BULK_CHUNK_SIZE = 200
 
-data class IssueGroup(val status: IssueStatus, val issues: List<IssueWithLabels>)
+// One group per team status ROW (EXP-314) — the group key is `status.id`
+// (row id, or `builtin:<key>` for a constructed fallback).
+data class IssueGroup(val status: ResolvedIssueStatus, val issues: List<IssueWithLabels>)
 
 data class IssueWithLabels(val issue: IssueEntity, val labels: List<LabelEntity>)
 
@@ -74,6 +77,7 @@ private data class GroupedIssueState(
     val filters: IssueFilters = IssueFilters(),
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
+    val teamStatuses: List<ResolvedIssueStatus> = emptyList(),
 )
 
 data class IssueListState(
@@ -82,6 +86,10 @@ data class IssueListState(
     val filters: IssueFilters = IssueFilters(),
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
+    // The board team's statuses in canonical order — the picker/filter
+    // vocabulary. Falls back to the constructed builtins until the
+    // issue_statuses shape has synced.
+    val teamStatuses: List<ResolvedIssueStatus> = emptyList(),
     val isCreating: Boolean = false,
     val isRefreshing: Boolean = false,
     val error: String? = null,
@@ -140,6 +148,18 @@ class IssueListViewModel @Inject constructor(
             if (db == null || board == null) flowOf(emptyList())
             else db.labelDao().observeByTeam(board.teamId)
         }
+    private val statusesForTeam = combine(dbFlow, _board) { db, board -> db to board }
+        .flatMapLatest { (db, board) ->
+            if (db == null || board == null) flowOf(emptyList())
+            else db.issueStatusDao().observeByTeam(board.teamId)
+        }
+        .map { rows ->
+            // Pre-sync (or a team whose rows haven't arrived) renders the
+            // constructed builtin set, so grouping/pickers never go empty.
+            if (rows.isEmpty()) IssueStatusResolver.builtinDefaults
+            else IssueStatusResolver.teamStatuses(rows)
+        }
+
     private val issueLabelsForTeam = combine(dbFlow, _board) { db, board -> db to board }
         .flatMapLatest { (db, board) ->
             if (db == null || board == null) flowOf(emptyList())
@@ -247,6 +267,7 @@ class IssueListViewModel @Inject constructor(
             issueLabelsForTeam,
             _filters,
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
+            statusesForTeam,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -260,27 +281,38 @@ class IssueListViewModel @Inject constructor(
         val filters = values[4] as IssueFilters
         @Suppress("UNCHECKED_CAST")
         val users = values[5] as List<UserEntity>
+        @Suppress("UNCHECKED_CAST")
+        val teamStatuses = values[6] as List<ResolvedIssueStatus>
 
         val joinsByIssue = joins.groupBy { it.issueId }
         val labelsById = labels.associateBy { it.id }
 
+        // status_id → anchor → constructed default (EXP-314); the resolved
+        // row's id is both the group key and the status-filter token.
+        val statusByIssue = issues.associate { issue ->
+            issue.id to IssueStatusResolver.resolve(issue, teamStatuses)
+        }
+
         val filteredAndDecorated = issues.mapNotNull { issue ->
-            val status = IssueStatus.fromWire(issue.status)
+            val resolvedStatus = statusByIssue.getValue(issue.id)
             val priority = IssuePriority.fromWire(issue.priority)
             val labelIds = joinsByIssue[issue.id]?.map { it.labelId } ?: emptyList()
-            if (!matchesFilters(status, priority, labelIds, filters)) return@mapNotNull null
+            if (!matchesFilters(resolvedStatus, priority, labelIds, filters)) return@mapNotNull null
             val resolvedLabels = labelIds.mapNotNull { labelsById[it] }
             IssueWithLabels(issue, resolvedLabels)
         }
 
-        // Canonical in-group order (EXP-38) — shared with MyIssues and the
-        // other clients; see sortIssuesForGroup in domain/IssueDomain.kt.
-        val grouped = issueStatusOrder.map { st ->
+        // One group per team status row, in canonical order; empty groups are
+        // hidden. Canonical in-group order (EXP-38) now keys on the row's
+        // CATEGORY — see sortIssuesForCategory in domain/IssueDomain.kt.
+        val grouped = teamStatuses.map { resolved ->
             IssueGroup(
-                status = st,
-                issues = sortIssuesForGroup(
-                    status = st,
-                    issues = filteredAndDecorated.filter { IssueStatus.fromWire(it.issue.status) == st },
+                status = resolved,
+                issues = sortIssuesForCategory(
+                    category = resolved.category,
+                    issues = filteredAndDecorated.filter {
+                        statusByIssue.getValue(it.issue.id).id == resolved.id
+                    },
                 ) { it.issue },
             )
         }.filter { it.issues.isNotEmpty() }
@@ -291,6 +323,7 @@ class IssueListViewModel @Inject constructor(
             filters = filters,
             labels = labels,
             users = users,
+            teamStatuses = teamStatuses,
         )
     }
 
@@ -306,6 +339,7 @@ class IssueListViewModel @Inject constructor(
             filters = grouped.filters,
             labels = grouped.labels,
             users = grouped.users,
+            teamStatuses = grouped.teamStatuses,
             isCreating = busy,
             isRefreshing = refreshing,
             error = error,
@@ -475,18 +509,30 @@ class IssueListViewModel @Inject constructor(
      * The old per-issue loop bypassed that cap and had no atomicity — a
      * mid-loop failure left a half-applied batch behind one error toast.
      */
-    fun bulkUpdateStatus(issueIds: Collection<String>, status: IssueStatus) {
+    fun bulkUpdateStatus(issueIds: Collection<String>, status: ResolvedIssueStatus) {
         runBulk(issueIds, "Failed to update status") { accountId, ids ->
-            issuesApi.bulkUpdate(accountId, ids, status = status.wire)
+            issuesApi.bulkUpdate(
+                accountId,
+                ids,
+                status = status.anchorWireOrNull(),
+                statusId = status.rowId,
+            )
         }
     }
 
     /** Single-issue status change from an inline list-row tap (EXP-247). */
-    fun updateStatus(issueId: String, status: IssueStatus) {
+    fun updateStatus(issueId: String, status: ResolvedIssueStatus) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, status = status.wire))
+                issuesApi.update(
+                    accountId,
+                    UpdateIssueInput(
+                        id = issueId,
+                        status = status.anchorWireOrNull(),
+                        statusId = status.rowId,
+                    ),
+                )
             }.onFailure { error ->
                 if (error is CancellationException) throw error
                 _error.value = error.message ?: "Failed to update status"
@@ -580,9 +626,11 @@ class IssueListViewModel @Inject constructor(
         _filters.value = filters
     }
 
-    fun toggleStatus(status: IssueStatus) {
-        val next = _filters.value.statuses.toMutableSet().apply { if (!add(status)) remove(status) }
-        _filters.value = _filters.value.copy(statuses = next)
+    // Toggling goes through the resolved ROW (not a bare id) so a filter
+    // ticked before the issue_statuses shape synced keeps matching — and stops
+    // matching — after the fallback→synced re-key (EXP-314).
+    fun toggleStatus(status: ResolvedIssueStatus) {
+        _filters.value = _filters.value.toggleStatus(status)
     }
 
     fun togglePriority(priority: IssuePriority) {
@@ -645,7 +693,7 @@ class IssueListViewModel @Inject constructor(
     // cancelled the moment the screen pops, dropping the write.
     suspend fun createIssueAwait(
         title: String,
-        status: IssueStatus,
+        status: ResolvedIssueStatus,
         priority: IssuePriority,
         description: String?,
         dueDate: String?,
@@ -668,7 +716,8 @@ class IssueListViewModel @Inject constructor(
                 CreateIssueInput(
                     boardId = boardIdFlow.value,
                     title = title.trim(),
-                    status = status.wire,
+                    status = status.anchorWireOrNull(),
+                    statusId = status.rowId,
                     priority = priority.wire,
                     description = strippedDescription,
                     assigneeId = assigneeId,
@@ -779,5 +828,14 @@ class IssueListViewModel @Inject constructor(
 }
 
 // Terminal issue statuses ineligible to start a new coding run (same set as
-// AgentsViewModel / the iOS candidates builders).
+// AgentsViewModel / the iOS candidates builders). An ANCHOR set (EXP-314) —
+// custom statuses inherit their anchor's eligibility.
 private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")
+
+/**
+ * The enum anchor to write for a status that has NO synced row yet (a
+ * constructed `builtin:<key>` fallback) — null once a real row id exists, since
+ * the server takes `status` XOR `statusId` (EXP-314).
+ */
+internal fun ResolvedIssueStatus.anchorWireOrNull(): String? =
+    if (rowId != null) null else builtinKey?.wire

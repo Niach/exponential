@@ -115,6 +115,13 @@ export const ICON_NAMES = [
   `plane`,
   `play`,
   `plus`,
+  `progress-1-4`,
+  `progress-1-5`,
+  `progress-2-4`,
+  `progress-2-5`,
+  `progress-3-4`,
+  `progress-3-5`,
+  `progress-4-5`,
   `puzzle`,
   `quote`,
   `refresh-cw`,
@@ -146,7 +153,6 @@ export const ICON_NAMES = [
   `tag`,
   `target`,
   `terminal`,
-  `timer`,
   `trash-2`,
   `triangle-alert`,
   `trophy`,
@@ -228,7 +234,19 @@ export const PICKABLE_ICONS = [
 ] as const
 export type PickableIcon = (typeof PICKABLE_ICONS)[number]
 
-/** Stable concept id -> Lucide name. Call sites reference the concept. */
+/** Hand-authored non-Lucide glyph names (icons.json `custom` — EXP-314). */
+export const CUSTOM_ICONS = [
+  `progress-1-4`,
+  `progress-1-5`,
+  `progress-2-4`,
+  `progress-2-5`,
+  `progress-3-4`,
+  `progress-3-5`,
+  `progress-4-5`,
+] as const
+export type CustomIcon = (typeof CUSTOM_ICONS)[number]
+
+/** Stable concept id -> icon name. Call sites reference the concept. */
 export const SEMANTIC_ICONS = {
   "action-create": `plus`,
   "action-default": `zap`,
@@ -318,14 +336,15 @@ export const SEMANTIC_ICONS = {
   "settings-rate": `star`,
   "settings-repositories": `github`,
   "settings-servers": `server`,
+  "settings-statuses": `circle-dot`,
   "settings-sync": `refresh-cw`,
   "settings-tools": `square-terminal`,
   "status-backlog": `circle-dashed`,
   "status-cancelled": `circle-x`,
   "status-done": `circle-check`,
   "status-duplicate": `copy`,
-  "status-in-progress": `timer`,
-  "status-in-review": `git-pull-request`,
+  "status-in-progress": `progress-2-4`,
+  "status-in-review": `progress-3-4`,
   "status-todo": `circle`,
   "support-open": `mail-open`,
   "support-resolved": `circle-check`,

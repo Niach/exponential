@@ -9,7 +9,7 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { hasActiveFilters as filtersActive } from "@/lib/filters"
+import { emptyFilters, hasActiveFilters as filtersActive } from "@/lib/filters"
 import type { IssueFilters } from "@/lib/filters"
 
 // Cross-board "My Issues": every issue assigned to the signed-in user across
@@ -123,9 +123,7 @@ export function MyIssuesView({
             isLoading={!issuesReady}
             hasAnyIssues={totalIssueCount > 0}
             hasActiveFilters={filtersActive(filters)}
-            onClearFilters={() =>
-              onFiltersChange({ statuses: [], priorities: [], labelIds: [] })
-            }
+            onClearFilters={() => onFiltersChange(emptyFilters)}
           />
         )}
       </div>

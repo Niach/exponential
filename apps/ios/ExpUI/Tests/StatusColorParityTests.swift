@@ -49,6 +49,41 @@ final class StatusColorParityTests: XCTestCase {
         XCTAssertEqual(IssuePriority.none.color, DesignTokens.Semantic.neutral)
     }
 
+    // EXP-314: the in_progress / in_review glyphs are the pie-clock pair a
+    // 2-started-status team renders — the icon registry re-pointed the
+    // semantic concepts, so the enum extension picks them up unchanged.
+    func testStartedBuiltinGlyphsAreTheClockPair() {
+        XCTAssertEqual(IssueStatus.inProgress.iconName, "progress-2-4")
+        XCTAssertEqual(IssueStatus.inReview.iconName, "progress-3-4")
+    }
+
+    // EXP-314 rule: a BUILTIN row (or a constructed default) renders today's
+    // design token, NOT the synced hex — the tokens are theme-aware and the
+    // seed hexes are near-neutral. This keeps builtin rendering byte-identical
+    // to before the feature.
+    func testBuiltinResolvedStatusesKeepTheTokenColors() {
+        for status in IssueStatus.allCases {
+            let resolved = IssueStatusResolver.builtinDefault(for: status)
+            XCTAssertEqual(resolved.color, status.color, "builtin \(status.rawValue)")
+        }
+        // …even though the constructed rows DO carry the seeded hex.
+        XCTAssertNotNil(IssueStatusResolver.builtinDefault(for: .todo).colorHex)
+    }
+
+    // A CUSTOM row (no builtin key) renders its stored hex through the same
+    // parse path labels use, and degrades to the neutral gray when unparsable.
+    func testCustomResolvedStatusRendersItsHex() {
+        func custom(_ hex: String?) -> ResolvedIssueStatus {
+            ResolvedIssueStatus(
+                id: "s1", rowId: "s1", name: "Coding", category: .started,
+                colorHex: hex, builtinKey: nil, iconName: "progress-2-4"
+            )
+        }
+        XCTAssertEqual(custom("#6366f1").color, Color(hex: "#6366f1"))
+        XCTAssertEqual(custom("not-a-color").color, StatusColor.backlog)
+        XCTAssertEqual(custom(nil).color, StatusColor.backlog)
+    }
+
     // Pickers speak ONE order everywhere (REV2-85): the contract display
     // order, in_progress-first / urgent-first — the same list the filter and
     // create sheets walk.

@@ -32,9 +32,9 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
-import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.isStatusSelected
 import com.exponential.app.domain.issuePriorityOrder
-import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
@@ -53,7 +53,10 @@ private enum class FilterView { Categories, Status, Priority, Labels }
 fun IssueFilterSheet(
     filters: IssueFilters,
     labels: List<LabelEntity>,
-    onToggleStatus: (IssueStatus) -> Unit,
+    // The board team's statuses (EXP-314) — the filter lists ROWS now, and a
+    // ticked value is that row's group key.
+    statuses: List<ResolvedIssueStatus>,
+    onToggleStatus: (ResolvedIssueStatus) -> Unit,
     onTogglePriority: (IssuePriority) -> Unit,
     onToggleLabel: (String) -> Unit,
     onClear: () -> Unit,
@@ -80,17 +83,23 @@ fun IssueFilterSheet(
                         }
                     }
                     Spacer(Modifier.height(4.dp))
-                    CategoryRow("Status", filters.statuses.size) { view = FilterView.Status }
+                    CategoryRow("Status", filters.statusIds.size) { view = FilterView.Status }
                     CategoryRow("Priority", filters.priorities.size) { view = FilterView.Priority }
                     CategoryRow("Labels", filters.labelIds.size) { view = FilterView.Labels }
                 }
 
                 FilterView.Status -> SubViewHeader("Status", onBack = { view = FilterView.Categories }) {
-                    issueStatusOrder.forEach { status ->
-                        FilterCheckRow(selected = status in filters.statuses, onClick = { onToggleStatus(status) }) {
+                    statuses.forEach { status ->
+                        FilterCheckRow(
+                            // Tick state (and the toggle) go through the row,
+                            // not a bare id — a `builtin:<key>` token stored
+                            // pre-sync still addresses the synced row.
+                            selected = filters.isStatusSelected(status),
+                            onClick = { onToggleStatus(status) },
+                        ) {
                             StatusIcon(status, size = 16.dp)
                             Spacer(Modifier.width(8.dp))
-                            Text(status.label)
+                            Text(status.name)
                         }
                     }
                 }

@@ -78,6 +78,9 @@ export type StartCodingOptions = CodingLaunchPrefs
 export type LaunchTab = `issues` | `actions`
 
 // Only issues in a state worth coding are offered (mirrors the desktop picker).
+// EXP-314: deliberately keyed on the dual-written ANCHOR enum, not on status
+// rows — a custom backlog/unstarted/started status anchors into this set
+// automatically, so custom statuses need no extra gating here.
 const CODEABLE_STATUSES = new Set<string>([
   `backlog`,
   `todo`,

@@ -19,9 +19,9 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
-import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.isStatusSelected
 import com.exponential.app.domain.issuePriorityOrder
-import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
@@ -38,7 +38,8 @@ import com.exponential.app.ui.theme.glassButton
 fun ActiveFilterPills(
     filters: IssueFilters,
     labels: List<LabelEntity>,
-    onToggleStatus: (IssueStatus) -> Unit,
+    statuses: List<ResolvedIssueStatus>,
+    onToggleStatus: (ResolvedIssueStatus) -> Unit,
     onTogglePriority: (IssuePriority) -> Unit,
     onToggleLabel: (String) -> Unit,
     onClear: () -> Unit,
@@ -50,12 +51,14 @@ fun ActiveFilterPills(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Pills read in the contract display order (REV2-85) — the same order
-        // the filter sheet lists them in, not the order they were ticked.
-        issueStatusOrder.filter { it in filters.statuses }.forEach { status ->
+        // Pills read in the team's status order (REV2-85 / EXP-314) — the same
+        // order the filter sheet lists them in, not the order they were ticked.
+        // A stale id (its row was deleted) renders nothing and clears itself on
+        // the next toggle.
+        statuses.filter { filters.isStatusSelected(it) }.forEach { status ->
             FilterPill(onRemove = { onToggleStatus(status) }) {
                 StatusIcon(status, size = 13.dp)
-                PillLabel(status.label)
+                PillLabel(status.name)
             }
         }
         issuePriorityOrder.filter { it in filters.priorities }.forEach { priority ->

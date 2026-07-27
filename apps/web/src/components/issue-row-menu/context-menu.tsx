@@ -3,6 +3,8 @@ import type { Issue, Label, Board, User } from "@/db/schema"
 import { formatDateForMutation } from "@/lib/domain"
 import { trpc } from "@/lib/trpc-client"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { statusUpdatePayload } from "@/lib/team-statuses"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -78,6 +80,7 @@ export function IssueRowContextMenu({
     duplicateOfId?: Issue[`duplicateOfId`]
     priority?: Issue[`priority`]
     status?: Issue[`status`]
+    statusId?: string
   }) => {
     await trpc.issues.update.mutate({
       id: issue.id,
@@ -85,9 +88,13 @@ export function IssueRowContextMenu({
     })
   }
 
+  const { resolve: resolveStatus } = useTeamStatusesContext()
+  const statusOption = resolveStatus(issue)
+  const isCompleted = statusOption.category === `completed`
+
   const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
     issueId: issue.id,
-    onStatusChange: (status) => updateIssue({ status }),
+    onStatusChange: (next) => updateIssue(statusUpdatePayload(next)),
   })
 
   const applyDueDate = (date: Date | null | undefined) => {
@@ -159,19 +166,23 @@ export function IssueRowContextMenu({
             Open issue
           </ContextMenuItem>
 
+          {/* Convenience toggle — deliberately an ENUM write (EXP-314): it
+              always lands on the team's builtin Done / Todo rows via the
+              trigger's anchor derivation, exactly like the native swipe
+              actions and the coding launcher's parking write. The LABEL keys
+              off the resolved category so a custom completed status still
+              reads "Move to todo". */}
           <ContextMenuItem
             onSelect={() => {
-              void updateIssue({
-                status: issue.status === `done` ? `todo` : `done`,
-              })
+              void updateIssue({ status: isCompleted ? `todo` : `done` })
             }}
           >
-            {issue.status === `done` ? (
+            {isCompleted ? (
               <ListTodo className="size-4" />
             ) : (
               <CheckCheck className="size-4" />
             )}
-            {issue.status === `done` ? `Move to todo` : `Mark as done`}
+            {isCompleted ? `Move to todo` : `Mark as done`}
           </ContextMenuItem>
 
           <ContextMenuItem
@@ -198,7 +209,7 @@ export function IssueRowContextMenu({
           <ContextMenuSeparator />
 
           <StatusSubmenu
-            status={issue.status}
+            status={statusOption}
             topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
             onSelect={handleStatusChange}
           />

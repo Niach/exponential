@@ -87,8 +87,8 @@ if (!(outboundFetchCap >= 4096)) {
   console.warn(
     `[server-bun] BUN_CONFIG_MAX_HTTP_REQUESTS=` +
       `${process.env.BUN_CONFIG_MAX_HTTP_REQUESTS ?? `<unset — Bun defaults to 256>`}. ` +
-      `Each synced client holds 14 concurrent Electric long-poll fetches through ` +
-      `this process; ~18 clients saturate Bun's 256 default and stall ALL other ` +
+      `Each synced client holds 16 concurrent Electric long-poll fetches through ` +
+      `this process; ~16 clients saturate Bun's 256 default and stall ALL other ` +
       `outbound fetches. Export BUN_CONFIG_MAX_HTTP_REQUESTS=65336 in the process ` +
       `environment before starting bun (the official Docker image already does).`
   )

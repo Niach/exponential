@@ -13,6 +13,7 @@ import { contract } from "@exp/domain-contract"
 import { boardIconValues } from "@exp/db-schema/domain"
 import registry from "@exp/icons/icons.json" with { type: "json" }
 import {
+  CUSTOM_ICONS,
   ICON_NAMES,
   PICKABLE_ICONS,
   SEMANTIC_ICONS,
@@ -63,17 +64,24 @@ describe(`icon registry`, () => {
   it(`generated.ts mirrors icons.json`, () => {
     expect([...PICKABLE_ICONS]).toEqual(registry.pickable)
     expect(SEMANTIC_ICONS).toEqual(registry.semantic)
+    expect([...CUSTOM_ICONS]).toEqual(Object.keys(registry.custom).sort())
     expect([...ICON_NAMES]).toEqual(
       [
-        ...new Set([...registry.pickable, ...Object.values(registry.semantic)]),
+        ...new Set([
+          ...registry.pickable,
+          ...Object.values(registry.semantic),
+          ...Object.keys(registry.custom),
+        ]),
       ].sort()
     )
   })
 
-  it(`every registry name has a real, non-deprecated lucide icon`, () => {
+  it(`every lucide registry name has a real, non-deprecated lucide icon`, () => {
     // A typo would otherwise surface as a missing asset on three clients and
     // a broken import on the fourth; an alias ships geometry-less art.
-    for (const name of ICON_NAMES) {
+    // Custom (hand-authored) names deliberately have no lucide file.
+    const custom = new Set<string>(CUSTOM_ICONS)
+    for (const name of ICON_NAMES.filter((n) => !custom.has(n))) {
       const file = join(
         repoRoot,
         `node_modules/lucide-react/dist/esm/icons`,
@@ -84,6 +92,34 @@ describe(`icon registry`, () => {
         readFileSync(file, `utf8`).includes(`__iconNode`),
         `${name}: deprecated lucide alias — use the canonical name`
       ).toBe(true)
+    }
+  })
+
+  it(`custom glyphs are single-color and never shadow a lucide name`, () => {
+    // EXP-314 pie clocks: the wedge must be a filled, stroke-less path (the
+    // SVG wrapper's stroke-width 2 would otherwise fatten it), and the whole
+    // glyph must stay one-color — desktop gpui rasterizes SVGs to a single
+    // tinted alpha mask.
+    const custom = registry.custom as unknown as Record<
+      string,
+      [string, Record<string, string>][]
+    >
+    for (const [name, nodes] of Object.entries(custom)) {
+      expect(
+        existsSync(
+          join(repoRoot, `node_modules/lucide-react/dist/esm/icons/${name}.js`)
+        ),
+        `${name}: shadows a real lucide icon`
+      ).toBe(false)
+      for (const [tag, attrs] of nodes) {
+        if (tag === `path` && `fill` in attrs) {
+          expect(attrs.fill).toBe(`currentColor`)
+          expect(
+            (attrs as Record<string, string>).stroke,
+            `${name}: filled wedge must carry stroke="none"`
+          ).toBe(`none`)
+        }
+      }
     }
   })
 

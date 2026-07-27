@@ -3,10 +3,14 @@ import type { IssueFilters } from "@/lib/filters"
 import { matchesFilters } from "@/lib/filters"
 import {
   formatDateForMutation,
-  issueStatusOrder,
   type IssuePriority,
-  type IssueStatus,
+  type IssueStatusCategory,
 } from "@/lib/domain"
+import {
+  statusOptionMatchesToken,
+  type StatusResolvable,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
 
 const priorityRank: Record<IssuePriority, number> = {
   urgent: 0,
@@ -39,24 +43,29 @@ export function timestampMs(value: Date | string): number {
 }
 
 // EXP-38 canonical in-group comparator — the cross-platform contract, mirrored
-// byte-identically on iOS, Android, and desktop (group ORDER itself stays
-// `issueStatusOrder`):
-// - backlog/todo/in_progress: overdue first (dueDate < today), then priority
-//   urgent(0) < high < medium < low < none(4), then dueDate asc with nulls
-//   LAST, then issue `number` asc NUMERICALLY (never the identifier string —
-//   "EXP-10" sorts before "EXP-9" lexicographically).
-// - done: (completedAt ?? updatedAt) DESC — latest completed first.
+// byte-identically on iOS, Android, and desktop. EXP-314 re-keys it from the
+// status ENUM to the group's status CATEGORY (the branches are otherwise
+// unchanged); group ORDER itself is the team's `teamStatuses` sequence.
+// - backlog/unstarted/started (and anything unknown): overdue first
+//   (dueDate < today), then priority urgent(0) < high < medium < low < none(4),
+//   then dueDate asc with nulls LAST, then issue `number` asc NUMERICALLY
+//   (never the identifier string — "EXP-10" sorts before "EXP-9"
+//   lexicographically).
+// - completed: (completedAt ?? updatedAt) DESC — latest completed first.
 // - cancelled/duplicate: updatedAt DESC.
-export function compareIssuesForGroup(status: IssueStatus, today: string) {
+export function compareIssuesForGroup(
+  category: IssueStatusCategory,
+  today: string
+) {
   return (a: SortableIssue, b: SortableIssue): number => {
-    if (status === `done`) {
+    if (category === `completed`) {
       return (
         timestampMs(b.completedAt ?? b.updatedAt) -
         timestampMs(a.completedAt ?? a.updatedAt)
       )
     }
 
-    if (status === `cancelled` || status === `duplicate`) {
+    if (category === `cancelled` || category === `duplicate`) {
       return timestampMs(b.updatedAt) - timestampMs(a.updatedAt)
     }
 
@@ -84,7 +93,10 @@ export function compareIssuesForGroup(status: IssueStatus, today: string) {
 
 export interface IssueGroup {
   issues: Issue[]
-  status: IssueStatus
+  // EXP-314: one group per TEAM STATUS ROW (the resolved option, whose `id` is
+  // the group key — a row uuid, or `builtin:<key>` for a constructed fallback
+  // while the issue_statuses shape is still syncing).
+  status: StatusRowOption
 }
 
 export function buildIssueLabelMap(issueLabels: IssueLabel[], labels: Label[]) {
@@ -121,28 +133,68 @@ export function buildIssueLabelIdsMap(issueLabels: IssueLabel[]) {
 export function buildFilteredIssues(
   issues: Issue[],
   issueLabelIdsMap: Map<string, string[]>,
-  filters: IssueFilters
+  filters: IssueFilters,
+  resolve?: (issue: Issue) => StatusRowOption
 ) {
   return issues.filter((issue) =>
-    matchesFilters(issue, issueLabelIdsMap.get(issue.id) ?? [], filters)
+    matchesFilters(
+      issue,
+      issueLabelIdsMap.get(issue.id) ?? [],
+      filters,
+      resolve?.(issue)
+    )
   )
 }
 
+/**
+ * One group per team status row, in `teamStatuses` order. Every issue joins
+ * `resolve(issue)`'s group; empty groups are hidden unless the view is
+ * status-filtered (matching the pre-EXP-314 behavior, where an explicitly
+ * filtered status stays visible even when empty).
+ *
+ * `statusOptions` / `resolve` come from `useTeamStatuses` — the constructed
+ * fallback set until the shape syncs, so the board renders from the first
+ * frame.
+ */
 export function buildVisibleIssueGroups(
   issues: Issue[],
-  statuses: IssueFilters[`statuses`]
-) {
+  statusOptions: readonly StatusRowOption[],
+  resolve: (issue: StatusResolvable) => StatusRowOption,
+  statusTokens: IssueFilters[`statusTokens`] = []
+): IssueGroup[] {
   const today = formatDateForMutation(new Date()) ?? ``
 
-  const groups = issueStatusOrder.map((status) => ({
-    status,
-    issues: issues
-      .filter((issue) => issue.status === status)
-      .sort(compareIssuesForGroup(status, today)),
-  }))
+  const byKey = new Map<string, Issue[]>(
+    statusOptions.map((option) => [option.id, []])
+  )
+  for (const issue of issues) {
+    const option = resolve(issue)
+    const bucket = byKey.get(option.id)
+    if (bucket) {
+      bucket.push(issue)
+      continue
+    }
+    // A resolved row outside `statusOptions` (constructed fallback while a
+    // partially-synced team's rows land) still gets a group — never drop rows.
+    byKey.set(option.id, [issue])
+  }
 
-  if (statuses.length > 0) {
-    return groups.filter((group) => statuses.includes(group.status))
+  const optionById = new Map<string, StatusRowOption>(
+    statusOptions.map((option) => [option.id, option])
+  )
+  const groups: IssueGroup[] = []
+  for (const [key, bucket] of byKey) {
+    const option = optionById.get(key) ?? resolve(bucket[0])
+    groups.push({
+      status: option,
+      issues: bucket.sort(compareIssuesForGroup(option.category, today)),
+    })
+  }
+
+  if (statusTokens.length > 0) {
+    return groups.filter((group) =>
+      statusTokens.some((token) => statusOptionMatchesToken(group.status, token))
+    )
   }
 
   return groups.filter((group) => group.issues.length > 0)
@@ -156,8 +208,8 @@ export interface IssueListPosition {
   next: Issue | null
 }
 
-// Flattens the board's visible groups (already in `issueStatusOrder` group
-// order, each pre-sorted by the EXP-38 comparator) into the single
+// Flattens the board's visible groups (already in team-status group order,
+// each pre-sorted by the EXP-38 comparator) into the single
 // user-visible sequence and locates one issue in it — powers the detail
 // header's "N / total" prev/next switcher. Returns null when the issue isn't
 // in the current view (e.g. its status is filtered out), in which case the

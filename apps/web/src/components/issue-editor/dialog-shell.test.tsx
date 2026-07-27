@@ -2,6 +2,13 @@ import { forwardRef, useImperativeHandle, type ReactNode } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { IssueEditorDialogShell } from "@/components/issue-editor/dialog-shell"
+import { defaultStatusOptions } from "@/lib/team-statuses"
+
+// No TeamStatusesProvider in this render tree, so the shell resolves against
+// the CONSTRUCTED default set (EXP-314's unsynced fallback).
+const BACKLOG_STATUS = defaultStatusOptions().find(
+  (option) => option.builtinKey === `backlog`
+)!
 
 const editorFocus = vi.fn()
 
@@ -114,7 +121,7 @@ function baseShellProps() {
     onTitleChange: vi.fn(),
     description: `Initial description`,
     onDescriptionChange: vi.fn(),
-    status: `backlog` as const,
+    status: BACKLOG_STATUS,
     onStatusChange: vi.fn(),
     priority: `none` as const,
     onPriorityChange: vi.fn(),
@@ -151,7 +158,7 @@ describe(`IssueEditorDialogShell`, () => {
         onTitleChange={onTitleChange}
         description="Initial description"
         onDescriptionChange={vi.fn()}
-        status="backlog"
+        status={BACKLOG_STATUS}
         onStatusChange={onStatusChange}
         priority="none"
         onPriorityChange={onPriorityChange}
@@ -184,7 +191,9 @@ describe(`IssueEditorDialogShell`, () => {
 
     expect(onTitleChange).toHaveBeenCalledWith(`Updated title`)
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(onStatusChange).toHaveBeenCalledWith(`in_review`)
+    expect(onStatusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ builtinKey: `in_review`, name: `In Review` })
+    )
     expect(onPriorityChange).toHaveBeenCalledWith(`high`)
     expect(onToggleLabel).toHaveBeenCalledWith(`label-1`)
     expect(onAssigneeChange).toHaveBeenCalledWith(`user-2`)

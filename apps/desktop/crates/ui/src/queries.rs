@@ -14,10 +14,11 @@ use gpui::App;
 use sync::Store;
 
 use domain::board::{
-    build_filtered_issues, build_issue_label_ids_map, build_visible_issue_groups, IssueGroup,
+    build_filtered_issues, build_issue_label_ids_map, build_status_groups, IssueGroup,
 };
 use domain::filters::IssueFilters;
-use domain::rows::Label;
+use domain::rows::{IssueStatusRow, Label};
+use domain::statuses::{resolve_status_sorted, sort_team_statuses, ResolvedStatus};
 
 use crate::session::AuthContext;
 
@@ -41,7 +42,12 @@ pub struct BoardData {
 pub fn board_board(cx: &App, board_id: &str, filters: &IssueFilters) -> BoardData {
     let collections = Store::global(cx).collections();
     let issues = collections.issues_in_board(board_id, cx);
-    board_data_from(cx, issues, filters)
+    let team_id = collections
+        .boards
+        .read(cx)
+        .get(board_id)
+        .map(|board| board.team_id.clone());
+    board_data_from(cx, issues, team_id.as_deref(), filters)
 }
 
 /// `use-my-issues-data.ts`: the team's issues assigned to me, filtered +
@@ -58,12 +64,13 @@ pub fn my_issues(
         .into_iter()
         .filter(|issue| issue.assignee_id.as_deref() == Some(user_id))
         .collect();
-    board_data_from(cx, issues, filters)
+    board_data_from(cx, issues, Some(team_id), filters)
 }
 
 fn board_data_from(
     cx: &App,
     issues: Vec<domain::rows::Issue>,
+    team_id: Option<&str>,
     filters: &IssueFilters,
 ) -> BoardData {
     let collections = Store::global(cx).collections();
@@ -71,14 +78,22 @@ fn board_data_from(
         && collections.boards.read(cx).is_ready()
         && collections.issue_labels.read(cx).is_ready()
         && collections.labels.read(cx).is_ready();
+    // EXP-314 deliberately does NOT gate readiness on the `issue_statuses`
+    // shape: a board rendered before it lands groups by the CONSTRUCTED
+    // builtin defaults, which look identical, and re-keys once the rows
+    // arrive. Gating would hang the whole list on a permanent skeleton
+    // against a server that does not serve the shape at all.
 
     let issue_links: Vec<_> = collections.issue_labels.read(cx).iter().cloned().collect();
     let label_ids_by_issue = build_issue_label_ids_map(&issue_links);
 
+    // EXP-314: the board groups by the team's OWN status rows.
+    let status_rows = team_id.map(|id| team_statuses(cx, id)).unwrap_or_default();
+
     let has_any_issues = !issues.is_empty();
-    let filtered = build_filtered_issues(issues, &label_ids_by_issue, filters);
+    let filtered = build_filtered_issues(issues, &label_ids_by_issue, &status_rows, filters);
     let today = today_local();
-    let groups = build_visible_issue_groups(&filtered, &filters.statuses, &today);
+    let groups = build_status_groups(&filtered, &status_rows, &filters.status_keys, &today);
 
     // Resolve label rows for the chips (web buildIssueLabelMap: unknown label
     // ids are skipped — referential integrity is a query-time concern, §5.4).
@@ -247,6 +262,46 @@ pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool
     out.insert(0, api::actions::builtin_fix_conflicts_action(team_id));
     out.insert(0, api::actions::builtin_create_action(team_id));
     (out, collection.is_ready())
+}
+
+/// EXP-314: a team's `issue_statuses` rows in the canonical order (category
+/// display order, then `sort_order`, `created_at`, `id`). The ONE read every
+/// status surface goes through — pass the result straight to
+/// `domain::statuses::resolve_status_sorted` so clock positions agree.
+pub fn team_statuses(cx: &App, team_id: &str) -> Vec<IssueStatusRow> {
+    let collections = Store::global(cx).collections();
+    let rows: Vec<IssueStatusRow> = collections
+        .issue_statuses
+        .read(cx)
+        .iter()
+        .filter(|row| row.team_id == team_id)
+        .cloned()
+        .collect();
+    sort_team_statuses(&rows)
+}
+
+/// A team's status vocabulary as the pickers/filters render it — the synced
+/// rows, or the constructed `builtin:<key>` defaults while the shape has not
+/// landed its first snapshot (so a picker is never empty).
+pub fn team_status_options(cx: &App, team_id: &str) -> Vec<ResolvedStatus> {
+    domain::statuses::team_resolved_statuses(&team_statuses(cx, team_id))
+}
+
+/// Resolve ONE issue's status against its board's team (the per-row read the
+/// cross-team surfaces use — resolution is per-issue, only GROUPING is
+/// team-scoped). Falls back to the constructed default when the board/team is
+/// not synced yet.
+pub fn resolve_issue_status(cx: &App, issue: &domain::rows::Issue) -> ResolvedStatus {
+    let collections = Store::global(cx).collections();
+    let team_id = collections
+        .boards
+        .read(cx)
+        .get(&issue.board_id)
+        .map(|board| board.team_id.clone());
+    match team_id {
+        Some(team_id) => resolve_status_sorted(issue, &team_statuses(cx, &team_id)),
+        None => domain::statuses::constructed_default(issue.status),
+    }
 }
 
 /// The label-picker read (`label-picker.tsx`): a team's labels,

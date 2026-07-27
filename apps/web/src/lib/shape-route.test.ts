@@ -12,6 +12,7 @@ import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as actionsRoute } from "@/routes/api/shapes/actions"
+import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
 
 const {
   resolveSession,
@@ -400,6 +401,51 @@ describe(`shape column + trash contracts`, () => {
     // actions have no board scope).
     expect(originUrl.searchParams.get(`where`)).toBe(
       `"team_id" IN ('w-1','w-2')`
+    )
+  })
+
+  it(`pins the issue-statuses columns and scopes members by team`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
+
+    await shapeHandler(issueStatusesRoute)({
+      request: new Request(`https://example.com/api/shapes/issue-statuses`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toEqual([
+      `id`,
+      `team_id`,
+      `category`,
+      `name`,
+      `color`,
+      `sort_order`,
+      `builtin_key`,
+      `created_at`,
+      `updated_at`,
+    ])
+    // Team-scoped like labels — statuses aren't board children, so no trash
+    // predicate; the id list comes out sorted (shape-identity stability).
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"team_id" IN ('w-1','w-2')`
+    )
+  })
+
+  it(`anonymous issue-statuses requests get the impossible-match sentinel`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue(null)
+    prepareElectricUrl.mockReturnValue(originUrl)
+
+    await shapeHandler(issueStatusesRoute)({
+      request: new Request(`https://example.com/api/shapes/issue-statuses`),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"id" = '00000000-0000-0000-0000-000000000000'`
     )
   })
 

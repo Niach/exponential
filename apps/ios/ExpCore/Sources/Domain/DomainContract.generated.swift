@@ -6,6 +6,14 @@ import Foundation
 public enum DomainContract {
     public static let issueStatusValues: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
     public static let issueStatusDisplayOrder: [String] = ["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"]
+    public static let issueStatusCategoryValues: [String] = ["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"]
+    public static let issueStatusCategoryDisplayOrder: [String] = ["started", "unstarted", "backlog", "completed", "cancelled", "duplicate"]
+    public static let issueStatusCategorySettingsOrder: [String] = ["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"]
+    public static let issueStatusDefaultKeys: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
+    public static let issueStatusDefaultCategories: [String] = ["backlog", "unstarted", "started", "started", "completed", "cancelled", "duplicate"]
+    public static let issueStatusDefaultNames: [String] = ["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
+    public static let issueStatusDefaultColors: [String] = ["#A1A1AA", "#FAFAFA", "#EAB308", "#22C55E", "#3B82F6", "#A1A1AA", "#A1A1AA"]
+    public static let issueStatusDefaultSortOrders: [Int] = [1, 1, 1, 2, 1, 1, 1]
     public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
     public static let issueSourceValues: [String] = ["user", "widget"]
@@ -26,12 +34,19 @@ public enum DomainContract {
     public static let piThinkingValues: [String] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
     public static let actionInputTypeValues: [String] = ["text", "repo", "board", "pr", "icon"]
 
+    public static let issueStatusStartedMax: Int = 4
     public static let codingSessionStaleMs: Int = 7200000
     public static let builtinCreateActionId: String = "builtin:create-action"
     public static let builtinFixConflictsId: String = "builtin:fix-conflicts"
     public static let actionInputsMax: Int = 10
     public static let actionInputTextMax: Int = 4096
 
+    public static let issueStatusCategoryBacklog: String = "backlog"
+    public static let issueStatusCategoryUnstarted: String = "unstarted"
+    public static let issueStatusCategoryStarted: String = "started"
+    public static let issueStatusCategoryCompleted: String = "completed"
+    public static let issueStatusCategoryCancelled: String = "cancelled"
+    public static let issueStatusCategoryDuplicate: String = "duplicate"
     public static let issueSourceUser: String = "user"
     public static let issueSourceWidget: String = "widget"
     public static let teamRoleOwner: String = "owner"

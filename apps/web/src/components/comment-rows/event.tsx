@@ -9,8 +9,14 @@ import {
 import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 
-function statusLabel(s: string): string {
-  return s.replace(/_/g, ` `)
+// EXP-314: `status_changed` payloads now carry the human status NAMES
+// (`fromName`/`toName`) alongside the legacy enum anchors, so a custom status
+// reads as itself. Rows written before EXP-314 have no names — fall back to
+// the enum munge.
+function statusLabel(payload: Record<string, unknown>, side: `to` | `from`): string {
+  const name = payload[side === `to` ? `toName` : `fromName`]
+  if (typeof name === `string` && name.length > 0) return name
+  return String(payload[side] ?? ``).replace(/_/g, ` `)
 }
 
 // A compact, single-line activity entry (status/assignee/label/PR).
@@ -39,7 +45,7 @@ export function EventRow({
         <>
           changed status to{` `}
           <span className="font-medium text-foreground">
-            {statusLabel(String(payload.to ?? ``))}
+            {statusLabel(payload, `to`)}
           </span>
         </>
       )

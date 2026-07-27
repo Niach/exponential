@@ -151,8 +151,11 @@ pub struct CreateIssueDialogView {
     /// The §4.5 block editor in create-dialog (staging) mode: pasted images
     /// stay `draft://` blocks until submit resolves them.
     description: Entity<WysiwygDescription>,
-    status: IssueStatus,
-    default_status: IssueStatus,
+    /// EXP-314: the picked status as a wire-ready pick (a synced row id, or
+    /// the enum anchor of a constructed `builtin:<key>` fallback).
+    status: crate::pickers::StatusPick,
+    /// The team's backlog builtin, re-applied by "Create more" resets.
+    default_status: crate::pickers::StatusPick,
     priority: IssuePriority,
     /// EXP-50: `Some(member)` when the team has exactly one human
     /// member at dialog open — the assignee chip hides and `assignee_id`
@@ -259,13 +262,26 @@ impl CreateIssueDialogView {
             _ => None,
         };
 
+        // EXP-314: the default is the team's BACKLOG BUILTIN row (web parity:
+        // new issues start in backlog). Before the statuses shape syncs this
+        // is the constructed `builtin:backlog` fallback, which writes the enum
+        // anchor instead of a `statusId`.
+        let default_status = crate::pickers::StatusPick::from_resolved(
+            &queries::team_status_options(cx, &team_id)
+                .into_iter()
+                .find(|status| status.builtin_key.as_deref() == Some("backlog"))
+                .unwrap_or_else(|| {
+                    domain::statuses::constructed_default(IssueStatus::Backlog)
+                }),
+        );
+
         Self {
             board_id,
             team_id,
             title,
             description,
-            status: IssueStatus::Backlog,
-            default_status: IssueStatus::Backlog,
+            status: default_status.clone(),
+            default_status,
             priority: IssuePriority::None,
             assignee_id: solo_member_id.clone(),
             solo_member_id,
@@ -327,7 +343,7 @@ impl CreateIssueDialogView {
         self.description.update(cx, |editor, cx| {
             editor.set_markdown("", window, cx);
         });
-        self.status = self.default_status;
+        self.status = self.default_status.clone();
         self.priority = IssuePriority::None;
         // EXP-50: the solo-member default survives "Create more" resets.
         self.assignee_id = self.solo_member_id.clone();
@@ -362,7 +378,7 @@ impl CreateIssueDialogView {
         // Build the exact web mutation input (`create-issue-dialog.tsx`
         // handleSubmit).
         let mut input = api::issues::IssuesCreateInput::new(self.board_id.clone(), title);
-        input.status = Some(self.status);
+        self.status.apply_to_create(&mut input);
         input.priority = Some(self.priority);
         input.assignee_id = self.assignee_id.clone();
         // Web submit flow (create-issue-dialog.tsx): create with the staged
@@ -500,20 +516,36 @@ impl CreateIssueDialogView {
     // -- chips (web `issue-editor/chips.tsx`) --------------------------------
 
     fn status_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let config = domain::options::get_issue_status_config(self.status);
-        let current = self.status;
+        // EXP-314: the chip renders the picked TEAM status; the menu lists the
+        // team's own vocabulary (constructed defaults before the shape syncs).
+        let statuses = crate::queries::team_status_options(cx, &self.team_id);
+        let current = self.status.clone();
+        let resolved = statuses
+            .iter()
+            .find(|status| {
+                status.row_id.is_some() && status.row_id == current.status_id
+                    || (current.status_id.is_none() && status.anchor() == current.anchor)
+            })
+            .cloned()
+            .unwrap_or_else(|| domain::statuses::constructed_default(current.anchor));
+        let current_key = resolved.group_key.clone();
         let view = cx.entity().clone();
         chip_button("create-status-chip", cx)
-            .icon(option_icon(config, cx))
-            .label(SharedString::from(config.label))
+            .icon(crate::icons::resolved_status_icon(&resolved, cx))
+            .label(SharedString::from(resolved.name.clone()))
             .dropdown_menu(move |menu, _window, cx| {
                 let view = view.clone();
+                let statuses = crate::queries::team_status_options(cx, &view.read(cx).team_id);
                 crate::pickers::status_menu(
                     menu,
-                    current,
-                    Rc::new(move |value, _window, cx| {
+                    &statuses,
+                    &current_key,
+                    // A brand-new issue can't be a duplicate of anything yet —
+                    // no duplicate row here (web `creatableStatusOptions`).
+                    crate::pickers::StatusMenuScope::Assignable,
+                    Rc::new(move |pick, _window, cx| {
                         view.update(cx, |this, cx| {
-                            this.status = value;
+                            this.status = pick;
                             cx.notify();
                         });
                     }),

@@ -18,6 +18,9 @@ export interface ResolvedIssueRef {
   identifier: string
   title: string
   status: IssueStatus
+  // EXP-314: carried so the ref/autocomplete/duplicate-picker rows render the
+  // team's own status glyph, not just the anchor's.
+  statusId: string | null
   boardSlug: string
 }
 
@@ -76,6 +79,7 @@ export function IssueRefProvider({
         identifier: issue.identifier,
         title: issue.title,
         status: issue.status,
+        statusId: issue.statusId,
         boardSlug,
       })
     }

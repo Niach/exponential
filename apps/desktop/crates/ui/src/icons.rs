@@ -19,6 +19,7 @@ use gpui_component_macros::icon_named;
 
 use domain::options::{ColorToken, IconGlyph, IssueOption};
 use domain::rows::Board;
+use domain::statuses::StatusTint;
 
 // Generates `pub enum ExpIcon { CalendarDays, Circle, CircleCheck, … }` from
 // the SVG files (path relative to this crate's CARGO_MANIFEST_DIR). `build.rs`
@@ -49,6 +50,13 @@ pub fn glyph_icon(glyph: IconGlyph) -> Icon {
         IconGlyph::Circle => ExpIcon::Circle,
         IconGlyph::Timer => ExpIcon::Timer,
         IconGlyph::GitPullRequest => ExpIcon::GitPullRequest,
+        IconGlyph::Progress14 => ExpIcon::Progress14,
+        IconGlyph::Progress24 => ExpIcon::Progress24,
+        IconGlyph::Progress34 => ExpIcon::Progress34,
+        IconGlyph::Progress15 => ExpIcon::Progress15,
+        IconGlyph::Progress25 => ExpIcon::Progress25,
+        IconGlyph::Progress35 => ExpIcon::Progress35,
+        IconGlyph::Progress45 => ExpIcon::Progress45,
         IconGlyph::CircleCheck => ExpIcon::CircleCheck,
         IconGlyph::CircleX => ExpIcon::CircleX,
         IconGlyph::Copy => ExpIcon::Copy,
@@ -79,6 +87,25 @@ pub fn token_color(token: ColorToken, cx: &App) -> Hsla {
 /// The colored icon of one option-table row (`web <Icon className={color}>`).
 pub fn option_icon<V: 'static>(option: &IssueOption<V>, cx: &App) -> Icon {
     glyph_icon(option.icon).text_color(token_color(option.color, cx))
+}
+
+/// EXP-314: a resolved status' color. Builtin (and constructed-fallback) rows
+/// resolve their THEME token — byte identical to pre-EXP-314 rendering and
+/// theme-reactive; custom rows parse their stored hex through the same path
+/// the label dots use, degrading to `muted_foreground` on a bad value.
+pub fn status_tint_color(tint: &StatusTint, cx: &App) -> Hsla {
+    match tint {
+        StatusTint::Token(token) => token_color(*token, cx),
+        StatusTint::Hex(hex) => {
+            crate::settings::parse_hex_color(hex).unwrap_or(cx.theme().muted_foreground)
+        }
+    }
+}
+
+/// The colored icon of a resolved status — the ONE status-icon entrypoint the
+/// per-team surfaces render through (`option_icon`'s dynamic sibling).
+pub fn resolved_status_icon(status: &domain::statuses::ResolvedStatus, cx: &App) -> Icon {
+    glyph_icon(status.glyph).text_color(status_tint_color(&status.tint, cx))
 }
 
 /// One curated icon name (`domain::contract::BOARD_ICON_VALUES`) → its glyph.
@@ -151,6 +178,20 @@ mod tests {
             let expected = format!("icons/{}.svg", glyph.file_name());
             assert_eq!(path_of(glyph), expected);
         }
+        // EXP-314: every pie clock the started-category table can pick (the
+        // 4-clock table subsumes the 2- and 3-clock ones for counts 1..=5).
+        for count in 1..=5 {
+            for index in 0..count {
+                let glyph = domain::statuses::started_clock_glyph(index, count);
+                let expected = format!("icons/{}.svg", glyph.file_name());
+                assert_eq!(path_of(glyph), expected, "clock {index}/{count}");
+            }
+        }
+        // And every non-started category glyph.
+        for category in domain::statuses::IssueStatusCategory::DISPLAY_ORDER {
+            let glyph = domain::statuses::category_glyph(category, 0, 2);
+            assert_eq!(path_of(glyph), format!("icons/{}.svg", glyph.file_name()));
+        }
     }
 
     fn path_of(glyph: IconGlyph) -> String {
@@ -159,6 +200,13 @@ mod tests {
             IconGlyph::Circle => ExpIcon::Circle,
             IconGlyph::Timer => ExpIcon::Timer,
             IconGlyph::GitPullRequest => ExpIcon::GitPullRequest,
+            IconGlyph::Progress14 => ExpIcon::Progress14,
+            IconGlyph::Progress24 => ExpIcon::Progress24,
+            IconGlyph::Progress34 => ExpIcon::Progress34,
+            IconGlyph::Progress15 => ExpIcon::Progress15,
+            IconGlyph::Progress25 => ExpIcon::Progress25,
+            IconGlyph::Progress35 => ExpIcon::Progress35,
+            IconGlyph::Progress45 => ExpIcon::Progress45,
             IconGlyph::CircleCheck => ExpIcon::CircleCheck,
             IconGlyph::CircleX => ExpIcon::CircleX,
             IconGlyph::Copy => ExpIcon::Copy,

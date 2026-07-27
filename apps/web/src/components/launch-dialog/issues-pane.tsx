@@ -3,7 +3,7 @@ import type { Issue } from "@/db/schema"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 
 // The Issues tab of the unified launch dialog (EXP-257) — a presentational
 // extraction of the Start-coding dialog's issue picker column. All state
@@ -82,7 +82,7 @@ export function IssuesPane({
                   tabIndex={-1}
                   className="pointer-events-none"
                 />
-                <StatusIcon status={issue.status} className="size-4 shrink-0" />
+                <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
                 <span className="shrink-0 font-mono text-xs text-muted-foreground">
                   {issue.identifier}
                 </span>
