@@ -39,10 +39,6 @@ rust-embed.workspace = true
 anyhow.workspace = true
 flume.workspace = true
 dirs.workspace = true
-# EXP-300: the binary installs the process-wide `log` sink (`logging.rs`).
-# Without it every `log::warn!`/`log::error!` in this workspace — including the
-# ones on the quit path we most need — is silently discarded.
-log = "0.4"
 
 # macOS: assert this bundle as the default `exponential://` handler at startup
 # (self-registration, the Linux `desktop_integration` analog). core-foundation

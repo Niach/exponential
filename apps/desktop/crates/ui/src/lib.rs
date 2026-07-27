@@ -61,7 +61,6 @@ mod pickers;
 mod pr_diff;
 mod properties_panel;
 mod queries;
-mod quit;
 mod repo_resolver;
 mod screens;
 mod scroll_pane;
@@ -91,7 +90,6 @@ pub use actions::*;
 pub use icons::ExpIcon;
 pub use navigation::{navigate, Screen};
 pub use oauth::handle_open_urls;
-pub use quit::arm_quit_watchdog;
 pub use update::check_for_updates;
 pub use session::{
     bootstrap as bootstrap_session, sign_out_active, upgrade_required_handler, AuthContext,
@@ -112,11 +110,6 @@ pub fn init(cx: &mut App) {
     // launched — without it a closed IDE ghosts the "coding now" badge on
     // every client until the server staleness sweep catches it.
     coding_flow::install_quit_hook(cx);
-    // EXP-300: bound the quit. `applicationWillTerminate:` drives all of the
-    // above on the main thread and AppKit only calls `exit(0)` once it
-    // returns — a blocker there leaves the process alive with no windows,
-    // which macOS then hands the next launch to as a re-open.
-    quit::init(cx);
     // EXP-65 multi-window undock: the observable registry the screens panel
     // and terminal dock filter against.
     undock::init(cx);

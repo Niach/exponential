@@ -73,12 +73,6 @@ sha2 = "0.10"
 # id — a compile-time cost, not an identity split).
 gpui = { workspace = true, features = ["test-support"] }
 
-# EXP-300 quit watchdog (`quit.rs`): leaves via `_exit`, deliberately skipping
-# the atexit/`__cxa_finalize` pass — that chain is itself a candidate for the
-# hang the watchdog exists to escape. Already in the tree via gpui.
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
 # EXP-303 macos_blur: objc-runtime insertion of a working frosted backdrop
 # (NSGlassEffectView / NSVisualEffectView) into gpui's Blurred windows —
 # gpui's own BlurredView renders no backdrop on current macOS. Both crates

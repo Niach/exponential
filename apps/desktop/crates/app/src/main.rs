@@ -15,7 +15,6 @@
 mod actions;
 mod assets;
 mod channel;
-mod logging;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod desktop_integration;
 #[cfg(target_os = "macos")]
@@ -31,11 +30,6 @@ mod x11_window_icon;
 mod windows_integration;
 
 fn main() {
-    // FIRST: install the file log sink (EXP-300). Anything logged before this
-    // goes to `log`'s no-op default, and the single-instance paths below
-    // already have failures worth recording.
-    logging::init();
-
     // OAuth-callback channel (exponential:// → §5.7): filled by the macOS
     // `on_open_urls` surface AND — on Linux, where gpui never invokes that —
     // by the single-instance datagram bridge. Drained by a foreground task
