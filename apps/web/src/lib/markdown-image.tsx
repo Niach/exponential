@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 import { attachmentCollection } from "@/lib/collections"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -324,22 +324,13 @@ function MarkdownImageNodeView({
         draggable="false"
         onClick={editor.isEditable ? undefined : () => setLightboxOpen(true)}
       />
-      <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-        <DialogContent
-          // sm:w-auto opts out of DialogContent's sm:w-[calc(100%-2rem)]
-          // gutter width — the lightbox panel hugs the image instead of
-          // spanning the viewport with the image left-aligned inside it.
-          className="w-auto max-w-[min(96vw,80rem)] p-2 max-sm:content-center max-sm:justify-items-center sm:w-auto sm:max-w-[min(96vw,80rem)]"
-          aria-describedby={undefined}
-        >
-          <DialogTitle className="sr-only">{imageLabel}</DialogTitle>
-          <img
-            src={fullSizeSrc}
-            alt={alt}
-            className="max-h-[85vh] w-auto max-w-full rounded-md object-contain"
-          />
-        </DialogContent>
-      </Dialog>
+      <ImagePreviewDialog
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+        src={fullSizeSrc}
+        alt={alt}
+        label={imageLabel}
+      />
     </NodeViewWrapper>
   )
 }

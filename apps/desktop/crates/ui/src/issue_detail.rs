@@ -735,27 +735,34 @@ impl IssueDetailView {
             .collect();
 
         let issue_id = issue.id.clone();
-        let header = h_flex()
-            .w_full()
-            .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Files"),
-            )
-            .child(
-                Button::new("issue-files-attach")
-                    .ghost()
-                    .xsmall()
-                    .icon(Icon::from(ExpIcon::Paperclip).xsmall())
-                    .label("Attach file")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.pick_files(issue_id.clone(), window, cx);
-                    })),
-            );
+        // EXP-316: icon-only attach button (tooltip carries the wording), and
+        // with nothing to list the whole section collapses to just it — no
+        // "Files" heading (web parity).
+        let attach_button = Button::new("issue-files-attach")
+            .ghost()
+            .xsmall()
+            .icon(Icon::from(ExpIcon::Paperclip).xsmall())
+            .tooltip("Attach file")
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.pick_files(issue_id.clone(), window, cx);
+            }));
+        let has_rows = !attachments.is_empty() || !pending.is_empty();
+        let header = if has_rows {
+            h_flex()
+                .w_full()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_xs()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Files"),
+                )
+                .child(attach_button)
+        } else {
+            h_flex().w_full().items_center().justify_end().child(attach_button)
+        };
 
         let mut section = v_flex()
             .w_full()
@@ -941,9 +948,9 @@ impl IssueDetailView {
             let Some(paths) = paths else {
                 return;
             };
-            this.update(cx, |this, cx| {
+            this.update_in(cx, |this, window, cx| {
                 for path in paths {
-                    this.start_file_upload(issue_id.clone(), path, cx);
+                    this.start_file_upload(issue_id.clone(), path, window, cx);
                 }
             })
             .ok();
@@ -953,11 +960,14 @@ impl IssueDetailView {
 
     /// Stage one picked path and upload it in the background. The 50 MB read
     /// happens off the foreground too (a big file would otherwise freeze the
-    /// window before the row even appears).
+    /// window before the row even appears). Inline-image picks route to the
+    /// image upload endpoint and land INLINE at the bottom of the description
+    /// (EXP-316) — they never live in the Files rail on any client.
     fn start_file_upload(
         &mut self,
         issue_id: String,
         path: PathBuf,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
         let key = self.next_pending_file_key;
@@ -979,26 +989,35 @@ impl IssueDetailView {
             self.fail_pending_file(key, "Not signed in".into(), cx);
             return;
         };
-        cx.spawn(async move |this, cx| {
+        let upload_issue = issue_id.clone();
+        cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     let (filename, content_type, bytes) =
                         crate::markdown::read_any_file(&path)?;
-                    // Deflect inline-image picks: uploaded through /files they
-                    // would be invisible everywhere (filtered out of every
-                    // client's Files section, referenced by no markdown) and
-                    // eventually deleted by the unreferenced-image sweep.
                     if is_inline_image(Some(content_type.as_str())) {
-                        anyhow::bail!(
-                            "Images go in the description — add them with the editor's image button"
-                        );
+                        // The /images endpoint enforces the inline-image
+                        // contract (type + 10 MB cap) atomically.
+                        transport
+                            .upload(&upload_issue, &filename, &content_type, &bytes)
+                            .map(|uploaded| (uploaded, true))
+                    } else {
+                        transport
+                            .upload_file(&upload_issue, &filename, &content_type, &bytes)
+                            .map(|uploaded| (uploaded, false))
                     }
-                    transport.upload_file(&issue_id, &filename, &content_type, &bytes)
                 })
                 .await;
-            this.update(cx, |this, cx| match result {
-                Ok(uploaded) => {
+            this.update_in(cx, |this, window, cx| match result {
+                Ok((uploaded, true)) => {
+                    // The image is part of the description now — the pending
+                    // Files row has nothing to wait for.
+                    this.pending_files.retain(|pending| pending.key != key);
+                    this.append_image_to_description(issue_id, uploaded, window, cx);
+                    cx.notify();
+                }
+                Ok((uploaded, false)) => {
                     if let Some(pending) = this
                         .pending_files
                         .iter_mut()
@@ -1016,6 +1035,39 @@ impl IssueDetailView {
             .ok();
         })
         .detach();
+    }
+
+    /// EXP-316: append a just-uploaded inline image to the BOTTOM of the
+    /// description and persist. Any pending user edit is flushed first so the
+    /// append builds on the flushed text and `set_markdown` replaces a clean
+    /// buffer (the file dialog already took focus off the editor).
+    fn append_image_to_description(
+        &mut self,
+        issue_id: String,
+        uploaded: crate::markdown::UploadedImage,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.flush_description(cx);
+        let current = self.last_saved_description.borrow().clone();
+        let alt = uploaded
+            .filename
+            .clone()
+            .unwrap_or_else(|| "image".to_string());
+        let image_ref = format!("![{alt}]({})", uploaded.url);
+        let next = if current.is_empty() {
+            image_ref
+        } else {
+            format!("{current}\n\n{image_ref}")
+        };
+        if let Some(editor) = self.editor.clone() {
+            editor.set_markdown(&next, window, cx);
+            editor.mark_clean(cx);
+        }
+        *self.last_saved_description.borrow_mut() = next.clone();
+        let mut input = api::issues::IssuesUpdateInput::new(issue_id);
+        input.description = api::Patch::Set(next);
+        spawn_issue_update(cx, input);
     }
 
     fn fail_pending_file(&mut self, key: u64, message: SharedString, cx: &mut gpui::Context<Self>) {

@@ -50,6 +50,14 @@ const DESKTOP_TAG_PREFIX: &str = "desktop-v";
 /// per interval (limit: 60/h/IP) — an IDE left open for days still learns
 /// about new releases, which the old launch-only check never did (EXP-68).
 const RECHECK_INTERVAL: Duration = Duration::from_secs(4 * 60 * 60);
+/// Re-fetch cadence while the app sits BLOCKED (EXP-104) without an
+/// installable release. The server's min-version gate can run ahead of the
+/// GitHub release (426s start while the release assets are still building or
+/// uploading), and the check itself can transiently fail — a blocked user must
+/// not stare at the browser fallback for a whole [`RECHECK_INTERVAL`]
+/// (EXP-316). One unauthenticated API call per minute stays well inside the
+/// 60/h/IP limit.
+const BLOCKED_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 /// GitHub rejects API calls without a User-Agent.
 const USER_AGENT: &str = "exp-desktop-update-check";
 
@@ -79,6 +87,18 @@ fn releases_api() -> String {
 /// release/plan is known (staging, dev, or an assetless release).
 pub fn releases_page_url() -> &'static str {
     RELEASES_PAGE
+}
+
+/// Why this install can only offer the browser link, one sentence fragment
+/// for the blocking view to surface (EXP-316) — `None` when the install can
+/// self-update (a missing plan is then about the RELEASE, not the install).
+pub fn self_update_unavailable_reason() -> Option<String> {
+    if !CHANNEL_CHECKS_UPDATES {
+        return Some(
+            "staging builds don't self-update (deployed by hand)".to_string(),
+        );
+    }
+    updater::self_update_unavailable_reason()
 }
 
 /// A newer release the user can download or install.
@@ -190,7 +210,14 @@ impl UpdateState {
         match &self.available {
             Some(current) if current.version == info.version => {
                 // Same release re-confirmed — keep phase (a Failed banner
-                // keeps its retry affordance) and the dismissal.
+                // keeps its retry affordance) and the dismissal. But adopt a
+                // newly buildable install plan (EXP-316): the first fetch can
+                // land while the release's assets are still uploading, and a
+                // later re-fetch is the only way "Download update" upgrades to
+                // the in-app "Update now" pipeline.
+                if current.plan.is_none() && info.plan.is_some() {
+                    self.available = Some(info);
+                }
             }
             _ => {
                 self.dismissed = false;
@@ -219,12 +246,18 @@ impl UpdateState {
 
     /// Gate the app into the blocking "Update required" state (EXP-104 — the
     /// sync/tRPC layer saw a 426). Idempotent: repeat 426s (many shape
-    /// threads) collapse to one transition. When no release is known yet it
-    /// kicks off ONE immediate `fetch_latest()` — bypassing the 4h loop — so
-    /// the blocking view can offer the in-app "Update now" pipeline rather than
-    /// only a browser link. On the staging channel (which publishes no assets
-    /// and never checks) the fetch is skipped and the view degrades to the
-    /// browser-link fallback.
+    /// threads) collapse to one transition. While blocked without an
+    /// INSTALLABLE release it fetches immediately and then keeps re-fetching
+    /// every [`BLOCKED_RETRY_INTERVAL`] — bypassing the 4h loop — until the
+    /// blocking view can offer the in-app "Update now" pipeline. One shot was
+    /// not enough (EXP-316): the min-version gate regularly runs AHEAD of the
+    /// published release (426s begin while the release assets are still
+    /// building/uploading), and a transiently failed fetch left Linux users on
+    /// the browser-link fallback for up to 4h. On the staging channel (which
+    /// publishes no assets and never checks) fetching is skipped and the view
+    /// degrades to the browser-link fallback; banner-only installs (dev
+    /// builds, unwritable dirs) stop after the first successful fetch — no
+    /// re-fetch can improve on the browser link there.
     pub fn set_blocked(cx: &mut App) {
         let model = Self::global(cx);
         let need_fetch = model.update(cx, |state, cx| {
@@ -233,22 +266,36 @@ impl UpdateState {
             }
             state.blocked = true;
             cx.notify();
-            // Fetch only if we don't already know a release and the channel
+            // Poll only while no installable release is known and the channel
             // checks (staging has no published assets to install).
-            state.available.is_none() && CHANNEL_CHECKS_UPDATES
+            CHANNEL_CHECKS_UPDATES
+                && model_needs_plan(state)
         });
         if !need_fetch {
             return;
         }
         cx.spawn(async move |cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { fetch_latest() })
-                .await;
-            if let Ok(Some(info)) = result {
-                let _ = cx.update(|cx| {
-                    model.update(cx, |state, cx| state.offer(info, cx));
-                });
+            // Bounded (~30min of 1/min polls) — the 4h check loop keeps
+            // running in parallel and re-offers on its own cadence anyway.
+            for _ in 0..30 {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { fetch_latest() })
+                    .await;
+                if let Ok(Some(info)) = result {
+                    let _ = cx.update(|cx| {
+                        model.update(cx, |state, cx| state.offer(info, cx));
+                    });
+                }
+                let needs_plan = cx.update(|cx| model_needs_plan(model.read(cx)));
+                // A capability that can't self-update never yields a plan —
+                // further fetches would poll GitHub for nothing.
+                if !needs_plan
+                    || !matches!(updater::capability(), updater::Capability::SelfUpdate(_))
+                {
+                    break;
+                }
+                cx.background_executor().timer(BLOCKED_RETRY_INTERVAL).await;
             }
         })
         .detach();
@@ -257,6 +304,16 @@ impl UpdateState {
 
 struct UpdateGlobal(Entity<UpdateState>);
 impl Global for UpdateGlobal {}
+
+/// Whether the blocked-mode poll still has work to do: no release with an
+/// install plan is known yet (EXP-316).
+fn model_needs_plan(state: &UpdateState) -> bool {
+    state
+        .available
+        .as_ref()
+        .and_then(|info| info.plan.as_ref())
+        .is_none()
+}
 
 /// Kick off the update check loop (call once from the app bootstrap, after
 /// the globals are installed): check now, then re-check every
@@ -427,15 +484,20 @@ fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
         .header("User-Agent", USER_AGENT)
         .header("Accept", "application/vnd.github+json")
         .send()
-        .map_err(|_| ())?;
+        .map_err(|err| {
+            log::warn!("[ui] update: release check failed: {err}");
+        })?;
     if !response.status().is_success() {
+        log::warn!("[ui] update: release check answered {}", response.status());
         return Err(());
     }
     // Decode with `serde_json` rather than reqwest's `json()` — the workspace
     // client is built without the `json` feature (image_paste.rs relies on the
     // same).
     let body = response.text().map_err(|_| ())?;
-    let release: Release = serde_json::from_str(&body).map_err(|_| ())?;
+    let release: Release = serde_json::from_str(&body).map_err(|err| {
+        log::warn!("[ui] update: release check returned malformed JSON: {err}");
+    })?;
 
     // Only desktop releases carry a version comparable to ours.
     let Some(version) = release.tag_name.strip_prefix(DESKTOP_TAG_PREFIX) else {
@@ -457,6 +519,11 @@ fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
 /// doesn't carry both our asset and the checksums file.
 fn build_plan(assets: &[ReleaseAsset]) -> Option<UpdatePlan> {
     let updater::Capability::SelfUpdate(strategy) = updater::capability() else {
+        // Answer the "why is there only a browser button" question from the
+        // log too (EXP-316) — the blocking view surfaces the same reason.
+        if let Some(reason) = updater::self_update_unavailable_reason() {
+            log::info!("[ui] update: self-update unavailable: {reason}");
+        }
         return None;
     };
     let asset_name = updater::expected_asset_name(&strategy);
@@ -466,12 +533,21 @@ fn build_plan(assets: &[ReleaseAsset]) -> Option<UpdatePlan> {
             .find(|asset| asset.name == name)
             .map(|asset| asset.browser_download_url.clone())
     };
-    Some(UpdatePlan {
-        asset_url: find(&asset_name)?,
-        sums_url: find(updater::SUMS_ASSET)?,
-        asset_name,
-        strategy,
-    })
+    match (find(&asset_name), find(updater::SUMS_ASSET)) {
+        (Some(asset_url), Some(sums_url)) => Some(UpdatePlan {
+            asset_url,
+            sums_url,
+            asset_name,
+            strategy,
+        }),
+        _ => {
+            log::info!(
+                "[ui] update: release lacks {asset_name} or {} — banner-only",
+                updater::SUMS_ASSET
+            );
+            None
+        }
+    }
 }
 
 /// Numeric `major.minor.patch` compare (pre-release/build metadata ignored —

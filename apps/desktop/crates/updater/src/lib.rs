@@ -99,6 +99,65 @@ pub fn capability() -> Capability {
     }
 }
 
+/// Why [`capability`] degraded to banner-only, as one human-readable sentence
+/// fragment — `None` when the install can self-update. EXP-316: the blocking
+/// "Update required" view surfaces this; before, a Linux user staring at a
+/// browser-link button had no way to tell WHICH gate failed ($APPIMAGE unset
+/// vs a moved file vs an unwritable folder all rendered identically).
+pub fn self_update_unavailable_reason() -> Option<String> {
+    if matches!(capability(), Capability::SelfUpdate(_)) {
+        return None;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let Some(appimage) = std::env::var_os("APPIMAGE").map(PathBuf::from) else {
+            return Some(
+                "this install isn't running as an AppImage ($APPIMAGE is unset)".to_string(),
+            );
+        };
+        if !appimage.is_file() {
+            // The classic AppImageLauncher failure: it moves the file after
+            // launch, so the runtime's recorded path no longer exists.
+            return Some(format!(
+                "the AppImage this app was launched from no longer exists (moved or renamed?): {}",
+                appimage.display()
+            ));
+        }
+        Some(format!(
+            "the AppImage's folder isn't writable: {}",
+            appimage
+                .parent()
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_default()
+        ))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Some("the folder containing the app isn't writable".to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let bundle = std::env::current_exe().ok().and_then(|exe| {
+            let bundle = exe.parent()?.parent()?.parent()?;
+            (bundle.extension()? == "app").then(|| bundle.to_path_buf())
+        });
+        match bundle {
+            None => Some("this install isn't running from a .app bundle".to_string()),
+            Some(bundle) => Some(format!(
+                "the folder containing the app isn't writable: {}",
+                bundle
+                    .parent()
+                    .map(|dir| dir.display().to_string())
+                    .unwrap_or_default()
+            )),
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        Some("self-update isn't supported on this platform".to_string())
+    }
+}
+
 /// Linux capability from a candidate `$APPIMAGE` value (split out for tests).
 fn appimage_capability(appimage: Option<PathBuf>) -> Capability {
     match appimage {
@@ -474,6 +533,14 @@ mod tests {
             expected_asset_name(&Strategy::ReplaceBundle { bundle: PathBuf::from("/x") }),
             "Exponential-production.dmg"
         );
+    }
+
+    #[test]
+    fn unavailable_reason_absent_iff_self_update_capable() {
+        // Whatever environment the test runs in, the two probes must agree:
+        // a reason exists exactly when the install can NOT self-update.
+        let capable = matches!(capability(), Capability::SelfUpdate(_));
+        assert_eq!(self_update_unavailable_reason().is_none(), capable);
     }
 
     #[test]

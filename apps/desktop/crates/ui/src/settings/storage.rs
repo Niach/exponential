@@ -23,8 +23,9 @@
 //! bar at all (web parity: `plan !== 'unlimited'`).
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, Entity, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, AnyElement, App, Entity, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -316,6 +317,85 @@ impl StoragePane {
             "Unreferenced"
         };
         let row_for_delete = row.clone();
+
+        // Image filenames open the in-app lightbox (EXP-316) — same
+        // `open_image_preview` path as the editor's attachment chips.
+        let attachment_url = format!("/api/attachments/{}", row.id);
+        let previewable =
+            row.is_image && queries::absolute_api_url(cx, &attachment_url).is_some();
+        let filename_cell: AnyElement = if previewable {
+            let label = row.filename.clone();
+            div()
+                .id(SharedString::from(format!("storage-preview-{}", row.id)))
+                .min_w_0()
+                .text_sm()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .cursor_pointer()
+                .hover(|this| this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+                .on_click(move |_, window, cx| {
+                    crate::image_preview::open_image_preview(
+                        attachment_url.clone(),
+                        label.clone(),
+                        None,
+                        window,
+                        cx,
+                    );
+                })
+                .child(SharedString::from(row.filename.clone()))
+                .into_any_element()
+        } else {
+            div()
+                .min_w_0()
+                .text_sm()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(SharedString::from(row.filename.clone()))
+                .into_any_element()
+        };
+
+        // The owning issue as an editor-parity `#IDENT` chip (EXP-316) —
+        // clicking leaves Settings for the issue's detail screen. Unresolved
+        // identifiers (trashed board, not yet synced) stay a dash.
+        let issue_cell: AnyElement = match identifier {
+            Some(identifier) => {
+                let issue_id = row.issue_id.clone();
+                let hover_bg = cx.theme().secondary_hover;
+                div()
+                    .id(SharedString::from(format!("storage-issue-{}", row.id)))
+                    .px_1p5()
+                    .rounded_full()
+                    .bg(cx.theme().secondary)
+                    .text_xs()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(cx.theme().secondary_foreground)
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .cursor_pointer()
+                    .hover(move |this| this.bg(hover_bg))
+                    .on_click(move |_, window, cx| {
+                        crate::navigation::navigate(
+                            window,
+                            cx,
+                            crate::navigation::Screen::IssueDetail {
+                                issue_id: issue_id.clone(),
+                            },
+                        );
+                    })
+                    .child(SharedString::from(format!("#{identifier}")))
+                    .into_any_element()
+            }
+            None => div()
+                .text_xs()
+                .text_color(muted)
+                .child("—")
+                .into_any_element(),
+        };
+
         h_flex()
             .w_full()
             .items_center()
@@ -336,15 +416,7 @@ impl StoragePane {
                             .text_color(muted)
                             .flex_shrink_0(),
                     )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_sm()
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(SharedString::from(row.filename.clone())),
-                    ),
+                    .child(filename_cell),
             )
             .child(
                 div()
@@ -354,15 +426,7 @@ impl StoragePane {
                     .text_color(muted)
                     .child(SharedString::from(format_bytes(row.size_bytes))),
             )
-            .child(
-                div()
-                    .w_20()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(muted)
-                    .child(SharedString::from(identifier.unwrap_or_else(|| "—".to_string()))),
-            )
+            .child(h_flex().w_20().flex_shrink_0().child(issue_cell))
             .child(
                 div()
                     .w(gpui::px(112.))
@@ -416,8 +480,19 @@ impl Render for StoragePane {
             cx,
         ));
 
+        // Refresh lives at the TOP of the pane (EXP-316) — inside the
+        // summary/sweep header row once the list is up, on its own row while
+        // loading or after a failure.
+        let refresh = Button::new("storage-refresh")
+            .ghost()
+            .xsmall()
+            .label("Refresh")
+            .loading(matches!(self.load, Load::Loading))
+            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));
+
         match &self.load {
             Load::Idle | Load::Loading => {
+                body = body.child(h_flex().w_full().justify_end().child(refresh));
                 body = body.child(
                     v_flex()
                         .gap_2()
@@ -429,6 +504,7 @@ impl Render for StoragePane {
             Load::Ready(Loaded {
                 list: Err(message), ..
             }) => {
+                body = body.child(h_flex().w_full().justify_end().child(refresh));
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
             Load::Ready(Loaded {
@@ -488,6 +564,7 @@ impl Render for StoragePane {
                                     format_bytes(total_bytes)
                                 ))),
                         )
+                        .child(refresh)
                         .child(
                             Button::new("storage-sweep")
                                 .outline()
@@ -555,17 +632,6 @@ impl Render for StoragePane {
                 }
             }
         }
-
-        body = body.child(
-            h_flex().gap_2().child(
-                Button::new("storage-refresh")
-                    .ghost()
-                    .xsmall()
-                    .label("Refresh")
-                    .loading(matches!(self.load, Load::Loading))
-                    .on_click(cx.listener(|this, _, _, cx| this.refetch(cx))),
-            ),
-        );
 
         v_flex().child(body)
     }
