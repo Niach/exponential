@@ -82,19 +82,23 @@ const TERMINAL_DOCK_HEIGHT: Pixels = px(240.);
 /// EXP-303: width of the traffic-light tongue — the sidebar glass extended
 /// into the titlebar strip under the rest of the macOS traffic-light cluster
 /// when the rail is collapsed (the rail is 44px, the cluster ends ~68px, so
-/// 44 + 40 = 84 leaves a snug margin after the green light). Pairs with the
-/// collapsed-rail left padding in `app_title_bar` (tongue + 8px slack).
-const TRAFFIC_TONGUE_W: f32 = 40.;
+/// 44 + 34 = 78 leaves a small margin after the green light — the review
+/// asked for minimal right padding).
+const TRAFFIC_TONGUE_W: f32 = 34.;
 
 /// The tongue element: TRUE sidebar material — a flat sample of the sidebar
-/// ramp's top stop plus the rail's `FILL_SECTION` wash — rounded on its
-/// bottom-right so the sidebar reads as curving around the lights. The
-/// notch filler underneath paints the corner sliver OUTSIDE the curve in the
-/// content material (without it the raw window backdrop peeked through the
-/// notch as a bright frosted speck). Flat top-stop samples everywhere: the
-/// strip is ~34px at the very top of the window, where both ramps' drift is
-/// invisible — and single layers per region is the EXP-303 rule (stacked
-/// translucent paints read as a different glass).
+/// ramp's top stop plus the rail's `FILL_SECTION` wash. The rounding is the
+/// CONTENT's, not the tongue's: a quarter-disc of the content material
+/// painted over the tongue's bottom-right corner (`rounded_tl(r)` on an r×r
+/// div is exactly the quarter disc around its own bottom-right corner), so
+/// the content canvas reads as having a rounded top-left corner nestled into
+/// the glass. Content-over-glass composites to within ~1% of the strip's own
+/// alpha, so the disc is invisible as a layer — unlike the first attempt's
+/// convex tongue corner, whose content-colored notch filler showed through
+/// the translucent tongue as a dark rectangle. Flat top-stop samples
+/// everywhere: the strip is ~34px at the very top of the window, where both
+/// ramps' drift is invisible — and one translucent layer per region stays
+/// the EXP-303 rule (stacked glass reads as a different material).
 fn traffic_tongue() -> impl IntoElement {
     let radius = px(10.);
     div()
@@ -107,15 +111,7 @@ fn traffic_tongue() -> impl IntoElement {
         .h(px(34.))
         .flex_shrink_0()
         .relative()
-        .child(
-            div()
-                .absolute()
-                .right_0()
-                .bottom_0()
-                .w(radius)
-                .h(radius)
-                .bg(theme::background_gradient_stops().0),
-        )
+        .bg(theme::sidebar_background_gradient_stops().0)
         .child(
             div()
                 .absolute()
@@ -123,14 +119,17 @@ fn traffic_tongue() -> impl IntoElement {
                 .bottom_0()
                 .left_0()
                 .right_0()
-                .rounded_br(radius)
-                .bg(theme::sidebar_background_gradient_stops().0)
-                .child(
-                    div()
-                        .size_full()
-                        .rounded_br(radius)
-                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla()),
-                ),
+                .bg(theme::tokens::glass::FILL_SECTION.to_hsla()),
+        )
+        .child(
+            div()
+                .absolute()
+                .right_0()
+                .bottom_0()
+                .w(radius)
+                .h(radius)
+                .rounded_tl(radius)
+                .bg(theme::background_gradient_stops().0),
         )
 }
 
