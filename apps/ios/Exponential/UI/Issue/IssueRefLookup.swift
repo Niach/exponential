@@ -32,7 +32,7 @@ enum IssueRefLookup {
                 sql: """
                 SELECT i.id FROM issues i
                 JOIN boards p ON p.id = i.board_id
-                WHERE upper(i.identifier) = ? AND i.archived_at IS NULL AND p.team_id = ?
+                WHERE upper(i.identifier) = ? AND p.team_id = ?
                 """,
                 arguments: [identifier, teamId]
             )
@@ -40,11 +40,10 @@ enum IssueRefLookup {
     }
 
     /// Universal-link resolution (EXP-92): team SLUG + identifier → local
-    /// issue id. Unlike the #-ref resolve above: no archived filter (an emailed
-    /// link to an archived issue should still open) and no board-slug
-    /// predicate (identifiers are team-unique, and the board slug in an
-    /// old link goes stale when an issue moves — the web route also keys on the
-    /// identifier alone).
+    /// issue id. Unlike the #-ref resolve above: no board-slug predicate
+    /// (identifiers are team-unique, and the board slug in an old link goes
+    /// stale when an issue moves — the web route also keys on the identifier
+    /// alone).
     static func resolve(
         identifier: String,
         teamSlug: String,
@@ -96,7 +95,7 @@ enum IssueRefLookup {
                 sql: """
                 SELECT i.identifier, i.title FROM issues i
                 JOIN boards p ON p.id = i.board_id
-                WHERE p.team_id = ? AND i.archived_at IS NULL
+                WHERE p.team_id = ?
                   AND i.id IS NOT ?
                   AND (i.identifier LIKE ? ESCAPE '\\' OR i.title LIKE ? ESCAPE '\\')
                 ORDER BY i.created_at DESC

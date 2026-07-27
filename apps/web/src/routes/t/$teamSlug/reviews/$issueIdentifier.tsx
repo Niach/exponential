@@ -185,12 +185,10 @@ function ReviewDetailPage() {
   )
   const linked = useMemo(
     () =>
-      ((linkedRows ?? []) as Issue[])
-        .filter((i) => i.archivedAt == null)
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        ),
+      ((linkedRows ?? []) as Issue[]).sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ),
     [linkedRows]
   )
 

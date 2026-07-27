@@ -51,7 +51,7 @@ final class SearchViewModel {
         issueTask = Task { [weak self] in
             do {
                 for try await issues in issueObservation.values(in: pool) {
-                    self?.issues = issues.filter { $0.archivedAt == nil }
+                    self?.issues = issues
                 }
             } catch {}
         }
@@ -185,7 +185,7 @@ final class SearchViewModel {
     }
 
     /// A display-only stand-in for a server hit that has no local GRDB row
-    /// (e.g. archived or not yet synced) — carries exactly the fields the
+    /// (e.g. not yet synced) — carries exactly the fields the
     /// result row renders (priority, identifier, status, title) plus the ids
     /// needed for grouping and navigation.
     private static func placeholderEntity(from hit: SearchIssueHit) -> IssueEntity {
@@ -206,7 +206,6 @@ final class SearchViewModel {
             endTime: nil,
             sortOrder: nil,
             completedAt: nil,
-            archivedAt: nil,
             duplicateOfId: nil,
             prUrl: nil,
             prNumber: nil,

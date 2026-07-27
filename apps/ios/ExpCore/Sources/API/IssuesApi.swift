@@ -52,7 +52,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
     /// Canonical issue this one duplicates — set together with
     /// `status = "duplicate"` in ONE update so the marking is atomic.
     public var duplicateOfId: String?
-    public var archivedAt: String?
 
     // Fields listed here are encoded as JSON null (not omitted).
     // Use this when the server must distinguish "clear this field" from "don't touch it".
@@ -69,7 +68,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
         dueTime: String? = nil,
         endTime: String? = nil,
         duplicateOfId: String? = nil,
-        archivedAt: String? = nil,
         explicitNulls: Set<String> = []
     ) {
         self.id = id
@@ -82,14 +80,13 @@ public struct UpdateIssueInput: Encodable, Sendable {
         self.dueTime = dueTime
         self.endTime = endTime
         self.duplicateOfId = duplicateOfId
-        self.archivedAt = archivedAt
         self.explicitNulls = explicitNulls
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, priority, assigneeId, description
         case dueDate, dueTime, endTime
-        case duplicateOfId, archivedAt
+        case duplicateOfId
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -104,7 +101,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
         try encodeNullable(dueTime, forKey: .dueTime, in: &c)
         try encodeNullable(endTime, forKey: .endTime, in: &c)
         try encodeNullable(duplicateOfId, forKey: .duplicateOfId, in: &c)
-        try encodeNullable(archivedAt, forKey: .archivedAt, in: &c)
     }
 
     private func encodeNullable<T: Encodable>(_ value: T?, forKey key: CodingKeys, in container: inout KeyedEncodingContainer<CodingKeys>) throws {
@@ -316,7 +312,6 @@ public struct FetchedIssue: Decodable, Sendable {
     public let endTime: String?
     public let sortOrder: Double?
     public let completedAt: String?
-    public let archivedAt: String?
     public let duplicateOfId: String?
     public let prUrl: String?
     public let prNumber: Int?

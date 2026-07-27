@@ -337,6 +337,13 @@
       "when": 1785089554029,
       "tag": "0047_tidy_korg",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1785116561330,
+      "tag": "0048_last_scrambler",
+      "breakpoints": true
     }
   ]
 }

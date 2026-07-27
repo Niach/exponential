@@ -29,7 +29,7 @@ struct TeamSettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // Boards section
                     TeamBoardsSection(
-                        boards: boards.filter { $0.archivedAt == nil },
+                        boards: boards,
                         accountId: accountId,
                         teamId: teamId,
                         isOwner: isOwner,

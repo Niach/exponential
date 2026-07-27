@@ -230,8 +230,8 @@ struct MainNavigator: View {
     // parked on a plan-approval / question picker) — escalates the Agents
     // dot to amber.
     @State private var agentsNeedInput = false
-    // EXP-214: open-PR issues (non-archived) — the Reviews tab's green dot,
-    // scoped to the active team via `reviewsOpen`.
+    // EXP-214: open-PR issues — the Reviews tab's green dot, scoped to the
+    // active team via `reviewsOpen`.
     @State private var observedOpenPrIssues: [IssueEntity] = []
     // Raw observed running-session rows — cached so the liveness ticker can
     // recompute `agentsRunning` between sync deltas (EXP-153).
@@ -297,8 +297,8 @@ struct MainNavigator: View {
             startObserving()
             resolveCurrentBoard()
         }
-        // Any change to the available (signed-in, non-archived) boards
-        // re-validates the Issues tab's current board.
+        // Any change to the available (signed-in) boards re-validates the
+        // Issues tab's current board.
         .onChange(of: availableBoardKeys) { _, _ in
             resolveCurrentBoard()
         }
@@ -648,7 +648,7 @@ struct MainNavigator: View {
             }
         }
         // Open PRs light the Reviews tab's green dot (EXP-214) — mirrors the
-        // Reviews screen's observation (open pr_state, non-archived).
+        // Reviews screen's observation (open pr_state).
         let openPrObs = ValueObservation.tracking { db in
             try IssueEntity
                 .filter(Column("pr_state") == DomainContract.prStateOpen)
@@ -657,7 +657,7 @@ struct MainNavigator: View {
         let openPrTask = Task { @MainActor in
             do {
                 for try await issues in openPrObs.values(in: pool) {
-                    observedOpenPrIssues = issues.filter { $0.archivedAt == nil }
+                    observedOpenPrIssues = issues
                 }
             } catch {}
         }
@@ -668,8 +668,8 @@ struct MainNavigator: View {
 
     /// Every selectable board across all signed-in servers, as
     /// `accountId/boardId` keys. `MultiAccountBoardLoader` already limits
-    /// this to non-archived boards of signed-in accounts, so key membership
-    /// doubles as validity.
+    /// this to boards of signed-in accounts, so key membership doubles as
+    /// validity.
     private var availableBoardKeys: [String] {
         (boardLoader?.groups ?? []).flatMap { group in
             group.teamBlocks.flatMap { block in

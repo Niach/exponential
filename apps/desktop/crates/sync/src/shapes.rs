@@ -117,16 +117,17 @@ pub const SHAPES: [ShapeSpec; 15] = [
             "color",
             // Nullable repo + icon. `heal_missing_columns` ALTERs these onto
             // existing tables on the next open (all TEXT). The dropped
-            // public-board columns (`is_public`/`public_show_*`) linger as
-            // orphaned local TEXT columns on pre-drop installs; the allowlist
-            // drops the keys on upsert.
+            // public-board columns (`is_public`/`public_show_*`) and the
+            // dropped `archived_at` (REV2-103: archiving is gone; board trash
+            // is the unrelated `deleted_at` feature, server-side scoped)
+            // linger as orphaned local TEXT columns on pre-drop installs; the
+            // allowlist drops the keys on upsert.
             "icon",
             "repository_id",
             // Trash contract: the bootstrap dogfood board is protected —
-            // clients disable delete/archive/retype from this synced flag.
+            // clients disable delete from this synced flag.
             "is_protected",
             "sort_order",
-            "archived_at",
             "created_at",
             "updated_at",
         ],
@@ -136,7 +137,9 @@ pub const SHAPES: [ShapeSpec; 15] = [
         name: "issues",
         path: "/api/shapes/issues",
         // §5.4 verbatim — deliberately NO due_time/end_time (stale pre-GFM
-        // wire fields; tolerated-and-dropped by the allowlist, never modeled).
+        // wire fields; tolerated-and-dropped by the allowlist, never modeled),
+        // and no `archived_at` (REV2-103 deleted archiving; the column lingers
+        // as an orphaned local TEXT column on pre-drop installs).
         columns: &[
             "id",
             "board_id",
@@ -152,7 +155,6 @@ pub const SHAPES: [ShapeSpec; 15] = [
             "due_date",
             "sort_order",
             "completed_at",
-            "archived_at",
             "duplicate_of_id",
             "pr_url",
             "pr_number",

@@ -141,7 +141,6 @@ const config = {
   boardSlug: `board`,
   boardName: `Board`,
   boardDeletedAt: null,
-  boardArchivedAt: null,
   teamSlug: `acme`,
   teamHelpdeskEnabled: false,
 } as unknown as WidgetConfigWithBoard

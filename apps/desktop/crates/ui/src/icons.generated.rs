@@ -80,7 +80,6 @@ pub const PICKABLE_ICONS: &[&str] = &[
 pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
     Some(match name {
         "activity" => ExpIcon::Activity,
-        "archive" => ExpIcon::Archive,
         "arrow-down-left" => ExpIcon::ArrowDownLeft,
         "arrow-left" => ExpIcon::ArrowLeft,
         "arrow-left-right" => ExpIcon::ArrowLeftRight,
@@ -439,8 +438,6 @@ pub const SUPPORT_OPEN: ExpIcon = ExpIcon::MailOpen;
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
 /// Registry concept `ui-add` -> Lucide `plus`.
 pub const UI_ADD: ExpIcon = ExpIcon::Plus;
-/// Registry concept `ui-archive` -> Lucide `archive`.
-pub const UI_ARCHIVE: ExpIcon = ExpIcon::Archive;
 /// Registry concept `ui-arrow-right` -> Lucide `arrow-right`.
 pub const UI_ARROW_RIGHT: ExpIcon = ExpIcon::ArrowRight;
 /// Registry concept `ui-assignee` -> Lucide `circle-user`.

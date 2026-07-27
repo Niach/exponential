@@ -108,7 +108,6 @@ const SHAPE_COLUMNS = [
   `endTime`,
   `sortOrder`,
   `completedAt`,
-  `archivedAt`,
   `duplicateOfId`,
   `prUrl`,
   `prNumber`,

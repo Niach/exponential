@@ -76,8 +76,8 @@ class MyIssuesViewModel @Inject constructor(
         val labelsById = labels.associateBy { it.id }
         val joinsByIssue = joins.groupBy { it.issueId }
 
-        // Only issues in live (non-archived) boards; the DAO already
-        // filtered archived issues and scoped to assignee = me.
+        // Only issues in live (non-trashed) boards; the DAO already
+        // scoped to assignee = me.
         val decorated = issues
             .filter { it.boardId in boardsById }
             .map { issue ->

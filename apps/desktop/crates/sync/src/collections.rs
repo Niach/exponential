@@ -428,14 +428,13 @@ impl Collections {
         out
     }
 
-    /// A team's boards, sort-order-then-name sorted, archived hidden
-    /// (web sidebar parity).
+    /// A team's boards, sort-order-then-name sorted (web sidebar parity).
     pub fn boards_in_team(&self, team_id: &str, cx: &App) -> Vec<Board> {
         let mut out: Vec<Board> = self
             .boards
             .read(cx)
             .iter()
-            .filter(|p| p.team_id == team_id && p.archived_at.is_none())
+            .filter(|p| p.team_id == team_id)
             .cloned()
             .collect();
         out.sort_by(|a, b| {
@@ -447,22 +446,22 @@ impl Collections {
         out
     }
 
-    /// A board's issues, sort-order-then-identifier sorted, archived hidden
-    /// (the board's base query; status grouping/filters sit on top).
+    /// A board's issues, sort-order-then-identifier sorted (the board's base
+    /// query; status grouping/filters sit on top).
     pub fn issues_in_board(&self, board_id: &str, cx: &App) -> Vec<Issue> {
         let mut out: Vec<Issue> = self
             .issues
             .read(cx)
             .iter()
-            .filter(|i| i.board_id == board_id && i.archived_at.is_none())
+            .filter(|i| i.board_id == board_id)
             .cloned()
             .collect();
         sort_issues(&mut out);
         out
     }
 
-    /// Every non-archived issue in a team (joins through the boards
-    /// collection — referential integrity is a query-time concern, §5.4).
+    /// Every issue in a team (joins through the boards collection —
+    /// referential integrity is a query-time concern, §5.4).
     pub fn issues_in_team(&self, team_id: &str, cx: &App) -> Vec<Issue> {
         let boards = self.boards.read(cx);
         let board_ids: std::collections::HashSet<&str> = boards
@@ -474,7 +473,7 @@ impl Collections {
             .issues
             .read(cx)
             .iter()
-            .filter(|i| board_ids.contains(i.board_id.as_str()) && i.archived_at.is_none())
+            .filter(|i| board_ids.contains(i.board_id.as_str()))
             .cloned()
             .collect();
         sort_issues(&mut out);

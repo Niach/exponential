@@ -32,7 +32,6 @@ final class StartPullRequestOptionTests: XCTestCase {
             endTime: nil,
             sortOrder: nil,
             completedAt: nil,
-            archivedAt: nil,
             duplicateOfId: nil,
             prUrl: prUrl,
             prNumber: prNumber,

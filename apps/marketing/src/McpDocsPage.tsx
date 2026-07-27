@@ -36,7 +36,7 @@ const TOOL_GROUPS: {
       { name: `exponential_boards_list`, desc: `List boards in one team or across all your teams.` },
       { name: `exponential_boards_get`, desc: `Get a single board.` },
       { name: `exponential_boards_create`, desc: `Create a board — optionally repo-backed.` },
-      { name: `exponential_boards_update`, desc: `Update name, color, icon, or archive state.` },
+      { name: `exponential_boards_update`, desc: `Update name, color, or icon.` },
       { name: `exponential_boards_delete`, desc: `Move a board to the 48-hour trash (owner only).` },
       { name: `exponential_boards_set_repository`, desc: `Point a board at a different registered repository.` },
     ],

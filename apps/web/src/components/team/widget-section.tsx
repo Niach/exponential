@@ -139,7 +139,7 @@ function modesForChoice(
 
 export function TeamWidgetSection({ team }: { team: Team }) {
   const teamId = team.id
-  const boards = useTeamBoards(teamId).filter((board) => !board.archivedAt)
+  const boards = useTeamBoards(teamId)
   const [widgets, setWidgets] = useState<WidgetList>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

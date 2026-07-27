@@ -233,7 +233,6 @@ export const boards = pgTable(
       onDelete: `restrict`,
     }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
-    archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     // Soft-delete (trash) marker. Non-null = trashed; the purge sweep hard-deletes
     // it (cascade) once deletedAt + BOARD_TRASH_RETENTION_MS has passed. Purge
     // time is computed, never stored (constant retention). Trashed boards drop
@@ -307,7 +306,6 @@ export const issues = pgTable(
     endTime: time(`end_time`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
-    archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     // Duplicate resolution: this issue is a duplicate of the canonical issue.
     // 1:1 (no relation graph); pairs with status='duplicate'.
     duplicateOfId: uuid(`duplicate_of_id`).references(

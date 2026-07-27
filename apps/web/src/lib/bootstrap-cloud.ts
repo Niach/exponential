@@ -40,7 +40,7 @@ const LEGACY_FEEDBACK_BOARD_SLUG = `feedback`
 // The former dogfood helpdesk board (EXP-162, retired by EXP-180): tickets
 // are standalone team-level threads now, so the Support board is just
 // a normal board holding its historical ticket-issues.
-// releaseLegacySupportBoard un-protects it so admins can archive/trash it.
+// releaseLegacySupportBoard un-protects it so admins can trash it.
 const LEGACY_SUPPORT_BOARD_SLUG = `support`
 
 function parseAdminEmails(): string[] {
@@ -279,7 +279,7 @@ async function ensureTeamHelpdesk(publicTeamId: string) {
 // EXP-180 retired the dedicated Support board (tickets are standalone
 // team-level threads; the migration converted the old issue-anchored
 // ones). Its historical ticket-issues stay as normal issues — just clear the
-// bootstrap protection so admins can archive or trash the board at their own
+// bootstrap protection so admins can trash the board at their own
 // pace. One-shot in effect: once cleared, nothing re-protects it.
 async function releaseLegacySupportBoard(publicTeamId: string) {
   await db

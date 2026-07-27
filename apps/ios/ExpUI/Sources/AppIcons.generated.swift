@@ -75,7 +75,6 @@ public enum AppIcons {
     /// Every registry name that ships as an imageset.
     public static let allNames: Set<String> = [
         "activity",
-        "archive",
         "arrow-down-left",
         "arrow-left",
         "arrow-left-right",
@@ -437,8 +436,6 @@ public enum AppIcons {
     public static let supportResolved: String = "circle-check"
     /// Concept `ui-add`.
     public static let uiAdd: String = "plus"
-    /// Concept `ui-archive`.
-    public static let uiArchive: String = "archive"
     /// Concept `ui-arrow-right`.
     public static let uiArrowRight: String = "arrow-right"
     /// Concept `ui-assignee`.

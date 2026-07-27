@@ -7,7 +7,6 @@
 
 import {
   Activity,
-  Archive,
   ArrowDownLeft,
   ArrowLeft,
   ArrowLeftRight,
@@ -172,7 +171,6 @@ import {
 
 export const ICON_COMPONENTS: Record<IconName, LucideIcon> = {
   "activity": Activity,
-  "archive": Archive,
   "arrow-down-left": ArrowDownLeft,
   "arrow-left": ArrowLeft,
   "arrow-left-right": ArrowLeftRight,

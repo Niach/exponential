@@ -18,7 +18,7 @@ public struct TeamBlock: Identifiable, Sendable {
 }
 
 /// One server's block inside the cross-server Home tree: every team the
-/// signed-in user is a member of, with its non-archived boards.
+/// signed-in user is a member of, with its boards.
 public struct ServerBoardGroup: Identifiable, Sendable {
     public let accountId: String
     public let hostname: String
@@ -65,7 +65,6 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
 
             let blocks: [TeamBlock] = teams.compactMap { ws in
                 let wsBoards = (boardsByTeam[ws.id] ?? [])
-                    .filter { $0.archivedAt == nil }
                     .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
                 guard !wsBoards.isEmpty else { return nil }
                 return TeamBlock(team: ws, boards: wsBoards)
@@ -154,9 +153,9 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
         observationTasks[accountId] = [wsTask, projTask]
     }
 
-    /// Mirror every signed-in account's non-archived boards into the shared
-    /// app-group container so the Share Extension can populate its picker
-    /// without opening the (per-account, non-shared) GRDB database.
+    /// Mirror every signed-in account's boards into the shared app-group
+    /// container so the Share Extension can populate its picker without
+    /// opening the (per-account, non-shared) GRDB database.
     @MainActor
     private func writeMirror() {
         let signedIn = auth.accounts.filter { $0.token != nil }
@@ -165,7 +164,7 @@ public final class MultiAccountBoardLoader: @unchecked Sendable {
             let teamsById = Dictionary(
                 uniqueKeysWithValues: (teamsByAccount[account.id] ?? []).map { ($0.id, $0) }
             )
-            for board in (boardsByAccount[account.id] ?? []) where board.archivedAt == nil {
+            for board in (boardsByAccount[account.id] ?? []) {
                 guard let team = teamsById[board.teamId] else { continue }
                 out.append(MirroredBoard(
                     accountId: account.id,

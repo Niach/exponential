@@ -4,7 +4,6 @@
 /** Every Lucide name the registry ships, on every client. */
 export const ICON_NAMES = [
   `activity`,
-  `archive`,
   `arrow-down-left`,
   `arrow-left`,
   `arrow-left-right`,
@@ -329,7 +328,6 @@ export const SEMANTIC_ICONS = {
   "support-open": `mail-open`,
   "support-resolved": `circle-check`,
   "ui-add": `plus`,
-  "ui-archive": `archive`,
   "ui-arrow-right": `arrow-right`,
   "ui-assignee": `circle-user`,
   "ui-back": `arrow-left`,

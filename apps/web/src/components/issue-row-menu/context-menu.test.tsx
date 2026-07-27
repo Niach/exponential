@@ -130,7 +130,6 @@ function buildIssue(overrides: Partial<Issue> = {}): Issue {
     endTime: null,
     sortOrder: 0,
     completedAt: null,
-    archivedAt: null,
     duplicateOfId: null,
     prUrl: null,
     prNumber: null,

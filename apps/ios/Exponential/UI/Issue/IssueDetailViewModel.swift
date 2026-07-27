@@ -439,13 +439,13 @@ final class IssueDetailViewModel {
         }
     }
 
-    /// Same-team boards the issue can move to (EXP-57): the current
-    /// board and archived boards are excluded; name-sorted. Empty on a
-    /// single-board team — the "Move to board" action hides then.
+    /// Same-team boards the issue can move to (EXP-57): the current board is
+    /// excluded; name-sorted. Empty on a single-board team — the "Move to
+    /// board" action hides then.
     var moveTargetBoards: [BoardEntity] {
         guard let issue, let teamId = board?.teamId else { return [] }
         return boards
-            .filter { $0.teamId == teamId && $0.id != issue.boardId && $0.archivedAt == nil }
+            .filter { $0.teamId == teamId && $0.id != issue.boardId }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
@@ -655,7 +655,7 @@ final class IssueDetailViewModel {
             return try IssueEntity
                 .filter(teamBoardIds.contains(Column("board_id")))
                 .fetchAll(db)
-                .filter { $0.id != issueId && $0.archivedAt == nil }
+                .filter { $0.id != issueId }
                 .sorted { $0.updatedAt > $1.updatedAt }
         }
         return result ?? []
@@ -664,12 +664,12 @@ final class IssueDetailViewModel {
     /// Candidate issues for the unified Start-coding sheet (EXP-156): every
     /// eligible issue in the current issue's team, the current issue pinned
     /// first (pre-checked) and the rest by recency. Eligibility = the issue's
-    /// board is repo-backed and not archived, the issue isn't archived, its
-    /// status isn't terminal (done/cancelled/duplicate) and its PR isn't merged.
-    /// The CURRENT issue is exempt from the issue-level checks (archived /
-    /// terminal / merged) so it always appears — you opened the card from it.
-    /// One-shot read; the sheet is transient. (Trashed boards never reach the
-    /// local store, so "not deleted" is implicit.)
+    /// board is repo-backed, its status isn't terminal (done/cancelled/
+    /// duplicate) and its PR isn't merged. The CURRENT issue is exempt from
+    /// the issue-level checks (terminal / merged) so it always appears — you
+    /// opened the card from it. One-shot read; the sheet is transient.
+    /// (Trashed boards never reach the local store, so "not deleted" is
+    /// implicit.)
     func startCodingCandidates() async -> [StartCodingSheet.IssueOption] {
         guard let issue, let pool = try? db.pool(forAccountId: accountId) else { return [] }
         let currentId = issue.id
@@ -679,19 +679,13 @@ final class IssueDetailViewModel {
             let boards = try BoardEntity
                 .filter(Column("team_id") == current.teamId)
                 .fetchAll(db)
-            // boardId → repositoryId for repo-backed boards. `repoActive` is
-            // the normal eligibility set (non-archived); `repoAny` also holds
-            // archived repo-backed boards so the current issue on an archived
-            // board can still be force-included (parity with the desktop
-            // dialog). A repo-LESS board is in neither map.
-            var repoActive: [String: String] = [:]
-            var repoAny: [String: String] = [:]
+            // boardId → repositoryId for repo-backed boards. A repo-LESS
+            // board isn't in the map, so neither it nor its issues are
+            // eligible.
+            var repoByBoard: [String: String] = [:]
             for board in boards {
                 guard let repoId = board.repositoryId else { continue }
-                repoAny[board.id] = repoId
-                if board.archivedAt == nil {
-                    repoActive[board.id] = repoId
-                }
+                repoByBoard[board.id] = repoId
             }
             let terminal: Set<String> = [
                 IssueStatus.done.rawValue,
@@ -699,19 +693,17 @@ final class IssueDetailViewModel {
                 IssueStatus.duplicate.rawValue,
             ]
             let rows = try IssueEntity
-                .filter(Array(repoAny.keys).contains(Column("board_id")))
+                .filter(Array(repoByBoard.keys).contains(Column("board_id")))
                 .fetchAll(db)
                 .filter { row in
                     // The current issue is force-included as long as its board
-                    // is repo-backed (archived OK) — exempt from the archived /
-                    // terminal / merged rules so a checked pre-seed is never a
-                    // stray. A repo-LESS current issue isn't in repoAny and
-                    // correctly stays out of the pool entirely.
+                    // is repo-backed — exempt from the terminal / merged rules
+                    // so a checked pre-seed is never a stray. A repo-LESS
+                    // current issue isn't in repoByBoard and correctly stays
+                    // out of the pool entirely.
                     if row.id == currentId {
-                        return repoAny[row.boardId] != nil
+                        return repoByBoard[row.boardId] != nil
                     }
-                    guard repoActive[row.boardId] != nil else { return false }
-                    if row.archivedAt != nil { return false }
                     if terminal.contains(row.status) { return false }
                     if row.prState == DomainContract.prStateMerged { return false }
                     return true
@@ -726,7 +718,7 @@ final class IssueDetailViewModel {
                     id: row.id,
                     identifier: row.identifier,
                     title: row.title,
-                    repositoryId: repoAny[row.boardId],
+                    repositoryId: repoByBoard[row.boardId],
                     status: row.status,
                     priority: row.priority
                 )

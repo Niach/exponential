@@ -219,7 +219,7 @@ export const boardsRouter = router({
       )
 
       // Protected boards (the dogfood board) keep their repo — mirrors the
-      // delete/archive guards.
+      // delete guard.
       const [current] = await ctx.db
         .select({ isProtected: boards.isProtected })
         .from(boards)
@@ -261,45 +261,12 @@ export const boardsRouter = router({
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
         icon: boardIconSchema.nullable().optional(),
-        archivedAt: z
-          .string()
-          .datetime()
-          .transform((value) => new Date(value))
-          .nullable()
-          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
 
-      const boardRecord = await assertBoardMember(ctx.session.user.id, id)
-
-      // Archiving is structure-significant — team-owner-only.
-      // Name/color/icon stay member-editable.
-      const ownerGated = Object.hasOwn(updates, `archivedAt`)
-      if (ownerGated) {
-        await assertTeamOwner(
-          ctx.session.user.id,
-          boardRecord.teamId
-        )
-      }
-
-      const [current] = await ctx.db
-        .select({ isProtected: boards.isProtected })
-        .from(boards)
-        .where(eq(boards.id, id))
-        .limit(1)
-
-      // Protected boards (the dogfood board) can't be archived;
-      // name/color/icon stay editable.
-      const attemptsArchive =
-        Object.hasOwn(updates, `archivedAt`) && updates.archivedAt != null
-      if (attemptsArchive && current?.isProtected) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `This board is protected and cannot be archived`,
-        })
-      }
+      await assertBoardMember(ctx.session.user.id, id)
 
       const [board] = await ctx.db
         .update(boards)

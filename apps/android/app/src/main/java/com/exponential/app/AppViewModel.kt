@@ -225,7 +225,7 @@ class AppViewModel @Inject constructor(
 
     // True while the active team has any open pull request — the Reviews
     // tab's green "stuff to do" dot (EXP-214). Same query the Reviews screen
-    // lists (team-scoped, open PRs only, archived/trashed filtered).
+    // lists (team-scoped, open PRs only, trashed filtered).
     @OptIn(ExperimentalCoroutinesApi::class)
     val reviewsOpen: StateFlow<Boolean> = combine(
         accountDatabaseFlow(auth, databaseHolder),
@@ -252,7 +252,7 @@ class AppViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // The Issues tab root's current board: last-used on the active account
-    // (validated against the live Room table, so deleted/archived boards fall
+    // (validated against the live Room table, so deleted boards fall
     // through), else the first board of the first team, else none. The
     // lastBoardVersion counter re-runs the resolve after every last-used
     // write — that's what swaps the root list in place after a switcher pick.

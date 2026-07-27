@@ -21,7 +21,6 @@ const BOARD_COLUMNS = [
   `icon`,
   `repository_id`,
   `sort_order`,
-  `archived_at`,
   `deleted_at`,
   `is_protected`,
   `created_at`,

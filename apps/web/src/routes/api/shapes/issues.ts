@@ -27,7 +27,6 @@ const ISSUE_COLUMNS = [
   `end_time`,
   `sort_order`,
   `completed_at`,
-  `archived_at`,
   `duplicate_of_id`,
   `pr_url`,
   `pr_number`,

@@ -249,7 +249,6 @@ export function LaunchDialog({
       ((issueRows ?? []) as Issue[])
         .filter(
           (issue) =>
-            issue.archivedAt == null &&
             CODEABLE_STATUSES.has(issue.status) &&
             !runningIssueIds.has(issue.id)
         )

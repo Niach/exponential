@@ -527,7 +527,7 @@ function ThreadDetails({
   )
   const board = boardRows?.[0]
 
-  // Escalation board picker: the team's live (non-archived) boards.
+  // Escalation board picker: the team's live (non-trashed) boards.
   const { data: allBoards } = useLiveQuery(
     (query) =>
       query
@@ -535,9 +535,7 @@ function ThreadDetails({
         .where(({ boards }) => eq(boards.teamId, teamId)),
     [teamId]
   )
-  const boards = (allBoards ?? []).filter(
-    (row) => !row.archivedAt && !row.deletedAt
-  )
+  const boards = (allBoards ?? []).filter((row) => !row.deletedAt)
   const [escalateBoardId, setEscalateBoardId] = useState<string>(``)
   const [escalating, setEscalating] = useState(false)
   const [escalateError, setEscalateError] = useState<string | null>(null)

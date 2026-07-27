@@ -156,9 +156,6 @@ pub struct IssuesUpdateInput {
     /// `status='duplicate'` server-side; `Null` unmarks (restores backlog).
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub duplicate_of_id: Patch<String>,
-    /// ISO datetime; `Null` un-archives.
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub archived_at: Patch<String>,
 }
 
 impl IssuesUpdateInput {
@@ -175,7 +172,6 @@ impl IssuesUpdateInput {
             due_time: Patch::Omit,
             end_time: Patch::Omit,
             duplicate_of_id: Patch::Omit,
-            archived_at: Patch::Omit,
         }
     }
 }

@@ -388,11 +388,6 @@ export const issuesRouter = router({
         // status='duplicate'; unmarking (null) restores backlog; moving to any
         // other status clears the link.
         duplicateOfId: z.string().uuid().nullable().optional(),
-        archivedAt: z
-          .union([z.string().datetime({ offset: true }), z.string().datetime()])
-          .transform((s) => new Date(s))
-          .nullable()
-          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1348,7 +1343,6 @@ export const issuesRouter = router({
           endTime: issues.endTime,
           sortOrder: issues.sortOrder,
           completedAt: issues.completedAt,
-          archivedAt: issues.archivedAt,
           duplicateOfId: issues.duplicateOfId,
           prUrl: issues.prUrl,
           prNumber: issues.prNumber,
@@ -1382,8 +1376,8 @@ export const issuesRouter = router({
     }),
 
   // Full-text issue search (EXP-3): Postgres FTS over issue title +
-  // description AND comment bodies, team-scoped, archived excluded,
-  // relevance-ordered. An ILIKE substring fallback keeps this a strict
+  // description AND comment bodies, team-scoped, relevance-ordered. An
+  // ILIKE substring fallback keeps this a strict
   // superset of the old title-substring search — it still matches
   // identifiers (EXP-42) and partial words that FTS lexemes miss. All
   // values are parameterized via drizzle `sql` interpolation. GIN
@@ -1415,7 +1409,6 @@ export const issuesRouter = router({
         join boards p on p.id = i.board_id
         where p.team_id = ${input.teamId}::uuid
           and p.deleted_at is null
-          and i.archived_at is null
           and (
             to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))
               @@ websearch_to_tsquery('english', ${input.query})

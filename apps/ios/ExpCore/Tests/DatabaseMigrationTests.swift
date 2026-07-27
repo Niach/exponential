@@ -17,8 +17,10 @@ import XCTest
 // v5_drop_user_is_agent + v6_issue_source_nullable_creator (issues.source /
 // nullable creator_id, is_agent removal) the fourth/fifth,
 // v7_drop_board_dead_columns (REV2-91: boards.github_repo/preview_config)
-// the sixth, v8_coding_session_action_fields (EXP-253) the seventh, and
-// v9_actions (EXP-268: the synced actions table, 15th shape) the eighth.
+// the sixth, v8_coding_session_action_fields (EXP-253) the seventh,
+// v9_actions (EXP-268: the synced actions table, 15th shape) the eighth,
+// v10_action_icon (EXP-273) the ninth, and v11_drop_archived_at (REV2-103:
+// archiving deleted from the product) the tenth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -59,7 +61,8 @@ final class DatabaseMigrationTests: XCTestCase {
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
-             "v8_coding_session_action_fields", "v9_actions"]
+             "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
+             "v11_drop_archived_at"]
         )
     }
 
@@ -74,7 +77,8 @@ final class DatabaseMigrationTests: XCTestCase {
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
-             "v8_coding_session_action_fields", "v9_actions"]
+             "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
+             "v11_drop_archived_at"]
         )
     }
 
@@ -117,7 +121,8 @@ final class DatabaseMigrationTests: XCTestCase {
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
-             "v8_coding_session_action_fields", "v9_actions"]
+             "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
+             "v11_drop_archived_at"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -180,7 +185,8 @@ final class DatabaseMigrationTests: XCTestCase {
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
-             "v8_coding_session_action_fields", "v9_actions"]
+             "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
+             "v11_drop_archived_at"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }

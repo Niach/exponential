@@ -31,16 +31,16 @@ interface TeamDao {
 interface BoardDao {
     // deleted_at IS NULL everywhere: trashed boards leave the shape as delete
     // messages, but filter defensively so a stale pre-trash row never resurfaces.
-    @Query("SELECT * FROM boards WHERE archived_at IS NULL AND deleted_at IS NULL ORDER BY sort_order, name")
+    @Query("SELECT * FROM boards WHERE deleted_at IS NULL ORDER BY sort_order, name")
     fun observeAll(): Flow<List<BoardEntity>>
 
-    @Query("SELECT * FROM boards WHERE team_id = :teamId AND archived_at IS NULL AND deleted_at IS NULL ORDER BY sort_order, name")
+    @Query("SELECT * FROM boards WHERE team_id = :teamId AND deleted_at IS NULL ORDER BY sort_order, name")
     fun observeByTeam(teamId: String): Flow<List<BoardEntity>>
 
     @Query("SELECT * FROM boards WHERE team_id = :teamId AND slug = :slug AND deleted_at IS NULL LIMIT 1")
     fun observeBySlug(teamId: String, slug: String): Flow<BoardEntity?>
 
-    @Query("SELECT * FROM boards WHERE id = :id AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1")
+    @Query("SELECT * FROM boards WHERE id = :id AND deleted_at IS NULL LIMIT 1")
     suspend fun getActiveById(id: String): BoardEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -55,7 +55,7 @@ interface BoardDao {
 
 @Dao
 interface IssueDao {
-    @Query("SELECT * FROM issues WHERE board_id = :boardId AND archived_at IS NULL ORDER BY sort_order, created_at")
+    @Query("SELECT * FROM issues WHERE board_id = :boardId ORDER BY sort_order, created_at")
     fun observeByBoard(boardId: String): Flow<List<IssueEntity>>
 
     // All issues (used by the inbox to resolve titles + the "needs review" list).
@@ -63,7 +63,7 @@ interface IssueDao {
     fun observeAll(): Flow<List<IssueEntity>>
 
     // Cross-board "My Issues" view (masterplan §5a): everything assigned to me.
-    @Query("SELECT * FROM issues WHERE assignee_id = :userId AND archived_at IS NULL ORDER BY sort_order, created_at")
+    @Query("SELECT * FROM issues WHERE assignee_id = :userId ORDER BY sort_order, created_at")
     fun observeByAssignee(userId: String): Flow<List<IssueEntity>>
 
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
@@ -75,7 +75,7 @@ interface IssueDao {
     suspend fun exists(id: String): Boolean
 
     // Reviews (EXP-131): every issue in one team with an OPEN pull request.
-    // Joins boards to scope by team and drop trashed/archived boards;
+    // Joins boards to scope by team and drop trashed boards;
     // a batch PR links several issues to the SAME pr_url, so the client groups
     // these rows by pr_url into one review entry. Draft and state-less prUrl
     // rows are deliberately excluded — parity with web use-reviews-data.ts
@@ -83,13 +83,12 @@ interface IssueDao {
     @Query(
         "SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id " +
             "WHERE p.team_id = :teamId AND i.pr_state = 'open' " +
-            "AND i.archived_at IS NULL AND p.deleted_at IS NULL AND p.archived_at IS NULL"
+            "AND p.deleted_at IS NULL"
     )
     fun observeOpenPrsByTeam(teamId: String): Flow<List<IssueEntity>>
 
     // App-link resolution (EXP-92): team SLUG + identifier → issue id.
-    // Deliberately no archived filter (an emailed link to an archived issue
-    // should still open) and no board-slug predicate (identifiers are
+    // Deliberately no board-slug predicate (identifiers are
     // team-unique; the board slug in an old link goes stale when an
     // issue moves — the web route also keys on the identifier alone).
     @Query(

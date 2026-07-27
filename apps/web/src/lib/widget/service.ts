@@ -65,7 +65,7 @@ export class WidgetRequestError extends Error {
   }
 }
 
-// The widget config row plus the trash/archive state of its feedback target
+// The widget config row plus the trash state of its feedback target
 // board (nullable — support-only widgets have none) and the team's
 // helpdesk flag, so the submit + config paths can gate each mode on live
 // state.
@@ -73,7 +73,6 @@ export type WidgetConfigWithBoard = typeof widgetConfigs.$inferSelect & {
   boardSlug: string | null
   boardName: string | null
   boardDeletedAt: Date | null
-  boardArchivedAt: Date | null
   teamSlug: string | null
   teamHelpdeskEnabled: boolean | null
 }
@@ -90,7 +89,6 @@ export async function loadWidgetConfigByKey(
       boardSlug: boards.slug,
       boardName: boards.name,
       boardDeletedAt: boards.deletedAt,
-      boardArchivedAt: boards.archivedAt,
       teamSlug: teams.slug,
       teamHelpdeskEnabled: teams.helpdeskEnabled,
     })
@@ -107,7 +105,6 @@ export async function loadWidgetConfigByKey(
     boardSlug: row.boardSlug,
     boardName: row.boardName,
     boardDeletedAt: row.boardDeletedAt,
-    boardArchivedAt: row.boardArchivedAt,
     teamSlug: row.teamSlug,
     teamHelpdeskEnabled: row.teamHelpdeskEnabled,
   }

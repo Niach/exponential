@@ -29,7 +29,6 @@ public extension FetchedIssue {
             endTime: endTime,
             sortOrder: sortOrder,
             completedAt: completedAt,
-            archivedAt: archivedAt,
             duplicateOfId: duplicateOfId,
             prUrl: prUrl,
             prNumber: prNumber,

@@ -238,11 +238,11 @@ class IssueDetailViewModel @Inject constructor(
 
     /**
      * Issues the Start-coding sheet can queue (EXP-156). Regular candidates need
-     * a repo-backed, non-archived board and to be open (status not
+     * a repo-backed, live board and to be open (status not
      * done/cancelled/duplicate, PR not merged), `updatedAt` desc. The CURRENT
      * issue is force-included and pinned first — exempt from the issue-level
-     * rules AND the board-archived filter (a run can seed off an archived
-     * board), the same seed handling as desktop/iOS — but a repo-LESS current
+     * rules AND the board-trash filter (a run can seed off a trashed board),
+     * the same seed handling as desktop/iOS — but a repo-LESS current
      * issue stays OUT (nothing can host its run), so the sheet never seeds a
      * phantom id the batch logic can't back with a repository.
      */
@@ -261,11 +261,11 @@ class IssueDetailViewModel @Inject constructor(
                 .filter { it.teamId == board.teamId && it.repositoryId != null }
                 .associateBy { it.id }
             val liveRepoBoardIds = repoBoards.values
-                .filter { it.archivedAt == null && it.deletedAt == null }
+                .filter { it.deletedAt == null }
                 .map { it.id }
                 .toSet()
             // Force-include the current issue whenever its board has a repo,
-            // regardless of the board being archived or the issue's own state.
+            // regardless of the board being trashed or the issue's own state.
             val current = issues.firstOrNull {
                 it.id == issueId && it.boardId in repoBoards.keys
             }
@@ -273,7 +273,6 @@ class IssueDetailViewModel @Inject constructor(
                 .filter {
                     it.id != issueId &&
                         it.boardId in liveRepoBoardIds &&
-                        it.archivedAt == null &&
                         it.status !in TERMINAL_ISSUE_STATUSES &&
                         it.prState != DomainContract.prStateMerged
                 }
@@ -378,7 +377,7 @@ class IssueDetailViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Candidate canonical issues: same team, not this issue, not archived. */
+    /** Candidate canonical issues: same team, not this issue. */
     val duplicateCandidates: StateFlow<List<IssueEntity>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
@@ -392,7 +391,7 @@ class IssueDetailViewModel @Inject constructor(
                 .map { it.id }
                 .toSet()
             issues
-                .filter { it.boardId in teamBoardIds && it.id != issueId && it.archivedAt == null }
+                .filter { it.boardId in teamBoardIds && it.id != issueId }
                 .sortedByDescending { it.updatedAt }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -401,7 +400,7 @@ class IssueDetailViewModel @Inject constructor(
 
     /**
      * Same-team boards the issue can move to (the current board is
-     * excluded; observeAll already filters archived + trashed rows). Empty
+     * excluded; observeAll already filters trashed rows). Empty
      * hides the "Move to board" action — mirrors the web submenu, which
      * only renders with 2+ team boards.
      */

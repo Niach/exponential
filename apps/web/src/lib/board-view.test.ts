@@ -13,7 +13,6 @@ import {
 
 function makeIssue(overrides: Partial<Issue>): Issue {
   return {
-    archivedAt: null,
     assigneeId: null,
     completedAt: null,
     createdAt: new Date(`2026-03-06T10:00:00.000Z`),

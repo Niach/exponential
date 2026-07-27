@@ -92,7 +92,7 @@ class AgentsViewModel @Inject constructor(
 
     // Issues the Start-coding sheet can queue, scoped to the SELECTED team
     // (no current-issue exemption here — this tab has no "current" issue):
-    // repo-backed, non-archived boards; open issues, `updatedAt` desc.
+    // repo-backed, live boards; open issues, `updatedAt` desc.
     val startCandidates: StateFlow<List<StartIssueOption>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
@@ -105,14 +105,12 @@ class AgentsViewModel @Inject constructor(
                 .filter {
                     it.teamId == teamId &&
                         it.repositoryId != null &&
-                        it.archivedAt == null &&
                         it.deletedAt == null
                 }
                 .associateBy { it.id }
             issues
                 .filter {
                     it.boardId in eligibleBoards.keys &&
-                        it.archivedAt == null &&
                         it.status !in TERMINAL_ISSUE_STATUSES &&
                         it.prState != DomainContract.prStateMerged
                 }

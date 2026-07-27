@@ -15,7 +15,7 @@ public final class TeamState {
     public var filteredBoards: [BoardEntity] {
         guard let wsId = activeTeam?.id else { return [] }
         return boards
-            .filter { $0.teamId == wsId && $0.archivedAt == nil }
+            .filter { $0.teamId == wsId }
             .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
     }
 }

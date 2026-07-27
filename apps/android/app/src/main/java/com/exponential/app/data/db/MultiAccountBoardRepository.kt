@@ -70,11 +70,10 @@ class MultiAccountBoardRepository @Inject constructor(
                             val blocks = teams
                                 .sortedBy { it.name.lowercase() }
                                 .map { ws ->
-                                    val projs = (byTeam[ws.id] ?: emptyList())
-                                        .filter { it.archivedAt == null }
-                                    // Include every team, even ones with an empty or
-                                    // all-archived board list — they render as a header
-                                    // with no board rows (parity with iOS Home).
+                                    val projs = byTeam[ws.id] ?: emptyList()
+                                    // Include every team, even ones with an empty board
+                                    // list — they render as a header with no board rows
+                                    // (parity with iOS Home).
                                     TeamBlock(team = ws, boards = projs)
                                 }
                             if (blocks.isEmpty()) null

@@ -354,8 +354,8 @@ class IssueListViewModel @Inject constructor(
 
     /**
      * Issues the selection bar's Start-coding sheet can queue: this board's
-     * eligible issues — repo-backed live board only, non-archived,
-     * non-terminal, not merged — `updatedAt` desc. Mirrors
+     * eligible issues — repo-backed live board only, non-terminal,
+     * not merged — `updatedAt` desc. Mirrors
      * AgentsViewModel.startCandidates but board-scoped (the bar lives on one
      * board, which also guarantees the one-repository-per-run rule). Built
      * from the RAW board issues, not the filtered groups, so the sheet's own
@@ -366,13 +366,12 @@ class IssueListViewModel @Inject constructor(
         _board,
     ) { issues, board ->
         val repoId = board?.repositoryId
-        if (board == null || repoId == null || board.archivedAt != null || board.deletedAt != null) {
+        if (board == null || repoId == null || board.deletedAt != null) {
             emptyList()
         } else {
             issues
                 .filter {
-                    it.archivedAt == null &&
-                        it.status !in TERMINAL_ISSUE_STATUSES &&
+                    it.status !in TERMINAL_ISSUE_STATUSES &&
                         it.prState != DomainContract.prStateMerged
                 }
                 .sortedByDescending { it.updatedAt }
