@@ -506,6 +506,19 @@ pub fn install_quit_hook(cx: &mut App) {
             }
         }
         drain_pending_ends(std::time::Instant::now() + QUIT_END_TIMEOUT);
+        // EXP-300: kill agent processes that escaped their PTY. `claude`
+        // spawns a daemon that `setsid`s away, so killing the PTY child does
+        // not reach it; it survives our exit, stays in our macOS COALITION,
+        // and keeps our Launch Services registration alive as
+        // `exited-with-subordinates`. The next launch is then delivered to
+        // the dead instance as a re-open — the "app does nothing until you
+        // launch it twice" report. Verified: killing the survivors releases
+        // the registration immediately.
+        let data_dir = cx
+            .try_global::<AuthContext>()
+            .map(|auth| auth.data_dir.clone())
+            .unwrap_or_else(api::default_data_dir);
+        coding::reaper::reap(&data_dir);
         async {}
     })
     .detach();

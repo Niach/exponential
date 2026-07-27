@@ -50,6 +50,7 @@ pub mod launcher;
 pub mod mcp_json;
 pub mod pi_bridge;
 pub mod prompt;
+pub mod reaper;
 pub mod scm;
 pub mod settings;
 #[cfg(test)]
