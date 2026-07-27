@@ -175,12 +175,15 @@ fn traffic_tongue() -> impl IntoElement {
             // EXP-303: the strip's bottom hairline (the TitleBar's
             // `border_b`, same STROKE_ROW token) continues through the notch
             // until it meets the curve — without this it stopped at the
-            // strip's left edge and left a small gap beside the corner.
+            // strip's left edge and left a small gap beside the corner. Not
+            // the full notch width: within the hairline's 1px bottom band the
+            // arc sits ~3-4px in from the notch's left edge (x = √(2r−1) from
+            // the tongue side), so a full-width line overshot into the glass.
             div()
                 .absolute()
                 .right_0()
                 .bottom_0()
-                .w(radius)
+                .w(px(7.))
                 .h(px(1.))
                 .bg(theme::tokens::glass::STROKE_ROW.to_hsla()),
         )
