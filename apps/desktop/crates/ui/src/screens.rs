@@ -33,8 +33,11 @@ use gpui_component::{
 };
 use sync::Store;
 
+use domain::options::get_issue_status_config;
+use domain::IssueStatus;
+
 use crate::actions::{CreateTeam, JoinTeam, NewBoard};
-use crate::icons::ExpIcon;
+use crate::icons::{option_icon, ExpIcon};
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, resolved_screen, screen_title, set_screen,
@@ -124,6 +127,48 @@ pub(crate) fn build_screen_content(
 struct TabEntry {
     screen: Screen,
     origin: TabOrigin,
+}
+
+/// Chip content for one tab (EXP-310): issue-backed tabs (issue detail + PR
+/// diff) lead with the colored status icon and the identifier shortcode. A
+/// blank issue title drops the title part — the shortcode already labels the
+/// chip, where `screen_title`'s identifier fallback would render it twice.
+/// Non-issue tabs (and issue rows not yet synced) keep the plain
+/// `screen_title`.
+struct ChipContent {
+    status: Option<IssueStatus>,
+    identifier: Option<gpui::SharedString>,
+    title: Option<gpui::SharedString>,
+}
+
+fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
+    if let Screen::IssueDetail { issue_id } | Screen::PrDiff { issue_id } = screen {
+        let store = Store::global(cx);
+        let issues = store.collections().issues.read(cx);
+        if let Some(issue) = issues.get(issue_id) {
+            let title = issue.title.trim();
+            // "· Diff" keeps the diff tab distinguishable from the same
+            // issue's detail tab (mirrors `screen_title`).
+            let title = match screen {
+                Screen::PrDiff { .. } if title.is_empty() => Some("Diff".into()),
+                Screen::PrDiff { .. } => {
+                    Some(gpui::SharedString::from(format!("{title} · Diff")))
+                }
+                _ if title.is_empty() => None,
+                _ => Some(gpui::SharedString::from(title.to_string())),
+            };
+            return ChipContent {
+                status: Some(issue.status),
+                identifier: Some(gpui::SharedString::from(issue.identifier.clone())),
+                title,
+            };
+        }
+    }
+    ChipContent {
+        status: None,
+        identifier: None,
+        title: Some(screen_title(screen, cx)),
+    }
 }
 
 pub struct ScreensPanel {
@@ -479,9 +524,21 @@ impl ScreensPanel {
     /// length, clamped to the chip's real max, plus the fixed chrome
     /// (padding + close button + reserved undock slot + gaps).
     fn estimate_chip_width(&self, entry: &TabEntry, cx: &App) -> f32 {
-        let label = screen_title(&entry.screen, cx);
-        let label_w = (label.chars().count() as f32 * 7.5).clamp(40., 180.);
-        label_w + 68.
+        let content = chip_content(&entry.screen, cx);
+        let title_w = content
+            .title
+            .as_ref()
+            .map(|title| (title.chars().count() as f32 * 7.5).clamp(40., 180.))
+            .unwrap_or(0.);
+        // EXP-310 issue chrome: xsmall status icon and the mono text_xs
+        // shortcode, each plus the chip gap.
+        let icon_w = if content.status.is_some() { 18. } else { 0. };
+        let identifier_w = content
+            .identifier
+            .as_ref()
+            .map(|identifier| identifier.chars().count() as f32 * 6.2 + 4.)
+            .unwrap_or(0.);
+        title_w + icon_w + identifier_w + 68.
     }
 
     /// EXP-277: the hand-rolled rounded tab strip. Hosted INSIDE the titlebar
@@ -559,6 +616,7 @@ impl ScreensPanel {
             .items_center()
             .children(chips.into_iter().map(|(ix, screen)| {
                 let screen = &screen;
+                let content = chip_content(screen, cx);
                 crate::surface::tab_chip(Some(ix) == active_ix, cx)
                     .id(("center-tab", ix))
                     .group(TAB_GROUP)
@@ -612,7 +670,25 @@ impl ScreensPanel {
                             ))
                         }
                     })
-                    .child(div().max_w(px(180.)).truncate().child(screen_title(screen, cx)))
+                    // EXP-310: status icon + identifier shortcode ahead of
+                    // the title (issue-backed tabs only), mirroring the issue
+                    // list row's glyph/mono-identifier treatment.
+                    .when_some(content.status, |chip, status| {
+                        chip.child(option_icon(get_issue_status_config(status), cx).xsmall())
+                    })
+                    .when_some(content.identifier, |chip, identifier| {
+                        chip.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .font_family(theme::terminal::FONT_FAMILY)
+                                .whitespace_nowrap()
+                                .child(identifier),
+                        )
+                    })
+                    .when_some(content.title, |chip, title| {
+                        chip.child(div().max_w(px(180.)).truncate().child(title))
+                    })
                     .child(
                         h_flex()
                             .gap_0p5()
@@ -661,13 +737,24 @@ impl ScreensPanel {
             // on a visible chip, a team switch) shifts every index after it,
             // which would activate the wrong tab. Tabs are deduped by screen,
             // so it is a stable identity.
-            let hidden_entries: Vec<(Screen, gpui::SharedString)> = hidden
+            let hidden_entries: Vec<(Screen, Option<IssueStatus>, gpui::SharedString)> = hidden
                 .iter()
                 .map(|&ix| {
-                    (
-                        self.tabs[ix].screen.clone(),
-                        screen_title(&self.tabs[ix].screen, cx),
-                    )
+                    let screen = self.tabs[ix].screen.clone();
+                    // EXP-310: the menu rows carry the same status icon +
+                    // shortcode as the chips (composed into the label —
+                    // menu items are plain icon + text).
+                    let content = chip_content(&screen, cx);
+                    let label = match (&content.identifier, &content.title) {
+                        (Some(identifier), Some(title)) => {
+                            gpui::SharedString::from(format!("{identifier} {title}"))
+                        }
+                        (Some(identifier), None) => identifier.clone(),
+                        _ => content
+                            .title
+                            .unwrap_or_else(|| screen_title(&screen, cx)),
+                    };
+                    (screen, content.status, label)
                 })
                 .collect();
             let panel = panel.clone();
@@ -677,12 +764,17 @@ impl ScreensPanel {
                     .xsmall()
                     .label(format!("+{}", hidden_entries.len()))
                     .tooltip("More tabs")
-                    .dropdown_menu(move |mut menu, _window, _cx| {
+                    .dropdown_menu(move |mut menu, _window, cx| {
                         menu = menu.scrollable(true).max_h(px(320.));
-                        for (screen, title) in &hidden_entries {
+                        for (screen, status, title) in &hidden_entries {
                             let panel = panel.clone();
                             let screen = screen.clone();
-                            menu = menu.item(PopupMenuItem::new(title.clone()).on_click(
+                            let mut item = PopupMenuItem::new(title.clone());
+                            if let Some(status) = *status {
+                                item =
+                                    item.icon(option_icon(get_issue_status_config(status), cx));
+                            }
+                            menu = menu.item(item.on_click(
                                 move |_, window, cx| {
                                     let _ = panel.update(cx, |this, cx| {
                                         let Some(ix) = this
