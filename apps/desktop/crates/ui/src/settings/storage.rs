@@ -1,8 +1,7 @@
 //! Settings → Storage (EXP-297 team file manager).
 //!
-//! Web parity: `components/team/storage-section.tsx` (minus the web-only
-//! plan-usage bar — billing is web-only, §4.9). Owner-only, like the router
-//! behind it: every attachment of the team from tRPC
+//! Web parity: `components/team/storage-section.tsx`. Owner-only, like the
+//! router behind it: every attachment of the team from tRPC
 //! `attachments.listForTeam` — NOT the synced collection, because the tRPC
 //! list includes trashed-board rows plus the server-computed
 //! `referenced`/`isImage` flags and `totalBytes` — with per-file delete and
@@ -10,9 +9,18 @@
 //!
 //! Reads are fetch-on-open + refetch after every mutation (never optimistic:
 //! the list is a server aggregate the Electric echo can't rebuild). The
-//! owning issue identifier is joined CLIENT-side from the synced issues
-//! collection; a trashed/unknown issue falls back to a dash, exactly like
-//! the web table.
+//! owning issue identifier and the uploader are joined CLIENT-side from the
+//! synced issues/users collections; a trashed/unknown issue and an absent
+//! uploader (widget-filed screenshots have none) fall back to a dash,
+//! exactly like the web table.
+//!
+//! The plan usage meter mirrors the web section's `UsageBar` off
+//! `billing.teamPlan`, fetched alongside the list (and re-fetched with it
+//! after every mutation). It is DISPLAY-only — no upgrade/purchase
+//! affordances (billing UI stays web-only, §4.9) — and best-effort: a failed
+//! billing probe (older server, self-hosted quirks) just drops the bar, the
+//! table never blocks on it, and the self-hosted `unlimited` plan renders no
+//! bar at all (web parity: `plan !== 'unlimited'`).
 
 use gpui::{
     div, prelude::FluentBuilder as _, App, Entity, IntoElement, ParentElement, Render,
@@ -28,6 +36,7 @@ use gpui_component::{
 use sync::Store;
 
 use api::attachments::{AttachmentsListForTeamOutput, TeamAttachmentRow};
+use api::billing::TeamPlanOut;
 
 use crate::icons::ExpIcon;
 use crate::issue_files::{format_bytes, icon_for_content_type};
@@ -37,10 +46,18 @@ use crate::queries;
 
 use super::{card_header, error_notice, section};
 
+struct Loaded {
+    list: Result<AttachmentsListForTeamOutput, String>,
+    /// `None` = the billing probe failed or hasn't landed (best-effort —
+    /// the usage bar just stays away; web parity: the table renders either
+    /// way).
+    plan: Option<TeamPlanOut>,
+}
+
 enum Load {
     Idle,
     Loading,
-    Ready(Result<AttachmentsListForTeamOutput, String>),
+    Ready(Loaded),
 }
 
 pub struct StoragePane {
@@ -59,12 +76,14 @@ pub struct StoragePane {
 
 impl StoragePane {
     pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
-        // The list itself is a server read; the issue-identifier join reads
-        // the synced issues collection, so a sync delta re-renders the rows.
-        let issues = Store::global(cx).collections().issues.clone();
+        // The list itself is a server read; the issue-identifier and
+        // uploaded-by joins read the synced issues/users collections, so a
+        // sync delta re-renders the rows.
+        let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            cx.observe(&issues, |_, _, cx| cx.notify()),
+            cx.observe(&collections.issues, |_, _, cx| cx.notify()),
+            cx.observe(&collections.users, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -106,8 +125,17 @@ impl StoragePane {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::attachments::attachments_list_for_team(&trpc, &team_id)
-                        .map_err(|err| err.to_string())
+                    // Billing first and best-effort (`.ok()`): the usage bar
+                    // is decoration, the list carries its own error state.
+                    let plan = api::billing::billing_team_plan(&trpc, &team_id)
+                        .map_err(|err| {
+                            log::warn!("[ui] billing.teamPlan failed (usage bar hidden): {err}");
+                            err
+                        })
+                        .ok();
+                    let list = api::attachments::attachments_list_for_team(&trpc, &team_id)
+                        .map_err(|err| err.to_string());
+                    Loaded { list, plan }
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -267,14 +295,16 @@ impl StoragePane {
     }
 
     /// One attachment row: type icon, filename, size, owning issue
-    /// identifier, created date, status chip, delete. The identifier joins
-    /// from the synced issues collection — a trashed board's issues are out
-    /// of sync, so those rows read a dash (web parity).
+    /// identifier, uploader, created date, status chip, delete. Identifier
+    /// and uploader join from the synced collections — a trashed board's
+    /// issues are out of sync and widget screenshots have no uploader, so
+    /// those cells read a dash (web parity).
     fn render_row(
         &self,
         index: usize,
         row: &TeamAttachmentRow,
         identifier: Option<String>,
+        uploader: Option<String>,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
@@ -335,6 +365,17 @@ impl StoragePane {
             )
             .child(
                 div()
+                    .w(gpui::px(112.))
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(SharedString::from(uploader.unwrap_or_else(|| "—".to_string()))),
+            )
+            .child(
+                div()
                     .w_24()
                     .flex_shrink_0()
                     .text_xs()
@@ -385,10 +426,35 @@ impl Render for StoragePane {
                         .child(Skeleton::new().h_8().w_full()),
                 );
             }
-            Load::Ready(Err(message)) => {
+            Load::Ready(Loaded {
+                list: Err(message), ..
+            }) => {
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
-            Load::Ready(Ok(list)) => {
+            Load::Ready(Loaded {
+                list: Ok(list),
+                plan,
+            }) => {
+                // Web `UsageBar`: shown for every billed plan (`plan !==
+                // 'unlimited'`); a null storage limit reads "… / unlimited"
+                // with no track. Self-hosted (`unlimited`) and a failed
+                // billing probe render no meter at all — the totalBytes
+                // summary below always carries the usage.
+                let meter = plan
+                    .as_ref()
+                    .filter(|plan| plan.plan != "unlimited")
+                    .map(|plan| {
+                        super::usage_bar(
+                            "Attachment storage",
+                            super::format_storage(plan.usage.storage_mb),
+                            plan.limits.storage_mb.map(super::format_storage),
+                            plan.limits
+                                .storage_mb
+                                .filter(|limit| *limit > 0.)
+                                .map(|limit| plan.usage.storage_mb / limit),
+                            cx,
+                        )
+                    });
                 let rows = list.attachments.clone();
                 let total_bytes = list.total_bytes;
                 let candidates = rows
@@ -401,6 +467,8 @@ impl Render for StoragePane {
                 } else {
                     "Sweep unreferenced images".to_string()
                 };
+
+                body = body.children(meter);
 
                 // Header line: usage summary left, the bulk sweep right.
                 body = body.child(
@@ -446,22 +514,42 @@ impl Render for StoragePane {
                             .child("No attachments yet."),
                     );
                 } else {
-                    let issues = Store::global(cx).collections().issues.clone();
-                    let identifiers: Vec<Option<String>> = {
-                        let issues = issues.read(cx);
+                    let collections = Store::global(cx).collections().clone();
+                    let joins: Vec<(Option<String>, Option<String>)> = {
+                        let issues = collections.issues.read(cx);
+                        let users = collections.users.read(cx);
                         rows.iter()
                             .map(|row| {
-                                issues
+                                let identifier = issues
                                     .get(&row.issue_id)
-                                    .map(|issue| issue.identifier.clone())
+                                    .map(|issue| issue.identifier.clone());
+                                // Web parity: `uploader?.name || uploader?.
+                                // email || —` — a null uploader_id (widget
+                                // screenshots) or an unsynced user row reads
+                                // a dash.
+                                let uploader = row
+                                    .uploader_id
+                                    .as_deref()
+                                    .and_then(|id| users.get(id))
+                                    .and_then(|user| {
+                                        user.name
+                                            .clone()
+                                            .filter(|name| !name.is_empty())
+                                            .or_else(|| {
+                                                user.email
+                                                    .clone()
+                                                    .filter(|email| !email.is_empty())
+                                            })
+                                    });
+                                (identifier, uploader)
                             })
                             .collect()
                     };
                     let mut list = v_flex().w_full();
-                    for (index, (row, identifier)) in
-                        rows.iter().zip(identifiers.into_iter()).enumerate()
+                    for (index, (row, (identifier, uploader))) in
+                        rows.iter().zip(joins.into_iter()).enumerate()
                     {
-                        list = list.child(self.render_row(index, row, identifier, cx));
+                        list = list.child(self.render_row(index, row, identifier, uploader, cx));
                     }
                     body = body.child(list);
                 }
