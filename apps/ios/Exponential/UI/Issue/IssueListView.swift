@@ -159,8 +159,9 @@ struct IssueListView: View {
                     .padding(.bottom, 8)
             }
 
-            // EXP-314: one group per TEAM STATUS row, in the resolver's order.
-            let groups = vm.teamStatuses
+            // EXP-314: one group per TEAM STATUS row, in the resolver's order,
+            // plus any appended out-of-vocabulary group (see visibleGroups).
+            let groups = vm.visibleGroups
             if groups.allSatisfy({ vm.issues(forGroup: $0).isEmpty }) {
                 // Android parity: an empty (or fully filtered-out) board says
                 // so instead of rendering a blank list.

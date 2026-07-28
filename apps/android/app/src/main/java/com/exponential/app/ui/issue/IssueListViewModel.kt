@@ -305,17 +305,29 @@ class IssueListViewModel @Inject constructor(
         // One group per team status row, in canonical order; empty groups are
         // hidden. Canonical in-group order (EXP-38) now keys on the row's
         // CATEGORY — see sortIssuesForCategory in domain/IssueDomain.kt.
-        val grouped = teamStatuses.map { resolved ->
-            IssueGroup(
-                status = resolved,
-                issues = sortIssuesForCategory(
-                    category = resolved.category,
-                    issues = filteredAndDecorated.filter {
-                        statusByIssue.getValue(it.issue.id).id == resolved.id
-                    },
-                ) { it.issue },
-            )
-        }.filter { it.issues.isNotEmpty() }
+        val byGroupKey = filteredAndDecorated.groupBy { statusByIssue.getValue(it.issue.id).id }
+
+        fun groupOf(resolved: ResolvedIssueStatus) = IssueGroup(
+            status = resolved,
+            issues = sortIssuesForCategory(
+                category = resolved.category,
+                issues = byGroupKey[resolved.id] ?: emptyList(),
+            ) { it.issue },
+        )
+
+        val knownKeys = teamStatuses.mapTo(mutableSetOf()) { it.id }
+        // A resolved status OUTSIDE the team's synced vocabulary (a constructed
+        // default while the team's issue_statuses rows are still landing) gets
+        // an APPENDED group, in first-encounter order — an issue must never
+        // silently vanish from its board. Same contract as web
+        // (buildVisibleIssueGroups) and desktop (build_status_groups).
+        val extras = filteredAndDecorated
+            .map { statusByIssue.getValue(it.issue.id) }
+            .filter { it.id !in knownKeys }
+            .distinctBy { it.id }
+
+        val grouped = teamStatuses.map(::groupOf).filter { it.issues.isNotEmpty() } +
+            extras.map(::groupOf)
 
         GroupedIssueState(
             board = board,

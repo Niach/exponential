@@ -52,6 +52,10 @@ export function categoryStatusIcon(
       return `circle-x`
     case `duplicate`:
       return `copy`
+    // Forward-compat: an unknown category renders like backlog, the same
+    // fallback iOS/Android/desktop use (domain/src/statuses.rs `Unknown`).
+    default:
+      return `circle-dashed`
   }
 }
 

@@ -187,6 +187,23 @@ final class IssueListViewModel {
         }
     }
 
+    /// The groups the list renders: the team's statuses in resolver order,
+    /// then an APPENDED group for any issue whose resolved status is OUTSIDE
+    /// that vocabulary (a constructed default while the team's issue_statuses
+    /// rows are still landing), in first-encounter order — an issue must never
+    /// silently vanish from its board. Same contract as web
+    /// (`buildVisibleIssueGroups`) and desktop (`build_status_groups`).
+    var visibleGroups: [ResolvedIssueStatus] {
+        let team = teamStatuses
+        var groups = team
+        var seen = Set(team.map(\.id))
+        for issue in filteredIssues {
+            let status = IssueStatusResolver.resolve(issue, team: team)
+            if seen.insert(status.id).inserted { groups.append(status) }
+        }
+        return groups
+    }
+
     /// One group's issues (EXP-314: grouped by resolved status row, not by the
     /// anchor enum). Canonical in-group ordering (EXP-38, cross-platform
     /// contract) now switches on the group's CATEGORY: overdue → priority →
