@@ -3,7 +3,10 @@ package com.exponential.app.ui.reviews
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -11,6 +14,9 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.sortableTimestamp
+import com.exponential.app.ui.issue.StartIssueOption
+import com.exponential.app.ui.steer.ActionRunState
+import com.exponential.app.ui.steer.SteerLaunchDelegate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -63,10 +69,15 @@ class ReviewsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
+    private val steerLaunch: SteerLaunchDelegate,
     selection: TeamSelection,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    init {
+        steerLaunch.attach(viewModelScope)
+    }
 
     val state: StateFlow<ReviewsState> =
         combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
@@ -133,13 +144,15 @@ class ReviewsViewModel @Inject constructor(
 
     /**
      * Squash-merge a review's PR via the GitHub App (EXP-131). Pass the
-     * representative issue id — for a batch PR the server resolves it to ALL
-     * linked issues and completes them together; the `done` flips arrive via
-     * Electric sync, dropping the entry off this list.
+     * entry's [groupKey] plus the representative issue id — for a batch PR the
+     * server resolves it to ALL linked issues and completes them together; the
+     * `done` flips arrive via Electric sync, dropping the entry off this list.
      */
-    fun mergePr(issueId: String) {
+    fun mergePr(groupKey: String, issueId: String) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
+            _mergeErrors.value = _mergeErrors.value - groupKey
+            _merging.value = _merging.value + groupKey
             runCatching { issuesApi.mergePr(accountId, issueId) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
@@ -147,17 +160,40 @@ class ReviewsViewModel @Inject constructor(
                     // COMMON, persistent failures of a squash merge — a silent
                     // drop left the row sitting there unexplained (REV2-50).
                     // Same copy as the issue Changes tab's merge.
-                    _mergeError.value =
-                        trpcErrorMessage(t, "The pull request could not be merged")
+                    _mergeErrors.value = _mergeErrors.value +
+                        (groupKey to trpcErrorMessage(t, "The pull request could not be merged"))
                 }
+            _merging.value = _merging.value - groupKey
         }
     }
 
-    // Surfaced as a snackbar by ReviewsScreen.
-    private val _mergeError = MutableStateFlow<String?>(null)
-    val mergeError: StateFlow<String?> = _mergeError
+    // Rendered INLINE on the failing row, keyed by its groupKey (EXP-323 — a
+    // Scaffold snackbar landed behind the floating bottom nav pill, which is
+    // drawn over the whole NavHost, so the reason a merge failed was
+    // unreadable). Cleared by the next attempt on that row.
+    private val _mergeErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+    val mergeErrors: StateFlow<Map<String, String>> = _mergeErrors
 
-    fun consumeMergeError() {
-        _mergeError.value = null
-    }
+    private val _merging = MutableStateFlow<Set<String>>(emptySet())
+    val merging: StateFlow<Set<String>> = _merging
+
+    // ── Remote start (EXP-323) ───────────────────────────────────────────────
+    // A failed merge is usually a conflict, so the row offers the builtin "Fix
+    // merge conflicts" run — desktop parity (its Reviews list has the same
+    // button). The launcher plumbing is the shared delegate's.
+    val steerDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices
+    val startCandidates: StateFlow<List<StartIssueOption>> get() = steerLaunch.startCandidates
+    val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
+    val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
+
+    fun refreshDevices() = steerLaunch.refreshDevices()
+    fun consumeStartedSession() = steerLaunch.consumeStartedSession()
+    fun runAction(
+        device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: Map<String, String>,
+    ) = steerLaunch.runAction(device, action, options, inputs)
+    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) =
+        steerLaunch.startCoding(device, issueIds, options)
 }

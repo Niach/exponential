@@ -21,6 +21,11 @@ import {
   useTeamBySlug,
   useTeamBoards,
 } from "@/hooks/use-team-data"
+import { useRemoteStart } from "@/hooks/use-remote-start"
+import { useSession } from "@/hooks/use-session"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
+import { trpcErrorMessage } from "@/lib/trpc-error"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -37,6 +42,8 @@ import {
   type PullFile,
 } from "@/components/diff-view"
 import { PrStateBadge } from "@/components/issue-coding-rows"
+import { useSteerConfig } from "@/components/agent-session"
+import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 
 // Review-detail (EXP-106): the PR/branch diff for one review, with Merge/Close
 // actions moved off the issue detail. The representative issue carries the PR;
@@ -198,23 +205,54 @@ function ReviewDetailPage() {
   const [closing, setClosing] = useState(false)
   const [confirmMergeOpen, setConfirmMergeOpen] = useState(false)
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false)
+  // A refused merge/close captions the action bar that produced it (EXP-323)
+  // instead of only flashing a toast — the reason has to stay next to the
+  // conflict-recovery button.
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  // "Fix conflicts" (EXP-323, desktop parity). Presence is fetched only once
+  // an action has actually failed — opening a review must not poll for
+  // desktops, but waiting for the click would open the dialog on a momentary
+  // "no desktop online".
+  const [fixOpen, setFixOpen] = useState(false)
+  const { data: session } = useSession()
+  const currentUserId = session?.user?.id
+  const { isMember } = useTeamPermissions(team)
+  const steerConfig = useSteerConfig()
+  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
+  const remote = useRemoteStart({
+    enabled: steerEnabled && actionError !== null,
+    currentUserId,
+  })
 
   const confirmMerge = () => {
     if (!issue) return
     setConfirmMergeOpen(false)
     setMerging(true)
-    trpc.issues.mergePr.mutate({ issueId: issue.id }).catch(() => {
-      setMerging(false)
-    })
+    setActionError(null)
+    trpc.issues.mergePr
+      .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
+      .catch((error: unknown) => {
+        setActionError(
+          trpcErrorMessage(error, `The pull request could not be merged`)
+        )
+        setMerging(false)
+      })
   }
 
   const confirmClose = () => {
     if (!issue) return
     setConfirmCloseOpen(false)
     setClosing(true)
-    trpc.issues.closePr.mutate({ issueId: issue.id }).catch(() => {
-      setClosing(false)
-    })
+    setActionError(null)
+    trpc.issues.closePr
+      .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
+      .catch((error: unknown) => {
+        setActionError(
+          trpcErrorMessage(error, `The pull request could not be closed`)
+        )
+        setClosing(false)
+      })
   }
 
   const openIssue = (linkedIssue: Issue) => {
@@ -329,58 +367,108 @@ function ReviewDetailPage() {
       {/* Floating action bar (EXP-248) — dismiss · Merge · GitHub, matching the
           mobile clients' review-detail bar and the app's glass-pill chrome. */}
       {(isOpen || issue.prUrl) && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex items-center justify-center gap-3 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-          {isOpen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="pointer-events-auto size-11 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
-              aria-label="Close pull request without merging"
-              title="Close PR without merging"
-              disabled={merging || closing}
-              onClick={() => setConfirmCloseOpen(true)}
-            >
-              {closing ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <X className="size-4" />
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center gap-2 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          {actionError && (
+            <div className="pointer-events-auto flex max-w-lg flex-wrap items-center justify-center gap-2 rounded-lg border border-glass-stroke-card bg-popover/85 px-3 py-2 shadow-lg shadow-black/40 backdrop-blur-xl">
+              <span className="text-destructive text-xs">{actionError}</span>
+              {/* The recovery run rebases the PR's branch, so it needs one
+                  recorded — the same guard the desktop applies. */}
+              {isOpen && issue.branch && steerEnabled && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setFixOpen(true)}
+                >
+                  <GitBranch className="size-3.5" />
+                  Fix conflicts
+                </Button>
               )}
-            </Button>
+            </div>
           )}
-          {isOpen && (
-            <Button
-              className="pointer-events-auto h-12 rounded-full px-6 shadow-lg shadow-black/40"
-              disabled={merging || closing}
-              onClick={() => setConfirmMergeOpen(true)}
-            >
-              {merging ? (
-                <>
+          <div className="flex items-center justify-center gap-3">
+            {isOpen && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="pointer-events-auto size-11 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+                aria-label="Close pull request without merging"
+                title="Close PR without merging"
+                disabled={merging || closing}
+                onClick={() => setConfirmCloseOpen(true)}
+              >
+                {closing ? (
                   <Loader2 className="size-4 animate-spin" />
-                  Merging…
-                </>
-              ) : (
-                <>
-                  <GitMerge className="size-4" />
-                  Merge
-                </>
-              )}
-            </Button>
-          )}
-          {issue.prUrl && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="pointer-events-auto size-11 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
-              aria-label="Open pull request on GitHub"
-              title="Open PR on GitHub"
-              onClick={() =>
-                window.open(issue.prUrl ?? ``, `_blank`, `noopener,noreferrer`)
-              }
-            >
-              <ExternalLink className="size-4" />
-            </Button>
-          )}
+                ) : (
+                  <X className="size-4" />
+                )}
+              </Button>
+            )}
+            {isOpen && (
+              <Button
+                className="pointer-events-auto h-12 rounded-full px-6 shadow-lg shadow-black/40"
+                disabled={merging || closing}
+                onClick={() => setConfirmMergeOpen(true)}
+              >
+                {merging ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Merging…
+                  </>
+                ) : (
+                  <>
+                    <GitMerge className="size-4" />
+                    Merge
+                  </>
+                )}
+              </Button>
+            )}
+            {issue.prUrl && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="pointer-events-auto size-11 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+                aria-label="Open pull request on GitHub"
+                title="Open PR on GitHub"
+                onClick={() =>
+                  window.open(
+                    issue.prUrl ?? ``,
+                    `_blank`,
+                    `noopener,noreferrer`
+                  )
+                }
+              >
+                <ExternalLink className="size-4" />
+              </Button>
+            )}
+          </div>
         </div>
+      )}
+
+      {fixOpen && (
+        <LaunchDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setFixOpen(false)
+          }}
+          devices={remote.devices ?? []}
+          starting={remote.starting}
+          teamId={team.id}
+          initialTab="actions"
+          initialActionId={BUILTIN_FIX_CONFLICTS_ID}
+          initialPrIssueId={issue.id}
+          onStartIssues={(device, options, issueIds) => {
+            remote
+              .startIssues(device, options, issueIds)
+              .then(() => setFixOpen(false))
+              .catch(() => {})
+          }}
+          onRunAction={(device, action, options, inputs) => {
+            remote
+              .runAction(device, action, options, inputs)
+              .then(() => setFixOpen(false))
+              .catch(() => {})
+          }}
+        />
       )}
 
       <Dialog open={confirmMergeOpen} onOpenChange={setConfirmMergeOpen}>

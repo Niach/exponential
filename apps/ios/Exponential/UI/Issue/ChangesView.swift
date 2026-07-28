@@ -26,6 +26,9 @@ final class ChangesViewModel {
     /// board → team, like IssueDetailViewModel.refreshPermissions). The
     /// server enforces the rule too; this just hides controls a viewer can't use.
     private(set) var permissions: TeamPermissions = .denied
+    /// The issue's own team — the scope the "Fix conflicts" launcher runs in
+    /// (EXP-323); not necessarily the tab bar's active team.
+    private(set) var teamId: String?
     private(set) var merging = false
     private(set) var closing = false
     private(set) var actionError: String?
@@ -123,6 +126,7 @@ final class ChangesViewModel {
             let board = try BoardEntity.fetchOne(db, key: issue.boardId)
             return try board.flatMap { try TeamEntity.fetchOne(db, key: $0.teamId) }
         }) ?? nil
+        teamId = team?.id
         permissions = TeamPermissions.resolve(
             team: team,
             currentUserId: auth.userId,
@@ -180,6 +184,16 @@ struct ChangesView: View {
     @State private var mergeConfirm = false
     @State private var closeConfirm = false
 
+    // "Fix conflicts" (EXP-323, desktop parity): a refused merge is usually a
+    // conflict, so the bar offers the builtin recovery run on the user's own
+    // desktop, seeded with THIS pull request.
+    @State private var fixSheetOpen = false
+    @State private var steerEnabled = false
+    @State private var devices: [SteerDevice]?
+    @State private var startCandidates: [StartCodingSheet.IssueOption] = []
+    @State private var runCaption: String?
+    @State private var runError: String?
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -214,6 +228,29 @@ struct ChangesView: View {
             // Re-arm on every appear: pushing another screen stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
+            Task { await refreshSteer() }
+        }
+        .task(id: accountId) {
+            let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
+            steerEnabled = config.enabled
+            await refreshSteer()
+        }
+        .sheet(isPresented: $fixSheetOpen) {
+            StartCodingSheet(
+                devices: devices ?? [],
+                issues: startCandidates,
+                preselectedIds: [],
+                teamId: viewModel?.teamId,
+                initialTab: .actions,
+                preselectedActionId: DomainContract.builtinFixConflictsId,
+                preselectedPrIssueId: issueId,
+                onStart: { device, issueIds, options in
+                    start(on: device, issueIds: issueIds, options: options)
+                },
+                onRunAction: { device, action, options, inputs in
+                    runAction(on: device, action: action, options: options, inputs: inputs)
+                }
+            )
         }
         .onDisappear {
             viewModel?.stopObserving()
@@ -362,14 +399,52 @@ struct ChangesView: View {
                 // the summary header at the top of the scroll is off-screen
                 // once the actions moved down here (EXP-248 follow-up).
                 if let actionError = vm.actionError {
-                    Text(actionError)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .glassSection()
-                        .padding(.horizontal, 16)
+                    VStack(spacing: 8) {
+                        Text(actionError)
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Semantic.red)
+                            .multilineTextAlignment(.center)
+
+                        // A conflict is the common refusal, so the recovery
+                        // run sits where the failure was reported (EXP-323).
+                        // It rebases the PR's branch, so one must be recorded.
+                        if steerEnabled,
+                            vm.permissions.isMember,
+                            !(vm.issue?.branch ?? "").isEmpty {
+                            Button {
+                                fixSheetOpen = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    AppIcon(AppIcons.uiBranch, size: 11)
+                                    Text("Fix conflicts")
+                                        .font(.caption.weight(.medium))
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.white.opacity(0.08), in: Capsule())
+                                .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        if let runCaption {
+                            Text(runCaption)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .multilineTextAlignment(.center)
+                        }
+                        if let runError {
+                            Text(runError)
+                                .font(.caption)
+                                .foregroundStyle(DesignTokens.Semantic.red)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassSection()
+                    .padding(.horizontal, 16)
                 }
 
                 HStack(spacing: 12) {
@@ -431,6 +506,88 @@ struct ChangesView: View {
             }
             .padding(.top, 8)
             .padding(.bottom, 4)
+        }
+    }
+
+    // MARK: - Fix conflicts (EXP-323)
+
+    private func refreshSteer() async {
+        guard steerEnabled else {
+            devices = nil
+            return
+        }
+        devices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
+        startCandidates = await StartCodingSheet.IssueOption.loadCandidates(
+            db: deps.db,
+            accountId: accountId,
+            teamId: viewModel?.teamId
+        )
+    }
+
+    /// Actions-mode launch from the unified sheet — the "Fix merge conflicts"
+    /// builtin, which always rides its teamId. The run surfaces under Agents
+    /// via sync like any other session.
+    private func runAction(
+        on device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: [String: String]
+    ) {
+        runCaption = nil
+        runError = nil
+        let label = device.deviceLabel
+        Task {
+            do {
+                try await deps.steerApi.startSession(
+                    accountId: accountId,
+                    actionId: action.id,
+                    deviceId: device.deviceId,
+                    teamId: action.isBuiltin ? action.teamId : nil,
+                    options: options,
+                    inputs: inputs.isEmpty ? nil : inputs
+                )
+                runCaption = "Run sent to \(label) — it'll appear under Agents when it spins up."
+                Task {
+                    try? await Task.sleep(for: .seconds(30))
+                    runCaption = nil
+                }
+            } catch {
+                runError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Issues-tab launch from the same sheet (flipping tabs must not dead-end).
+    private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
+        guard !issueIds.isEmpty else { return }
+        runCaption = nil
+        runError = nil
+        let label = device.deviceLabel
+        Task {
+            do {
+                if issueIds.count > 1 {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueIds: issueIds,
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                } else {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueId: issueIds[0],
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                }
+                runCaption = "Start sent to \(label) — it'll appear under Agents when it spins up."
+                Task {
+                    try? await Task.sleep(for: .seconds(30))
+                    runCaption = nil
+                }
+            } catch {
+                runError = error.localizedDescription
+            }
         }
     }
 

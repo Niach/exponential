@@ -418,6 +418,7 @@ private fun AuthenticatedNav(
             ReviewsScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
             )
         }
         composable("settings") {
@@ -533,7 +534,10 @@ private fun AuthenticatedNav(
         composable("issue/{issueId}/changes") {
             // Dedicated diff page (EXP-34): PR/branch changes with per-file
             // expandable unified patches.
-            ChangesScreen(onBack = { navController.popBackStack() })
+            ChangesScreen(
+                onBack = { navController.popBackStack() },
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+            )
         }
         composable("steer/{codingSessionId}") {
             // The chat-style agent session viewer (EXP-32) — replaced the old

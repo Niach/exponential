@@ -45,6 +45,13 @@ data class SteerDevice(
      * for builtin or inputs-carrying runs.
      */
     val canRunActionInputs: Boolean get() = caps?.contains("action-inputs") == true
+
+    /**
+     * Whether this desktop can run the builtin "Fix merge conflicts" action
+     * (EXP-259). The server rejects that builtin without the cap, so pickers
+     * filter such desktops out instead of failing after submit (EXP-323).
+     */
+    val canFixConflicts: Boolean get() = caps?.contains("fix-conflicts") == true
 }
 
 @Serializable

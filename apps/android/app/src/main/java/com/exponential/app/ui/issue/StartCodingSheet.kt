@@ -138,6 +138,10 @@ fun StartCodingSheet(
     preferredDeviceId: String? = null,
     // Non-null opens the sheet on the Actions tab with this action selected.
     preselectedActionId: String? = null,
+    // Non-null pre-picks the selected action's `pr` input (EXP-323 — the
+    // conflict-recovery entry points hand over the issue their surface acts
+    // on; ANY issue linked to the PR resolves, see [optionForIssue]).
+    preselectedPrIssueId: String? = null,
     onStart: (SteerDevice, List<String>, SteerStartOptions) -> Unit,
     onRunAction: (SteerDevice, ActionDto, SteerStartOptions, Map<String, String>) -> Unit,
     onDismiss: () -> Unit,
@@ -256,6 +260,23 @@ fun StartCodingSheet(
         (selectedAction.isBuiltin || selectedActionInputs.isNotEmpty())
     val hasUnknownInputType =
         selectedActionInputs.any { it.type !in DomainContract.actionInputTypeValues }
+    // The "Fix merge conflicts" builtin needs its own cap on top (EXP-259).
+    val needsFixConflictsCap = selectedAction?.id == DomainContract.builtinFixConflictsId
+
+    // Pre-pick the target PR (EXP-323). The seed is normalised through
+    // `optionForIssue` because the caller's issue is rarely the option's
+    // representative, and it runs ONCE: a manual re-pick must stick, and the
+    // options flow re-emits on every sync tick.
+    var seededPr by remember { mutableStateOf(preselectedPrIssueId == null) }
+    LaunchedEffect(preselectedPrIssueId, pullRequestOptions, selectedActionId) {
+        if (seededPr || preselectedPrIssueId == null) return@LaunchedEffect
+        val key = selectedActionInputs.firstOrNull { it.type == "pr" }?.key
+            ?: return@LaunchedEffect
+        val option = pullRequestOptions.optionForIssue(preselectedPrIssueId)
+            ?: return@LaunchedEffect
+        inputValues = inputValues + (key to option.issueId)
+        seededPr = true
+    }
 
     var deviceId by remember {
         mutableStateOf(
@@ -264,11 +285,16 @@ fun StartCodingSheet(
         )
     }
     // Per-tab device candidates: issues take any desktop; actions need the
-    // `actions` cap (+ `action-inputs` when the selection demands it). A
-    // deviceId outside the current candidates re-settles on the first one
-    // without clobbering the stored choice for the other tab.
+    // `actions` cap (+ `action-inputs` when the selection demands it, +
+    // `fix-conflicts` for that builtin). A deviceId outside the current
+    // candidates re-settles on the first one without clobbering the stored
+    // choice for the other tab.
     val deviceCandidates = if (subjectTab == SubjectTab.Actions) {
-        devices.filter { it.canRunActions && (!needsInputCap || it.canRunActionInputs) }
+        devices.filter {
+            it.canRunActions &&
+                (!needsInputCap || it.canRunActionInputs) &&
+                (!needsFixConflictsCap || it.canFixConflicts)
+        }
     } else {
         devices
     }
@@ -724,10 +750,15 @@ fun StartCodingSheet(
                 // ── Desktop ──────────────────────────────────────────────────
                 if (subjectTab == SubjectTab.Actions && deviceCandidates.isEmpty()) {
                     // No desktop can take this run — none advertises `actions`,
-                    // or the builtin/inputs run needs a newer desktop app.
+                    // or the builtin/inputs/fix-conflicts run needs a newer
+                    // desktop app.
                     OptionGroup {
                         Text(
-                            "No actions-capable desktop online — open or update the Exponential desktop app.",
+                            if (needsFixConflictsCap) {
+                                "No desktop can fix merge conflicts yet — update the Exponential desktop app."
+                            } else {
+                                "No actions-capable desktop online — open or update the Exponential desktop app."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

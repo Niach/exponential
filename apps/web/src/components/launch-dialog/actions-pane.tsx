@@ -24,6 +24,7 @@ export function ActionsPane({
   onInputChange,
   repos,
   teamId,
+  seedPrIssueId,
 }: {
   /** Builtin-first sorted list; null while the fetch is in flight. */
   actions: TeamAction[] | null
@@ -35,6 +36,8 @@ export function ActionsPane({
   onInputChange: (key: string, value: string) => void
   repos: ActionRepoOption[]
   teamId: string
+  /** Any issue id linked to the PR a `pr` input should open pre-picked. */
+  seedPrIssueId?: string
 }) {
   const query = search.trim().toLowerCase()
   const rows = (actions ?? []).filter(
@@ -119,6 +122,7 @@ export function ActionsPane({
           onChange={onInputChange}
           repos={repos}
           teamId={teamId}
+          seedPrIssueId={seedPrIssueId}
         />
       )}
     </div>

@@ -66,6 +66,33 @@ final class StartPullRequestOptionTests: XCTestCase {
         // Representative id is deterministic (lowest id), not fetch-order bound.
         XCTAssertEqual(batch.issueId, "i-1")
         XCTAssertEqual(batch.label, "#7 · EXP-1, EXP-2")
+        XCTAssertEqual(Set(batch.linkedIssueIds), ["i-1", "i-2"])
+    }
+
+    // EXP-323: the Reviews row hands over its OWN representative (the newest
+    // linked issue), which is not this builder's (lowest id) — both must land
+    // on the same option so the seeded picker renders a label, not a blank.
+    func testResolvesAnyLinkedIssueIdToTheRepresentativeOption() {
+        let batchUrl = "https://github.com/acme/web/pull/7"
+        let options = StartPullRequestOption.build(
+            from: [
+                issue(id: "i-2", boardId: "b-1", identifier: "EXP-2", prUrl: batchUrl, prNumber: 7),
+                issue(id: "i-1", boardId: "b-1", identifier: "EXP-1", prUrl: batchUrl, prNumber: 7),
+                issue(
+                    id: "i-3",
+                    boardId: "b-1",
+                    identifier: "EXP-3",
+                    prUrl: "https://github.com/acme/web/pull/9",
+                    prNumber: 9
+                ),
+            ],
+            teamBoardIds: ["b-1"]
+        )
+
+        XCTAssertEqual(StartPullRequestOption.option(in: options, forIssueId: "i-2")?.issueId, "i-1")
+        XCTAssertEqual(StartPullRequestOption.option(in: options, forIssueId: "i-1")?.issueId, "i-1")
+        XCTAssertEqual(StartPullRequestOption.option(in: options, forIssueId: "i-3")?.issueId, "i-3")
+        XCTAssertNil(StartPullRequestOption.option(in: options, forIssueId: "unknown"))
     }
 
     func testScopesToTheTeamsBoardsAndSkipsRowsWithoutAUrl() {

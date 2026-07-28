@@ -132,44 +132,11 @@ final class ActionsViewModel {
     /// same eligibility as the Agents-tab picker (repo-backed boards, open
     /// issues, no merged PR), scoped to the loaded team.
     func refreshStartCandidates() async {
-        guard let teamId = loadedTeamId, let pool = try? db.pool(forAccountId: accountId) else {
-            startCandidates = []
-            return
-        }
-        let boards = (try? await pool.read { db in try BoardEntity.fetchAll(db) }) ?? []
-        let issues = (try? await pool.read { db in try IssueEntity.fetchAll(db) }) ?? []
-        // Repo-backed boards only — boardId → repositoryId.
-        var repoByBoard: [String: String] = [:]
-        for board in boards where board.teamId == teamId {
-            if let repoId = board.repositoryId {
-                repoByBoard[board.id] = repoId
-            }
-        }
-        // ANCHOR set (EXP-314): custom statuses anchor to one of these enum
-        // values, so the check keeps gating them correctly.
-        let terminal: Set<String> = [
-            IssueStatus.done.rawValue,
-            IssueStatus.cancelled.rawValue,
-            IssueStatus.duplicate.rawValue,
-        ]
-        startCandidates = issues
-            .filter { row in
-                guard repoByBoard[row.boardId] != nil else { return false }
-                if terminal.contains(row.status) { return false }
-                if row.prState == DomainContract.prStateMerged { return false }
-                return true
-            }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .map { row in
-                StartCodingSheet.IssueOption(
-                    id: row.id,
-                    identifier: row.identifier,
-                    title: row.title,
-                    repositoryId: repoByBoard[row.boardId],
-                    status: row.status,
-                    priority: row.priority
-                )
-            }
+        startCandidates = await StartCodingSheet.IssueOption.loadCandidates(
+            db: db,
+            accountId: accountId,
+            teamId: loadedTeamId
+        )
     }
 
     /// Remote-start issues from the unified sheet's Issues tab (the
