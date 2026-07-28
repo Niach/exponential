@@ -591,21 +591,23 @@ fn apply_mcp_env(
 }
 
 /// The shared 412/401/403 mapping for `repositories.installationToken`.
-fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingError> {
+fn token_error_reason(err: ApiError, full_name: &str) -> Result<DisabledReason, CodingError> {
     match err {
-        ApiError::Http { status: 412, message } => {
-            Ok(Prepared::Disabled(DisabledReason::GithubAppMissing {
-                full_name: full_name.to_string(),
-                message,
-            }))
-        }
+        ApiError::Http { status: 412, message } => Ok(DisabledReason::GithubAppMissing {
+            full_name: full_name.to_string(),
+            message,
+        }),
         ApiError::Http { status: status @ (401 | 403), message } => {
-            Ok(Prepared::Disabled(DisabledReason::TokenDenied {
+            Ok(DisabledReason::TokenDenied {
                 message: format!("{message} (HTTP {status})"),
-            }))
+            })
         }
         err => Err(err.into()),
     }
+}
+
+fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingError> {
+    token_error_reason(err, full_name).map(Prepared::Disabled)
 }
 
 /// Steps 0–6 of §7.1 (blocking; run on the background executor) — ONE
@@ -1247,6 +1249,136 @@ fn prepare_action(
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: options.skip_permissions && !options.plan_mode,
+    }))
+}
+
+/// An EXP-325 promptless agent-shell launch input: the terminal dock's "+"
+/// menu picked an installed agent and a repo; the agent spawns as a FRESH
+/// interactive session on the repo's trunk clone with the picked agent's
+/// settings defaults and the usual MCP wiring — but NO issue/batch/action
+/// subject. Deliberately no `codingSessions` row / heartbeat / exit hook /
+/// steer room: session subjects are issue XOR batch XOR action and this is
+/// none of them, so teammates never see a badge for an empty local session.
+#[derive(Clone, Debug)]
+pub struct AgentShellRequest {
+    /// The picked agent's settings defaults
+    /// ([`LaunchOptions::defaults_for`]).
+    pub options: LaunchOptions,
+    /// The trunk repo to run in, resolved by the caller (the desktop syncs
+    /// no repositories). Just the two ids the token/clone path needs — the
+    /// default branch resolves live from the minted token, never here.
+    pub repository_id: String,
+    /// `owner/name` — the clone-root key.
+    pub full_name: String,
+}
+
+/// [`prepare_agent_shell`] done: everything the foreground needs to open the
+/// tab ([`TabKind::AgentShell`], no exit hook, no heartbeat).
+#[derive(Debug)]
+pub struct AgentShellLaunch {
+    /// The agent invocation on the trunk clone (also the cwd).
+    pub spawn: SpawnSpec,
+    /// The trunk clone — the P9 token refresher's ambient-auth target.
+    pub clone: PathBuf,
+    /// The team `repositories` row id — feeds the token refresher hold.
+    pub repository_id: String,
+    /// Tab strip default title (`claude · exponential`).
+    pub tab_title: String,
+    /// The agent id, re-attached to live OSC titles (EXP-145 decoration).
+    pub tab_title_prefix: String,
+}
+
+/// [`prepare_agent_shell`]'s outcome: ready to spawn, or disabled-with-reason.
+#[derive(Debug)]
+pub enum PreparedAgentShell {
+    Ready(AgentShellLaunch),
+    Disabled(DisabledReason),
+}
+
+/// The EXP-325 promptless prepare — the repo-backed arm of [`prepare_action`]
+/// minus the prompt and the session row (blocking network/git I/O, gpui-free
+/// — run on the background executor): doctor → JIT token → clone/ambient
+/// auth → best-effort autopull → per-agent MCP wiring →
+/// [`SessionTail::None`] argv.
+pub fn prepare_agent_shell(
+    req: &AgentShellRequest,
+    deps: &CodingDeps,
+) -> Result<PreparedAgentShell, CodingError> {
+    let options = &req.options;
+    let agent = options.agent;
+
+    // Doctor — the picked agent AND git (a trunk clone is always involved).
+    let report = run_doctor(&deps.settings);
+    if let Some(failed) = report.first_failure_for(agent) {
+        return Ok(PreparedAgentShell::Disabled(DisabledReason::DoctorFailed(
+            failed.clone(),
+        )));
+    }
+
+    // §7.2 — the personal key (the MCP credential), raced like a session's.
+    let key_handle = {
+        let trpc = Arc::clone(&deps.trpc);
+        let store = Arc::clone(&deps.token_store);
+        let account_id = deps.account_id.clone();
+        std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
+    };
+
+    // JIT token → clone → ambient auth → best-effort autopull (the action
+    // path's repo-backed arm — the session works on whatever the trunk holds
+    // and the trunk-sync engine keeps surfacing its state).
+    let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
+        &deps.trpc,
+        &req.repository_id,
+        crate::token_refresh::REFRESH_LEAD,
+    ) {
+        Ok(minted) => minted,
+        Err(err) => {
+            return token_error_reason(err, &req.full_name).map(PreparedAgentShell::Disabled)
+        }
+    };
+    let url = minted.url.clone();
+    let repos_root = deps.settings.repos_root_path();
+    let clone = ensure_clone(&repos_root, url.full_name(), &url)?;
+    git_credentials::ensure(&clone, &url, minted.expires_at.as_deref())?;
+    let _ = crate::clone_manager::auto_sync(&clone, &url);
+    let _ = crate::git_worktree::ensure_local_excludes(
+        &clone,
+        &[crate::mcp_json::MCP_JSON_FILE, crate::pi_bridge::PI_BRIDGE_FILE],
+    );
+
+    // The per-agent MCP wiring (the agent authenticates as the real user).
+    let personal_key = key_handle
+        .join()
+        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
+    let agent_mcp = wire_agent_mcp(agent, &clone, deps.trpc.base_url(), &personal_key)?;
+
+    // The spawn spec: no prompt, no hooks sidecar (hooks are per-session —
+    // there is no session row to scope one to).
+    let args = session_args(options, &agent_mcp, None, SessionTail::None);
+    let repo_dir = req
+        .full_name
+        .rsplit('/')
+        .next()
+        .unwrap_or(req.full_name.as_str());
+    let tab_title = format!("{} · {repo_dir}", agent.id());
+    let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
+        .args(args)
+        .cwd(&clone);
+    spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
+    // Same EXP-76 shared-cache posture as a session (keyed off the clone).
+    spawn = spawn
+        .env(
+            "CARGO_TARGET_DIR",
+            shared_cargo_target_dir(&clone).to_string_lossy().into_owned(),
+        )
+        .env("CARGO_INCREMENTAL", "0");
+
+    Ok(PreparedAgentShell::Ready(AgentShellLaunch {
+        spawn,
+        clone,
+        repository_id: req.repository_id.clone(),
+        tab_title,
+        tab_title_prefix: agent.id().to_string(),
     }))
 }
 

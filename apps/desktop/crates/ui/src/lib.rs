@@ -60,6 +60,7 @@ mod navigation;
 mod oauth;
 mod pickers;
 mod pr_diff;
+mod pr_merge;
 mod properties_panel;
 mod queries;
 mod repo_resolver;

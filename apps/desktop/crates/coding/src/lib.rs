@@ -88,10 +88,11 @@ pub use git_worktree::{
     branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,
 };
 pub use launcher::{
-    default_device_label, end_session_best_effort, prepare, prepare_with_hooks, spawn_prepared,
-    spawn_prepared_with, ActionLaunchRequest, ActionRunKind, CodingDeps, CodingError,
-    DisabledReason, ExitNotify, GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin,
-    LaunchOutcome, LaunchRequest, Prepared, PrepareRequest, PreparedLaunch, WorktreeProvider,
+    default_device_label, end_session_best_effort, prepare, prepare_agent_shell,
+    prepare_with_hooks, spawn_prepared, spawn_prepared_with, ActionLaunchRequest, ActionRunKind,
+    AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason, ExitNotify,
+    GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
+    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
