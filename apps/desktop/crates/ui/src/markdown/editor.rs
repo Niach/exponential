@@ -2575,7 +2575,7 @@ fn build_display_line(
 
 /// Keep issue chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` in
 /// `issue-ref-extension.ts` — 60 chars, ellipsis beyond).
-fn truncate_chip_title(title: &str) -> String {
+pub(crate) fn truncate_chip_title(title: &str) -> String {
     const MAX_CHIP_TITLE_CHARS: usize = 60;
     let trimmed = title.trim();
     if trimmed.chars().count() <= MAX_CHIP_TITLE_CHARS {

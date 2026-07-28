@@ -148,6 +148,12 @@ final class IssueDetailViewModel {
         editor.issueRefResolver = { [weak self] identifier in
             self?.resolveIssueRef(identifier)
         }
+        // The chip shows `#ID <title>` while editing, like the web editor
+        // (EXP-322) — the title rides a serialization-invisible attachment, so
+        // the saved markdown keeps the bare token.
+        editor.issueRefTitleResolver = { [weak self] identifier in
+            self?.resolveIssueRefTitle(identifier)
+        }
         // Typing `#` offers same-team issues; selecting one inserts the
         // plain `#IDENTIFIER` interchange token.
         editor.issueRefSearch = { [weak self] query in
@@ -159,7 +165,14 @@ final class IssueDetailViewModel {
     /// (same team only). Synchronous lookup; nil when unknown (token
     /// stays plain).
     func resolveIssueRef(_ identifier: String) -> String? {
-        IssueRefLookup.resolve(identifier, scope: .issue(id: issueId), db: db, accountId: accountId)
+        IssueRefChipCache.chip(identifier, scope: .issue(id: issueId), db: db, accountId: accountId)?
+            .issueId
+    }
+
+    /// identifier → the issue's title, for the chip's display-only suffix.
+    func resolveIssueRefTitle(_ identifier: String) -> String? {
+        IssueRefChipCache.chip(identifier, scope: .issue(id: issueId), db: db, accountId: accountId)?
+            .title
     }
 
     /// Issues offered by the description editor's #-autocomplete

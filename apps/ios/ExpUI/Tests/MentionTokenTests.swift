@@ -72,10 +72,13 @@ final class IssueEditorModelTokenTests: XCTestCase {
         let model = IssueEditorModel()
         model.mentionMembers = [MentionMember(name: "Ada Lovelace", email: "ada@example.com")]
         model.load(markdown: "Hello @ad", baseURL: nil)
-        guard let first = model.blocks.first, case let .text(blockId, _) = first else {
+        guard let first = model.blocks.first, case let .text(blockId, content) = first else {
             return XCTFail("expected a leading text block")
         }
+        // Replay the real callback order: the bar only opens on a TEXT change
+        // (EXP-322), so seed the caret and then report the keystroke.
         model.updateSelection(blockId: blockId, range: NSRange(location: 9, length: 0))
+        model.updateText(id: blockId, content: content)
         XCTAssertEqual(model.mentionCandidates.map(\.email), ["ada@example.com"])
         // Mirrors the web insertToken: plain text, never a custom node.
         model.applyMention(model.mentionCandidates[0])
@@ -91,10 +94,12 @@ final class IssueEditorModelTokenTests: XCTestCase {
         // must not leak into the serialized bytes.
         model.issueRefResolver = { _ in "issue-id" }
         model.load(markdown: "Fixes #EX", baseURL: nil)
-        guard let first = model.blocks.first, case let .text(blockId, _) = first else {
+        guard let first = model.blocks.first, case let .text(blockId, content) = first else {
             return XCTFail("expected a leading text block")
         }
+        // See the mention test above: a caret move alone never opens the bar.
         model.updateSelection(blockId: blockId, range: NSRange(location: 9, length: 0))
+        model.updateText(id: blockId, content: content)
         XCTAssertEqual(model.issueRefCandidates.map(\.identifier), ["EXP-42"])
         model.applyIssueRef(model.issueRefCandidates[0])
         XCTAssertEqual(model.currentMarkdown(), "Fixes #EXP-42")

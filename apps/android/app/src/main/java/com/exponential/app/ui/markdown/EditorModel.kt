@@ -137,6 +137,23 @@ class EditorModel {
         return ds.second
     }
 
+    /**
+     * Row whose `@`/`#` autocomplete an explicit toolbar insert just armed
+     * (EXP-322). The field only opens its menu on a TEXT change, and a toolbar
+     * insert reaches it through the revision re-seed, which is
+     * indistinguishable from an Enter split or a backspace merge — hence this
+     * explicit one-shot signal. Set only by [insertPlainText].
+     */
+    var autocompleteArmRowId by mutableStateOf<String?>(null)
+        private set
+
+    /** Consumes the arm signal for [id]; true when this row was the target. */
+    fun consumeAutocompleteArm(id: String): Boolean {
+        if (autocompleteArmRowId != id) return false
+        autocompleteArmRowId = null
+        return true
+    }
+
     // -- Text editing -----------------------------------------------------------
 
     /** Non-structural intra-paragraph edit: update text + remap marks. No revision bump. */
@@ -390,6 +407,9 @@ class EditorModel {
         bump(row.id)
         setFocused(row.id)
         desiredSelection = row.id to (pos + text.length)
+        // Only the `@`/`#` affordances may open an autocomplete menu the user
+        // did not type a trigger for (EXP-322).
+        if (text == "@" || text == "#") autocompleteArmRowId = row.id
         notifyEdit()
     }
 

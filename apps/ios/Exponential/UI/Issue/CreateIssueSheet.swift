@@ -516,7 +516,12 @@ struct CreateIssueSheet: View {
     /// plain interchange token. Re-applied when "Create more" resets the model.
     private func configureEditor() {
         editor.issueRefResolver = { identifier in
-            IssueRefLookup.resolve(identifier, scope: .board(id: boardId), db: deps.db, accountId: accountId)
+            IssueRefChipCache.chip(identifier, scope: .board(id: boardId), db: deps.db, accountId: accountId)?
+                .issueId
+        }
+        editor.issueRefTitleResolver = { identifier in
+            IssueRefChipCache.chip(identifier, scope: .board(id: boardId), db: deps.db, accountId: accountId)?
+                .title
         }
         editor.issueRefSearch = { query in
             IssueRefLookup.search(query, scope: .board(id: boardId), db: deps.db, accountId: accountId)

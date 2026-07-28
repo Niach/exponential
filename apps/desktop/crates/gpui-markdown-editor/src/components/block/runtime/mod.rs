@@ -141,6 +141,12 @@ pub struct Block {
     pub(crate) editor_selection_range: Option<Range<usize>>,
     pub marked_range: Option<Range<usize>>,
     pub last_layout: Option<Vec<WrappedLine>>,
+    /// EXP-322 vendoring: the document↔shaped offset map the `last_layout`
+    /// lines were shaped with. Bound to the layout rather than cached off the
+    /// document, because the chip titles come from async host state — a cache
+    /// keyed on document mutations would go stale; this one cannot, because it
+    /// is written and cleared in lockstep with `last_layout`.
+    pub(crate) last_shaped: Option<super::shaped::ChipShapedText>,
     pub last_bounds: Option<Bounds<Pixels>>,
     pub last_line_height: Pixels,
     pub render_depth: usize,
@@ -275,6 +281,7 @@ impl Block {
             editor_selection_range: None,
             marked_range: None,
             last_layout: None,
+            last_shaped: None,
             last_bounds: None,
             last_line_height: px(20.0),
             render_depth: 0,
@@ -419,6 +426,21 @@ impl Block {
     /// underlying text might have changed.
     pub(crate) fn shared_display_text(&self) -> SharedString {
         self.cached_display_text.clone()
+    }
+
+    /// EXP-322 vendoring: the document↔shaped offset map matching `last_layout`.
+    /// Falls back to the identity when nothing has been painted yet or the
+    /// block carries no chips, so every caller can treat the shaped text as
+    /// authoritative without a `None` branch.
+    pub(crate) fn shaped_for_layout(&self) -> std::borrow::Cow<'_, super::shaped::ChipShapedText> {
+        match self.last_shaped.as_ref() {
+            Some(shaped) if shaped.document().as_ref() == self.cached_display_text.as_ref() => {
+                std::borrow::Cow::Borrowed(shaped)
+            }
+            _ => std::borrow::Cow::Owned(super::shaped::ChipShapedText::identity(
+                &self.cached_display_text,
+            )),
+        }
     }
 
     fn refresh_cached_display_text(&mut self) {
@@ -2116,10 +2138,12 @@ impl Block {
 
     fn current_line_layout_and_offset(&self) -> Option<(&WrappedLine, usize)> {
         let lines = self.last_layout.as_ref()?;
-        let text = self.display_text();
-        let ranges = super::element::hard_line_ranges(text);
+        // EXP-322 vendoring: the laid-out lines are the SHAPED text, so both
+        // the line ranges and the cursor offset live in shaped coordinates.
+        let shaped = self.shaped_for_layout();
+        let ranges = super::element::hard_line_ranges(shaped.text().as_ref());
         let (line_idx, offset_in_line) =
-            super::element::line_index_for_offset(&ranges, self.cursor_offset());
+            super::element::line_index_for_offset(&ranges, shaped.to_shaped(self.cursor_offset()));
         Some((lines.get(line_idx)?, offset_in_line))
     }
 
@@ -2153,10 +2177,10 @@ impl Block {
             return false;
         };
 
-        let text = self.display_text();
-        let ranges = super::element::hard_line_ranges(text);
+        let shaped = self.shaped_for_layout();
+        let ranges = super::element::hard_line_ranges(shaped.text().as_ref());
         let (current_line_idx, offset_in_line) =
-            super::element::line_index_for_offset(&ranges, self.cursor_offset());
+            super::element::line_index_for_offset(&ranges, shaped.to_shaped(self.cursor_offset()));
         let Some(current_layout) = lines.get(current_line_idx) else {
             return false;
         };
@@ -2200,7 +2224,9 @@ impl Block {
                 Ok(idx) | Err(idx) => idx,
             };
 
-        let flat_offset = ranges[target_line_idx].start + target_offset_in_line;
+        // Back to document coordinates before the cursor is moved.
+        let flat_offset = shaped.to_doc(ranges[target_line_idx].start + target_offset_in_line);
+        drop(shaped);
         self.move_to_with_preferred_x(flat_offset, Some(preferred_x), cx);
         true
     }
@@ -2222,8 +2248,8 @@ impl Block {
             };
         };
 
-        let text = self.display_text();
-        let ranges = super::element::hard_line_ranges(text);
+        let shaped = self.shaped_for_layout();
+        let ranges = super::element::hard_line_ranges(shaped.text().as_ref());
         let target_line_idx = if prefer_last_line { lines.len() - 1 } else { 0 };
         let target_layout = &lines[target_line_idx];
         let target_x = preferred_x.unwrap_or(px(0.0));
@@ -2239,7 +2265,7 @@ impl Block {
         {
             Ok(idx) | Err(idx) => idx,
         };
-        ranges[target_line_idx].start + offset_in_line
+        shaped.to_doc(ranges[target_line_idx].start + offset_in_line)
     }
 
     pub fn move_to_with_preferred_x(
@@ -2558,8 +2584,8 @@ impl Block {
         // the point into the text band instead, so an above-the-text click
         // maps x onto the first wrapped row and a below-the-text click maps
         // it onto the last one.
-        let text = self.display_text();
-        let ranges = super::element::hard_line_ranges(text);
+        let shaped = self.shaped_for_layout();
+        let ranges = super::element::hard_line_ranges(shaped.text().as_ref());
         let relative_y = position.y - bounds.top();
         let Some((line_idx, y_in_line)) =
             super::element::wrapped_line_for_y(lines, self.last_line_height, relative_y)
@@ -2575,14 +2601,17 @@ impl Block {
         ) {
             Ok(idx) | Err(idx) => idx,
         };
-        ranges[line_idx].start + offset_in_line
+        // Back to document coordinates: a click inside a chip's title snaps to
+        // the caret position right after the identifier.
+        shaped.to_doc(ranges[line_idx].start + offset_in_line)
     }
 
     pub(crate) fn active_range_or_cursor_bounds(&self) -> Option<Bounds<Pixels>> {
         let bounds = self.last_bounds?;
         let lines = self.last_layout.as_ref()?;
         let line_height = self.last_line_height;
-        let text = self.display_text();
+        let shaped = self.shaped_for_layout();
+        let text = shaped.text().as_ref();
         let active_range = self
             .marked_range
             .clone()
@@ -2594,7 +2623,7 @@ impl Block {
                 bounds,
                 line_height,
                 text,
-                self.cursor_offset(),
+                shaped.to_shaped(self.cursor_offset()),
                 self.text_align(),
                 px(1.0),
             );
@@ -2605,7 +2634,7 @@ impl Block {
             bounds,
             line_height,
             text,
-            active_range,
+            shaped.to_shaped_range(active_range),
             self.text_align(),
         )
     }

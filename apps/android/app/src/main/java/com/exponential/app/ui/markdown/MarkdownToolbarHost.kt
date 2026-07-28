@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -47,6 +48,13 @@ class MarkdownToolbarController {
 
     /** Whether the active editor offers the @-mention button (solo teams hide it, EXP-246). */
     var mentionEnabled by mutableStateOf(true)
+
+    /**
+     * Measured height of the visible bar, 0 while it is hidden. The `@`/`#`
+     * autocomplete menu subtracts it (on top of the IME inset) so it never
+     * places itself behind the toolbar (EXP-322).
+     */
+    var toolbarHeightPx by mutableIntStateOf(0)
 }
 
 val LocalMarkdownToolbarController = compositionLocalOf<MarkdownToolbarController?> { null }
@@ -73,6 +81,11 @@ fun ProvideMarkdownToolbar(content: @Composable () -> Unit) {
         var toolbarHeightPx by remember { mutableIntStateOf(0) }
         val density = LocalDensity.current
         val bottomInset = if (toolbarVisible) with(density) { toolbarHeightPx.toDp() } else 0.dp
+        // Published for the `@`/`#` autocomplete menu's placement (EXP-322).
+        // Via an effect, not a write during composition.
+        LaunchedEffect(toolbarVisible, toolbarHeightPx) {
+            controller.toolbarHeightPx = if (toolbarVisible) toolbarHeightPx else 0
+        }
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().padding(bottom = bottomInset)) {
                 content()

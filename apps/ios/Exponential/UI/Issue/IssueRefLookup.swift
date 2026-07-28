@@ -14,6 +14,13 @@ enum IssueRefLookup {
     enum Scope {
         case issue(id: String)
         case board(id: String)
+
+        var cacheKey: String {
+            switch self {
+            case .issue(let id): return "i:\(id)"
+            case .board(let id): return "b:\(id)"
+            }
+        }
     }
 
     /// identifier (e.g. `VER-12`) → local issue id when it resolves inside the
@@ -131,6 +138,36 @@ enum IssueRefLookup {
         return rows.map { IssueRefCandidate(identifier: $0["identifier"], title: $0["title"]) }
     }
 
+    /// Both halves of a chip in ONE read. The chip decoration pass runs on
+    /// every keystroke, so the old `resolve` + `resolveTitle` pair meant two
+    /// synchronous SQLite round trips per token per character typed.
+    static func resolveChip(
+        _ identifier: String,
+        scope: Scope,
+        db: DatabaseManager,
+        accountId: String
+    ) -> Chip? {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+        return (try? pool.read { db -> Chip? in
+            guard let teamId = try teamId(for: scope, db: db) else { return nil }
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT i.id, i.title FROM issues i
+                JOIN boards p ON p.id = i.board_id
+                WHERE upper(i.identifier) = ? AND p.team_id = ?
+                """,
+                arguments: [identifier, teamId]
+            ) else { return nil }
+            return Chip(issueId: row["id"], title: row["title"])
+        }) ?? nil
+    }
+
+    struct Chip {
+        let issueId: String
+        let title: String
+    }
+
     private static func teamId(for scope: Scope, db: Database) throws -> String? {
         switch scope {
         case .issue(let id):
@@ -150,5 +187,37 @@ enum IssueRefLookup {
                 arguments: [id]
             )
         }
+    }
+}
+
+/// Short-TTL memo in front of `IssueRefLookup.resolveChip`, because the chip
+/// decoration pass re-resolves every token on every keystroke (EXP-322).
+/// Caching MISSES is what matters most: typing `#E`, `#EX`, `#EXP` is a run of
+/// unresolvable lookups. The TTL keeps a newly-synced issue at most a few
+/// seconds away from chipping.
+@MainActor
+enum IssueRefChipCache {
+    private struct Key: Hashable {
+        let scope: String
+        let identifier: String
+    }
+
+    private static var entries: [Key: (value: IssueRefLookup.Chip?, at: Date)] = [:]
+    private static let ttl: TimeInterval = 5
+    private static let capacity = 512
+
+    static func chip(
+        _ identifier: String,
+        scope: IssueRefLookup.Scope,
+        db: DatabaseManager,
+        accountId: String
+    ) -> IssueRefLookup.Chip? {
+        let key = Key(scope: scope.cacheKey, identifier: identifier.uppercased())
+        let now = Date()
+        if let hit = entries[key], now.timeIntervalSince(hit.at) < ttl { return hit.value }
+        let value = IssueRefLookup.resolveChip(identifier, scope: scope, db: db, accountId: accountId)
+        if entries.count >= capacity { entries.removeAll(keepingCapacity: true) }
+        entries[key] = (value, now)
+        return value
     }
 }

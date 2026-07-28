@@ -327,6 +327,7 @@ struct IssueDetailBottomBar: View {
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         composerEditor.issueRefResolver = { resolveIssueRef($0) }
+        composerEditor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
         composerEditor.issueRefSearch = { searchIssueRefs($0) }
     }
 
@@ -366,7 +367,13 @@ struct IssueDetailBottomBar: View {
     }
 
     private func resolveIssueRef(_ identifier: String) -> String? {
-        IssueRefLookup.resolve(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
+        IssueRefChipCache.chip(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)?
+            .issueId
+    }
+
+    private func resolveIssueRefTitle(_ identifier: String) -> String? {
+        IssueRefChipCache.chip(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)?
+            .title
     }
 
     private func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {

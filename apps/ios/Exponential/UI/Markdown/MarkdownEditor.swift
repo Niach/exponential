@@ -523,6 +523,46 @@ private struct BlockTextEditor: UIViewRepresentable {
             if tv.isFirstResponder {
                 scrollCaretIntoView(tv)
             }
+            scheduleChipPass()
+        }
+
+        // MARK: Chip decoration (EXP-322)
+
+        private var chipPassScheduled = false
+
+        /// Re-chip after the edit cycle, coalesced to one pass per runloop turn.
+        /// Every mutation path in this file funnels through `textViewDidChange`
+        /// — typing, autocorrect/dictation, paste, drag-drop, undo, and the
+        /// three places that mutate storage directly and then call it by hand —
+        /// so this is the single hook the decoration needs.
+        private func scheduleChipPass() {
+            guard !chipPassScheduled else { return }
+            chipPassScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.chipPassScheduled = false
+                self?.applyChips()
+            }
+        }
+
+        private func applyChips() {
+            guard let tv = textView, let model, let blockId, !tv.isReadOnlyRendering else { return }
+            let result = model.chipDecoration(for: tv.textStorage, selection: tv.selectedRange)
+            guard result.changed else { return }
+            beginProgrammaticChange()
+            tv.textStorage.beginEditing()
+            tv.textStorage.setAttributedString(result.attributed)
+            tv.textStorage.endEditing()
+            tv.selectedRange = NSRange(
+                location: min(result.selection.location, tv.textStorage.length),
+                length: 0
+            )
+            // Without this the NEXT typed character inherits the chip's color
+            // and marker attributes.
+            tv.typingAttributes = MarkdownChipDecorator.sanitizedTypingAttributes(tv.typingAttributes)
+            endProgrammaticChange()
+            // No revision bump: the text view already holds this content, and a
+            // bump would re-apply `attributedText` and disturb the caret.
+            model.applyDecoration(id: blockId, content: NSAttributedString(attributedString: tv.textStorage))
         }
 
         /// Scrolls the nearest enclosing scroll view (the SwiftUI ScrollView
@@ -548,6 +588,10 @@ private struct BlockTextEditor: UIViewRepresentable {
             if !isProgrammaticChange, let model, let blockId {
                 model.updateSelection(blockId: blockId, range: tv.selectedRange)
             }
+            // UITextView recomputes typing attributes from the character before
+            // the caret on every selection change, so parking the caret at a
+            // chip's edge re-poisons them (EXP-322).
+            tv.typingAttributes = MarkdownChipDecorator.sanitizedTypingAttributes(tv.typingAttributes)
             (tv.inputAccessoryView as? MarkdownToolbar)?.updateState()
         }
 
@@ -555,6 +599,22 @@ private struct BlockTextEditor: UIViewRepresentable {
             let storage = tv.textStorage
             guard storage.length > 0 else { return true }
             let nsString = storage.string as NSString
+
+            // A chip deletes as one atom (EXP-322). Backspacing at its right
+            // edge would otherwise remove only the display-only title
+            // attachment, which the next decoration pass re-inserts — so
+            // backspace would appear stuck.
+            if text.isEmpty, range.length > 0,
+               let atom = MarkdownChipDecorator.chipAtomRange(in: storage, endingAt: NSMaxRange(range)),
+               atom.location < range.location {
+                storage.beginEditing()
+                storage.replaceCharacters(in: atom, with: "")
+                storage.endEditing()
+                tv.selectedRange = NSRange(location: atom.location, length: 0)
+                tv.typingAttributes = MarkdownChipDecorator.sanitizedTypingAttributes(tv.typingAttributes)
+                textViewDidChange(tv)
+                return false
+            }
 
             // Backspace on an empty list item → exit list mode.
             if text.isEmpty, range.length > 0 {

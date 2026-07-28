@@ -215,6 +215,7 @@ struct CommentThreadView: View {
                     // existing refs decorate on seed.
                     let editor = IssueEditorModel()
                     editor.issueRefResolver = { resolveIssueRef($0) }
+                    editor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
                     editor.issueRefSearch = { searchIssueRefs($0) }
                     editor.load(
                         markdown: getCommentBodyText(comment.body),
@@ -260,13 +261,15 @@ struct CommentThreadView: View {
     /// pills in comment bodies (render-only, same team only; unresolved
     /// refs stay plain text).
     private func resolveIssueRef(_ identifier: String) -> String? {
-        IssueRefLookup.resolve(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
+        IssueRefChipCache.chip(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)?
+            .issueId
     }
 
     /// identifier → issue title for the read-only chips (`#ID <title>`,
     /// EXP-307); same team scoping as the id resolver.
     private func resolveIssueRefTitle(_ identifier: String) -> String? {
-        IssueRefLookup.resolveTitle(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
+        IssueRefChipCache.chip(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)?
+            .title
     }
 
     /// Issues offered by the comment editors' #-autocomplete (team-scoped;
@@ -503,11 +506,15 @@ private struct RegularCommentRow: View {
                     guard displayedBody != text else { return }
                     displayedBody = text
                     let model = IssueEditorModel()
+                    // Display-only model: chips render as `#ID <title>` with
+                    // the title spliced in as real characters (EXP-307), which
+                    // is safe here because this model never serializes — the
+                    // edit path builds its own model from the raw stored
+                    // markdown. Editable models get the same chip via a
+                    // serialization-invisible attachment instead (EXP-322).
+                    model.isDisplayOnly = true
                     model.mentionMembers = mentionMembers
                     model.issueRefResolver = resolveIssueRef
-                    // Display-only model: chips render as `#ID <title>`
-                    // (EXP-307). The edit path reseeds from the raw stored
-                    // markdown, so the appended title never persists.
                     model.issueRefTitleResolver = resolveIssueRefTitle
                     model.load(markdown: text, baseURL: baseURL)
                     displayModel = model
