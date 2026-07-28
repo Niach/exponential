@@ -1,5 +1,5 @@
-• Attach any file to an issue — PDFs, videos, audio and more, with a new Files section
-• Current the moment you open it — sync rides one fast connection instead of fifteen
-• Issue mentions show the issue's title next to the identifier
-• Live coding sessions are steered seamlessly by their owner — no more take-over banner
-• The jump-to-bottom button in agent sessions now hides reliably
+• Custom issue statuses — add your own statuses per team, with categories, colors and progress icons
+• Choose what a pull request does — pick which status opening or merging a PR sets, or turn it off
+• Merge failures are readable — the reason appears inline, with a Fix conflicts button beside it
+• Issue chips in the editor — typing #EXP-42 now shows the issue's title, and the suggestion list behaves
+• Fixed a bug where an issue reference inside a table could corrupt the saved description

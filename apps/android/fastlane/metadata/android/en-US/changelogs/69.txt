@@ -1,0 +1,1 @@
+Build your own issue statuses per team, choose what opening or merging a pull request does to them, and read merge failures right where you tapped — plus issue chips with titles in the editor.
