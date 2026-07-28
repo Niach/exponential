@@ -35,6 +35,12 @@ use crate::queries;
 /// [`crate::issue_detail::OnSaveDescription`]).
 pub(crate) type OnSave = Rc<dyn Fn(String, &mut Window, &mut App)>;
 
+/// EXP-335: host hook for NON-inline-image files picked via the toolbar's
+/// attach button (detail: upload to the issue's Files section; create dialog:
+/// stage for post-create upload). Inline-image picks never reach it — they
+/// embed at the caret through the editor's own image pipeline.
+pub(crate) type OnAttachFiles = Rc<dyn Fn(Vec<std::path::PathBuf>, &mut Window, &mut App)>;
+
 /// An open image context menu (host-rendered — the vendored editor only
 /// reports the right-click via `ImageContextMenuRequested`).
 struct ImageMenuState {
@@ -62,6 +68,9 @@ pub struct WysiwygDescription {
     /// `None` = create-dialog mode (stage as `draft://`, resolve at submit).
     upload_issue: Option<String>,
     on_save: Option<OnSave>,
+    /// EXP-335: set by hosts with a Files destination — gates the toolbar's
+    /// attach button (the action-prompt editor has none, so no button).
+    on_attach_files: Option<OnAttachFiles>,
     /// Authenticated fetch/decode cache (same type the block editor uses).
     images: Entity<ImageCache>,
     /// State shared with the vendored environment's paste handler + resolver.
@@ -252,6 +261,7 @@ impl WysiwygDescription {
             team_id,
             upload_issue,
             on_save,
+            on_attach_files: None,
             images,
             shared,
             staged: Vec::new(),
@@ -680,6 +690,53 @@ impl WysiwygDescription {
             editor.apply_format(FormatCommand::Link(None), window, cx);
         });
         cx.notify();
+    }
+
+    /// EXP-335: wire the toolbar's attach button to the host's Files flow.
+    pub fn set_attach_handler(&mut self, handler: OnAttachFiles) {
+        self.on_attach_files = Some(handler);
+    }
+
+    /// EXP-335: does the toolbar render the attach button?
+    pub(super) fn has_attach_handler(&self) -> bool {
+        self.on_attach_files.is_some()
+    }
+
+    /// Toolbar "Attach file": any file type. Inline-image picks embed at the
+    /// caret through the editor's own image pipeline (identical to the image
+    /// button); everything else routes to the host's attach hook.
+    pub(super) fn pick_attach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.on_attach_files.is_none() {
+            return;
+        }
+        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Attach".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            this.update_in(cx, |this, window, cx| {
+                let (images, others): (Vec<_>, Vec<_>) = paths.into_iter().partition(|path| {
+                    crate::markdown::image_paste::is_inline_image_path(path)
+                });
+                for path in images {
+                    this.editor.update(cx, |editor, cx| {
+                        editor.insert_image_path(path, window, cx);
+                    });
+                }
+                if !others.is_empty() {
+                    if let Some(on_attach) = this.on_attach_files.clone() {
+                        on_attach(others, window, cx);
+                    }
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Toolbar "Insert image": pick files and feed them through the SAME

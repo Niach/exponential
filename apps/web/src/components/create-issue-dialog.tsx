@@ -518,8 +518,6 @@ export function CreateIssueDialog({
                 attachmentStatus={attachmentStatus}
                 files={draftFiles}
                 images={imageOccurrences}
-                onAttachFiles={handleAttachFiles}
-                onFiles={handleImageFiles}
                 onRemove={handleRemoveImageOccurrence}
                 onRemoveFile={handleRemoveDraftFile}
                 uploading={submitPhase === `uploading`}
@@ -550,8 +548,6 @@ export function CreateIssueDialog({
                   attachmentStatus={attachmentStatus}
                   files={draftFiles}
                   images={imageOccurrences}
-                  onAttachFiles={handleAttachFiles}
-                  onFiles={handleImageFiles}
                   onRemove={handleRemoveImageOccurrence}
                   onRemoveFile={handleRemoveDraftFile}
                   uploading={submitPhase === `uploading`}

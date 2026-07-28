@@ -17,8 +17,6 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 
-export { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
-
 // The editor's @/# autocomplete popup portals to document.body (EXP-54 — the
 // dialog's scroll region would clip it), so Radix sees interactions with it as
 // OUTSIDE the modal content and would close the dialog. Whitelist them.

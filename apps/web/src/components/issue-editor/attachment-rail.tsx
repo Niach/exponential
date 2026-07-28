@@ -1,5 +1,4 @@
-import { FilePlus2, X } from "lucide-react"
-import { IssueEditorAttachmentButton } from "@/components/issue-editor/dialog-shell"
+import { X } from "lucide-react"
 import { formatAttachmentSize, getAttachmentIcon } from "@/lib/attachment-files"
 import type { DraftFile } from "@/lib/create-issue-helpers"
 import type { MarkdownImageOccurrence } from "@/lib/storage/issue-attachments"
@@ -9,11 +8,8 @@ interface IssueEditorAttachmentRailProps {
   attachmentStatus?: string | null
   disabled?: boolean
   // EXP-297: non-image files queued for upload after the issue is created.
-  // Omitted (with onAttachFiles) the rail behaves exactly as before.
   files?: DraftFile[]
   images: MarkdownImageOccurrence[]
-  onAttachFiles?: (files: File[]) => void | Promise<void>
-  onFiles?: (files: File[]) => void | Promise<void>
   onRemove?: (occurrenceIndex: number) => void
   onRemoveFile?: (draftFileId: string) => void
   uploading?: boolean
@@ -30,13 +26,14 @@ function getAttachmentLabel(image: MarkdownImageOccurrence) {
 
 const chipClassName = `group flex shrink-0 items-center gap-1 rounded-md border border-glass-stroke-card bg-glass-section py-1 pr-1.5 pl-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:border-glass-stroke-active hover:bg-glass-card`
 
+// EXP-335: display-only — the pickers live in the editor's formatting toolbar
+// now (image + attach-file buttons), so the rail is just the draft chips and
+// the trailing count.
 export function IssueEditorAttachmentRail({
   attachmentStatus,
   disabled,
   files,
   images,
-  onAttachFiles,
-  onFiles,
   onRemove,
   onRemoveFile,
   uploading,
@@ -58,21 +55,6 @@ export function IssueEditorAttachmentRail({
       className="flex min-w-0 flex-1 items-center gap-2"
       data-testid="issue-attachment-rail"
     >
-      <IssueEditorAttachmentButton
-        onFiles={onFiles}
-        uploading={uploading}
-        disabled={disabled}
-      />
-      {onAttachFiles && (
-        <IssueEditorAttachmentButton
-          accept="*/*"
-          icon={FilePlus2}
-          label="Attach file"
-          onFiles={onAttachFiles}
-          uploading={uploading}
-          disabled={disabled}
-        />
-      )}
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
         {attachmentStatus ? (
           <span className="min-w-0 truncate text-xs text-destructive">

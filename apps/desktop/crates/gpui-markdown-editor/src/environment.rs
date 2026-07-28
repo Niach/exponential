@@ -42,6 +42,14 @@ pub struct MarkdownEditorEnvironment {
     /// either way — their source spelling is preserved verbatim, so it has to
     /// stay reachable.
     pub expand_focused_links: bool,
+    /// EXP-335: the editor's last PAINTED content width (f32 bits; 0 = not
+    /// measured yet), recorded each frame by the editor render's
+    /// width-recorder canvas. The `Arc` is shared across environment clones,
+    /// so every block reads the same cell. Embedded editors fill their host
+    /// slot — no viewport-derived math can know that width — and standalone
+    /// image rows cap their width budget with it (an oversized budget hands
+    /// the picture a too-tall layout box that `Contain` letterboxes).
+    pub layout_width: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl Default for MarkdownEditorEnvironment {
@@ -58,6 +66,7 @@ impl Default for MarkdownEditorEnvironment {
             enable_image_resize: false,
             enable_image_source_editing: true,
             expand_focused_links: true,
+            layout_width: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
     }
 }

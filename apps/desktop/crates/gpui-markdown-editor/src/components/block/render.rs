@@ -206,6 +206,28 @@ fn effective_table_width(block: &Block, viewport_width: f32, d: &ThemeDimensions
 
 fn container_image_width_budget(block: &Block, viewport_width: f32, d: &ThemeDimensions) -> f32 {
     let centered_width = Editor::centered_column_width(viewport_width, d);
+    // EXP-335: embedded editors fill their HOST slot, not a viewport-derived
+    // centered column — for them the viewport budget can be far wider than
+    // the real row, which handed the image an oversized layout box that
+    // `ObjectFit::Contain` then letterboxed (big dead bands above/below wide
+    // pictures). The editor records its painted content width into the shared
+    // environment each frame (one frame stale; 0 before the first paint) —
+    // that is the honest cap. The 2px margin is LOAD-BEARING: an image sized
+    // EXACTLY to the row's content width trips a taffy fit-content edge case
+    // that deterministically re-measures the whole detail column at
+    // min-content width (~4× its real height — the activity section fell
+    // below a phantom scroll region).
+    let measured = f32::from_bits(
+        block
+            .environment
+            .layout_width
+            .load(std::sync::atomic::Ordering::Relaxed),
+    );
+    let centered_width = if measured > 1.0 {
+        (measured - 2.0).min(centered_width)
+    } else {
+        centered_width
+    };
     let visible_quote_guides = visible_quote_guides(block);
     let quote_inset = d.quote_padding_left * visible_quote_guides as f32;
     let callout_inset = if block.callout_depth > 0 {
@@ -510,6 +532,11 @@ impl Block {
         .max_w(max_width)
         .max_h(max_height)
         .object_fit(ObjectFit::Contain)
+        // EXP-335: rounded + hairline border, matching the web's
+        // `.tiptap-content img` (border-radius 12px, 1px var(--border)).
+        .rounded(px(d.image_radius))
+        .border_1()
+        .border_color(c.image_placeholder_border)
         .with_fallback(move || {
             render_image_placeholder(
                 &runtime_for_fallback,
@@ -528,8 +555,15 @@ impl Block {
                 &loading_strings,
             )
         });
+        // EXP-335: a definite width and nothing else. gpui's `Img` derives
+        // the height from a definite width via the picture's own aspect
+        // ratio, so the element hugs the drawn pixels. The old
+        // `w(natural).max_w(relative(1.0))` pair let taffy clamp the WIDTH
+        // after the height had already been derived from the unclamped
+        // value — a too-tall layout box that `ObjectFit::Contain`
+        // letterboxed with big dead bands above and below the picture.
         let image = if let Some(width) = display_width {
-            image.w(px(width)).max_w(relative(1.0))
+            image.w(px(width))
         } else {
             image
         };

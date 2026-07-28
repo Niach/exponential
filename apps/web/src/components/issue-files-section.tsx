@@ -141,21 +141,19 @@ export function IssueFilesSection({
     }
   }
 
-  // Nothing to show and nothing to add — stay out of the way entirely.
-  if (files.length === 0 && readOnly) {
+  // Nothing to show — stay out of the way entirely. Attaching the first file
+  // happens through the description toolbar's attach button (EXP-335), so an
+  // empty section has no affordance to render anymore.
+  if (files.length === 0) {
     return null
   }
 
   return (
     <div className="px-5 py-2" data-testid="issue-files-section">
       <div className="flex items-center gap-2">
-        {/* With no files the section collapses to just the attach button —
-            no "Files" heading (EXP-316). */}
-        {files.length > 0 && (
-          <h3 className="text-xs font-medium text-muted-foreground">
-            Files · {files.length}
-          </h3>
-        )}
+        <h3 className="text-xs font-medium text-muted-foreground">
+          Files · {files.length}
+        </h3>
         {!readOnly && (
           <div className="ml-auto">
             <IssueEditorAttachmentButton

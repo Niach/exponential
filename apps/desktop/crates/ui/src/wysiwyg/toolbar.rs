@@ -62,6 +62,7 @@ impl WysiwygDescription {
     ) -> Option<impl IntoElement + use<>> {
         let state = self.format_state(window, cx);
         let has_link = state.link.is_some();
+        let has_attach = self.has_attach_handler();
         let link_input = self.link_input.as_ref().map(|(input, _)| input.clone());
         Some(
             h_flex()
@@ -196,7 +197,22 @@ impl WysiwygDescription {
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.pick_image(window, cx);
                         })),
-                ),
+                )
+                // EXP-335: the one attach-file entry point — web parity with
+                // the StaticToolbar's paperclip. Hidden for hosts without a
+                // Files destination (the action-prompt editor).
+                .when(has_attach, |row| {
+                    row.child(
+                        Button::new("wysiwyg-attach")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::from(ExpIcon::Paperclip))
+                            .tooltip("Attach file")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.pick_attach(window, cx);
+                            })),
+                    )
+                }),
         )
     }
 }

@@ -749,13 +749,15 @@ html {
 }
 
 /* Inside the issue dialogs the editor lives in a scroll region — keep the
-   toolbar pinned while long descriptions scroll underneath it. Translucent +
-   blurred: dialogs are frosted glass now, an opaque patch would punch a hole. */
+   toolbar pinned while long descriptions scroll underneath it. No background
+   tint (EXP-335: the old 78% --background mix read as a dark banner against
+   the frosted-glass dialog surface — the toolbar must look identical to the
+   detail page's); the backdrop blur alone keeps the glyphs legible over
+   scrolled-under text. */
 .editor-scroll-region .static-toolbar {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: color-mix(in oklab, var(--background) 78%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }

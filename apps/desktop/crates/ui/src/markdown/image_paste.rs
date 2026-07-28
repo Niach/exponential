@@ -500,6 +500,19 @@ fn content_type_for_extension(ext: &str) -> &'static str {
     }
 }
 
+/// Does this path's extension map to one of the five inline (markdown-
+/// embedded) image types? The toolbar's attach picker uses this to route a
+/// pick: inline images embed at the caret like the image button, everything
+/// else goes to the host's Files flow (EXP-335).
+pub fn is_inline_image_path(path: &std::path::Path) -> bool {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    ACCEPTED_IMAGE_CONTENT_TYPES.contains(&content_type_for_extension(&ext))
+}
+
 /// Read ANY picked file for the files rail (EXP-297), inferring the content
 /// type from the extension. Returns `(filename, content_type, bytes)`.
 ///
