@@ -23,6 +23,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-custom-statuses`,
+    date: `2026-07-28`,
+    title: `Statuses that match how you work`,
+    summary: `Build your own issue statuses per team, and decide what opening or merging a PR does to them.`,
+    body: `- **Custom issue statuses** — a team can now add its own statuses next to the seven built-in ones. Each new status picks a category (Backlog, Unstarted, Started, Completed, Cancelled), a name and a color; up to four Started statuses get their own progress-clock icons. Built-ins stay put — they can be reordered inside their category but never renamed or deleted — and every app groups, sorts and filters by your statuses identically. Manage them in team settings on web or in the IDE.
+- **Deleting a status always asks where its issues go** — one consistent dialog on web and desktop, with the real count of affected issues (including issues on boards in the trash, which your apps never see).
+- **PR automation is yours to configure** — opening a PR moved issues to In Review and merging completed them. Now each team picks which status a PR open or merge sets, or turns either off entirely. The defaults are unchanged, so nothing moves unless you change it.
+- **Merge failures you can actually read** — a merge that hits a conflict now says so inline on web, iOS and Android, right where you tapped, with a Fix conflicts button beside it instead of a message hidden behind the navigation bar.
+- **Issue chips in the mobile editors** — typing \`#EXP-42\` in a description on iOS or Android now renders as a chip with the issue's title, and the \`#\` suggestion list stays where it belongs and can be dismissed.
+- **Consistent icons everywhere** — the settings pages in the web app and the IDE now draw from one shared icon set, so the same section no longer wears two different glyphs.
+- **Desktop IDE** — terminal tabs of a coding session show the issue's status, identifier and live title, and reveal a Merge PR button on hover; the tab strip now runs to the right edge and only collapses into "+N" when a tab genuinely does not fit.`,
+  },
+  {
     id: `2026-07-attach-any-file`,
     date: `2026-07-27`,
     title: `Attach any file`,
