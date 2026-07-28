@@ -213,9 +213,12 @@ fun ServerDetailScreen(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
                     if (account != null && account.token != null && !account.userEmail.isNullOrBlank()) {
-                        // Name-less accounts (Apple sign-in) fall back to the
-                        // email for the title/initials.
+                        // Prefer the login-time name, then the synced users row
+                        // (accounts persisted before the name was captured);
+                        // name-less accounts (Apple sign-in) fall back to the
+                        // email for the title/initials (EXP-331 iOS parity).
                         val name = account.userName?.takeIf { it.isNotBlank() }
+                            ?: user?.name?.takeIf { it.isNotBlank() }
                             ?: account.userEmail.orEmpty()
                         UserAvatar(user = user, nameOrEmail = name, size = 40.dp)
                         Spacer(Modifier.width(12.dp))
@@ -301,13 +304,17 @@ fun ServerDetailScreen(
                         },
                     )
                 }
-                CardDivider()
-                ActionRow(
-                    icon = ExpIcons.uiDelete,
-                    title = "Remove server",
-                    tint = MaterialTheme.colorScheme.error,
-                    onClick = { showRemoveConfirm = true },
-                )
+                // The bundled cloud can never be removed — "Remove server" is a
+                // custom-server affordance only (iOS parity, EXP-331).
+                if (account?.isCloud != true) {
+                    CardDivider()
+                    ActionRow(
+                        icon = ExpIcons.uiDelete,
+                        title = "Remove server",
+                        tint = MaterialTheme.colorScheme.error,
+                        onClick = { showRemoveConfirm = true },
+                    )
+                }
             }
         }
     }
@@ -318,7 +325,7 @@ fun ServerDetailScreen(
             title = { Text("Delete your account?") },
             text = {
                 Text(
-                    "This permanently deletes your account on ${account?.displayHost ?: "this server"}, " +
+                    "This permanently deletes your account on ${account?.displayName ?: "this server"}, " +
                         "including your personal teams, issues, and comments. This cannot be undone.",
                 )
             },
@@ -350,7 +357,7 @@ fun ServerDetailScreen(
     if (showRemoveConfirm) {
         AlertDialog(
             onDismissRequest = { showRemoveConfirm = false },
-            title = { Text("Remove ${account?.displayHost ?: "server"}?") },
+            title = { Text("Remove ${account?.displayName ?: "server"}?") },
             text = {
                 Text("This will sign you out and delete cached data for this server. The server can be re-added at any time.")
             },

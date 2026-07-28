@@ -2,13 +2,6 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-private let labelColors = [
-    "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308",
-    "#84cc16", "#22c55e", "#10b981", "#14b8a6", "#06b6d4",
-    "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
-    "#ec4899", "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
-]
-
 struct TeamLabelsSection: View {
     let accountId: String
     let teamId: String
@@ -16,10 +9,7 @@ struct TeamLabelsSection: View {
     let labelsApi: LabelsApi
 
     @State private var showCreate = false
-    @State private var newLabelName = ""
-    @State private var newLabelColor = "#3b82f6"
-    @State private var editingLabelId: String?
-    @State private var editingName = ""
+    @State private var editingLabel: LabelEntity?
     @State private var deleteTarget: LabelEntity?
     @State private var actionError: String?
 
@@ -32,51 +22,47 @@ struct TeamLabelsSection: View {
                 Text("\(labels.count)")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Spacer()
+                // "New label" rides the header (Boards' "New board" pattern,
+                // EXP-331) — labels stay member-level, so no owner gating.
+                Button {
+                    showCreate = true
+                } label: {
+                    HStack(spacing: 4) {
+                        AppIcon(AppIcons.uiAdd, size: 11, weight: .semibold)
+                        Text("New label")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassButton()
+                }
+                .buttonStyle(.plain)
             }
 
             ForEach(labels, id: \.id) { label in
                 HStack(spacing: 10) {
-                    // Color swatch
-                    Menu {
-                        ForEach(labelColors, id: \.self) { color in
-                            Button {
-                                Task { await run { try await labelsApi.update(accountId: accountId, UpdateLabelInput(id: label.id, color: color)) } }
-                            } label: {
-                                HStack {
-                                    Circle().fill(Color(hex: color) ?? .gray).frame(width: 12, height: 12)
-                                    Text(color)
-                                }
-                            }
-                        }
-                    } label: {
-                        Circle()
-                            .fill(Color(hex: label.color) ?? .gray)
-                            .frame(width: 14, height: 14)
-                    }
+                    Circle()
+                        .fill(Color(hex: label.color) ?? .gray)
+                        .frame(width: 14, height: 14)
 
-                    // Name (editable)
-                    if editingLabelId == label.id {
-                        TextField("Name", text: $editingName)
-                            .font(.subheadline)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.white)
-                            .onSubmit {
-                                Task {
-                                    await run { try await labelsApi.update(accountId: accountId, UpdateLabelInput(id: label.id, name: editingName)) }
-                                    editingLabelId = nil
-                                }
-                            }
-                    } else {
-                        Text(label.name)
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                            .onTapGesture {
-                                editingLabelId = label.id
-                                editingName = label.name
-                            }
-                    }
+                    Text(label.name)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
 
                     Spacer()
+
+                    // Explicit edit entry (EXP-331 — Android parity; replaces
+                    // the undiscoverable tap-to-rename / swatch-menu recolor).
+                    Button {
+                        editingLabel = label
+                    } label: {
+                        AppIcon(AppIcons.uiMoreVertical, size: AppIcon.Size.small)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit label")
 
                     // Delete (confirmed — labels stay member-level, so no owner
                     // gating, only a confirmation).
@@ -87,6 +73,7 @@ struct TeamLabelsSection: View {
                             .foregroundStyle(.red.opacity(0.5))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Delete label")
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -98,85 +85,46 @@ struct TeamLabelsSection: View {
                     .font(.caption)
                     .foregroundStyle(.red.opacity(0.8))
             }
-
-            // Create new label
-            if showCreate {
-                VStack(spacing: 8) {
-                    TextField("Label name", text: $newLabelName)
-                        .font(.subheadline)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    // Color palette
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 28), spacing: 6)], spacing: 6) {
-                        ForEach(labelColors, id: \.self) { color in
-                            Button {
-                                newLabelColor = color
-                            } label: {
-                                Circle()
-                                    .fill(Color(hex: color) ?? .gray)
-                                    .frame(width: 22, height: 22)
-                                    .overlay(
-                                        Circle().stroke(Color.white, lineWidth: newLabelColor == color ? 2 : 0)
-                                    )
-                            }
-                        }
-                    }
-
-                    HStack {
-                        Button("Cancel") {
-                            showCreate = false
-                            newLabelName = ""
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                        Spacer()
-
-                        Button("Create") {
-                            Task {
-                                await run {
-                                    try await labelsApi.create(accountId: accountId, CreateLabelInput(
-                                        name: newLabelName,
-                                        color: newLabelColor,
-                                        teamId: teamId
-                                    ))
-                                }
-                                showCreate = false
-                                newLabelName = ""
-                            }
-                        }
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .disabled(newLabelName.isEmpty)
-                    }
-                }
-                .padding(12)
-                .glassSection()
-            } else {
-                Button {
-                    showCreate = true
-                } label: {
-                    HStack(spacing: 6) {
-                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium)
-                        Text("New label")
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    // Full-capsule hit target — .plain hit-tests only opaque pixels.
-                    .contentShape(Rectangle())
-                }
-                .glassButton()
-                .buttonStyle(.plain)
-            }
         }
-        .alert("Delete Label", isPresented: Binding(
+        .sheet(isPresented: $showCreate) {
+            LabelEditorSheet { name, color in
+                Task {
+                    await run {
+                        _ = try await labelsApi.create(accountId: accountId, CreateLabelInput(
+                            name: name,
+                            color: color,
+                            teamId: teamId
+                        ))
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(item: $editingLabel) { label in
+            LabelEditorSheet(
+                title: "Edit label",
+                confirmLabel: "Save",
+                initialName: label.name,
+                initialColor: label.color
+            ) { name, color in
+                let newName: String? = name == label.name ? nil : name
+                let newColor: String? = color.lowercased() == label.color.lowercased() ? nil : color
+                guard newName != nil || newColor != nil else { return }
+                Task {
+                    await run {
+                        try await labelsApi.update(accountId: accountId, UpdateLabelInput(
+                            id: label.id,
+                            name: newName,
+                            color: newColor
+                        ))
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationBackground(.ultraThinMaterial)
+        }
+        .alert("Delete label?", isPresented: Binding(
             get: { deleteTarget != nil },
             set: { if !$0 { deleteTarget = nil } }
         ), presenting: deleteTarget) { label in

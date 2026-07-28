@@ -43,7 +43,20 @@ data class ServerAccount(
             else -> displayHost
         }
 
+    // The bundled cloud instances can never be removed from the server list —
+    // only custom servers show "Remove server" (iOS isBuiltInCloud parity,
+    // EXP-331).
+    val isCloud: Boolean
+        get() = instanceUrl in CLOUD_URLS
+
     companion object {
+        // URL-literal on purpose (see displayName): the set of cloud instances
+        // must not change with the build flavor.
+        private val CLOUD_URLS = setOf(
+            "https://app.exponential.at",
+            "https://next.exponential.at",
+        )
+
         // Pre-login "pending" id: keyed by URL only, before a user is resolved.
         fun makeId(instanceUrl: String): String = hash(instanceUrl)
 

@@ -20,7 +20,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +43,7 @@ import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -107,20 +107,12 @@ fun AgentsScreen(
                 // bottom bar is already at capacity (six tabs + compose on a
                 // 360dp screen), so the entry rides the Agents header instead
                 // of a seventh tab. NOT helpdesk-gated.
-                TextButton(onClick = onOpenActions, modifier = Modifier.testTag("open-actions")) {
-                    Icon(
-                        ExpIcons.actionDefault,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "Actions",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                }
+                GlassPillButton(
+                    label = "Actions",
+                    icon = ExpIcons.actionDefault,
+                    onClick = onOpenActions,
+                    modifier = Modifier.testTag("open-actions"),
+                )
             }
             // No steer and nothing running → the full empty state (no devices
             // section to anchor a compact caption).
@@ -245,23 +237,13 @@ private fun DeviceRow(device: SteerDevice, onStart: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        // Text-only glass chip, matching the iOS AgentsView "Start coding"
+        // button (EXP-331 — no play glyph).
+        GlassPillButton(
+            label = "Start coding",
+            onClick = onStart,
             modifier = Modifier.padding(start = 8.dp),
-        ) {
-            Icon(
-                ExpIcons.actionRun,
-                contentDescription = null,
-                modifier = Modifier.size(15.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                "Start coding",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+        )
     }
 }
 

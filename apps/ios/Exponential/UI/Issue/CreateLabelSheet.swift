@@ -2,7 +2,7 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-// MARK: - Create label
+// MARK: - Label editor
 
 // Same suggested palette as Android's LabelPickerSheet / the web's label editor.
 let suggestedLabelColors = [
@@ -12,20 +12,37 @@ let suggestedLabelColors = [
     "#ec4899", "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
 ]
 
-/// Minimal name + color form. Shared by the issue detail editor (create +
-/// assign to the issue in one step) and the create-issue sheet (create the
-/// team label, then add it to the local draft selection) — the caller's
-/// `onCreate` closure decides what happens with the new name + color.
-struct CreateLabelSheet: View {
-    let onCreate: (String, String) -> Void
+/// Minimal name + color form — the iOS analog of Android's LabelEditorDialog
+/// (EXP-331: same titles and button wordings on both platforms). Create flows
+/// pass "New label"/"Create", the team-settings edit flow passes
+/// "Edit label"/"Save" with the label's current name/color prefilled; the
+/// caller's `onConfirm` closure decides what happens with the name + color.
+struct LabelEditorSheet: View {
+    let title: String
+    let confirmLabel: String
+    let onConfirm: (String, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var color = suggestedLabelColors[0]
+    @State private var name: String
+    @State private var color: String
+
+    init(
+        title: String = "New label",
+        confirmLabel: String = "Create",
+        initialName: String = "",
+        initialColor: String = suggestedLabelColors[0],
+        onConfirm: @escaping (String, String) -> Void
+    ) {
+        self.title = title
+        self.confirmLabel = confirmLabel
+        self.onConfirm = onConfirm
+        _name = State(initialValue: initialName)
+        _color = State(initialValue: initialColor)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("New label")
+            Text(title)
                 .font(.headline)
                 .foregroundStyle(.white)
 
@@ -56,20 +73,41 @@ struct CreateLabelSheet: View {
 
             Spacer()
 
-            Button {
-                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
-                onCreate(trimmed, color)
-                dismiss()
-            } label: {
-                Text("Create label")
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button {
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    onConfirm(trimmed, color)
+                    dismiss()
+                } label: {
+                    Text(confirmLabel)
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(20)
+    }
+}
+
+/// Create-flow alias kept for the create-issue sheet (create the team label,
+/// then add it to the local draft selection).
+struct CreateLabelSheet: View {
+    let onCreate: (String, String) -> Void
+
+    var body: some View {
+        LabelEditorSheet(onConfirm: onCreate)
     }
 }

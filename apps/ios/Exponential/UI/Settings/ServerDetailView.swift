@@ -16,7 +16,6 @@ struct ServerDetailView: View {
     @State private var showDeleteAccountConfirm = false
     @State private var deletingAccount = false
     @State private var deleteAccountError: String?
-    @State private var resyncing = false
     // EXP-311: the signed-in user's synced row — carries the profile image
     // the account store doesn't. Nil until the users shape has landed.
     @State private var user: UserEntity?
@@ -44,7 +43,7 @@ struct ServerDetailView: View {
 
     /// The bundled cloud (prod or staging) — "Remove server" is nonsensical for
     /// it (it's the app's built-in instance, not a user-added server), so that
-    /// action is hidden. Sign out / delete account / resync stay available.
+    /// action is hidden. Sign out / delete account stay available.
     private var isBuiltInCloud: Bool {
         guard let base = WebLinks.normalizedBase(account?.instanceUrl) else { return false }
         return base == WebLinks.normalizedBase(AppConstants.publicCloudUrl)
@@ -212,25 +211,6 @@ struct ServerDetailView: View {
         sectionStack(title: nil) {
             VStack(spacing: 6) {
                 if account?.token != nil {
-                    // Recovery hatch for a wedged local cache: wipe every synced
-                    // row + offset and refetch all shapes from scratch.
-                    Button {
-                        guard !resyncing else { return }
-                        resyncing = true
-                        Task {
-                            await deps.syncManager.resync(accountId: accountId)
-                            resyncing = false
-                        }
-                    } label: {
-                        actionRow(
-                            icon: AppIcons.settingsSync,
-                            title: resyncing ? "Resyncing…" : "Resync now",
-                            tint: .white
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(resyncing)
-
                     Button {
                         Task {
                             // Capture the URL + token BEFORE removeAccount —

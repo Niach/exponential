@@ -45,7 +45,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,6 +55,7 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.UserAvatar
@@ -65,6 +65,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -243,43 +244,59 @@ private fun BoardsSection(
 ) {
     var showCreateBoard by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Boards")
-        Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
-            if (state.boards.isEmpty()) {
-                Text(
-                    "No boards yet.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        // Header row: title + board count + a compact "New board" pill —
+        // byte-for-byte the iOS Boards header (EXP-331). "New board" is
+        // owner-only in team settings (web parity); the empty-state and
+        // switcher create entries elsewhere stay open (they target the
+        // user's default team via getDefault).
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            SectionHeader("Boards")
+            Spacer(Modifier.width(8.dp))
+            Text(
+                state.boards.size.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Spacer(Modifier.weight(1f))
+            if (isOwner) {
+                GlassPillButton(
+                    label = "New board",
+                    icon = ExpIcons.uiAdd,
+                    onClick = { showCreateBoard = true },
                 )
             }
-            state.boards.forEachIndexed { i, board ->
-                if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
-                    Box(Modifier.size(10.dp).background(parseColor(board.color), CircleShape))
-                    Spacer(Modifier.width(10.dp))
-                    Text(board.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    // Protected boards (the dogfood board) show no delete
-                    // affordance to anyone; the server rejects it regardless.
-                    if (isOwner && !board.isProtected) {
-                        IconButton(onClick = { onConfirm(SettingsConfirm.DeleteBoard(board)) }) {
-                            Icon(ExpIcons.uiDelete, contentDescription = "Delete board")
-                        }
-                    }
-                }
-            }
         }
-        // "New board" is owner-only in team settings (web parity); the
-        // empty-state and switcher create entries elsewhere stay open (they
-        // target the user's default team via getDefault).
-        if (isOwner) {
-            OutlinedButton(onClick = { showCreateBoard = true }) {
-                Icon(ExpIcons.uiAdd, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("New board")
+        if (state.boards.isEmpty()) {
+            Text(
+                "No boards yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+        // Slim per-row glass cards (iOS parity, EXP-331) instead of one tall
+        // grouped section.
+        state.boards.forEach { board ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                Box(Modifier.size(10.dp).background(parseColor(board.color), CircleShape))
+                Spacer(Modifier.width(10.dp))
+                Text(board.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Protected boards (the dogfood board) show no delete
+                // affordance to anyone; the server rejects it regardless.
+                if (isOwner && !board.isProtected) {
+                    Icon(
+                        ExpIcons.uiDelete,
+                        contentDescription = "Delete board",
+                        tint = DesignTokens.Palette.Red.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .clickable { onConfirm(SettingsConfirm.DeleteBoard(board)) }
+                            .padding(4.dp)
+                            .size(16.dp),
+                    )
+                }
             }
         }
     }
@@ -351,35 +368,6 @@ private fun DangerZone(
 // the OAuth connect / App install hop runs in a Custom Tab, exactly like the
 // repo picker — the web team settings link survives only as a fallback
 // when the GitHub grant state can't be loaded at all.
-/**
- * Compact capsule action (icon + label) on a glass pill — the inline header /
- * card affordance the iOS settings use for "Add repository" / "Connect GitHub".
- * Dims to quaternary emphasis and ignores taps when [enabled] is false.
- */
-@Composable
-private fun GlassPillButton(
-    label: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-) {
-    val fg = MaterialTheme.colorScheme.onSurface.copy(
-        alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
-    )
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = modifier
-            .glassButton()
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = fg)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = fg)
-    }
-}
-
 @Composable
 private fun RepositoriesSection(
     state: TeamSettingsState,
@@ -848,37 +836,45 @@ private fun LabelsSection(
     // Labels are member-level (not owner-gated) — a confirmation dialog is the
     // only guard on delete.
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Header row: title + label count + a compact "New label" pill — the
+        // same recipe as the Boards/Repositories headers and iOS (EXP-331).
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            SectionHeader("Labels", modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = { showCreate = true }) {
-                Icon(ExpIcons.uiAdd, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("New label")
-            }
+            SectionHeader("Labels")
+            Spacer(Modifier.width(8.dp))
+            Text(
+                state.labels.size.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Spacer(Modifier.weight(1f))
+            GlassPillButton(
+                label = "New label",
+                icon = ExpIcons.uiAdd,
+                onClick = { showCreate = true },
+            )
         }
-        Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
-            if (state.labels.isEmpty()) {
-                Text(
-                    "No labels yet.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-            }
-            state.labels.forEachIndexed { i, label ->
-                if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-                LabelRow(
-                    label = label,
-                    viewModel = viewModel,
-                    onDelete = { onConfirm(SettingsConfirm.DeleteLabel(it)) },
-                )
-            }
+        if (state.labels.isEmpty()) {
+            Text(
+                "No labels yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+        // Slim per-row glass cards (iOS parity, EXP-331).
+        state.labels.forEach { label ->
+            LabelRow(
+                label = label,
+                viewModel = viewModel,
+                onDelete = { onConfirm(SettingsConfirm.DeleteLabel(it)) },
+            )
         }
     }
 
     if (showCreate) {
         LabelEditorDialog(
             title = "New label",
+            confirmLabel = "Create",
             initialName = "",
             initialColor = LabelPalette.colors.first(),
             onConfirm = { name, color ->
@@ -899,22 +895,35 @@ private fun LabelRow(
     var editing by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Box(Modifier.size(12.dp).background(parseColor(label.color), CircleShape))
-        Spacer(Modifier.width(10.dp))
-        Text(label.name, modifier = Modifier.weight(1f))
-        IconButton(onClick = { editing = true }) {
-            Icon(ExpIcons.uiMoreVertical, contentDescription = "Edit label")
-        }
-        IconButton(onClick = { onDelete(label) }) {
-            Icon(ExpIcons.uiDelete, contentDescription = "Delete label")
-        }
+        Text(label.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Icon(
+            ExpIcons.uiMoreVertical,
+            contentDescription = "Edit label",
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            modifier = Modifier
+                .clickable { editing = true }
+                .padding(4.dp)
+                .size(16.dp),
+        )
+        Icon(
+            ExpIcons.uiDelete,
+            contentDescription = "Delete label",
+            tint = DesignTokens.Palette.Red.copy(alpha = 0.5f),
+            modifier = Modifier
+                .clickable { onDelete(label) }
+                .padding(4.dp)
+                .size(16.dp),
+        )
     }
 
     if (editing) {
         LabelEditorDialog(
             title = "Edit label",
+            confirmLabel = "Save",
             initialName = label.name,
             initialColor = label.color,
             onConfirm = { name, color ->
@@ -931,6 +940,9 @@ private fun LabelRow(
 @Composable
 private fun LabelEditorDialog(
     title: String,
+    // "Create" for the new-label flow, "Save" for edits (wording parity with
+    // iOS — EXP-331).
+    confirmLabel: String,
     initialName: String,
     initialColor: String,
     onConfirm: (name: String, color: String) -> Unit,
@@ -978,7 +990,7 @@ private fun LabelEditorDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(name.trim(), color) }) { Text("Save") } },
+        confirmButton = { TextButton(onClick = { onConfirm(name.trim(), color) }) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
