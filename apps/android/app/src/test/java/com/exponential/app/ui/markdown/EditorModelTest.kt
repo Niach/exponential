@@ -117,6 +117,31 @@ class EditorModelTest {
         assertEquals("**hello** world", m.currentMarkdown())
     }
 
+    // -- Image insertion (EXP-327: caret vs end-of-description) --
+
+    @Test
+    fun insertImageUrlSplitsAtTheCaret() {
+        val m = model("before after")
+        val row = paras(m).first()
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 6..6)
+        m.insertImageUrl("/api/attachments/x", alt = "image")
+        assertEquals("before\n\n![image](/api/attachments/x)\n\nafter", m.currentMarkdown())
+    }
+
+    @Test
+    fun appendImageUrlIgnoresTheCaretAndLandsLast() {
+        // A picture picked through the FILE picker was an attach gesture, not a
+        // typing one — it belongs after everything already written, whatever the
+        // caret happens to be doing.
+        val m = model("before after")
+        val row = paras(m).first()
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 6..6)
+        m.appendImageUrl("/api/attachments/x", alt = "image")
+        assertEquals("before after\n\n![image](/api/attachments/x)", m.currentMarkdown())
+    }
+
     @Test
     fun typingDoesNotBumpRevision() {
         val m = model("ab")

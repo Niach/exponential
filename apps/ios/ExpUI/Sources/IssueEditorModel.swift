@@ -584,13 +584,38 @@ public final class IssueEditorModel {
     // MARK: - Image insertion
 
     public func insertImage(data: Data, filename: String, contentType: String, width: Int?, height: Int?) {
+        insertImage(
+            data: data, filename: filename, contentType: contentType,
+            width: width, height: height, atEnd: false
+        )
+    }
+
+    /// Append an image at the END of the description, ignoring the caret
+    /// (EXP-327). An image picked through the *file* picker has no meaningful
+    /// insertion point — the user was attaching, not typing — so it lands after
+    /// everything already written instead of splitting the focused paragraph.
+    public func appendImage(data: Data, filename: String, contentType: String, width: Int?, height: Int?) {
+        insertImage(
+            data: data, filename: filename, contentType: contentType,
+            width: width, height: height, atEnd: true
+        )
+    }
+
+    private func insertImage(
+        data: Data,
+        filename: String,
+        contentType: String,
+        width: Int?,
+        height: Int?,
+        atEnd: Bool
+    ) {
         let draftUrl = MarkdownImageUtils.draftUrl()
         pendingImages[draftUrl] = PendingImage(
             data: data, filename: filename, contentType: contentType, width: width, height: height
         )
         let imageBlockId = UUID()
 
-        let targetId = focusedBlockId ?? selection?.blockId
+        let targetId = atEnd ? nil : (focusedBlockId ?? selection?.blockId)
         guard let targetId,
               let blockIndex = blocks.firstIndex(where: { $0.id == targetId }),
               case .text(_, let content) = blocks[blockIndex] else {

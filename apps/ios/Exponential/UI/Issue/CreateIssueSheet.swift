@@ -2,6 +2,38 @@ import ExpUI
 import ExpCore
 import SwiftUI
 import GRDB
+import UniformTypeIdentifiers
+
+/// A file picked before the issue exists (EXP-327). Attachments need an issue
+/// id, so — exactly like draft images — the bytes are held here and uploaded
+/// right after the create.
+private struct DraftFile: Identifiable, Sendable {
+    let id = UUID()
+    let filename: String
+    let contentType: String
+    let data: Data
+}
+
+private enum DraftFileReadFailure: Error {
+    case unreadable
+    case tooLarge
+}
+
+/// File-scope (never a view method) so the off-main read captures nothing but
+/// the URL — a SwiftUI view struct isn't Sendable and must not ride into a
+/// detached task. The size is checked before buffering: never read bytes the
+/// cap is going to reject.
+private func readDraftFileBytes(from url: URL) -> Result<Data, DraftFileReadFailure> {
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+       size > AttachmentFiles.maxFileUploadBytes {
+        return .failure(.tooLarge)
+    }
+    guard let data = try? Data(contentsOf: url) else { return .failure(.unreadable) }
+    guard data.count <= AttachmentFiles.maxFileUploadBytes else { return .failure(.tooLarge) }
+    return .success(data)
+}
 
 struct CreateIssueSheet: View {
     let boardId: String
@@ -13,6 +45,8 @@ struct CreateIssueSheet: View {
 
     @State private var title = ""
     @State private var editor = IssueEditorModel()
+    /// Files picked from the editor's attach menu, uploaded after the create.
+    @State private var draftFiles: [DraftFile] = []
     /// EXP-314: the team's statuses in render order — the constructed builtin
     /// defaults until the `issue_statuses` rows load.
     @State private var teamStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
@@ -69,8 +103,18 @@ struct CreateIssueSheet: View {
                             accountId: accountId,
                             httpClient: deps.httpClient,
                             mentionMembers: users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
-                            showsMentionButton: !singleMemberTeam
+                            showsMentionButton: !singleMemberTeam,
+                            // EXP-327: the same attach menu as issue detail —
+                            // images go into the description, other files
+                            // become drafts uploaded once the issue exists.
+                            onAttachFile: { url in ingestDraftFile(url) }
                         )
+
+                        // Draft files, only once there is one (the section never
+                        // announces its own emptiness — EXP-327).
+                        if !draftFiles.isEmpty {
+                            draftFilesSection
+                        }
 
                         // Metadata + due date, one card (EXP-247): the due-date
                         // row (and, when set, the time rows) attach directly to
@@ -429,6 +473,95 @@ struct CreateIssueSheet: View {
         }
     }
 
+    // MARK: - Draft files (EXP-327)
+
+    private var draftFilesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Files")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            VStack(spacing: 6) {
+                ForEach(draftFiles) { file in
+                    HStack(spacing: 10) {
+                        Image(systemName: AttachmentFiles.sfSymbolName(forContentType: file.contentType))
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.filename)
+                                .font(.callout)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(Int64(file.data.count).formatted(.byteCount(style: .file)))
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        Spacer(minLength: 8)
+                        Button {
+                            draftFiles.removeAll { $0.id == file.id }
+                        } label: {
+                            AppIcon(AppIcons.uiClose, size: AppIcon.Size.small)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(file.filename)")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .glassRow()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Read a picked file off-main inside its security scope (a 50 MB pick from
+    /// a cloud provider streams over the network) and hold it until the issue
+    /// exists. Inline images never reach here — the editor appends those to the
+    /// description itself.
+    private func ingestDraftFile(_ url: URL) {
+        let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
+        let contentType = AttachmentFiles.canonicalContentType(
+            UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+        )
+        Task {
+            switch await Task.detached(operation: { readDraftFileBytes(from: url) }).value {
+            case let .success(data):
+                draftFiles.append(
+                    DraftFile(filename: filename, contentType: contentType, data: data)
+                )
+            case .failure(.tooLarge):
+                error = "Files must be 50 MB or smaller."
+            case .failure(.unreadable):
+                error = "Couldn't read \(filename)."
+            }
+        }
+    }
+
+    /// Upload the held drafts against the now-existing issue. The issue is
+    /// already committed, so a rejected attachment surfaces as an error but
+    /// never turns a successful create into a failure.
+    private func uploadDraftFiles(issueId: String) async {
+        var failed: [String] = []
+        for file in draftFiles {
+            do {
+                _ = try await deps.attachmentsApi.upload(
+                    accountId: accountId,
+                    issueId: issueId,
+                    data: file.data,
+                    filename: file.filename,
+                    contentType: file.contentType
+                )
+            } catch {
+                failed.append(file.filename)
+            }
+        }
+        if !failed.isEmpty {
+            self.error = "Couldn't attach \(failed.joined(separator: ", "))."
+        }
+    }
+
     private func createIssue() async {
         loading = true
         error = nil
@@ -492,12 +625,19 @@ struct CreateIssueSheet: View {
                 }
             }
 
+            // Draft files last: the issue is committed, so a failed attachment
+            // is reported but never fails the create (EXP-327).
+            if !draftFiles.isEmpty {
+                await uploadDraftFiles(issueId: createdId)
+            }
+
             // Remember the board so the Share Extension defaults its picker to it.
             SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
 
             if createMore {
                 title = ""
                 editor = IssueEditorModel()
+                draftFiles = []
                 selectedLabelIds = []
                 configureEditor()
                 titleFocused = true

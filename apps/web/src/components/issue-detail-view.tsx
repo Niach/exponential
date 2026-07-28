@@ -834,6 +834,8 @@ export function IssueDetailView({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* The timeline sits OUTSIDE the reading column so its top rule
+                spans the whole pane (EXP-327); it re-centers its own body. */}
             <div className="mx-auto max-w-3xl">
               {titleField}
               {editor}
@@ -841,8 +843,8 @@ export function IssueDetailView({
               {filesSection}
               {prRow}
               {widgetCard}
-              {timeline}
             </div>
+            {timeline}
           </div>
         </div>
         {propsPanel}

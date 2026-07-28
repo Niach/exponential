@@ -193,9 +193,10 @@ private fun SessionRow(
     }
 }
 
-// Linked PR as a GitHub-style capsule chip: pull icon tinted by state
-// (open green / merged indigo / closed red) + "PR #n" + the state word inside
-// the capsule (iOS parity), tapping into Changes.
+// Linked PR as a full-width row (EXP-327, Linear parity): pull icon tinted by
+// state (open green / merged indigo / closed red) + "PR #n" on the left, the
+// state word on the right, tapping into Changes. It used to hug its content as
+// a small capsule, which read as a stray chip rather than a link to the code.
 @Composable
 private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
     val tint = when (prState) {
@@ -206,70 +207,76 @@ private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpenChanges),
+            .clickable(onClick = onOpenChanges)
+            .glassButton()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .glassButton()
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Icon(
-                ExpIcons.prOpen,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = tint,
-            )
+        Icon(
+            ExpIcons.prOpen,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = tint,
+        )
+        Text(
+            prNumber?.let { "PR #$it" } ?: "Pull request",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (!prState.isNullOrBlank()) {
             Text(
-                prNumber?.let { "PR #$it" } ?: "Pull request",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                prState.replaceFirstChar { it.uppercase() },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )
-            if (!prState.isNullOrBlank()) {
-                Text(
-                    prState.replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
         }
+        Icon(
+            ExpIcons.uiChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
     }
 }
 
-// Pushed branch, no PR yet: a capsule chip with the indigo branch icon + mono
-// name, tapping into Changes.
+// Pushed branch, no PR yet: the same full-width row shape as [PrRow] (they
+// occupy the same slot, so they must look alike) with the indigo branch icon +
+// mono name, tapping into Changes.
 @Composable
 private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpenChanges),
+            .clickable(onClick = onOpenChanges)
+            .glassButton()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .glassButton()
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Icon(
-                ExpIcons.uiBranch,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = AccentIndigo,
-            )
-            Text(
-                branch,
-                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Icon(
+            ExpIcons.uiBranch,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = AccentIndigo,
+        )
+        Text(
+            branch,
+            style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            ExpIcons.uiChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
     }
 }
 

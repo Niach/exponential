@@ -164,31 +164,39 @@ struct AgentPrCard: View {
         return "Pull request"
     }
 
+    // EXP-327: a full-width row rather than a hug-width capsule — the linked PR
+    // is the way into the code, not a stray chip (Linear parity). The branch
+    // variant takes the same shape: they occupy the same slot.
     private var prChip: some View {
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 AppIcon(AppIcons.prOpen, size: AppIcon.Size.small, weight: .semibold)
                     .foregroundStyle(prTint)
                 Text(prLabel)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
                 if let prState = issue.prState, !prState.isEmpty {
                     Text(prState.capitalized)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
+                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .glassButton()
-            .contentShape(Capsule())
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassRow()
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
     private func branchChip(_ branch: String) -> some View {
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 AppIcon(AppIcons.actionRepository, size: AppIcon.Size.small)
                     .foregroundStyle(Accent.indigo)
                 Text(branch)
@@ -196,11 +204,15 @@ struct AgentPrCard: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                Spacer(minLength: 8)
+                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .glassButton()
-            .contentShape(Capsule())
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassRow()
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

@@ -46,6 +46,15 @@ class MarkdownToolbarController {
     var onPickImage by mutableStateOf<() -> Unit>({})
     var imageEnabled by mutableStateOf(false)
 
+    /**
+     * Document-picker action for the active editor (EXP-327). Non-null turns the
+     * toolbar's image button into a "Photo library / Files" menu — the single
+     * attach affordance, which is why the Files section no longer carries a
+     * paperclip of its own. Null keeps the plain one-tap image button (the
+     * comment composer, and any editor whose host can't take an attachment).
+     */
+    var onPickFile by mutableStateOf<(() -> Unit)?>(null)
+
     /** Whether the active editor offers the @-mention button (solo teams hide it, EXP-246). */
     var mentionEnabled by mutableStateOf(true)
 
@@ -134,6 +143,7 @@ private fun MarkdownToolbarOverlay(
             MarkdownToolbar(
                 model = model,
                 onPickImage = controller.onPickImage,
+                onPickFile = controller.onPickFile,
                 imageEnabled = controller.imageEnabled,
                 mentionEnabled = controller.mentionEnabled,
             )

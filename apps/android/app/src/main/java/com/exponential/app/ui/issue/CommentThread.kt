@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.commentKindOf
@@ -41,7 +43,9 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MentionMember
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.fullBleed
 import com.exponential.app.ui.theme.glassButton
 import kotlinx.coroutines.launch
 
@@ -74,6 +78,9 @@ fun CommentThread(
     // Solo teams hide the comment-edit toolbar's @ button (EXP-246) — threaded
     // explicitly from the screen's soloMemberId gate, like the assignee chip.
     mentionEnabled: Boolean = true,
+    // Horizontal padding of the hosting column, escaped by the top rule so the
+    // line runs edge to edge (EXP-327). Compose has no negative padding.
+    hostPadding: Dp = 20.dp,
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -103,15 +110,22 @@ fun CommentThread(
             .map { MentionMember(it.name ?: it.email, it.email) }
     }
 
-    // No divider above (iOS separates by spacing only) and no extra horizontal
-    // padding: the screen already pads 20dp, so the thread aligns full-width
-    // with the description/metadata above (iOS parity).
+    // No extra horizontal padding: the screen already pads 20dp, so the thread
+    // aligns full-width with the description/metadata above (iOS parity). The
+    // rule above the header is the one thing that escapes that padding — it
+    // runs edge to edge so activity reads as its own region (EXP-327).
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 12.dp)
             .animateContentSize(tween(280)),
     ) {
+        HorizontalDivider(
+            modifier = Modifier.fullBleed(hostPadding),
+            thickness = GlassTokens.Hairline,
+            color = GlassTokens.StrokeSection,
+        )
+        Spacer(Modifier.height(12.dp))
         Text(
             "Activity",
             style = MaterialTheme.typography.labelMedium,

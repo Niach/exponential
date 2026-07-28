@@ -2,6 +2,7 @@ import ExpUI
 import ExpCore
 import Foundation
 import GRDB
+import UIKit
 import UniformTypeIdentifiers
 
 /// A file the user picked that hasn't landed as a synced `attachments` row yet
@@ -618,17 +619,16 @@ final class IssueDetailViewModel {
             UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
         )
 
-        // Deflect inline-image picks before any I/O: uploaded through /files
-        // they would be invisible everywhere (filtered out of every client's
-        // Files section, referenced by no markdown) and eventually deleted by
-        // the owner's unreferenced-image sweep.
+        // An inline-image type uploaded through /files would be invisible
+        // everywhere (filtered out of every client's Files section, referenced
+        // by no markdown) and eventually deleted by the owner's
+        // unreferenced-image sweep. EXP-327: rather than dead-ending the pick
+        // with an error telling the user to go press the other button, put it
+        // where it belongs — appended to the description. (The editor's attach
+        // menu classifies picks up front, so this only catches a URL whose type
+        // resolves differently here.)
         guard !AttachmentFiles.isInlineImage(contentType: contentType) else {
-            pendingFileUploads.append(PendingFileUpload(
-                filename: filename,
-                contentType: contentType,
-                data: Data(),
-                failure: "Images go in the description — add them with the editor's image button."
-            ))
+            appendImageToDescription(from: url, filename: filename, contentType: contentType)
             return
         }
 
@@ -663,6 +663,35 @@ final class IssueDetailViewModel {
                 return
             }
             await self?.startUpload(filename: filename, contentType: contentType, data: data)
+        }
+    }
+
+    /// Read a picked image off-main (inside its security scope) and append it to
+    /// the end of the description, then save — the seamless half of EXP-327.
+    private func appendImageToDescription(from url: URL, filename: String, contentType: String) {
+        let editor = editor
+        Task.detached { [weak self] in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                await self?.appendFailedUpload(
+                    filename: filename,
+                    contentType: contentType,
+                    failure: "Couldn't read this file."
+                )
+                return
+            }
+            let decoded = UIImage(data: data)
+            let width = decoded.map { Int($0.size.width * $0.scale) }
+            let height = decoded.map { Int($0.size.height * $0.scale) }
+            await editor.appendImage(
+                data: data,
+                filename: filename,
+                contentType: contentType,
+                width: (width ?? 0) > 0 ? width : nil,
+                height: (height ?? 0) > 0 ? height : nil
+            )
+            await self?.commitDescription()
         }
     }
 

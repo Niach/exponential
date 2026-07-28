@@ -87,7 +87,10 @@ struct IssueDetailView: View {
             if let vm = viewModel, let issue = vm.issue {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        // Header: identifier + repo chip (actions live in the nav bar).
+                        // Header: identifier only (actions live in the nav bar's
+                        // menu). EXP-327 dropped the backing-repo chip — the PR
+                        // row is the link to the code, and the chip only
+                        // repeated what the board already says.
                         HStack(spacing: 6) {
                             if let identifier = issue.identifier {
                                 Text(identifier)
@@ -96,15 +99,6 @@ struct IssueDetailView: View {
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
                                     .glassButton()
-                            }
-                            // Backing repo chip (v4 §6): the board's repositoryId
-                            // resolved to owner/name via the repositories API.
-                            if let board = vm.board, board.repositoryId != nil {
-                                RepoNameChip(
-                                    accountId: accountId,
-                                    teamId: board.teamId,
-                                    repositoryId: board.repositoryId
-                                )
                             }
                             // Origin chip: issues filed through the embeddable
                             // feedback widget carry source='widget' and no user
@@ -193,7 +187,13 @@ struct IssueDetailView: View {
                                 // observes it and pushes the issue route.
                                 deps.deepLinkBus.navigateToIssue(issueId)
                             },
-                            showsMentionButton: !vm.singleMemberTeam
+                            showsMentionButton: !vm.singleMemberTeam,
+                            // EXP-327: the description editor is the ONE attach
+                            // affordance; non-image picks land in the Files
+                            // section below.
+                            onAttachFile: vm.permissions.isModerator
+                                ? { url in vm.uploadFile(from: url) }
+                                : nil
                         )
 
                         // Coding + PR status card (EXP-156): "Coding now" /
@@ -302,37 +302,32 @@ struct IssueDetailView: View {
                 } message: { target in
                     Text("\(issue.identifier ?? "This issue") will move to \(target.name) and get a new identifier there.")
                 }
-                // Actions in the nav bar (parity with Android): share link +
-                // subscribe bell (always) + a moderator-only overflow menu.
+                // EXP-327: one `…` and nothing else — share and the subscribe
+                // toggle moved inside it (with words, so the bell's state is
+                // readable instead of guessed), next to Move to board. The MENU
+                // is available to everyone; only the mutating items are
+                // moderator-gated (parity with Android).
                 .toolbar {
-                    if let shareURL = vm.shareURL {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            ShareLink(
-                                item: shareURL,
-                                subject: Text(vm.shareText),
-                                message: Text(vm.shareText)
-                            ) {
-                                AppIcon(AppIcons.uiShare, size: AppIcon.Size.large)
-                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            }
-                        }
-                    }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            Task { await vm.toggleSubscribe() }
-                        } label: {
-                            AppIcon(vm.isSubscribed ? AppIcons.uiSubscribe : AppIcons.uiUnsubscribe,
-                                    size: AppIcon.Size.large)
-                                .foregroundStyle(
-                                    vm.isSubscribed
-                                        ? Color.accentColor
-                                        : .white.opacity(TextOpacity.secondary)
+                        Menu {
+                            if let shareURL = vm.shareURL {
+                                ShareLink(
+                                    item: shareURL,
+                                    subject: Text(vm.shareText),
+                                    message: Text(vm.shareText)
+                                ) {
+                                    Label("Share", appIcon: AppIcons.uiShare)
+                                }
+                            }
+                            Button {
+                                Task { await vm.toggleSubscribe() }
+                            } label: {
+                                Label(
+                                    vm.isSubscribed ? "Unsubscribe" : "Subscribe",
+                                    appIcon: vm.isSubscribed ? AppIcons.uiUnsubscribe : AppIcons.uiSubscribe
                                 )
-                        }
-                    }
-                    if vm.permissions.isModerator {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Menu {
+                            }
+                            if vm.permissions.isModerator {
                                 // Duplicate = status interception (L27): unmark is
                                 // the only duplicate action here; marking happens via
                                 // the `duplicate` status picker.
@@ -355,9 +350,9 @@ struct IssueDetailView: View {
                                 Button("Delete issue", role: .destructive) {
                                     showDeleteConfirm = true
                                 }
-                            } label: {
-                                AppIcon(AppIcons.uiMore, size: AppIcon.Size.large)
                             }
+                        } label: {
+                            AppIcon(AppIcons.uiMore, size: AppIcon.Size.large)
                         }
                     }
                 }

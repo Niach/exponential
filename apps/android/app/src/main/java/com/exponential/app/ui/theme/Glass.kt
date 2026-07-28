@@ -11,6 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
@@ -122,4 +125,28 @@ fun Modifier.glassButton(active: Boolean = false, opaque: Boolean = false): Modi
         .then(if (opaque) Modifier.background(DesignTokens.Palette.Card, shape) else Modifier)
         .background(if (active) GlassTokens.RowFillActive else GlassTokens.RowFill, shape)
         .border(GlassTokens.Hairline, if (active) GlassTokens.StrokeActive else GlassTokens.StrokeRow, shape)
+}
+
+/**
+ * Let an element escape its parent's horizontal padding and run edge to edge
+ * (EXP-327 — the rule above the activity timeline). Compose has no negative
+ * padding, so the layout is re-measured [inset] wider on each side and placed
+ * back at `-inset`.
+ */
+fun Modifier.fullBleed(inset: Dp): Modifier = layout { measurable, constraints ->
+    val extra = inset.roundToPx() * 2
+    val placeable = measurable.measure(
+        constraints.copy(
+            minWidth = (constraints.minWidth + extra).coerceAtLeast(0),
+            maxWidth = if (constraints.maxWidth == Constraints.Infinity) {
+                Constraints.Infinity
+            } else {
+                constraints.maxWidth + extra
+            },
+        )
+    )
+    // Report the ORIGINAL width so siblings keep laying out inside the padding.
+    layout(placeable.width - extra, placeable.height) {
+        placeable.place(-inset.roundToPx(), 0)
+    }
 }

@@ -396,10 +396,10 @@ impl Render for IssueTimeline {
             format!("Activity ({})", items.len())
         };
 
-        // Content re-centers to the detail column (EXP-282: the full-bleed
-        // EXP-67 divider under the description is GONE — whitespace separates
-        // the description from the activity section now, like the rest of the
-        // blended chrome). The centering must ride `centered_column` —
+        // Content re-centers to the detail column (EXP-327 restored the
+        // full-bleed rule EXP-282 had dropped — the activity section reads as
+        // its own region again, and the line runs the whole pane width, not
+        // just the reading column). The centering must ride `centered_column` —
         // `max_w` + `mx_auto` here made taffy size the column fit-content,
         // mis-measuring wrapped comment text (EXP-179).
         // `px_4` is the shared detail-body left edge (title / description /
@@ -470,10 +470,14 @@ impl Render for IssueTimeline {
         let has_draft = !self.composer.read(cx).value().trim().is_empty();
         let composer =
             comments::composer_row(&self.composer_mention, self.submitting, has_draft, cx);
-        // EXP-282: no top hairline — the section's own `py_3` is the only
-        // separation from the description above.
+        // EXP-327: a full-bleed hairline separates the activity section from
+        // the description above. It sits OUTSIDE `centered_column` so it spans
+        // the pane rather than stopping at the reading column's edges.
         v_flex()
             .w_full()
+            // flex_shrink_0: a 1px main-axis child in a column is otherwise
+            // free to be squeezed to nothing (same guard the rail divider uses).
+            .child(div().w_full().h_px().flex_shrink_0().bg(cx.theme().border))
             .child(crate::issue_detail::centered_column(
                 body.child(composer),
             ))

@@ -7,6 +7,15 @@ private let log = Logger(subsystem: "com.exponential", category: "MarkdownToolba
 final class MarkdownToolbar: UIInputView {
     weak var textView: UITextView?
     var onImagePick: (() -> Void)?
+    /// EXP-327: non-nil turns the image button into a "Photo library / Files"
+    /// menu — the ONE attach affordance on the screen, which is why the Files
+    /// section no longer carries a paperclip of its own. Nil keeps the plain
+    /// one-tap image button (the comment composer, whose host has nowhere to
+    /// put an attachment). Assign before the button is built, or call
+    /// `refreshImageButtonMenu()`.
+    var onFilePick: (() -> Void)? {
+        didSet { refreshImageButtonMenu() }
+    }
     /// Solo teams hide the @ affordance — there is nobody to mention but
     /// yourself (EXP-246; the typed `@` autocomplete stays functional).
     var showsMentionButton = true {
@@ -14,6 +23,7 @@ final class MarkdownToolbar: UIInputView {
     }
 
     private var atButton: UIButton!
+    private var imageButton: UIButton!
     private var bulletListButton: UIButton!
     private var orderedListButton: UIButton!
     private var checklistButton: UIButton!
@@ -81,10 +91,11 @@ final class MarkdownToolbar: UIInputView {
         checklistButton = makeButton(AppIcons.editorListTodo, #selector(toggleChecklist))
         codeButton = makeButton(AppIcons.editorCode, #selector(toggleCode))
         quoteButton = makeButton(AppIcons.editorQuote, #selector(toggleBlockquote))
-        let imageButton = makeButton(AppIcons.editorImage, #selector(pickImage))
+        imageButton = makeButton(AppIcons.editorImage, #selector(pickImage))
         // Lucide has no keyboard glyph — the chevron reads as "collapse".
         let dismissButton = makeButton(AppIcons.uiChevronDown, #selector(dismissKeyboard))
         atButton.isHidden = !showsMentionButton
+        refreshImageButtonMenu()
 
         let scroll = UIScrollView()
         scroll.showsHorizontalScrollIndicator = false
@@ -283,6 +294,29 @@ final class MarkdownToolbar: UIInputView {
 
     @objc private func pickImage() {
         onImagePick?()
+    }
+
+    /// With a file handler installed the image button presents a menu instead of
+    /// firing the photo picker directly (EXP-327). `showsMenuAsPrimaryAction`
+    /// keeps it a single tap — no long press to discover.
+    private func refreshImageButtonMenu() {
+        guard let imageButton else { return }
+        guard onFilePick != nil else {
+            imageButton.menu = nil
+            imageButton.showsMenuAsPrimaryAction = false
+            return
+        }
+        imageButton.menu = UIMenu(children: [
+            UIAction(
+                title: "Files",
+                image: AppIcons.uiImage(AppIcons.uiAttach, pointSize: 16)
+            ) { [weak self] _ in self?.onFilePick?() },
+            UIAction(
+                title: "Photo library",
+                image: AppIcons.uiImage(AppIcons.editorImage, pointSize: 16)
+            ) { [weak self] _ in self?.onImagePick?() },
+        ])
+        imageButton.showsMenuAsPrimaryAction = true
     }
 
     @objc private func dismissKeyboard() {

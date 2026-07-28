@@ -15,6 +15,9 @@ struct CommentThreadView: View {
     /// Solo teams hide the comment editors' @ affordance (EXP-246) — same
     /// gate as the assignee chip, threaded from the detail view model.
     let singleMemberTeam: Bool
+    /// Horizontal padding of the hosting column, escaped by the top rule so the
+    /// line runs edge to edge (EXP-327).
+    var hostPadding: CGFloat = 20
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -54,6 +57,13 @@ struct CommentThreadView: View {
     var body: some View {
         let rows = collapseTimeline(timeline, expandedRuns: expandedRuns)
         VStack(alignment: .leading, spacing: 8) {
+            // A rule the full width of the screen, not just the reading column:
+            // activity reads as its own region below the issue (EXP-327).
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 0.5)
+                .padding(.horizontal, -hostPadding)
+                .padding(.bottom, 4)
             HStack {
                 Text("Activity")
                     .font(.subheadline.weight(.medium))

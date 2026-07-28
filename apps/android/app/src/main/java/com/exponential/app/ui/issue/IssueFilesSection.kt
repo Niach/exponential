@@ -5,8 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.text.format.Formatter
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,12 +46,16 @@ import kotlinx.coroutines.launch
  * The issue's file attachments (EXP-297) — everything that is not one of the
  * five inline-embeddable raster types. These rows never appear in the
  * markdown, so this section is the only place they exist for the user:
- * attach, open in another app, share, delete.
+ * open in another app, share, delete.
+ *
+ * EXP-327: there is no attach button here any more, and no empty state. Files
+ * are attached from the description editor's image button ("Photo library /
+ * Files"), which is the one place a user reaches for when adding something —
+ * so with nothing attached this section renders nothing at all.
  */
 @Composable
 fun IssueFilesSection(
     viewModel: IssueDetailViewModel,
-    canUpload: Boolean,
     canDelete: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -64,40 +66,16 @@ fun IssueFilesSection(
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf<AttachmentEntity?>(null) }
 
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri -> if (uri != null) viewModel.uploadFile(uri) }
-
-    // Nothing to show and nothing the viewer could add: stay out of the way.
-    if (files.isEmpty() && pending.isEmpty() && !canUpload) return
+    // No files (and none in flight): stay out of the way entirely. A failed
+    // upload keeps a pending row, so errors still have somewhere to surface.
+    if (files.isEmpty() && pending.isEmpty()) return
 
     Column(modifier = modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Files",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            if (canUpload) {
-                IconButton(onClick = { picker.launch(arrayOf("*/*")) }) {
-                    Icon(
-                        ExpIcons.uiAttach,
-                        contentDescription = "Attach file",
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        }
-
-        if (files.isEmpty() && pending.isEmpty()) {
-            Text(
-                text = "No files attached.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-        }
+        Text(
+            text = "Files",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         for (file in files) {
             FileRow(

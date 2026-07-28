@@ -14,9 +14,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,10 +52,14 @@ fun MarkdownToolbar(
     onPickImage: () -> Unit,
     imageEnabled: Boolean,
     mentionEnabled: Boolean = true,
+    // EXP-327: non-null turns the image button into a "Photo library / Files"
+    // menu — the ONE attach affordance on the screen.
+    onPickFile: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val activeRowId = model.activeRowId
     val attrs = activeRowId?.let { model.attrsFor(it) }
+    var attachMenuOpen by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -66,7 +77,36 @@ fun MarkdownToolbar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
             ) {
-                ToolbarButton(ExpIcons.editorImage, "Image", active = false, enabled = imageEnabled) { onPickImage() }
+                if (onPickFile == null) {
+                    ToolbarButton(ExpIcons.editorImage, "Image", active = false, enabled = imageEnabled) { onPickImage() }
+                } else {
+                    Box {
+                        ToolbarButton(ExpIcons.editorImage, "Attach", active = false, enabled = imageEnabled) {
+                            attachMenuOpen = true
+                        }
+                        DropdownMenu(
+                            expanded = attachMenuOpen,
+                            onDismissRequest = { attachMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(ExpIcons.uiAttach, contentDescription = null) },
+                                text = { Text("Files") },
+                                onClick = {
+                                    attachMenuOpen = false
+                                    onPickFile()
+                                },
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(ExpIcons.editorImage, contentDescription = null) },
+                                text = { Text("Photo library") },
+                                onClick = {
+                                    attachMenuOpen = false
+                                    onPickImage()
+                                },
+                            )
+                        }
+                    }
+                }
                 Separator()
                 if (mentionEnabled) {
                     ToolbarButton(ExpIcons.editorMention, "Mention a member", active = false) {

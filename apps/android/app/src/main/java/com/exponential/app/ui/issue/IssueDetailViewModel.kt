@@ -9,8 +9,6 @@ import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.RepositoriesApi
-import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.NotificationsApi
 import com.exponential.app.data.api.SteerApi
@@ -70,7 +68,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -102,7 +99,6 @@ class IssueDetailViewModel @Inject constructor(
     private val issueImagesApi: IssueImagesApi,
     private val attachmentsApi: AttachmentsApi,
     private val notificationsApi: NotificationsApi,
-    private val repositoriesApi: RepositoriesApi,
     private val steerApi: SteerApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
@@ -636,15 +632,6 @@ class IssueDetailViewModel @Inject constructor(
         descriptionInput.value = null
     }
 
-    // The backing repo's full name (owner/name) for the board + issue coding
-    // chips. repository_id rides on the synced boards shape; the name is a
-    // server-only tRPC read, cached per (account, team) so the chip doesn't
-    // refetch across recompositions or issue navigations. Declared BEFORE init:
-    // the init coroutine below touches _repoName synchronously (Main.immediate +
-    // collectLatest) during construction, so a later declaration leaves it null.
-    private val _repoName = MutableStateFlow<String?>(null)
-    val repoName: StateFlow<String?> = _repoName
-
     // Why the issue isn't on screen yet. Only consulted while the issue is
     // null; a bare "Loading…" that never resolved was the blank screen a push
     // tap landed on before the row synced (EXP-264).
@@ -744,28 +731,6 @@ class IssueDetailViewModel @Inject constructor(
                 .filterNotNull()
                 .debounce(800)
                 .collect { saveDescription(it) }
-        }
-        // Resolve the backing repo's name for the board/coding chips whenever
-        // the board (its repository_id) or active account changes.
-        viewModelScope.launch {
-            combine(auth.activeAccountId, _board) { a, p -> a to p }
-                .collectLatest { (accountId, board) ->
-                    val repoId = board?.repositoryId
-                    if (accountId == null || board == null || repoId == null) {
-                        _repoName.value = null
-                        return@collectLatest
-                    }
-                    // Return null (not emptyList) on failure so a single transient
-                    // network error is NOT memoized — the cache stays empty and the
-                    // next resolve retries instead of pinning the chip null forever.
-                    val repos = RepoRegistryCache.get(accountId, board.teamId) {
-                        runCatching { repositoriesApi.list(accountId, board.teamId) }
-                            .getOrNull()
-                    }
-                    if (repos != null) {
-                        _repoName.value = repos.firstOrNull { it.id == repoId }?.fullName
-                    }
-                }
         }
         // Steer availability + device presence, re-fetched on account switch.
         viewModelScope.launch {
@@ -988,6 +953,13 @@ class IssueDetailViewModel @Inject constructor(
      * snackbar that scrolls away — the file is only ever gone if the user
      * dismisses it.
      */
+    /**
+     * Installed by the screen (EXP-327): where an image that reached the FILE
+     * path goes instead of erroring — appended to the description editor, whose
+     * model the screen owns. Null (no editor mounted) leaves the pick dropped.
+     */
+    var onInlineImagePicked: ((android.net.Uri, String) -> Unit)? = null
+
     fun uploadFile(uri: android.net.Uri) {
         val key = UUID.randomUUID().toString()
         // Placeholder name from the URI only — the real display name needs a
@@ -1040,10 +1012,13 @@ class IssueDetailViewModel @Inject constructor(
                 // An inline-image type uploaded through the Files flow would be
                 // invisible everywhere: filtered out of every client's Files
                 // section, referenced by no markdown, and eventually deleted by
-                // the owner's unreferenced-image sweep.
-                updatePending(key) {
-                    it.copy(error = "Images go in the description — add them from the description editor")
-                }
+                // the owner's unreferenced-image sweep. EXP-327: rather than
+                // dead-ending the pick with an error telling the user to go use
+                // the other button, put it where it belongs — the end of the
+                // description. (The attach menu classifies picks up front, so
+                // this only catches a URI whose type resolves differently here.)
+                _pendingFiles.value = _pendingFiles.value.filterNot { it.key == key }
+                onInlineImagePicked?.invoke(pending.uri, contentType)
                 return@launch
             }
             val bytes = withContext(Dispatchers.IO) {
@@ -1198,26 +1173,3 @@ private const val SYNC_WAIT_MS = 1_500L
 // A local Room write notifies its flows in milliseconds; this only bounds the
 // pathological case where the fetched row isn't the one this screen observes.
 private const val LOCAL_WRITE_WAIT_MS = 1_000L
-
-// Process-wide cache of a team's repos (server-only, no Electric shape).
-// Keyed by "accountId:teamId"; the create-board picker and this chip both
-// read the registry, but the chip must not block on a per-recomposition fetch.
-private object RepoRegistryCache {
-    private val byKey = mutableMapOf<String, List<TeamRepo>>()
-    private val mutex = kotlinx.coroutines.sync.Mutex()
-
-    // `load` returns null to signal a failed fetch: only successful results are
-    // cached, so a transient failure leaves the cache empty and the next call
-    // retries (a failed load never becomes a permanent empty list).
-    suspend fun get(
-        accountId: String,
-        teamId: String,
-        load: suspend () -> List<TeamRepo>?,
-    ): List<TeamRepo>? {
-        val key = "$accountId:$teamId"
-        mutex.withLock { byKey[key] }?.let { return it }
-        val loaded = load() ?: return null
-        mutex.withLock { byKey[key] = loaded }
-        return loaded
-    }
-}
