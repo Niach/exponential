@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
-import { useLiveQuery, inArray } from "@tanstack/react-db"
+import { useLiveQuery, eq, inArray } from "@tanstack/react-db"
 import {
+  Ban,
   ChevronDown,
   ChevronUp,
   Lock,
@@ -8,7 +9,11 @@ import {
   Plus,
   Trash2,
 } from "lucide-react"
-import { issueCollection, issueStatusCollection } from "@/lib/collections"
+import {
+  issueCollection,
+  issueStatusCollection,
+  teamCollection,
+} from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import type { Issue } from "@/db/schema"
 import {
@@ -22,7 +27,11 @@ import {
   resolveIssueStatus,
   type StatusRowOption,
 } from "@/lib/team-statuses"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import {
+  StatusIcon,
+  toStatusMenuOptions,
+} from "@/components/issue-properties/status-dropdown"
+import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { IconTooltip } from "@/components/icon-tooltip"
 import { hexWithAlpha } from "@/lib/status-icons"
 import { Badge } from "@/components/ui/badge"
@@ -520,6 +529,154 @@ function CreateStatusForm({
   )
 }
 
+// EXP-319 — per-team PR automation targets. Two pickers over the team's
+// statuses (duplicate excluded, it needs a canonical issue) plus a "Do
+// nothing" entry. The synced teams row is the source of truth: a NULL
+// status_id means the builtin default (In Review / Done — also what the
+// FK's SET NULL falls back to when a target status is deleted), and
+// *_automation=false means "do nothing".
+const PR_AUTOMATION_ROWS = [
+  {
+    event: `pr_opened`,
+    label: `When a pull request opens`,
+    defaultKey: `in_review`,
+  },
+  {
+    event: `pr_merged`,
+    label: `When a pull request merges`,
+    defaultKey: `done`,
+  },
+] as const
+
+function PrAutomationCard({
+  teamId,
+  options,
+}: {
+  teamId: string
+  options: StatusRowOption[]
+}) {
+  const { data: teamRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ teams: teamCollection })
+        .where(({ teams }) => eq(teams.id, teamId)),
+    [teamId]
+  )
+  const team = teamRows?.[0]
+  const [error, setError] = useState<string | null>(null)
+
+  const pickable = useMemo(
+    () => options.filter((option) => option.category !== `duplicate`),
+    [options]
+  )
+  const menuOptions = useMemo(
+    () => [
+      ...toStatusMenuOptions(pickable),
+      {
+        value: `none`,
+        label: `Do nothing`,
+        icon: Ban,
+        color: `text-muted-foreground`,
+      },
+    ],
+    [pickable]
+  )
+
+  const persist = async (
+    event: `pr_opened` | `pr_merged`,
+    target: string,
+    current: string
+  ) => {
+    if (target === current) return
+    try {
+      const { txId } = await trpc.statuses.setPrAutomation.mutate({
+        teamId,
+        event,
+        target,
+      })
+      await teamCollection.utils.awaitTxId(txId)
+      setError(null)
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : `Failed to update PR automation.`
+      )
+    }
+  }
+
+  if (!team || pickable.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">PR automation</CardTitle>
+        <CardDescription>
+          Where issues move when their pull request opens or merges. Pick
+          &ldquo;Do nothing&rdquo; to leave statuses alone — merged pull
+          requests then never auto-complete their issues.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {PR_AUTOMATION_ROWS.map(({ event, label, defaultKey }) => {
+          const statusId =
+            event === `pr_opened`
+              ? team.prOpenedStatusId
+              : team.prMergedStatusId
+          const automation =
+            event === `pr_opened`
+              ? team.prOpenedAutomation
+              : team.prMergedAutomation
+          const defaultId =
+            pickable.find((option) => option.builtinKey === defaultKey)?.id ??
+            `none`
+          const value =
+            automation === false
+              ? `none`
+              : statusId && pickable.some((option) => option.id === statusId)
+                ? statusId
+                : defaultId
+
+          return (
+            <div
+              key={event}
+              className="flex items-center justify-between gap-3"
+            >
+              <span className="min-w-0 text-sm">{label}, move issues to</span>
+              <OptionDropdownMenu
+                value={value}
+                fallbackValue={defaultId}
+                options={menuOptions}
+                mobileTitle={label}
+                align="end"
+                onSelect={(picked) => void persist(event, picked, value)}
+                renderTrigger={(selected) => {
+                  const Icon = selected.icon
+                  return (
+                    <Button variant="outline" size="sm" className="shrink-0">
+                      <Icon
+                        className={`h-4 w-4 ${selected.color}`}
+                        style={
+                          selected.colorHex
+                            ? { color: selected.colorHex }
+                            : undefined
+                        }
+                      />
+                      <span className="max-w-40 truncate">
+                        {selected.label}
+                      </span>
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  )
+                }}
+              />
+            </div>
+          )
+        })}
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function TeamStatusesSection({ teamId }: { teamId: string }) {
   const { options, ready } = useTeamStatuses(teamId)
   const counts = useIssueCountsByStatus(teamId, options)
@@ -646,6 +803,8 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
           })}
         </CardContent>
       </Card>
+
+      <PrAutomationCard teamId={teamId} options={options} />
 
       <ReassignDialog
         teamId={teamId}

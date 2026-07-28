@@ -40,6 +40,21 @@ pub struct Team {
     /// rows synced before the column existed — treated as disabled.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub helpdesk_enabled: Option<bool>,
+    /// EXP-319 PR-open automation target: `Some(id)` pins an
+    /// `issue_statuses` row; `None` = the builtin In Review default.
+    #[serde(default)]
+    pub pr_opened_status_id: Option<String>,
+    /// `Some(false)` = "do nothing" on PR open. `None` (pre-column rows) =
+    /// enabled, matching the server DEFAULT true.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub pr_opened_automation: Option<bool>,
+    /// EXP-319 PR-merge automation target: `Some(id)` pins an
+    /// `issue_statuses` row; `None` = the builtin Done default.
+    #[serde(default)]
+    pub pr_merged_status_id: Option<String>,
+    /// `Some(false)` = "do nothing" on PR merge. `None` = enabled.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub pr_merged_automation: Option<bool>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -619,6 +634,38 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(team.helpdesk_enabled, None);
+    }
+
+    #[test]
+    fn team_pr_automation_hydrates_tolerantly() {
+        // EXP-319: TEXT-store bool forms plus the status-id pins. A strict
+        // bool would drop the whole Team row on hydration — far worse than
+        // the automation card breaking.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-1",
+            "name": "Acme",
+            "pr_opened_status_id": "s-1",
+            "pr_opened_automation": "t",
+            "pr_merged_status_id": null,
+            "pr_merged_automation": "f"
+        }))
+        .unwrap();
+        assert_eq!(team.pr_opened_status_id.as_deref(), Some("s-1"));
+        assert_eq!(team.pr_opened_automation, Some(true));
+        assert_eq!(team.pr_merged_status_id, None);
+        assert_eq!(team.pr_merged_automation, Some(false));
+
+        // Pre-column rows degrade to None everywhere (None flag = ENABLED,
+        // matching the server DEFAULT true).
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-2",
+            "name": "Legacy"
+        }))
+        .unwrap();
+        assert_eq!(team.pr_opened_status_id, None);
+        assert_eq!(team.pr_opened_automation, None);
+        assert_eq!(team.pr_merged_status_id, None);
+        assert_eq!(team.pr_merged_automation, None);
     }
 
     #[test]

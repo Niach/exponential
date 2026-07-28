@@ -479,6 +479,10 @@ describe(`exponential_teams_get`, () => {
       `iconUrl`,
       `id`,
       `name`,
+      `prMergedAutomation`,
+      `prMergedStatusId`,
+      `prOpenedAutomation`,
+      `prOpenedStatusId`,
       `slug`,
       `updatedAt`,
     ])

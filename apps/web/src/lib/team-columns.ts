@@ -12,6 +12,10 @@ export const teamColumns = {
   slug: teams.slug,
   iconUrl: teams.iconUrl,
   helpdeskEnabled: teams.helpdeskEnabled,
+  prOpenedStatusId: teams.prOpenedStatusId,
+  prOpenedAutomation: teams.prOpenedAutomation,
+  prMergedStatusId: teams.prMergedStatusId,
+  prMergedAutomation: teams.prMergedAutomation,
   createdAt: teams.createdAt,
   updatedAt: teams.updatedAt,
 } as const

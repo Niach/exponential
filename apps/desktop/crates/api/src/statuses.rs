@@ -217,6 +217,68 @@ pub fn statuses_delete(
     )
 }
 
+/// Which PR event [`statuses_set_pr_automation`] configures (EXP-319).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrAutomationEvent {
+    Opened,
+    Merged,
+}
+
+impl PrAutomationEvent {
+    fn as_wire(self) -> &'static str {
+        match self {
+            PrAutomationEvent::Opened => "pr_opened",
+            PrAutomationEvent::Merged => "pr_merged",
+        }
+    }
+}
+
+/// The target [`statuses_set_pr_automation`] writes: a status row uuid,
+/// `Default` (reset to NULL — the builtin In Review/Done fallback), or
+/// `DoNothing` (disable the automation).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PrAutomationTarget {
+    Status(String),
+    Default,
+    DoNothing,
+}
+
+impl PrAutomationTarget {
+    fn as_wire(&self) -> &str {
+        match self {
+            PrAutomationTarget::Status(id) => id,
+            PrAutomationTarget::Default => "default",
+            PrAutomationTarget::DoNothing => "none",
+        }
+    }
+}
+
+/// `statuses.setPrAutomation` — mutation (EXP-319, member-level like every
+/// other write in this file). Sets where issues move when a PR opens/merges;
+/// convergence is the teams-shape Electric echo.
+pub fn statuses_set_pr_automation(
+    trpc: &TrpcClient,
+    team_id: &str,
+    event: PrAutomationEvent,
+    target: &PrAutomationTarget,
+) -> Result<TxOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+        event: &'a str,
+        target: &'a str,
+    }
+    trpc.mutation(
+        "statuses.setPrAutomation",
+        &Input {
+            team_id,
+            event: event.as_wire(),
+            target: target.as_wire(),
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,6 +333,44 @@ mod tests {
         let _ = statuses_move(&client(&base), "t-1", "s-1", MoveDirection::Down).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"teamId":"t-1","statusId":"s-1","direction":"down"}"#));
+    }
+
+    #[test]
+    fn set_pr_automation_sends_all_three_target_forms() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":12}}}"#);
+        let out = statuses_set_pr_automation(
+            &client(&base),
+            "t-1",
+            PrAutomationEvent::Opened,
+            &PrAutomationTarget::Status("s-1".to_string()),
+        )
+        .unwrap();
+        assert_eq!(out.tx_id, Some(12));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/statuses.setPrAutomation HTTP/1.1"));
+        assert!(request.ends_with(r#"{"teamId":"t-1","event":"pr_opened","target":"s-1"}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":13}}}"#);
+        let _ = statuses_set_pr_automation(
+            &client(&base),
+            "t-1",
+            PrAutomationEvent::Merged,
+            &PrAutomationTarget::DoNothing,
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"teamId":"t-1","event":"pr_merged","target":"none"}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":14}}}"#);
+        let _ = statuses_set_pr_automation(
+            &client(&base),
+            "t-1",
+            PrAutomationEvent::Merged,
+            &PrAutomationTarget::Default,
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"teamId":"t-1","event":"pr_merged","target":"default"}"#));
     }
 
     #[test]

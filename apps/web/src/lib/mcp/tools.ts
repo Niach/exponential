@@ -930,7 +930,7 @@ export function registerExponentialTools(
     `exponential_issues_update_status`,
     {
       title: `Update issue status (coding flow)`,
-      description: `Set an issue's status during a coding session. Restricted to 'in_progress' (you started working) and 'done' (work is complete and merged). Do NOT set 'in_review' yourself — calling exponential_pr_open automatically moves the issue to 'in_review', and merging the PR moves it to 'done'. Accepts a UUID or human identifier (e.g. "MET-12").`,
+      description: `Set an issue's status during a coding session. Restricted to 'in_progress' (you started working) and 'done' (work is complete and merged). Do NOT set 'in_review' yourself — calling exponential_pr_open automatically moves the issue to the team's configured PR-open status (default 'in_review'), and merging the PR moves it to the team's PR-merge status (default 'done'; a team may have disabled either automation). Accepts a UUID or human identifier (e.g. "MET-12").`,
       inputSchema: {
         issueId: z.string().min(1),
         status: z.enum([`in_progress`, `done`]),
@@ -955,7 +955,7 @@ export function registerExponentialTools(
     `exponential_pr_open`,
     {
       title: `Open a pull request for one issue or a batch of issues`,
-      description: `Open a GitHub pull request via the linked repository and link it to the issue(s). The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (single issue) or 'issueIds' (a batch coding run's issues — ONE combined PR linked to every listed issue; all issues must resolve to the same repository, and 'head' is REQUIRED: the pushed batch branch, e.g. 'exp/batch-<id>'). For a single issue, 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'. 'base' defaults to the repo's default branch. On success each linked issue records prUrl/prNumber/prState='open'/branch and a pr_opened activity event, and moves to status 'in_review'; merging the PR later completes them all (status 'done'). Fails with a clear message if a board has no linked repository. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
+      description: `Open a GitHub pull request via the linked repository and link it to the issue(s). The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (single issue) or 'issueIds' (a batch coding run's issues — ONE combined PR linked to every listed issue; all issues must resolve to the same repository, and 'head' is REQUIRED: the pushed batch branch, e.g. 'exp/batch-<id>'). For a single issue, 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'. 'base' defaults to the repo's default branch. On success each linked issue records prUrl/prNumber/prState='open'/branch and a pr_opened activity event, and moves to the team's configured PR-open status (default 'in_review'); merging the PR later moves them all to the team's PR-merge status (default 'done'). A team may have disabled either automation ("do nothing") — the PR linkage still applies. Fails with a clear message if a board has no linked repository. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -1082,14 +1082,15 @@ export function registerExponentialTools(
                 branch: headBranch,
               },
             })
-            // The open PR parks the issue in review (EXP-120).
+            // The open PR moves the issue to the team's PR-open target
+            // (EXP-120; default In Review, per-team configurable — EXP-319).
             if (current) {
               await applyPrLifecycleStatusInTx(tx, {
                 issueId: id,
                 teamId: teamIdByIssue.get(id)!,
                 actorUserId: user.id,
                 currentStatus: current.status,
-                to: `in_review`,
+                event: `opened`,
               })
             }
           }
@@ -1140,7 +1141,7 @@ export function registerExponentialTools(
     `exponential_pr_merge`,
     {
       title: `Squash-merge open pull requests`,
-      description: `Squash-merge linked open pull requests via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (one PR) or 'issueIds' (merge MANY at once — one PR per distinct prUrl: issues sharing a batch PR are merged once). Merging completes EVERY issue linked to each PR: prState='merged' and status 'done'. Use this after conflict-resolution work (e.g. the "Fix merge conflicts" run: rebase, resolve, push --force-with-lease, then merge). Merges run sequentially and report a per-PR result — one unmergeable PR (GitHub's own message is returned for it) never blocks the rest. Idempotent when a PR is already merged. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
+      description: `Squash-merge linked open pull requests via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (one PR) or 'issueIds' (merge MANY at once — one PR per distinct prUrl: issues sharing a batch PR are merged once). Merging flips EVERY issue linked to each PR to prState='merged' and moves it to the team's configured PR-merge status (default 'done'; a team may have disabled the status automation, in which case only the PR state changes). Use this after conflict-resolution work (e.g. the "Fix merge conflicts" run: rebase, resolve, push --force-with-lease, then merge). Merges run sequentially and report a per-PR result — one unmergeable PR (GitHub's own message is returned for it) never blocks the rest. Idempotent when a PR is already merged. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),

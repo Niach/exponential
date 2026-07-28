@@ -92,13 +92,20 @@ pub const SHAPES: [ShapeSpec; 16] = [
         // (heal_missing_columns is additive-only); the allowlist drops the
         // keys on upsert. `helpdesk_enabled` (EXP-180) gates the Support
         // inbox — heal_missing_columns ALTERs it onto existing store tables
-        // and stamps a refetch so old rows get real values, not NULLs.
+        // and stamps a refetch so old rows get real values, not NULLs. The
+        // EXP-319 pr_* columns (PR automation targets: NULL status id =
+        // builtin default, automation=false = "do nothing") heal the same
+        // way.
         columns: &[
             "id",
             "name",
             "slug",
             "icon_url",
             "helpdesk_enabled",
+            "pr_opened_status_id",
+            "pr_opened_automation",
+            "pr_merged_status_id",
+            "pr_merged_automation",
             "created_at",
             "updated_at",
         ],
@@ -485,6 +492,17 @@ mod tests {
         // dropping it from the allowlist silently kills the badge on desktop.
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"needs_input"));
+    }
+
+    #[test]
+    fn teams_sync_the_pr_automation_columns() {
+        // EXP-319: the settings PR-automation card reads these four —
+        // dropping any silently shows every team as builtin-default.
+        let spec = shape_by_name("teams").unwrap();
+        assert!(spec.columns.contains(&"pr_opened_status_id"));
+        assert!(spec.columns.contains(&"pr_opened_automation"));
+        assert!(spec.columns.contains(&"pr_merged_status_id"));
+        assert!(spec.columns.contains(&"pr_merged_automation"));
     }
 
     #[test]

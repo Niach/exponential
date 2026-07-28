@@ -43,7 +43,8 @@ use sync::Store;
 use domain::contract::ISSUE_STATUS_STARTED_MAX;
 use domain::rows::IssueStatusRow;
 use domain::statuses::{
-    resolve_row, resolve_status_sorted, IssueStatusCategory, ResolvedStatus,
+    resolve_pr_target, resolve_row, resolve_status_sorted, IssueStatusCategory,
+    ResolvedStatus,
 };
 
 use crate::native_dialog::{self, AlertSpec};
@@ -94,6 +95,9 @@ impl StatusesPane {
             }),
             // The live per-status issue counts move with the issues.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
+            // EXP-319: the PR-automation card reads the synced teams row —
+            // without this the mutation's Electric echo never re-renders it.
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             cx.subscribe_in(&new_name, window, |this, _, event: &InputEvent, _, cx| {
                 match event {
                     InputEvent::PressEnter { .. } => this.create(cx),
@@ -438,6 +442,130 @@ impl StatusesPane {
     // -- rendering -----------------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
+    /// EXP-319 — the "PR automation" card: where issues move when their
+    /// pull request opens/merges, per event a status picker (duplicate
+    /// excluded) plus "Do nothing". Reads the synced teams row; writes are
+    /// fire-and-forget and converge via the Electric echo (no local pending
+    /// state — the picker idiom everywhere else).
+    fn render_pr_automation(
+        &self,
+        statuses: &[(IssueStatusRow, ResolvedStatus)],
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::Div> {
+        let team = super::active_team(cx, &self.nav)?;
+        let rows: Vec<IssueStatusRow> =
+            statuses.iter().map(|(row, _)| row.clone()).collect();
+
+        let mut card = section(cx).child(card_header(
+            "PR automation",
+            "Where issues move when their pull request opens or merges. \
+             \"Do nothing\" leaves statuses alone — merged pull requests \
+             then never auto-complete their issues.",
+            cx,
+        ));
+
+        let events: [(
+            &'static str,
+            &'static str,
+            api::statuses::PrAutomationEvent,
+            Option<String>,
+            Option<bool>,
+            &'static str,
+        ); 2] = [
+            (
+                "pr-automation-opened",
+                "When a pull request opens, move issues to",
+                api::statuses::PrAutomationEvent::Opened,
+                team.pr_opened_status_id.clone(),
+                team.pr_opened_automation,
+                "in_review",
+            ),
+            (
+                "pr-automation-merged",
+                "When a pull request merges, move issues to",
+                api::statuses::PrAutomationEvent::Merged,
+                team.pr_merged_status_id.clone(),
+                team.pr_merged_automation,
+                "done",
+            ),
+        ];
+
+        for (id, label, event, status_id, automation, default_builtin) in events {
+            let current =
+                resolve_pr_target(&rows, status_id.as_deref(), automation, default_builtin);
+            let trigger_label: SharedString = current
+                .as_ref()
+                .map(|status| SharedString::from(status.name.clone()))
+                .unwrap_or_else(|| "Do nothing".into());
+            let mut trigger = Button::new(id).outline().small().label(trigger_label);
+            if let Some(status) = &current {
+                trigger = trigger.icon(crate::icons::resolved_status_icon(status, cx));
+            }
+
+            let current_key = current.as_ref().map(|status| status.group_key.clone());
+            let team_id = team.id.clone();
+            // Every offered entry is a real synced row (the pane renders
+            // "Loading…" while statuses are empty), so a pick always
+            // carries a row uuid — the constructed `builtin:` fallback
+            // vocabulary can never leak into this write.
+            let candidates: Vec<ResolvedStatus> = statuses
+                .iter()
+                .filter(|(_, resolved)| resolved.category != IssueStatusCategory::Duplicate)
+                .map(|(_, resolved)| resolved.clone())
+                .collect();
+
+            card = card.child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_sm().child(label))
+                    .child(trigger.dropdown_menu(move |mut menu, _window, cx| {
+                        menu = menu.scrollable(true).max_h(gpui::px(240.));
+                        for status in &candidates {
+                            let Some(row_id) = status.row_id.clone() else {
+                                continue;
+                            };
+                            let team_id = team_id.clone();
+                            menu = menu.item(crate::pickers::option_item(
+                                SharedString::from(status.name.clone()),
+                                crate::icons::resolved_status_icon(status, cx),
+                                current_key.as_deref() == Some(status.group_key.as_str()),
+                                move |_window, cx| {
+                                    let team_id = team_id.clone();
+                                    let target =
+                                        api::statuses::PrAutomationTarget::Status(row_id.clone());
+                                    super::spawn_trpc(cx, "statuses.setPrAutomation", move |trpc| {
+                                        api::statuses::statuses_set_pr_automation(
+                                            trpc, &team_id, event, &target,
+                                        )
+                                    });
+                                },
+                            ));
+                        }
+                        let team_id = team_id.clone();
+                        menu.item(
+                            PopupMenuItem::new("Do nothing")
+                                .checked(current_key.is_none())
+                                .on_click(move |_, _window, cx| {
+                                    let team_id = team_id.clone();
+                                    super::spawn_trpc(cx, "statuses.setPrAutomation", move |trpc| {
+                                        api::statuses::statuses_set_pr_automation(
+                                            trpc,
+                                            &team_id,
+                                            event,
+                                            &api::statuses::PrAutomationTarget::DoNothing,
+                                        )
+                                    });
+                                }),
+                        )
+                    })),
+            );
+        }
+
+        Some(card)
+    }
+
     fn render_status_row(
         &self,
         row: &IssueStatusRow,
@@ -831,7 +959,11 @@ impl Render for StatusesPane {
             body = body.child(group);
         }
 
-        v_flex().child(body)
+        let mut pane = v_flex().gap_4().child(body);
+        if let Some(card) = self.render_pr_automation(&statuses, cx) {
+            pane = pane.child(card);
+        }
+        pane
     }
 }
 

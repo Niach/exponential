@@ -28,8 +28,10 @@ vi.mock(`@/lib/team-membership`, () => ({
   getUserTeamIds: vi.fn(),
 }))
 
-// statuses.ts imports applyStatusDerivations from issues.ts, which pulls
-// issues.ts's module-scope integrations — stub them side-effect-free.
+// Stub the integration modules side-effect-free (historical: statuses.ts
+// used to import applyStatusDerivations from issues.ts, which pulls
+// issues.ts's module-scope integrations; it now lives in the dependency-free
+// lib/status-derivations.ts).
 vi.mock(`@/lib/integrations/github-pr`, () => ({
   closePullRequest: vi.fn(),
   fetchPullFiles: vi.fn(),
@@ -434,5 +436,76 @@ describe(`gating`, () => {
       })
     ).rejects.toMatchObject({ code: `FORBIDDEN` })
     expect(inserts).toHaveLength(0)
+  })
+})
+
+// EXP-319 — per-team PR automation targets.
+describe(`statuses.setPrAutomation`, () => {
+  it(`pins a status row as the pr_opened target (member-gated)`, async () => {
+    selectQueue.push([{ id: STATUS_A, category: `started` }])
+    const result = await caller.setPrAutomation({
+      teamId: TEAM,
+      event: `pr_opened`,
+      target: STATUS_A,
+    })
+    expect(h.resolveTeamAccess).toHaveBeenCalledWith(
+      `actor`,
+      TEAM,
+      `mutate_resources`
+    )
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set).toEqual({
+      prOpenedStatusId: STATUS_A,
+      prOpenedAutomation: true,
+    })
+    expect(result.txId).toBe(77)
+  })
+
+  it(`'none' disables the automation and clears the pin`, async () => {
+    await caller.setPrAutomation({
+      teamId: TEAM,
+      event: `pr_merged`,
+      target: `none`,
+    })
+    expect(updates[0]!.set).toEqual({
+      prMergedStatusId: null,
+      prMergedAutomation: false,
+    })
+  })
+
+  it(`'default' resets to the builtin fallback (NULL + enabled)`, async () => {
+    await caller.setPrAutomation({
+      teamId: TEAM,
+      event: `pr_merged`,
+      target: `default`,
+    })
+    expect(updates[0]!.set).toEqual({
+      prMergedStatusId: null,
+      prMergedAutomation: true,
+    })
+  })
+
+  it(`404s a status outside the team`, async () => {
+    selectQueue.push([])
+    await expect(
+      caller.setPrAutomation({
+        teamId: TEAM,
+        event: `pr_opened`,
+        target: STATUS_A,
+      })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`refuses a duplicate-category target (needs a canonical issue)`, async () => {
+    selectQueue.push([{ id: STATUS_A, category: `duplicate` }])
+    await expect(
+      caller.setPrAutomation({
+        teamId: TEAM,
+        event: `pr_merged`,
+        target: STATUS_A,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(updates).toHaveLength(0)
   })
 })

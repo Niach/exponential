@@ -263,6 +263,10 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
       `iconUrl`,
       `id`,
       `name`,
+      `prMergedAutomation`,
+      `prMergedStatusId`,
+      `prOpenedAutomation`,
+      `prOpenedStatusId`,
       `slug`,
       `updatedAt`,
     ])
