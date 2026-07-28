@@ -279,12 +279,17 @@ public enum MarkdownChipDecorator {
             options: []
         ) { value, range, _ in
             guard value != nil, range.length > 1 else { return }
+            var attrs = attributed.attributes(at: range.location, effectiveRange: nil)
+            // Belt and braces with `IssueRefs.decorate`'s own guard: a verbatim
+            // pipe-table run is re-emitted from its SOURCE STRING, so an
+            // attachment character inserted into it reaches the saved markdown
+            // (EXP-322). Never insert a title inside one.
+            guard attrs[.markdownTableBlock] == nil else { return }
             let identifier = ns.substring(with: NSRange(location: range.location + 1, length: range.length - 1))
                 .uppercased()
             guard let raw = titleResolver(identifier) else { return }
             let title = IssueRefs.chipTitle(raw)
             guard !title.isEmpty else { return }
-            var attrs = attributed.attributes(at: range.location, effectiveRange: nil)
             attrs[.markdownIssueRefTitle] = title
             attrs[.attachment] = IssueRefTitleAttachment(title: title)
             insertions.append((NSMaxRange(range), attrs, title))

@@ -261,6 +261,14 @@ public final class IssueEditorModel {
 
     /// Like [decorateChips], but for a live document: bumps the revision of
     /// every block whose rendering actually changed so the text views re-apply.
+    ///
+    /// Safe to re-run on DISPLAY-ONLY models too, even though their route
+    /// (`IssueRefs.decorateForDisplay`) splices the title in as real
+    /// characters: that pass skips tokens that already carry
+    /// `.markdownIssueRef`, so a second run can no longer append the title
+    /// twice. Skipping display-only models entirely would be the other fix, but
+    /// it would also stop late-syncing team members from ever chipping their
+    /// `@email` mentions on a read-only comment card (EXP-322).
     private func redecorateChips() {
         for (idx, block) in blocks.enumerated() {
             guard case let .text(id, content) = block else { continue }
@@ -314,9 +322,30 @@ public final class IssueEditorModel {
     /// not recompute the autocomplete, does not arm it, and does not
     /// `notifyEdit()` — a decoration pass never changes the markdown, so it
     /// must not schedule an autosave.
-    public func applyDecoration(id: UUID, content: NSAttributedString) {
+    ///
+    /// It DOES move offsets, though: inserting or removing a display-only title
+    /// attachment shifts every character after it. The text view suppresses its
+    /// selection callback while it applies the pass, so the caller passes the
+    /// mapped `selection` and the net `lengthDelta` here — otherwise the model
+    /// would keep pre-pass coordinates for a post-pass document and the next
+    /// candidate tap / image insert would land one character off (EXP-322).
+    public func applyDecoration(
+        id: UUID,
+        content: NSAttributedString,
+        selection: NSRange? = nil,
+        lengthDelta: Int = 0
+    ) {
         guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
         blocks[idx] = .text(id: id, attributedContent: content)
+        if let selection { self.selection = (id, selection) }
+        // The active `@`/`#` token's offset is now stale. Remapping it would
+        // mean replaying every insertion, and the bar is cheap to reopen (the
+        // next keystroke arms it again) — whereas a stale replace range EATS
+        // the character before the trigger, which then gets saved. Close it.
+        if lengthDelta != 0 {
+            clearMention()
+            clearIssueRef()
+        }
     }
 
     public func markSaved(_ markdown: String) {
@@ -358,15 +387,38 @@ public final class IssueEditorModel {
         // guarantee whether the text or the selection callback lands first, so
         // arm a latch here and let whichever recompute sees the settled caret
         // use it (EXP-322).
-        textChangeArm = true
+        armTextChange()
         recomputeAutocomplete(armed: true)
         notifyEdit()
     }
 
     // MARK: - Mentions / issue refs (autocomplete)
 
-    /// Set by [updateText], consumed by [updateSelection]. See the comment there.
+    /// Set by [armTextChange], consumed by [updateSelection] or — when no
+    /// selection callback follows the edit — by the end of the runloop turn.
     private var textChangeArm = false
+
+    /// Bumped by every arm so a stale disarm can never clear a newer one.
+    private var textChangeArmGeneration = 0
+
+    /// Arm the "a document change happened" latch for the settled-caret
+    /// recompute, and drop it again at the end of this runloop turn.
+    ///
+    /// The latch MUST be turn-scoped: the editor has three paths that set
+    /// `selectedRange` themselves and then call `textViewDidChange` by hand
+    /// (chip-atom backspace, list continuation, list exit), and those produce
+    /// no selection callback to consume it. A latch left armed re-opens the
+    /// candidate bar on the next plain tap inside an existing `#EXP-238` —
+    /// exactly the bug EXP-322 set out to fix (EXP-322).
+    private func armTextChange() {
+        textChangeArm = true
+        textChangeArmGeneration &+= 1
+        let generation = textChangeArmGeneration
+        Task { [weak self] in
+            guard let self, self.textChangeArmGeneration == generation else { return }
+            self.textChangeArm = false
+        }
+    }
 
     /// Recompute the @-mention and #-issue-ref candidates from the focused
     /// block's caret context. Driven off the model's own `selection` + `blocks`,
@@ -524,7 +576,7 @@ public final class IssueEditorModel {
         selection = (id, NSRange(location: caret, length: 0))
         // An explicit `@`/`#` affordance IS a text change, so it may open the
         // bar (EXP-322).
-        textChangeArm = true
+        armTextChange()
         recomputeAutocomplete(armed: true)
         notifyEdit()
     }

@@ -79,7 +79,7 @@ public enum MarkdownConversion {
                     markdown += "```\(codeBlockLang ?? "")\n"
                     inCodeBlock = true
                 }
-                markdown += paraStr.string
+                markdown += expWithoutObjectReplacements(paraStr.string)
                 if !paraStr.string.hasSuffix("\n") { markdown += "\n" }
                 continue
             }
@@ -99,7 +99,7 @@ public enum MarkdownConversion {
                 // insert a blank line, which terminates a GFM table.
                 markdown += inTableBlock ? "\n" : (i > 0 ? "\n\n" : "")
                 inTableBlock = true
-                markdown += paraStr.string
+                markdown += expWithoutObjectReplacements(paraStr.string)
                 continue
             }
             inTableBlock = false
@@ -615,6 +615,23 @@ private func collectText(from node: UnsafeMutablePointer<cmark_node>) -> String 
 
 // MARK: - Reverse Conversion Helpers
 
+/// Drop every U+FFFC (OBJECT REPLACEMENT CHARACTER) from text on its way into
+/// the markdown.
+///
+/// U+FFFC has NO legitimate place in GFM source — it is never typeable and
+/// never authored, it only ever enters the editor's storage as a display-only
+/// artifact: the issue-ref chip title rides one as an `NSTextAttachment`
+/// (EXP-322), and copy/paste or drag-and-drop of a chip re-enters it as a BARE
+/// character (`allowsEditingTextAttributes` is off, so the attachment
+/// attribute does not survive the pasteboard). So stripping it unconditionally
+/// here is correct, and this is the one chokepoint no decoration or paste path
+/// can bypass — attribute-based skipping alone is not enough, because the
+/// verbatim code-fence and pipe-table emitters re-emit their source string
+/// without consulting attributes at all (EXP-322).
+public func expWithoutObjectReplacements(_ text: String) -> String {
+    text.contains("\u{FFFC}") ? text.replacingOccurrences(of: "\u{FFFC}", with: "") : text
+}
+
 private func splitIntoParagraphs(_ attrStr: NSAttributedString) -> [NSRange] {
     let string = attrStr.string as NSString
     var ranges: [NSRange] = []
@@ -732,7 +749,10 @@ private struct InlineRun {
     var isStrike = false
 
     init(text: String, attrs: [NSAttributedString.Key: Any], isHeading: Bool) {
-        self.text = text
+        // A run that is a real `.attachment` is skipped by the caller, but a
+        // BARE U+FFFC (a pasted chip) carries no attachment attribute and would
+        // otherwise be emitted verbatim — see `expWithoutObjectReplacements`.
+        self.text = expWithoutObjectReplacements(text)
         if let imageURL = attrs[.markdownImageURL] as? String {
             self.imageURL = imageURL
             imageAlt = (attrs[.markdownImageAlt] as? String) ?? ""

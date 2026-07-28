@@ -69,6 +69,9 @@ public enum MentionRefs {
             if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
                 continue
             }
+            // Verbatim pipe-table runs are re-emitted from their source string,
+            // so nothing inside them may be decorated (EXP-322).
+            if attrs[.markdownTableBlock] != nil { continue }
             let font = attrs[.font] as? PlatformFont
             if expFontHasBold(font) || expFontHasItalic(font)
                 || attrs[.markdownStrikethrough] as? Bool == true {

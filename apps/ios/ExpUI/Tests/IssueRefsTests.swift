@@ -126,6 +126,16 @@ final class IssueRefsDecorateForDisplayTests: XCTestCase {
         let out = display("#EXP-1", titleResolver: { _ in long })
         XCTAssertEqual(out.string, "#EXP-1 " + String(repeating: "x", count: 59) + "…")
     }
+
+    /// This pass REPLACES characters, and a display model re-decorates whenever
+    /// the member list syncs in — so a second run must be a no-op, not
+    /// `#EXP-1 Fix login flow Fix login flow` (EXP-322).
+    func testDecoratingTwiceDoesNotDuplicateTheTitle() {
+        let once = display("see #EXP-1 now")
+        let twice = IssueRefs.decorateForDisplay(once, resolver: resolver, titleResolver: titles)
+        XCTAssertEqual(twice.string, once.string)
+        XCTAssertEqual(twice.string, "see #EXP-1 Fix login flow now")
+    }
 }
 
 // Locks the `extractInlineMarkdown` list-prefix fix: the prefix length must be a

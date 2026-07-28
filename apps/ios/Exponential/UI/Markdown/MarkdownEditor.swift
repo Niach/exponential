@@ -535,26 +535,46 @@ private struct BlockTextEditor: UIViewRepresentable {
         /// — typing, autocorrect/dictation, paste, drag-drop, undo, and the
         /// three places that mutate storage directly and then call it by hand —
         /// so this is the single hook the decoration needs.
-        private func scheduleChipPass() {
+        private func scheduleChipPass(delay: TimeInterval = 0) {
             guard !chipPassScheduled else { return }
             chipPassScheduled = true
-            DispatchQueue.main.async { [weak self] in
+            let work = { [weak self] in
                 self?.chipPassScheduled = false
                 self?.applyChips()
+            }
+            if delay > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+            } else {
+                DispatchQueue.main.async(execute: work)
             }
         }
 
         private func applyChips() {
             guard let tv = textView, let model, let blockId, !tv.isReadOnlyRendering else { return }
+            // Never rewrite storage mid-composition: replacing the whole string
+            // out from under an IME's marked range drops or garbles the
+            // in-flight characters (and UIKit can raise on the stale range).
+            // Re-arm instead of dropping the pass — a ref can newly resolve at
+            // any moment (the lookup cache re-checks misses, and the member
+            // list syncs in), so the chip would otherwise never appear.
+            guard tv.markedTextRange == nil else {
+                scheduleChipPass(delay: 0.2)
+                return
+            }
+            let lengthBefore = tv.textStorage.length
             let result = model.chipDecoration(for: tv.textStorage, selection: tv.selectedRange)
             guard result.changed else { return }
             beginProgrammaticChange()
             tv.textStorage.beginEditing()
             tv.textStorage.setAttributedString(result.attributed)
             tv.textStorage.endEditing()
+            // Keep the SELECTION, not just the caret: collapsing it here wiped
+            // an active selection whenever a ref happened to resolve.
+            let length = tv.textStorage.length
+            let location = min(result.selection.location, length)
             tv.selectedRange = NSRange(
-                location: min(result.selection.location, tv.textStorage.length),
-                length: 0
+                location: location,
+                length: min(result.selection.length, length - location)
             )
             // Without this the NEXT typed character inherits the chip's color
             // and marker attributes.
@@ -562,7 +582,15 @@ private struct BlockTextEditor: UIViewRepresentable {
             endProgrammaticChange()
             // No revision bump: the text view already holds this content, and a
             // bump would re-apply `attributedText` and disturb the caret.
-            model.applyDecoration(id: blockId, content: NSAttributedString(attributedString: tv.textStorage))
+            // The mapped selection HAS to travel with it: `textViewDidChangeSelection`
+            // is suppressed during a programmatic change, so the model would
+            // otherwise keep pre-pass offsets for a post-pass document.
+            model.applyDecoration(
+                id: blockId,
+                content: NSAttributedString(attributedString: tv.textStorage),
+                selection: tv.selectedRange,
+                lengthDelta: length - lengthBefore
+            )
         }
 
         /// Scrolls the nearest enclosing scroll view (the SwiftUI ScrollView
@@ -597,6 +625,30 @@ private struct BlockTextEditor: UIViewRepresentable {
 
         func textView(_ tv: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let storage = tv.textStorage
+
+            // Copy/paste (or an intra-app text drag) of a chip arrives as the
+            // PLAIN text "#EXP-42\u{FFFC}": `allowsEditingTextAttributes` is
+            // off, so the display-only title attachment does not survive the
+            // pasteboard and the bare object-replacement character would be
+            // saved as a stray `￼` for every client. Drop it on the way in —
+            // the decoration pass re-adds a real attachment a turn later.
+            // (The serializer strips U+FFFC too; this keeps the caret and the
+            // on-screen text honest as well.) Runs BEFORE the empty-storage
+            // guard below: pasting into an empty block must be sanitized too.
+            if text.contains("\u{FFFC}") {
+                let clean = expWithoutObjectReplacements(text)
+                let attrs = MarkdownChipDecorator.sanitizedTypingAttributes(tv.typingAttributes)
+                storage.beginEditing()
+                storage.replaceCharacters(
+                    in: range, with: NSAttributedString(string: clean, attributes: attrs))
+                storage.endEditing()
+                tv.selectedRange = NSRange(
+                    location: range.location + (clean as NSString).length, length: 0)
+                tv.typingAttributes = attrs
+                textViewDidChange(tv)
+                return false
+            }
+
             guard storage.length > 0 else { return true }
             let nsString = storage.string as NSString
 

@@ -111,6 +111,11 @@ public enum IssueRefs {
             if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
                 continue
             }
+            // Skip refs inside a verbatim pipe-table run: the save path re-emits
+            // that run's SOURCE STRING line-for-line without consulting
+            // attributes, so a title attachment spliced next to the token would
+            // land in the saved markdown as a stray `￼` (EXP-322).
+            if attrs[.markdownTableBlock] != nil { continue }
             // Skip refs inside bold/italic/strikethrough spans: decorating
             // splits the attribute run, and the serializer wraps each fragment
             // separately (`**a**` + `**#X-1**` + `**b**`), which would break
@@ -165,11 +170,18 @@ public enum IssueRefs {
             if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
                 continue
             }
+            if attrs[.markdownTableBlock] != nil { continue }
             let font = attrs[.font] as? PlatformFont
             if expFontHasBold(font) || expFontHasItalic(font)
                 || attrs[.markdownStrikethrough] as? Bool == true {
                 continue
             }
+            // Already decorated (this model was re-decorated when the member
+            // list synced): the token's title text is ALREADY spliced in, and
+            // splicing again would duplicate it — `decorateForDisplay` replaces
+            // characters, so unlike `decorate` it is only idempotent with this
+            // guard (EXP-322).
+            if attrs[.markdownIssueRef] != nil { continue }
             let identifier = ns.substring(with: match.range(at: 1)).uppercased()
             guard let issueId = resolver(identifier) else { continue }
             let token = ns.substring(with: match.range)

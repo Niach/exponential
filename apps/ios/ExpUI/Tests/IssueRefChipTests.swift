@@ -239,4 +239,99 @@ final class IssueRefChipTests: XCTestCase {
         XCTAssertNil(MarkdownChipDecorator.chipAtomRange(in: chipped, endingAt: 4))
         XCTAssertNil(MarkdownChipDecorator.chipAtomRange(in: chipped, endingAt: 0))
     }
+
+    /// A hardware forward-delete with the caret parked between the token and
+    /// its title reaches the delegate as the SAME replacement range as a
+    /// backspace from the chip's right edge — so the one atom rule covers both
+    /// directions and neither can "stick" on the re-inserted attachment.
+    func testForwardDeletingIntoAChipHitsTheSameAtom() throws {
+        let chipped = decorate("Fixes #EXP-42 today").attributed
+        let attachment = (chipped.string as NSString).range(of: "\u{FFFC}")
+        let forwardDelete = NSRange(location: attachment.location, length: 1)
+        let atom = try XCTUnwrap(
+            MarkdownChipDecorator.chipAtomRange(in: chipped, endingAt: NSMaxRange(forwardDelete)))
+        XCTAssertEqual(atom, NSRange(location: 6, length: 8))
+        // The editor's guard: the atom starts before the deletion, so it takes
+        // over instead of letting UIKit remove the attachment alone.
+        XCTAssertLessThan(atom.location, forwardDelete.location)
+    }
+
+    // MARK: - Tables (EXP-322)
+
+    /// The verbatim pipe-table emitter re-emits its SOURCE STRING line for line
+    /// without consulting attributes, so a chip attachment spliced into a table
+    /// cell is not skipped — it is SAVED. Nothing inside a table may be chipped.
+    func testATableCellRefNeverLeaksAChipIntoTheMarkdown() {
+        let src = "| Ticket | Owner |\n| --- | --- |\n| #EXP-42 | ada |"
+        let undecorated = MarkdownConversion.blocksToMarkdown(
+            MarkdownConversion.markdownToBlocks(src))
+        let model = IssueEditorModel()
+        model.issueRefResolver = resolver
+        model.issueRefTitleResolver = titles
+        model.load(markdown: src, baseURL: nil)
+        XCTAssertFalse(model.currentMarkdown().contains("\u{FFFC}"))
+        XCTAssertEqual(model.currentMarkdown(), undecorated)
+        // ...and the silent-corruption half: a decorated load must not read as
+        // clean while holding text that differs from what was loaded.
+        XCTAssertFalse(model.isDirty)
+    }
+
+    func testTokensInsideATableAreNeverChipped() {
+        let blocks = MarkdownConversion.markdownToBlocks("| Ticket |\n| --- |\n| #EXP-42 |")
+        guard case let .text(_, content) = blocks[0] else { return XCTFail("expected a text block") }
+        let result = MarkdownChipDecorator.decorate(
+            content,
+            issueRefResolver: resolver,
+            issueRefTitleResolver: titles
+        )
+        XCTAssertFalse(result.changed)
+        XCTAssertEqual(attachmentCount(in: result.attributed), 0)
+    }
+
+    // MARK: - Bare object-replacement characters (EXP-322)
+
+    /// Copy/paste of a chip re-enters the document as the PLAIN text
+    /// `#EXP-42\u{FFFC}` — no attachment attribute, so the serializer's
+    /// attachment skip does not apply. The emitters strip U+FFFC unconditionally
+    /// (it has no legitimate place in GFM source), which is the one chokepoint
+    /// no paste or decoration path can bypass.
+    func testABarePastedObjectReplacementNeverReachesTheMarkdown() {
+        let pasted = NSAttributedString(
+            string: "Fixes #EXP-42\u{FFFC} today", attributes: MarkdownStyle.baseAttributes)
+        XCTAssertEqual(markdown(of: pasted), "Fixes #EXP-42 today")
+
+        // The next decoration pass adds a REAL attachment beside the bare one:
+        // two U+FFFC, only one of them attributed. Still zero bytes.
+        let result = MarkdownChipDecorator.decorate(
+            pasted,
+            issueRefResolver: resolver,
+            issueRefTitleResolver: titles
+        )
+        XCTAssertEqual(result.attributed.string.filter { $0 == "\u{FFFC}" }.count, 2)
+        XCTAssertEqual(markdown(of: result.attributed), "Fixes #EXP-42 today")
+    }
+
+    func testABareObjectReplacementInsideACodeFenceIsStripped() {
+        var attrs = MarkdownStyle.baseAttributes
+        attrs[.markdownCodeBlock] = true
+        let content = NSAttributedString(string: "let x = 1\u{FFFC}", attributes: attrs)
+        XCTAssertEqual(markdown(of: content), "```\nlet x = 1\n```")
+    }
+
+    func testABareObjectReplacementInsideATableIsStripped() {
+        var attrs = MarkdownStyle.baseAttributes
+        attrs[.markdownTableBlock] = true
+        let content = NSAttributedString(
+            string: "| Ticket |\n| --- |\n| #EXP-42\u{FFFC} |", attributes: attrs)
+        XCTAssertEqual(markdown(of: content), "| Ticket |\n| --- |\n| #EXP-42 |")
+    }
+
+    // MARK: - Selection mapping
+
+    /// The pass maps the whole selection, not just the caret — collapsing it
+    /// would drop the user's selection whenever a ref happened to resolve.
+    func testASelectionSpanningTheTokenKeepsItsLength() {
+        let result = decorate("Fixes #EXP-42 today", selection: NSRange(location: 0, length: 19))
+        XCTAssertEqual(result.selection, NSRange(location: 0, length: 20))
+    }
 }
