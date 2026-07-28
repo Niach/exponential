@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use gpui::{AppContext as _, SharedString, TestAppContext};
 use gpui_markdown_editor::{
-    MarkdownEditor, MarkdownEditorEnvironment, ReferenceDecorator, ReferenceKind, ReferenceSpan,
+    MarkdownEditor, MarkdownEditorEnvironment, MarkdownEditorMode, MarkdownEditorOptions,
+    ReferenceDecorator, ReferenceKind, ReferenceSpan,
 };
 
 use super::serialize::CONTRACT_FIXTURES;
@@ -76,19 +77,46 @@ impl ReferenceDecorator for DecorateEverything {
     }
 }
 
-#[gpui::test]
-async fn contract_fixtures_survive_a_chip_decorating_round_trip(cx: &mut TestAppContext) {
-    for (name, md) in CONTRACT_FIXTURES {
-        let editor = cx.new(|cx| {
-            MarkdownEditor::with_environment(
-                (*md).to_string(),
-                MarkdownEditorEnvironment {
+/// The injection lives in `BlockTextElement::request_layout`, so a decorated
+/// editor that is never laid out never injects anything — asserting on such an
+/// editor's serialization proves nothing. Every chip assertion below therefore
+/// PAINTS the editor in a real window first, and only then serializes.
+fn painted_chip_editor<'a>(
+    markdown: &str,
+    mode: MarkdownEditorMode,
+    cx: &'a mut TestAppContext,
+) -> (
+    gpui::Entity<MarkdownEditor>,
+    &'a mut gpui::VisualTestContext,
+) {
+    let markdown = markdown.to_string();
+    let (editor, cx) = cx.add_window_view(|_window, cx| {
+        MarkdownEditor::new(
+            markdown,
+            MarkdownEditorOptions {
+                mode,
+                environment: MarkdownEditorEnvironment {
                     reference_decorator: Some(Arc::new(DecorateEverything)),
                     ..MarkdownEditorEnvironment::default()
                 },
-                cx,
-            )
-        });
+                ..MarkdownEditorOptions::default()
+            },
+            cx,
+        )
+    });
+    // Two frames: the first applies the pending focus handshake, the second
+    // lays out (and therefore injects into) the focused block as well.
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear());
+        cx.run_until_parked();
+    }
+    (editor, cx)
+}
+
+#[gpui::test]
+async fn contract_fixtures_survive_a_chip_decorating_round_trip(cx: &mut TestAppContext) {
+    for (name, md) in CONTRACT_FIXTURES {
+        let (editor, cx) = painted_chip_editor(md, MarkdownEditorMode::Rendered, cx);
         let round_tripped = editor.update(cx, |editor, cx| editor.markdown(cx));
         assert_eq!(
             &round_tripped, md,
@@ -101,15 +129,22 @@ async fn contract_fixtures_survive_a_chip_decorating_round_trip(cx: &mut TestApp
 #[gpui::test]
 async fn issue_ref_and_mention_tokens_stay_plain_gfm_text(cx: &mut TestAppContext) {
     let src = "Ping @ada@example.com about #EXP-42 and #EXP-7";
-    let editor = cx.new(|cx| {
-        MarkdownEditor::with_environment(
-            src.to_string(),
-            MarkdownEditorEnvironment {
-                reference_decorator: Some(Arc::new(DecorateEverything)),
-                ..MarkdownEditorEnvironment::default()
-            },
-            cx,
-        )
-    });
+    let (editor, cx) = painted_chip_editor(src, MarkdownEditorMode::Rendered, cx);
+    assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), src);
+}
+
+/// EXP-322 D1/D2: the display-only title must never reach a surface whose job
+/// is showing literal bytes — a fenced code block, an inline code span, or the
+/// raw-source view. This paints the real thing and reads the source back.
+#[gpui::test]
+async fn code_and_raw_source_keep_their_literal_issue_refs(cx: &mut TestAppContext) {
+    let src = "```ts\n// see #EXP-42 for context\n```\n\nprose `#EXP-42` and #EXP-42";
+    {
+        let (editor, cx) = painted_chip_editor(src, MarkdownEditorMode::Rendered, cx);
+        assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), src);
+    }
+    // The raw-source view is the same document with every byte shown literally
+    // — a chip title there would be the editor lying about the file.
+    let (editor, cx) = painted_chip_editor(src, MarkdownEditorMode::Source, cx);
     assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), src);
 }

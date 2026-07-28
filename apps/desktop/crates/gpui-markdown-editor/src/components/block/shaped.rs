@@ -54,16 +54,37 @@ impl ChipShapedText {
         }
     }
 
+    /// Spans WITHOUT the injection: the shaped text stays the document byte for
+    /// byte, but the chips still style and hit-test. This is what an IME
+    /// composition renders through — injecting while composing would move the
+    /// marked range under the input method — and what a decorated block with
+    /// nothing to inject collapses to.
+    pub(crate) fn identity_with_spans(text: &SharedString, mut spans: Vec<ReferenceSpan>) -> Self {
+        spans.sort_by_key(|span| span.range.start);
+        let mut this = Self::identity(text);
+        this.chip_ranges = spans
+            .iter()
+            .map(|span| {
+                let start = span.range.start.min(text.len());
+                let end = span.range.end.min(text.len());
+                if end <= start || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
+                    0..0
+                } else {
+                    start..end
+                }
+            })
+            .collect();
+        this.spans = spans;
+        this
+    }
+
     pub(crate) fn build(doc: &SharedString, mut spans: Vec<ReferenceSpan>) -> Self {
         spans.sort_by_key(|span| span.range.start);
         let has_suffix = spans
             .iter()
             .any(|span| span.display_suffix.as_ref().is_some_and(|s| !s.is_empty()));
         if !has_suffix {
-            let mut this = Self::identity(doc);
-            this.chip_ranges = spans.iter().map(|span| span.range.clone()).collect();
-            this.spans = spans;
-            return this;
+            return Self::identity_with_spans(doc, spans);
         }
 
         let source = doc.as_ref();
@@ -133,6 +154,16 @@ impl ChipShapedText {
             .get(index)
             .filter(|range| !range.is_empty())
             .cloned()
+    }
+
+    /// Shaped range of a chip's TOKEN only — the identifier, WITHOUT the
+    /// injected title. Web renders `.issue-ref-pill`'s monospace on the
+    /// identifier alone and leaves the `::after` title in the body font, so the
+    /// two halves of a chip need separate ranges.
+    pub(crate) fn token_range(&self, index: usize) -> Option<std::ops::Range<usize>> {
+        let span = self.spans.get(index)?;
+        let range = self.to_shaped_range(span.range.clone());
+        (!range.is_empty()).then_some(range)
     }
 
     /// Document → shaped. Strictly `<` at an insertion point, so a caret at a
@@ -297,6 +328,31 @@ mod tests {
                 continue;
             }
             assert_eq!(shaped.to_doc(shaped.to_shaped(i)), i, "at {i}");
+        }
+    }
+
+    #[test]
+    fn token_range_stops_before_the_injected_title() {
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::build(&doc, vec![span(4..10, Some("Title"))]);
+        let token = shaped.token_range(0).expect("token range");
+        assert_eq!(&shaped.text()[token.clone()], "#EXP-1");
+        let chip = shaped.chip_range(0).expect("chip range");
+        assert_eq!(token.start, chip.start);
+        assert!(token.end < chip.end);
+    }
+
+    #[test]
+    fn identity_with_spans_keeps_the_document_text_but_still_chips() {
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::identity_with_spans(&doc, vec![span(4..10, Some("Title"))]);
+        assert!(shaped.is_identity());
+        assert_eq!(shaped.text().as_ref(), doc.as_ref());
+        assert_eq!(shaped.chip_range(0), Some(4..10));
+        assert_eq!(shaped.token_range(0), Some(4..10));
+        for i in 0..=doc.len() {
+            assert_eq!(shaped.to_shaped(i), i);
+            assert_eq!(shaped.to_doc(i), i);
         }
     }
 

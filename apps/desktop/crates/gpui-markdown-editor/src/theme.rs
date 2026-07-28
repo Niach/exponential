@@ -889,9 +889,9 @@ struct ThemeDimensionsDe {
     code_bg_pad_x: f32,
     code_bg_pad_y: f32,
     code_bg_radius: f32,
-    reference_pad_x: f32,
-    reference_pad_y: f32,
-    reference_radius: f32,
+    reference_pad_x: Option<f32>,
+    reference_pad_y: Option<f32>,
+    reference_radius: Option<f32>,
     code_language_input_width: Option<f32>,
     code_language_input_height: Option<f32>,
     code_language_input_padding_x: Option<f32>,
@@ -1015,9 +1015,9 @@ impl<'de> Deserialize<'de> for ThemeDimensions {
             code_bg_pad_x: raw.code_bg_pad_x,
             code_bg_pad_y: raw.code_bg_pad_y,
             code_bg_radius: raw.code_bg_radius,
-            reference_pad_x: raw.reference_pad_x,
-            reference_pad_y: raw.reference_pad_y,
-            reference_radius: raw.reference_radius,
+            reference_pad_x: raw.reference_pad_x.unwrap_or(2.0),
+            reference_pad_y: raw.reference_pad_y.unwrap_or(1.0),
+            reference_radius: raw.reference_radius.unwrap_or(999.0),
             code_language_input_width: raw.code_language_input_width.unwrap_or(156.0),
             code_language_input_height: raw.code_language_input_height.unwrap_or(18.0),
             code_language_input_padding_x: raw.code_language_input_padding_x.unwrap_or(8.0),
@@ -1507,5 +1507,29 @@ impl Theme {
     /// Serializes the theme into pretty-printed JSON.
     pub fn to_json(&self) -> anyhow::Result<String> {
         Ok(serde_json::to_string_pretty(self)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Theme, ThemeDimensions};
+
+    /// EXP-322: the reference-pill dimensions were added after 1.0, so they
+    /// default like every other late token — a theme JSON authored before the
+    /// pill existed must still load instead of failing to deserialize.
+    #[test]
+    fn dimensions_authored_before_the_reference_pill_still_load() {
+        let mut value =
+            serde_json::to_value(Theme::default_theme().dimensions).expect("dimensions serialize");
+        let object = value.as_object_mut().expect("dimensions object");
+        for key in ["reference_pad_x", "reference_pad_y", "reference_radius"] {
+            assert!(object.remove(key).is_some(), "{key} should be serialized");
+        }
+
+        let dimensions: ThemeDimensions =
+            serde_json::from_value(value).expect("a pre-EXP-322 theme JSON must still deserialize");
+        assert_eq!(dimensions.reference_pad_x, 2.0);
+        assert_eq!(dimensions.reference_pad_y, 1.0);
+        assert_eq!(dimensions.reference_radius, 999.0);
     }
 }

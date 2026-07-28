@@ -53,12 +53,43 @@ fn source_line_number_tops(lines: &[WrappedLine], line_height: Pixels) -> Vec<Pi
     tops
 }
 
+/// EXP-322 vendoring: drop reference spans that touch an inline code span.
+///
+/// The host decorator is a plain byte scan with no markdown awareness, so a
+/// `` `#EXP-42` `` inside backticks comes back decorated. Code wins over a
+/// chip (the same rule `build_text_runs` applies to STYLE), and here it has to
+/// win over the injected TEXT as well — otherwise the literal source a code
+/// span exists to show would grow an issue title.
+fn reference_spans_outside_code(
+    input: &Block,
+    spans: Vec<crate::host::ReferenceSpan>,
+) -> Vec<crate::host::ReferenceSpan> {
+    let code_ranges: Vec<Range<usize>> = input
+        .inline_spans()
+        .iter()
+        .filter(|span| span.style.code && !span.range.is_empty())
+        .map(|span| span.range.clone())
+        .collect();
+    if code_ranges.is_empty() {
+        return spans;
+    }
+    spans
+        .into_iter()
+        .filter(|reference| {
+            !code_ranges
+                .iter()
+                .any(|code| code.start < reference.range.end && reference.range.start < code.end)
+        })
+        .collect()
+}
+
 fn build_text_runs(
     input: &Block,
     shaped: &ChipShapedText,
     base_run: &TextRun,
     underline_thickness: Pixels,
     link_color: Hsla,
+    reference_text_color: Hsla,
     code_bg: Hsla,
     show_inline_code_backgrounds: bool,
     mono_family: &SharedString,
@@ -71,11 +102,22 @@ fn build_text_runs(
     let spans = input.inline_spans();
     // EXP-261 vendoring: host-decorated `@email` / `#IDENT` pills (render-time
     // only; the tokens stay plain GFM text on serialization).
-    let reference_spans: Vec<(std::ops::Range<usize>, crate::host::ReferenceKind)> = shaped
+    // `chip` covers token AND injected title (pill extent, medium weight);
+    // `token` is the identifier alone, which is the only half that renders
+    // monospace — web puts the `::after` title in the body font.
+    let reference_spans: Vec<(
+        std::ops::Range<usize>,
+        std::ops::Range<usize>,
+        crate::host::ReferenceKind,
+    )> = shaped
         .spans()
         .iter()
         .enumerate()
-        .filter_map(|(index, span)| Some((shaped.chip_range(index)?, span.kind)))
+        .filter_map(|(index, span)| {
+            let chip = shaped.chip_range(index)?;
+            let token = shaped.token_range(index).unwrap_or_else(|| chip.clone());
+            Some((chip, token, span.kind))
+        })
         .collect();
     let mut boundaries = vec![0, display_text.len()];
     for span in spans {
@@ -83,9 +125,10 @@ fn build_text_runs(
         boundaries.push(range.start);
         boundaries.push(range.end);
     }
-    for (range, _) in &reference_spans {
-        boundaries.push(range.start);
-        boundaries.push(range.end);
+    for (chip, token, _) in &reference_spans {
+        boundaries.push(chip.start);
+        boundaries.push(chip.end);
+        boundaries.push(token.end);
     }
     if let Some(marked_range) = input.marked_range.as_ref() {
         let range = shaped.to_shaped_range(marked_range.clone());
@@ -178,19 +221,22 @@ fn build_text_runs(
         // rounded quad painted in `prepaint` (web's `border-radius: 9999px`),
         // so the run itself carries NO background — a flat rect here would
         // double-paint under the pill and square its corners off. The
-        // identifier renders monospace like web's `.issue-ref-pill`. Code style
+        // identifier — and ONLY the identifier — renders monospace like web's
+        // `.issue-ref-pill`, over the pill's own foreground colour. Code style
         // wins (a token inside a code span stays code).
         if !inline_style.code
-            && let Some((_, kind)) = reference_spans
+            && let Some((_, token, kind)) = reference_spans
                 .iter()
-                .find(|(range, _)| range.start <= start && start < range.end)
+                .find(|(chip, _, _)| chip.start <= start && start < chip.end)
         {
             if font.weight < FontWeight::MEDIUM {
                 font.weight = FontWeight::MEDIUM;
             }
             if *kind == crate::host::ReferenceKind::IssueRef {
-                font.family = mono_family.clone();
-                run_color = link_color;
+                if token.start <= start && start < token.end {
+                    font.family = mono_family.clone();
+                }
+                run_color = reference_text_color;
             }
         }
 
@@ -1042,18 +1088,33 @@ impl Element for BlockTextElement {
         // Binding the map to the layout it produced is what keeps them from
         // ever going stale relative to each other.
         //
-        // While an IME composition is live the injection is skipped entirely,
-        // so composition offsets behave exactly as they did before the chips
-        // existed — the one path with no automated coverage.
-        let shaped = if is_placeholder || input.marked_range.is_some() {
-            ChipShapedText::identity(&document_text)
-        } else {
-            match input.environment.reference_decorator.as_ref() {
-                Some(decorator) => {
-                    ChipShapedText::build(&document_text, decorator.scan(document_text.as_ref()))
+        // Three surfaces must never see an injected title, because their text
+        // is not prose: placeholder text is not the document at all, a code
+        // BLOCK is literal source (and its syntax highlight spans are document
+        // offsets, so an injection would shift every colour after the first
+        // token), and SourceRaw mode's whole job is showing the literal
+        // markdown bytes. Inline code is dropped span-by-span below — same
+        // rule as the run builder's "code style wins", applied to the TEXT.
+        //
+        // While an IME composition is live the injection is skipped too, so
+        // composition offsets behave exactly as they did before the chips
+        // existed; the spans still ride along, so the pills keep their styling
+        // and stay clickable instead of flattening mid-composition.
+        let decorator =
+            (!is_placeholder && !input.kind().is_code_block() && !input.is_source_raw_mode())
+                .then(|| input.environment.reference_decorator.as_ref())
+                .flatten();
+        let shaped = match decorator {
+            Some(decorator) => {
+                let spans =
+                    reference_spans_outside_code(input, decorator.scan(document_text.as_ref()));
+                if input.marked_range.is_some() {
+                    ChipShapedText::identity_with_spans(&document_text, spans)
+                } else {
+                    ChipShapedText::build(&document_text, spans)
                 }
-                None => ChipShapedText::identity(&document_text),
             }
+            None => ChipShapedText::identity(&document_text),
         };
         let display_text = shaped.text().clone();
 
@@ -1087,6 +1148,7 @@ impl Element for BlockTextElement {
                     &run,
                     px(theme.dimensions.underline_thickness),
                     theme.colors.text_link,
+                    theme.colors.reference_text,
                     theme.colors.code_bg,
                     show_inline_code_backgrounds,
                     &SharedString::from(theme.fonts.mono_family.clone()),
@@ -1759,6 +1821,7 @@ mod tests {
                 &base_run,
                 px(1.0),
                 Hsla::from(rgba(0x0066ccff)),
+                Hsla::from(rgba(0xeeeeeeff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &SharedString::from(".SystemUIFont"),
@@ -2183,6 +2246,121 @@ mod chip_tests {
         })
     }
 
+    /// Paint a decorated block in a real window so `request_layout` — the only
+    /// caller of `ChipShapedText::build` — actually runs, then hand back the
+    /// map it stored.
+    fn painted_shaped(
+        cx: &mut TestAppContext,
+        record: BlockRecord,
+        prepare: impl FnOnce(&mut Block),
+    ) -> (String, ChipShapedText) {
+        let (block, cx) = cx.add_window_view(|_window, cx| {
+            let mut block = Block::with_record_and_environment(cx, record, Arc::new(environment()));
+            prepare(&mut block);
+            block
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear();
+        });
+        cx.run_until_parked();
+        block.read_with(cx, |block, _cx| {
+            (
+                block.display_text().to_string(),
+                block
+                    .last_shaped
+                    .clone()
+                    .expect("a painted block stores its shaped map"),
+            )
+        })
+    }
+
+    /// D1: a code BLOCK is literal source — and `build_code_text_runs` colours
+    /// it from DOCUMENT offsets, so an injected title would shift every
+    /// highlight after the first token.
+    #[gpui::test]
+    async fn a_chip_inside_a_code_block_is_never_title_injected(cx: &mut TestAppContext) {
+        let (document, shaped) = painted_shaped(
+            cx,
+            BlockRecord::new(
+                BlockKind::CodeBlock {
+                    language: Some("ts".into()),
+                },
+                InlineTextTree::plain("// see #EXP-1 for context\n"),
+            ),
+            |_block| {},
+        );
+        assert!(document.contains("#EXP-1"));
+        assert_eq!(shaped.text().as_ref(), document.as_str());
+        assert!(!shaped.text().contains(TITLE));
+        assert!(shaped.chip_range(0).is_none());
+    }
+
+    /// D1: same rule inside a code SPAN — code style already won over the
+    /// pill's styling; it has to win over the injected text too.
+    #[gpui::test]
+    async fn a_chip_inside_inline_code_is_never_title_injected(cx: &mut TestAppContext) {
+        let (document, shaped) = painted_shaped(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::from_markdown("see `#EXP-1` now"),
+            ),
+            |_block| {},
+        );
+        assert!(document.contains("#EXP-1"));
+        assert_eq!(shaped.text().as_ref(), document.as_str());
+        assert!(!shaped.text().contains(TITLE));
+        assert!(shaped.chip_range(0).is_none());
+    }
+
+    /// ...and a chip in ordinary prose in the SAME block still gets its title,
+    /// so the filter is a scalpel and not a switch.
+    #[gpui::test]
+    async fn a_chip_outside_the_code_span_still_gets_its_title(cx: &mut TestAppContext) {
+        let (_, shaped) = painted_shaped(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::from_markdown("`code` then #EXP-1"),
+            ),
+            |_block| {},
+        );
+        assert!(shaped.text().contains(TITLE));
+        assert!(shaped.chip_range(0).is_some());
+    }
+
+    /// D2: SourceRaw mode exists to show the literal markdown bytes.
+    #[gpui::test]
+    async fn source_raw_mode_shows_the_literal_bytes(cx: &mut TestAppContext) {
+        let (document, shaped) = painted_shaped(
+            cx,
+            BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown(TEXT)),
+            |block| block.set_source_raw_mode(),
+        );
+        assert!(document.contains("#EXP-1"));
+        assert_eq!(shaped.text().as_ref(), document.as_str());
+        assert!(!shaped.text().contains(TITLE));
+        assert!(shaped.chip_range(0).is_none());
+    }
+
+    /// D4: composing keeps the injection OFF (composition offsets must not
+    /// move under the input method) but must NOT flatten the pill — the spans
+    /// ride along so the chip keeps its quad, its weight and its click target.
+    #[gpui::test]
+    async fn an_ime_composition_keeps_the_chip_styled_without_injecting(cx: &mut TestAppContext) {
+        let (document, shaped) = painted_shaped(
+            cx,
+            BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown(TEXT)),
+            |block| block.marked_range = Some(0..3),
+        );
+        assert_eq!(shaped.text().as_ref(), document.as_str());
+        assert!(!shaped.text().contains(TITLE));
+        // The chip is still a chip: styled, hit-testable, just untitled.
+        assert_eq!(shaped.spans().len(), 1);
+        let chip = shaped.chip_range(0).expect("chip range while composing");
+        assert_eq!(&document[chip], "#EXP-1");
+    }
+
     #[gpui::test]
     async fn the_chip_title_never_enters_the_document_text(cx: &mut TestAppContext) {
         let block = chip_block(cx);
@@ -2219,6 +2397,7 @@ mod chip_tests {
                 &base_run,
                 px(1.0),
                 Hsla::from(rgba(0x0066ccff)),
+                Hsla::from(rgba(0xeeeeeeff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &SharedString::from(".SystemUIFont"),
@@ -2227,6 +2406,65 @@ mod chip_tests {
                 runs.iter().map(|run| run.len).sum::<usize>(),
                 shaped.text().len()
             );
+        });
+    }
+
+    /// D5/D6: the pill paints its OWN foreground colour, and only the
+    /// identifier half is monospace — the title rides the body font, like
+    /// web's `::after`.
+    #[gpui::test]
+    async fn only_the_identifier_is_monospace_and_the_pill_owns_its_colour(
+        cx: &mut TestAppContext,
+    ) {
+        let block = chip_block(cx);
+        block.read_with(cx, |block, _cx| {
+            let shaped =
+                ChipShapedText::build(&SharedString::from(TEXT), TitleDecorator.scan(TEXT));
+            let base_run = TextRun {
+                len: shaped.text().len(),
+                font: font(".SystemUIFont"),
+                color: Hsla::from(rgba(0xffffffff)),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let link = Hsla::from(rgba(0x0066ccff));
+            let reference = Hsla::from(rgba(0x00ff00ff));
+            let mono = SharedString::from("MonoTestFamily");
+            let runs = build_text_runs(
+                block,
+                &shaped,
+                &base_run,
+                px(1.0),
+                link,
+                reference,
+                Hsla::from(rgba(0x111111ff)),
+                true,
+                &mono,
+            );
+
+            let chip = shaped.chip_range(0).expect("chip range");
+            let token = shaped.token_range(0).expect("token range");
+            let mut offset = 0usize;
+            let mut saw_token = false;
+            let mut saw_title = false;
+            for run in &runs {
+                let range = offset..offset + run.len;
+                offset = range.end;
+                if range.start >= token.start && range.end <= token.end {
+                    saw_token = true;
+                    assert_eq!(run.font.family, mono, "identifier renders monospace");
+                    assert_eq!(run.color, reference, "identifier uses the pill foreground");
+                } else if range.start >= token.end && range.end <= chip.end {
+                    saw_title = true;
+                    assert_eq!(
+                        run.font.family, base_run.font.family,
+                        "the title stays in the body font"
+                    );
+                    assert_eq!(run.color, reference, "the title uses the pill foreground");
+                }
+            }
+            assert!(saw_token && saw_title, "chip must split into token + title");
         });
     }
 
