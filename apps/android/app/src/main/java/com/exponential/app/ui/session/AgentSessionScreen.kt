@@ -447,10 +447,13 @@ private fun ActivityFeed(
     // Subagent groups, askId steppers and consecutive tool runs are all
     // render-time projections only — the flat feed stays the state.
     val rows = remember(feed) { groupFeedRows(feed) }
-    // Any lock counts as answered for stepper advance — a Sending lock advances
-    // the stepper the moment the tap goes out (claude-TUI-snappy; web parity),
-    // and the 5s no-ack timeout dropping the lock rolls the step back.
-    val answered = remember(answerStates) { answerStates.keys }
+    // A HOLDING lock counts as answered for stepper advance — a Sending lock
+    // advances the stepper the moment the tap goes out (claude-TUI-snappy; web
+    // parity). A Failed lock (5s no-ack timeout, EXP-334) does NOT: its step
+    // re-surfaces with a retry hint.
+    val answered = remember(answerStates) {
+        answerStates.filterValues { it.locksCard() }.keys
+    }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
     LaunchedEffect(listState) {
@@ -743,7 +746,9 @@ private fun QuestionCard(
     var expanded by remember(item.id) { mutableStateOf(false) }
     var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
     val folds = remember(item.text) { clampable(item.text) }
-    val locked = state != null
+    // A Failed state does NOT lock (EXP-334) — the card is answerable again
+    // and renders the retry hint below instead of the sent row.
+    val locked = state.locksCard()
     val answerable = active && answerEnabled && !locked
     val semantic = item.wireId != null
     Row(
@@ -909,6 +914,15 @@ private fun QuestionCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
                 }
+            } else if (state == AnswerState.Failed && answerable) {
+                // The optimistic lock expired with no `answer_ack` — say WHY
+                // the step re-surfaced instead of silently rolling back
+                // (EXP-334, web parity).
+                Text(
+                    "No confirmation from the desktop — pick again to retry.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ConnectingYellow,
+                )
             } else if (active && !answerEnabled) {
                 Text(
                     if (item.planMode) {

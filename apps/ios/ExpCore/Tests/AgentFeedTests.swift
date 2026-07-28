@@ -463,6 +463,50 @@ final class AgentFeedTests: XCTestCase {
         tracker.markSent("plan")
         tracker.resolve("plan")
         XCTAssertFalse(tracker.isLocked("plan"))
+        XCTAssertFalse(tracker.isFailed("plan"))
+    }
+
+    func testPerKeyExpiryLeavesOtherPendingLocksAlone() {
+        // EXP-334: the shared timeout sweep dropped EVERY pending lock at
+        // once, rolling a stepper back past steps answered moments before.
+        var tracker = AgentAnswerTracker()
+        tracker.markSent("tu#0")
+        tracker.markSent("tu#1")
+        tracker.expire("tu#0")
+        XCTAssertFalse(tracker.isLocked("tu#0"))
+        XCTAssertTrue(tracker.isFailed("tu#0"))
+        XCTAssertTrue(tracker.isLocked("tu#1"), "the newer lock must survive")
+        XCTAssertFalse(tracker.isFailed("tu#1"))
+
+        // An acked card ignores a stray expiry.
+        tracker.acknowledge("tu#1")
+        tracker.expire("tu#1")
+        XCTAssertTrue(tracker.isLocked("tu#1"))
+        XCTAssertFalse(tracker.isFailed("tu#1"))
+    }
+
+    func testFailedClearsOnRetryAckAndResolve() {
+        var tracker = AgentAnswerTracker()
+        tracker.markSent("tu#0")
+        tracker.expire("tu#0")
+        XCTAssertTrue(tracker.isFailed("tu#0"))
+
+        // Re-tapping (a retry) re-locks and clears the hint.
+        tracker.markSent("tu#0")
+        XCTAssertFalse(tracker.isFailed("tu#0"))
+        XCTAssertTrue(tracker.isLocked("tu#0"))
+
+        // A LATE ack after an expiry re-locks the card for good.
+        tracker.expire("tu#0")
+        tracker.acknowledge("tu#0")
+        XCTAssertFalse(tracker.isFailed("tu#0"))
+        XCTAssertTrue(tracker.isAcked("tu#0"))
+
+        // And a resolution clears a failed flag outright.
+        tracker.markSent("tu#1")
+        tracker.expire("tu#1")
+        tracker.resolve("tu#1")
+        XCTAssertFalse(tracker.isFailed("tu#1"))
     }
 
     // MARK: - Fixtures

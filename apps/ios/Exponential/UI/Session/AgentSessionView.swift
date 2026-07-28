@@ -347,6 +347,7 @@ struct AgentSessionView: View {
             canAnswer: canAnswer,
             locked: model?.isAnswerLocked(question.lockKey) ?? false,
             pending: model?.isAnswerPending(question.lockKey) ?? false,
+            failed: model?.isAnswerFailed(question.lockKey) ?? false,
             onAnswer: { keys in sendAnswer(question, keys: keys) },
             onLegacyToggle: { key in model?.sendLegacyKey(key) },
             onLegacyAnswer: { key in model?.sendLegacyKey(key, lockKey: question.lockKey) },
@@ -375,6 +376,7 @@ struct AgentSessionView: View {
                 canAnswer: canAnswer,
                 locked: model?.isAnswerLocked(question.lockKey) ?? false,
                 pending: model?.isAnswerPending(question.lockKey) ?? false,
+                failed: model?.isAnswerFailed(question.lockKey) ?? false,
                 onAnswer: { keys in sendAnswer(question, keys: keys) },
                 onLegacyToggle: { _ in },
                 onLegacyAnswer: { _ in },
@@ -648,6 +650,9 @@ private struct QuestionCard: View {
     let locked: Bool
     /// Locked but not yet confirmed by the desktop (`answer_ack`).
     let pending: Bool
+    /// The last answer expired unconfirmed — answerable again, with a retry
+    /// hint so the rollback isn't a silent mystery (EXP-334, web parity).
+    let failed: Bool
     /// Protocol v2: one semantic frame carrying every chosen key.
     let onAnswer: ([String]) -> Void
     /// Legacy multi-select: the raw digit that TOGGLES an option.
@@ -848,6 +853,12 @@ private struct QuestionCard: View {
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
+        } else if failed, !question.resolved, answerable {
+            // The optimistic lock expired with no `answer_ack` — say WHY the
+            // step re-surfaced instead of silently rolling back (EXP-334).
+            Text("No confirmation from the desktop — pick again to retry.")
+                .font(.caption2)
+                .foregroundStyle(DesignTokens.Semantic.yellow)
         }
     }
 
