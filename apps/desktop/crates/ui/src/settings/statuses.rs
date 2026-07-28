@@ -11,11 +11,15 @@
 //! the full labels treatment: inline rename on blur/Enter, a swatch popover on
 //! the glyph, move, and delete.
 //!
-//! Deleting a custom status that still holds issues needs a REPLACEMENT: the
-//! row opens an inline picker and `statuses.delete` reassigns every issue in
-//! one transaction. The server's count includes trashed-board issues, so the
-//! synced count here can undershoot — its `PRECONDITION_FAILED` message is
-//! surfaced inline verbatim when that happens.
+//! Deleting a custom status ALWAYS opens one confirm dialog (EXP-320, web
+//! parity with `ReassignDialog`): it confirms the deletion AND picks the
+//! destination status (Backlog builtin preselected, duplicate + the deletee
+//! excluded) in one step, regardless of the visible count — the server's
+//! count includes trashed-board issues, so the synced count here can
+//! undershoot and a "0-count" status may still hold issues. The dialog shows
+//! the server-authoritative `statuses.referencingCount` once it arrives, and
+//! always sends `reassignToId`, so the delete can never bounce
+//! `PRECONDITION_FAILED`.
 //!
 //! Writes are member-level (`mutate_resources`, like labels — NOT owner-only).
 //! Reads come from the synced `issue_statuses` collection.
@@ -27,12 +31,12 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, IconName, Sizable as _,
 };
 use sync::Store;
 
@@ -42,6 +46,7 @@ use domain::statuses::{
     resolve_row, resolve_status_sorted, IssueStatusCategory, ResolvedStatus,
 };
 
+use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
 use super::labels::{swatch_grid, LABEL_COLORS};
@@ -56,10 +61,6 @@ pub struct StatusesPane {
     /// CUSTOM status id → its name input (builtins render plain text).
     name_inputs: HashMap<String, Entity<InputState>>,
     input_subs: HashMap<String, Subscription>,
-    /// A status with ZERO issues awaiting the inline "Delete?" confirm.
-    confirming_delete: Option<String>,
-    /// A status with issues awaiting a replacement pick.
-    reassigning: Option<String>,
     /// The category whose inline create form is open.
     creating: Option<IssueStatusCategory>,
     new_name: Entity<InputState>,
@@ -81,8 +82,6 @@ impl StatusesPane {
             cx.observe_in(&nav, window, |this, _, window, cx| {
                 // Team switch: per-row inputs (and any inline state) belong to
                 // the old scope.
-                this.confirming_delete = None;
-                this.reassigning = None;
                 this.creating = None;
                 this.create_error = None;
                 this.row_error = None;
@@ -111,8 +110,6 @@ impl StatusesPane {
             nav,
             name_inputs: HashMap::new(),
             input_subs: HashMap::new(),
-            confirming_delete: None,
-            reassigning: None,
             creating: None,
             new_name,
             new_color: LABEL_COLORS[6].to_string(),
@@ -304,9 +301,9 @@ impl StatusesPane {
         self.create_error = None;
     }
 
-    /// `statuses.delete` with the row's inline error surfacing — the
-    /// reassign-required `PRECONDITION_FAILED` must reach the user verbatim
-    /// (the synced count can undershoot the server's).
+    /// `statuses.delete` with the row's inline error surfacing. The dialog
+    /// always supplies `reassign_to`, so a rejection here is a genuine server
+    /// error, not the reassign-required `PRECONDITION_FAILED`.
     fn delete(&mut self, status_id: String, reassign_to: Option<String>, cx: &mut gpui::Context<Self>) {
         let Some(team_id) = self.team_id(cx) else {
             return;
@@ -314,8 +311,6 @@ impl StatusesPane {
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             return;
         };
-        self.confirming_delete = None;
-        self.reassigning = None;
         self.row_error = None;
         cx.notify();
 
@@ -341,6 +336,90 @@ impl StatusesPane {
             });
         })
         .detach();
+    }
+
+    /// The ONE delete flow (EXP-320): a native confirm dialog that also picks
+    /// the destination status — always, regardless of the visible count (a
+    /// "0-count" status can still hold issues on trashed boards). The dialog
+    /// fetches the server-authoritative referencing count async and always
+    /// sends `reassignToId`.
+    #[allow(clippy::too_many_arguments)]
+    fn open_delete_dialog(
+        &mut self,
+        status_id: String,
+        status_name: String,
+        synced_count: usize,
+        candidates: Vec<(String, String)>,
+        preselected: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(team_id) = self.team_id(cx) else {
+            return;
+        };
+        self.row_error = None;
+        cx.notify();
+
+        let content = cx.new(|_| DeleteStatusContent {
+            candidates,
+            selected_id: preselected,
+            server_count: None,
+            synced_count,
+        });
+
+        // The server count (trashed-board issues included) lands async and
+        // re-renders the dialog body — the content is its own entity exactly
+        // so the alert view never has to re-render.
+        if let Some(trpc) = crate::queries::trpc_client(cx) {
+            let fetch_status = status_id.clone();
+            let weak_content = content.downgrade();
+            cx.spawn(async move |_, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        api::statuses::statuses_referencing_count(
+                            &trpc,
+                            &team_id,
+                            &fetch_status,
+                        )
+                    })
+                    .await;
+                match result {
+                    Ok(out) => {
+                        let _ = weak_content.update(cx, |state, cx| {
+                            state.server_count = Some(out.count);
+                            cx.notify();
+                        });
+                    }
+                    Err(err) => {
+                        // Non-fatal: the dialog copy stays hedged.
+                        log::warn!("[ui] statuses.referencingCount failed: {err}");
+                    }
+                }
+            })
+            .detach();
+        }
+
+        let pane = cx.entity().downgrade();
+        let dialog_content = content.clone();
+        let spec = AlertSpec::new(
+            format!("Delete {status_name}?"),
+            "Issues using this status — including any on trashed boards — \
+             will move to the status you pick.",
+            "Delete status",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .height(gpui::px(300.))
+        .content(move |_, _| dialog_content.clone().into_any_element())
+        .on_ok(move |_, cx| {
+            let reassign_to = content.read(cx).selected_id.clone();
+            let status_id = status_id.clone();
+            let _ = pane.update(cx, |this, cx| {
+                this.delete(status_id, Some(reassign_to), cx);
+            });
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
     }
 
     fn move_status(
@@ -374,8 +453,6 @@ impl StatusesPane {
         let team_id = row.team_id.clone();
         let tint = crate::icons::status_tint_color(&resolved.tint, cx);
         let glyph = crate::icons::glyph_icon(resolved.glyph).text_color(tint);
-        let confirming = self.confirming_delete.as_deref() == Some(status_id.as_str());
-        let reassigning = self.reassigning.as_deref() == Some(status_id.as_str());
 
         let mut line = h_flex()
             .gap_3()
@@ -468,87 +545,38 @@ impl StatusesPane {
                 ))),
         );
 
-        if confirming {
-            let del_id = status_id.clone();
-            line = line
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Delete?"),
-                )
-                .child(
-                    Button::new(row_id("status-delete-confirm", &status_id))
-                        .ghost()
-                        .xsmall()
-                        .icon(Icon::new(IconName::Check).text_color(cx.theme().danger))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.delete(del_id.clone(), None, cx);
-                        })),
-                )
-                .child(
-                    Button::new(row_id("status-delete-cancel", &status_id))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Close)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.confirming_delete = None;
-                            cx.notify();
-                        })),
-                );
-        } else {
-            // Move up / down — available on BUILTINS too (only name/color and
-            // delete are locked). Disabled at the category edges, where the
-            // server-side move is an idempotent no-op anyway.
-            let up_row = row.clone();
-            let down_row = row.clone();
-            line = line
-                .child(
-                    Button::new(row_id("status-up", &status_id))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::ChevronUp)
-                        .tooltip("Move up")
-                        .disabled(first_in_category)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.move_status(&up_row, api::statuses::MoveDirection::Up, cx);
-                        })),
-                )
-                .child(
-                    Button::new(row_id("status-down", &status_id))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::ChevronDown)
-                        .tooltip("Move down")
-                        .disabled(last_in_category)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.move_status(&down_row, api::statuses::MoveDirection::Down, cx);
-                        })),
-                );
-            if builtin.is_none() {
-                let start_id = status_id.clone();
-                let has_issues = count > 0;
-                line = line.child(
-                    Button::new(row_id("status-delete", &status_id))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Delete)
-                        .tooltip("Delete status")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if has_issues {
-                                this.reassigning = Some(start_id.clone());
-                            } else {
-                                this.confirming_delete = Some(start_id.clone());
-                            }
-                            cx.notify();
-                        })),
-                );
-            }
-        }
-
-        // The reassign picker: a status still holding issues needs somewhere
-        // to put them before it can go.
-        let reassign = reassigning.then(|| {
+        // Move up / down — available on BUILTINS too (only name/color and
+        // delete are locked). Disabled at the category edges, where the
+        // server-side move is an idempotent no-op anyway.
+        let up_row = row.clone();
+        let down_row = row.clone();
+        line = line
+            .child(
+                Button::new(row_id("status-up", &status_id))
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::ChevronUp)
+                    .tooltip("Move up")
+                    .disabled(first_in_category)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.move_status(&up_row, api::statuses::MoveDirection::Up, cx);
+                    })),
+            )
+            .child(
+                Button::new(row_id("status-down", &status_id))
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::ChevronDown)
+                    .tooltip("Move down")
+                    .disabled(last_in_category)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.move_status(&down_row, api::statuses::MoveDirection::Down, cx);
+                    })),
+            );
+        if builtin.is_none() {
+            // Delete ALWAYS opens the one confirm-and-reassign dialog
+            // (EXP-320) — candidates and the Backlog preselect are computed
+            // here, where the resolved siblings are at hand.
             let candidates: Vec<(String, String)> = siblings
                 .iter()
                 .filter(|(candidate, resolved)| {
@@ -557,63 +585,35 @@ impl StatusesPane {
                 })
                 .map(|(candidate, _)| (candidate.id.clone(), candidate.name.clone()))
                 .collect();
-            let delete_id = status_id.clone();
-            h_flex()
-                .gap_2()
-                .items_center()
-                .px_3()
-                .child(
-                    div()
-                        .flex_1()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(format!(
-                            "Move {count} issue{} to:",
-                            if count == 1 { "" } else { "s" }
-                        ))),
-                )
-                .child({
-                    let pane = cx.entity().downgrade();
-                    Button::new(row_id("status-reassign", &status_id))
-                        .outline()
-                        .xsmall()
-                        .label("Choose replacement")
-                        .dropdown_menu(move |mut menu, _window, _cx| {
-                            menu = menu.scrollable(true).max_h(gpui::px(320.));
-                            if candidates.is_empty() {
-                                return menu.item(PopupMenuItem::label("No other status"));
-                            }
-                            for (candidate_id, name) in &candidates {
-                                let pane = pane.clone();
-                                let delete_id = delete_id.clone();
-                                let candidate_id = candidate_id.clone();
-                                menu = menu.item(
-                                    PopupMenuItem::new(SharedString::from(name.clone()))
-                                        .on_click(move |_, _, cx| {
-                                            let _ = pane.update(cx, |this, cx| {
-                                                this.delete(
-                                                    delete_id.clone(),
-                                                    Some(candidate_id.clone()),
-                                                    cx,
-                                                );
-                                            });
-                                        }),
-                                );
-                            }
-                            menu
-                        })
-                })
-                .child(
-                    Button::new(row_id("status-reassign-cancel", &status_id))
-                        .ghost()
-                        .xsmall()
-                        .label("Cancel")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.reassigning = None;
-                            cx.notify();
-                        })),
-                )
-        });
+            let preselected = siblings
+                .iter()
+                .find(|(candidate, _)| candidate.builtin_key.as_deref() == Some("backlog"))
+                .map(|(candidate, _)| candidate.id.clone())
+                .or_else(|| candidates.first().map(|(id, _)| id.clone()));
+            let del_id = status_id.clone();
+            let del_name = row.name.clone();
+            line = line.child(
+                Button::new(row_id("status-delete", &status_id))
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Delete)
+                    .tooltip("Delete status")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let Some(preselected) = preselected.clone() else {
+                            return;
+                        };
+                        this.open_delete_dialog(
+                            del_id.clone(),
+                            del_name.clone(),
+                            count,
+                            candidates.clone(),
+                            preselected,
+                            window,
+                            cx,
+                        );
+                    })),
+            );
+        }
 
         let error = self
             .row_error
@@ -624,7 +624,6 @@ impl StatusesPane {
         v_flex()
             .gap_1()
             .child(line)
-            .children(reassign)
             .when_some(error, |col, message| {
                 col.child(
                     div()
@@ -833,6 +832,91 @@ impl Render for StatusesPane {
         }
 
         v_flex().child(body)
+    }
+}
+
+/// The delete dialog's body (EXP-320): the live referencing count + the
+/// destination picker. Its own entity so the async `referencingCount` fetch
+/// can re-render just this block (the surrounding alert never re-renders).
+struct DeleteStatusContent {
+    /// (id, name) — the duplicate category and the deletee excluded.
+    candidates: Vec<(String, String)>,
+    selected_id: String,
+    /// Server-authoritative count (trashed-board issues included); `None`
+    /// while loading or after a failed fetch — the copy stays hedged then.
+    server_count: Option<i64>,
+    /// The client-visible count — flags when part of the total is on
+    /// trashed boards the client can't see.
+    synced_count: usize,
+}
+
+impl Render for DeleteStatusContent {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let count_line: SharedString = match self.server_count {
+            None => "Counting issues that use this status…".into(),
+            Some(0) => "No issues use this status right now.".into(),
+            Some(n) => {
+                let trashed = if n as usize > self.synced_count {
+                    " (some on trashed boards)"
+                } else {
+                    ""
+                };
+                format!(
+                    "{n} issue{}{trashed} will move.",
+                    if n == 1 { "" } else { "s" }
+                )
+                .into()
+            }
+        };
+        let selected_name: SharedString = self
+            .candidates
+            .iter()
+            .find(|(id, _)| id == &self.selected_id)
+            .map(|(_, name)| SharedString::from(name.clone()))
+            .unwrap_or_else(|| "Choose status".into());
+        let candidates = self.candidates.clone();
+        let picker = cx.entity().downgrade();
+
+        v_flex()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(count_line),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_sm().child("Move issues to"))
+                    .child(
+                        Button::new("status-delete-reassign-target")
+                            .outline()
+                            .small()
+                            .label(selected_name)
+                            .dropdown_menu(move |mut menu, _window, _cx| {
+                                menu = menu.scrollable(true).max_h(gpui::px(240.));
+                                if candidates.is_empty() {
+                                    return menu.item(PopupMenuItem::label("No other status"));
+                                }
+                                for (candidate_id, name) in &candidates {
+                                    let picker = picker.clone();
+                                    let candidate_id = candidate_id.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::new(SharedString::from(name.clone()))
+                                            .on_click(move |_, _, cx| {
+                                                let _ = picker.update(cx, |state, cx| {
+                                                    state.selected_id = candidate_id.clone();
+                                                    cx.notify();
+                                                });
+                                            }),
+                                    );
+                                }
+                                menu
+                            }),
+                    ),
+            )
     }
 }
 

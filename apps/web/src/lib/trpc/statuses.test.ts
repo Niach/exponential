@@ -158,6 +158,23 @@ beforeEach(() => {
   h.recordIssueEvent.mockClear()
 })
 
+describe(`statuses.referencingCount`, () => {
+  it(`returns the server-authoritative count as a read-gated query`, async () => {
+    selectQueue.push([{ id: STATUS_A }], [{ count: 3 }])
+    await expect(
+      caller.referencingCount({ teamId: TEAM, statusId: STATUS_A })
+    ).resolves.toEqual({ count: 3 })
+    expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, TEAM, `read`)
+  })
+
+  it(`404s a status outside the team`, async () => {
+    selectQueue.push([])
+    await expect(
+      caller.referencingCount({ teamId: TEAM, statusId: STATUS_A })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+})
+
 describe(`statuses.create`, () => {
   it(`appends a custom status after the category's max sort order`, async () => {
     selectQueue.push(
