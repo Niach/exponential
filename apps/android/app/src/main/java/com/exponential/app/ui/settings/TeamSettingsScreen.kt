@@ -21,8 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -57,6 +55,9 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuDefaults
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.SectionHeader
@@ -679,7 +680,7 @@ private fun RepositoryRow(
                         )
                     }
                     if (chipClickable) {
-                        DropdownMenu(expanded = retargetMenu, onDismissRequest = { retargetMenu = false }) {
+                        GlassDropdownMenu(expanded = retargetMenu, onDismissRequest = { retargetMenu = false }) {
                             Text(
                                 "Change repository",
                                 style = MaterialTheme.typography.labelSmall,
@@ -687,7 +688,7 @@ private fun RepositoryRow(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             )
                             otherRepos.forEach { target ->
-                                DropdownMenuItem(
+                                GlassMenuItem(
                                     text = { Text(target.fullName, fontFamily = FontFamily.Monospace) },
                                     leadingIcon = { Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(14.dp)) },
                                     onClick = {
@@ -780,12 +781,12 @@ private fun MembersSection(
                             IconButton(onClick = { rowMenu = true }) {
                                 Icon(ExpIcons.uiMoreVertical, contentDescription = "Member actions")
                             }
-                            DropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
+                            GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
                                 // Role changes + removing others are owner-only.
                                 // The last owner can't be demoted or leave — the
                                 // "Make member" item is hidden (not disabled) then.
                                 if (canMakeOwner) {
-                                    DropdownMenuItem(
+                                    GlassMenuItem(
                                         text = { Text("Make owner") },
                                         onClick = {
                                             rowMenu = false
@@ -794,7 +795,7 @@ private fun MembersSection(
                                     )
                                 }
                                 if (canMakeMember) {
-                                    DropdownMenuItem(
+                                    GlassMenuItem(
                                         text = { Text("Make member") },
                                         onClick = {
                                             rowMenu = false
@@ -803,23 +804,29 @@ private fun MembersSection(
                                     )
                                 }
                                 if (canLeave) {
-                                    if (canMakeOwner || canMakeMember) HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = { Text("Leave team", color = MaterialTheme.colorScheme.error) },
+                                    if (canMakeOwner || canMakeMember) {
+                                        HorizontalDivider(color = GlassMenuDefaults.DividerColor)
+                                    }
+                                    GlassMenuItem(
+                                        text = { Text("Leave team") },
                                         onClick = {
                                             rowMenu = false
                                             onConfirm(SettingsConfirm.RemoveMember(row, isSelf = true))
                                         },
+                                        destructive = true,
                                     )
                                 }
                                 if (canRemove) {
-                                    if (canMakeOwner || canMakeMember) HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
+                                    if (canMakeOwner || canMakeMember) {
+                                        HorizontalDivider(color = GlassMenuDefaults.DividerColor)
+                                    }
+                                    GlassMenuItem(
+                                        text = { Text("Remove") },
                                         onClick = {
                                             rowMenu = false
                                             onConfirm(SettingsConfirm.RemoveMember(row, isSelf = false))
                                         },
+                                        destructive = true,
                                     )
                                 }
                             }

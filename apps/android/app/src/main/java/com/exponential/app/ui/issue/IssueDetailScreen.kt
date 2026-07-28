@@ -27,8 +27,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,6 +68,8 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
@@ -302,9 +302,9 @@ fun IssueDetailScreen(
                             IconButton(onClick = { overflowOpen = true }) {
                                 Icon(ExpIcons.uiMoreVertical, contentDescription = "Issue actions")
                             }
-                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                            GlassDropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                                 if (url != null) {
-                                    DropdownMenuItem(
+                                    GlassMenuItem(
                                         leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
                                         text = { Text("Share") },
                                         onClick = {
@@ -324,7 +324,7 @@ fun IssueDetailScreen(
                                         },
                                     )
                                 }
-                                DropdownMenuItem(
+                                GlassMenuItem(
                                     leadingIcon = {
                                         // Menu row: the icon depicts the ACTION, like the
                                         // label beside it — bell-off next to "Unsubscribe",
@@ -345,7 +345,7 @@ fun IssueDetailScreen(
                                 // which opens the canonical-issue picker. Only the
                                 // unmark action lives here.
                                 if (isModerator && issue.duplicateOfId != null) {
-                                    DropdownMenuItem(
+                                    GlassMenuItem(
                                         leadingIcon = { Icon(ExpIcons.uiCopy, contentDescription = null) },
                                         text = { Text("Unmark duplicate") },
                                         onClick = {
@@ -358,7 +358,7 @@ fun IssueDetailScreen(
                                 // (EXP-57) — hidden when this is the team's
                                 // only board (web parity: 2+ boards).
                                 if (isModerator && moveTargets.isNotEmpty()) {
-                                    DropdownMenuItem(
+                                    GlassMenuItem(
                                         leadingIcon = { Icon(ExpIcons.eventBoardMoved, contentDescription = null) },
                                         text = { Text("Move to board") },
                                         onClick = {
@@ -368,7 +368,7 @@ fun IssueDetailScreen(
                                     )
                                 }
                                 if (isModerator) {
-                                    DropdownMenuItem(
+                                    GlassMenuItem(
                                         leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                                         text = { Text("Delete issue") },
                                         onClick = {

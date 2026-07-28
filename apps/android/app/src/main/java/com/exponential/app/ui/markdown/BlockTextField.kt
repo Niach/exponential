@@ -22,7 +22,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import com.exponential.app.ui.components.GlassMenuSurface
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
@@ -367,24 +367,24 @@ private fun AutocompleteMenu(
         // dismissal rides the armed state + BackHandler instead.
         properties = PopupProperties(focusable = false),
     ) {
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 4.dp,
-            shadowElevation = 8.dp,
-        ) {
+        // EXP-332: the same container as every DropdownMenu in the app, so the
+        // `@`/`#` menu is no longer a second menu look.
+        GlassMenuSurface {
             Column(
                 modifier = Modifier
                     .width(260.dp)
                     .heightIn(max = 240.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    // Scrolls with the content, matching M3's menu padding.
+                    .padding(vertical = 4.dp),
             ) {
                 mentionCandidates.forEach { m ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 44.dp)
                             .clickable { onPickMention(m) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(m.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
@@ -401,8 +401,9 @@ private fun AutocompleteMenu(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 44.dp)
                             .clickable { onPickIssueRef(target) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(

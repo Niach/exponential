@@ -24,8 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -65,9 +63,12 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -1172,7 +1173,7 @@ private fun GroupDivider() {
 }
 
 // iOS-Form-style picker row: label left, selected value + chevron right; tap
-// opens a DropdownMenu of the options. Disabled = dimmed + non-interactive.
+// opens a glass menu of the options. Disabled = dimmed + non-interactive.
 @Composable
 private fun PickerRow(
     label: String,
@@ -1217,16 +1218,18 @@ private fun PickerRow(
                 ),
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        GlassDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
-                DropdownMenuItem(
+                GlassMenuItem(
                     text = { Text(optionLabel(option)) },
                     trailingIcon = if (option == selected) {
                         {
+                            // Indigo checkmark — GlassSheetRow's selection idiom.
                             Icon(
                                 ExpIcons.uiCheck,
                                 contentDescription = "Selected",
                                 modifier = Modifier.size(16.dp),
+                                tint = AccentIndigo,
                             )
                         }
                     } else {

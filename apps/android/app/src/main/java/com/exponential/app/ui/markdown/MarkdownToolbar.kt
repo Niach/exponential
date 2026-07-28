@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -32,6 +30,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ListType
@@ -94,12 +94,12 @@ fun MarkdownToolbar(
                         // Non-focusable keeps the keyboard, so dismissal rides
                         // the item taps, a re-tap of the button, and BackHandler.
                         BackHandler(enabled = attachMenuOpen) { attachMenuOpen = false }
-                        DropdownMenu(
+                        GlassDropdownMenu(
                             expanded = attachMenuOpen,
                             onDismissRequest = { attachMenuOpen = false },
                             properties = PopupProperties(focusable = false),
                         ) {
-                            DropdownMenuItem(
+                            GlassMenuItem(
                                 leadingIcon = { Icon(ExpIcons.uiAttach, contentDescription = null) },
                                 text = { Text("Files") },
                                 onClick = {
@@ -107,7 +107,7 @@ fun MarkdownToolbar(
                                     onPickFile()
                                 },
                             )
-                            DropdownMenuItem(
+                            GlassMenuItem(
                                 leadingIcon = { Icon(ExpIcons.editorImage, contentDescription = null) },
                                 text = { Text("Photo library") },
                                 onClick = {
