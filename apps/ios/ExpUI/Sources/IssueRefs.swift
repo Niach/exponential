@@ -7,6 +7,31 @@ extension NSAttributedString.Key {
     /// ignores unknown attributes, so decorating never changes the saved text —
     /// the round trip stays byte-identical (pills are display-only).
     public static let markdownIssueRef = NSAttributedString.Key("exp.markdownIssueRef")
+
+    /// `true` over every chip run — the `#IDENTIFIER` token, its display-only
+    /// title attachment, and resolved `@email` mentions. `MarkdownLayoutManager`
+    /// paints one rounded capsule per line fragment of a run, which is why the
+    /// chip carries no `.backgroundColor` (that would double-paint a square
+    /// box under the pill).
+    public static let markdownChip = NSAttributedString.Key("exp.markdownChip")
+
+    /// The `.foregroundColor` a run had before it was chipped, so un-chipping
+    /// restores the blockquote / body color instead of guessing (EXP-322).
+    public static let markdownChipBaseColor = NSAttributedString.Key("exp.markdownChipBaseColor")
+}
+
+/// The attributes every chip run carries (EXP-322). No `.backgroundColor`:
+/// `MarkdownLayoutManager` paints a rounded capsule off `.markdownChip`
+/// instead, which is what turns a flat highlight into a real pill.
+public func expChipAttributes(baseColor: PlatformColor?) -> [NSAttributedString.Key: Any] {
+    var attrs: [NSAttributedString.Key: Any] = [
+        .markdownChip: true,
+        .foregroundColor: MarkdownStyle.linkColor,
+    ]
+    if let baseColor, baseColor != MarkdownStyle.linkColor {
+        attrs[.markdownChipBaseColor] = baseColor
+    }
+    return attrs
 }
 
 /// Inline issue references (`#MET-115`) — the same interchange form as the web
@@ -37,7 +62,7 @@ public enum IssueRefs {
     public static func matches(in text: String) -> [Match] {
         let ns = text as NSString
         guard ns.length > 0, ns.range(of: "#").location != NSNotFound else { return [] }
-        let masked = maskCodeRegions(text)
+        let masked = expMaskCodeRegions(text)
         let maskedNS = masked as NSString
         // Fail-safe width guard: masking is UTF-16-width preserving, so the
         // masked string's ranges are meant to map 1:1 onto the original. If a
@@ -99,11 +124,11 @@ public enum IssueRefs {
             let identifier = ns.substring(with: match.range(at: 1)).uppercased()
             guard let issueId = resolver(identifier) else { continue }
             let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
-            target.addAttributes([
-                .markdownIssueRef: issueId,
-                .foregroundColor: MarkdownStyle.linkColor,
-                .backgroundColor: MarkdownStyle.codeBackground,
-            ], range: match.range)
+            target.addAttributes(
+                expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor)
+                    .merging([.markdownIssueRef: issueId]) { _, new in new },
+                range: match.range,
+            )
             mutable = target
         }
         return mutable ?? attributed
@@ -151,9 +176,10 @@ public enum IssueRefs {
             let title = titleResolver(identifier).map(chipTitle) ?? ""
             let display = title.isEmpty ? token : "\(token) \(title)"
             var chipAttrs = attrs
+            for (key, value) in expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor) {
+                chipAttrs[key] = value
+            }
             chipAttrs[.markdownIssueRef] = issueId
-            chipAttrs[.foregroundColor] = MarkdownStyle.linkColor
-            chipAttrs[.backgroundColor] = MarkdownStyle.codeBackground
             let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
             target.replaceCharacters(
                 in: match.range,
@@ -167,7 +193,7 @@ public enum IssueRefs {
     /// Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60 chars,
     /// ellipsis beyond). The full title is one tap away — the chip opens the
     /// issue.
-    private static func chipTitle(_ title: String) -> String {
+    public static func chipTitle(_ title: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 60 else { return trimmed }
         let cut = String(trimmed.prefix(59)).trimmingCharacters(in: .whitespaces)
@@ -199,48 +225,50 @@ public enum IssueRefs {
         return result
     }
 
-    /// Mask fenced code blocks and inline code spans with spaces so the regex
-    /// can't match inside them. UTF-16-width preserving (each character is
-    /// replaced by as many spaces as its UTF-16 length), so the returned
-    /// string's NSRange indices map 1:1 onto the original text. Space is not a
-    /// token character, so masking can't manufacture new matches either.
-    private static func maskCodeRegions(_ text: String) -> String {
-        var out = ""
-        out.reserveCapacity(text.count)
-        var inFence = false
-        var first = true
-        for lineSub in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if !first { out.append("\n") }
-            first = false
-            let line = String(lineSub)
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                inFence.toggle()
-                out.append(blank(line))
-                continue
-            }
-            if inFence {
-                out.append(blank(line))
-                continue
-            }
-            // Inline code spans: mask characters between backtick delimiters.
-            var inSpan = false
-            for ch in line {
-                if ch == "`" {
-                    inSpan.toggle()
-                    out.append(" ")
-                } else if inSpan {
-                    out.append(blank(String(ch)))
-                } else {
-                    out.append(ch)
-                }
-            }
-        }
-        return out
-    }
-
     /// Spaces matching `s`'s UTF-16 width (keeps NSRange alignment).
     private static func blank(_ s: String) -> String {
         String(repeating: " ", count: s.utf16.count)
     }
+}
+
+/// Mask fenced code blocks and inline code spans with spaces so a token regex
+/// can't match inside them. UTF-16-width preserving (each character is replaced
+/// by as many spaces as its UTF-16 length), so the returned string's NSRange
+/// indices map 1:1 onto the original text. Space is not a token character, so
+/// masking can't manufacture new matches either. Shared by `IssueRefs` and
+/// `MentionRefs` so the two token kinds agree on what "inside code" means.
+func expMaskCodeRegions(_ text: String) -> String {
+    func blank(_ s: String) -> String { String(repeating: " ", count: s.utf16.count) }
+    var out = ""
+    out.reserveCapacity(text.count)
+    var inFence = false
+    var first = true
+    for lineSub in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        if !first { out.append("\n") }
+        first = false
+        let line = String(lineSub)
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+            inFence.toggle()
+            out.append(blank(line))
+            continue
+        }
+        if inFence {
+            out.append(blank(line))
+            continue
+        }
+        // Inline code spans: mask characters between backtick delimiters.
+        var inSpan = false
+        for ch in line {
+            if ch == "`" {
+                inSpan.toggle()
+                out.append(" ")
+            } else if inSpan {
+                out.append(blank(String(ch)))
+            } else {
+                out.append(ch)
+            }
+        }
+    }
+    return out
 }

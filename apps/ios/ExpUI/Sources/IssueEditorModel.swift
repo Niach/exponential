@@ -88,8 +88,15 @@ public final class IssueEditorModel {
     public var onEdit: (() -> Void)?
 
     /// Team members the @-autocomplete can offer (set by the host; should be
-    /// pre-filtered to non-agent members).
-    public var mentionMembers: [MentionMember] = []
+    /// pre-filtered to non-agent members). Membership often syncs in AFTER the
+    /// document loads, so a change re-runs the chip pass — otherwise mentions
+    /// would stay plain until the next reload.
+    public var mentionMembers: [MentionMember] = [] {
+        didSet {
+            guard mentionMembers != oldValue else { return }
+            redecorateChips()
+        }
+    }
 
     /// Render-only resolver for inline `#IDENTIFIER` issue refs: identifier
     /// (e.g. `VER-12`) → issue id, from the host's local store. When set,
@@ -98,14 +105,21 @@ public final class IssueEditorModel {
     /// byte-identical either way.
     public var issueRefResolver: ((String) -> String?)?
 
-    /// EXP-307: identifier → issue TITLE for read-only DISPLAY models — when
-    /// set, `load()` renders resolved `#IDENTIFIER` chips as `#ID <title>`
-    /// (web/Android read-view parity). This changes the blocks' character
-    /// content, so it must NEVER be set on an editable model: the appended
-    /// title would serialize into the saved markdown. Read-only comment cards
-    /// build a throwaway display model and reseed edits from the raw stored
-    /// markdown, which is exactly the safe shape.
+    /// Identifier → issue TITLE, so a resolved `#IDENTIFIER` chip reads
+    /// `#ID <title>` like the web editor (EXP-307, EXP-322).
+    ///
+    /// Safe on EDITABLE models: the title rides a single `NSTextAttachment`
+    /// character, and `MarkdownConversion`'s serializer skips `.attachment`
+    /// runs, so the derived markdown keeps the bare token. (Read-only DISPLAY
+    /// models take a different route — `IssueRefs.decorateForDisplay` splices
+    /// the title in as real characters, which is fine there because they never
+    /// serialize.)
     public var issueRefTitleResolver: ((String) -> String?)?
+
+    /// Read-only comment cards set this so the chip title is spliced in as
+    /// text (`IssueRefs.decorateForDisplay`) instead of riding an attachment.
+    /// Never set it on a model whose markdown gets saved.
+    public var isDisplayOnly = false
 
     /// Issue search backing the #-autocomplete (set by the host; team-
     /// scoped, matching identifier + title substrings — empty query = most
@@ -195,7 +209,7 @@ public final class IssueEditorModel {
 
     public func load(markdown: String, baseURL: URL?) {
         blocks = MarkdownConversion.markdownToBlocks(markdown, baseURL: baseURL)
-        decorateIssueRefs()
+        decorateChips()
         bumpAllRevisions()
         // Baseline against the DERIVED markdown, not the raw input: the
         // markdown↔blocks round-trip is not byte-identical, so using the raw
@@ -231,27 +245,78 @@ public final class IssueEditorModel {
         load(markdown: pending, baseURL: baseURL)
     }
 
-    /// Decorate resolved `#IDENTIFIER` tokens in every text block (render-only;
-    /// see `issueRefResolver`). Called from `load()` so remote applies and
-    /// user-driven reloads re-decorate too.
-    private func decorateIssueRefs() {
-        guard let issueRefResolver else { return }
+    /// Decorate resolved `#IDENTIFIER` and `@email` tokens in every text block
+    /// (render-only; see `issueRefResolver`). Called from `load()` so remote
+    /// applies and user-driven reloads re-decorate too — the live per-keystroke
+    /// pass goes through [chipDecoration] and produces identical output.
+    private func decorateChips() {
         for (idx, block) in blocks.enumerated() {
             guard case let .text(id, content) = block else { continue }
-            // Display models additionally show the issue title inside the
-            // chip (EXP-307); editable models keep the bare token so the
-            // markdown round trip stays byte-identical.
-            let decorated: NSAttributedString
-            if let issueRefTitleResolver {
-                decorated = IssueRefs.decorateForDisplay(
-                    content, resolver: issueRefResolver, titleResolver: issueRefTitleResolver)
-            } else {
-                decorated = IssueRefs.decorate(content, resolver: issueRefResolver)
-            }
-            if decorated !== content {
-                blocks[idx] = .text(id: id, attributedContent: decorated)
+            let result = chipDecoration(for: content, selection: NSRange(location: 0, length: 0))
+            if result.changed {
+                blocks[idx] = .text(id: id, attributedContent: result.attributed)
             }
         }
+    }
+
+    /// Like [decorateChips], but for a live document: bumps the revision of
+    /// every block whose rendering actually changed so the text views re-apply.
+    private func redecorateChips() {
+        for (idx, block) in blocks.enumerated() {
+            guard case let .text(id, content) = block else { continue }
+            let result = chipDecoration(for: content, selection: NSRange(location: 0, length: 0))
+            guard result.changed else { continue }
+            blocks[idx] = .text(id: id, attributedContent: result.attributed)
+            bumpRevision(id)
+        }
+    }
+
+    /// Email → display name for the mention chips, from the synced member list.
+    private func mentionName(for email: String) -> String? {
+        let needle = email.lowercased()
+        return mentionMembers.first { $0.email.lowercased() == needle }?.name
+    }
+
+    /// The one place that assembles the resolvers for a chip pass, so the
+    /// live editor pass and the `load()` pass can never drift. Read-only
+    /// display models still splice the title in as text; editable models get
+    /// the serialization-invisible attachment.
+    public func chipDecoration(
+        for content: NSAttributedString,
+        selection: NSRange
+    ) -> MarkdownChipDecorator.Result {
+        if isDisplayOnly, let issueRefResolver, let issueRefTitleResolver {
+            let decorated = IssueRefs.decorateForDisplay(
+                content, resolver: issueRefResolver, titleResolver: issueRefTitleResolver)
+            let mentioned = mentionMembers.isEmpty
+                ? decorated
+                : MentionRefs.decorate(decorated) { [weak self] in self?.mentionName(for: $0) }
+            return MarkdownChipDecorator.Result(
+                attributed: mentioned,
+                selection: selection,
+                changed: !mentioned.isEqual(content),
+            )
+        }
+        return MarkdownChipDecorator.decorate(
+            content,
+            selection: selection,
+            issueRefResolver: issueRefResolver,
+            issueRefTitleResolver: issueRefTitleResolver,
+            mentionResolver: mentionMembers.isEmpty
+                ? nil
+                : { [weak self] in self?.mentionName(for: $0) },
+        )
+    }
+
+    /// Apply a decoration pass's output to a block. Deliberately does NOT bump
+    /// the revision (the text view already holds this content, and a bump would
+    /// re-apply `attributedText` and disturb the caret / first responder), does
+    /// not recompute the autocomplete, does not arm it, and does not
+    /// `notifyEdit()` — a decoration pass never changes the markdown, so it
+    /// must not schedule an autosave.
+    public func applyDecoration(id: UUID, content: NSAttributedString) {
+        guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
+        blocks[idx] = .text(id: id, attributedContent: content)
     }
 
     public func markSaved(_ markdown: String) {
@@ -269,7 +334,10 @@ public final class IssueEditorModel {
 
     public func updateSelection(blockId: UUID, range: NSRange) {
         selection = (blockId, range)
-        recomputeAutocomplete()
+        // The caret is fresh here, so this is the recompute that decides
+        // whether the bar opens; consume the latch afterwards.
+        recomputeAutocomplete(armed: textChangeArm)
+        textChangeArm = false
     }
 
     /// The post-mutation caret location for `id`, consumed once.
@@ -286,18 +354,30 @@ public final class IssueEditorModel {
         guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
         // No revision bump: the originating text view already holds this content.
         blocks[idx] = .text(id: id, attributedContent: content)
-        recomputeAutocomplete()
+        // Only a document change may OPEN an autocomplete bar. UIKit does not
+        // guarantee whether the text or the selection callback lands first, so
+        // arm a latch here and let whichever recompute sees the settled caret
+        // use it (EXP-322).
+        textChangeArm = true
+        recomputeAutocomplete(armed: true)
         notifyEdit()
     }
 
     // MARK: - Mentions / issue refs (autocomplete)
+
+    /// Set by [updateText], consumed by [updateSelection]. See the comment there.
+    private var textChangeArm = false
 
     /// Recompute the @-mention and #-issue-ref candidates from the focused
     /// block's caret context. Driven off the model's own `selection` + `blocks`,
     /// so no caret geometry is needed in the text views. The two token shapes
     /// are mutually exclusive (each trigger must follow start-of-text or
     /// whitespace), so at most one candidate list is non-empty.
-    private func recomputeAutocomplete() {
+    ///
+    /// [armed] mirrors web's `docChanged` rule (`editor-autocomplete.ts`): a
+    /// caret move alone may TRACK or CLOSE an open bar but never open one, so
+    /// tapping inside an existing `#EXP-238` stays quiet.
+    private func recomputeAutocomplete(armed: Bool) {
         guard let sel = selection,
               let block = blocks.first(where: { $0.id == sel.blockId }),
               case let .text(_, content) = block else {
@@ -307,13 +387,17 @@ public final class IssueEditorModel {
         }
         let caret = max(0, min(sel.range.location, content.length))
         let before = (content.string as NSString).substring(to: caret)
-        recomputeMention(blockId: sel.blockId, beforeCaret: before)
-        recomputeIssueRef(blockId: sel.blockId, beforeCaret: before)
+        recomputeMention(blockId: sel.blockId, beforeCaret: before, armed: armed)
+        recomputeIssueRef(blockId: sel.blockId, beforeCaret: before, armed: armed)
     }
 
-    private func recomputeMention(blockId: UUID, beforeCaret before: String) {
+    private func recomputeMention(blockId: UUID, beforeCaret before: String, armed: Bool) {
         guard !mentionMembers.isEmpty,
               let match = Self.mentionMatch(beforeCaret: before) else {
+            clearMention()
+            return
+        }
+        guard armed || activeMention?.blockId == blockId else {
             clearMention()
             return
         }
@@ -325,9 +409,13 @@ public final class IssueEditorModel {
             .map { $0 }
     }
 
-    private func recomputeIssueRef(blockId: UUID, beforeCaret before: String) {
+    private func recomputeIssueRef(blockId: UUID, beforeCaret before: String, armed: Bool) {
         guard let issueRefSearch,
               let match = Self.issueRefMatch(beforeCaret: before) else {
+            clearIssueRef()
+            return
+        }
+        guard armed || activeIssueRef?.blockId == blockId else {
             clearIssueRef()
             return
         }
@@ -396,13 +484,12 @@ public final class IssueEditorModel {
             in: replaceRange,
             with: NSAttributedString(string: token, attributes: MarkdownStyle.baseAttributes)
         )
-        var next: NSAttributedString = mutable
-        if let issueRefResolver {
-            next = IssueRefs.decorate(mutable, resolver: issueRefResolver)
-        }
-        blocks[idx] = .text(id: id, attributedContent: next)
+        var caret = NSRange(location: active.hashOffset + (token as NSString).length, length: 0)
+        let decorated = chipDecoration(for: mutable, selection: caret)
+        if decorated.changed { caret = decorated.selection }
+        blocks[idx] = .text(id: id, attributedContent: decorated.attributed)
         bumpRevision(id)
-        desiredSelection = (id, active.hashOffset + (token as NSString).length)
+        desiredSelection = (id, caret.location)
         clearIssueRef()
         notifyEdit()
     }
@@ -435,7 +522,10 @@ public final class IssueEditorModel {
         let caret = range.location + (text as NSString).length
         desiredSelection = (id, caret)
         selection = (id, NSRange(location: caret, length: 0))
-        recomputeAutocomplete()
+        // An explicit `@`/`#` affordance IS a text change, so it may open the
+        // bar (EXP-322).
+        textChangeArm = true
+        recomputeAutocomplete(armed: true)
         notifyEdit()
     }
 

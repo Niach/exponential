@@ -33,6 +33,36 @@ final class MarkdownLayoutManager: NSLayoutManager {
             MarkdownStyle.blockquoteBarColor.setFill()
             UIBezierPath(roundedRect: bar, cornerRadius: 1.5).fill()
         }
+
+        drawChipCapsules(in: glyphsToShow, at: origin)
+    }
+
+    /// Rounded pill behind every `.markdownChip` run — the `#IDENTIFIER` token
+    /// with its display-only title attachment, and resolved `@email` mentions
+    /// (EXP-322, web `.issue-ref-pill` parity). Chips deliberately carry no
+    /// `.backgroundColor`, which `super` would paint as a square box per line
+    /// fragment; this uses `enumerateEnclosingRects` so a chip that wraps gets
+    /// one pill per line instead of one box spanning both.
+    private func drawChipCapsules(in glyphsToShow: NSRange, at origin: CGPoint) {
+        guard let storage = textStorage, storage.length > 0,
+              let container = textContainers.first else { return }
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        guard charRange.length > 0 else { return }
+        MarkdownStyle.codeBackground.setFill()
+        storage.enumerateAttribute(.markdownChip, in: charRange, options: []) { value, range, _ in
+            guard value != nil else { return }
+            let glyphs = self.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            guard glyphs.length > 0 else { return }
+            self.enumerateEnclosingRects(
+                forGlyphRange: glyphs,
+                withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                in: container
+            ) { rect, _ in
+                let box = rect.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: -2, dy: 1)
+                guard box.width > 0, box.height > 0 else { return }
+                UIBezierPath(roundedRect: box, cornerRadius: box.height / 2).fill()
+            }
+        }
     }
 
     /// Full usable text width, so code boxes span the container like the other
