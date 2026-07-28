@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Check } from "lucide-react"
 import {
@@ -10,6 +10,7 @@ import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
 import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
 import type { Board, Issue } from "@/db/schema"
 import { boardCollection, issueCollection } from "@/lib/collections"
+import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import {
   MobilePopover,
@@ -56,6 +57,7 @@ export function ActionInputFields({
   onChange,
   repos,
   teamId,
+  seedPrIssueId,
 }: {
   defs: ActionInputDef[]
   values: Record<string, string>
@@ -63,6 +65,8 @@ export function ActionInputFields({
   /** The team's connected repos, for `repo` inputs. */
   repos: ActionRepoOption[]
   teamId: string
+  /** Any issue id linked to the PR a `pr` input should open pre-picked. */
+  seedPrIssueId?: string
 }) {
   if (defs.length === 0) return null
   return (
@@ -121,6 +125,7 @@ export function ActionInputFields({
                 teamId={teamId}
                 value={values[def.key] ?? ``}
                 required={def.required}
+                seedIssueId={seedPrIssueId}
                 onChange={(value) => onChange(def.key, value)}
               />
             </div>
@@ -167,12 +172,19 @@ function PrInputField({
   teamId,
   value,
   required,
+  seedIssueId,
   onChange,
 }: {
   teamId: string
   /** The picked representative issue id, or `` when unset. */
   value: string
   required: boolean
+  /**
+   * ANY issue id linked to the PR this field should open pre-picked (EXP-323 —
+   * a Reviews row's representative is the newest linked issue, not this list's
+   * lowest-id one, so it is resolved by membership). Applied once per mount.
+   */
+  seedIssueId?: string
   onChange: (issueId: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -195,31 +207,21 @@ function PrInputField({
     const teamBoards = new Set(
       ((boardRows ?? []) as Board[]).map((board) => board.id)
     )
-    const byPrUrl = new Map<
-      string,
-      { issueId: string; prNumber: number | null; identifiers: string[] }
-    >()
-    for (const issue of (issueRows ?? []) as Issue[]) {
-      if (!teamBoards.has(issue.boardId) || !issue.prUrl) continue
-      const entry = byPrUrl.get(issue.prUrl)
-      if (entry) {
-        entry.identifiers.push(issue.identifier)
-      } else {
-        byPrUrl.set(issue.prUrl, {
-          issueId: issue.id,
-          prNumber: issue.prNumber,
-          identifiers: [issue.identifier],
-        })
-      }
-    }
-    return [...byPrUrl.values()]
-      .map((entry) => ({
-        ...entry,
-        label: `${entry.prNumber ? `#${entry.prNumber} · ` : ``}${entry.identifiers.sort().join(`, `)}`,
-      }))
-      .sort((left, right) => left.label.localeCompare(right.label))
+    return buildPrOptions((issueRows ?? []) as Issue[], teamBoards)
   }, [boardRows, issueRows])
   const selected = pulls.find((pull) => pull.issueId === value) ?? null
+
+  // Seed the preselected PR once the options land (the dialog clears input
+  // values on open, so the seed can't live there). The ref latch keeps a
+  // manual re-pick — including clearing an optional field — from being stomped.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || !seedIssueId || pulls.length === 0) return
+    const option = findPrOptionForIssue(pulls, seedIssueId)
+    if (!option) return
+    seeded.current = true
+    onChange(option.issueId)
+  }, [seedIssueId, pulls, onChange])
 
   const pick = (issueId: string) => {
     setOpen(false)

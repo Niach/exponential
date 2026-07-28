@@ -19,14 +19,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -44,16 +43,21 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.StartCodingSheet
+import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.glassSection
 
 /**
  * "Reviews" (EXP-131): the open pull requests in the current team, grouped
@@ -67,29 +71,38 @@ import com.exponential.app.ui.theme.glassRow
 fun ReviewsScreen(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
+    onOpenSteer: (String) -> Unit,
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
-    // A refused merge (conflicts, branch protection, GitHub App errors) has to
-    // say so — the row otherwise just sits there (REV2-50).
-    val snackbarHostState = remember { SnackbarHostState() }
-    val mergeError by viewModel.mergeError.collectAsStateWithLifecycle()
-    LaunchedEffect(mergeError) {
-        mergeError?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.consumeMergeError()
+    // Remote-start feedback for a "Fix conflicts" run, and the jump into the
+    // session once the desktop picks it up (EXP-323).
+    val runState by viewModel.runState.collectAsStateWithLifecycle()
+    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
+    LaunchedEffect(startedSessionId) {
+        startedSessionId?.let {
+            viewModel.consumeStartedSession()
+            onOpenSteer(it)
         }
     }
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshDevices()
+        onPauseOrDispose {}
+    }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) { padding ->
+    Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Text(
                 "Reviews",
                 style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+            )
+            // Start feedback rides the TOP of the screen: the floating bottom
+            // nav pill paints over everything the NavHost renders, so nothing
+            // that must be read may sit at the bottom edge (EXP-323).
+            SteerRunCaptionRow(
+                runState,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
             )
             ReviewsListContent(onOpenIssue = onOpenIssue, onOpenChanges = onOpenChanges)
         }
@@ -105,7 +118,12 @@ private fun ReviewsListContent(
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
+    val merging by viewModel.merging.collectAsStateWithLifecycle()
+    val devices by viewModel.steerDevices.collectAsStateWithLifecycle()
+    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     var mergeTarget by remember { mutableStateOf<ReviewEntry?>(null) }
+    var fixTarget by remember { mutableStateOf<ReviewEntry?>(null) }
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
@@ -126,9 +144,12 @@ private fun ReviewsListContent(
                 items(group.entries, key = { it.groupKey }) { entry ->
                     ReviewRow(
                         entry = entry,
+                        errorMessage = mergeErrors[entry.groupKey],
+                        merging = entry.groupKey in merging,
                         onClick = { onOpenChanges(entry.representative.id) },
                         onOpenIssue = { onOpenIssue(entry.representative.id) },
                         onMerge = { mergeTarget = entry },
+                        onFixConflicts = { fixTarget = entry },
                     )
                 }
             }
@@ -139,10 +160,25 @@ private fun ReviewsListContent(
         MergeConfirmDialog(
             entry = entry,
             onConfirm = {
-                viewModel.mergePr(entry.representative.id)
+                viewModel.mergePr(entry.groupKey, entry.representative.id)
                 mergeTarget = null
             },
             onDismiss = { mergeTarget = null },
+        )
+    }
+
+    // "Fix conflicts" (EXP-323, desktop parity): the unified sheet opened on
+    // the builtin action with THIS pull request already picked.
+    fixTarget?.let { entry ->
+        StartCodingSheet(
+            devices = devices ?: emptyList(),
+            issues = startCandidates,
+            preselectedIds = emptySet(),
+            preselectedActionId = DomainContract.builtinFixConflictsId,
+            preselectedPrIssueId = entry.representative.id,
+            onStart = viewModel::startCoding,
+            onRunAction = viewModel::runAction,
+            onDismiss = { fixTarget = null },
         )
     }
 }
@@ -175,118 +211,178 @@ private fun BoardHeader(name: String, count: Int) {
 @Composable
 private fun ReviewRow(
     entry: ReviewEntry,
+    errorMessage: String?,
+    merging: Boolean,
     onClick: () -> Unit,
     onOpenIssue: () -> Unit,
     onMerge: () -> Unit,
+    onFixConflicts: () -> Unit,
 ) {
     val context = LocalContext.current
     var showActions by remember { mutableStateOf(false) }
+    // The recovery run rebases the PR's branch, so it needs one recorded
+    // (desktop applies the same guard on its Reviews rows).
+    val canFixConflicts = errorMessage != null && !entry.branch.isNullOrBlank()
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassRow()
-            .combinedClickable(onClick = onClick, onLongClick = { showActions = true })
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // PR glyph — green like the iOS/web review rows (EXP-248).
-        Icon(
-            ExpIcons.prOpen,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = DesignTokens.Semantic.Green,
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (entry.isBatch) {
-                    Text(
-                        entry.prNumber?.let { "#$it" } ?: "Batch",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "${entry.issues.size} issues",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    Text(
-                        entry.representative.identifier,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        entry.representative.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
-            }
-            // Secondary line: the batch entry lists its issue identifiers; every
-            // entry shows its branch (parity with the web/desktop Reviews rows).
-            val subtitle = buildString {
-                if (entry.isBatch) append(entry.identifiers.joinToString(", "))
-                if (entry.branch != null) {
-                    if (isNotEmpty()) append(" · ")
-                    append(entry.branch)
-                }
-            }
-            if (subtitle.isNotEmpty()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Spacer(Modifier.width(6.dp))
-        // Inline merge — same confirm-gated flow as the long-press sheet
-        // (EXP-248: uniform with the web/iOS review rows).
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
-                .glassButton()
-                .clickable(onClick = onMerge)
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .fillMaxWidth()
+                .glassRow()
+                .combinedClickable(onClick = onClick, onLongClick = { showActions = true })
+                .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // PR glyph — green like the iOS/web review rows (EXP-248).
             Icon(
-                ExpIcons.prMerged,
+                ExpIcons.prOpen,
                 contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(16.dp),
+                tint = DesignTokens.Semantic.Green,
             )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                "Merge",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (entry.isBatch) {
+                        Text(
+                            entry.prNumber?.let { "#$it" } ?: "Batch",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "${entry.issues.size} issues",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else {
+                        Text(
+                            entry.representative.identifier,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            entry.representative.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                }
+                // Secondary line: the batch entry lists its issue identifiers; every
+                // entry shows its branch (parity with the web/desktop Reviews rows).
+                val subtitle = buildString {
+                    if (entry.isBatch) append(entry.identifiers.joinToString(", "))
+                    if (entry.branch != null) {
+                        if (isNotEmpty()) append(" · ")
+                        append(entry.branch)
+                    }
+                }
+                if (subtitle.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            // Inline merge — same confirm-gated flow as the long-press sheet
+            // (EXP-248: uniform with the web/iOS review rows).
+            Row(
+                modifier = Modifier
+                    .glassButton()
+                    .clickable(enabled = !merging, onClick = onMerge)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (merging) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    Icon(
+                        ExpIcons.prMerged,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "Merge",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                ExpIcons.uiChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
         }
-        Spacer(Modifier.width(6.dp))
-        Icon(
-            ExpIcons.uiChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
+
+        // A refused merge (conflicts, branch protection, GitHub App errors)
+        // captions THIS row (EXP-323) — inside the list, which already clears
+        // the floating nav pill, so the reason is always readable. A conflict
+        // is the common case, so the recovery run sits right next to it.
+        if (errorMessage != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 3.dp)
+                    .glassSection()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    errorMessage,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                if (canFixConflicts) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .glassButton()
+                            .clickable(onClick = onFixConflicts)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            ExpIcons.uiBranch,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Fix conflicts",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
     }
 
     if (showActions) {
@@ -332,6 +428,21 @@ private fun ReviewRow(
                             onMerge()
                         },
                 )
+                // The recovery run needs the PR's branch to rebase (EXP-323).
+                if (!entry.branch.isNullOrBlank()) {
+                    ListItem(
+                        headlineContent = { Text("Fix merge conflicts") },
+                        leadingContent = {
+                            Icon(ExpIcons.uiBranch, contentDescription = null)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showActions = false
+                                onFixConflicts()
+                            },
+                    )
+                }
                 if (entry.prUrl != null) {
                     ListItem(
                         headlineContent = { Text("Open PR") },

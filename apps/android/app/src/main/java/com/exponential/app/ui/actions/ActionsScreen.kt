@@ -42,6 +42,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartCodingSheet
+import com.exponential.app.ui.steer.ActionRunState
+import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -111,15 +113,8 @@ fun ActionsScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    val caption = runStateCaption(runState)
-                    if (caption != null) {
-                        item(key = "__run_state__") {
-                            RunStateCaptionRow(
-                                caption = caption,
-                                showSpinner = runState is ActionRunState.Sending ||
-                                    runState is ActionRunState.Sent,
-                            )
-                        }
+                    if (runState !is ActionRunState.Idle) {
+                        item(key = "__run_state__") { SteerRunCaptionRow(runState) }
                     }
                     // Builtin rows pin FIRST by the flag, never by sort order
                     // (EXP-257; the stable sort keeps server order otherwise).
@@ -218,42 +213,6 @@ private fun ActionRow(action: ActionDto, onRun: () -> Unit) {
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-    }
-}
-
-private data class RunCaption(val text: String, val isError: Boolean)
-
-private fun runStateCaption(state: ActionRunState): RunCaption? = when (state) {
-    is ActionRunState.Idle -> null
-    is ActionRunState.Sending -> RunCaption("Sending start command…", false)
-    is ActionRunState.Sent ->
-        RunCaption("Start sent to ${state.deviceLabel} — waiting for the desktop…", false)
-    is ActionRunState.Failed -> RunCaption(state.message, true)
-}
-
-@Composable
-private fun RunStateCaptionRow(caption: RunCaption, showSpinner: Boolean) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.padding(vertical = 2.dp),
-    ) {
-        if (showSpinner) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(12.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        Text(
-            caption.text,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (caption.isError) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-            },
-        )
     }
 }
 

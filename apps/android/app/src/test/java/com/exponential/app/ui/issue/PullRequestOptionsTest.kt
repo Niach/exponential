@@ -59,6 +59,33 @@ class PullRequestOptionsTest {
         // Representative id is deterministic (lowest id), not query-order bound.
         assertEquals("i-1", batch.issueId)
         assertEquals("#7 · EXP-1, EXP-2", batch.label)
+        assertEquals(setOf("i-1", "i-2"), batch.linkedIssueIds.toSet())
+    }
+
+    @Test
+    fun `resolves any linked issue id to the representative option`() {
+        val batchUrl = "https://github.com/acme/web/pull/7"
+        val options = buildPullRequestOptions(
+            listOf(
+                issue(id = "i-2", identifier = "EXP-2", prUrl = batchUrl, prNumber = 7),
+                issue(id = "i-1", identifier = "EXP-1", prUrl = batchUrl, prNumber = 7),
+                issue(
+                    id = "i-3",
+                    identifier = "EXP-3",
+                    prUrl = "https://github.com/acme/web/pull/9",
+                    prNumber = 9,
+                ),
+            ),
+            teamBoardIds = setOf("b-1"),
+        )
+
+        // EXP-323: the Reviews row hands over its OWN representative (newest
+        // issue), which is not this builder's (lowest id) — both must land on
+        // the same option, and its canonical id is what the picker renders.
+        assertEquals("i-1", options.optionForIssue("i-2")?.issueId)
+        assertEquals("i-1", options.optionForIssue("i-1")?.issueId)
+        assertEquals("i-3", options.optionForIssue("i-3")?.issueId)
+        assertEquals(null, options.optionForIssue("unknown"))
     }
 
     @Test

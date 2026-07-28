@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,10 +52,13 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.PrFilesApi
 import com.exponential.app.data.api.PullFile
 import com.exponential.app.data.api.RepositoriesApi
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -66,6 +70,9 @@ import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarPillFill
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.steer.ActionRunState
+import com.exponential.app.ui.steer.SteerLaunchDelegate
+import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -110,6 +117,7 @@ class ChangesViewModel @Inject constructor(
     private val prFilesApi: PrFilesApi,
     private val repositoriesApi: RepositoriesApi,
     private val issuesApi: IssuesApi,
+    private val steerLaunch: SteerLaunchDelegate,
 ) : ViewModel() {
 
     val issueId: String = savedStateHandle["issueId"] ?: ""
@@ -164,7 +172,28 @@ class ChangesViewModel @Inject constructor(
     private val _actionError = MutableStateFlow<String?>(null)
     val actionError: StateFlow<String?> = _actionError
 
+    // ── Remote start (EXP-323) ───────────────────────────────────────────────
+    // A refused merge is usually a conflict, so the bar offers the builtin
+    // "Fix merge conflicts" run right under the error — desktop parity.
+    val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
+    val steerDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices
+    val startCandidates: StateFlow<List<StartIssueOption>> get() = steerLaunch.startCandidates
+    val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
+    val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
+
+    fun refreshDevices() = steerLaunch.refreshDevices()
+    fun consumeStartedSession() = steerLaunch.consumeStartedSession()
+    fun runAction(
+        device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: Map<String, String>,
+    ) = steerLaunch.runAction(device, action, options, inputs)
+    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) =
+        steerLaunch.startCoding(device, issueIds, options)
+
     init {
+        steerLaunch.attach(viewModelScope)
         // Re-fetch when the diff source flips (a PR opens on a watched branch).
         viewModelScope.launch {
             issue.filterNotNull()
@@ -231,6 +260,7 @@ class ChangesViewModel @Inject constructor(
 @Composable
 fun ChangesScreen(
     onBack: () -> Unit,
+    onOpenSteer: (String) -> Unit,
     viewModel: ChangesViewModel = hiltViewModel(),
 ) {
     val issue by viewModel.issue.collectAsStateWithLifecycle()
@@ -239,6 +269,21 @@ fun ChangesScreen(
     val merging by viewModel.merging.collectAsStateWithLifecycle()
     val closing by viewModel.closing.collectAsStateWithLifecycle()
     val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+
+    // "Fix conflicts" (EXP-323): the launcher, its start feedback, and the
+    // jump into the session the desktop reports back.
+    val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
+    val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
+    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
+    val runState by viewModel.runState.collectAsStateWithLifecycle()
+    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
+    var fixSheetOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(startedSessionId) {
+        startedSessionId?.let {
+            viewModel.consumeStartedSession()
+            onOpenSteer(it)
+        }
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -329,9 +374,30 @@ fun ChangesScreen(
                 merging = merging,
                 closing = closing,
                 actionError = actionError,
+                runState = runState,
+                // A refused merge is usually a conflict; the recovery run
+                // rebases the PR's branch, so it needs one recorded (EXP-323).
+                canFixConflicts = actionError != null &&
+                    steerEnabled == true &&
+                    permissions.isMember &&
+                    !issue?.branch.isNullOrBlank(),
                 onMerge = { mergeConfirmOpen = true },
                 onClosePr = { closeConfirmOpen = true },
+                onFixConflicts = { fixSheetOpen = true },
                 modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+
+        if (fixSheetOpen) {
+            StartCodingSheet(
+                devices = steerDevices ?: emptyList(),
+                issues = startCandidates,
+                preselectedIds = emptySet(),
+                preselectedActionId = DomainContract.builtinFixConflictsId,
+                preselectedPrIssueId = viewModel.issueId,
+                onStart = viewModel::startCoding,
+                onRunAction = viewModel::runAction,
+                onDismiss = { fixSheetOpen = false },
             )
         }
 
@@ -399,8 +465,11 @@ private fun ChangesBottomBar(
     merging: Boolean,
     closing: Boolean,
     actionError: String?,
+    runState: ActionRunState,
+    canFixConflicts: Boolean,
     onMerge: () -> Unit,
     onClosePr: () -> Unit,
+    onFixConflicts: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -416,16 +485,47 @@ private fun ChangesBottomBar(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (actionError != null) {
-            Text(
-                actionError,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .glassSection()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
+            ) {
+                Text(
+                    actionError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                )
+                // A conflict is the common refusal, so the recovery run sits
+                // right where the failure was reported (EXP-323, desktop parity).
+                if (canFixConflicts) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .glassButton()
+                            .clickable(onClick = onFixConflicts)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            ExpIcons.uiBranch,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Fix conflicts",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
+        SteerRunCaptionRow(runState, modifier = Modifier.padding(top = 6.dp))
         Row(
             modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,

@@ -35,3 +35,10 @@ export function deviceCanRunActions(device: SteerDevice): boolean {
 export function deviceCanRunActionInputs(device: SteerDevice): boolean {
   return (device.caps ?? []).includes(`action-inputs`)
 }
+
+/** The builtin "Fix merge conflicts" run needs this capability (EXP-259) —
+ * `steer.startSession` rejects the builtin without it, so filter such desktops
+ * out of the picker instead of failing after submit (EXP-323). */
+export function deviceCanFixConflicts(device: SteerDevice): boolean {
+  return (device.caps ?? []).includes(`fix-conflicts`)
+}

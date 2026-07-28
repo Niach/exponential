@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
-import { TRPCClientError } from "@trpc/client"
+import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   ArrowDown,
   ArrowUp,
@@ -182,16 +182,6 @@ function parseServerFrame(raw: string): ServerFrame | null {
   } catch {
     return null
   }
-}
-
-function trpcErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof TRPCClientError) {
-    const message = error.message?.trim()
-    if (message && !message.startsWith(`[`) && !message.startsWith(`{`)) {
-      return message
-    }
-  }
-  return fallback
 }
 
 // ── steer.config, fetched once per app lifetime (env-derived, static) ─────────

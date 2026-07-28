@@ -11,6 +11,7 @@ import {
   issueCollection,
 } from "@/lib/collections"
 import {
+  BUILTIN_FIX_CONFLICTS_ID,
   builtinCreateAction,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
@@ -28,6 +29,7 @@ import {
 } from "@/lib/coding-launch-prefs"
 import {
   deviceAgentIds,
+  deviceCanFixConflicts,
   deviceCanRunActionInputs,
   deviceCanRunActions,
   type SteerDevice,
@@ -100,6 +102,7 @@ export function LaunchDialog({
   initialIssueIds,
   initialDeviceId,
   initialActionId,
+  initialPrIssueId,
   onStartIssues,
   onRunAction,
 }: {
@@ -116,6 +119,12 @@ export function LaunchDialog({
   initialDeviceId?: string
   /** Action to pre-select when opening on the Actions tab. */
   initialActionId?: string
+  /**
+   * Pre-pick the selected action's `pr` input (EXP-323 — the conflict-recovery
+   * entry points hand over the issue their surface acts on; ANY issue linked
+   * to the PR resolves).
+   */
+  initialPrIssueId?: string
   onStartIssues: (
     device: SteerDevice,
     options: StartCodingOptions,
@@ -342,6 +351,9 @@ export function LaunchDialog({
   const needsInputsCap = Boolean(
     selectedAction && (selectedAction.builtin || inputDefs.length > 0)
   )
+  // The "Fix merge conflicts" builtin needs its own cap on top (EXP-259) —
+  // filter here so an outdated desktop can't be picked and fail after submit.
+  const needsFixConflictsCap = selectedAction?.id === BUILTIN_FIX_CONFLICTS_ID
   const candidateDevices = useMemo(
     () =>
       tab === `issues`
@@ -349,9 +361,10 @@ export function LaunchDialog({
         : devices.filter(
             (candidate) =>
               deviceCanRunActions(candidate) &&
-              (!needsInputsCap || deviceCanRunActionInputs(candidate))
+              (!needsInputsCap || deviceCanRunActionInputs(candidate)) &&
+              (!needsFixConflictsCap || deviceCanFixConflicts(candidate))
           ),
-    [devices, tab, needsInputsCap]
+    [devices, tab, needsInputsCap, needsFixConflictsCap]
   )
 
   // Settle the device on open + whenever the candidate list changes (tab
@@ -542,6 +555,7 @@ export function LaunchDialog({
               }
               repos={repos}
               teamId={teamId}
+              seedPrIssueId={initialPrIssueId}
             />
           )}
 
@@ -551,9 +565,11 @@ export function LaunchDialog({
             onDeviceChange={setDeviceId}
             noDeviceNote={
               tab === `actions`
-                ? needsInputsCap
-                  ? `No capable desktop online — this action needs a desktop app new enough to run action inputs.`
-                  : `No actions-capable desktop online — open (or update) the Exponential desktop app.`
+                ? needsFixConflictsCap
+                  ? `No desktop can fix merge conflicts yet — update the Exponential desktop app.`
+                  : needsInputsCap
+                    ? `No capable desktop online — this action needs a desktop app new enough to run action inputs.`
+                    : `No actions-capable desktop online — open (or update) the Exponential desktop app.`
                 : `No desktop online — open the Exponential desktop app to start coding.`
             }
             agent={agent}

@@ -50,6 +50,52 @@ struct StartCodingSheet: View {
         // every row as Backlog/no-priority via IssueStatus/IssuePriority.from.
         let status: String?
         let priority: String?
+
+        /// One-shot rebuild of the Issues-tab pool from the synced store —
+        /// repo-backed boards, open issues, no merged PR — scoped to [teamId].
+        /// Shared so every host that presents the sheet without an agents
+        /// surface of its own offers the same pool (EXP-323).
+        static func loadCandidates(
+            db: DatabaseManager,
+            accountId: String,
+            teamId: String?
+        ) async -> [IssueOption] {
+            guard let teamId, let pool = try? db.pool(forAccountId: accountId) else { return [] }
+            let boards = (try? await pool.read { db in try BoardEntity.fetchAll(db) }) ?? []
+            let issues = (try? await pool.read { db in try IssueEntity.fetchAll(db) }) ?? []
+            // Repo-backed boards only — boardId → repositoryId.
+            var repoByBoard: [String: String] = [:]
+            for board in boards where board.teamId == teamId {
+                if let repoId = board.repositoryId {
+                    repoByBoard[board.id] = repoId
+                }
+            }
+            // ANCHOR set (EXP-314): custom statuses anchor to one of these
+            // enum values, so the check keeps gating them correctly.
+            let terminal: Set<String> = [
+                IssueStatus.done.rawValue,
+                IssueStatus.cancelled.rawValue,
+                IssueStatus.duplicate.rawValue,
+            ]
+            return issues
+                .filter { row in
+                    guard repoByBoard[row.boardId] != nil else { return false }
+                    if terminal.contains(row.status) { return false }
+                    if row.prState == DomainContract.prStateMerged { return false }
+                    return true
+                }
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .map { row in
+                    IssueOption(
+                        id: row.id,
+                        identifier: row.identifier,
+                        title: row.title,
+                        repositoryId: repoByBoard[row.boardId],
+                        status: row.status,
+                        priority: row.priority
+                    )
+                }
+        }
     }
 
     /// The two launch subjects (EXP-257). Actions only exists when the host
@@ -69,6 +115,10 @@ struct StartCodingSheet: View {
     /// whose actions/repositories/boards the sheet fetches.
     let teamId: String?
     let preselectedActionId: String?
+    /// Non-nil pre-picks the selected action's `pr` input (EXP-323 — the
+    /// conflict-recovery entry points hand over the issue their surface acts
+    /// on; ANY issue linked to the PR resolves).
+    let preselectedPrIssueId: String?
     let onStart: (SteerDevice, [String], SteerStartOptions) -> Void
     /// Actions-mode launch: device, action, options, resolved input values
     /// (key → text or picked repo/board uuid; blank optionals dropped).
@@ -140,6 +190,7 @@ struct StartCodingSheet: View {
         teamId: String? = nil,
         initialTab: SubjectTab = .issues,
         preselectedActionId: String? = nil,
+        preselectedPrIssueId: String? = nil,
         onStart: @escaping (SteerDevice, [String], SteerStartOptions) -> Void,
         onRunAction: ((SteerDevice, ActionDto, SteerStartOptions, [String: String]) -> Void)? = nil
     ) {
@@ -149,6 +200,7 @@ struct StartCodingSheet: View {
         self.preferredDeviceId = preferredDeviceId
         self.teamId = teamId
         self.preselectedActionId = preselectedActionId
+        self.preselectedPrIssueId = preselectedPrIssueId
         self.onStart = onStart
         self.onRunAction = onRunAction
         _checked = State(initialValue: preselectedIds)
@@ -205,9 +257,7 @@ struct StartCodingSheet: View {
                     // The Actions-mode "no capable desktop" hint (EXP-257) —
                     // distinguishes offline from an outdated desktop app.
                     Section {
-                        Text(devices.isEmpty
-                            ? "No desktop online — open the Exponential desktop app to run here."
-                            : "No compatible desktop online — update the Exponential desktop app to run this action.")
+                        Text(noActionDeviceNote)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -713,11 +763,32 @@ struct StartCodingSheet: View {
         return action.isBuiltin || !(action.inputs ?? []).isEmpty
     }
 
+    /// The "Fix merge conflicts" builtin needs its own capability on top
+    /// (EXP-259) — the server rejects it otherwise, so filter here (EXP-323).
+    private var selectedActionNeedsFixConflictsCap: Bool {
+        selectedAction?.id == DomainContract.builtinFixConflictsId
+    }
+
     private var actionDeviceCandidates: [SteerDevice] {
         devices.filter { device in
             guard device.canRunActions else { return false }
-            return selectedActionNeedsInputsCap ? device.canRunActionInputs : true
+            if selectedActionNeedsInputsCap, !device.canRunActionInputs { return false }
+            if selectedActionNeedsFixConflictsCap, !device.canFixConflicts { return false }
+            return true
         }
+    }
+
+    /// The Actions-mode "no capable desktop" hint (EXP-257) — distinguishes
+    /// offline from an outdated desktop app, and calls out the fix-conflicts
+    /// cap by name so the fix is obvious (EXP-323).
+    private var noActionDeviceNote: String {
+        if devices.isEmpty {
+            return "No desktop online — open the Exponential desktop app to run here."
+        }
+        if selectedActionNeedsFixConflictsCap {
+            return "No desktop can fix merge conflicts yet — update the Exponential desktop app."
+        }
+        return "No compatible desktop online — update the Exponential desktop app to run this action."
     }
 
     private var hasUnknownInputType: Bool {
@@ -788,6 +859,22 @@ struct StartCodingSheet: View {
                 teamBoardIds: boardIds
             )
         }
+        seedPreselectedPr()
+    }
+
+    /// Pre-pick the target PR once both the action list and the options exist
+    /// (EXP-323). The seed is normalised by MEMBERSHIP — the caller's issue is
+    /// rarely the option's representative, and only the representative id
+    /// matches a `Picker` tag. The already-set guard keeps a manual re-pick
+    /// from being stomped if this ever runs twice.
+    @MainActor
+    private func seedPreselectedPr() {
+        guard let seed = preselectedPrIssueId,
+            let key = selectedActionInputs.first(where: { $0.type == "pr" })?.key,
+            inputValues[key] == nil,
+            let option = StartPullRequestOption.option(in: pullRequests, forIssueId: seed)
+        else { return }
+        inputValues[key] = option.issueId
     }
 
     // MARK: - Agent tab strip (EXP-208)

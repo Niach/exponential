@@ -27,7 +27,20 @@ struct ReviewsListContent: View {
     @Environment(\.openURL) private var openURL
     @State private var viewModel: ReviewsViewModel?
     @State private var mergeTarget: ReviewEntry?
-    @State private var mergeError: String?
+    /// Merge failures keyed by `ReviewEntry.id` — rendered INLINE under the
+    /// failing row (EXP-323). An alert made the reason modal and gave the
+    /// conflict-recovery run nowhere to live.
+    @State private var mergeErrors: [String: String] = [:]
+    @State private var merging: Set<String> = []
+
+    // "Fix conflicts" (EXP-323, desktop parity): a failed merge is usually a
+    // conflict, so the row offers the builtin run on the user's own desktop.
+    @State private var fixTarget: ReviewEntry?
+    @State private var steerEnabled = false
+    @State private var devices: [SteerDevice]?
+    @State private var startCandidates: [StartCodingSheet.IssueOption] = []
+    @State private var runCaption: String?
+    @State private var runError: String?
 
     var body: some View {
         let groups = viewModel?.groups(teamId: teamState.activeTeam?.id) ?? []
@@ -40,6 +53,11 @@ struct ReviewsListContent: View {
                 reviewList(groups)
             }
         }
+        .task(id: accountId) {
+            let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
+            steerEnabled = config.enabled
+            await refreshDevices()
+        }
         .onAppear {
             if viewModel == nil {
                 viewModel = ReviewsViewModel(accountId: accountId, db: deps.db)
@@ -47,9 +65,29 @@ struct ReviewsListContent: View {
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
+            // Refresh presence on every appear (the .task doesn't re-run on
+            // pop-back). A no-op until steering resolves enabled.
+            Task { await refreshDevices() }
         }
         .onDisappear {
             viewModel?.stopObserving()
+        }
+        .sheet(item: $fixTarget) { entry in
+            StartCodingSheet(
+                devices: devices ?? [],
+                issues: startCandidates,
+                preselectedIds: [],
+                teamId: teamState.activeTeam?.id,
+                initialTab: .actions,
+                preselectedActionId: DomainContract.builtinFixConflictsId,
+                preselectedPrIssueId: entry.representative.id,
+                onStart: { device, issueIds, options in
+                    start(on: device, issueIds: issueIds, options: options)
+                },
+                onRunAction: { device, action, options, inputs in
+                    runAction(on: device, action: action, options: options, inputs: inputs)
+                }
+            )
         }
         .alert(
             "Merge pull request?",
@@ -63,17 +101,6 @@ struct ReviewsListContent: View {
             Button("Cancel", role: .cancel) { mergeTarget = nil }
         } message: { entry in
             Text(mergeMessage(entry))
-        }
-        .alert(
-            "Couldn't merge",
-            isPresented: Binding(
-                get: { mergeError != nil },
-                set: { if !$0 { mergeError = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) { mergeError = nil }
-        } message: {
-            Text(mergeError ?? "")
         }
     }
 
@@ -139,6 +166,18 @@ struct ReviewsListContent: View {
 
     @ViewBuilder
     private func entryRow(_ entry: ReviewEntry) -> some View {
+        // The caption + recovery button live OUTSIDE the NavigationLink: a
+        // control inside the link's label has its tap swallowed by the link.
+        VStack(alignment: .leading, spacing: 6) {
+            entryLink(entry)
+            if let message = mergeErrors[entry.id] {
+                mergeErrorCaption(entry, message: message)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func entryLink(_ entry: ReviewEntry) -> some View {
         // The Review detail (the diff + Merge/Close screen) is what a reviewer
         // wants first (EXP-168); the issue itself is one tap away in the menu.
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: entry.representative.id)) {
@@ -198,7 +237,11 @@ struct ReviewsListContent: View {
                 // contentShape + onTapGesture pattern as IssueListView's
                 // inline status/priority glyphs.
                 HStack(spacing: 4) {
-                    AppIcon(AppIcons.prMerged, size: 11)
+                    if merging.contains(entry.id) {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        AppIcon(AppIcons.prMerged, size: 11)
+                    }
                     Text("Merge")
                         .font(.caption.weight(.medium))
                 }
@@ -208,7 +251,10 @@ struct ReviewsListContent: View {
                 .background(.white.opacity(0.08), in: Capsule())
                 .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
                 .contentShape(Capsule())
-                .onTapGesture { mergeTarget = entry }
+                .onTapGesture {
+                    guard !merging.contains(entry.id) else { return }
+                    mergeTarget = entry
+                }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityLabel("Merge pull request")
             }
@@ -234,6 +280,13 @@ struct ReviewsListContent: View {
             } label: {
                 Label("Merge PR", appIcon: AppIcons.prMerged)
             }
+            if canFixConflicts(entry) {
+                Button {
+                    fixTarget = entry
+                } label: {
+                    Label("Fix merge conflicts", appIcon: AppIcons.uiBranch)
+                }
+            }
             if let url = prURL(entry) {
                 Button {
                     openURL(url)
@@ -242,6 +295,61 @@ struct ReviewsListContent: View {
                 }
             }
         }
+    }
+
+    /// A refused merge (conflicts, branch protection, GitHub App errors)
+    /// captions THIS row (EXP-323) — never a modal alert, and never anything
+    /// the tab bar can cover. A conflict is the common case, so the builtin
+    /// recovery run sits right next to the reason.
+    @ViewBuilder
+    private func mergeErrorCaption(_ entry: ReviewEntry, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Semantic.red)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if canFixConflicts(entry) {
+                Button {
+                    fixTarget = entry
+                } label: {
+                    HStack(spacing: 4) {
+                        AppIcon(AppIcons.uiBranch, size: 11)
+                        Text("Fix conflicts")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.white.opacity(0.08), in: Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let runCaption {
+                Text(runCaption)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            if let runError {
+                Text(runError)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .glassSection()
+    }
+
+    /// The recovery run rebases the PR's branch, so it needs one recorded —
+    /// the same guard the desktop applies on its Reviews rows.
+    private func canFixConflicts(_ entry: ReviewEntry) -> Bool {
+        steerEnabled &&
+            mergeErrors[entry.id] != nil &&
+            !(entry.branch ?? "").isEmpty
     }
 
     private func prURL(_ entry: ReviewEntry) -> URL? {
@@ -261,11 +369,95 @@ struct ReviewsListContent: View {
     private func merge(_ entry: ReviewEntry) {
         mergeTarget = nil
         let issueId = entry.representative.id
+        let key = entry.id
+        mergeErrors[key] = nil
+        merging.insert(key)
         Task {
             do {
                 try await deps.issuesApi.mergePr(accountId: accountId, issueId: issueId)
             } catch {
-                mergeError = error.localizedDescription
+                mergeErrors[key] = error.localizedDescription
+            }
+            merging.remove(key)
+        }
+    }
+
+    private func refreshDevices() async {
+        guard steerEnabled else {
+            devices = nil
+            return
+        }
+        devices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
+        startCandidates = await StartCodingSheet.IssueOption.loadCandidates(
+            db: deps.db,
+            accountId: accountId,
+            teamId: teamState.activeTeam?.id
+        )
+    }
+
+    /// Actions-mode launch from the unified sheet (EXP-323 — the "Fix merge
+    /// conflicts" builtin, which always rides its teamId). The run surfaces in
+    /// the Agents list via sync like any other session.
+    private func runAction(
+        on device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: [String: String]
+    ) {
+        runCaption = nil
+        runError = nil
+        let label = device.deviceLabel
+        Task {
+            do {
+                try await deps.steerApi.startSession(
+                    accountId: accountId,
+                    actionId: action.id,
+                    deviceId: device.deviceId,
+                    teamId: action.isBuiltin ? action.teamId : nil,
+                    options: options,
+                    inputs: inputs.isEmpty ? nil : inputs
+                )
+                runCaption = "Run sent to \(label) — it'll appear under Agents when it spins up."
+                Task {
+                    try? await Task.sleep(for: .seconds(30))
+                    runCaption = nil
+                }
+            } catch {
+                runError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Issues-tab launch from the same sheet (flipping tabs must not dead-end).
+    private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
+        guard !issueIds.isEmpty else { return }
+        runCaption = nil
+        runError = nil
+        let label = device.deviceLabel
+        Task {
+            do {
+                if issueIds.count > 1 {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueIds: issueIds,
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                } else {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueId: issueIds[0],
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                }
+                runCaption = "Start sent to \(label) — it'll appear under Agents when it spins up."
+                Task {
+                    try? await Task.sleep(for: .seconds(30))
+                    runCaption = nil
+                }
+            } catch {
+                runError = error.localizedDescription
             }
         }
     }

@@ -85,6 +85,11 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// additionally gated on this (the server enforces it too); a plain
     /// `actions`-capable desktop still runs input-less actions.
     public var canRunActionInputs: Bool { caps?.contains("action-inputs") == true }
+
+    /// Whether this desktop can run the builtin "Fix merge conflicts" action
+    /// (EXP-259). The server rejects that builtin without the cap, so pickers
+    /// filter such desktops out instead of failing after submit (EXP-323).
+    public var canFixConflicts: Bool { caps?.contains("fix-conflicts") == true }
 }
 
 public struct SteerDevicesResult: Decodable, Sendable {

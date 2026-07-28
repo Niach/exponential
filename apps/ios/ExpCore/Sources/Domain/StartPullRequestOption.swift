@@ -14,13 +14,22 @@ public struct StartPullRequestOption: Identifiable, Sendable, Equatable {
     public let prNumber: Int?
     /// Every issue identifier linked to this pull request, sorted.
     public let identifiers: [String]
+    /// Every linked issue's id — the membership set `option(in:forIssueId:)`
+    /// resolves against (EXP-323).
+    public let linkedIssueIds: [String]
 
     public var id: String { issueId }
 
-    public init(issueId: String, prNumber: Int?, identifiers: [String]) {
+    public init(
+        issueId: String,
+        prNumber: Int?,
+        identifiers: [String],
+        linkedIssueIds: [String]? = nil
+    ) {
         self.issueId = issueId
         self.prNumber = prNumber
         self.identifiers = identifiers
+        self.linkedIssueIds = linkedIssueIds ?? [issueId]
     }
 
     /// `#42 · EXP-1, EXP-2` — the PR number when known, then the linked issues.
@@ -43,7 +52,12 @@ public struct StartPullRequestOption: Identifiable, Sendable, Equatable {
         from issues: [IssueEntity],
         teamBoardIds: Set<String>
     ) -> [StartPullRequestOption] {
-        var byPrUrl: [String: (issueId: String, prNumber: Int?, identifiers: [String])] = [:]
+        var byPrUrl: [String: (
+            issueId: String,
+            prNumber: Int?,
+            identifiers: [String],
+            linkedIssueIds: [String]
+        )] = [:]
         // Deterministic representative + identifier order regardless of the
         // fetch order GRDB happened to return.
         for issue in issues.sorted(by: { $0.id < $1.id }) {
@@ -54,12 +68,14 @@ public struct StartPullRequestOption: Identifiable, Sendable, Equatable {
             let identifier = issue.identifier ?? ""
             if var entry = byPrUrl[prUrl] {
                 if !identifier.isEmpty { entry.identifiers.append(identifier) }
+                entry.linkedIssueIds.append(issue.id)
                 byPrUrl[prUrl] = entry
             } else {
                 byPrUrl[prUrl] = (
                     issueId: issue.id,
                     prNumber: issue.prNumber,
-                    identifiers: identifier.isEmpty ? [] : [identifier]
+                    identifiers: identifier.isEmpty ? [] : [identifier],
+                    linkedIssueIds: [issue.id]
                 )
             }
         }
@@ -68,9 +84,22 @@ public struct StartPullRequestOption: Identifiable, Sendable, Equatable {
                 StartPullRequestOption(
                     issueId: $0.issueId,
                     prNumber: $0.prNumber,
-                    identifiers: $0.identifiers.sorted()
+                    identifiers: $0.identifiers.sorted(),
+                    linkedIssueIds: $0.linkedIssueIds
                 )
             }
             .sorted { ($0.label, $0.issueId) < ($1.label, $1.issueId) }
+    }
+
+    /// The option a given issue id belongs to — by MEMBERSHIP, not by the
+    /// representative id. A caller seeding the `pr` input holds whatever issue
+    /// its surface acts on (the Reviews row picks the NEWEST linked issue,
+    /// `build` the lowest one), but only the representative id matches a
+    /// `Picker` tag, so seeds are normalised through this (EXP-323).
+    public static func option(
+        in options: [StartPullRequestOption],
+        forIssueId issueId: String
+    ) -> StartPullRequestOption? {
+        options.first { $0.linkedIssueIds.contains(issueId) }
     }
 }

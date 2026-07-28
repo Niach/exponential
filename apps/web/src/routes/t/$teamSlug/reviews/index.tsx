@@ -1,11 +1,18 @@
 import { useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { GitMerge, GitPullRequest, Loader2 } from "lucide-react"
+import { GitBranch, GitMerge, GitPullRequest, Loader2 } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import { EmptyState } from "@/components/empty-state"
+import { useSteerConfig } from "@/components/agent-session"
+import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useReviewsData, type ReviewEntry } from "@/hooks/use-reviews-data"
+import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
+import { trpcErrorMessage } from "@/lib/trpc-error"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -64,6 +71,26 @@ function ReviewsPage() {
   const [mergingIds, setMergingIds] = useState<Set<string>>(new Set())
   const [externalMergeTarget, setExternalMergeTarget] =
     useState<ExternalMergeTarget | null>(null)
+  // A refused merge (conflicts, branch protection, GitHub App errors) captions
+  // ITS row, keyed by entry.key (EXP-323) — the global toast is transient and
+  // gave the conflict-recovery run nowhere to live.
+  const [mergeErrors, setMergeErrors] = useState<Record<string, string>>({})
+
+  // "Fix conflicts" (EXP-323, desktop parity): the launch dialog opened on the
+  // builtin action with THIS pull request already picked. Presence is fetched
+  // only once a merge has actually failed — a plain Reviews visit must not
+  // poll for desktops, but waiting for the click would open the dialog on a
+  // momentary "no desktop online".
+  const [fixTarget, setFixTarget] = useState<ReviewEntry | null>(null)
+  const { data: session } = useSession()
+  const currentUserId = session?.user?.id
+  const { isMember } = useTeamPermissions(team)
+  const steerConfig = useSteerConfig()
+  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
+  const remote = useRemoteStart({
+    enabled: steerEnabled && Object.keys(mergeErrors).length > 0,
+    currentUserId,
+  })
 
   // The row opens the review-detail page (PR/branch diff + Merge/Close), not the
   // issue itself — a batch entry's representative identifier stands for the PR.
@@ -79,17 +106,32 @@ function ReviewsPage() {
     if (!entry) return
     setMergeTarget(null)
     setMergingIds((prev) => new Set(prev).add(entry.key))
+    setMergeErrors((prev) => {
+      const next = { ...prev }
+      delete next[entry.key]
+      return next
+    })
     // Merging through the representative issue merges the ONE PR — the server
     // then completes every linked issue.
-    trpc.issues.mergePr.mutate({ issueId: entry.issue.id }).catch(() => {
-      // The global mutation toast already surfaced the error; just unstick
-      // the row spinner so the merge can be retried.
-      setMergingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(entry.key)
-        return next
+    trpc.issues.mergePr
+      .mutate({ issueId: entry.issue.id }, { context: { skipErrorToast: true } })
+      .catch((error: unknown) => {
+        // Captioned on the row instead of toasted: the reason (GitHub's
+        // verbatim "not mergeable") has to stay next to the recovery button,
+        // and unstick the spinner so the merge can be retried.
+        setMergeErrors((prev) => ({
+          ...prev,
+          [entry.key]: trpcErrorMessage(
+            error,
+            `The pull request could not be merged`
+          ),
+        }))
+        setMergingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(entry.key)
+          return next
+        })
       })
-    })
   }
 
   const externalPullKey = (repositoryId: string, prNumber: number) =>
@@ -175,6 +217,12 @@ function ReviewsPage() {
                 const issue = entry.issue
                 const isBatch = entry.issues.length > 1
                 const merging = mergingIds.has(entry.key)
+                const mergeError = mergeErrors[entry.key]
+                // The recovery run rebases the PR's branch, so it needs one
+                // recorded — the same guard the desktop applies.
+                const canFixConflicts = Boolean(
+                  mergeError && issue.branch && steerEnabled
+                )
                 return (
                   <div
                     key={entry.key}
@@ -230,6 +278,29 @@ function ReviewsPage() {
                         </>
                       )}
                     </Button>
+                    {/* The refusal captions its own row (EXP-323) — spanning
+                        the grid so the full GitHub message stays readable —
+                        with the conflict-recovery run right beside it. */}
+                    {mergeError && (
+                      <div className="col-span-4 flex flex-wrap items-center gap-2 pt-1.5">
+                        <span className="text-destructive text-xs">
+                          {mergeError}
+                        </span>
+                        {canFixConflicts && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setFixTarget(entry)
+                            }}
+                          >
+                            <GitBranch className="h-3.5 w-3.5" />
+                            Fix conflicts
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -310,6 +381,35 @@ function ReviewsPage() {
           </>
         )}
       </div>
+
+      {/* "Fix conflicts" (EXP-323): the launcher on the builtin action with
+          this PR pre-picked. */}
+      {fixTarget && (
+        <LaunchDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setFixTarget(null)
+          }}
+          devices={remote.devices ?? []}
+          starting={remote.starting}
+          teamId={team.id}
+          initialTab="actions"
+          initialActionId={BUILTIN_FIX_CONFLICTS_ID}
+          initialPrIssueId={fixTarget.issue.id}
+          onStartIssues={(device, options, issueIds) => {
+            remote
+              .startIssues(device, options, issueIds)
+              .then(() => setFixTarget(null))
+              .catch(() => {})
+          }}
+          onRunAction={(device, action, options, inputs) => {
+            remote
+              .runAction(device, action, options, inputs)
+              .then(() => setFixTarget(null))
+              .catch(() => {})
+          }}
+        />
+      )}
 
       <Dialog
         open={mergeTarget !== null}

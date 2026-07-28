@@ -55,12 +55,16 @@ data class StartBoardOption(
  * parity EXP-270). A batch coding run links several issues to ONE pull
  * request, so options are deduped by prUrl: [issueId] is the representative
  * issue the server resolves (team-scoped, open-state checked) and
- * [identifiers] lists every linked issue.
+ * [identifiers] lists every linked issue. [linkedIssueIds] carries EVERY
+ * linked issue id so a caller holding some other linked id (the Reviews row
+ * picks the NEWEST issue, this builder the lowest one) can resolve the option
+ * — see [optionForIssue].
  */
 data class StartPullRequestOption(
     val issueId: String,
     val prNumber: Int?,
     val identifiers: List<String>,
+    val linkedIssueIds: List<String> = listOf(issueId),
 ) {
     /** `#42 · EXP-1, EXP-2` — the PR number when known, then the linked issues. */
     val label: String
@@ -183,6 +187,17 @@ fun buildPullRequestOptions(
             issueId = linked.first().id,
             prNumber = linked.first().prNumber,
             identifiers = linked.mapNotNull { it.identifier?.takeIf(String::isNotEmpty) }.sorted(),
+            linkedIssueIds = linked.map { it.id },
         )
     }
     .sortedWith(compareBy({ it.label }, { it.issueId }))
+
+/**
+ * The option a given issue id belongs to — by MEMBERSHIP, not by the
+ * representative id. Callers seeding a `pr` input hold whatever issue their
+ * surface acts on (the Reviews row's newest issue, or the batch sibling whose
+ * Changes screen is open); only the representative id renders a label in the
+ * picker, so the seed is normalised through this (EXP-323).
+ */
+fun List<StartPullRequestOption>.optionForIssue(issueId: String): StartPullRequestOption? =
+    firstOrNull { issueId in it.linkedIssueIds }

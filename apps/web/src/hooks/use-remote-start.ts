@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { TRPCClientError } from "@trpc/client"
+import { trpcErrorMessage } from "@/lib/trpc-error"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession } from "@/db/schema"
 import { codingSessionCollection } from "@/lib/collections"
@@ -30,16 +30,6 @@ export interface RemoteStartAction {
   id: string
   name: string
   teamId: string
-}
-
-function trpcErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof TRPCClientError) {
-    const message = error.message?.trim()
-    if (message && !message.startsWith(`[`) && !message.startsWith(`{`)) {
-      return message
-    }
-  }
-  return fallback
 }
 
 export interface RemoteStart {
