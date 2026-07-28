@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.AttachmentEntity
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.icons.ExpIcons
 import java.io.File
 import kotlinx.coroutines.launch
@@ -186,15 +186,15 @@ private fun FileRow(
                     modifier = Modifier.size(18.dp),
                 )
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
+            GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                GlassMenuItem(
                     text = { Text("Open") },
                     onClick = {
                         menuOpen = false
                         onOpen()
                     },
                 )
-                DropdownMenuItem(
+                GlassMenuItem(
                     text = { Text("Share") },
                     onClick = {
                         menuOpen = false
@@ -202,12 +202,13 @@ private fun FileRow(
                     },
                 )
                 if (canDelete) {
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                    GlassMenuItem(
+                        text = { Text("Delete") },
                         onClick = {
                             menuOpen = false
                             onDelete()
                         },
+                        destructive = true,
                     )
                 }
             }

@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MarkdownEditor
@@ -142,12 +142,12 @@ internal fun RegularCommentRow(
                                 tint = CommentMeta,
                             )
                         }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
+                        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            GlassMenuItem(
                                 text = { Text("Edit") },
                                 onClick = { menuOpen = false; onEdit() },
                             )
-                            DropdownMenuItem(
+                            GlassMenuItem(
                                 text = { Text("Delete") },
                                 onClick = { menuOpen = false; onDelete() },
                             )
