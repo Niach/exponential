@@ -6,11 +6,15 @@
 //! lists the [`terminal::TerminalManager`]'s sessions — **not** Zed's GPL
 //! `Pane`/`Dock` (§6.13's licensing rule). Behavior:
 //!
-//! - **"+"** (and cmd-t / ctrl-shift-t inside the dock) → a plain `Shell`
-//!   tab (`$SHELL -l`, cwd = the active board's **trunk** clone root, v4
-//!   §4.6; `$HOME` only off a board screen or before the clone exists).
-//!   This is also the launch surface: the Start-coding launcher and the
-//!   actions panel call the same `TerminalManager::open_tab`.
+//! - **"+"** → a dropdown (EXP-325): one item per doctor-installed agent
+//!   CLI, launching an empty promptless agent session on the current
+//!   board's trunk repo (a repo submenu when the team has several), plus
+//!   "New shell" — the plain `Shell` tab (`$SHELL -l`, cwd = the active
+//!   board's **trunk** clone root, v4 §4.6; `$HOME` only off a board screen
+//!   or before the clone exists), which cmd-t / ctrl-shift-t inside the
+//!   dock still opens directly. This is also the launch surface: the
+//!   Start-coding launcher and the actions panel call the same
+//!   `TerminalManager::open_tab`.
 //! - close buttons per tab (and cmd-w / ctrl-shift-w), ctrl-tab /
 //!   ctrl-shift-tab to switch;
 //! - no empty state: expanding an empty dock spawns a shell right away
@@ -39,12 +43,16 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     dock::{register_panel, DockArea, Panel, PanelControl, PanelEvent, PanelState},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
+    h_flex,
+    menu::{DropdownMenu as _, PopupMenuItem},
+    notification::Notification,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
-use terminal::{TabId, TerminalManager, TerminalManagerEvent, TerminalView};
+use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
 
-use crate::coding_flow::CodingHub;
+use crate::coding_flow::{CodingHub, TokenRefreshers};
 use crate::icons::{registry, ExpIcon};
 use crate::navigation;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
@@ -115,6 +123,11 @@ pub struct TerminalDockPanel {
     /// Debounces the expanded-and-empty auto-shell (one deferred spawn per
     /// render burst).
     spawn_queued: bool,
+    /// EXP-325: the promptless agent-shell tabs' P9 token-refresher holds
+    /// (tab id → the retained trunk clone), released on `TabClosed`. (A
+    /// window closed with live holds leaks its refresh loops until quit —
+    /// bounded and rare; sessions normally end by tab close.)
+    agent_shell_holds: HashMap<TabId, PathBuf>,
     _subscription: Subscription,
 }
 
@@ -146,7 +159,12 @@ impl TerminalDockPanel {
                         this.expand_dock(window, cx);
                         this.focus_active_terminal(window, cx);
                     }
-                    TerminalManagerEvent::TabClosed(_) => {
+                    TerminalManagerEvent::TabClosed(id) => {
+                        // EXP-325: a promptless agent-shell tab releases its
+                        // token-refresher hold with the tab.
+                        if let Some(clone) = this.agent_shell_holds.remove(id) {
+                            TokenRefreshers::release(&clone, cx);
+                        }
                         // §8.8b: closing the last tab collapses the bottom dock
                         // (mirror of the TabOpened expand); otherwise focus the
                         // tab that took over.
@@ -184,11 +202,29 @@ impl TerminalDockPanel {
             cx.observe(&undock_state, |_, _, cx| cx.notify()).detach();
         }
 
+        // EXP-325: the issue-styled chips follow the synced issue rows
+        // (title/status/pr_state — boards for the status resolution's team
+        // lookup), the local session registry, and the shared merge state.
+        // (`try_global`: the rehydrate test builds panels without a store.)
+        let collections =
+            sync::Store::try_global(cx).map(|store| store.collections().clone());
+        if let Some(collections) = collections {
+            cx.observe(&collections.issues, |_, _, cx| cx.notify()).detach();
+            cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify())
+                .detach();
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()).detach();
+        }
+        let local_sessions = crate::coding_flow::LocalSessions::global(cx);
+        cx.observe(&local_sessions, |_, _, cx| cx.notify()).detach();
+        let merge_state = crate::pr_merge::MergeState::global(cx);
+        cx.observe(&merge_state, |_, _, cx| cx.notify()).detach();
+
         Self {
             focus_handle: cx.focus_handle(),
             manager,
             dock_area,
             spawn_queued: false,
+            agent_shell_holds: HashMap::new(),
             _subscription: subscription,
         }
     }
@@ -437,10 +473,18 @@ impl TerminalDockPanel {
         // EXP-277: hand-rolled rounded chips (crate::surface::tab_chip), same
         // treatment as the center tab strip — gpui-component's TabBar is
         // square with a strip-wide bottom border.
+        // EXP-325: the shared merge state drives the hover merge button —
+        // materialized here (needs `&mut App`), read inside the chip closure.
+        let merge_state = crate::pr_merge::MergeState::global(cx);
         let chips = metas.iter().enumerate().map(|(ix, meta)| {
             let id = meta.id;
             let manager_ix = meta.manager_ix;
-            crate::surface::tab_chip(ix == selected_ix, cx)
+            let merge_button = meta
+                .issue
+                .as_ref()
+                .filter(|issue| issue.pr_open)
+                .map(|issue| self.tab_merge_button(ix, issue, &merge_state, cx));
+            let chip = crate::surface::tab_chip(ix == selected_ix, cx)
                 .id(("terminal-tab", ix))
                 .group(TAB_GROUP)
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -448,9 +492,28 @@ impl TerminalDockPanel {
                     this.manager
                         .update(cx, |manager, cx| manager.activate(manager_ix, cx));
                     this.focus_active_terminal(window, cx);
-                }))
-                .child(div().max_w(px(180.)).truncate().child(meta.title.clone()))
-                .child(
+                }));
+            // EXP-325: an issue-session tab renders the center issue-tab
+            // treatment (status glyph + mono identifier + synced title,
+            // mirroring `screens::render_tab_strip`); everything else keeps
+            // the plain terminal title.
+            let chip = match &meta.issue {
+                Some(issue) => chip
+                    .child(crate::icons::resolved_status_icon(&issue.status, cx).xsmall())
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .whitespace_nowrap()
+                            .child(issue.identifier.clone()),
+                    )
+                    .when_some(issue.title.clone(), |chip, title| {
+                        chip.child(div().max_w(px(180.)).truncate().child(title))
+                    }),
+                None => chip.child(div().max_w(px(180.)).truncate().child(meta.title.clone())),
+            };
+            chip.child(
                     h_flex()
                         .gap_0p5()
                         .items_center()
@@ -470,6 +533,10 @@ impl TerminalDockPanel {
                                     .child(SharedString::from(code.to_string())),
                             )
                         })
+                        // EXP-325: quick merge for an in-review issue session
+                        // (hover-revealed while idle; armed/merging stay
+                        // visible so the confirm never vanishes mid-click).
+                        .when_some(merge_button, |this, button| this.child(button))
                         // Hover-revealed undock (EXP-65) — same treatment as
                         // the center tabs; `invisible` keeps the layout slot.
                         .child(
@@ -530,17 +597,11 @@ impl TerminalDockPanel {
                     .children(chips)
                     // The `+` rides the slot right AFTER the last tab
                     // (JetBrains placement), not the far-right suffix.
-                    .child(
-                        Button::new("new-terminal-tab")
-                            .ghost()
-                            .xsmall()
-                            .icon(registry::UI_ADD)
-                            .tooltip("New shell")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                this.new_shell_tab(window, cx);
-                            })),
-                    ),
+                    // EXP-325: a dropdown — the doctor-installed agent CLIs
+                    // (immediate empty session on the current board's trunk
+                    // repo; a repo submenu when the team has several) plus
+                    // the plain shell (cmd-t unchanged).
+                    .child(self.new_tab_menu(cx)),
             )
             .child(
                 Button::new("collapse-terminal-dock")
@@ -553,6 +614,271 @@ impl TerminalDockPanel {
                         this.collapse_dock(window, cx);
                     })),
             )
+    }
+
+    /// The EXP-325 merge button on an in-review issue-session tab: the
+    /// shared two-click confirm (`pr_merge`), hover-revealed while idle
+    /// (armed/merging stay visible so the ~5s confirm window survives
+    /// pointer drift). A failed merge (typically conflicts) jumps to the
+    /// Reviews tool window, where the shared error caption + Fix-conflicts
+    /// button render exactly as a Reviews-originated failure.
+    fn tab_merge_button(
+        &self,
+        ix: usize,
+        issue: &IssueTabMeta,
+        merge_state: &Entity<crate::pr_merge::MergeState>,
+        cx: &gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let (armed, merging) = {
+            let state = merge_state.read(cx);
+            (state.armed(&issue.issue_id), state.merging(&issue.issue_id))
+        };
+        let mut button = Button::new(("merge-terminal-tab", ix)).xsmall();
+        if merging {
+            button = button
+                .outline()
+                .label("Merging…")
+                .loading(true)
+                .disabled(true);
+        } else if armed {
+            button = button.outline().label("Confirm merge").danger();
+        } else {
+            button = button
+                .ghost()
+                .icon(ExpIcon::GitMerge)
+                .tooltip("Merge PR — completes every linked issue and ends its coding session");
+        }
+        let issue_id = issue.issue_id.clone();
+        let button = button.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+            cx.stop_propagation();
+            let handle = window.window_handle();
+            crate::pr_merge::two_click(
+                crate::pr_merge::MergeOp::MergeIssuePr {
+                    issue_id: issue_id.clone(),
+                },
+                Some(Box::new(move |cx: &mut App| {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        crate::sidebar::activate_tool(
+                            window,
+                            cx,
+                            crate::sidebar::ToolWindow::Reviews,
+                        );
+                    });
+                })),
+                None,
+                cx,
+            );
+        }));
+        if armed || merging {
+            button.into_any_element()
+        } else {
+            div()
+                .invisible()
+                .group_hover(TAB_GROUP, |style| style.visible())
+                .child(button)
+                .into_any_element()
+        }
+    }
+
+    /// The "+" dropdown (EXP-325): one item per doctor-INSTALLED agent CLI —
+    /// clicking immediately launches an empty promptless session of that
+    /// agent on the current team's trunk repo (several board-backed repos →
+    /// a repo picker submenu; resolver still loading / no repo → disabled) —
+    /// plus the plain "New shell" (the pre-EXP-325 `+` behavior; cmd-t
+    /// unchanged). Installed agents and repos resolve fresh at OPEN time
+    /// (the closure outlives renders); no doctor report yet → only the
+    /// shell item.
+    fn new_tab_menu(&self, cx: &gpui::Context<Self>) -> impl IntoElement {
+        let panel = cx.entity().downgrade();
+        Button::new("new-terminal-tab")
+            .ghost()
+            .xsmall()
+            .icon(registry::UI_ADD)
+            .tooltip("New session")
+            .dropdown_menu(move |mut menu, window, cx| {
+                let hub = CodingHub::global(cx);
+                let installed = hub
+                    .read(cx)
+                    .doctor
+                    .report
+                    .as_ref()
+                    .map(|report| report.installed_agents())
+                    .unwrap_or_default();
+                let resolver = repo_resolver_for_window(window, cx);
+                resolver.update(cx, |resolver, cx| resolver.ensure_loaded(cx));
+                let repos = resolver.read(cx).board_backed_repos();
+                for agent in installed {
+                    let icon = Icon::from(crate::coding_selects::agent_icon(agent));
+                    let label = agent.label();
+                    match repos.as_deref() {
+                        Some([repo]) => {
+                            // One repo — launch directly, no submenu.
+                            let panel = panel.clone();
+                            let repository_id = repo.repository_id.clone();
+                            let full_name = repo.full_name.clone();
+                            menu = menu.item(PopupMenuItem::new(label).icon(icon).on_click(
+                                move |_, window, cx| {
+                                    let Some(panel) = panel.upgrade() else {
+                                        return;
+                                    };
+                                    let repository_id = repository_id.clone();
+                                    let full_name = full_name.clone();
+                                    panel.update(cx, |panel, cx| {
+                                        panel.launch_agent_shell(
+                                            agent,
+                                            repository_id,
+                                            full_name,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                },
+                            ));
+                        }
+                        Some(repos) if repos.len() > 1 => {
+                            // Several distinct repos — pick one explicitly.
+                            let panel = panel.clone();
+                            let repos: Vec<(String, String)> = repos
+                                .iter()
+                                .map(|repo| {
+                                    (repo.repository_id.clone(), repo.full_name.clone())
+                                })
+                                .collect();
+                            menu = menu.submenu_with_icon(
+                                Some(icon),
+                                label,
+                                window,
+                                cx,
+                                move |mut submenu, _window, _cx| {
+                                    for (repository_id, full_name) in &repos {
+                                        let panel = panel.clone();
+                                        let repository_id = repository_id.clone();
+                                        let full_name = full_name.clone();
+                                        let item_label = SharedString::from(full_name.clone());
+                                        submenu = submenu.item(
+                                            PopupMenuItem::new(item_label).on_click(
+                                                move |_, window, cx| {
+                                                    let Some(panel) = panel.upgrade() else {
+                                                        return;
+                                                    };
+                                                    let repository_id = repository_id.clone();
+                                                    let full_name = full_name.clone();
+                                                    panel.update(cx, |panel, cx| {
+                                                        panel.launch_agent_shell(
+                                                            agent,
+                                                            repository_id,
+                                                            full_name,
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    });
+                                                },
+                                            ),
+                                        );
+                                    }
+                                    submenu
+                                },
+                            );
+                        }
+                        // Resolver loading, fetch failed, or zero
+                        // board-backed repos — the agent has no trunk to
+                        // land on; keep the item visible but inert.
+                        _ => {
+                            menu = menu.item(PopupMenuItem::new(label).icon(icon).disabled(true));
+                        }
+                    }
+                }
+                // `separator` no-ops on an empty menu — no leading rule when
+                // there are no agent items.
+                let shell_panel = panel.clone();
+                menu.separator().item(
+                    PopupMenuItem::new("New shell")
+                        .icon(Icon::new(registry::NAV_TERMINAL))
+                        .on_click(move |_, window, cx| {
+                            let Some(panel) = shell_panel.upgrade() else {
+                                return;
+                            };
+                            panel.update(cx, |panel, cx| panel.new_shell_tab(window, cx));
+                        }),
+                )
+            })
+    }
+
+    /// The EXP-325 promptless agent launch: background
+    /// [`coding::prepare_agent_shell`] (doctor → token → clone/autopull →
+    /// MCP wiring → promptless argv with the agent's settings defaults) →
+    /// foreground [`TabKind::AgentShell`] tab in THIS dock. No
+    /// `coding_sessions` row / heartbeat / exit hook — the session has no
+    /// issue/batch/action subject; the P9 token-refresher hold keeps `git
+    /// push` working past the token TTL, released on tab close.
+    fn launch_agent_shell(
+        &mut self,
+        agent: coding::CodingAgent,
+        repository_id: String,
+        full_name: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(deps) = crate::coding_flow::build_action_deps(cx) else {
+            log::warn!("terminal dock: agent shell ignored — not signed in");
+            return;
+        };
+        let options = coding::LaunchOptions::defaults_for(&deps.settings, agent);
+        let request = coding::AgentShellRequest {
+            options,
+            repository_id,
+            full_name,
+        };
+        cx.spawn_in(window, async move |this, cx| {
+            let prepared = cx
+                .background_executor()
+                .spawn(async move { coding::prepare_agent_shell(&request, &deps) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let launch = match prepared {
+                    Ok(coding::PreparedAgentShell::Ready(launch)) => launch,
+                    Ok(coding::PreparedAgentShell::Disabled(reason)) => {
+                        window.push_notification(
+                            Notification::error(SharedString::from(reason.message())),
+                            cx,
+                        );
+                        return;
+                    }
+                    Err(err) => {
+                        log::warn!("terminal dock: agent shell prepare failed: {err}");
+                        window.push_notification(
+                            Notification::error(SharedString::from(err.to_string())),
+                            cx,
+                        );
+                        return;
+                    }
+                };
+                let opened = this.manager.update(cx, |manager, cx| {
+                    manager.open_tab(
+                        TabKind::AgentShell,
+                        launch.tab_title.clone(),
+                        Some(launch.tab_title_prefix.clone().into()),
+                        &launch.spawn,
+                        None,
+                        cx,
+                    )
+                });
+                match opened {
+                    Ok(tab_id) => {
+                        TokenRefreshers::retain(&launch.clone, &launch.repository_id, cx);
+                        this.agent_shell_holds.insert(tab_id, launch.clone.clone());
+                    }
+                    Err(error) => {
+                        log::warn!("terminal dock: agent shell spawn failed: {error:#}");
+                        window.push_notification(
+                            Notification::error(SharedString::from(error.to_string())),
+                            cx,
+                        );
+                    }
+                }
+            });
+        })
+        .detach();
     }
 
     /// The collapsed-dock strip: the bottom dock keeps a 29px band
@@ -647,6 +973,45 @@ struct TabMeta {
     id: TabId,
     title: SharedString,
     exit_code: Option<i32>,
+    /// EXP-325: present when this tab is a LOCAL issue coding session whose
+    /// issue row is synced — the chip then renders the center issue-tab
+    /// treatment (status glyph + mono identifier + synced title + hover
+    /// merge) instead of the plain terminal title. Batch/action/shell tabs
+    /// (and unsynced issues) stay `None`.
+    issue: Option<IssueTabMeta>,
+}
+
+/// The issue-chip snapshot of one issue-session terminal tab (EXP-325).
+struct IssueTabMeta {
+    issue_id: String,
+    status: domain::statuses::ResolvedStatus,
+    identifier: SharedString,
+    /// `None` for a blank issue title — the identifier already labels the
+    /// chip (the EXP-310 center-tab rule).
+    title: Option<SharedString>,
+    /// Whether the issue's PR is open — gates the hover merge button.
+    pr_open: bool,
+}
+
+/// Resolve a tab back to its issue chip, when it is an issue session over a
+/// synced issue row (mirrors `screens::chip_content`).
+fn issue_tab_meta(tab_id: TabId, cx: &App) -> Option<IssueTabMeta> {
+    let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
+    let sessions = sessions.read(cx);
+    let crate::coding_flow::SessionSubject::Issue(issue_id) = sessions.subject_for_tab(tab_id)?
+    else {
+        return None;
+    };
+    let store = sync::Store::try_global(cx)?;
+    let issue = store.collections().issues.read(cx).get(issue_id)?;
+    let title = issue.title.trim();
+    Some(IssueTabMeta {
+        issue_id: issue.id.clone(),
+        status: crate::queries::resolve_issue_status(cx, issue),
+        identifier: SharedString::from(issue.identifier.clone()),
+        title: (!title.is_empty()).then(|| SharedString::from(title.to_string())),
+        pr_open: issue.pr_state.as_deref() == Some("open"),
+    })
 }
 
 impl Panel for TerminalDockPanel {
@@ -720,6 +1085,7 @@ impl Render for TerminalDockPanel {
                     id: tab.id,
                     title: tab.title().clone(),
                     exit_code: tab.exit_code(),
+                    issue: issue_tab_meta(tab.id, cx),
                 })
                 .collect();
             let active = manager

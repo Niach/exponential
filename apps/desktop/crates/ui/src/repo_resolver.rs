@@ -208,6 +208,22 @@ impl RepoResolver {
         }
     }
 
+    /// The team's DISTINCT board-backed repos, fetch order preserved
+    /// (EXP-325 — the "+" agent menu: one repo launches directly, several
+    /// open a picker submenu). `None` until `repositories.list` resolves;
+    /// repos no board points at are omitted (they have no trunk surface).
+    pub fn board_backed_repos(&self) -> Option<Vec<ResolvedRepo>> {
+        match &self.state {
+            State::Ready(repos) => Some(
+                repos
+                    .iter()
+                    .filter(|repo| !repo.board_ids.is_empty())
+                    .cloned()
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
 }
 
 /// A team's (board → repository) links from the SYNCED boards rows

@@ -41,6 +41,11 @@ pub enum TabKind {
     /// `actions` row id (plain string; the `terminal` crate has no api/DB
     /// types — §6.1 dependency rule).
     Action(String),
+    /// An EXP-325 "+"-menu agent session: a promptless interactive agent CLI
+    /// on the repo's trunk clone with NO issue/batch/action subject — no
+    /// `coding_sessions` row, no steer room. Holds trunk auto-sync off like
+    /// an action run (the agent edits the trunk in place).
+    AgentShell,
     /// A plain "+" terminal (`$SHELL -l`), like any IDE.
     Shell,
 }

@@ -91,14 +91,6 @@ pub struct PropertiesPanel {
     /// group (EXP-256, web parity — the entity stays owned by the detail
     /// view, which also reads its `resolved_repo` for the actions menu).
     start_coding: Entity<StartCodingControl>,
-    /// Merge button state (EXP-268 — the reviews-rail two-click arm pattern):
-    /// the armed issue id, its auto-disarm sequence, the in-flight issue id
-    /// (spinner held until the Electric echo flips `pr_state`), the last
-    /// failure caption.
-    merge_arm: Option<String>,
-    merge_arm_seq: u64,
-    merging: Option<String>,
-    merge_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -146,6 +138,7 @@ impl PropertiesPanel {
         // skip-while-local guard follows the local registry. The toolbar's
         // subscribe toggle follows the issue_subscribers shape (EXP-277).
         let local_sessions = LocalSessions::global(cx);
+        let merge_state = crate::pr_merge::MergeState::global(cx);
         for subscription in [
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
@@ -157,6 +150,9 @@ impl PropertiesPanel {
             // EXP-314: a status rename/recolor re-renders the status control.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
+            // EXP-325: the Merge button's arm/spinner/error live in the
+            // shared app-global merge state (any surface can drive them).
+            cx.observe(&merge_state, |_, _, cx| cx.notify()),
         ] {
             subscriptions.push(subscription);
         }
@@ -181,10 +177,6 @@ impl PropertiesPanel {
             link_copied: false,
             link_copied_seq: 0,
             start_coding,
-            merge_arm: None,
-            merge_arm_seq: 0,
-            merging: None,
-            merge_error: None,
             _subscriptions: subscriptions,
         }
     }
@@ -584,7 +576,8 @@ impl PropertiesPanel {
         column = column.child(self.start_coding.clone());
         if issue.pr_state.as_deref() == Some("open") {
             column = column.child(self.merge_button(issue, cx));
-            if let Some(error) = self.merge_error.clone() {
+            let error = crate::pr_merge::MergeState::global(cx).read(cx).error(&issue.id);
+            if let Some(error) = error {
                 column = column.child(
                     div()
                         .text_xs()
@@ -650,8 +643,9 @@ impl PropertiesPanel {
     /// also drops the whole button); the server ends the issue's live
     /// coding session on merge, so the terminal tears down on its own.
     fn merge_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let armed = self.merge_arm.as_deref() == Some(issue.id.as_str());
-        let merging = self.merging.as_deref() == Some(issue.id.as_str());
+        let merge_state = crate::pr_merge::MergeState::global(cx);
+        let armed = merge_state.read(cx).armed(&issue.id);
+        let merging = merge_state.read(cx).merging(&issue.id);
         let issue_id = issue.id.clone();
         let mut button = Button::new("sidebar-merge-pr")
             .outline()
@@ -670,73 +664,20 @@ impl PropertiesPanel {
                 "Merge PR"
             })
             .tooltip("Merge the pull request — completes every linked issue and ends its coding session")
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.on_merge_click(issue_id.clone(), cx);
+            .on_click(cx.listener(move |_, _, _, cx| {
+                crate::pr_merge::two_click(
+                    crate::pr_merge::MergeOp::MergeIssuePr {
+                        issue_id: issue_id.clone(),
+                    },
+                    None,
+                    None,
+                    cx,
+                );
             }));
         if merging {
             button = button.disabled(true);
         }
         button
-    }
-
-    fn on_merge_click(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        if self.merging.is_some() {
-            return;
-        }
-        if self.merge_arm.as_deref() != Some(issue_id.as_str()) {
-            // First click arms; auto-disarm after ~5s (seq-guarded).
-            self.merge_arm = Some(issue_id);
-            self.merge_arm_seq += 1;
-            let seq = self.merge_arm_seq;
-            cx.spawn(async move |this, cx| {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(5))
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    if this.merge_arm_seq == seq && this.merge_arm.is_some() {
-                        this.merge_arm = None;
-                        cx.notify();
-                    }
-                });
-            })
-            .detach();
-            cx.notify();
-            return;
-        }
-
-        // Confirmed — fire the server-side squash merge.
-        self.merge_arm = None;
-        self.merge_arm_seq += 1;
-        self.merge_error = None;
-        let Some(trpc) = queries::trpc_client(cx) else {
-            log::warn!("[ui] issues.mergePr skipped: no active account");
-            cx.notify();
-            return;
-        };
-        self.merging = Some(issue_id.clone());
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let call_id = issue_id.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::issues::merge_pr(&trpc, &call_id) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Err(err) = result {
-                    log::warn!("[ui] issues.mergePr({issue_id}) failed: {err}");
-                    let message = match err {
-                        api::ApiError::Http { message, .. } => message,
-                        other => other.to_string(),
-                    };
-                    this.merging = None;
-                    this.merge_error = Some(SharedString::from(message));
-                    cx.notify();
-                }
-                // Success: the Electric echo flips `pr_state` and the whole
-                // button leaves the panel (the issues observer re-renders).
-            });
-        })
-        .detach();
     }
 
     // -- EXP-277: the former issue-detail header cluster ---------------------

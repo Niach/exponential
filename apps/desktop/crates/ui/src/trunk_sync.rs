@@ -379,11 +379,11 @@ impl TrunkSync {
         branches
     }
 
-    /// Whether a live Action tab is working inside this repo's clone (or
-    /// one of its worktrees) — the sync hold-off (an action runs ON the
-    /// trunk clone or a PR worktree, so an ff under it would move the tree
-    /// under Claude's feet; EXP-259 deleted the ClaudeTask kind this also
-    /// used to match).
+    /// Whether a live Action (or EXP-325 promptless AgentShell) tab is
+    /// working inside this repo's clone (or one of its worktrees) — the sync
+    /// hold-off (both run ON the trunk clone or a PR worktree, so an ff
+    /// under them would move the tree under Claude's feet; EXP-259 deleted
+    /// the ClaudeTask kind this also used to match).
     /// AutoSync skips its whole pass; a user Fetch degrades to fetch-only;
     /// Source Control reads it to word the hard-reset confirm. Shell tabs
     /// deliberately do NOT hold sync off: a shell is alive for entire work
@@ -398,7 +398,7 @@ impl TrunkSync {
         };
         let worktrees = git_worktree::worktrees_dir(&repo.clone);
         manager.read(cx).tabs().iter().any(|tab| {
-            matches!(tab.kind, TabKind::Action(_))
+            matches!(tab.kind, TabKind::Action(_) | TabKind::AgentShell)
                 && tab.is_running()
                 && tab
                     .cwd

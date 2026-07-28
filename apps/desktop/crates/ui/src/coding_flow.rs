@@ -274,6 +274,18 @@ impl LocalSessions {
             .map(|session| session.session_id.as_str())
     }
 
+    /// The subject whose terminal tab is `tab` — the terminal dock resolves
+    /// an issue-session tab back to its issue for the EXP-325 issue-styled
+    /// chip (status glyph + identifier + synced title + hover merge).
+    pub fn subject_for_tab(&self, tab: TabId) -> Option<&SessionSubject> {
+        self.by_issue
+            .values()
+            .chain(self.by_batch.values())
+            .chain(self.by_action.values())
+            .find(|session| session.tab == tab)
+            .map(|session| &session.subject)
+    }
+
     /// Every live local session's row id (issue + batch) — the EXP-105
     /// quit-time sweep input, the EXP-229 reconcile skip-set, and the
     /// sign-out sweep input.

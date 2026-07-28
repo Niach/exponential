@@ -137,7 +137,14 @@ impl LaunchOptions {
     /// multi-issue batch run seed identically; the per-run-mode settings
     /// pairs are gone.
     pub fn defaults(settings: &Settings) -> Self {
-        let agent = settings.default_agent;
+        Self::defaults_for(settings, settings.default_agent)
+    }
+
+    /// The settings-default options for an EXPLICIT agent pick (EXP-325 —
+    /// the terminal dock's "+" menu launches whichever installed agent was
+    /// clicked, with that agent's persisted model/effort/toggles and the
+    /// usual capability masking).
+    pub fn defaults_for(settings: &Settings, agent: CodingAgent) -> Self {
         Self {
             agent,
             model: settings.model_for(agent).to_string(),
@@ -230,11 +237,16 @@ impl LaunchOptions {
 ///   worktree from codex's rollout metas ([`crate::codex_sessions`]).
 ///   `resume` rides argv-FIRST (it is a subcommand, verified to accept the
 ///   same `-m`/`-c`/sandbox/approval flags as a fresh spawn).
+/// - `None` — a FRESH interactive session with no seed prompt (EXP-325: the
+///   terminal dock's "+" agent launch). Appends nothing on every agent —
+///   deliberately not `Continue`, which would resume the cwd's latest
+///   conversation instead of starting empty.
 #[derive(Clone, Copy, Debug)]
 pub enum SessionTail<'a> {
     Prompt(&'a str),
     Continue,
     CodexResume(&'a str),
+    None,
 }
 
 /// The coding-session argv for `opts.agent`, tail LAST always (the prompt
@@ -358,6 +370,8 @@ pub fn session_args(
             args.insert(1, id.to_string());
         }
         SessionTail::CodexResume(_) => {}
+        // A fresh promptless interactive session — nothing to append.
+        SessionTail::None => {}
     }
     args
 }
@@ -735,6 +749,78 @@ mod tests {
         let args =
             session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::CodexResume("x"));
         assert!(!args.iter().any(|arg| arg == "resume" || arg == "x"));
+    }
+
+    /// EXP-325: the promptless tail — a fresh interactive session appends
+    /// NOTHING on any agent (never `--continue`, which would resume).
+    #[test]
+    fn none_tail_appends_nothing_on_every_agent() {
+        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::None);
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("--allow-dangerously-skip-permissions")
+        );
+        assert!(!args.iter().any(|arg| arg == "--continue"));
+
+        let codex = LaunchOptions {
+            agent: CodingAgent::Codex,
+            model: "".to_string(),
+            effort: "".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+        let mcp = AgentMcp::CodexOverrides {
+            url: "https://app.exponential.at/api/mcp".to_string(),
+        };
+        let args = session_args(&codex, &mcp, None, SessionTail::None);
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("sandbox_workspace_write.network_access=true")
+        );
+
+        let pi = LaunchOptions {
+            agent: CodingAgent::Pi,
+            model: "".to_string(),
+            effort: "".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+        let args = session_args(&pi, &AgentMcp::PiExtension, None, SessionTail::None);
+        assert_eq!(args, vec!["-e", "./.exp-pi-mcp.ts"]);
+    }
+
+    /// EXP-325: an explicit agent pick seeds THAT agent's persisted pair and
+    /// masks capabilities — regardless of the default agent.
+    #[test]
+    fn defaults_for_follow_the_picked_agent() {
+        let mut settings = Settings::default();
+        settings.default_agent = CodingAgent::Claude;
+        settings.claude_ultracode = true; // claude-only — must mask on codex
+        settings.claude_plan_mode = true;
+        settings.codex_model = "gpt-5.6-terra".to_string();
+        settings.codex_effort = "xhigh".to_string();
+        settings.codex_skip_permissions = true;
+
+        let opts = LaunchOptions::defaults_for(&settings, CodingAgent::Codex);
+        assert_eq!(opts.agent, CodingAgent::Codex);
+        assert_eq!(opts.model, "gpt-5.6-terra");
+        assert_eq!(opts.effort, "xhigh");
+        assert!(!opts.ultracode);
+        assert!(!opts.plan_mode);
+        assert!(opts.skip_permissions, "codex's own skip default");
+
+        // `defaults` stays the default-agent shorthand.
+        let via_default = LaunchOptions::defaults(&settings);
+        let via_for = LaunchOptions::defaults_for(&settings, settings.default_agent);
+        assert_eq!(via_default.agent, via_for.agent);
+        assert_eq!(via_default.model, via_for.model);
+        assert_eq!(via_default.effort, via_for.effort);
+
+        let opts = LaunchOptions::defaults_for(&settings, CodingAgent::Pi);
+        assert_eq!(opts.agent, CodingAgent::Pi);
+        assert!(!opts.skip_permissions, "pi has no permission system");
     }
 
     #[test]

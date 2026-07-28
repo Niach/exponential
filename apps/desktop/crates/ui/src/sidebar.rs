@@ -1233,22 +1233,6 @@ pub struct SidebarPanel {
     history: Entity<crate::source_control::HistoryList>,
     /// The Actions tool window (EXP-253).
     actions_panel: Entity<crate::actions_panel::ActionsPanel>,
-    /// Two-click merge/close confirm: the armed row's key — an issue id,
-    /// `close:<issue id>` for the issue row's close-without-merge button
-    /// (see [`close_pr_key`]), or `repo#number` for an unlinked pull (see
-    /// [`pull_merge_key`]). Any other click or ~5s of inactivity disarms.
-    review_arm: Option<String>,
-    /// Bumped on every arm/disarm — a stale disarm timer checks it before
-    /// clearing so it never cancels a newer arm.
-    review_arm_seq: u64,
-    /// Row keys with an in-flight merge/close call (`issues.mergePr`,
-    /// `issues.closePr` under [`close_pr_key`], or `repositories.mergePull`).
-    /// Issue rows keep the key until the Electric echo removes the row
-    /// (render prunes it); pull rows clear on completion.
-    review_merging: HashSet<String>,
-    /// The last merge failure, `(row_key, message)` — a caption under the
-    /// row, cleared on the next attempt.
-    review_error: Option<(String, String)>,
     /// Fetched `repositories.openPulls` result: `(team_id, repos)` —
     /// open PRs with NO issue link (release PRs, manual branches, external
     /// contributors), listed straight from GitHub. Rendered below the board
@@ -1276,20 +1260,7 @@ pub struct SidebarPanel {
     _subscriptions: Vec<Subscription>,
 }
 
-/// Merge-state key for an unlinked pull. `review_arm`/`review_merging`/
-/// `review_error` share the namespace with issue rows, whose keys are issue
-/// UUIDs — `repo-uuid#number` can never collide with those.
-fn pull_merge_key(repository_id: &str, number: u64) -> String {
-    format!("{repository_id}#{number}")
-}
-
-/// Arm/in-flight key for an issue row's close-without-merge action (EXP-100).
-/// Shares the `review_arm`/`review_merging` namespace with the merge keys —
-/// the `close:` prefix can never collide with an issue UUID or a
-/// `repo-uuid#number` pull key.
-fn close_pr_key(issue_id: &str) -> String {
-    format!("close:{issue_id}")
-}
+use crate::pr_merge::{close_pr_key, pull_merge_key, MergeOp, MergeState};
 
 /// Fire-and-forget `notifications.markRead` over a group's unread rows (the
 /// web `markGroupRead`) — the Electric echo clears the dots.
@@ -1345,6 +1316,7 @@ impl SidebarPanel {
         let actions_panel = cx.new(|cx| crate::actions_panel::ActionsPanel::new(window, cx));
         let collections = Store::global(cx).collections().clone();
         let local_sessions = coding_flow::LocalSessions::global(cx);
+        let merge_state = MergeState::global(cx);
         let subscriptions = vec![
             // Rail toggles swap the tool window.
             cx.observe(&shared, |_, _, cx| cx.notify()),
@@ -1359,6 +1331,9 @@ impl SidebarPanel {
             // Start↔Stop flip rides the process-global LocalSessions registry.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
+            // EXP-325: the Reviews rows' merge arm/spinner/error live in the
+            // shared app-global merge state (any surface can drive them).
+            cx.observe(&merge_state, |_, _, cx| cx.notify()),
             // Sync state rides the shared trunk-sync engine.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
             // Active-row highlight follows navigation.
@@ -1370,10 +1345,6 @@ impl SidebarPanel {
             shared,
             board_active,
             board_my,
-            review_arm: None,
-            review_arm_seq: 0,
-            review_merging: HashSet::new(),
-            review_error: None,
             open_pulls: None,
             open_pulls_key: None,
             open_pulls_seq: 0,
@@ -1952,43 +1923,21 @@ impl SidebarPanel {
             .map(|(_, repos)| queries::visible_pull_repos(repos))
             .unwrap_or_default();
 
-        // Rows that merged/closed (or left the team scope) drop their
-        // transient merge state — this is also where a successful merge's
-        // lingering "Merging…" id gets collected once the echo lands.
+        // Unlinked pulls have no Electric echo — a pull merged elsewhere
+        // drops its transient merge state here against the fetched list.
+        // (Issue rows are echo-settled by the shared state's own issues
+        // observer, EXP-325.)
         {
-            let mut live_ids: HashSet<String> = groups
+            let live_keys: HashSet<String> = pull_repos
                 .iter()
-                .flat_map(|group| group.entries.iter())
-                .flat_map(|entry| {
-                    // Merge/close target the representative id, but keep every
-                    // linked issue's id live so no transient state is dropped
-                    // while a batch PR is in flight.
-                    entry
-                        .issues
+                .flat_map(|repo| {
+                    repo.pulls
                         .iter()
-                        .flat_map(|issue| [issue.id.clone(), close_pr_key(&issue.id)])
+                        .map(|pull| pull_merge_key(&repo.repository_id, pull.number))
                 })
                 .collect();
-            for repo in &pull_repos {
-                for pull in &repo.pulls {
-                    live_ids.insert(pull_merge_key(&repo.repository_id, pull.number));
-                }
-            }
-            self.review_merging.retain(|id| live_ids.contains(id));
-            if self
-                .review_arm
-                .as_deref()
-                .is_some_and(|id| !live_ids.contains(id))
-            {
-                self.review_arm = None;
-            }
-            if self
-                .review_error
-                .as_ref()
-                .is_some_and(|(id, _)| !live_ids.contains(id.as_str()))
-            {
-                self.review_error = None;
-            }
+            MergeState::global(cx)
+                .update(cx, |state, cx| state.retain_pull_keys(&live_keys, cx));
         }
 
         let header = self.tool_header(Icon::from(ExpIcon::GitPullRequest), "Reviews", cx);
@@ -2140,16 +2089,21 @@ impl SidebarPanel {
             resolved_screen(&self.nav, cx),
             Some(Screen::PrDiff { issue_id }) if issue_id == issue.id
         );
-        let merging = self.review_merging.contains(&issue.id);
-        let armed = self.review_arm.as_deref() == Some(issue.id.as_str());
+        // EXP-325: the two-click arm/spinner/error live in the shared
+        // app-global merge state — a merge driven from the issue-detail
+        // sidebar or a terminal tab renders here identically.
         let close_key = close_pr_key(&issue.id);
-        let closing = self.review_merging.contains(&close_key);
-        let close_armed = self.review_arm.as_deref() == Some(close_key.as_str());
-        let error: Option<String> = self
-            .review_error
-            .as_ref()
-            .filter(|(id, _)| *id == issue.id)
-            .map(|(_, message)| message.clone());
+        let (merging, armed, closing, close_armed, error) = {
+            let state = MergeState::global(cx);
+            let state = state.read(cx);
+            (
+                state.merging(&issue.id),
+                state.armed(&issue.id),
+                state.merging(&close_key),
+                state.armed(&close_key),
+                state.error(&issue.id),
+            )
+        };
         // EXP-259: a failed merge (typically "not mergeable" — conflicts)
         // offers the builtin "Fix merge conflicts" action run right on the
         // row. Needs the PR's recorded branch (the run rebases it); while a
@@ -2194,9 +2148,16 @@ impl SidebarPanel {
                 button = button.label("Merge").disabled(closing);
             }
             let click_id = issue.id.clone();
-            button.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                this.on_merge_click(click_id.clone(), cx);
+                crate::pr_merge::two_click(
+                    MergeOp::MergeIssuePr {
+                        issue_id: click_id.clone(),
+                    },
+                    None,
+                    None,
+                    cx,
+                );
             }))
         };
 
@@ -2220,9 +2181,16 @@ impl SidebarPanel {
                     .disabled(merging);
             }
             let click_id = issue.id.clone();
-            button.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                this.on_close_pr_click(click_id.clone(), cx);
+                crate::pr_merge::two_click(
+                    MergeOp::CloseIssuePr {
+                        issue_id: click_id.clone(),
+                    },
+                    None,
+                    None,
+                    cx,
+                );
             }))
         };
 
@@ -2237,13 +2205,9 @@ impl SidebarPanel {
             .when(selected, |this| this.bg(row_active))
             .hover(|this| this.bg(row_hover))
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _, window, cx| {
+            .on_click(cx.listener(move |_, _, window, cx| {
                 // Any click outside the armed button disarms the confirm.
-                if this.review_arm.is_some() {
-                    this.review_arm = None;
-                    this.review_arm_seq += 1;
-                    cx.notify();
-                }
+                MergeState::disarm(cx);
                 // The PR diff (EXP-181): a review click is about the CODE —
                 // the diff screen renders it, and its header links back to
                 // the issue detail for the body.
@@ -2341,135 +2305,6 @@ impl SidebarPanel {
         crate::start_coding_dialog::open_for_fix_conflicts(window, cx, team_id, issue_id);
     }
 
-    /// The Merge button's two-click flow: first click arms (auto-disarm after
-    /// ~5s), second click fires `issues.mergePr` on the background executor.
-    /// Failures come back to a caption under the row; success leaves the
-    /// spinner until the Electric echo removes the row.
-    fn on_merge_click(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        // Ignore while either action on this row is already in flight.
-        if self.review_merging.contains(&issue_id)
-            || self.review_merging.contains(&close_pr_key(&issue_id))
-        {
-            return;
-        }
-        if self.review_arm.as_deref() != Some(issue_id.as_str()) {
-            self.arm_merge_confirm(issue_id, cx);
-            return;
-        }
-
-        // Confirmed — fire the server-side squash merge.
-        self.review_arm = None;
-        self.review_arm_seq += 1;
-        self.review_error = None;
-        let Some(trpc) = queries::trpc_client(cx) else {
-            log::warn!("[ui] issues.mergePr skipped: no active account");
-            cx.notify();
-            return;
-        };
-        self.review_merging.insert(issue_id.clone());
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let call_id = issue_id.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::issues::merge_pr(&trpc, &call_id) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Err(err) = result {
-                    log::warn!("[ui] issues.mergePr({issue_id}) failed: {err}");
-                    // Show the server's user-facing message when there is
-                    // one; transport-level errors keep the full rendering.
-                    let message = match err {
-                        api::ApiError::Http { message, .. } => message,
-                        other => other.to_string(),
-                    };
-                    this.review_merging.remove(&issue_id);
-                    this.review_error = Some((issue_id.clone(), message));
-                    cx.notify();
-                }
-                // Success: nothing to do — the collection observer re-renders
-                // when the echo flips `pr_state` and the row leaves the list.
-            });
-        })
-        .detach();
-    }
-
-    /// The subtle Close-PR button's two-click flow (EXP-100): first click
-    /// arms (auto-disarm after ~5s), second click fires `issues.closePr` on
-    /// the background executor — closes the PR on GitHub WITHOUT merging.
-    /// Failures caption the row; success leaves the spinner until the
-    /// Electric echo flips `pr_state` to closed and the row leaves the list.
-    fn on_close_pr_click(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        let key = close_pr_key(&issue_id);
-        // Ignore while either action on this row is already in flight.
-        if self.review_merging.contains(&key) || self.review_merging.contains(&issue_id) {
-            return;
-        }
-        if self.review_arm.as_deref() != Some(key.as_str()) {
-            self.arm_merge_confirm(key, cx);
-            return;
-        }
-
-        // Confirmed — fire the server-side close.
-        self.review_arm = None;
-        self.review_arm_seq += 1;
-        self.review_error = None;
-        let Some(trpc) = queries::trpc_client(cx) else {
-            log::warn!("[ui] issues.closePr skipped: no active account");
-            cx.notify();
-            return;
-        };
-        self.review_merging.insert(key.clone());
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let call_id = issue_id.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::issues::close_pr(&trpc, &call_id) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Err(err) = result {
-                    log::warn!("[ui] issues.closePr({issue_id}) failed: {err}");
-                    // Show the server's user-facing message when there is
-                    // one; transport-level errors keep the full rendering.
-                    let message = match err {
-                        api::ApiError::Http { message, .. } => message,
-                        other => other.to_string(),
-                    };
-                    this.review_merging.remove(&key);
-                    // Error captions key on the ROW (the issue id), not the
-                    // close key — the caption renders under the row either way.
-                    this.review_error = Some((issue_id.clone(), message));
-                    cx.notify();
-                }
-                // Success: nothing to do — the collection observer re-renders
-                // when the echo flips `pr_state` and the row leaves the list.
-            });
-        })
-        .detach();
-    }
-
-    /// First click of the two-click merge confirm: arm `key` (an issue id or
-    /// an unlinked-pull key) and start the ~5s auto-disarm timer.
-    fn arm_merge_confirm(&mut self, key: String, cx: &mut gpui::Context<Self>) {
-        self.review_arm = Some(key);
-        self.review_arm_seq += 1;
-        let seq = self.review_arm_seq;
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(std::time::Duration::from_secs(5))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.review_arm_seq == seq && this.review_arm.is_some() {
-                    this.review_arm = None;
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-
     /// Kick the `repositories.openPulls` fetch when the Reviews tool window
     /// is shown or the team changes — never on a timer (the server
     /// caches ~60s). Data from another team is dropped immediately; a
@@ -2539,13 +2374,11 @@ impl SidebarPanel {
         let pr_green = theme::tokens::GREEN.to_hsla();
 
         let key = pull_merge_key(repository_id, pull.number);
-        let merging = self.review_merging.contains(&key);
-        let armed = self.review_arm.as_deref() == Some(key.as_str());
-        let error: Option<String> = self
-            .review_error
-            .as_ref()
-            .filter(|(id, _)| *id == key)
-            .map(|(_, message)| message.clone());
+        let (merging, armed, error) = {
+            let state = MergeState::global(cx);
+            let state = state.read(cx);
+            (state.merging(&key), state.armed(&key), state.error(&key))
+        };
 
         let sub = format!("{} \u{2192} {}", pull.branch, pull.base_branch);
 
@@ -2564,9 +2397,28 @@ impl SidebarPanel {
             }
             let click_repo = repository_id.to_string();
             let number = pull.number;
-            button.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                this.on_pull_merge_click(click_repo.clone(), number, cx);
+                // There is no Electric echo for unlinked pulls — success
+                // drops the row from this panel's fetched state.
+                let panel = cx.entity().downgrade();
+                let success_repo = click_repo.clone();
+                crate::pr_merge::two_click(
+                    MergeOp::MergePull {
+                        repository_id: click_repo.clone(),
+                        number,
+                    },
+                    None,
+                    Some(Box::new(move |cx: &mut gpui::App| {
+                        let _ = panel.update(cx, |this: &mut Self, cx| {
+                            if let Some((_, repos)) = this.open_pulls.as_mut() {
+                                queries::remove_merged_pull(repos, &success_repo, number);
+                            }
+                            cx.notify();
+                        });
+                    })),
+                    cx,
+                );
             }))
         };
 
@@ -2580,13 +2432,9 @@ impl SidebarPanel {
             .rounded(radius)
             .hover(|this| this.bg(row_hover))
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| {
+            .on_click(cx.listener(move |_, _, _, cx| {
                 // Any click outside the armed button disarms the confirm.
-                if this.review_arm.is_some() {
-                    this.review_arm = None;
-                    this.review_arm_seq += 1;
-                    cx.notify();
-                }
+                MergeState::disarm(cx);
                 crate::settings::open_url(cx, url.clone());
             }))
             .child(
@@ -2650,68 +2498,6 @@ impl SidebarPanel {
                 )
             })
             .into_any_element()
-    }
-
-    /// The unlinked-pull Merge flow: same two-click confirm as issue rows,
-    /// firing `repositories.mergePull`. There is no Electric echo — success
-    /// removes the pull from the fetched state; failures caption the row.
-    fn on_pull_merge_click(
-        &mut self,
-        repository_id: String,
-        number: u64,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let key = pull_merge_key(&repository_id, number);
-        if self.review_merging.contains(&key) {
-            return;
-        }
-        if self.review_arm.as_deref() != Some(key.as_str()) {
-            self.arm_merge_confirm(key, cx);
-            return;
-        }
-
-        // Confirmed — fire the server-side squash merge.
-        self.review_arm = None;
-        self.review_arm_seq += 1;
-        self.review_error = None;
-        let Some(trpc) = queries::trpc_client(cx) else {
-            log::warn!("[ui] repositories.mergePull skipped: no active account");
-            cx.notify();
-            return;
-        };
-        self.review_merging.insert(key.clone());
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let call_repo = repository_id.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::repositories::merge_pull(&trpc, &call_repo, number) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.review_merging.remove(&key);
-                match result {
-                    Ok(_) => {
-                        if let Some((_, repos)) = this.open_pulls.as_mut() {
-                            queries::remove_merged_pull(repos, &repository_id, number);
-                        }
-                    }
-                    Err(err) => {
-                        log::warn!(
-                            "[ui] repositories.mergePull({repository_id}#{number}) failed: {err}"
-                        );
-                        // Show the server's user-facing message when there is
-                        // one; transport-level errors keep the full rendering.
-                        let message = match err {
-                            api::ApiError::Http { message, .. } => message,
-                            other => other.to_string(),
-                        };
-                        this.review_error = Some((key.clone(), message));
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
     }
 
     // -- Support tool window ----------------------------------------------------
