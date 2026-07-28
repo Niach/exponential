@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     id: string
     productId: string
     creemSubscriptionId: string | null
+    creemCustomerId: string | null
     seats: number
     periodEnd: Date | null
     cancelAtPeriodEnd: boolean
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   updates: [] as Array<Record<string, unknown>>,
   schedule: vi.fn(async () => {}),
   resume: vi.fn(async () => {}),
+  portal: vi.fn(async () => `https://creem.test/portal`),
   access: vi.fn(async () => ({ role: `owner` })),
 }))
 
@@ -53,6 +55,8 @@ vi.mock(`@creem_io/better-auth/server`, () => ({
 
 vi.mock(`@/lib/billing/creem-subscriptions`, () => ({
   assertSubscriptionMutable: vi.fn(),
+  createCustomerPortalLink: (...args: unknown[]) =>
+    mocks.portal(...(args as [])),
   getActiveTeamSubscription: async () => mocks.subscription,
   resumeCreemSubscription: (...args: unknown[]) =>
     mocks.resume(...(args as [])),
@@ -81,6 +85,7 @@ beforeEach(() => {
     id: `row-1`,
     productId: `prod_team`,
     creemSubscriptionId: `sub_1`,
+    creemCustomerId: `cust_1`,
     seats: 3,
     periodEnd: PERIOD_END,
     cancelAtPeriodEnd: false,
@@ -89,6 +94,7 @@ beforeEach(() => {
   mocks.updates.length = 0
   mocks.schedule.mockClear()
   mocks.resume.mockClear()
+  mocks.portal.mockClear()
   mocks.access.mockClear()
 })
 
@@ -211,6 +217,52 @@ describe(`billing.resumeSubscription`, () => {
       caller().resumeSubscription({ teamId: WS })
     ).rejects.toThrow(/not scheduled to cancel/)
     expect(mocks.resume).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-315: the customer portal (invoices, payment method, self-service
+// cancel) is minted off the SUBSCRIPTION row's Creem customer — team-owned
+// per REV2-55, so any current owner reaches it, not just the purchaser.
+describe(`billing.createPortalSession`, () => {
+  it(`mints a portal link for the subscription's Creem customer`, async () => {
+    const result = await caller().createPortalSession({ teamId: WS })
+
+    expect(mocks.portal).toHaveBeenCalledWith(`cust_1`)
+    expect(result).toEqual({ url: `https://creem.test/portal` })
+  })
+
+  it(`is owner-only`, async () => {
+    await caller().createPortalSession({ teamId: WS })
+    expect(mocks.access).toHaveBeenCalledWith(
+      `user-a`,
+      WS,
+      `mutate_resources`,
+      { roles: [`owner`] }
+    )
+  })
+
+  it(`refuses when the team has no active subscription`, async () => {
+    mocks.subscription = null
+    await expect(
+      caller().createPortalSession({ teamId: WS })
+    ).rejects.toThrow(/no active subscription/)
+    expect(mocks.portal).not.toHaveBeenCalled()
+  })
+
+  // A pending cancellation keeps the paid period alive — the owner still
+  // needs invoices until it ends, so the portal must stay reachable.
+  it(`still works while a cancellation is pending`, async () => {
+    mocks.subscription = { ...mocks.subscription!, cancelAtPeriodEnd: true }
+    const result = await caller().createPortalSession({ teamId: WS })
+    expect(result.url).toBe(`https://creem.test/portal`)
+  })
+
+  it(`refuses a legacy row with no Creem customer id`, async () => {
+    mocks.subscription = { ...mocks.subscription!, creemCustomerId: null }
+    await expect(
+      caller().createPortalSession({ teamId: WS })
+    ).rejects.toThrow(/contact support/)
+    expect(mocks.portal).not.toHaveBeenCalled()
   })
 })
 
