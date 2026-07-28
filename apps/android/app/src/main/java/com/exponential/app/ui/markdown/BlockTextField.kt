@@ -1,5 +1,6 @@
 package com.exponential.app.ui.markdown
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -7,13 +8,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,6 +34,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -37,13 +44,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -86,12 +92,22 @@ fun BlockTextField(
         mutableStateOf(TextFieldValue(text = row.text, selection = TextRange(row.text.length)))
     }
 
+    // Whether a TEXT change armed the `@`/`#` menu. Web only opens the
+    // autocomplete on a document change (editor-autocomplete.ts:
+    // `if (next && last === null && !docChanged) return`); without this, moving
+    // the caret into an existing `#EXP-238` popped the menu and nothing could
+    // dismiss it (EXP-322).
+    var armed by remember(row.id) { mutableStateOf(false) }
+
     // Re-seed from the model only on structural/external change (revision bump).
     LaunchedEffect(revision) {
         val caret = model.consumeDesiredSelection(row.id) ?: value.selection.start.coerceIn(0, row.text.length)
         if (value.text != row.text || value.selection.start != caret) {
             value = TextFieldValue(text = row.text, selection = TextRange(caret.coerceIn(0, row.text.length)))
         }
+        // A toolbar `@`/`#` tap arrives here as a plain revision bump,
+        // indistinguishable from an Enter split — hence the explicit signal.
+        if (model.consumeAutocompleteArm(row.id)) armed = true
     }
 
     val focusRequester = remember { FocusRequester() }
@@ -150,6 +166,7 @@ fun BlockTextField(
         value = TextFieldValue(newText, TextRange(newCaret))
         model.updatePara(row.id, newText, newCaret)
         model.updateSelection(row.id, newCaret..newCaret)
+        armed = false
     }
 
     // #issue-ref autocomplete (masterplan §5e): detect an in-progress `#query`
@@ -178,11 +195,45 @@ fun BlockTextField(
         value = TextFieldValue(newText, TextRange(newCaret))
         model.updatePara(row.id, newText, newCaret)
         model.updateSelection(row.id, newCaret..newCaret)
+        armed = false
     }
 
     val attrs = row.attrs
     val textStyle = paragraphTextStyle(attrs)
     val marks = row.marks
+    val chipsEnabled = attrs.kind != BlockKind.CodeBlock
+
+    val menuOpen = shouldOpenAutocomplete(
+        armed = armed,
+        hasOsFocus = hasOsFocus,
+        isFocusedRow = model.focusedRowId == row.id,
+        kind = attrs.kind,
+        caretInInlineCode = caretInInlineCode(marks, value.selection.start),
+        hasCandidates = mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty(),
+    )
+    // The regex stopped matching (caret left the token, whitespace typed, the
+    // trigger was deleted) — require a fresh text change to reopen.
+    LaunchedEffect(mentionMatch == null && refMatch == null) {
+        if (mentionMatch == null && refMatch == null) armed = false
+    }
+
+    // Caret geometry for the menu's anchor, in the text-glyph box's own
+    // coordinates (see the Popup below).
+    var textLayout by remember(row.id) { mutableStateOf<TextLayoutResult?>(null) }
+    val chipTransform = remember(value.text, marks, issueRefs, chipsEnabled) {
+        IssueChipTransform.build(value.text, marks, issueRefs, chipsEnabled)
+    }
+    val caretRect = remember(textLayout, value.selection.start, chipTransform) {
+        val layout = textLayout ?: return@remember null
+        // getCursorRect wants a TRANSFORMED offset and throws out of range;
+        // the layout lags `value` by up to a frame while typing fast, so coerce
+        // against the laid-out text and fall back to the row bottom for that
+        // one frame rather than crash.
+        val offset = chipTransform.originalToTransformed(value.selection.start)
+            .coerceIn(0, layout.layoutInput.text.length)
+        runCatching { layout.getCursorRect(offset) }.getOrNull()
+    }
+    val toolbarHeightPx = LocalMarkdownToolbarController.current?.toolbarHeightPx ?: 0
 
     BasicTextField(
         value = value,
@@ -194,14 +245,24 @@ fun BlockTextField(
                 // dropped; splitParagraphFrom handles 1..N resulting lines.
                 model.splitParagraphFrom(row.id, new.text)
             } else {
+                // Only a real document change may open the menu (web parity).
+                if (new.text != value.text) armed = true
                 value = new
                 if (new.text != row.text) model.updatePara(row.id, new.text, new.selection.start)
                 model.updateSelection(row.id, new.selection.start..new.selection.end)
             }
         },
         textStyle = textStyle,
+        onTextLayout = { textLayout = it },
         cursorBrush = SolidColor(MdStyle.Link),
-        visualTransformation = InlineMarkVisualTransformation(marks),
+        // Resolved `#IDENTIFIER` tokens render as `#EXP-238 <title>` chips
+        // while editing (EXP-322, web parity) — display-only, the stored
+        // markdown keeps the bare token. Code rows opt out, like read mode.
+        visualTransformation = ChipVisualTransformation(
+            marks = marks,
+            issueRefs = issueRefs,
+            chipsEnabled = chipsEnabled,
+        ),
         modifier = modifier
             .focusRequester(focusRequester)
             .onFocusChanged { fs ->
@@ -214,6 +275,7 @@ fun BlockTextField(
                     // by splitParagraphFrom must not cancel its pending handoff.
                     if (hasOsFocus) model.clearFocusIfMatches(row.id)
                     hasOsFocus = false
+                    armed = false
                 }
             }
             .onPreviewKeyEvent { event ->
@@ -237,75 +299,127 @@ fun BlockTextField(
                 row = row,
                 showPlaceholder = placeholder != null && row.text.isEmpty(),
                 placeholder = placeholder,
-                inner = inner,
-            )
+            ) {
+                // The Popup lives INSIDE the decoration, wrapping the glyph box:
+                // that box becomes its anchorBounds and is the same coordinate
+                // space getCursorRect reports in, so the menu sits at the caret
+                // and tracks scroll / IME resize for free. As a sibling of the
+                // field it used to anchor to the whole editor column (EXP-322).
+                Box {
+                    inner()
+                    if (menuOpen) {
+                        AutocompleteMenu(
+                            caretRect = caretRect,
+                            toolbarHeightPx = toolbarHeightPx,
+                            mentionCandidates = mentionCandidates,
+                            refCandidates = refCandidates,
+                            onPickMention = ::insertMention,
+                            onPickIssueRef = ::insertIssueRef,
+                        )
+                    }
+                }
+            }
         },
     )
 
-    if (mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty()) {
-        val provider = remember {
-            object : PopupPositionProvider {
-                override fun calculatePosition(
-                    anchorBounds: IntRect,
-                    windowSize: IntSize,
-                    layoutDirection: LayoutDirection,
-                    popupContentSize: IntSize,
-                ): IntOffset = IntOffset(anchorBounds.left, anchorBounds.bottom)
-            }
+    // Back closes the menu without leaving the field (registered only while the
+    // menu is up, so the LIFO dispatcher gives it priority over the screen's).
+    BackHandler(enabled = menuOpen) { armed = false }
+}
+
+@Composable
+private fun AutocompleteMenu(
+    caretRect: Rect?,
+    toolbarHeightPx: Int,
+    mentionCandidates: List<MentionMember>,
+    refCandidates: List<IssueRefTarget>,
+    onPickMention: (MentionMember) -> Unit,
+    onPickIssueRef: (IssueRefTarget) -> Unit,
+) {
+    val density = LocalDensity.current
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val marginPx = with(density) { 8.dp.roundToPx() }
+    val gapPx = with(density) { 4.dp.roundToPx() }
+    val provider = remember(caretRect, imeBottomPx, toolbarHeightPx, marginPx, gapPx) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize,
+            ): IntOffset = autocompletePopupOffset(
+                anchorBounds = anchorBounds,
+                caretLeftInAnchor = caretRect?.left?.toInt() ?: 0,
+                caretTopInAnchor = caretRect?.top?.toInt() ?: 0,
+                caretBottomInAnchor = caretRect?.bottom?.toInt() ?: anchorBounds.height,
+                popupSize = popupContentSize,
+                windowSize = windowSize,
+                imeBottomPx = imeBottomPx,
+                toolbarHeightPx = toolbarHeightPx,
+                marginPx = marginPx,
+                gapPx = gapPx,
+            )
         }
-        Popup(
-            popupPositionProvider = provider,
-            properties = PopupProperties(focusable = false),
+    }
+    Popup(
+        popupPositionProvider = provider,
+        // Focusable would steal focus from the field and drop the keyboard, so
+        // dismissal rides the armed state + BackHandler instead.
+        properties = PopupProperties(focusable = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 4.dp,
+            shadowElevation = 8.dp,
         ) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 4.dp,
-                shadowElevation = 8.dp,
+            Column(
+                modifier = Modifier
+                    .width(260.dp)
+                    .heightIn(max = 240.dp)
+                    .verticalScroll(rememberScrollState()),
             ) {
-                Column(modifier = Modifier.width(260.dp)) {
-                    mentionCandidates.forEach { m ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { insertMention(m) }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(m.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                            Spacer(Modifier.weight(1f))
-                            Text(
-                                m.email,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                            )
-                        }
+                mentionCandidates.forEach { m ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPickMention(m) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(m.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            m.email,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
                     }
-                    refCandidates.forEach { target ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { insertIssueRef(target) }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                target.identifier,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontFamily = FontFamily.Monospace,
-                                maxLines = 1,
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                target.title,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
+                }
+                refCandidates.forEach { target ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPickIssueRef(target) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            target.identifier,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            target.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
@@ -422,12 +536,3 @@ private fun paragraphTextStyle(attrs: ParagraphAttrs): TextStyle = when (attrs.k
     else -> MdStyle.body
 }
 
-/** Applies inline marks as cosmetic spans; identity offset mapping (no chars added). */
-private class InlineMarkVisualTransformation(
-    private val marks: List<com.exponential.app.ui.markdown.model.InlineMark>,
-) : VisualTransformation {
-    override fun filter(text: androidx.compose.ui.text.AnnotatedString): TransformedText {
-        val annotated = InlineMarks.annotate(text.text, marks)
-        return TransformedText(annotated, OffsetMapping.Identity)
-    }
-}

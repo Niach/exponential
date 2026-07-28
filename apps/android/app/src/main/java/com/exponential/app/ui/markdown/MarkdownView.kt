@@ -361,12 +361,26 @@ internal fun annotate(
     }
 }
 
+/** Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60). */
+internal const val MAX_CHIP_TITLE_CHARS = 60
+
+/**
+ * The title text a `#IDENTIFIER` chip appends, truncated web-identically
+ * (`chipTitle` in `apps/web/src/lib/issue-ref-extension.ts`). Shared by the
+ * read renderer and the editor's chip transform so both agree byte for byte.
+ */
+internal fun chipTitle(title: String): String {
+    val trimmed = title.trim()
+    if (trimmed.length <= MAX_CHIP_TITLE_CHARS) return trimmed
+    return trimmed.take(MAX_CHIP_TITLE_CHARS - 1).trimEnd() + "…"
+}
+
 /**
  * `#IDENTIFIER` tokens in this line that resolve to a visible issue. Tokens
  * inside inline code or links stay plain (mirrors the web decoration pass);
  * unresolved identifiers stay plain text.
  */
-private fun resolvedRefPills(
+internal fun resolvedRefPills(
     text: String,
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler,
@@ -439,15 +453,6 @@ internal class MentionDisplay private constructor(
     }
 
     companion object {
-        /** Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60). */
-        private const val MAX_CHIP_TITLE_CHARS = 60
-
-        private fun chipTitle(title: String): String {
-            val trimmed = title.trim()
-            if (trimmed.length <= MAX_CHIP_TITLE_CHARS) return trimmed
-            return trimmed.take(MAX_CHIP_TITLE_CHARS - 1).trimEnd() + "…"
-        }
-
         private class Candidate(
             val start: Int,
             val end: Int,
