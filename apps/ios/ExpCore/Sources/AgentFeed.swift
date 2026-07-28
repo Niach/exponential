@@ -231,21 +231,27 @@ public enum AgentFeedRow: Equatable, Sendable, Identifiable {
 /// Per-card answer lock (protocol v2): a tap locks its card IMMEDIATELY so a
 /// double tap can never send twice. The desktop's `answer_ack` makes the lock
 /// permanent (and advances a stepper); nothing at all coming back expires the
-/// optimistic lock so the card is retryable.
+/// optimistic lock — the card re-surfaces flagged `failed` so the steerer sees
+/// WHY it rolled back and can pick again (web parity, EXP-334).
 public struct AgentAnswerTracker: Equatable, Sendable {
     /// Optimistically locked cards → when their answer frame went out.
     public private(set) var pending: [String: Date] = [:]
     /// Cards the desktop confirmed injecting (`answer_ack`).
     public private(set) var acked: Set<String> = []
+    /// Cards whose optimistic lock expired with no confirmation — answerable
+    /// again, rendered with a retry hint (EXP-334).
+    public private(set) var failed: Set<String> = []
 
     public init() {}
 
     public mutating func markSent(_ key: String, at: Date = Date()) {
         pending[key] = at
+        failed.remove(key)
     }
 
     public mutating func acknowledge(_ key: String) {
         pending[key] = nil
+        failed.remove(key)
         acked.insert(key)
     }
 
@@ -254,6 +260,17 @@ public struct AgentAnswerTracker: Equatable, Sendable {
     /// lock has nothing left to guard.
     public mutating func resolve(_ key: String) {
         pending[key] = nil
+        failed.remove(key)
+    }
+
+    /// Expire ONE card's still-unconfirmed lock — the per-card timer's target.
+    /// A shared timeout sweep used to drop EVERY pending lock at once, rolling
+    /// a stepper back past steps that were answered moments ago (EXP-334).
+    /// An acked card stays locked.
+    public mutating func expire(_ key: String) {
+        guard pending[key] != nil else { return }
+        pending[key] = nil
+        failed.insert(key)
     }
 
     /// Drop optimistic locks older than `timeout`. Acked cards stay locked.
@@ -261,18 +278,23 @@ public struct AgentAnswerTracker: Equatable, Sendable {
     @discardableResult
     public mutating func expire(now: Date = Date(), timeout: TimeInterval) -> Bool {
         let stale = pending.filter { now.timeIntervalSince($0.value) >= timeout }.map(\.key)
-        for key in stale { pending[key] = nil }
+        for key in stale {
+            pending[key] = nil
+            failed.insert(key)
+        }
         return !stale.isEmpty
     }
 
     public mutating func reset() {
         pending = [:]
         acked = []
+        failed = []
     }
 
     public func isLocked(_ key: String) -> Bool { acked.contains(key) || pending[key] != nil }
     public func isPending(_ key: String) -> Bool { pending[key] != nil }
     public func isAcked(_ key: String) -> Bool { acked.contains(key) }
+    public func isFailed(_ key: String) -> Bool { failed.contains(key) }
 
     /// Every locked key — sent-and-unconfirmed plus acknowledged. What a
     /// stepper advances on (web parity: a step counts as answered the moment

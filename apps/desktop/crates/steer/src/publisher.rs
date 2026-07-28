@@ -459,8 +459,20 @@ async fn pump_connection(
     // and without pings, a dropped connection can sit undetected while UIs retry
     // endlessly against a stale `no_such_session`.
     const PING_INTERVAL: Duration = Duration::from_secs(30);
+    // EXP-334: a free-text message arriving while a plan/ask picker owns the
+    // keyboard would be EATEN by the picker — and its trailing Enter would
+    // activate the highlighted row (observed: a note typed on a plan approval
+    // silently approved the plan and the note was lost). Esc dismisses the
+    // picker first (plan mode stays on; claude reads the next message as plan
+    // feedback / a free-form reply), after a short pause for the TUI to drop
+    // the picker before the text lands.
+    const PICKER_DISMISS_PAUSE: Duration = Duration::from_millis(350);
+    // One Esc per message: later chunks of the same (≤4 KiB-chunked) message
+    // must not re-fire while the emitter's grid flag lags the dismissal.
+    const ESC_REROUTE_WINDOW: Duration = Duration::from_secs(3);
     let mut last_input_at: Option<Instant> = None;
     let mut last_digit_at: Option<Instant> = None;
+    let mut esc_routed_at: Option<Instant> = None;
     let mut ping_interval = tokio::time::interval(PING_INTERVAL);
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -511,6 +523,24 @@ async fn pump_connection(
                                 if elapsed < ENTER_SEPARATION {
                                     tokio::time::sleep(ENTER_SEPARATION - elapsed).await;
                                 }
+                            }
+                        }
+                        // EXP-334: message text while a picker is on the grid
+                        // → Esc the picker away first, or it eats the text and
+                        // the trailing Enter answers it with the highlighted
+                        // row. Single keystrokes (digits, Tab, Esc, arrow
+                        // sequences) stay verbatim — they ARE picker input.
+                        if is_message_text(&data) {
+                            let picker = hooks
+                                .answers
+                                .as_ref()
+                                .is_some_and(|answers| answers.grid_picker_pending());
+                            let routed = esc_routed_at
+                                .is_some_and(|at| at.elapsed() < ESC_REROUTE_WINDOW);
+                            if picker && !routed {
+                                esc_routed_at = Some(Instant::now());
+                                (hooks.write_input)(b"\x1b");
+                                tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
                             }
                         }
                         if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
@@ -608,6 +638,15 @@ async fn send_activity(ws: &mut WsStream, event: ActivityEvent) -> bool {
         return true;
     }
     ws.send(Message::Text(frame)).await.is_ok()
+}
+
+/// Whether an `input` frame carries MESSAGE text rather than a keystroke
+/// (EXP-334). Steering clients only ever send two shapes: whole composer
+/// messages (chunked text + a separate `\r`) and single keystrokes — legacy
+/// answer digits, Tab, Esc, and Esc-prefixed sequences. Multi-byte non-escape
+/// data is therefore a message.
+fn is_message_text(data: &str) -> bool {
+    data.len() > 1 && !data.starts_with('\u{1b}')
 }
 
 fn now_millis() -> i64 {
@@ -988,6 +1027,78 @@ mod tests {
             .unwrap();
         wait_for(|| recorded.inputs.lock().unwrap().len() == 2);
         assert_eq!(recorded.inputs.lock().unwrap()[1], b"\r");
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn message_text_is_distinguished_from_keystrokes() {
+        // Message shapes.
+        assert!(is_message_text("please refine the plan"));
+        assert!(is_message_text("42")); // multi-char, even if all digits
+        // Keystroke shapes stay verbatim.
+        assert!(!is_message_text("2")); // legacy answer digit
+        assert!(!is_message_text("\r"));
+        assert!(!is_message_text("\t"));
+        assert!(!is_message_text("\u{1b}")); // Esc button
+        assert!(!is_message_text("\u{1b}[A")); // CSI arrow sequence
+    }
+
+    #[test]
+    fn message_text_escs_a_pending_picker_before_it_lands() {
+        // EXP-334: a note typed while a plan/ask picker owns the keyboard used
+        // to be EATEN by the picker — and its trailing Enter activated the
+        // highlighted row (a plan note silently approved the plan). The
+        // publisher must dismiss the picker with Esc first, ONCE per message.
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let (link, _answers_rx) = AnswerLink::new();
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-p".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            recording_hooks_with(recorded.clone(), Some(link.clone())),
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        link.set_grid_picker_pending(true);
+        // Two chunks of one message, then the composer Enter — the mobile
+        // send shape.
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"input","data":"please refine "}"#.to_string(),
+            ))
+            .unwrap();
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"the plan"}"#.to_string()))
+            .unwrap();
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
+            .unwrap();
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 4);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[
+                b"\x1b".to_vec(), // ONE Esc, before the first chunk only
+                b"please refine ".to_vec(),
+                b"the plan".to_vec(),
+                b"\r".to_vec(), // the Enter passes through — it submits the composer
+            ]
+        );
+
+        // With no picker on the grid, message text flows through untouched.
+        link.set_grid_picker_pending(false);
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"and add tests"}"#.to_string()))
+            .unwrap();
+        wait_for(|| recorded.inputs.lock().unwrap().len() == 5);
+        assert_eq!(recorded.inputs.lock().unwrap()[4], b"and add tests");
         handle.shutdown(None);
     }
 

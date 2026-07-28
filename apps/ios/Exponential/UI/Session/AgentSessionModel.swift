@@ -97,6 +97,10 @@ final class AgentSessionModel {
     /// injecting it yet.
     func isAnswerPending(_ lockKey: String) -> Bool { answerTracker.isPending(lockKey) }
 
+    /// The last answer for this card expired unconfirmed — the card is
+    /// answerable again and shows a retry hint (EXP-334, web parity).
+    func isAnswerFailed(_ lockKey: String) -> Bool { answerTracker.isFailed(lockKey) }
+
     /// Live but blocked on a trailing question/plan — the session is waiting
     /// for a human answer, not stuck (EXP-97).
     var awaitingInput: Bool { phase == .live && !activeQuestionIds.isEmpty }
@@ -127,7 +131,10 @@ final class AgentSessionModel {
     /// the winner's phase.
     private var dialGeneration = 0
     private var sessionObservationTask: Task<Void, Never>?
-    private var answerExpiryTask: Task<Void, Never>?
+    /// One expiry timer PER locked card (EXP-334) — a single shared task used
+    /// to be cancelled by every newer lock, so several pending locks then all
+    /// expired together and the stepper rolled back more than one step.
+    private var answerExpiryTasks: [String: Task<Void, Never>] = [:]
 
     // Relay rejects input frames > 8 KiB; chunk pastes well under that.
     private static let inputChunkChars = 4096
@@ -222,7 +229,7 @@ final class AgentSessionModel {
     func shutdown() {
         stopped = true
         retryTask?.cancel()
-        answerExpiryTask?.cancel()
+        cancelAnswerExpiries()
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
         connected = false
@@ -322,16 +329,26 @@ final class AgentSessionModel {
         sendLegacyKey("\t", lockKey: lockKey)
     }
 
-    /// Lock a card and arm the expiry that frees it again if neither an
-    /// `answer_ack` nor a `question_resolved` ever lands.
+    /// Lock a card and arm ITS OWN expiry that frees it again (flagged
+    /// `failed`, so the card shows a retry hint) if neither an `answer_ack`
+    /// nor a `question_resolved` ever lands. Per-card timers (EXP-334): a
+    /// shared one was cancelled by each newer lock and then expired every
+    /// pending card at once.
     private func lockAnswer(_ lockKey: String) {
         answerTracker.markSent(lockKey)
-        answerExpiryTask?.cancel()
-        answerExpiryTask = Task { [weak self] in
+        answerExpiryTasks[lockKey]?.cancel()
+        answerExpiryTasks[lockKey] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.answerLockSeconds))
             guard let self, !Task.isCancelled else { return }
-            self.answerTracker.expire(timeout: Self.answerLockSeconds)
+            self.answerExpiryTasks[lockKey] = nil
+            self.answerTracker.expire(lockKey)
         }
+    }
+
+    /// Cancel every armed expiry timer (teardown / feed reset).
+    private func cancelAnswerExpiries() {
+        for task in answerExpiryTasks.values { task.cancel() }
+        answerExpiryTasks = [:]
     }
 
     // MARK: - Synced session row
@@ -513,7 +530,7 @@ final class AgentSessionModel {
         latestDiff = nil
         recentEchoes = []
         answerTracker.reset()
-        answerExpiryTask?.cancel()
+        cancelAnswerExpiries()
         // nextEventId keeps counting — reused render ids across a reset would
         // hand SwiftUI a "same row, new content" identity.
     }

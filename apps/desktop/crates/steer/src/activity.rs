@@ -113,6 +113,18 @@ const PLAN_GRID_CONFIRM: Duration = Duration::from_secs(10);
 const ANSWER_SETTLE: Duration = Duration::from_secs(2);
 /// Poll step while waiting for that transition.
 const ANSWER_SETTLE_STEP: Duration = Duration::from_millis(100);
+/// How long a plan-approval digit gets to submit ON ITS OWN before Enter is
+/// sent after it. Old claude plan pickers submitted on the digit; on current
+/// ones (observed v2.1.220) a digit only MOVES the cursor and Enter activates
+/// it — so a lone digit left the picker up forever and the answer was never
+/// acked (EXP-334).
+const PLAN_SUBMIT_PROBE: Duration = Duration::from_millis(500);
+/// How long a TRANSIENTLY refused remote answer is retried before it is
+/// dropped (EXP-334). A steerer's tap can beat the picker paint (hook
+/// questions publish before the TUI renders) or land on a mid-render frame —
+/// refusing those outright meant no ack, and the mobile stepper visibly
+/// rolled back to the already-answered step.
+const ANSWER_RETRY_TTL: Duration = Duration::from_secs(4);
 /// Gap between injected keystrokes — the TUI processes one key per render.
 const KEYSTROKE_GAP: Duration = Duration::from_millis(60);
 /// Newest subagent sidechain transcripts tailed at once (a Task fan-out can
@@ -957,11 +969,16 @@ pub struct RemoteAnswer {
 
 /// The one-way seam between the publisher task (tokio) and the emitter thread
 /// (blocking grid/PTY work): answers go down the channel, and the emitter
-/// publishes back the "an ask is pending" bit the publisher needs to swallow a
-/// legacy client's Enter cascade.
+/// publishes back two grid facts the publisher's raw-input handling needs —
+/// "an ASK picker is up" (swallow a legacy client's Enter cascade; plan
+/// pickers are deliberately excluded, their digits never auto-submit so the
+/// trailing Enter is required) and "ANY picker is visible on the grid" (a
+/// free-text message must Esc the picker away first or the picker eats it —
+/// EXP-334).
 pub struct AnswerLink {
     tx: flume::Sender<RemoteAnswer>,
     ask_pending: AtomicBool,
+    grid_picker_pending: AtomicBool,
 }
 
 impl AnswerLink {
@@ -972,6 +989,7 @@ impl AnswerLink {
             Arc::new(Self {
                 tx,
                 ask_pending: AtomicBool::new(false),
+                grid_picker_pending: AtomicBool::new(false),
             }),
             rx,
         )
@@ -983,14 +1001,25 @@ impl AnswerLink {
         let _ = self.tx.send(answer);
     }
 
-    /// Whether the session is parked on an interactive question right now.
+    /// Whether the session is parked on an AskUserQuestion right now.
     pub fn ask_pending(&self) -> bool {
         self.ask_pending.load(Ordering::Relaxed)
     }
 
-    /// Emitter side (and tests): publish the pending bit.
+    /// Emitter side (and tests): publish the ask-pending bit.
     pub fn set_ask_pending(&self, pending: bool) {
         self.ask_pending.store(pending, Ordering::Relaxed);
+    }
+
+    /// Whether ANY interactive picker (plan approval or ask) is on the live
+    /// grid right now — the free-text reroute signal (EXP-334).
+    pub fn grid_picker_pending(&self) -> bool {
+        self.grid_picker_pending.load(Ordering::Relaxed)
+    }
+
+    /// Emitter side (and tests): publish the grid-picker bit.
+    pub fn set_grid_picker_pending(&self, pending: bool) {
+        self.grid_picker_pending.store(pending, Ordering::Relaxed);
     }
 }
 
@@ -1535,43 +1564,59 @@ impl SteerState {
     }
 
     /// Inject a steerer's answer into the TUI and, once the grid confirms the
-    /// move, acknowledge it. Silent on every refusal (stale id, already
-    /// answered, wrong tab, no transition): a card that never gets an ack
-    /// stays answerable, which is the safe direction.
+    /// move, acknowledge it. A refusal is either TRANSIENT ([`AnswerAttempt::
+    /// Retry`] — the picker isn't painted yet, the grid is mid-render or
+    /// scrolled, the wrong tab is up; the poll loop parks the answer and tries
+    /// again for [`ANSWER_RETRY_TTL`], EXP-334) or FINAL (`Settled` without an
+    /// ack — stale id, bad key, or keystrokes already injected: injecting
+    /// twice is never safe, and a card with no ack stays answerable at the
+    /// steerer).
     fn handle_answer(
         &mut self,
-        answer: RemoteAnswer,
+        answer: &RemoteAnswer,
         term: &TermHandle,
         write_input: &InputHook,
         sender: &ActivitySender,
-    ) {
+    ) -> AnswerAttempt {
         if self.answered.contains(&answer.question_id) {
-            return;
+            return AnswerAttempt::Settled;
         }
         let Some(live) = self.live.get(&answer.question_id).cloned() else {
-            return;
+            return AnswerAttempt::Settled;
         };
         if display_offset(term) > 0 {
-            return; // scrolled into history — the visible grid is not the picker
+            // Scrolled into history — the visible grid is not the picker.
+            return AnswerAttempt::Retry;
         }
         let lines = screen_lines(term);
         match live.kind {
             QuestionKind::Plan => {
                 if plan_picker::detect(&lines).is_none() {
-                    return;
+                    return AnswerAttempt::Retry;
                 }
-                let Some(key) = answer.keys.first() else { return };
+                let Some(key) = answer.keys.first() else {
+                    return AnswerAttempt::Settled;
+                };
                 if !live.options.iter().any(|option| &option.key == key) {
-                    return;
+                    return AnswerAttempt::Settled;
                 }
                 write_input(key.as_bytes());
-                if !settle(|| plan_picker::detect(&screen_lines(term)).is_none()) {
-                    return;
+                // Old plan pickers submitted on the digit; current ones
+                // (observed v2.1.220) only move the cursor and need Enter to
+                // activate the row (EXP-334). Probe briefly for the legacy
+                // behavior, then confirm with Enter.
+                if !settle_for(PLAN_SUBMIT_PROBE, || {
+                    plan_picker::detect(&screen_lines(term)).is_none()
+                }) {
+                    write_input(b"\r");
+                    if !settle(|| plan_picker::detect(&screen_lines(term)).is_none()) {
+                        return AnswerAttempt::Settled; // injected — never twice
+                    }
                 }
             }
             QuestionKind::Ask | QuestionKind::Submit => {
                 let Some(snapshot) = question_picker::detect(&lines) else {
-                    return;
+                    return AnswerAttempt::Retry;
                 };
                 let visible = normalize_question_text(&snapshot.text);
                 match live.kind {
@@ -1584,13 +1629,13 @@ impl SteerState {
                         if !snapshot.review
                             && !normalized_texts_match(&live.text_norm, &visible) =>
                     {
-                        return
+                        return AnswerAttempt::Retry
                     }
                     QuestionKind::Ask
                         if snapshot.review
                             || !normalized_texts_match(&live.text_norm, &visible) =>
                     {
-                        return
+                        return AnswerAttempt::Retry
                     }
                     _ => {}
                 }
@@ -1608,9 +1653,13 @@ impl SteerState {
                     }
                     write_input(b"\t");
                 } else {
-                    let Some(key) = answer.keys.first() else { return };
+                    let Some(key) = answer.keys.first() else {
+                        return AnswerAttempt::Settled;
+                    };
                     if !snapshot.options.iter().any(|option| &option.key == key) {
-                        return;
+                        // The tab that is up doesn't offer this key — likely a
+                        // stale frame between tabs.
+                        return AnswerAttempt::Retry;
                     }
                     write_input(key.as_bytes());
                 }
@@ -1624,23 +1673,38 @@ impl SteerState {
                     }
                 });
                 if !moved {
-                    return;
+                    return AnswerAttempt::Settled; // injected — never twice
                 }
             }
         }
         self.answered.insert(answer.question_id.clone());
         self.live.remove(&answer.question_id);
         sender.send(ActivityEvent::AnswerAck {
-            id: answer.question_id,
+            id: answer.question_id.clone(),
             ask_id: live.ask_id,
             at: None,
         });
+        AnswerAttempt::Settled
     }
 }
 
+/// Outcome of one remote-answer injection attempt (EXP-334).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnswerAttempt {
+    /// Handled for good — acked, or dropped for a reason retrying can't fix.
+    Settled,
+    /// Transient refusal — the poll loop may try again next tick.
+    Retry,
+}
+
 /// Poll `done` until it holds or [`ANSWER_SETTLE`] elapses.
-fn settle(mut done: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + ANSWER_SETTLE;
+fn settle(done: impl FnMut() -> bool) -> bool {
+    settle_for(ANSWER_SETTLE, done)
+}
+
+/// Poll `done` until it holds or `window` elapses.
+fn settle_for(window: Duration, mut done: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + window;
     loop {
         if done() {
             return true;
@@ -1766,6 +1830,14 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     };
     // EXP-214: last "needs input" flag forwarded — fire only on flips.
     let mut needs_input = false;
+    // EXP-334: transiently refused remote answers, retried each tick until
+    // [`ANSWER_RETRY_TTL`] — a tap that beats the picker paint must not be
+    // dropped on the floor.
+    let mut parked_answers: Vec<(RemoteAnswer, Instant)> = Vec::new();
+    // EXP-334: whether the last grid look (bottom of scrollback) showed a
+    // picker — the publisher's free-text reroute signal. Sticky while
+    // scrolled, like the watchers.
+    let mut grid_picker_visible = false;
 
     while active.load(Ordering::SeqCst) {
         // 0) The hooks sidecar (EXP-249): the structured half. Drained before
@@ -1838,9 +1910,16 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             // augments it with rows only the TUI has (the synthetic "Type
             // something"), then publishes the review/submit step. Without a
             // hook this stays the pre-v2 grid-only publication.
-            if let Some(snapshot) =
-                question_watcher.tick(question_picker::detect(&lines), grid_offset)
-            {
+            let question_detection = question_picker::detect(&lines);
+            // EXP-334: the raw (undebounced) "a picker is on screen" fact for
+            // the publisher's free-text reroute. While the viewport is
+            // scrolled the bottom of the grid is not visible — keep the last
+            // known state, like the watchers do.
+            if grid_offset == 0 {
+                grid_picker_visible =
+                    question_detection.is_some() || plan_picker::detect(&lines).is_some();
+            }
+            if let Some(snapshot) = question_watcher.tick(question_detection, grid_offset) {
                 if !steer.confirm_question_from_grid(&snapshot, &sender, &redactor) {
                     let text = truncate(&redactor.redact(&snapshot.text), QUESTION_TEXT_MAX);
                     transcript_state.remember_grid_question(&text);
@@ -1875,10 +1954,17 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
         if let Some(steering) = &config.steering {
-            // The publisher's Enter-cascade guard keys on a PICKER, not on
-            // attention at large: a steerer's one-character message plus Enter
-            // must still submit while the agent merely idles.
-            steering.link.set_ask_pending(picker_pending);
+            // The publisher's Enter-cascade guard keys on an ASK picker only
+            // (EXP-334): an ask digit selects-and-submits, so its trailing
+            // Enter must be swallowed — but a PLAN digit only moves the
+            // cursor, and swallowing the Enter there left the picker
+            // unanswered forever. And not on attention at large: a steerer's
+            // one-character message plus Enter must still submit while the
+            // agent merely idles.
+            steering
+                .link
+                .set_ask_pending(question_watcher.is_pending() || steer.ask.is_some());
+            steering.link.set_grid_picker_pending(grid_picker_visible);
         }
 
         // 3) Resolve / re-resolve the transcript file (a newer session file in
@@ -1956,16 +2042,48 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
         // 7) Wait out the poll interval — interrupted by a remote answer, so
         //    steering never sits a full second behind the steerer's tap.
+        //    Transiently refused answers stay parked and are retried each
+        //    tick until ANSWER_RETRY_TTL (EXP-334): a tap can beat the picker
+        //    paint (hook questions publish before the TUI renders), and
+        //    silently dropping it made the mobile stepper roll back to an
+        //    already-answered step a few seconds later.
         match &config.steering {
             Some(steering) => {
-                if let Ok(answer) = steering.answers.recv_timeout(POLL_INTERVAL) {
+                let deadline = Instant::now() + POLL_INTERVAL;
+                loop {
                     match &config.term {
-                        Some(term) => {
-                            steer.handle_answer(answer, term, &steering.write_input, &sender)
-                        }
+                        Some(term) => parked_answers.retain_mut(|(answer, since)| {
+                            match steer.handle_answer(
+                                answer,
+                                term,
+                                &steering.write_input,
+                                &sender,
+                            ) {
+                                AnswerAttempt::Settled => false,
+                                AnswerAttempt::Retry => since.elapsed() < ANSWER_RETRY_TTL,
+                            }
+                        }),
                         // No grid to choreograph against ⇒ no injection and no
                         // ack: the card stays answerable at the steerer.
-                        None => log::debug!("activity: answer dropped — no terminal grid"),
+                        None => {
+                            if !parked_answers.is_empty() {
+                                parked_answers.clear();
+                                log::debug!("activity: answer dropped — no terminal grid");
+                            }
+                        }
+                    }
+                    let Some(wait) = deadline.checked_duration_since(Instant::now()) else {
+                        break;
+                    };
+                    match steering.answers.recv_timeout(wait) {
+                        Ok(answer) => {
+                            // A re-tap supersedes the parked attempt for the
+                            // same card — never queue both.
+                            parked_answers
+                                .retain(|(parked, _)| parked.question_id != answer.question_id);
+                            parked_answers.push((answer, Instant::now()));
+                        }
+                        Err(_) => break,
                     }
                 }
             }
@@ -1982,6 +2100,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     }
     if let Some(steering) = &config.steering {
         steering.link.set_ask_pending(false);
+        steering.link.set_grid_picker_pending(false);
     }
 }
 
@@ -3224,8 +3343,8 @@ mod tests {
         // multiSelect: digits TOGGLE, so only the differences are injected —
         // Cheese off, Ham on, Mushrooms already on — then Tab advances.
         let (write_input, keys) = recording_input(term.clone(), Some(review_rows()), "\t");
-        steer.handle_answer(
-            RemoteAnswer {
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
                 question_id: "toolu_01#0".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string(), "3".to_string()],
@@ -3234,6 +3353,7 @@ mod tests {
             &write_input,
             &sender,
         );
+        assert_eq!(outcome, AnswerAttempt::Settled);
         assert_eq!(*keys.lock().unwrap(), vec!["1", "2", "\t"]);
         match &drained(&rx)[..] {
             [ActivityEvent::AnswerAck { id, ask_id, .. }] => {
@@ -3243,9 +3363,10 @@ mod tests {
             other => panic!("expected an answer_ack, got {other:?}"),
         }
 
-        // A duplicate (two taps / a re-delivered frame) is silently ignored.
-        steer.handle_answer(
-            RemoteAnswer {
+        // A duplicate (two taps / a re-delivered frame) is silently ignored —
+        // and settled, never parked for retry.
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
                 question_id: "toolu_01#0".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string()],
@@ -3254,6 +3375,7 @@ mod tests {
             &write_input,
             &sender,
         );
+        assert_eq!(outcome, AnswerAttempt::Settled);
         assert_eq!(keys.lock().unwrap().len(), 3, "no second injection");
         assert!(drained(&rx).is_empty(), "no second ack");
     }
@@ -3271,10 +3393,12 @@ mod tests {
         steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
         drained(&rx);
 
-        // Question 2 is published, but the grid is showing question 1.
+        // Question 2 is published, but the grid is showing question 1 — a
+        // TRANSIENT state (the tab advances any moment), so the answer is
+        // retryable (EXP-334).
         let (write_input, keys) = recording_input(term.clone(), None, "\r");
-        steer.handle_answer(
-            RemoteAnswer {
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
                 question_id: "toolu_01#1".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string()],
@@ -3283,12 +3407,13 @@ mod tests {
             &write_input,
             &sender,
         );
+        assert_eq!(outcome, AnswerAttempt::Retry);
         assert!(keys.lock().unwrap().is_empty(), "nothing may be injected");
         assert!(drained(&rx).is_empty(), "and nothing is acked");
 
-        // An unknown id is refused the same way.
-        steer.handle_answer(
-            RemoteAnswer {
+        // An unknown id can never become answerable — settled, not retried.
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
                 question_id: "toolu_99#0".to_string(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
@@ -3297,6 +3422,7 @@ mod tests {
             &write_input,
             &sender,
         );
+        assert_eq!(outcome, AnswerAttempt::Settled);
         assert!(keys.lock().unwrap().is_empty());
     }
 
@@ -3332,8 +3458,8 @@ mod tests {
         // The digit both selects AND submits a single-select question, so the
         // TUI auto-advances — no Tab, no Enter.
         let (write_input, keys) = recording_input(term.clone(), Some(review_rows()), "2");
-        steer.handle_answer(
-            RemoteAnswer {
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
                 question_id: "toolu_01#1".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string()],
@@ -3342,6 +3468,7 @@ mod tests {
             &write_input,
             &sender,
         );
+        assert_eq!(outcome, AnswerAttempt::Settled);
         assert_eq!(*keys.lock().unwrap(), vec!["2"]);
         assert!(matches!(drained(&rx)[..], [ActivityEvent::AnswerAck { .. }]));
     }
@@ -3428,8 +3555,8 @@ mod tests {
 
         // Submitting empties the picker (the ask is over).
         let (write_input, keys) = recording_input(term.clone(), Some(Vec::new()), "1");
-        steer.handle_answer(
-            RemoteAnswer {
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
                 question_id: "toolu_01#submit".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["1".to_string()],
@@ -3438,11 +3565,153 @@ mod tests {
             &write_input,
             &sender,
         );
+        assert_eq!(outcome, AnswerAttempt::Settled);
         assert_eq!(*keys.lock().unwrap(), vec!["1"]);
         match &drained(&rx)[..] {
             [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "toolu_01#submit"),
             other => panic!("expected an answer_ack, got {other:?}"),
         }
+    }
+
+    /// The v2.1.220 plan picker as painted live (see plan_picker.rs — digits
+    /// only MOVE the cursor on it, Enter activates).
+    fn plan_rows() -> Vec<String> {
+        [
+            "Ready to code?",
+            " Here is Claude's plan:",
+            "## Plan",
+            "",
+            " Claude has written up a plan and is ready to execute. Would you like to proceed?",
+            "",
+            " ❯ 1. Yes, auto-accept edits",
+            "   2. Yes, manually approve edits",
+            "   3. No, refine with Ultraplan on Claude Code on the web",
+            "   4. Tell Claude what to change",
+            " ctrl+g to edit in Vim",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect()
+    }
+
+    /// Hook + grid-confirm a pending plan so `toolu_plan` is live/answerable.
+    fn arm_plan(
+        steer: &mut SteerState,
+        term: &TermHandle,
+        sender: &ActivitySender,
+        rx: &flume::Receiver<PublisherCmd>,
+    ) {
+        let redactor = Redactor::new(vec![]);
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PlanProposed {
+                tool_use_id: Some("toolu_plan".to_string()),
+                plan: "## Plan".to_string(),
+            }),
+            sender,
+            &redactor,
+            &mut transcript,
+        );
+        let snapshot = plan_picker::detect(&screen_lines(term)).expect("plan picker");
+        assert!(steer.confirm_plan_from_grid(snapshot.options, sender));
+        drained(rx);
+    }
+
+    #[test]
+    fn a_plan_answer_presses_enter_when_the_digit_alone_does_not_submit() {
+        // Current claude plan pickers (observed v2.1.220): a digit only moves
+        // the cursor — without the follow-up Enter the picker stayed up
+        // forever and remote plan answers were never acked (EXP-334).
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &plan_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        arm_plan(&mut steer, &term, &sender, &rx);
+
+        // The grid only clears when Enter lands (digit = cursor move).
+        let (write_input, keys) = recording_input(term.clone(), Some(Vec::new()), "\r");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "toolu_plan".to_string(),
+                ask_id: None,
+                keys: vec!["2".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["2", "\r"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "toolu_plan"),
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_plan_answer_sends_no_enter_when_the_digit_already_submits() {
+        // Legacy claude plan pickers submitted on the digit — the Enter probe
+        // must notice the picker left and NOT chase it with a stray Enter.
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &plan_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        arm_plan(&mut steer, &term, &sender, &rx);
+
+        let (write_input, keys) = recording_input(term.clone(), Some(Vec::new()), "1");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "toolu_plan".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["1"]);
+        assert!(matches!(drained(&rx)[..], [ActivityEvent::AnswerAck { .. }]));
+    }
+
+    #[test]
+    fn an_answer_that_beats_the_picker_paint_is_retried_and_lands() {
+        // The hook publishes every ask step BEFORE the TUI paints the picker —
+        // a steerer's instant tap used to be dropped silently, and the mobile
+        // stepper rolled back to the answered step seconds later (EXP-334).
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &[] as &[String]); // nothing painted yet
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        // Keep only Cheese: Mushrooms' pre-ticked box must be toggled OFF.
+        let answer = RemoteAnswer {
+            question_id: "toolu_01#0".to_string(),
+            ask_id: Some("toolu_01".to_string()),
+            keys: vec!["1".to_string()],
+        };
+        let (write_input, keys) = recording_input(term.clone(), Some(review_rows()), "\t");
+        let outcome = steer.handle_answer(&answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Retry, "no picker yet — retryable");
+        assert!(keys.lock().unwrap().is_empty());
+        assert!(drained(&rx).is_empty());
+
+        // Next tick: the picker painted — the SAME parked answer now lands.
+        paint(&term, &toppings_rows());
+        let outcome = steer.handle_answer(&answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["3", "\t"]);
+        assert!(matches!(drained(&rx)[..], [ActivityEvent::AnswerAck { .. }]));
     }
 
     #[test]
@@ -3472,10 +3741,10 @@ mod tests {
         }
         assert!(!steer.has_pending_question());
 
-        // The retired cards are no longer answerable.
+        // The retired cards are no longer answerable — settled, not retried.
         let (write_input, keys) = recording_input(term.clone(), None, "\t");
-        steer.handle_answer(
-            RemoteAnswer {
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
                 question_id: "toolu_01#0".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string()],
@@ -3484,6 +3753,7 @@ mod tests {
             &write_input,
             &sender,
         );
+        assert_eq!(outcome, AnswerAttempt::Settled);
         assert!(keys.lock().unwrap().is_empty());
         assert!(drained(&rx).is_empty());
     }

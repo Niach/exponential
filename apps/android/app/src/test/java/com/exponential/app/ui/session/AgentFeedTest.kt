@@ -3,6 +3,7 @@ package com.exponential.app.ui.session
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -491,16 +492,24 @@ class AgentFeedTest {
         val acked = asked.applying(event("""{"kind":"answer_ack","id":"q1"}"""))
         assertEquals(AnswerState.Acked, acked.answerLocks["q1"])
         // An ack is proof of injection — the lock survives the timeout sweep.
-        assertEquals(acked, acked.unlockUnacknowledged("q1"))
+        assertEquals(acked, acked.failUnacknowledged("q1"))
         val resolved = acked.applying(event("""{"kind":"question_resolved","id":"q1","answers":["Red"]}"""))
         assertTrue(resolved.answerLocks.isEmpty())
         assertEquals("Red", (resolved.feed.single() as AgentFeedItem.Question).answer)
     }
 
     @Test
-    fun `an unacknowledged answer unlocks so it can be retried`() {
+    fun `an unacknowledged answer flips to Failed so it can be retried`() {
+        // EXP-334: Failed (not removed) — the card re-surfaces WITH a retry
+        // hint, no longer holds the stepper, and a re-tap re-locks it.
         val state = ActivityFeedState().lockAnswer("local:1")
-        assertTrue(state.unlockUnacknowledged("local:1").answerLocks.isEmpty())
+        val failed = state.failUnacknowledged("local:1")
+        assertEquals(AnswerState.Failed, failed.answerLocks["local:1"])
+        assertFalse(failed.answerLocks["local:1"].locksCard())
+        assertEquals(AnswerState.Sending, failed.lockAnswer("local:1").answerLocks["local:1"])
+        // A LATE ack after the expiry still locks the card for good.
+        val late = failed.applying(event("""{"kind":"answer_ack","id":"local:1"}"""))
+        assertEquals(AnswerState.Acked, late.answerLocks["local:1"])
     }
 
     @Test

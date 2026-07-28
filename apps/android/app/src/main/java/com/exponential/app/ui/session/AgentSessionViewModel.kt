@@ -99,9 +99,13 @@ data class QuestionOption(
 
 /** This client's send state for one question card (EXP-249): the card locks
  *  the instant an answer goes out and stays locked through the desktop's
- *  `answer_ack`; a missing ack unlocks it after [ANSWER_ACK_TIMEOUT_MS] so the
- *  answer can be retried. */
-enum class AnswerState { Sending, Acked }
+ *  `answer_ack`; a missing ack flips it to [AnswerState.Failed] after
+ *  [ANSWER_ACK_TIMEOUT_MS] — answerable again, with a visible retry hint
+ *  instead of a silent rollback (EXP-334, web parity). */
+enum class AnswerState { Sending, Acked, Failed }
+
+/** Whether a lock in [state] still holds the card (a Failed one doesn't). */
+fun AnswerState?.locksCard(): Boolean = this == AnswerState.Sending || this == AnswerState.Acked
 
 /** One rendered feed entry. Diffs never enter the feed — see [AgentSessionViewModel.latestDiff]. */
 sealed interface AgentFeedItem {
@@ -639,11 +643,16 @@ fun ActivityFeedState.applyActivityEvent(
 fun ActivityFeedState.lockAnswer(lockKey: String): ActivityFeedState =
     copy(answerLocks = answerLocks + (lockKey to AnswerState.Sending))
 
-/** Release a lock whose `answer_ack` never arrived, so the answer can be
- *  retried; an acknowledged card stays locked. */
-fun ActivityFeedState.unlockUnacknowledged(lockKey: String): ActivityFeedState =
-    if (answerLocks[lockKey] == AnswerState.Sending) copy(answerLocks = answerLocks - lockKey)
-    else this
+/** Flip a lock whose `answer_ack` never arrived to [AnswerState.Failed]: the
+ *  card is answerable again AND says why it re-surfaced (EXP-334 — the silent
+ *  unlock read as the stepper inexplicably jumping back). An acknowledged
+ *  card stays locked. */
+fun ActivityFeedState.failUnacknowledged(lockKey: String): ActivityFeedState =
+    if (answerLocks[lockKey] == AnswerState.Sending) {
+        copy(answerLocks = answerLocks + (lockKey to AnswerState.Failed))
+    } else {
+        this
+    }
 
 /** Drop the locks of cards that have since resolved — a resolved card renders
  *  its answer instead of options, so the lock guards nothing. */
@@ -1065,7 +1074,7 @@ class AgentSessionViewModel @Inject constructor(
      */
     fun sendQuestionAnswer(questionId: String, askId: String?, keys: List<String>) {
         if (keys.isEmpty()) return
-        if (_activity.value.answerLocks.containsKey(questionId)) return
+        if (_activity.value.answerLocks[questionId].locksCard()) return
         val socket = ws ?: return
         lockAnswer(questionId)
         viewModelScope.launch {
@@ -1090,7 +1099,7 @@ class AgentSessionViewModel @Inject constructor(
      */
     fun sendLegacyAnswer(lockKey: String, key: String, lock: Boolean = true) {
         if (key.isEmpty()) return
-        if (lock && _activity.value.answerLocks.containsKey(lockKey)) return
+        if (lock && _activity.value.answerLocks[lockKey].locksCard()) return
         val socket = ws ?: return
         if (lock) lockAnswer(lockKey)
         viewModelScope.launch {
@@ -1110,8 +1119,8 @@ class AgentSessionViewModel @Inject constructor(
         ackTimeouts[lockKey] = viewModelScope.launch {
             delay(ANSWER_ACK_TIMEOUT_MS)
             ackTimeouts.remove(lockKey)
-            // Nothing came back — unlock so the answer can be sent again.
-            _activity.value = _activity.value.unlockUnacknowledged(lockKey)
+            // Nothing came back — free the card WITH a retry hint (EXP-334).
+            _activity.value = _activity.value.failUnacknowledged(lockKey)
         }
     }
 
