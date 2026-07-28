@@ -88,6 +88,7 @@ class AuthRepository @Inject constructor(
         token: String,
         email: String?,
         userId: String,
+        name: String? = null,
         isAdmin: Boolean = false,
         onboardingCompletedAt: String? = null,
         // Only true when onboardingCompletedAt was actually read from the server;
@@ -97,7 +98,7 @@ class AuthRepository @Inject constructor(
         accountStore.resolveActiveAccount(
             token = token,
             email = email,
-            name = null,
+            name = name,
             userId = userId,
             isAdmin = isAdmin,
             onboardingCompletedAt = onboardingCompletedAt,

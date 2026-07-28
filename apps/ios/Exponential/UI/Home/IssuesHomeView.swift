@@ -34,7 +34,7 @@ struct IssuesHomeView: View {
             AppBackground()
 
             if let current = currentBoard {
-                IssueListView(boardId: current.boardId)
+                IssueListView(boardId: current.boardId, showsSettingsButton: true)
                     .environment(\.accountId, current.accountId)
                     // Remount on switch so the list view model rebinds to the
                     // selected board (it captures boardId at creation).
@@ -57,8 +57,13 @@ struct IssuesHomeView: View {
             ToolbarItem(placement: .principal) {
                 switcherControl
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                settingsButton
+            // With a board mounted, IssueListView owns the trailing group so
+            // the order is filter → settings (EXP-331); the gear only renders
+            // from here on the board-less branches (syncing / empty state).
+            if currentBoard == nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    SettingsToolbarLink()
+                }
             }
         }
         .sheet(isPresented: $showSwitcher) {
@@ -129,15 +134,6 @@ struct IssuesHomeView: View {
         .disabled(!hasAnyBoards)
         .opacity(hasAnyBoards ? 1 : 0.5)
         .accessibilityLabel("Switch board")
-    }
-
-    private var settingsButton: some View {
-        NavigationLink(value: AppRoute.settings) {
-            AppIcon(AppIcons.navSettings, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 32, height: 32)
-                .contentShape(Circle())
-        }
     }
 
     // MARK: - Empty state
@@ -273,6 +269,20 @@ struct IssuesHomeView: View {
         } catch {
             // Observation ended (pool closed on sign-out) — leave the last
             // snapshot in place; the .task(id:) restart handles account swaps.
+        }
+    }
+}
+
+/// The nav-bar Settings gear — one definition shared by IssuesHomeView's
+/// board-less branches and IssueListView's Root-mode trailing group, so the
+/// glyph and hit target stay identical wherever it renders (EXP-331).
+struct SettingsToolbarLink: View {
+    var body: some View {
+        NavigationLink(value: AppRoute.settings) {
+            AppIcon(AppIcons.navSettings, size: AppIcon.Size.medium)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 32, height: 32)
+                .contentShape(Circle())
         }
     }
 }

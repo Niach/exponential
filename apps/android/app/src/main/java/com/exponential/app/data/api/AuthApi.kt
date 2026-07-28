@@ -42,6 +42,7 @@ data class AuthUser(
 data class SessionInfo(
     val email: String,
     val userId: String,
+    val name: String? = null,
     val isAdmin: Boolean,
     val onboardingCompletedAt: String? = null,
 )
@@ -200,6 +201,7 @@ class AuthApi @Inject constructor(
         auth.setToken(
             token = token,
             email = info?.email ?: emailHint,
+            name = info?.name,
             userId = userId,
             isAdmin = info?.isAdmin ?: isAdminHint,
             onboardingCompletedAt = info?.onboardingCompletedAt ?: prior?.onboardingCompletedAt,
@@ -229,11 +231,12 @@ class AuthApi @Inject constructor(
             val user = parsed["user"] as? JsonObject ?: return null
             val email = user["email"]?.jsonPrimitive?.content ?: return null
             val id = user["id"]?.jsonPrimitive?.content ?: return null
+            val name = user["name"]?.jsonPrimitive?.contentOrNull
             val isAdmin = (user["isAdmin"]?.jsonPrimitive?.booleanOrNull) ?: false
             // better-auth additionalField (type date, input:false) — returned on
             // session reads as an ISO string or null, exactly like the web gate.
             val onboarding = user["onboardingCompletedAt"]?.jsonPrimitive?.contentOrNull
-            SessionInfo(email = email, userId = id, isAdmin = isAdmin, onboardingCompletedAt = onboarding)
+            SessionInfo(email = email, userId = id, name = name, isAdmin = isAdmin, onboardingCompletedAt = onboarding)
         } catch (e: Exception) {
             null
         }

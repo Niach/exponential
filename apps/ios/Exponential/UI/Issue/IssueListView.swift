@@ -8,6 +8,11 @@ struct IssueListView: View {
     /// False when pushed on a bar-less surface (where MainNavigator hides the
     /// floating tab bar): no clearance then.
     var showsTabBarClearance = true
+    /// True only in Root mode (IssuesHomeView): the Settings gear renders
+    /// HERE, after the filter button, so the trailing order is
+    /// filter → settings (EXP-331 — Android parity; SwiftUI's parent/child
+    /// toolbar merge would otherwise put the gear first).
+    var showsSettingsButton = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -72,13 +77,16 @@ struct IssueListView: View {
         .navigationTitle(viewModel?.board?.name ?? "Issues")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         // Filter trigger in the nav bar (EXP-251 — replaces the removed
-        // inline filter/tab bar). In Root mode SwiftUI merges this trailing
-        // item next to IssuesHomeView's Settings gear; pushed boards show it
-        // as the sole trailing item.
+        // inline filter/tab bar). Root mode also emits the Settings gear here
+        // (after the filter — EXP-331); pushed boards show the filter as the
+        // sole trailing item.
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 if let vm = viewModel {
                     filterToolbarButton(vm)
+                }
+                if showsSettingsButton {
+                    SettingsToolbarLink()
                 }
             }
         }
