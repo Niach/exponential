@@ -495,11 +495,25 @@ class EditorModel {
     fun insertImageUrl(url: String, alt: String = "image", pending: PendingImage? = null): String =
         doInsertImage(url = url, alt = alt, pending = pending)
 
-    private fun doInsertImage(url: String, alt: String, pending: PendingImage?): String {
+    /**
+     * Append an image at the END of the description, ignoring the caret (EXP-327).
+     * An image picked through the *file* picker has no meaningful insertion point —
+     * the user was attaching, not typing — so it lands after everything already
+     * written instead of splitting whatever paragraph happened to hold focus.
+     */
+    fun appendImageUrl(url: String, alt: String = "image", pending: PendingImage? = null): String =
+        doInsertImage(url = url, alt = alt, pending = pending, atEnd = true)
+
+    private fun doInsertImage(
+        url: String,
+        alt: String,
+        pending: PendingImage?,
+        atEnd: Boolean = false,
+    ): String {
         if (pending != null) pendingImages[url] = pending
         val imageRow = EditorRow.Image(url = url, alt = alt)
 
-        val targetId = focusedRowId ?: selection?.first
+        val targetId = if (atEnd) null else focusedRowId ?: selection?.first
         val targetIdx = rows.indexOfFirst { it.id == targetId }
         val targetRow = rows.getOrNull(targetIdx) as? EditorRow.Para
 

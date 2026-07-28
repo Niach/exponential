@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -73,6 +75,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.MarkdownEditor
+import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.parseColor
@@ -158,6 +161,10 @@ fun CreateIssueScreen(
 
     val initialPendingImages = remember { sharePrefill?.pendingImages ?: emptyMap() }
     val pendingImages = remember { mutableStateMapOf<String, Uri>().apply { putAll(initialPendingImages) } }
+    // Draft file attachments (EXP-327): the issue doesn't exist yet, so —
+    // exactly like draft images — the picks are held here and uploaded right
+    // after the create.
+    val pendingFiles = remember { mutableStateListOf<Uri>() }
     val users = state.users
     // In a solo team the picker is hidden, so seed (and keep) the assignee
     // pinned to the lone member — including after a share-mode board switch
@@ -188,7 +195,8 @@ fun CreateIssueScreen(
 
     // Anything worth a "discard?" prompt: typed/prefilled content or images
     // queued for upload.
-    val hasUnsavedContent = title.isNotBlank() || description.isNotBlank() || pendingImages.isNotEmpty()
+    val hasUnsavedContent = title.isNotBlank() || description.isNotBlank() ||
+        pendingImages.isNotEmpty() || pendingFiles.isNotEmpty()
 
     // The share prefill is NOT consumed on entry: it lives in an app-singleton
     // (TeamSelection.pendingShare), so backing out and re-entering re-fills
@@ -231,6 +239,7 @@ fun CreateIssueScreen(
                 // server rejects the whole create on an unknown label id.
                 labelIds = selectedLabelIds.filter { id -> state.labels.any { it.id == id } },
                 pendingImages = pendingImages.toMap(),
+                pendingFiles = pendingFiles.toList(),
             )
             if (ok) {
                 // The share prefill (if any) made it into this issue — consume
@@ -241,6 +250,7 @@ fun CreateIssueScreen(
                     description = ""
                     selectedLabelIds = emptySet()
                     pendingImages.clear()
+                    pendingFiles.clear()
                 } else {
                     onBack()
                 }
@@ -337,7 +347,6 @@ fun CreateIssueScreen(
                         placeholder
                     },
                     imageUploadEnabled = true,
-                    placeholder = "Description (markdown supported)",
                     minHeight = 120.dp,
                     initialPendingImages = initialPendingImages,
                     mentionMembers = remember(users) {
@@ -345,7 +354,20 @@ fun CreateIssueScreen(
                             .map { MentionMember(it.name ?: it.email, it.email) }
                     },
                     mentionEnabled = !isSoloTeam,
+                    // EXP-327: the same attach menu as issue detail — images go
+                    // into the description, other files become draft
+                    // attachments uploaded once the issue exists.
+                    onAttachFile = { pendingFiles.add(it) },
                 )
+
+                // Draft files, only once there is one (the section never
+                // announces its own emptiness — EXP-327).
+                if (pendingFiles.isNotEmpty()) {
+                    DraftFilesSection(
+                        files = pendingFiles,
+                        onRemove = { pendingFiles.remove(it) },
+                    )
+                }
 
                 // Status / Priority / Assignee — one grouped glass card.
                 Column(
@@ -607,4 +629,53 @@ private fun MetaRow(
 @Composable
 private fun MetaDivider() {
     HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.06f))
+}
+
+/**
+ * Draft file attachments on the create screen (EXP-327). The issue has no id
+ * yet, so these are held locally and uploaded straight after the create — the
+ * same deferred shape draft images already use. Rendered only when non-empty,
+ * matching the issue-detail Files section.
+ */
+@Composable
+private fun DraftFilesSection(files: List<Uri>, onRemove: (Uri) -> Unit) {
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "Files",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        for (uri in files) {
+            val name = remember(uri) { MarkdownMediaUtils.guessFilename(context, uri) }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    ExpIcons.uiFile,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { onRemove(uri) }) {
+                    Icon(
+                        ExpIcons.uiClose,
+                        contentDescription = "Remove $name",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+    }
 }

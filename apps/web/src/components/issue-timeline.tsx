@@ -1,7 +1,14 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Send } from "lucide-react"
-import type { Comment, Issue, IssueEvent, Label, Board, User } from "@/db/schema"
+import type {
+  Comment,
+  Issue,
+  IssueEvent,
+  Label,
+  Board,
+  User,
+} from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   commentCollection,
@@ -122,74 +129,80 @@ export function IssueTimeline({
     await trpc.comments.delete.mutate({ id: commentId })
   }
 
+  // EXP-327: the rule runs the full width of the pane, not just the reading
+  // column — so the border sits on a full-width shell and the content
+  // re-centers itself inside it (the detail view mounts this OUTSIDE its own
+  // `max-w-3xl` wrapper for exactly that reason; desktop-app parity).
   return (
-    <div className="border-t border-border px-4 py-3">
-      <div className="text-xs font-medium text-muted-foreground mb-2">
-        Activity {merged.length > 0 ? `(${merged.length})` : ``}
-      </div>
-      {merged.length === 0 && (
-        <div className="text-xs text-muted-foreground py-1">
-          No activity yet. Be the first to add a comment.
+    <div className="border-t border-border">
+      <div className="mx-auto max-w-3xl px-4 py-3">
+        <div className="text-xs font-medium text-muted-foreground mb-2">
+          Activity {merged.length > 0 ? `(${merged.length})` : ``}
         </div>
-      )}
-      {merged.map((item) => {
-        if (item.kind === `event`) {
+        {merged.length === 0 && (
+          <div className="text-xs text-muted-foreground py-1">
+            No activity yet. Be the first to add a comment.
+          </div>
+        )}
+        {merged.map((item) => {
+          if (item.kind === `event`) {
+            return (
+              <EventRow
+                key={`e-${item.event.id}`}
+                event={item.event}
+                userMap={userMap}
+                labelMap={labelMap}
+                boardMap={boardMap}
+              />
+            )
+          }
+          const comment = item.comment
+          const author = userMap.get(comment.authorId)
+          const canModify = comment.authorId === currentUserId || isAdmin
           return (
-            <EventRow
-              key={`e-${item.event.id}`}
-              event={item.event}
-              userMap={userMap}
-              labelMap={labelMap}
-              boardMap={boardMap}
+            <RegularCommentRow
+              key={comment.id}
+              author={author}
+              comment={comment}
+              canModify={canModify}
+              users={users}
+              editing={editingCommentId === comment.id}
+              onCancelEdit={() => setEditingCommentId(null)}
+              onDelete={() => void handleDelete(comment.id)}
+              onEdit={() => setEditingCommentId(comment.id)}
+              onSaveEdit={(text) => handleEditSave(comment.id, text)}
             />
           )
-        }
-        const comment = item.comment
-        const author = userMap.get(comment.authorId)
-        const canModify = comment.authorId === currentUserId || isAdmin
-        return (
-          <RegularCommentRow
-            key={comment.id}
-            author={author}
-            comment={comment}
-            canModify={canModify}
+        })}
+        <form onSubmit={handleSubmit} className="mt-2 flex items-end gap-2">
+          <MentionTextarea
+            placeholder={composerPlaceholder}
+            value={draft}
+            onValueChange={setDraft}
             users={users}
-            editing={editingCommentId === comment.id}
-            onCancelEdit={() => setEditingCommentId(null)}
-            onDelete={() => void handleDelete(comment.id)}
-            onEdit={() => setEditingCommentId(comment.id)}
-            onSaveEdit={(text) => handleEditSave(comment.id, text)}
+            className="min-h-16 text-sm"
+            disabled={submitting}
+            onKeyDown={(event) => {
+              if (
+                event.key === `Enter` &&
+                (event.metaKey || event.ctrlKey) &&
+                draft.trim()
+              ) {
+                event.preventDefault()
+                void handleSubmit(event)
+              }
+            }}
           />
-        )
-      })}
-      <form onSubmit={handleSubmit} className="mt-2 flex items-end gap-2">
-        <MentionTextarea
-          placeholder={composerPlaceholder}
-          value={draft}
-          onValueChange={setDraft}
-          users={users}
-          className="min-h-16 text-sm"
-          disabled={submitting}
-          onKeyDown={(event) => {
-            if (
-              event.key === `Enter` &&
-              (event.metaKey || event.ctrlKey) &&
-              draft.trim()
-            ) {
-              event.preventDefault()
-              void handleSubmit(event)
-            }
-          }}
-        />
-        <Button
-          type="submit"
-          size="icon"
-          aria-label="Send comment"
-          disabled={submitting || !draft.trim()}
-        >
-          <Send className="size-4" />
-        </Button>
-      </form>
+          <Button
+            type="submit"
+            size="icon"
+            aria-label="Send comment"
+            disabled={submitting || !draft.trim()}
+          >
+            <Send className="size-4" />
+          </Button>
+        </form>
+      </div>
     </div>
   )
 }

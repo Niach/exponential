@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CreateIssueInput
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
@@ -28,12 +29,16 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.electric.elapsedTicker
 import com.exponential.app.data.electric.isCatchingUp
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
+import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.matchesFilters
+import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.domain.sortIssuesForCategory
 import com.exponential.app.domain.toggleStatus
 import com.exponential.app.ui.markdown.IssueRefTarget
@@ -104,6 +109,7 @@ class IssueListViewModel @Inject constructor(
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
     private val issueImagesApi: IssueImagesApi,
+    private val attachmentsApi: AttachmentsApi,
     private val steerApi: SteerApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
@@ -712,6 +718,9 @@ class IssueListViewModel @Inject constructor(
         assigneeId: String? = null,
         labelIds: List<String> = emptyList(),
         pendingImages: Map<String, android.net.Uri> = emptyMap(),
+        // Draft file attachments (EXP-327): uploaded once the issue exists,
+        // like the images above — attachments need an issue id.
+        pendingFiles: List<android.net.Uri> = emptyList(),
     ): Boolean {
         if (title.isBlank()) return false
         _busy.value = true
@@ -757,6 +766,13 @@ class IssueListViewModel @Inject constructor(
                         holder.database(forAccountId = accountId).issueDao().upsert(updated)
                     }
                 }
+            }
+
+            // Draft files last: the issue is already committed, so a failed
+            // attachment must never turn a successful create into a failure —
+            // it is logged and skipped, like a failed draft image.
+            if (pendingFiles.isNotEmpty()) {
+                uploadPendingFiles(accountId, created.id, pendingFiles)
             }
             true
         } catch (error: Throwable) {
@@ -836,6 +852,44 @@ class IssueListViewModel @Inject constructor(
             }
         }
         return out
+    }
+
+    /**
+     * Upload the create screen's draft file attachments against the now-existing
+     * issue (EXP-327). Best-effort per file: the issue is already committed, so
+     * a rejected attachment is logged and skipped rather than failing the create.
+     */
+    private suspend fun uploadPendingFiles(
+        accountId: String,
+        issueId: String,
+        files: List<android.net.Uri>,
+    ) {
+        val resolver = appContext.contentResolver
+        for (uri in files) {
+            try {
+                val contentType = canonicalContentType(resolver.getType(uri))
+                // Inline-image types never belong in the Files section — the
+                // editor's attach menu already routes those into the
+                // description, so anything landing here is a real file.
+                if (isInlineImage(contentType)) continue
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
+                if (bytes.size > MAX_FILE_UPLOAD_BYTES) {
+                    android.util.Log.w("IssueListViewModel", "Draft file over the size cap, skipped")
+                    continue
+                }
+                val filename = sanitizeFilename(
+                    resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+                    } ?: uri.lastPathSegment
+                )
+                attachmentsApi.upload(accountId, issueId, bytes, filename, contentType)
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                android.util.Log.w("IssueListViewModel", "Draft file upload failed", error)
+            }
+        }
     }
 }
 

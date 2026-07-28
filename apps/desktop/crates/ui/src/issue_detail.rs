@@ -1304,10 +1304,10 @@ impl IssueDetailView {
             .child(self.render_files_section(issue, cx));
 
         // The timeline sits OUTSIDE the centered column and re-centers its own
-        // content to the same column width. It used to carry a full-bleed top
-        // border (EXP-67) splitting description from comments — EXP-282 drops
-        // that line: the sections are separated by whitespace alone, matching
-        // the blended chrome everywhere else.
+        // content to the same column width — which is what lets it carry a
+        // full-bleed top border spanning the whole pane (EXP-67, dropped by
+        // EXP-282, restored by EXP-327 so the activity section reads as its
+        // own region on every client).
         v_flex()
             .w_full()
             .child(centered_column(column))

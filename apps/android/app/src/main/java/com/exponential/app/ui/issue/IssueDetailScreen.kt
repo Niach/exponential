@@ -74,6 +74,7 @@ import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalIssueRefs
@@ -82,6 +83,7 @@ import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
+import com.exponential.app.ui.markdown.appendPickedImage
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import com.exponential.app.ui.theme.TextEmphasis
@@ -116,7 +118,6 @@ fun IssueDetailScreen(
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val isSubscribed by viewModel.isSubscribed.collectAsStateWithLifecycle()
     val runningSession by viewModel.runningSession.collectAsStateWithLifecycle()
-    val repoName by viewModel.repoName.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
@@ -149,6 +150,22 @@ fun IssueDetailScreen(
     var moveTarget by remember { mutableStateOf<com.exponential.app.data.db.BoardEntity?>(null) }
     // The docked comment composer (bottom bar) expansion.
     var composerExpanded by remember { mutableStateOf(false) }
+
+    // Hoisted so an image that arrived through the FILE path can still be
+    // appended to the description instead of erroring (EXP-327).
+    val descriptionModel = remember(issue?.id) { EditorModel() }
+    LaunchedEffect(descriptionModel, viewModel) {
+        viewModel.onInlineImagePicked = { uri, contentType ->
+            scope.launch {
+                appendPickedImage(context, descriptionModel, uri, contentType) { picked ->
+                    viewModel.uploadImage(picked)
+                }
+            }
+        }
+    }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.onInlineImagePicked = null }
+    }
 
     // The bar's comment half shares the thread's screen-scoped VM (hoisted
     // draft) — bind before either consumer renders.
@@ -275,68 +292,79 @@ fun IssueDetailScreen(
                 },
                 actions = {
                     if (issue != null) {
+                        // EXP-327: one `⋮` and nothing else — share and the
+                        // subscribe toggle moved inside it (with words, so the
+                        // bell's state is readable instead of guessed), next to
+                        // Move to board. The MENU is available to everyone;
+                        // only the mutating items are moderator-gated.
                         val url = shareUrl
-                        if (url != null) {
-                            IconButton(onClick = {
-                                val send = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(
-                                        Intent.EXTRA_TEXT,
-                                        "${issue.identifier}: ${issue.title}\n$url",
-                                    )
-                                }
-                                runCatching {
-                                    context.startActivity(
-                                        Intent.createChooser(send, "Share issue"),
-                                    )
-                                }
-                            }) {
-                                Icon(ExpIcons.uiShare, contentDescription = "Share issue")
+                        Box {
+                            IconButton(onClick = { overflowOpen = true }) {
+                                Icon(ExpIcons.uiMoreVertical, contentDescription = "Issue actions")
                             }
-                        }
-                        IconButton(onClick = { viewModel.toggleSubscribe() }) {
-                            Icon(
-                                if (isSubscribed) ExpIcons.uiSubscribe else ExpIcons.uiUnsubscribe,
-                                contentDescription = if (isSubscribed) "Unsubscribe" else "Subscribe",
-                                tint = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        // Overflow lives in the nav bar (parity with iOS); the
-                        // content header below carries only the identifier + repo
-                        // chips. Moderator-gated, matching the pickers' guards.
-                        if (isModerator) {
-                            Box {
-                                IconButton(onClick = { overflowOpen = true }) {
-                                    Icon(ExpIcons.uiMoreVertical, contentDescription = "Issue actions")
+                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                                if (url != null) {
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
+                                        text = { Text("Share") },
+                                        onClick = {
+                                            overflowOpen = false
+                                            val send = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(
+                                                    Intent.EXTRA_TEXT,
+                                                    "${issue.identifier}: ${issue.title}\n$url",
+                                                )
+                                            }
+                                            runCatching {
+                                                context.startActivity(
+                                                    Intent.createChooser(send, "Share issue"),
+                                                )
+                                            }
+                                        },
+                                    )
                                 }
-                                DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
-                                    // Duplicate = status interception (L27): marking a
-                                    // duplicate happens by picking the `duplicate` status,
-                                    // which opens the canonical-issue picker. Only the
-                                    // unmark action lives here.
-                                    if (issue.duplicateOfId != null) {
-                                        DropdownMenuItem(
-                                            leadingIcon = { Icon(ExpIcons.uiCopy, contentDescription = null) },
-                                            text = { Text("Unmark duplicate") },
-                                            onClick = {
-                                                overflowOpen = false
-                                                viewModel.unmarkDuplicate()
-                                            },
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(
+                                            if (isSubscribed) ExpIcons.uiSubscribe else ExpIcons.uiUnsubscribe,
+                                            contentDescription = null,
                                         )
-                                    }
-                                    // Move to another board in the same team
-                                    // (EXP-57) — hidden when this is the team's
-                                    // only board (web parity: 2+ boards).
-                                    if (moveTargets.isNotEmpty()) {
-                                        DropdownMenuItem(
-                                            leadingIcon = { Icon(ExpIcons.eventBoardMoved, contentDescription = null) },
-                                            text = { Text("Move to board") },
-                                            onClick = {
-                                                overflowOpen = false
-                                                activeSheet = IssueSheet.MoveBoard
-                                            },
-                                        )
-                                    }
+                                    },
+                                    text = { Text(if (isSubscribed) "Unsubscribe" else "Subscribe") },
+                                    onClick = {
+                                        overflowOpen = false
+                                        viewModel.toggleSubscribe()
+                                    },
+                                )
+                                // Duplicate = status interception (L27): marking a
+                                // duplicate happens by picking the `duplicate` status,
+                                // which opens the canonical-issue picker. Only the
+                                // unmark action lives here.
+                                if (isModerator && issue.duplicateOfId != null) {
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.uiCopy, contentDescription = null) },
+                                        text = { Text("Unmark duplicate") },
+                                        onClick = {
+                                            overflowOpen = false
+                                            viewModel.unmarkDuplicate()
+                                        },
+                                    )
+                                }
+                                // Move to another board in the same team
+                                // (EXP-57) — hidden when this is the team's
+                                // only board (web parity: 2+ boards).
+                                if (isModerator && moveTargets.isNotEmpty()) {
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.eventBoardMoved, contentDescription = null) },
+                                        text = { Text("Move to board") },
+                                        onClick = {
+                                            overflowOpen = false
+                                            activeSheet = IssueSheet.MoveBoard
+                                        },
+                                    )
+                                }
+                                if (isModerator) {
                                     DropdownMenuItem(
                                         leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                                         text = { Text("Delete issue") },
@@ -599,6 +627,7 @@ fun IssueDetailScreen(
 
             Spacer(Modifier.height(16.dp))
             MarkdownEditor(
+                model = descriptionModel,
                 markdown = descriptionSync.text,
                 editable = isModerator,
                 onChange = {
@@ -610,6 +639,9 @@ fun IssueDetailScreen(
                 mentionMembers = mentionMembers,
                 mentionEnabled = soloMemberId == null,
                 onFocusChanged = { descriptionSync.setFocused(it) },
+                // EXP-327: the description editor is the ONE attach affordance;
+                // non-image picks land in the Files section below.
+                onAttachFile = if (isModerator) { uri -> viewModel.uploadFile(uri) } else null,
             )
             DisposableEffect(Unit) {
                 onDispose { viewModel.flushDescription() }
@@ -624,9 +656,9 @@ fun IssueDetailScreen(
                 !issue.branch.isNullOrBlank()
             if (cardVisible) {
                 Spacer(Modifier.height(20.dp))
-                repoName?.let { name ->
-                    Row(modifier = Modifier.padding(bottom = 8.dp)) { RepoChip(name) }
-                }
+                // EXP-327: no repo chip here — the PR row itself is the link to
+                // the code, and the chip only repeated what the board already
+                // says (Linear parity).
                 AgentPrCard(
                     issue = issue,
                     session = session,
@@ -639,12 +671,11 @@ fun IssueDetailScreen(
             }
 
             // Non-image attachments (EXP-297) — they never appear in the
-            // markdown, so this is the only surface they exist on. The section
-            // renders (and pads) nothing when there's neither a file nor the
-            // right to attach one.
+            // markdown, so this is the only surface they exist on. EXP-327:
+            // it renders (and pads) nothing at all when there are no files;
+            // attaching happens from the description editor's attach menu.
             IssueFilesSection(
                 viewModel = viewModel,
-                canUpload = isModerator,
                 canDelete = permissions.isMember,
                 modifier = Modifier.padding(top = 20.dp),
             )
@@ -924,32 +955,6 @@ private fun FeedbackWidgetChip() {
         Text(
             "Feedback widget",
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-    }
-}
-
-// The backing repository's name (owner/name), resolved via the repositories API
-// and cached in the ViewModel. A board is a repository now (masterplan v4 §6).
-@Composable
-private fun RepoChip(fullName: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .glassButton()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Icon(
-            ExpIcons.uiRepository,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            fullName,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
     }

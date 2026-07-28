@@ -24,6 +24,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.isInlineImage
 import com.exponential.app.ui.markdown.model.PendingImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,6 +72,11 @@ fun MarkdownEditor(
     // Optional hoisted model so a host can drive focus / caret insertion (the
     // issue-detail comment composer, EXP-240). Null keeps the private default.
     model: EditorModel? = null,
+    // EXP-327: non-null adds a "Files" entry to the toolbar's image button and
+    // receives the NON-image picks (images are inlined into the description
+    // here instead — the host never sees them). Null keeps the plain image
+    // button, for editors whose host has nowhere to put an attachment.
+    onAttachFile: ((Uri) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     if (!editable) {
@@ -118,6 +125,7 @@ fun MarkdownEditor(
     }
 
     val pickImage = rememberMarkdownImagePicker(model, onUploadImage)
+    val pickFile = rememberMarkdownFilePicker(model, onUploadImage, onAttachFile)
 
     // The formatting toolbar is rendered by a screen-level overlay so it can
     // float above the keyboard (see ProvideMarkdownToolbar). Register this
@@ -132,6 +140,7 @@ fun MarkdownEditor(
             if (model.focusedRowId != null) {
                 toolbarController.activeModel = model
                 toolbarController.onPickImage = pickImage
+                toolbarController.onPickFile = pickFile
                 toolbarController.imageEnabled = imageEnabledFlag
                 toolbarController.mentionEnabled = mentionEnabled
             } else if (toolbarController.activeModel === model) {
@@ -217,6 +226,89 @@ fun rememberMarkdownImagePicker(
     return remember(launcher) {
         { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
     }
+}
+
+/**
+ * The "Files" half of the toolbar's attach menu (EXP-327): an any-type document
+ * picker that sorts the pick itself instead of making the user pick the right
+ * button up front.
+ *
+ * An inline-image pick is APPENDED to the description — same insert/upload
+ * lifecycle as the photo picker, just at the end rather than at the caret,
+ * because the user was attaching rather than typing. Anything else goes to
+ * [onAttachFile] and becomes a real attachment row. This is why picking an
+ * image here no longer dead-ends in "images go in the description": it just
+ * goes there.
+ *
+ * Returns null when there is nowhere to put a non-image file, which is also the
+ * signal that the toolbar should keep its plain image button.
+ */
+@Composable
+fun rememberMarkdownFilePicker(
+    model: EditorModel,
+    onUploadImage: (suspend (uri: Uri) -> String?)?,
+    onAttachFile: ((Uri) -> Unit)?,
+): (() -> Unit)? {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentModel by rememberUpdatedState(model)
+    val currentUploader by rememberUpdatedState(onUploadImage)
+    val currentAttach by rememberUpdatedState(onAttachFile)
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val target = currentModel
+        val uploader = currentUploader
+        val attach = currentAttach
+        scope.launch {
+            // Fall back to octet-stream, NOT the photo picker's image/jpeg: an
+            // untyped document is a file, not a picture.
+            val mime = canonicalContentType(
+                MarkdownMediaUtils.guessMimeType(context, uri, fallback = "application/octet-stream")
+            )
+            if (!isInlineImage(mime)) {
+                attach?.invoke(uri)
+                return@launch
+            }
+            if (uploader == null) return@launch
+            appendPickedImage(context, target, uri, mime, uploader)
+        }
+    }
+    return remember(launcher, onAttachFile) {
+        if (onAttachFile == null) null else ({ launcher.launch(arrayOf("*/*")) })
+    }
+}
+
+/**
+ * Append an already-classified inline image to [model]'s description and run
+ * the host [uploader] against the inserted row (EXP-327).
+ *
+ * Shared by the toolbar's "Files" pick and the issue-detail fallback for an
+ * image that reached the attachment path anyway, so both produce the identical
+ * end-of-description block with the same preview/retry lifecycle as the photo
+ * picker.
+ */
+suspend fun appendPickedImage(
+    context: Context,
+    model: EditorModel,
+    uri: Uri,
+    contentType: String,
+    uploader: suspend (Uri) -> String?,
+) {
+    val bytes = MarkdownMediaUtils.readBytes(context, uri)
+    val name = MarkdownMediaUtils.guessFilename(context, uri)
+    val size = MarkdownMediaUtils.probeSize(context, uri)
+    if (bytes == null) {
+        // No preview bytes — upload first, then insert (nothing to show while
+        // the upload runs).
+        val url = runCatching { uploader(uri) }.getOrNull() ?: return
+        model.appendImageUrl(url, alt = "image")
+        return
+    }
+    val pending = PendingImage(uri, bytes, name, contentType, size.width, size.height)
+    val rowId = model.appendImageUrl(draftUrl(), alt = "image", pending = pending)
+    model.runUpload(rowId) { uploader(uri) }
 }
 
 /**

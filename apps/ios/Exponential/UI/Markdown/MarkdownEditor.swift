@@ -4,6 +4,7 @@ import os
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 private let log = Logger(subsystem: "com.exponential", category: "MarkdownEditor")
 
@@ -36,9 +37,17 @@ struct MarkdownEditor: View {
     /// Caps embedded image blocks — compact contexts (the comment composer)
     /// would otherwise be dominated by a single image (EXP-246).
     var imageMaxHeight: CGFloat?
+    /// EXP-327: non-nil adds a "Files" entry to the toolbar's image button and
+    /// receives the NON-image picks. Images picked there are appended to the
+    /// description here instead, so the host never sees them — which is why
+    /// attaching a screenshot through the file picker no longer dead-ends in
+    /// "images go in the description". Nil keeps the plain image button, for
+    /// editors whose host has nowhere to put an attachment.
+    var onAttachFile: ((URL) -> Void)?
 
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
+    @State private var showFileImporter = false
     @State private var toolbar = MarkdownToolbar()
 
     // NOTE: deliberately no internal ScrollView. Every usage embeds this
@@ -105,9 +114,22 @@ struct MarkdownEditor: View {
             guard let newItem else { return }
             Task { await ingestPhoto(newItem) }
         }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case let .success(urls) = result else { return }
+            for url in urls { ingestPickedFile(url) }
+        }
         .onAppear {
             guard !isReadOnly else { return }
             toolbar.onImagePick = { showPhotoPicker = true }
+            if onAttachFile != nil {
+                toolbar.onFilePick = { showFileImporter = true }
+            } else {
+                toolbar.onFilePick = nil
+            }
             toolbar.showsMentionButton = showsMentionButton
             model.mentionMembers = mentionMembers
         }
@@ -196,6 +218,40 @@ struct MarkdownEditor: View {
         let filename = "image-\(Int(Date().timeIntervalSince1970)).\(ext)"
         let (width, height) = pixelSize(of: data)
         model.insertImage(data: data, filename: filename, contentType: contentType, width: width, height: height)
+    }
+
+    /// Sort a "Files" pick (EXP-327): an inline-image type is APPENDED to the
+    /// description — same draft/upload lifecycle as the photo picker, just at
+    /// the end rather than at the caret, because the user was attaching rather
+    /// than typing. Everything else goes to the host as a real attachment.
+    ///
+    /// The read runs off-main inside the security scope: a 50 MB pick from a
+    /// cloud-backed provider streams over the network and would freeze the UI.
+    private func ingestPickedFile(_ url: URL) {
+        let contentType = AttachmentFiles.canonicalContentType(
+            UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+        )
+        guard AttachmentFiles.isInlineImage(contentType: contentType) else {
+            onAttachFile?(url)
+            return
+        }
+        let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
+        let editorModel = model
+        Task.detached {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { return }
+            let decoded = UIImage(data: data)
+            let width = decoded.map { Int($0.size.width * $0.scale) }
+            let height = decoded.map { Int($0.size.height * $0.scale) }
+            await editorModel.appendImage(
+                data: data,
+                filename: filename,
+                contentType: contentType,
+                width: (width ?? 0) > 0 ? width : nil,
+                height: (height ?? 0) > 0 ? height : nil
+            )
+        }
     }
 
     private func insert(uiImage image: UIImage) {

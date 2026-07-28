@@ -2,7 +2,6 @@ import ExpUI
 import ExpCore
 import QuickLook
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The issue's non-image attachments (EXP-297).
 ///
@@ -13,12 +12,13 @@ import UniformTypeIdentifiers
 /// "save"/"open in…" — so there is no bespoke export UI (and, per EXP-297, no
 /// video player anywhere).
 ///
-/// The whole section hides when there is nothing to show and nothing the viewer
-/// could add.
+/// EXP-327: there is no attach button here any more, and no empty state. Files
+/// are attached from the description editor's image button ("Files / Photo
+/// library"), which is the one place a user reaches for when adding something —
+/// so with nothing attached this section renders nothing at all.
 struct IssueFilesSection: View {
     let viewModel: IssueDetailViewModel
 
-    @State private var showImporter = false
     @State private var previewURL: URL?
     @State private var downloadingId: String?
     @State private var pendingDelete: AttachmentEntity?
@@ -30,8 +30,10 @@ struct IssueFilesSection: View {
     }
 
     var body: some View {
+        // No files (and none in flight): stay out of the way entirely. A failed
+        // upload keeps a pending row, so errors still have somewhere to surface.
         Group {
-            if !isEmpty || canManage {
+            if !isEmpty {
                 content
             }
         }
@@ -40,36 +42,16 @@ struct IssueFilesSection: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            if isEmpty {
-                Text("No files attached")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            } else {
-                VStack(spacing: 6) {
-                    ForEach(viewModel.fileAttachments) { attachment in
-                        attachmentRow(attachment)
-                    }
-                    ForEach(viewModel.pendingFileUploads) { pending in
-                        pendingRow(pending)
-                    }
+            VStack(spacing: 6) {
+                ForEach(viewModel.fileAttachments) { attachment in
+                    attachmentRow(attachment)
+                }
+                ForEach(viewModel.pendingFileUploads) { pending in
+                    pendingRow(pending)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .fileImporter(
-            isPresented: $showImporter,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case let .success(urls):
-                for url in urls {
-                    viewModel.uploadFile(from: url)
-                }
-            case let .failure(error):
-                viewModel.error = error.localizedDescription
-            }
-        }
         .quickLookPreview($previewURL)
         .confirmationDialog(
             "Delete file?",
@@ -95,19 +77,6 @@ struct IssueFilesSection: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .accessibilityIdentifier("issue-files-header")
             Spacer()
-            if canManage {
-                Button {
-                    showImporter = true
-                } label: {
-                    AppIcon(AppIcons.uiAttach, size: AppIcon.Size.small)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                }
-                .glassButton()
-                .buttonStyle(.plain)
-                .accessibilityLabel("Attach file")
-            }
         }
     }
 
