@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Loader2, Minus, Plus } from "lucide-react"
+import { LoaderCircle, Minus, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -149,7 +149,7 @@ export function AdjustSeatsDialog({
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={!changed || saving}>
-            {saving && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+            {saving && <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />}
             {saving
               ? `Saving...`
               : changed

@@ -1,21 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
-import {
-  Bell,
-  Bot,
-  Check,
-  ChevronsUpDown,
-  FolderKanban,
-  GitPullRequest,
-  Inbox,
-  LifeBuoy,
-  LogOut,
-  Megaphone,
-  Plus,
-  Search,
-  Settings,
-  Shield,
-} from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { getBoardIcon } from "@/lib/board-icons"
 import { useSession } from "@/hooks/use-session"
@@ -61,6 +46,23 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+
+// EXP-317: the cross-client nav glyphs come from the shared registry
+// (packages/icons/icons.json) so web, desktop, iOS and Android agree.
+const NavAdminIcon = conceptIcon(`nav-admin`)
+const NavAgentsIcon = conceptIcon(`nav-agents`)
+const NavBoardsIcon = conceptIcon(`nav-boards`)
+const NavChangelogIcon = conceptIcon(`nav-changelog`)
+const NavInboxIcon = conceptIcon(`nav-inbox`)
+const NavNotificationsIcon = conceptIcon(`nav-notifications`)
+const NavReviewsIcon = conceptIcon(`nav-reviews`)
+const NavSearchIcon = conceptIcon(`nav-search`)
+const NavSettingsIcon = conceptIcon(`nav-settings`)
+const NavSignOutIcon = conceptIcon(`nav-sign-out`)
+const NavSupportIcon = conceptIcon(`nav-support`)
+const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
+const UiAddIcon = conceptIcon(`ui-add`)
+const UiCheckIcon = conceptIcon(`ui-check`)
 
 // Live unread count from the per-user notifications shape.
 function InboxUnreadBadge() {
@@ -148,7 +150,7 @@ export function TeamSidebar({
                   <span className="text-sm font-semibold truncate">
                     {team?.name ?? teamSlug}
                   </span>
-                  <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0" />
+                  <NavTeamSwitcherIcon className="ml-auto h-4 w-4 shrink-0" />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
@@ -167,7 +169,7 @@ export function TeamSidebar({
                     </div>
                     <span className="truncate">{ws.name}</span>
                     {ws.slug === teamSlug && (
-                      <Check className="ml-auto h-4 w-4" />
+                      <UiCheckIcon className="ml-auto h-4 w-4" />
                     )}
                   </DropdownMenuItem>
                 ))}
@@ -175,7 +177,7 @@ export function TeamSidebar({
                 {/* Any signed-in user can create teams (EXP-188) — the
                     server's only gate is the free-tier owned-team cap. */}
                 <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
-                  <Plus className="h-4 w-4" />
+                  <UiAddIcon className="h-4 w-4" />
                   New team
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -186,7 +188,7 @@ export function TeamSidebar({
                     })
                   }
                 >
-                  <Settings className="h-4 w-4" />
+                  <NavSettingsIcon className="h-4 w-4" />
                   Team settings
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -210,7 +212,7 @@ export function TeamSidebar({
                 {team && (
                   <SidebarMenuItem>
                     <SidebarMenuButton onClick={onOpenSearch}>
-                      <Search className="h-4 w-4" />
+                      <NavSearchIcon className="h-4 w-4" />
                       <span>Search</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -218,7 +220,7 @@ export function TeamSidebar({
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <Link to="/t/$teamSlug/inbox" params={{ teamSlug }}>
-                      <Inbox className="h-4 w-4" />
+                      <NavInboxIcon className="h-4 w-4" />
                       <span>Inbox</span>
                     </Link>
                   </SidebarMenuButton>
@@ -227,7 +229,7 @@ export function TeamSidebar({
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
-                      <GitPullRequest className="h-4 w-4" />
+                      <NavReviewsIcon className="h-4 w-4" />
                       <span>Reviews</span>
                     </Link>
                   </SidebarMenuButton>
@@ -236,7 +238,7 @@ export function TeamSidebar({
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <Link to="/t/$teamSlug/agents" params={{ teamSlug }}>
-                      <Bot className="h-4 w-4" />
+                      <NavAgentsIcon className="h-4 w-4" />
                       <span>Agents</span>
                     </Link>
                   </SidebarMenuButton>
@@ -246,7 +248,7 @@ export function TeamSidebar({
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild>
                       <Link to="/t/$teamSlug/support" params={{ teamSlug }}>
-                        <LifeBuoy className="h-4 w-4" />
+                        <NavSupportIcon className="h-4 w-4" />
                         <span>Support</span>
                       </Link>
                     </SidebarMenuButton>
@@ -264,14 +266,14 @@ export function TeamSidebar({
               title="Create board"
               aria-label="Create board"
             >
-              <Plus className="h-4 w-4" />
+              <UiAddIcon className="h-4 w-4" />
             </SidebarGroupAction>
             <SidebarGroupContent>
               <SidebarMenu>
                 {!boards || boards.length === 0 ? (
                   <SidebarMenuItem>
                     <SidebarMenuButton disabled>
-                      <FolderKanban className="h-4 w-4" />
+                      <NavBoardsIcon className="h-4 w-4" />
                       <span className="text-muted-foreground">
                         No boards yet
                       </span>
@@ -332,13 +334,13 @@ export function TeamSidebar({
                 <span className="truncate text-sm">
                   {userLabel ? firstName(userLabel) : `Loading...`}
                 </span>
-                <ChevronsUpDown className="ml-auto h-4 w-4" />
+                <NavTeamSwitcherIcon className="ml-auto h-4 w-4" />
               </SidebarMenuButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-56">
               {isAdminUser(session?.user) && (
                 <DropdownMenuItem onClick={() => navigate({ to: `/admin` })}>
-                  <Shield className="mr-2 h-4 w-4" />
+                  <NavAdminIcon className="mr-2 h-4 w-4" />
                   Admin
                 </DropdownMenuItem>
               )}
@@ -353,30 +355,30 @@ export function TeamSidebar({
                     })
                   }
                 >
-                  <Settings className="mr-2 h-4 w-4" />
+                  <NavSettingsIcon className="mr-2 h-4 w-4" />
                   Settings
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
                 onClick={() => navigate({ to: `/account/notifications` })}
               >
-                <Bell className="mr-2 h-4 w-4" />
+                <NavNotificationsIcon className="mr-2 h-4 w-4" />
                 Account & notifications
               </DropdownMenuItem>
               {/* Re-entry point once the footer card is dismissed. */}
               <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
-                <Megaphone className="mr-2 h-4 w-4" />
+                <NavChangelogIcon className="mr-2 h-4 w-4" />
                 What&apos;s new
               </DropdownMenuItem>
               {!showChrome && (
                 <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
+                  <UiAddIcon className="mr-2 h-4 w-4" />
                   New team
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>
-                <LogOut className="mr-2 h-4 w-4" />
+                <NavSignOutIcon className="mr-2 h-4 w-4" />
                 Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>

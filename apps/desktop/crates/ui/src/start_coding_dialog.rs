@@ -79,7 +79,7 @@ use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
@@ -1504,7 +1504,7 @@ impl StartCodingDialogView {
             })
             .when(is_selected, |this| {
                 this.child(
-                    Icon::new(gpui_component::IconName::Check)
+                    Icon::new(registry::UI_CHECK)
                         .xsmall()
                         .text_color(theme.primary),
                 )

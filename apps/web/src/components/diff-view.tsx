@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react"
 import { common, createLowlight } from "lowlight"
-import { ChevronRight, Loader2 } from "lucide-react"
+import { ChevronRight, LoaderCircle } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -565,7 +565,7 @@ export function DiffView({
   if (loading) {
     return (
       <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
-        <Loader2 className="size-3.5 animate-spin" /> Loading changes…
+        <LoaderCircle className="size-3.5 animate-spin" /> Loading changes…
       </div>
     )
   }

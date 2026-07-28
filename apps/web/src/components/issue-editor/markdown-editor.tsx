@@ -33,7 +33,7 @@ import {
   Code,
   List,
   ListOrdered,
-  ListChecks,
+  ListTodo,
   Heading1,
   Heading2,
   Heading3,
@@ -334,7 +334,7 @@ function ToolbarActions({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleTaskList().run()}
         title="Task list"
       >
-        <ListChecks className="size-3.5" />
+        <ListTodo className="size-3.5" />
       </ToolbarButton>
       <div className="toolbar-separator" />
       <ToolbarButton

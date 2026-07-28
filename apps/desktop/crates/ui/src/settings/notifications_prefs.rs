@@ -26,7 +26,7 @@ use gpui_component::{
     menu::{DropdownMenu as _, PopupMenuItem},
     skeleton::Skeleton,
     switch::Switch,
-    v_flex, ActiveTheme as _, Disableable as _, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 
 use api::notifications::{EmailPrefs, UpdateEmailPrefsInput};
@@ -40,6 +40,7 @@ use domain::contract::{
 use crate::queries;
 
 use super::{section, error_notice, spawn_trpc};
+use crate::icons::registry;
 
 /// Web `TYPE_ROWS` — verbatim labels + hints, contract-locked type values.
 const TYPE_ROWS: [(&str, &str, &str); 7] = [
@@ -324,7 +325,7 @@ impl Render for NotificationsPrefsPane {
                         .outline()
                         .small()
                         .label(digest_label)
-                        .icon(IconName::ChevronDown)
+                        .icon(registry::UI_CHEVRON_DOWN)
                         .disabled(controls_disabled)
                         .dropdown_menu({
                             let entity = cx.entity();

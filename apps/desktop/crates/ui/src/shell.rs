@@ -33,7 +33,7 @@ use gpui_component::{
     dock::{DockArea, DockAreaState, DockEvent, DockItem, Panel, PanelControl, PanelEvent, PanelView},
     h_flex,
     resizable::{h_resizable, resizable_panel, ResizableState},
-    v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Root, Sizable as _,
 };
 use sync::{SessionPhase, Store};
 
@@ -47,6 +47,7 @@ use crate::{
     update::{self, UpdatePhase, UpdateState},
     window_size::SizeFrame,
 };
+use crate::icons::registry;
 
 /// Bump when the default layout shape changes so stale persisted layouts are
 /// discarded and rebuilt (mirrors the gpui-component dock example's version
@@ -840,7 +841,7 @@ impl Shell {
             .border_b_1()
             .border_color(cx.theme().border)
             .bg(cx.theme().info.opacity(0.14))
-            .child(Icon::new(IconName::Info).size_4().text_color(cx.theme().info))
+            .child(Icon::new(registry::UI_INFO).size_4().text_color(cx.theme().info))
             .child(div().flex_1().text_sm().child(label));
 
         match &phase {
@@ -894,7 +895,7 @@ impl Shell {
                 Button::new("update-dismiss")
                     .ghost()
                     .small()
-                    .icon(IconName::Close)
+                    .icon(registry::UI_CLOSE)
                     .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
                         if let Some(model) = UpdateState::global_ref(cx) {
                             model.update(cx, |state, cx| {

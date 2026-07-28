@@ -29,13 +29,13 @@ use gpui_component::{
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
 
 use crate::actions::{CreateTeam, JoinTeam, NewBoard};
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, resolved_screen, screen_title, set_screen,
@@ -720,7 +720,7 @@ impl ScreensPanel {
                                 Button::new(("close-center-tab", ix))
                                     .ghost()
                                     .xsmall()
-                                    .icon(IconName::Close)
+                                    .icon(registry::UI_CLOSE)
                                     .on_click(cx.listener(
                                         move |this, _: &ClickEvent, window, cx| {
                                             cx.stop_propagation();
@@ -830,7 +830,7 @@ impl ScreensPanel {
                     .justify_center()
                     .gap_2()
                     .child(
-                        Icon::new(IconName::User)
+                        Icon::new(registry::UI_TEAM)
                             .size_6()
                             .text_color(cx.theme().muted_foreground),
                     )
@@ -887,7 +887,7 @@ impl ScreensPanel {
                 .justify_center()
                 .gap_2()
                 .child(
-                    Icon::new(IconName::Inbox)
+                    Icon::new(registry::NAV_INBOX)
                         .size_6()
                         .text_color(cx.theme().muted_foreground),
                 )
@@ -911,7 +911,7 @@ impl ScreensPanel {
             .justify_center()
             .gap_2()
             .child(
-                Icon::new(IconName::Folder)
+                Icon::new(registry::NAV_BOARDS)
                     .size_6()
                     .text_color(cx.theme().muted_foreground),
             )

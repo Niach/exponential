@@ -41,7 +41,7 @@ use gpui_component::{
     menu::DropdownMenu as _,
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, InteractiveElementExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, InteractiveElementExt as _,
     Selectable as _, Sizable as _,
 };
 use sync::Store;
@@ -53,7 +53,7 @@ use crate::actions::{CreateTeam, JoinTeam, SignOut, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::trunk_sync::TrunkSync;
-use crate::icons::{self, ExpIcon};
+use crate::icons::{self, registry, ExpIcon};
 use crate::issue_list::IssueQuery;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
@@ -735,8 +735,8 @@ impl RailView {
                     menu = menu.separator();
                 }
                 menu
-                    .menu_with_icon("New team", IconName::Plus, Box::new(CreateTeam))
-                    .menu_with_icon("Join team", IconName::User, Box::new(JoinTeam))
+                    .menu_with_icon("New team", registry::UI_ADD, Box::new(CreateTeam))
+                    .menu_with_icon("Join team", registry::UI_INVITE, Box::new(JoinTeam))
                     .separator()
                     .menu("Sign out", Box::new(SignOut))
             })
@@ -893,7 +893,7 @@ impl Render for RailView {
             if expanded {
                 return rail_row(
                     "rail-new-board",
-                    Icon::new(IconName::Plus),
+                    Icon::new(registry::UI_ADD),
                     "New board",
                     false,
                     accent,
@@ -909,7 +909,7 @@ impl Render for RailView {
             Button::new("rail-new-board")
                 .ghost()
                 .small()
-                .icon(IconName::Plus)
+                .icon(registry::UI_ADD)
                 .tooltip("New board")
                 // Direct call (EXP-17): rail buttons must not dispatch
                 // App-global actions.
@@ -957,9 +957,9 @@ impl Render for RailView {
             .ghost()
             .small()
             .icon(if expanded {
-                IconName::PanelLeftClose
+                registry::NAV_RAIL_COLLAPSE
             } else {
-                IconName::PanelLeftOpen
+                registry::NAV_RAIL_EXPAND
             })
             .tooltip(if expanded {
                 "Collapse sidebar"
@@ -1040,7 +1040,7 @@ impl Render for RailView {
         let search: gpui::AnyElement = if expanded {
             rail_row(
                 "rail-search",
-                Icon::new(IconName::Search),
+                Icon::new(registry::NAV_SEARCH),
                 "Search",
                 false,
                 accent,
@@ -1055,7 +1055,7 @@ impl Render for RailView {
             Button::new("rail-search")
                 .ghost()
                 .small()
-                .icon(IconName::Search)
+                .icon(registry::NAV_SEARCH)
                 .tooltip("Search")
                 .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                     crate::search_sheet::open_search(window, cx)
@@ -1070,7 +1070,7 @@ impl Render for RailView {
         let settings_entry: gpui::AnyElement = if expanded {
             rail_row(
                 "rail-settings",
-                Icon::new(IconName::Settings),
+                Icon::new(registry::NAV_SETTINGS),
                 "Settings",
                 matches!(
                     resolved_screen(&self.nav, cx),
@@ -1088,7 +1088,7 @@ impl Render for RailView {
             Button::new("rail-settings")
                 .ghost()
                 .small()
-                .icon(IconName::Settings)
+                .icon(registry::NAV_SETTINGS)
                 .tooltip("Settings")
                 .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                     navigate(window, cx, Screen::Settings)
@@ -1143,7 +1143,7 @@ impl Render for RailView {
                     .gap_1()
                     .child(self.rail_tool_icon(
                         "rail-inbox",
-                        Icon::new(IconName::Inbox),
+                        Icon::new(registry::NAV_INBOX),
                         ToolWindow::Inbox,
                         "Inbox",
                         "Inbox",
@@ -1184,7 +1184,7 @@ impl Render for RailView {
                     // Repo tool windows.
                     .child(self.rail_tool_icon(
                         "rail-files",
-                        Icon::new(IconName::Folder),
+                        Icon::new(registry::NAV_FILES),
                         ToolWindow::Files,
                         "Files",
                         "Files",
@@ -1330,7 +1330,7 @@ fn notification_type_icon(kind: Option<&str>) -> Icon {
         Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY) => {
             Icon::from(ExpIcon::MessageSquare)
         }
-        _ => Icon::new(IconName::Bell),
+        _ => Icon::new(registry::NAV_NOTIFICATIONS),
     }
 }
 
@@ -1486,7 +1486,7 @@ impl SidebarPanel {
         let inbox_tab = self
             .tool_tab(
                 "inbox-tab-inbox",
-                Icon::new(IconName::Inbox),
+                Icon::new(registry::NAV_INBOX),
                 "Inbox",
                 tab == InboxTab::Inbox,
                 cx,
@@ -1498,7 +1498,7 @@ impl SidebarPanel {
         let mine_tab = self
             .tool_tab(
                 "inbox-tab-my-issues",
-                Icon::new(IconName::CircleUser),
+                Icon::new(registry::UI_ASSIGNEE),
                 "My Issues",
                 tab == InboxTab::MyIssues,
                 cx,
@@ -1535,7 +1535,7 @@ impl SidebarPanel {
                         Button::new("inbox-mark-all-read")
                             .ghost()
                             .xsmall()
-                            .icon(Icon::from(ExpIcon::ListChecks))
+                            .icon(Icon::from(registry::NOTIFICATION_MARK_READ))
                             .tooltip("Mark all read")
                             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
                                 if let Some(trpc) = queries::trpc_client(cx) {
@@ -2208,14 +2208,14 @@ impl SidebarPanel {
                 .ghost();
             if closing {
                 button = button
-                    .icon(Icon::new(IconName::Close))
+                    .icon(Icon::new(registry::UI_CLOSE))
                     .loading(true)
                     .disabled(true);
             } else if close_armed {
                 button = button.label("Close PR").danger();
             } else {
                 button = button
-                    .icon(Icon::new(IconName::Close).text_color(muted))
+                    .icon(Icon::new(registry::UI_CLOSE).text_color(muted))
                     .tooltip("Close PR without merging")
                     .disabled(merging);
             }
@@ -3039,7 +3039,7 @@ impl SidebarPanel {
             .min_h_0()
             .min_w_0()
             .child(
-                self.tool_header(Icon::new(IconName::Folder), "Files", cx).child(
+                self.tool_header(Icon::new(registry::NAV_FILES), "Files", cx).child(
                     Button::new("files-refresh")
                         .ghost()
                         .xsmall()

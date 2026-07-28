@@ -6,11 +6,11 @@ import {
   GitBranch,
   GitMerge,
   GitPullRequest,
-  Loader2,
-  MonitorOff,
+  LoaderCircle,
   MonitorPlay,
   MonitorUp,
 } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession, Issue, Board, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
@@ -36,6 +36,10 @@ import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
+
+// EXP-317: the "no desktop online" hint draws the same glyph here and in
+// the native apps (`ui-device-offline`).
+const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
 // / remote-start control that FOCUSES the global dock (never mounts the live
@@ -201,7 +205,7 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
         onClick={() => setConfirmOpen(true)}
         disabled={merging}
       >
-        {merging ? <Loader2 className="animate-spin" /> : <GitMerge />}
+        {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
         {merging ? `Merging…` : `Merge PR`}
       </Button>
       <Dialog
@@ -226,7 +230,7 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
               Cancel
             </Button>
             <Button onClick={merge} disabled={merging}>
-              {merging ? <Loader2 className="animate-spin" /> : <GitMerge />}
+              {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
               Merge
             </Button>
           </DialogFooter>
@@ -492,7 +496,7 @@ function RemoteStartRow({
         <PropertyGroup label="Agent">
           <div className="w-full space-y-2">
             <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-              <MonitorOff className="mt-0.5 size-3.5 shrink-0" />
+              <UiDeviceOfflineIcon className="mt-0.5 size-3.5 shrink-0" />
               <span>
                 No desktop online — open the Exponential desktop app to run
                 this issue there.
@@ -505,7 +509,7 @@ function RemoteStartRow({
     }
     return (
       <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
-        <MonitorOff className="size-3.5 shrink-0" />
+        <UiDeviceOfflineIcon className="size-3.5 shrink-0" />
         No desktop online — open the Exponential desktop app to run this issue
         there.
       </div>
@@ -521,7 +525,7 @@ function RemoteStartRow({
       onClick={() => setDialogOpen(true)}
       disabled={busy}
     >
-      {remote.starting ? <Loader2 className="animate-spin" /> : <MonitorUp />}
+      {remote.starting ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
       Start coding
     </Button>
   )
@@ -557,7 +561,7 @@ function RemoteStartRow({
           {dialog}
           {remote.sentTo && (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="size-3 shrink-0 animate-spin" />
+              <LoaderCircle className="size-3 shrink-0 animate-spin" />
               Start sent to {remote.sentTo} — waiting for the desktop…
             </p>
           )}
@@ -572,7 +576,7 @@ function RemoteStartRow({
       {dialog}
       {remote.sentTo && (
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" />
+          <LoaderCircle className="size-3 animate-spin" />
           Start sent to {remote.sentTo} — waiting for the desktop…
         </span>
       )}

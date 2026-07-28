@@ -28,10 +28,10 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     menu::{DropdownMenu as _, PopupMenuItem},
-    ActiveTheme as _, Icon, IconName, Sizable as _,
+    ActiveTheme as _, Icon, Sizable as _,
 };
 
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::queries;
@@ -188,7 +188,7 @@ impl ActionsPanel {
                                     Button::new(("action-menu", index))
                                 .ghost()
                                 .xsmall()
-                                .icon(IconName::Ellipsis)
+                                .icon(registry::UI_MORE)
                                 .dropdown_menu(move |menu, _window, _cx| {
                                     // Direct closures (the members-menu
                                     // pattern) — never App-global dispatch

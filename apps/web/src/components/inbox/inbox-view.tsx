@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
-import { Bell, CheckCircle2 } from "lucide-react"
+import { Bell, CircleCheck } from "lucide-react"
 import type { NotificationType } from "@exp/db-schema/domain"
 import { notificationTypeValues } from "@exp/db-schema/domain"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -177,7 +177,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
       <div className={`flex-1 space-y-2 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
         {groups.length === 0 ? (
           <EmptyState
-            icon={CheckCircle2}
+            icon={CircleCheck}
             title="All caught up"
             description="Assignments, comments and mentions on issues you follow will show up here."
           />

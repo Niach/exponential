@@ -13,7 +13,7 @@ import {
   Download,
   Eye,
   Link as LinkIcon,
-  MoreHorizontal,
+  Ellipsis,
   Trash2,
 } from "lucide-react"
 import { attachmentCollection } from "@/lib/collections"
@@ -252,7 +252,7 @@ function MarkdownImageNodeView({
                 className="editor-image-menu-trigger"
                 aria-label={`Image options for ${imageLabel}`}
               >
-                <MoreHorizontal className="size-3.5" />
+                <Ellipsis className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">

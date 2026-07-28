@@ -11,7 +11,7 @@ import {
   GitBranch,
   GitMerge,
   GitPullRequest,
-  Loader2,
+  LoaderCircle,
   RotateCw,
   X,
 } from "lucide-react"
@@ -110,7 +110,7 @@ function BranchDiffSection({
   if (branch.kind === `loading`) {
     return (
       <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
-        <Loader2 className="size-3.5 animate-spin" /> Loading changes…
+        <LoaderCircle className="size-3.5 animate-spin" /> Loading changes…
       </div>
     )
   }
@@ -397,7 +397,7 @@ function ReviewDetailPage() {
                 onClick={() => setConfirmCloseOpen(true)}
               >
                 {closing ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <LoaderCircle className="size-4 animate-spin" />
                 ) : (
                   <X className="size-4" />
                 )}
@@ -411,7 +411,7 @@ function ReviewDetailPage() {
               >
                 {merging ? (
                   <>
-                    <Loader2 className="size-4 animate-spin" />
+                    <LoaderCircle className="size-4 animate-spin" />
                     Merging…
                   </>
                 ) : (

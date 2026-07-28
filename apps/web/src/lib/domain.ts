@@ -1,19 +1,6 @@
 import type { LucideIcon } from "lucide-react"
-import {
-  AlertTriangle,
-  Circle,
-  CircleCheck,
-  CircleDashed,
-  CircleX,
-  Copy,
-  GitPullRequest,
-  Minus,
-  SignalHigh,
-  SignalLow,
-  SignalMedium,
-  Timer,
-} from "lucide-react"
 import type { IssuePriority, IssueStatus } from "@exp/db-schema/domain"
+import { conceptIcon } from "@/lib/icons.generated"
 
 export * from "@exp/db-schema/domain"
 
@@ -45,43 +32,43 @@ export const issueStatusOptions = [
   {
     value: `in_progress`,
     label: `In Progress`,
-    icon: Timer,
+    icon: conceptIcon(`status-in-progress`),
     color: `text-yellow-500`,
   },
   {
     value: `in_review`,
     label: `In Review`,
-    icon: GitPullRequest,
+    icon: conceptIcon(`status-in-review`),
     color: `text-green-500`,
   },
   {
     value: `todo`,
     label: `Todo`,
-    icon: Circle,
+    icon: conceptIcon(`status-todo`),
     color: `text-foreground`,
   },
   {
     value: `backlog`,
     label: `Backlog`,
-    icon: CircleDashed,
+    icon: conceptIcon(`status-backlog`),
     color: `text-muted-foreground`,
   },
   {
     value: `done`,
     label: `Done`,
-    icon: CircleCheck,
+    icon: conceptIcon(`status-done`),
     color: `text-blue-500`,
   },
   {
     value: `cancelled`,
     label: `Cancelled`,
-    icon: CircleX,
+    icon: conceptIcon(`status-cancelled`),
     color: `text-muted-foreground`,
   },
   {
     value: `duplicate`,
     label: `Duplicate`,
-    icon: Copy,
+    icon: conceptIcon(`status-duplicate`),
     color: `text-muted-foreground`,
   },
 ] as const satisfies readonly IssueOption<IssueStatus>[]
@@ -90,31 +77,31 @@ export const issuePriorityOptions = [
   {
     value: `urgent`,
     label: `Urgent`,
-    icon: AlertTriangle,
+    icon: conceptIcon(`priority-urgent`),
     color: `text-red-500`,
   },
   {
     value: `high`,
     label: `High`,
-    icon: SignalHigh,
+    icon: conceptIcon(`priority-high`),
     color: `text-orange-500`,
   },
   {
     value: `medium`,
     label: `Medium`,
-    icon: SignalMedium,
+    icon: conceptIcon(`priority-medium`),
     color: `text-yellow-500`,
   },
   {
     value: `low`,
     label: `Low`,
-    icon: SignalLow,
+    icon: conceptIcon(`priority-low`),
     color: `text-blue-500`,
   },
   {
     value: `none`,
     label: `No priority`,
-    icon: Minus,
+    icon: conceptIcon(`priority-none`),
     color: `text-muted-foreground`,
   },
 ] as const satisfies readonly IssueOption<IssuePriority>[]

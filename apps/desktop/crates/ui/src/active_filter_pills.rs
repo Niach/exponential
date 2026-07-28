@@ -17,7 +17,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    h_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
 use domain::options::get_issue_priority_config;
@@ -26,7 +26,7 @@ use domain::statuses::{status_key_matches, ResolvedStatus};
 use domain::{empty_filters, IssueFilters, IssuePriority};
 
 use crate::filter_popover::OnFiltersChange;
-use crate::icons::{option_icon, resolved_status_icon};
+use crate::icons::{option_icon, registry, resolved_status_icon};
 use crate::issue_list::parse_hex_color;
 
 /// Compact pill height (web `h-6` = 24px, compact density).
@@ -142,7 +142,7 @@ fn pill_base(id: impl Into<ElementId>, _cx: &App) -> gpui::Stateful<gpui::Div> {
 }
 
 fn pill_close_icon(cx: &App) -> impl IntoElement {
-    Icon::new(IconName::Close)
+    Icon::new(registry::UI_CLOSE)
         .size_2p5()
         .text_color(cx.theme().muted_foreground)
 }

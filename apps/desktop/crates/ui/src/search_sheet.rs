@@ -45,7 +45,7 @@ use gpui::{
 use gpui_component::{
     h_flex,
     list::{List, ListDelegate, ListItem, ListState},
-    v_flex, ActiveTheme as _, Icon, IconName, IndexPath, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, IndexPath, Sizable as _,
 };
 use sync::{SessionPhase, Store};
 
@@ -61,6 +61,7 @@ use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, Navigation, Screen,
 };
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
+use crate::icons::registry;
 
 /// Web `.slice(0, 30)` — cap the issue result list.
 const MAX_RESULTS: usize = 30;
@@ -598,7 +599,7 @@ impl SearchDelegate {
                     .items_center()
                     .overflow_hidden()
                     .child(
-                        Icon::new(IconName::File)
+                        Icon::new(registry::UI_FILE)
                             .small()
                             .flex_shrink_0()
                             .text_color(cx.theme().muted_foreground),
@@ -624,7 +625,7 @@ impl SearchDelegate {
                     .items_center()
                     .overflow_hidden()
                     .child(
-                        Icon::new(IconName::File)
+                        Icon::new(registry::UI_FILE)
                             .small()
                             .flex_shrink_0()
                             .text_color(cx.theme().muted_foreground),
@@ -891,7 +892,7 @@ impl ListDelegate for SearchDelegate {
                 .gap_2()
                 .text_color(cx.theme().muted_foreground)
                 .child(
-                    Icon::new(IconName::Search)
+                    Icon::new(registry::NAV_SEARCH)
                         .size_6()
                         .text_color(cx.theme().muted_foreground.opacity(0.5)),
                 )

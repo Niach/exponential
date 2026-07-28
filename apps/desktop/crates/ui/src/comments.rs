@@ -19,13 +19,13 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
 use domain::rows::{Comment, User};
 
 use crate::description_editor::open_issue_by_identifier;
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::markdown::{ImageCache, MarkdownView, RefResolver};
 use crate::mention_input::MentionInput;
 use crate::timeline::IssueTimeline;
@@ -179,7 +179,7 @@ pub(crate) fn comment_row(
                     .ghost()
                     .xsmall()
                     .icon(
-                        Icon::new(IconName::Ellipsis)
+                        Icon::new(registry::UI_MORE)
                             .text_color(cx.theme().muted_foreground),
                     )
                     .dropdown_menu({

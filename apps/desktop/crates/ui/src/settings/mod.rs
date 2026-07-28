@@ -50,12 +50,13 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, IconName, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
 use crate::navigation::{
     active_team_id, nav_for_window, navigate, resolved_screen, Navigation, Screen,
 };
+use crate::icons::registry;
 use crate::queries;
 use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared};
 
@@ -172,19 +173,23 @@ const NAV_GROUPS: &[NavGroup] = &[
 
 /// EXP-288: every nav entry carries an icon. Board rows use the tinted board
 /// glyph instead (`icons::board_icon`), so they don't route through here.
+///
+/// EXP-317: every arm resolves through the shared registry's `settings-*`
+/// concepts — the same ones the web nav renders (`settings/-shared.tsx`), so
+/// the two settings screens can no longer drift apart. Locked by the web
+/// `lib/icons.test.ts` settings-nav parity check.
 fn section_icon(section: &SettingsSection) -> Icon {
     match section {
-        SettingsSection::General => Icon::new(IconName::Building2),
-        SettingsSection::Members => Icon::new(IconName::User),
-        SettingsSection::Labels => Icon::from(crate::icons::ExpIcon::Tag),
-        // The shared registry's `settings-statuses` concept (EXP-273/EXP-314).
-        SettingsSection::Statuses => Icon::from(crate::icons::registry::SETTINGS_STATUSES),
-        SettingsSection::Storage => Icon::from(crate::icons::ExpIcon::HardDrive),
-        SettingsSection::Board(_) => Icon::from(crate::icons::ExpIcon::SquareKanban),
-        SettingsSection::Repositories => Icon::new(IconName::Github),
-        SettingsSection::Tools => Icon::new(IconName::SquareTerminal),
-        SettingsSection::Agents => Icon::new(IconName::Bot),
-        SettingsSection::LocalRepos => Icon::new(IconName::HardDrive),
+        SettingsSection::General => Icon::from(registry::SETTINGS_GENERAL),
+        SettingsSection::Members => Icon::from(registry::SETTINGS_MEMBERS),
+        SettingsSection::Labels => Icon::from(registry::SETTINGS_LABELS),
+        SettingsSection::Statuses => Icon::from(registry::SETTINGS_STATUSES),
+        SettingsSection::Storage => Icon::from(registry::SETTINGS_STORAGE),
+        SettingsSection::Board(_) => Icon::from(registry::SETTINGS_BOARDS),
+        SettingsSection::Repositories => Icon::from(registry::SETTINGS_REPOSITORIES),
+        SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
+        SettingsSection::Agents => Icon::from(registry::SETTINGS_AGENTS),
+        SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
     }
 }
 
@@ -567,7 +572,7 @@ impl Render for SettingsNavPanel {
                     let new_board = Self::row(
                         "settings-nav-new-board",
                         "New board",
-                        Some(Icon::new(IconName::Plus)),
+                        Some(Icon::new(registry::UI_ADD)),
                         false,
                         cx,
                     )
@@ -607,7 +612,7 @@ impl Render for SettingsNavPanel {
                 Self::row(
                     "settings-nav-account",
                     "Account",
-                    Some(Icon::new(IconName::CircleUser)),
+                    Some(Icon::new(registry::SETTINGS_ACCOUNT)),
                     on_account,
                     cx,
                 )

@@ -40,7 +40,7 @@ use gpui_component::{
     checkbox::Checkbox,
     h_flex,
     menu::{ContextMenuExt as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 
 use super::image_url;
@@ -54,6 +54,7 @@ use super::image_paste::{
 use super::parse::markdown_to_blocks;
 use super::serialize::blocks_to_markdown;
 use super::toolbar::{self, LinePrefix};
+use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
 // RefResolver — live @email / #IDENT resolution (§4.5 pills)
@@ -494,7 +495,7 @@ fn render_image_remove_button(hooks: &EditorImageHooks) -> impl IntoElement {
         Button::new(ElementId::from(("md-image-remove", block_id as usize)))
             .ghost()
             .xsmall()
-            .icon(Icon::new(IconName::Close))
+            .icon(Icon::new(registry::UI_CLOSE))
             .tooltip("Remove image")
             .on_click(move |_, window, cx| {
                 // Never also fire the image's open-preview click beneath.

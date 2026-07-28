@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2 } from "lucide-react"
+import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -100,7 +100,7 @@ export function CancelSubscriptionDialog({
             onClick={handleCancel}
             disabled={saving}
           >
-            {saving && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+            {saving && <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />}
             {saving ? `Cancelling...` : `Cancel subscription`}
           </Button>
         </DialogFooter>

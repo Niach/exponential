@@ -6,7 +6,7 @@ import {
   Minus,
   Tag,
   Trash2,
-  UserRound,
+  CircleUser,
   X,
 } from "lucide-react"
 import type { Issue, Label, User } from "@/db/schema"
@@ -276,7 +276,7 @@ export function BulkActionBar({
               disabled={busy}
               aria-label="Set assignee"
             >
-              <UserRound className="size-4" />
+              <CircleUser className="size-4" />
               <span className="hidden md:inline">Assignee</span>
             </Button>
           </DropdownMenuTrigger>

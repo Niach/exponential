@@ -4,22 +4,14 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   ArrowDown,
   ArrowUp,
-  Bot,
   Check,
   ChevronDown,
   ChevronRight,
-  CircleHelp,
-  ClipboardList,
-  Loader2,
   Maximize2,
   Minimize2,
-  OctagonX,
-  RotateCw,
-  ShieldQuestion,
-  Sparkles,
-  Wrench,
   X,
 } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -67,6 +59,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { FileDiffList } from "@/components/diff-view"
+
+// EXP-317: the session glyphs the native clients also draw resolve through
+// the shared registry (packages/icons/icons.json).
+const CodingAssistantIcon = conceptIcon(`coding-assistant`)
+const CodingPlanIcon = conceptIcon(`coding-plan`)
+const CodingStopIcon = conceptIcon(`coding-stop`)
+const CodingSubagentIcon = conceptIcon(`coding-subagent`)
+const CodingToolIcon = conceptIcon(`coding-tool`)
+const UiHelpIcon = conceptIcon(`ui-help`)
+const UiLoadingIcon = conceptIcon(`ui-loading`)
+const UiPermissionIcon = conceptIcon(`ui-permission`)
+const UiRefreshIcon = conceptIcon(`ui-refresh`)
 
 // The custom-rendered agent-session viewer (EXP-63 — the web port of the
 // mobile "Agent session" chat view, EXP-32). NO terminal rendering: the
@@ -855,7 +859,7 @@ export function AgentSessionView({
             className="shrink-0"
             onClick={() => setAttempt((n) => n + 1)}
           >
-            <RotateCw />
+            <UiRefreshIcon />
             Reconnect
           </Button>
         )}
@@ -869,7 +873,7 @@ export function AgentSessionView({
             title="Kill session"
             onClick={() => setConfirmKill(true)}
           >
-            <OctagonX />
+            <CodingStopIcon />
           </Button>
         )}
         {onToggleFullscreen && (
@@ -905,7 +909,7 @@ export function AgentSessionView({
               {feed.length === 0 &&
               (phase.kind === `connecting` || phase.kind === `starting`) ? (
                 <CenteredState>
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <UiLoadingIcon className="size-4 animate-spin text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">
                     {phase.kind === `starting`
                       ? `The agent is starting — waiting for the live stream…`
@@ -1022,7 +1026,7 @@ export function AgentSessionView({
           )}
           {phase.kind === `starting` && feed.length > 0 && (
             <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" />
+              <UiLoadingIcon className="size-3 animate-spin" />
               The agent is starting — waiting for the live stream…
             </div>
           )}
@@ -1090,7 +1094,7 @@ export function AgentSessionView({
               onClick={() => void kill()}
               disabled={killing}
             >
-              {killing && <Loader2 className="animate-spin" />}
+              {killing && <UiLoadingIcon className="animate-spin" />}
               Kill session
             </Button>
           </DialogFooter>
@@ -1160,7 +1164,7 @@ function CenteredState({ children }: { children: React.ReactNode }) {
 function NarrationBubble({ text }: { text: string }) {
   return (
     <div className="flex items-start gap-2 py-1">
-      <Sparkles className="mt-2 size-3 shrink-0 text-muted-foreground/60" />
+      <CodingAssistantIcon className="mt-2 size-3 shrink-0 text-muted-foreground/60" />
       <div className="min-w-0 flex-1 whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-sm text-foreground/90">
         {text}
       </div>
@@ -1272,7 +1276,7 @@ function QuestionPrompt({
   if (locked) {
     return (
       <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Loader2 className="size-3 shrink-0 animate-spin" />
+        <UiLoadingIcon className="size-3 shrink-0 animate-spin" />
         <span className="shrink-0">Answering…</span>
         {answerState && answerState.labels.length > 0 && (
           <span className="truncate font-medium text-foreground/80">
@@ -1443,9 +1447,9 @@ function QuestionCard({
     >
       <div className="flex items-start gap-2">
         {plan ? (
-          <ClipboardList className="mt-0.5 size-3.5 shrink-0 text-primary" />
+          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
         ) : (
-          <CircleHelp className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
         )}
         <div className="min-w-0 flex-1">
           {plan ? (
@@ -1536,7 +1540,7 @@ function AskStepperCard({
   return (
     <div className="my-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
       <div className="flex items-start gap-2">
-        <CircleHelp className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+        <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center gap-2">
             <span className="truncate text-xs font-medium text-amber-400">
@@ -1579,7 +1583,7 @@ function AskStepperCard({
           ) : (
             view.waiting && (
               <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" />
+                <UiLoadingIcon className="size-3 animate-spin" />
                 Waiting for the next question…
               </div>
             )
@@ -1623,7 +1627,7 @@ function AnsweredStepRow({
 function PermissionRow({ tool, detail }: { tool: string; detail?: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5">
-      <ShieldQuestion className="size-3 shrink-0 text-amber-400/70" />
+      <UiPermissionIcon className="size-3 shrink-0 text-amber-400/70" />
       <span className="shrink-0 text-xs font-medium text-amber-400/90">
         Permission · {tool}
       </span>
@@ -1664,11 +1668,11 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
         ) : (
           <ChevronRight className="size-3 shrink-0" />
         )}
-        <Bot className="size-3 shrink-0 text-muted-foreground/60" />
+        <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
         <span className="shrink-0 text-xs font-medium">
           {latest?.agentType ?? `subagent`}
         </span>
-        {!completed && <Loader2 className="size-3 shrink-0 animate-spin" />}
+        {!completed && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
         <span className="shrink-0 text-[0.6875rem]">
           {completed ? `done` : `running`}
           {tools.length > 0 &&
@@ -1695,7 +1699,7 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
 function ToolRow({ name, detail }: { name: string; detail?: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5">
-      <Wrench className="size-3 shrink-0 text-muted-foreground/60" />
+      <CodingToolIcon className="size-3 shrink-0 text-muted-foreground/60" />
       <span className="shrink-0 text-xs font-medium">{name}</span>
       {detail && (
         <span
@@ -1734,7 +1738,7 @@ function ToolGroupRow({
         ) : (
           <ChevronRight className="size-3 shrink-0" />
         )}
-        <Wrench className="size-3 shrink-0 text-muted-foreground/60" />
+        <CodingToolIcon className="size-3 shrink-0 text-muted-foreground/60" />
         <span className="shrink-0 text-xs font-medium">
           {items.length} tool calls
         </span>

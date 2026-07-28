@@ -3,17 +3,7 @@
 // (redirect to the first visible section), plus the per-section access guard
 // and the data hook every section page needs.
 import { useEffect, useState } from "react"
-import {
-  CreditCard,
-  FolderKanban,
-  Github,
-  HardDrive,
-  MessageSquarePlus,
-  Settings2,
-  Tags,
-  Users,
-  type LucideIcon,
-} from "lucide-react"
+import { type LucideIcon } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
 import {
   useShowTeamChrome,
@@ -60,6 +50,10 @@ export interface SettingsNavItem {
 // its team-name card hides itself there (general-section.tsx) — the Danger
 // Zone renders unconditionally and is the sole UI path to deleting a team,
 // which owners may do even for their last one (EXP-188).
+//
+// EXP-317: every icon comes from the shared registry (`settings-*` concepts),
+// so this nav and the desktop IDE's (`settings/mod.rs::section_icon`) draw the
+// same glyph per section — locked by lib/icons.test.ts.
 export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
   {
     group: `Team`,
@@ -67,19 +61,19 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
       {
         label: `General`,
         to: `/t/$teamSlug/settings/general`,
-        icon: Settings2,
+        icon: conceptIcon(`settings-general`),
         visible: (permissions) => permissions.canManageTeam,
       },
       {
         label: `Members`,
         to: `/t/$teamSlug/settings/members`,
-        icon: Users,
+        icon: conceptIcon(`settings-members`),
         visible: () => true,
       },
       {
         label: `Labels`,
         to: `/t/$teamSlug/settings/labels`,
-        icon: Tags,
+        icon: conceptIcon(`settings-labels`),
         visible: () => true,
       },
       // EXP-314 custom issue statuses. Member-editable like Labels (the
@@ -93,7 +87,7 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
       {
         label: `Plan & Billing`,
         to: `/t/$teamSlug/settings/billing`,
-        icon: CreditCard,
+        icon: conceptIcon(`settings-billing`),
         visible: (permissions, context) =>
           permissions.canManageTeam && context.isCloud,
       },
@@ -102,7 +96,7 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
       {
         label: `Storage`,
         to: `/t/$teamSlug/settings/storage`,
-        icon: HardDrive,
+        icon: conceptIcon(`settings-storage`),
         visible: (permissions) => permissions.isOwner,
       },
     ],
@@ -113,13 +107,13 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
       {
         label: `Boards`,
         to: `/t/$teamSlug/settings/boards`,
-        icon: FolderKanban,
+        icon: conceptIcon(`settings-boards`),
         visible: (permissions) => permissions.isOwner,
       },
       {
         label: `Repositories`,
         to: `/t/$teamSlug/settings/repositories`,
-        icon: Github,
+        icon: conceptIcon(`settings-repositories`),
         visible: (permissions) => permissions.canManageRepos,
       },
     ],
@@ -130,7 +124,7 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
       {
         label: `Feedback widget`,
         to: `/t/$teamSlug/settings/widget`,
-        icon: MessageSquarePlus,
+        icon: conceptIcon(`settings-widget`),
         visible: (permissions) => permissions.canManageWidgets,
       },
     ],

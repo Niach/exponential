@@ -24,7 +24,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -35,6 +35,7 @@ use api::teams::TeamInviteOut;
 use crate::actions::JoinTeam;
 use crate::navigation::switch_team;
 use crate::queries;
+use crate::icons::registry;
 
 /// Register the App-global [`JoinTeam`] handler (call once from
 /// `ui::init`).
@@ -340,7 +341,7 @@ impl Render for JoinTeamView {
                         .items_center()
                         .text_xs()
                         .text_color(cx.theme().danger)
-                        .child(Icon::new(IconName::TriangleAlert).xsmall())
+                        .child(Icon::new(registry::UI_WARNING).xsmall())
                         .child(message.clone()),
                 );
                 ("Preview invite", false)

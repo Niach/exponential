@@ -29,6 +29,7 @@ use super::{
     active_team, card_header, error_notice, is_owner, open_url, row_stroke, section,
     show_team_chrome, team_delete_error_message,
 };
+use crate::icons::registry;
 
 /// Server fetch state for the read-only billing summary (EXP-288).
 enum BillingLoad {
@@ -330,7 +331,7 @@ impl GeneralPane {
                         Button::new("billing-manage")
                             .outline()
                             .small()
-                            .icon(gpui_component::IconName::ExternalLink)
+                            .icon(registry::UI_EXTERNAL_LINK)
                             .label("Manage billing on the web")
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 open_url(cx, url.clone());

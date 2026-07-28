@@ -260,3 +260,136 @@ describe(`icon registry`, () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// EXP-317 — cross-client call-site gates.
+//
+// The registry only guarantees parity for call sites that USE it. These three
+// checks are what keep web and desktop from quietly drawing something else:
+// the settings nav (the drift this issue was filed for), gpui-component's own
+// icon set on desktop, and lucide's deprecated aliases on web.
+// ---------------------------------------------------------------------------
+
+function walk(dir: string, ext: string): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...walk(path, ext))
+    else if (entry.name.endsWith(ext)) out.push(path)
+  }
+  return out
+}
+
+describe(`icon call sites`, () => {
+  it(`web and desktop draw the same settings nav`, () => {
+    // The reported EXP-317 symptom: two hand-picked icon lists for one screen.
+    // Both sides now name `settings-*` concepts, so this compares the concept
+    // each section resolves to rather than the glyph it happens to import.
+    const web = readFileSync(
+      join(repoRoot, `apps/web/src/routes/t/$teamSlug/settings/-shared.tsx`),
+      `utf8`
+    )
+    const desktop = readFileSync(
+      join(repoRoot, `apps/desktop/crates/ui/src/settings/mod.rs`),
+      `utf8`
+    )
+
+    // web: `label: \`General\`, to: …, icon: conceptIcon(\`settings-general\`)`
+    const webNav = new Map<string, string>()
+    for (const m of web.matchAll(
+      /label: `([^`]+)`,\s*\n\s*to: `[^`]+`,\s*\n\s*icon: conceptIcon\(`([a-z0-9-]+)`\)/g
+    )) {
+      webNav.set(m[1], m[2])
+    }
+    // desktop: `SettingsSection::General => Icon::from(registry::SETTINGS_GENERAL)`
+    const desktopNav = new Map<string, string>()
+    for (const m of desktop.matchAll(
+      /SettingsSection::(\w+)(?:\(_\))? => Icon::from\(registry::([A-Z0-9_]+)\)/g
+    )) {
+      desktopNav.set(m[1], m[2].toLowerCase().replace(/_/g, `-`))
+    }
+
+    // Every icon on both screens comes from the registry — no stragglers.
+    expect(web).not.toMatch(/icon: [A-Z]\w+,/)
+    expect(webNav.size).toBe(9)
+    expect(desktopNav.size).toBe(10)
+
+    // The sections both clients render, web label → desktop variant.
+    const shared: [string, string][] = [
+      [`General`, `General`],
+      [`Members`, `Members`],
+      [`Labels`, `Labels`],
+      [`Statuses`, `Statuses`],
+      [`Storage`, `Storage`],
+      [`Boards`, `Board`],
+      [`Repositories`, `Repositories`],
+    ]
+    for (const [webLabel, desktopSection] of shared) {
+      const concept = webNav.get(webLabel)
+      expect(concept, `web settings nav lost "${webLabel}"`).toBeTruthy()
+      expect(
+        desktopNav.get(desktopSection),
+        `settings "${webLabel}" drifted: web ${concept}, desktop ${desktopNav.get(desktopSection)}`
+      ).toBe(concept)
+      expect(SEMANTIC_ICONS).toHaveProperty(concept!)
+    }
+  })
+
+  it(`the desktop draws no gpui-component icons outside the window controls`, () => {
+    // gpui-component ships its OWN lucide-ish set: its `github` is a filled
+    // octocat, its `delete` is a backspace key, and a dozen more glyphs are a
+    // different vintage than the registry's. Only the title bar's
+    // window-management buttons (no lucide equivalent) may use it.
+    const src = join(repoRoot, `apps/desktop/crates/ui/src`)
+    const offenders = walk(src, `.rs`)
+      .filter((f) => !f.endsWith(`title_bar.rs`))
+      .filter((f) => /\bIconName::/.test(readFileSync(f, `utf8`)))
+      .map((f) => f.slice(repoRoot.length + 1))
+    expect(
+      offenders,
+      `use crate::icons::registry (or ExpIcon) instead of gpui-component's IconName`
+    ).toEqual([])
+  })
+
+  it(`web imports only canonical, non-deprecated lucide names`, () => {
+    // lucide keeps deprecated aliases importable (`MoreHorizontal`,
+    // `Loader2`, `AlertTriangle`, …). They still render, so nothing breaks —
+    // they just make the same glyph look like two different icons across the
+    // codebase, and some (`Code2` → `code-xml`) are not even the icon the
+    // name suggests.
+    const iconsDir = join(repoRoot, `node_modules/lucide-react/dist/esm/icons`)
+    const kebab = (name: string) =>
+      name
+        .replace(/(?<=[a-z])(?=[A-Z])/g, `-`)
+        .replace(/(?<=[A-Za-z])(?=[0-9])/g, `-`)
+        .toLowerCase()
+    const bad: string[] = []
+    for (const file of walk(join(repoRoot, `apps/web/src`), `.tsx`).concat(
+      walk(join(repoRoot, `apps/web/src`), `.ts`)
+    )) {
+      const source = readFileSync(file, `utf8`)
+      for (const block of source.matchAll(
+        /import\s*\{([^}]*)\}\s*from\s*"lucide-react"/g
+      )) {
+        for (const raw of block[1].split(`,`)) {
+          const name = raw.trim().split(` as `)[0].replace(/^type /, ``).trim()
+          if (!name || name === `LucideIcon` || name === `createLucideIcon`) {
+            continue
+          }
+          // shadcn's generated components import the `<Name>Icon` aliases.
+          const candidates = [kebab(name)]
+          if (name.endsWith(`Icon`)) candidates.push(kebab(name.slice(0, -4)))
+          const resolved = candidates
+            .map((c) => join(iconsDir, `${c}.js`))
+            .find((p) => existsSync(p))
+          if (!resolved) {
+            bad.push(`${name} (no such lucide icon)`)
+          } else if (!readFileSync(resolved, `utf8`).includes(`__iconNode`)) {
+            bad.push(`${name} (deprecated alias)`)
+          }
+        }
+      }
+    }
+    expect([...new Set(bad)].sort()).toEqual([])
+  })
+})

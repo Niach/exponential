@@ -31,7 +31,7 @@ use gpui_component::{
     list::ListItem,
     menu::PopupMenu,
     tree::{tree, TreeEntry, TreeEvent, TreeItem, TreeState},
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use serde::Deserialize;
 use sync::Store;
@@ -41,6 +41,7 @@ use coding::scm::{self, FileStatus};
 use crate::coding_flow::CodingHub;
 use crate::navigation::{self, Navigation};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
+use crate::icons::registry;
 
 /// Files >2 MB (and binary files) never load in the read-only viewer; the tree
 /// carries the same 2 MB constant so the viewer placeholder threshold is one
@@ -608,12 +609,12 @@ fn render_tree_item(
 
     let icon = if node.is_dir {
         if entry.is_expanded() {
-            IconName::FolderOpen
+            registry::UI_FOLDER_OPEN
         } else {
-            IconName::Folder
+            registry::UI_FOLDER
         }
     } else {
-        IconName::File
+        registry::UI_FILE
     };
 
     let label_color = if node.ignored {
@@ -625,9 +626,9 @@ fn render_tree_item(
     // Dirs get the expand chevron; files an equal-width spacer (alignment).
     let chevron: gpui::AnyElement = if node.is_dir {
         Icon::new(if entry.is_expanded() {
-            IconName::ChevronDown
+            registry::UI_CHEVRON_DOWN
         } else {
-            IconName::ChevronRight
+            registry::UI_CHEVRON_RIGHT
         })
         .xsmall()
         .text_color(theme.muted_foreground)
@@ -727,12 +728,12 @@ fn build_context_menu(
 
     menu.menu_with_icon(
         "Reveal in file manager",
-        IconName::ExternalLink,
+        registry::UI_EXTERNAL_LINK,
         Box::new(RevealInFileManager { path: abs_str }),
     )
     .menu_with_icon(
         "Open terminal here",
-        IconName::SquareTerminal,
+        registry::NAV_TERMINAL,
         Box::new(OpenTerminalHere { path: terminal_dir }),
     )
 }

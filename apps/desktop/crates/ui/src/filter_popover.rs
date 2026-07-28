@@ -27,7 +27,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputState},
     popover::Popover,
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
 use domain::options::{IssueOption, ISSUE_PRIORITY_OPTIONS};
@@ -35,7 +35,7 @@ use domain::rows::Label;
 use domain::statuses::{status_key_matches, IssueStatusCategory, ResolvedStatus};
 use domain::{active_filter_count, IssueFilters};
 
-use crate::icons::{option_icon, resolved_status_icon, ExpIcon};
+use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_list::parse_hex_color;
 
 /// Which pane the popover shows (web `type View`).
@@ -267,7 +267,7 @@ fn categories_view(
                         .items_center()
                         .when(count > 0, |row| row.child(count_badge(count)))
                         .child(
-                            Icon::new(IconName::ChevronRight)
+                            Icon::new(registry::UI_CHEVRON_RIGHT)
                                 .size_3p5()
                                 .text_color(cx.theme().muted_foreground),
                         ),
@@ -421,7 +421,7 @@ fn labels_view(
             Button::new("filter-labels-back")
                 .ghost()
                 .xsmall()
-                .icon(Icon::new(IconName::ArrowLeft).size_3p5())
+                .icon(Icon::new(registry::UI_BACK).size_3p5())
                 .on_click({
                     let on_view_change = on_view_change.clone();
                     move |_, window, cx| on_view_change(FilterView::Categories, window, cx)
@@ -506,7 +506,7 @@ fn back_row(
 ) -> impl IntoElement {
     command_item(id, cx)
         .child(
-            Icon::new(IconName::ArrowLeft)
+            Icon::new(registry::UI_BACK)
                 .size_3p5()
                 .text_color(cx.theme().muted_foreground),
         )

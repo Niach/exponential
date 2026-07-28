@@ -3,7 +3,7 @@ import {
   ArrowRightLeft,
   Check,
   CreditCard,
-  Loader2,
+  LoaderCircle,
   Minus,
   Plus,
 } from "lucide-react"
@@ -342,7 +342,7 @@ export function PlanComparison({
                           disabled={loading !== null}
                         >
                           {loading === t.tier ? (
-                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                            <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
                           ) : (
                             <CreditCard className="mr-1.5 size-3.5" />
                           )}
@@ -364,7 +364,7 @@ export function PlanComparison({
                           disabled={loading !== null}
                         >
                           {loading === t.tier ? (
-                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                            <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
                           ) : (
                             <ArrowRightLeft className="mr-1.5 size-3.5" />
                           )}

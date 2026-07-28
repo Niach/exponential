@@ -168,6 +168,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "list-filter" => ExpIcon::ListFilter,
         "list-ordered" => ExpIcon::ListOrdered,
         "list-todo" => ExpIcon::ListTodo,
+        "loader-circle" => ExpIcon::LoaderCircle,
         "lock" => ExpIcon::Lock,
         "log-in" => ExpIcon::LogIn,
         "log-out" => ExpIcon::LogOut,
@@ -177,8 +178,10 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "megaphone" => ExpIcon::Megaphone,
         "message-circle" => ExpIcon::MessageCircle,
         "message-square" => ExpIcon::MessageSquare,
+        "message-square-plus" => ExpIcon::MessageSquarePlus,
         "minus" => ExpIcon::Minus,
         "monitor" => ExpIcon::Monitor,
+        "monitor-off" => ExpIcon::MonitorOff,
         "move" => ExpIcon::Move,
         "package" => ExpIcon::Package,
         "palette" => ExpIcon::Palette,
@@ -235,6 +238,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "undo-2" => ExpIcon::Undo2,
         "unlink" => ExpIcon::Unlink,
         "user" => ExpIcon::User,
+        "user-minus" => ExpIcon::UserMinus,
         "user-plus" => ExpIcon::UserPlus,
         "user-x" => ExpIcon::UserX,
         "users" => ExpIcon::Users,
@@ -308,16 +312,16 @@ pub const EDITOR_QUOTE: ExpIcon = ExpIcon::Quote;
 pub const EDITOR_STRIKETHROUGH: ExpIcon = ExpIcon::Strikethrough;
 /// Registry concept `editor-unlink` -> Lucide `unlink`.
 pub const EDITOR_UNLINK: ExpIcon = ExpIcon::Unlink;
-/// Registry concept `event-assignee-changed` -> Lucide `circle-user`.
-pub const EVENT_ASSIGNEE_CHANGED: ExpIcon = ExpIcon::CircleUser;
+/// Registry concept `event-assignee-changed` -> Lucide `user-plus`.
+pub const EVENT_ASSIGNEE_CHANGED: ExpIcon = ExpIcon::UserPlus;
 /// Registry concept `event-board-moved` -> Lucide `move`.
 pub const EVENT_BOARD_MOVED: ExpIcon = ExpIcon::Move;
 /// Registry concept `event-label-added` -> Lucide `tag`.
 pub const EVENT_LABEL_ADDED: ExpIcon = ExpIcon::Tag;
 /// Registry concept `event-label-removed` -> Lucide `tag`.
 pub const EVENT_LABEL_REMOVED: ExpIcon = ExpIcon::Tag;
-/// Registry concept `event-status-changed` -> Lucide `circle-check`.
-pub const EVENT_STATUS_CHANGED: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `event-status-changed` -> Lucide `circle-dot`.
+pub const EVENT_STATUS_CHANGED: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `nav-account` -> Lucide `circle-user`.
 pub const NAV_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
 /// Registry concept `nav-admin` -> Lucide `shield`.
@@ -406,6 +410,8 @@ pub const PRIORITY_URGENT: ExpIcon = ExpIcon::TriangleAlert;
 pub const SETTINGS_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
 /// Registry concept `settings-agents` -> Lucide `bot`.
 pub const SETTINGS_AGENTS: ExpIcon = ExpIcon::Bot;
+/// Registry concept `settings-billing` -> Lucide `credit-card`.
+pub const SETTINGS_BILLING: ExpIcon = ExpIcon::CreditCard;
 /// Registry concept `settings-boards` -> Lucide `square-kanban`.
 pub const SETTINGS_BOARDS: ExpIcon = ExpIcon::SquareKanban;
 /// Registry concept `settings-general` -> Lucide `building-2`.
@@ -424,10 +430,14 @@ pub const SETTINGS_REPOSITORIES: ExpIcon = ExpIcon::Github;
 pub const SETTINGS_SERVERS: ExpIcon = ExpIcon::Server;
 /// Registry concept `settings-statuses` -> Lucide `circle-dot`.
 pub const SETTINGS_STATUSES: ExpIcon = ExpIcon::CircleDot;
+/// Registry concept `settings-storage` -> Lucide `hard-drive`.
+pub const SETTINGS_STORAGE: ExpIcon = ExpIcon::HardDrive;
 /// Registry concept `settings-sync` -> Lucide `refresh-cw`.
 pub const SETTINGS_SYNC: ExpIcon = ExpIcon::RefreshCw;
 /// Registry concept `settings-tools` -> Lucide `square-terminal`.
 pub const SETTINGS_TOOLS: ExpIcon = ExpIcon::SquareTerminal;
+/// Registry concept `settings-widget` -> Lucide `message-square-plus`.
+pub const SETTINGS_WIDGET: ExpIcon = ExpIcon::MessageSquarePlus;
 /// Registry concept `status-backlog` -> Lucide `circle-dashed`.
 pub const STATUS_BACKLOG: ExpIcon = ExpIcon::CircleDashed;
 /// Registry concept `status-cancelled` -> Lucide `circle-x`.
@@ -454,6 +464,8 @@ pub const UI_ARROW_RIGHT: ExpIcon = ExpIcon::ArrowRight;
 pub const UI_ASSIGNEE: ExpIcon = ExpIcon::CircleUser;
 /// Registry concept `ui-attach` -> Lucide `paperclip`.
 pub const UI_ATTACH: ExpIcon = ExpIcon::Paperclip;
+/// Registry concept `ui-avatar-placeholder` -> Lucide `user`.
+pub const UI_AVATAR_PLACEHOLDER: ExpIcon = ExpIcon::User;
 /// Registry concept `ui-back` -> Lucide `arrow-left`.
 pub const UI_BACK: ExpIcon = ExpIcon::ArrowLeft;
 /// Registry concept `ui-branch` -> Lucide `git-branch`.
@@ -488,6 +500,8 @@ pub const UI_DELETE: ExpIcon = ExpIcon::Trash2;
 pub const UI_DELETE_ACCOUNT: ExpIcon = ExpIcon::UserX;
 /// Registry concept `ui-device` -> Lucide `monitor`.
 pub const UI_DEVICE: ExpIcon = ExpIcon::Monitor;
+/// Registry concept `ui-device-offline` -> Lucide `monitor-off`.
+pub const UI_DEVICE_OFFLINE: ExpIcon = ExpIcon::MonitorOff;
 /// Registry concept `ui-download` -> Lucide `download`.
 pub const UI_DOWNLOAD: ExpIcon = ExpIcon::Download;
 /// Registry concept `ui-due-date` -> Lucide `calendar-days`.
@@ -496,10 +510,14 @@ pub const UI_DUE_DATE: ExpIcon = ExpIcon::CalendarDays;
 pub const UI_EDIT: ExpIcon = ExpIcon::Pencil;
 /// Registry concept `ui-empty-search` -> Lucide `search-x`.
 pub const UI_EMPTY_SEARCH: ExpIcon = ExpIcon::SearchX;
+/// Registry concept `ui-error` -> Lucide `circle-x`.
+pub const UI_ERROR: ExpIcon = ExpIcon::CircleX;
 /// Registry concept `ui-external-link` -> Lucide `external-link`.
 pub const UI_EXTERNAL_LINK: ExpIcon = ExpIcon::ExternalLink;
 /// Registry concept `ui-file` -> Lucide `file`.
 pub const UI_FILE: ExpIcon = ExpIcon::File;
+/// Registry concept `ui-folder` -> Lucide `folder`.
+pub const UI_FOLDER: ExpIcon = ExpIcon::Folder;
 /// Registry concept `ui-folder-open` -> Lucide `folder-open`.
 pub const UI_FOLDER_OPEN: ExpIcon = ExpIcon::FolderOpen;
 /// Registry concept `ui-github` -> Lucide `github`.
@@ -512,6 +530,8 @@ pub const UI_INFO: ExpIcon = ExpIcon::Info;
 pub const UI_INVITE: ExpIcon = ExpIcon::UserPlus;
 /// Registry concept `ui-issue` -> Lucide `file-text`.
 pub const UI_ISSUE: ExpIcon = ExpIcon::FileText;
+/// Registry concept `ui-loading` -> Lucide `loader-circle`.
+pub const UI_LOADING: ExpIcon = ExpIcon::LoaderCircle;
 /// Registry concept `ui-member` -> Lucide `shield-check`.
 pub const UI_MEMBER: ExpIcon = ExpIcon::ShieldCheck;
 /// Registry concept `ui-minus` -> Lucide `minus`.
@@ -536,6 +556,8 @@ pub const UI_PROPERTIES: ExpIcon = ExpIcon::SlidersHorizontal;
 pub const UI_REDOCK: ExpIcon = ExpIcon::ArrowDownLeft;
 /// Registry concept `ui-refresh` -> Lucide `refresh-cw`.
 pub const UI_REFRESH: ExpIcon = ExpIcon::RefreshCw;
+/// Registry concept `ui-remove-member` -> Lucide `user-minus`.
+pub const UI_REMOVE_MEMBER: ExpIcon = ExpIcon::UserMinus;
 /// Registry concept `ui-repeat` -> Lucide `repeat`.
 pub const UI_REPEAT: ExpIcon = ExpIcon::Repeat;
 /// Registry concept `ui-repository` -> Lucide `code`.

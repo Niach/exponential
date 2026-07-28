@@ -6,7 +6,7 @@ import {
   FileImage,
   FileSpreadsheet,
   FileText,
-  FileVideo,
+  FilePlay,
   type LucideIcon,
 } from "lucide-react"
 import { isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
@@ -53,7 +53,7 @@ export function getAttachmentIcon(contentType: string): LucideIcon {
   const essence = contentType.split(`;`)[0]?.trim().toLowerCase() ?? ``
 
   if (essence.startsWith(`image/`)) return FileImage
-  if (essence.startsWith(`video/`)) return FileVideo
+  if (essence.startsWith(`video/`)) return FilePlay
   if (essence.startsWith(`audio/`)) return FileAudio
   if (archiveTypes.has(essence)) return FileArchive
   if (spreadsheetTypes.has(essence)) return FileSpreadsheet

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { Github, Loader2, Lock, RefreshCw } from "lucide-react"
+import { Github, LoaderCircle, Lock, RefreshCw } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -110,7 +110,7 @@ export function GithubRepoPicker({
   if (loading && !data) {
     return (
       <div className="flex items-center gap-2 rounded-md border px-3 py-6 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <LoaderCircle className="h-4 w-4 animate-spin" />
         Loading your GitHub repositories…
       </div>
     )

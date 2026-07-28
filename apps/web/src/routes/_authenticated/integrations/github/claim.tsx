@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { AlertCircle, Building2, Check, Github, User } from "lucide-react"
+import { CircleAlert, Building2, Check, Github, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -163,7 +163,7 @@ function GithubClaim() {
           <>
             <CardHeader className="flex flex-col items-center gap-3 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15 text-red-500">
-                <AlertCircle className="h-6 w-6" strokeWidth={2.5} />
+                <CircleAlert className="h-6 w-6" strokeWidth={2.5} />
               </div>
               <CardTitle className="text-xl">{errorCopy.title}</CardTitle>
               <CardDescription>{errorCopy.body}</CardDescription>

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { GitBranch, GitMerge, GitPullRequest, Loader2 } from "lucide-react"
+import { GitBranch, GitMerge, GitPullRequest, LoaderCircle } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import { EmptyState } from "@/components/empty-state"
 import { useSteerConfig } from "@/components/agent-session"
@@ -268,7 +268,7 @@ function ReviewsPage() {
                     >
                       {merging ? (
                         <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                           Merging…
                         </>
                       ) : (
@@ -363,7 +363,7 @@ function ReviewsPage() {
                     >
                       {merging ? (
                         <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                           Merging…
                         </>
                       ) : (

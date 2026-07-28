@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { LifeBuoy, Loader2, Send } from "lucide-react"
+import { LifeBuoy, LoaderCircle, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { PoweredByFooter } from "@/components/team/powered-by-footer"
@@ -270,7 +270,7 @@ export function SupportConversationView({ token }: { token: string }) {
   if (state.kind === `loading`) {
     return (
       <div className="flex min-h-svh items-center justify-center">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -399,7 +399,7 @@ export function SupportConversationView({ token }: { token: string }) {
                 aria-label="Send reply"
               >
                 {sending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
                 ) : (
                   <Send className="h-4 w-4" />
                 )}

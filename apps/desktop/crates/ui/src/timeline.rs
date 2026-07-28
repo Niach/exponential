@@ -33,7 +33,7 @@ use sync::Store;
 use domain::rows::{Comment, IssueEvent, Label, Board, User};
 
 use crate::comments::{self, CommentRowProps};
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::markdown::{store_completion_source, ImageCache};
 use crate::mention_input::MentionInput;
 use crate::queries;
@@ -545,7 +545,7 @@ fn event_phrase(
                 }
                 _ => format!("changed status to {to}"),
             };
-            Some((ExpIcon::CircleDot, phrase, None))
+            Some((registry::EVENT_STATUS_CHANGED, phrase, None))
         }
         "assignee_changed" => match payload_str("to") {
             // `payload.to` can reference a user the viewer can't see (the
@@ -556,16 +556,20 @@ fn event_phrase(
                     .get(&to_id)
                     .map(|user| comments::author_label(Some(user)))
                     .unwrap_or_else(|| "someone".to_string());
-                Some((ExpIcon::UserPlus, format!("assigned {name}"), None))
+                Some((registry::EVENT_ASSIGNEE_CHANGED, format!("assigned {name}"), None))
             }
-            None => Some((ExpIcon::UserPlus, "removed the assignee".to_string(), None)),
+            None => Some((
+                registry::EVENT_ASSIGNEE_CHANGED,
+                "removed the assignee".to_string(),
+                None,
+            )),
         },
         kind @ ("label_added" | "label_removed") => {
             let label_name = payload_str("labelId")
                 .and_then(|id| label_map.get(&id).map(|label| label.name.clone()))
                 .unwrap_or_else(|| "a label".to_string());
             let verb = if kind == "label_added" { "added" } else { "removed" };
-            Some((ExpIcon::Tag, format!("{verb} label {label_name}"), None))
+            Some((registry::EVENT_LABEL_ADDED, format!("{verb} label {label_name}"), None))
         }
         "board_moved" => {
             // EXP-57 (web `EventRow` parity): from/to board names resolve
@@ -581,7 +585,7 @@ fn event_phrase(
                 Some(identifier) => format!("moved this from {from} ({identifier}) to {to}"),
                 None => format!("moved this from {from} to {to}"),
             };
-            Some((ExpIcon::SquareKanban, phrase, None))
+            Some((registry::EVENT_BOARD_MOVED, phrase, None))
         }
         "pr_opened" => {
             let url = payload_str("prUrl");
@@ -589,7 +593,7 @@ fn event_phrase(
                 Some(number) => format!("opened pull request #{number}"),
                 None => "opened a pull request".to_string(),
             };
-            Some((ExpIcon::GitPullRequest, phrase, url))
+            Some((registry::PR_OPEN, phrase, url))
         }
         "pr_merged" => {
             let url = payload_str("prUrl");
@@ -599,7 +603,7 @@ fn event_phrase(
                 Some(number) => format!("merged pull request #{number}"),
                 None => "merged the pull request".to_string(),
             };
-            Some((ExpIcon::GitMerge, phrase, url))
+            Some((registry::PR_MERGED, phrase, url))
         }
         _ => None,
     }

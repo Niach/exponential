@@ -33,7 +33,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use serde::{Deserialize, Serialize};
 use sync::Store;
@@ -44,6 +44,7 @@ use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::navigation::{active_team_id, nav_for_window};
 use crate::queries;
 use crate::settings::open_url;
+use crate::icons::registry;
 
 /// Web default board color (`create-board-dialog.tsx`).
 const DEFAULT_COLOR: &str = "#6366f1";
@@ -473,7 +474,7 @@ impl CreateBoardDialogView {
                     .outline()
                     .small()
                     .w_full()
-                    .icon(IconName::Github)
+                    .icon(registry::UI_GITHUB)
                     .label(label)
                     .dropdown_menu(move |menu, _window, _cx| {
                         // A team can hold many repos — cap + scroll
@@ -490,7 +491,7 @@ impl CreateBoardDialogView {
                                 let checked = selected_full.as_deref() == Some(repo.full_name.as_str());
                                 menu = menu.item(
                                     PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
-                                        .icon(Icon::new(IconName::Github))
+                                        .icon(Icon::new(registry::UI_GITHUB))
                                         .checked(checked)
                                         .on_click(move |_, _, cx| {
                                             let choice = RepoChoice::Registry {
@@ -521,7 +522,7 @@ impl CreateBoardDialogView {
                                 };
                                 menu = menu.item(
                                     PopupMenuItem::new(SharedString::from(title))
-                                        .icon(Icon::new(IconName::Github))
+                                        .icon(Icon::new(registry::UI_GITHUB))
                                         .checked(checked)
                                         .on_click(move |_, _, cx| {
                                             let choice = RepoChoice::Inline(repo.clone());
@@ -559,7 +560,7 @@ impl CreateBoardDialogView {
                     Button::new("board-repo-connect-gh")
                         .outline()
                         .small()
-                        .icon(IconName::Github)
+                        .icon(registry::UI_GITHUB)
                         .label("Connect GitHub")
                         .on_click(move |_, _, cx| open_url(cx, url.clone())),
                 );
@@ -596,7 +597,7 @@ impl CreateBoardDialogView {
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
                 .child(
-                    Icon::new(IconName::TriangleAlert)
+                    Icon::new(registry::UI_WARNING)
                         .xsmall()
                         .text_color(theme::tokens::YELLOW.to_hsla()),
                 )
@@ -617,7 +618,7 @@ impl CreateBoardDialogView {
                     Button::new("board-repo-reconnect-gh")
                         .outline()
                         .xsmall()
-                        .icon(IconName::Github)
+                        .icon(registry::UI_GITHUB)
                         .label("Reconnect GitHub")
                         .on_click(move |_, _, cx| open_url(cx, url.clone())),
                 );
@@ -680,7 +681,7 @@ impl CreateBoardDialogView {
                     .link()
                     .xsmall()
                     .label("Refresh from GitHub")
-                    .icon(IconName::ExternalLink)
+                    .icon(registry::UI_EXTERNAL_LINK)
                     .on_click(move |_, _, cx| open_url(cx, url.clone())),
             );
         }
@@ -694,7 +695,7 @@ impl CreateBoardDialogView {
                     .link()
                     .xsmall()
                     .label("Add more on GitHub")
-                    .icon(IconName::ExternalLink)
+                    .icon(registry::UI_EXTERNAL_LINK)
                     .on_click(move |_, _, cx| open_url(cx, url.clone())),
             );
         }
@@ -756,7 +757,7 @@ impl Render for CreateBoardDialogView {
                             Button::new("board-grant-reconnect-gh")
                                 .outline()
                                 .xsmall()
-                                .icon(IconName::Github)
+                                .icon(registry::UI_GITHUB)
                                 .label("Reconnect GitHub")
                                 .on_click(move |_, _, cx| open_url(cx, url.clone())),
                         ),

@@ -5,7 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
-  MoreHorizontal,
+  Ellipsis,
   Plus,
   Trash2,
 } from "lucide-react"
@@ -294,7 +294,7 @@ function StatusRow({
               disabled={busy}
               aria-label={`Status actions for ${option.name}`}
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <Ellipsis className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

@@ -3145,6 +3145,24 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `loader-circle`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "loader-circle",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M21 12a9 9 0 1 1-6.219-8.56"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `lock`: ImageVector by lazy {
         ImageVector.Builder(
             name = "lock",
@@ -3377,6 +3395,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `message-square-plus`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "message-square-plus",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 8v6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 11h6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `minus`: ImageVector by lazy {
         ImageVector.Builder(
             name = "minus",
@@ -3419,6 +3469,52 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M12 17L12 21"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `monitor-off`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "monitor-off",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M17 17H4a2 2 0 0 1-2-2V5c0-1.5 1-2 1-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M22 15V5a2 2 0 0 0-2-2H9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 21h8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 17v4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m2 2 20 20"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -5196,6 +5292,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `user-minus`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "user-minus",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5 7A4 4 0 1 0 13 7A4 4 0 1 0 5 7Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M22 11L16 11"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `user-plus`: ImageVector by lazy {
         ImageVector.Builder(
             name = "user-plus",
@@ -5589,6 +5717,7 @@ public object ExpIcons {
         "list-filter" -> `list-filter`
         "list-ordered" -> `list-ordered`
         "list-todo" -> `list-todo`
+        "loader-circle" -> `loader-circle`
         "lock" -> `lock`
         "log-in" -> `log-in`
         "log-out" -> `log-out`
@@ -5598,8 +5727,10 @@ public object ExpIcons {
         "megaphone" -> `megaphone`
         "message-circle" -> `message-circle`
         "message-square" -> `message-square`
+        "message-square-plus" -> `message-square-plus`
         "minus" -> `minus`
         "monitor" -> `monitor`
+        "monitor-off" -> `monitor-off`
         "move" -> `move`
         "package" -> `package`
         "palette" -> `palette`
@@ -5656,6 +5787,7 @@ public object ExpIcons {
         "undo-2" -> `undo-2`
         "unlink" -> `unlink`
         "user" -> `user`
+        "user-minus" -> `user-minus`
         "user-plus" -> `user-plus`
         "user-x" -> `user-x`
         "users" -> `users`
@@ -5729,7 +5861,7 @@ public object ExpIcons {
     /** Concept `editor-unlink`. */
     public val editorUnlink: ImageVector get() = `unlink`
     /** Concept `event-assignee-changed`. */
-    public val eventAssigneeChanged: ImageVector get() = `circle-user`
+    public val eventAssigneeChanged: ImageVector get() = `user-plus`
     /** Concept `event-board-moved`. */
     public val eventBoardMoved: ImageVector get() = `move`
     /** Concept `event-label-added`. */
@@ -5737,7 +5869,7 @@ public object ExpIcons {
     /** Concept `event-label-removed`. */
     public val eventLabelRemoved: ImageVector get() = `tag`
     /** Concept `event-status-changed`. */
-    public val eventStatusChanged: ImageVector get() = `circle-check`
+    public val eventStatusChanged: ImageVector get() = `circle-dot`
     /** Concept `nav-account`. */
     public val navAccount: ImageVector get() = `circle-user`
     /** Concept `nav-admin`. */
@@ -5826,6 +5958,8 @@ public object ExpIcons {
     public val settingsAccount: ImageVector get() = `circle-user`
     /** Concept `settings-agents`. */
     public val settingsAgents: ImageVector get() = `bot`
+    /** Concept `settings-billing`. */
+    public val settingsBilling: ImageVector get() = `credit-card`
     /** Concept `settings-boards`. */
     public val settingsBoards: ImageVector get() = `square-kanban`
     /** Concept `settings-general`. */
@@ -5844,10 +5978,14 @@ public object ExpIcons {
     public val settingsServers: ImageVector get() = `server`
     /** Concept `settings-statuses`. */
     public val settingsStatuses: ImageVector get() = `circle-dot`
+    /** Concept `settings-storage`. */
+    public val settingsStorage: ImageVector get() = `hard-drive`
     /** Concept `settings-sync`. */
     public val settingsSync: ImageVector get() = `refresh-cw`
     /** Concept `settings-tools`. */
     public val settingsTools: ImageVector get() = `square-terminal`
+    /** Concept `settings-widget`. */
+    public val settingsWidget: ImageVector get() = `message-square-plus`
     /** Concept `status-backlog`. */
     public val statusBacklog: ImageVector get() = `circle-dashed`
     /** Concept `status-cancelled`. */
@@ -5874,6 +6012,8 @@ public object ExpIcons {
     public val uiAssignee: ImageVector get() = `circle-user`
     /** Concept `ui-attach`. */
     public val uiAttach: ImageVector get() = `paperclip`
+    /** Concept `ui-avatar-placeholder`. */
+    public val uiAvatarPlaceholder: ImageVector get() = `user`
     /** Concept `ui-back`. */
     public val uiBack: ImageVector get() = `arrow-left`
     /** Concept `ui-branch`. */
@@ -5908,6 +6048,8 @@ public object ExpIcons {
     public val uiDeleteAccount: ImageVector get() = `user-x`
     /** Concept `ui-device`. */
     public val uiDevice: ImageVector get() = `monitor`
+    /** Concept `ui-device-offline`. */
+    public val uiDeviceOffline: ImageVector get() = `monitor-off`
     /** Concept `ui-download`. */
     public val uiDownload: ImageVector get() = `download`
     /** Concept `ui-due-date`. */
@@ -5916,10 +6058,14 @@ public object ExpIcons {
     public val uiEdit: ImageVector get() = `pencil`
     /** Concept `ui-empty-search`. */
     public val uiEmptySearch: ImageVector get() = `search-x`
+    /** Concept `ui-error`. */
+    public val uiError: ImageVector get() = `circle-x`
     /** Concept `ui-external-link`. */
     public val uiExternalLink: ImageVector get() = `external-link`
     /** Concept `ui-file`. */
     public val uiFile: ImageVector get() = `file`
+    /** Concept `ui-folder`. */
+    public val uiFolder: ImageVector get() = `folder`
     /** Concept `ui-folder-open`. */
     public val uiFolderOpen: ImageVector get() = `folder-open`
     /** Concept `ui-github`. */
@@ -5932,6 +6078,8 @@ public object ExpIcons {
     public val uiInvite: ImageVector get() = `user-plus`
     /** Concept `ui-issue`. */
     public val uiIssue: ImageVector get() = `file-text`
+    /** Concept `ui-loading`. */
+    public val uiLoading: ImageVector get() = `loader-circle`
     /** Concept `ui-member`. */
     public val uiMember: ImageVector get() = `shield-check`
     /** Concept `ui-minus`. */
@@ -5956,6 +6104,8 @@ public object ExpIcons {
     public val uiRedock: ImageVector get() = `arrow-down-left`
     /** Concept `ui-refresh`. */
     public val uiRefresh: ImageVector get() = `refresh-cw`
+    /** Concept `ui-remove-member`. */
+    public val uiRemoveMember: ImageVector get() = `user-minus`
     /** Concept `ui-repeat`. */
     public val uiRepeat: ImageVector get() = `repeat`
     /** Concept `ui-repository`. */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import {
-  AlertTriangle,
+  TriangleAlert,
   Building2,
   ExternalLink,
   Github,
@@ -251,7 +251,7 @@ export function TeamRepositoriesSection({
                   instead of letting the repos below look healthy. */}
               {installations.some((inst) => inst.suspended) && (
                 <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
                   <span className="min-w-0 flex-1">
                     GitHub suspended the Exponential app for{` `}
                     {installations
@@ -294,7 +294,7 @@ export function TeamRepositoriesSection({
               ) &&
                 connectHopUrl && (
                   <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                     <span className="min-w-0 flex-1">
                       Reconnect GitHub to refresh which repositories you can
                       access. We only list repos you can access on GitHub, so
@@ -416,13 +416,13 @@ function InstallationChip({
       </span>
       {installation.suspended ? (
         <Badge variant="destructive" className="shrink-0 gap-1 text-[10px]">
-          <AlertTriangle className="h-3 w-3" />
+          <TriangleAlert className="h-3 w-3" />
           Suspended
         </Badge>
       ) : (
         installation.needsReauth && (
           <span title="Reconnect GitHub to load this account's repositories">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
           </span>
         )
       )}
@@ -525,7 +525,7 @@ function RepoRow({
 
       {(repo.inaccessibleAt || installationSuspended) && (
         <div className="ml-6 flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 flex-1">
             {installationSuspended
               ? `GitHub suspended the Exponential app for this repository's account — unsuspend it on GitHub to code on this repo again.`

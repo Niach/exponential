@@ -59,12 +59,12 @@ use gpui_component::{
     popover::Popover,
     skeleton::Skeleton,
     text::TextView,
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
 use crate::action_run::{fetch_repositories, ActionRepoRow};
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::issue_detail::{centered_column, DETAIL_GUTTER, WYSIWYG_BLOCK_PADDING_X};
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::pickers::picker_trigger;
@@ -893,7 +893,7 @@ impl ActionDetailView {
                                         .items_center()
                                         .child(div().text_xs().child(type_label))
                                         .child(
-                                            Icon::new(IconName::ChevronDown)
+                                            Icon::new(registry::UI_CHEVRON_DOWN)
                                                 .size_3()
                                                 .text_color(muted),
                                         ),
@@ -944,7 +944,7 @@ impl ActionDetailView {
                                 Button::new(("action-input-remove", ix))
                                     .ghost()
                                     .xsmall()
-                                    .icon(Icon::new(IconName::Close).text_color(muted))
+                                    .icon(Icon::new(registry::UI_CLOSE).text_color(muted))
                                     .tooltip("Remove input")
                                     .on_click(cx.listener(
                                         move |this, _: &ClickEvent, window, cx| {
@@ -963,7 +963,7 @@ impl ActionDetailView {
                     Button::new("action-input-add")
                         .ghost()
                         .xsmall()
-                        .icon(IconName::Plus)
+                        .icon(registry::UI_ADD)
                         .label("Add input")
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.add_input(window, cx);
@@ -1329,13 +1329,13 @@ impl Render for ActionDetailView {
                         Button::new("action-detail-menu")
                             .ghost()
                             .xsmall()
-                            .icon(Icon::new(IconName::Ellipsis).text_color(muted))
+                            .icon(Icon::new(registry::UI_MORE).text_color(muted))
                             .dropdown_menu(move |menu, _window, _cx| {
                                 let id = delete_id.clone();
                                 let name = delete_name.clone();
                                 menu.item(
                                     PopupMenuItem::new("Delete action…")
-                                        .icon(Icon::new(IconName::Delete))
+                                        .icon(Icon::new(registry::UI_DELETE))
                                         .on_click(move |_, window, cx| {
                                             crate::actions_panel::prompt_delete_action(
                                                 window,

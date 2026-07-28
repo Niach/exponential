@@ -39,13 +39,13 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     dock::{register_panel, DockArea, Panel, PanelControl, PanelEvent, PanelState},
-    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use std::path::PathBuf;
 use terminal::{TabId, TerminalManager, TerminalManagerEvent, TerminalView};
 
 use crate::coding_flow::CodingHub;
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::navigation;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
@@ -494,7 +494,7 @@ impl TerminalDockPanel {
                             Button::new(("close-terminal-tab", ix))
                                 .ghost()
                                 .xsmall()
-                                .icon(IconName::Close)
+                                .icon(registry::UI_CLOSE)
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                                     cx.stop_propagation();
                                     this.manager
@@ -534,7 +534,7 @@ impl TerminalDockPanel {
                         Button::new("new-terminal-tab")
                             .ghost()
                             .xsmall()
-                            .icon(IconName::Plus)
+                            .icon(registry::UI_ADD)
                             .tooltip("New shell")
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 cx.stop_propagation();
@@ -546,7 +546,7 @@ impl TerminalDockPanel {
                 Button::new("collapse-terminal-dock")
                     .ghost()
                     .xsmall()
-                    .icon(IconName::ChevronDown)
+                    .icon(registry::UI_CHEVRON_DOWN)
                     .tooltip("Hide terminal")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         cx.stop_propagation();
@@ -590,10 +590,10 @@ impl TerminalDockPanel {
                     this.focus_active_terminal(window, cx);
                 }
             }))
-            .child(Icon::new(IconName::SquareTerminal).xsmall())
+            .child(Icon::new(registry::NAV_TERMINAL).xsmall())
             .child(div().text_xs().child(label))
             .child(div().flex_1())
-            .child(Icon::new(IconName::ChevronUp).xsmall())
+            .child(Icon::new(registry::UI_CHEVRON_UP).xsmall())
     }
 
     /// EXP-65: every visible tab popped out into its own window — the dock
@@ -609,7 +609,7 @@ impl TerminalDockPanel {
             .gap_1()
             .text_xs()
             .text_color(cx.theme().muted_foreground)
-            .child(Icon::new(IconName::SquareTerminal).small())
+            .child(Icon::new(registry::NAV_TERMINAL).small())
             .child("All terminal tabs are open in separate windows.")
     }
 }

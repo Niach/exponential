@@ -44,7 +44,7 @@ use gpui_component::{
     skeleton::Skeleton,
     switch::Switch,
     tab::{Tab, TabBar, TabVariant},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, Size,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size,
 };
 
 use coding::{CodingAgent, DoctorReport, Settings, ToolCheck};
@@ -56,6 +56,7 @@ use crate::coding_selects::{
 };
 
 use super::{card_header, error_notice, section};
+use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
 // Pane
@@ -400,15 +401,15 @@ impl AgentsPane {
     /// OPTIONAL agents (EXP-201: only the agent you launch with must be
     /// installed, so a missing codex is information, not an alarm).
     fn doctor_row(check: &ToolCheck, muted_when_failing: bool, cx: &App) -> impl IntoElement {
-        let (icon, color, detail): (IconName, gpui::Hsla, SharedString) = if check.ok {
+        let (icon, color, detail): (crate::icons::ExpIcon, gpui::Hsla, SharedString) = if check.ok {
             (
-                IconName::CircleCheck,
+                registry::UI_SUCCESS,
                 theme::tokens::GREEN.to_hsla(),
                 check.version.clone().unwrap_or_default().into(),
             )
         } else if muted_when_failing {
             (
-                IconName::CircleX,
+                registry::UI_ERROR,
                 cx.theme().muted_foreground,
                 check
                     .error
@@ -418,7 +419,7 @@ impl AgentsPane {
             )
         } else {
             (
-                IconName::CircleX,
+                registry::UI_ERROR,
                 cx.theme().danger,
                 check
                     .error

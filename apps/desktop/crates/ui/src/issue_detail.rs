@@ -44,14 +44,14 @@ use gpui_component::{
     notification::Notification,
     skeleton::Skeleton,
     text::TextView,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
 use domain::rows::{Attachment, Issue};
 
 use crate::coding_flow::StartCodingControl;
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
     all_attachment_ids, attachment_label, file_attachments, format_bytes, icon_for_content_type,
     is_inline_image, temp_open_path,
@@ -634,7 +634,7 @@ impl IssueDetailView {
                     Button::new("duplicate-unmark")
                         .ghost()
                         .xsmall()
-                        .icon(Icon::new(IconName::Undo2).text_color(cx.theme().muted_foreground))
+                        .icon(Icon::new(registry::UI_UNDO).text_color(cx.theme().muted_foreground))
                         .label("Unmark")
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(issue_id) = this.issue_id.clone() {
@@ -920,7 +920,7 @@ impl IssueDetailView {
                     Button::new(SharedString::from(format!("issue-file-dismiss-{key}")))
                         .ghost()
                         .xsmall()
-                        .icon(Icon::new(IconName::Close).xsmall())
+                        .icon(Icon::new(registry::UI_CLOSE).xsmall())
                         .tooltip("Dismiss")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.pending_files.retain(|pending| pending.key != key);

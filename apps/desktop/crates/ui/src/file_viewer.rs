@@ -27,10 +27,11 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     text::TextView,
-    v_flex, ActiveTheme as _, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Sizable as _,
 };
 
 use crate::file_tree::{self, OpenTerminalHere, MAX_VIEWER_BYTES};
+use crate::icons::registry;
 
 /// The completed background read for a file — `Send` (built off the UI thread).
 enum Loaded {
@@ -173,7 +174,7 @@ impl FileViewerView {
             )
             .child(
                 Button::new("file-viewer-open-terminal")
-                    .icon(IconName::SquareTerminal)
+                    .icon(registry::NAV_TERMINAL)
                     .label("Open in terminal")
                     .ghost()
                     .small()

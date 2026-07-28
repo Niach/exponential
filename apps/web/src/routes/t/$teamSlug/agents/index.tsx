@@ -9,11 +9,11 @@ import {
 import {
   Bot,
   Github,
-  Loader2,
+  LoaderCircle,
   Monitor,
   MonitorOff,
   MonitorUp,
-  MoreHorizontal,
+  Ellipsis,
   Pencil,
   Play,
   Trash2,
@@ -97,7 +97,7 @@ function ActionMenu({
           className="h-7 w-7 text-muted-foreground"
           aria-label={`Action menu for ${action.name}`}
         >
-          <MoreHorizontal className="h-4 w-4" />
+          <Ellipsis className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -408,7 +408,7 @@ function AgentsPage() {
             )}
             {remote.sentTo && (
               <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" />
+                <LoaderCircle className="size-3 animate-spin" />
                 Start sent to {remote.sentTo} — waiting for the desktop…
               </div>
             )}
@@ -522,7 +522,7 @@ function AgentsPage() {
               onClick={() => void confirmDelete()}
               disabled={deleting}
             >
-              {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              {deleting ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
               Delete
             </Button>
           </DialogFooter>
