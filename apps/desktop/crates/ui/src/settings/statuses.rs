@@ -27,7 +27,7 @@
 use std::collections::HashMap;
 
 use gpui::{
-    div, App, AppContext as _, ElementId, Entity, IntoElement,
+    div, px, App, AppContext as _, ElementId, Entity, IntoElement,
     ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -36,7 +36,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -51,12 +51,16 @@ use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
 use super::labels::{swatch_grid, LABEL_COLORS};
-use super::{card_header, section};
+use super::{card_title, section};
 use crate::icons::registry;
 
 /// Web parity with the labels pane's duplicate message (the server's unique is
 /// `(team_id, lower(name))` across ALL statuses, builtins included).
 const DUPLICATE_NAME_MESSAGE: &str = "A status with this name already exists.";
+
+/// EXP-328: both PR-automation pickers share this width so their right-aligned
+/// edges line up (web's `w-44` = 176px on the same two rows).
+const PR_PICKER_WIDTH: f32 = 176.;
 
 pub struct StatusesPane {
     nav: Entity<Navigation>,
@@ -457,13 +461,7 @@ impl StatusesPane {
         let rows: Vec<IssueStatusRow> =
             statuses.iter().map(|(row, _)| row.clone()).collect();
 
-        let mut card = section(cx).child(card_header(
-            "PR automation",
-            "Where issues move when their pull request opens or merges. \
-             \"Do nothing\" leaves statuses alone — merged pull requests \
-             then never auto-complete their issues.",
-            cx,
-        ));
+        let mut card = section(cx).child(card_title("PR automation"));
 
         let events: [(
             &'static str,
@@ -498,10 +496,42 @@ impl StatusesPane {
                 .as_ref()
                 .map(|status| SharedString::from(status.name.clone()))
                 .unwrap_or_else(|| "Do nothing".into());
-            let mut trigger = Button::new(id).outline().small().label(trigger_label);
-            if let Some(status) = &current {
-                trigger = trigger.icon(crate::icons::resolved_status_icon(status, cx));
-            }
+            // EXP-328: a DEFINITE width so both rows' triggers line up (web
+            // `w-44` parity). The label rides a child row rather than
+            // `Button::label` — that one is `flex_none` and would spill out of
+            // the fixed box; here it ellipsizes inside the definite-width
+            // chain (button → `size_full` inner row → `w_full` child).
+            let trigger = Button::new(id)
+                .outline()
+                .small()
+                .w(px(PR_PICKER_WIDTH))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_1p5()
+                        .items_center()
+                        .children(current.as_ref().map(|status| {
+                            crate::icons::resolved_status_icon(status, cx)
+                                .xsmall()
+                                .flex_shrink_0()
+                        }))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .whitespace_nowrap()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(trigger_label),
+                        )
+                        .child(
+                            Icon::new(registry::UI_CHEVRON_DOWN)
+                                .size_3()
+                                .flex_shrink_0()
+                                .text_color(cx.theme().muted_foreground),
+                        ),
+                );
 
             let current_key = current.as_ref().map(|status| status.group_key.clone());
             let team_id = team.id.clone();
@@ -853,20 +883,8 @@ impl Render for StatusesPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let statuses = self.scoped_statuses(cx);
         let counts = self.issue_counts(cx);
-        let custom = statuses
-            .iter()
-            .filter(|(row, _)| row.builtin_key.is_none())
-            .count();
 
-        let mut body = section(cx).child(card_header(
-            "Issue statuses",
-            format!(
-                "{} status{} in this team ({custom} custom). Built-in statuses can be reordered but not renamed or deleted.",
-                statuses.len(),
-                if statuses.len() == 1 { "" } else { "es" },
-            ),
-            cx,
-        ));
+        let mut body = section(cx).child(card_title("Issue statuses"));
 
         if statuses.is_empty() {
             return v_flex().child(body.child(
@@ -960,7 +978,7 @@ impl Render for StatusesPane {
             body = body.child(group);
         }
 
-        let mut pane = v_flex().gap_4().child(body);
+        let mut pane = v_flex().gap_6().child(body);
         if let Some(card) = self.render_pr_automation(&statuses, cx) {
             pane = pane.child(card);
         }

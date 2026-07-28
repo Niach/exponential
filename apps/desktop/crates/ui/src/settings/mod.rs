@@ -849,6 +849,15 @@ pub(super) fn usage_bar(
     row
 }
 
+/// Web `CardTitle` alone — a section whose rows speak for themselves needs no
+/// explanatory paragraph under the heading (EXP-328).
+pub(crate) fn card_title(title: impl Into<SharedString>) -> impl IntoElement {
+    div()
+        .text_sm()
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(title.into())
+}
+
 /// Web `CardTitle` + `CardDescription`.
 pub(crate) fn card_header(
     title: impl Into<SharedString>,

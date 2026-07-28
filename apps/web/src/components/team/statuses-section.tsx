@@ -36,13 +36,7 @@ import { IconTooltip } from "@/components/icon-tooltip"
 import { hexWithAlpha } from "@/lib/status-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -73,15 +67,6 @@ const CATEGORY_LABEL: Record<IssueStatusCategory, string> = {
   completed: `Completed`,
   cancelled: `Cancelled`,
   duplicate: `Duplicate`,
-}
-
-const CATEGORY_HINT: Record<IssueStatusCategory, string> = {
-  backlog: `Ideas and unplanned work.`,
-  unstarted: `Planned, not started yet.`,
-  started: `Work in flight — each started status gets its own progress clock.`,
-  completed: `Finished work. Issues here get a completion timestamp.`,
-  cancelled: `Dropped work. Hidden from active lists.`,
-  duplicate: `A fixed status: marking a duplicate links the canonical issue.`,
 }
 
 /** The 10%-alpha tile behind a status glyph — the settings-page echo of the
@@ -653,11 +638,6 @@ function PrAutomationCard({
     <Card>
       <CardHeader>
         <CardTitle className="text-base">PR automation</CardTitle>
-        <CardDescription>
-          Where issues move when their pull request opens or merges. Pick
-          &ldquo;Do nothing&rdquo; to leave statuses alone — merged pull
-          requests then never auto-complete their issues.
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {PR_AUTOMATION_ROWS.map(({ event, label, defaultKey }) => {
@@ -695,7 +675,13 @@ function PrAutomationCard({
                 renderTrigger={(selected) => {
                   const Icon = selected.icon
                   return (
-                    <Button variant="outline" size="sm" className="shrink-0">
+                    // Fixed width so both rows' triggers line up (EXP-328) —
+                    // the label ellipsizes instead of stretching the button.
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-44 shrink-0 justify-start"
+                    >
                       <Icon
                         className={`h-4 w-4 ${selected.color}`}
                         style={
@@ -704,7 +690,7 @@ function PrAutomationCard({
                             : undefined
                         }
                       />
-                      <span className="max-w-40 truncate">
+                      <span className="flex-1 truncate text-left">
                         {selected.label}
                       </span>
                       <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -722,7 +708,7 @@ function PrAutomationCard({
 }
 
 export function TeamStatusesSection({ teamId }: { teamId: string }) {
-  const { options, ready } = useTeamStatuses(teamId)
+  const { options } = useTeamStatuses(teamId)
   const counts = useIssueCountsByStatus(teamId, options)
   const [creatingIn, setCreatingIn] = useState<IssueStatusCategory | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -752,103 +738,90 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
     options
   ).id
 
-  const customCount = options.filter(
-    (option) => option.builtinKey === null
-  ).length
-
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Statuses</CardTitle>
-          <CardDescription>
-            {customCount} custom status{customCount === 1 ? `` : `es`} on top of
-            the 7 built-ins. Every status belongs to a fixed category that
-            drives automation (PR flow, completion timestamps) and list
-            ordering; built-ins can be reordered but not renamed or deleted.
-            {!ready && ` Loading this team's statuses…`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {issueStatusCategorySettingsOrder.map((category) => {
-            const rows = byCategory.get(category) ?? []
-            const atStartedCap =
-              category === `started` && rows.length >= ISSUE_STATUS_STARTED_MAX
-            const canAdd = category !== `duplicate`
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Statuses</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {issueStatusCategorySettingsOrder.map((category) => {
+              const rows = byCategory.get(category) ?? []
+              const atStartedCap =
+                category === `started` &&
+                rows.length >= ISSUE_STATUS_STARTED_MAX
+              const canAdd = category !== `duplicate`
 
-            return (
-              <div key={category}>
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-medium">
+              return (
+                <div key={category}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="min-w-0 text-sm font-medium">
                       {CATEGORY_LABEL[category]}
                     </h3>
-                    <p className="text-xs text-muted-foreground">
-                      {CATEGORY_HINT[category]}
-                    </p>
-                  </div>
-                  {canAdd &&
-                    (atStartedCap ? (
-                      <IconTooltip
-                        label={`A team can have at most ${ISSUE_STATUS_STARTED_MAX} started statuses.`}
-                      >
+                    {canAdd &&
+                      (atStartedCap ? (
+                        <IconTooltip
+                          label={`A team can have at most ${ISSUE_STATUS_STARTED_MAX} started statuses.`}
+                        >
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            disabled
+                            aria-label={`Add ${CATEGORY_LABEL[category]} status`}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </IconTooltip>
+                      ) : (
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          disabled
+                          onClick={() =>
+                            setCreatingIn(
+                              creatingIn === category ? null : category
+                            )
+                          }
                           aria-label={`Add ${CATEGORY_LABEL[category]} status`}
                         >
                           <Plus className="h-4 w-4" />
                         </Button>
-                      </IconTooltip>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() =>
-                          setCreatingIn(
-                            creatingIn === category ? null : category
-                          )
-                        }
-                        aria-label={`Add ${CATEGORY_LABEL[category]} status`}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
+                      ))}
+                  </div>
+
+                  <div className="space-y-2">
+                    {rows.map((option, index) => (
+                      <StatusRow
+                        // Re-mount on rename/recolor so the inline editor's
+                        // local state can never shadow a synced change
+                        // (LabelRow convention).
+                        key={`${option.id}:${option.name}:${option.colorHex}`}
+                        teamId={teamId}
+                        option={option}
+                        count={counts.get(option.id) ?? 0}
+                        isFirst={index === 0}
+                        isLast={index === rows.length - 1}
+                        isDefault={option.id === defaultOptionId}
+                        onRequestDelete={requestDelete}
+                      />
                     ))}
-                </div>
+                  </div>
 
-                <div className="space-y-2">
-                  {rows.map((option, index) => (
-                    <StatusRow
-                      // Re-mount on rename/recolor so the inline editor's
-                      // local state can never shadow a synced change
-                      // (LabelRow convention).
-                      key={`${option.id}:${option.name}:${option.colorHex}`}
+                  {creatingIn === category && (
+                    <CreateStatusForm
                       teamId={teamId}
-                      option={option}
-                      count={counts.get(option.id) ?? 0}
-                      isFirst={index === 0}
-                      isLast={index === rows.length - 1}
-                      isDefault={option.id === defaultOptionId}
-                      onRequestDelete={requestDelete}
+                      category={category}
+                      onDone={() => setCreatingIn(null)}
                     />
-                  ))}
+                  )}
                 </div>
+              )
+            })}
+          </CardContent>
+        </Card>
 
-                {creatingIn === category && (
-                  <CreateStatusForm
-                    teamId={teamId}
-                    category={category}
-                    onDone={() => setCreatingIn(null)}
-                  />
-                )}
-              </div>
-            )
-          })}
-        </CardContent>
-      </Card>
-
-      <PrAutomationCard teamId={teamId} options={options} />
+        <PrAutomationCard teamId={teamId} options={options} />
+      </div>
 
       <ReassignDialog
         teamId={teamId}
