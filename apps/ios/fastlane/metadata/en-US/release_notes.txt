@@ -1,5 +1,4 @@
-• One attach button — the editor's attach menu offers Files or Photo library and sorts the pick itself: images go into the description, everything else becomes an attachment
-• New issues take files too — attach while composing and it uploads as soon as the issue is created
-• No more empty Files block — an issue with nothing attached no longer shows a placeholder row
-• A calmer issue page — a full-width rule above Activity, a full-width linked PR row, and Share and notifications tucked into one menu
-• Fixed an attachment that could fail to upload without telling you
+• Edit labels in place — rename or recolor a label right from team settings
+• A tidier team settings screen with consistent rows and buttons
+• Your account name now shows on the server screen
+• Assorted polish across issue lists and toolbars
