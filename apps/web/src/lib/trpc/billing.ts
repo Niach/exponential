@@ -15,6 +15,7 @@ import {
 } from "@/lib/billing"
 import {
   assertSubscriptionMutable,
+  createCustomerPortalLink,
   getActiveTeamSubscription,
   resumeCreemSubscription,
   scheduleCreemSubscriptionCancellation,
@@ -172,6 +173,45 @@ export const billingRouter = router({
         }
       )
 
+      return { url }
+    }),
+
+  // Mint a Creem customer-portal link (EXP-315) so the owner can fetch
+  // invoices, update the payment method, and self-service cancel. Keyed off
+  // the SUBSCRIPTION row's `creemCustomerId` — never the session user's own
+  // (REV2-55: the subscription belongs to the team, so every current owner
+  // gets the portal, including after the purchaser left). The Creem plugin's
+  // own `/api/auth/creem/create-portal` endpoint is blocked at the auth
+  // route for exactly that reason (plus its arbitrary-customerId body).
+  createPortalSession: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertBillingConfigured()
+
+      // The portal exposes invoices and the payment method: owner-only,
+      // same gate as every other billing mutation.
+      await resolveTeamAccess(
+        ctx.session.user.id,
+        input.teamId,
+        `mutate_resources`,
+        { roles: [`owner`] }
+      )
+
+      const subscription = await getActiveTeamSubscription(input.teamId)
+      if (!subscription) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This team has no active subscription`,
+        })
+      }
+      if (!subscription.creemCustomerId) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This subscription has no billing portal — contact support`,
+        })
+      }
+
+      const url = await createCustomerPortalLink(subscription.creemCustomerId)
       return { url }
     }),
 

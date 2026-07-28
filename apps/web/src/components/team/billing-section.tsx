@@ -137,24 +137,21 @@ export function TeamBillingSection({
   const seatsFull =
     limits.seats !== Infinity && usage.members >= limits.seats
 
+  // Portal links are minted per click through the team-scoped tRPC mutation
+  // (EXP-315) — keyed off the subscription's own Creem customer, so it works
+  // for every current owner, not just whoever originally paid.
   const handlePortal = async () => {
     setPortalLoading(true)
     try {
-      const res = await fetch(`/api/auth/creem/create-portal`, {
-        method: `POST`,
-        headers: { "Content-Type": `application/json` },
-        body: JSON.stringify({}),
-      })
-      const data = await res.json()
-      if (!res.ok || !data?.url) {
-        console.error(`[billing] portal failed:`, res.status, data)
-        toast.error(`Couldn't open the billing portal — try again`)
-        return
-      }
-      window.location.href = data.url
+      const { url } = await trpc.billing.createPortalSession.mutate({ teamId })
+      window.location.href = url
     } catch (err) {
       console.error(`[billing] portal failed:`, err)
-      toast.error(`Couldn't open the billing portal — try again`)
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : `Couldn't open the billing portal — try again`
+      )
     } finally {
       setPortalLoading(false)
     }
@@ -187,7 +184,10 @@ export function TeamBillingSection({
                   Adjust seats
                 </Button>
               )}
-              {isPaid && (
+              {/* Gate on the subscription, not the plan tier: a comped team
+                  is `team` with nothing to manage, while a pending-cancel
+                  team still needs its invoices until the period ends. */}
+              {subscription && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -195,7 +195,7 @@ export function TeamBillingSection({
                   disabled={portalLoading}
                 >
                   <ExternalLink className="mr-1.5 size-3.5" />
-                  {portalLoading ? `Loading...` : `Manage`}
+                  {portalLoading ? `Loading...` : `Invoices & billing`}
                 </Button>
               )}
               {subscription && !pendingCancel && (

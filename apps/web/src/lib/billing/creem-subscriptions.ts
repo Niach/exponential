@@ -222,6 +222,24 @@ export async function resumeCreemSubscription(
   await creem.subscriptions.resume(creemSubscriptionId)
 }
 
+/**
+ * Mint a Creem customer-portal link (invoices, payment method, self-service
+ * cancellation) for the CUSTOMER stored on the subscription row — not the
+ * session user's own `creemCustomerId`: the subscription belongs to the TEAM
+ * (REV2-55), so any current owner must reach the portal even when someone
+ * else paid, and after the purchaser deleted their account. Links are
+ * short-lived, so one is minted fresh per click.
+ */
+export async function createCustomerPortalLink(
+  creemCustomerId: string
+): Promise<string> {
+  const creem = creemClient()
+  const links = await creem.customers.generateBillingLinks({
+    customerId: creemCustomerId,
+  })
+  return links.customerPortalLink
+}
+
 // ── Cancel-on-delete (go-live audit) ─────────────────────────────────────────
 // Destroying a TEAM must not leave a paying ghost subscription behind in
 // Creem: `team_id` goes `set null` on team delete, after which the row is
