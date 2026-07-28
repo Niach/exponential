@@ -371,6 +371,43 @@ function ReassignDialog({
       cancelled = true
     }
   }, [teamId, targetStatusId])
+  // EXP-319 pins live on the synced teams row, and their FK is ON DELETE SET
+  // NULL — deleting a pinned status silently reverts that automation to the
+  // builtin default. Correct, but invisible, so say it out loud here. Same
+  // resolution as PrAutomationCard: an automation switched off ("do nothing")
+  // is unaffected, so it stays quiet.
+  const { data: teamRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ teams: teamCollection })
+        .where(({ teams }) => eq(teams.id, teamId)),
+    [teamId]
+  )
+  const team = teamRows?.[0]
+  const prPinNotice = useMemo(() => {
+    if (!team || !targetStatusId) return null
+    const hits = PR_AUTOMATION_ROWS.filter(({ event }) => {
+      const pinned =
+        event === `pr_opened` ? team.prOpenedStatusId : team.prMergedStatusId
+      const automation =
+        event === `pr_opened` ? team.prOpenedAutomation : team.prMergedAutomation
+      return automation !== false && pinned === targetStatusId
+    })
+    if (hits.length === 0) return null
+    const fallbacks = hits.map(
+      ({ defaultKey }) =>
+        options.find((option) => option.builtinKey === defaultKey)?.name ?? null
+    )
+    const named = fallbacks.every((name) => name !== null)
+    const targets = named
+      ? fallbacks.join(` and `)
+      : hits.length > 1
+        ? `the default statuses`
+        : `the default status`
+    return hits.length > 1
+      ? `This status is where issues move when a pull request opens or merges. Those automations will fall back to ${targets}.`
+      : `This status is where issues move when a pull request ${hits[0].verb}. That automation will fall back to ${targets}.`
+  }, [team, targetStatusId, options])
   // Self-correcting: a stale pick from a previous target (or the row being
   // deleted) falls back to the team's Backlog builtin.
   const selectedId =
@@ -413,6 +450,11 @@ function ReassignDialog({
                 : `${serverCount} issue${serverCount === 1 ? `` : `s`}${serverCount > (target?.count ?? 0) ? ` (some on trashed boards)` : ``} will move to the status you pick.`}
           </DialogDescription>
         </DialogHeader>
+        {prPinNotice && (
+          <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+            {prPinNotice}
+          </p>
+        )}
         <div className="max-h-64 space-y-1 overflow-y-auto">
           {candidates.map((option) => (
             <button
@@ -539,11 +581,13 @@ const PR_AUTOMATION_ROWS = [
   {
     event: `pr_opened`,
     label: `When a pull request opens`,
+    verb: `opens`,
     defaultKey: `in_review`,
   },
   {
     event: `pr_merged`,
     label: `When a pull request merges`,
+    verb: `merges`,
     defaultKey: `done`,
   },
 ] as const
