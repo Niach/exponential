@@ -343,11 +343,74 @@ function ReviewDetailPage() {
         )}
         <PrStateBadge state={issue.prState} />
         {issue.branch && (
-          <span className="hidden truncate font-mono text-xs text-muted-foreground md:inline">
+          <span className="hidden min-w-0 truncate font-mono text-xs text-muted-foreground md:inline">
             {issue.branch}
           </span>
         )}
+        {/* Desktop actions (EXP-333) — inline in the header like the IDE's
+            Reviews rows (quiet ghost × left of a compact outline Merge); the
+            floating bar below stays mobile-only. The header's PR # link
+            already covers the GitHub hop. */}
+        {isOpen && (
+          <div className="ml-auto hidden shrink-0 items-center gap-1.5 md:flex">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              aria-label="Close pull request without merging"
+              title="Close PR without merging"
+              disabled={merging || closing}
+              onClick={() => setConfirmCloseOpen(true)}
+            >
+              {closing ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <X />
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={merging || closing}
+              onClick={() => setConfirmMergeOpen(true)}
+            >
+              {merging ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                  Merging…
+                </>
+              ) : (
+                <>
+                  <GitMerge className="size-3.5" />
+                  Merge
+                </>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* Desktop refusal caption (EXP-333) — right under the header actions
+          that produced it, with the conflict-recovery run beside it (same
+          guards as the floating bar's copy below). */}
+      {actionError && (
+        <div className="hidden flex-wrap items-center gap-2 border-b border-border px-4 py-2 md:flex">
+          <span className="text-destructive text-xs">{actionError.message}</span>
+          {actionError.action === `merge` &&
+            isOpen &&
+            issue.branch &&
+            steerEnabled && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setFixOpen(true)}
+              >
+                <GitBranch className="size-3.5" />
+                Fix conflicts
+              </Button>
+            )}
+        </div>
+      )}
 
       {/* Linked-issue chips (batch PRs) */}
       {isBatch && (
@@ -369,8 +432,8 @@ function ReviewDetailPage() {
         </div>
       )}
 
-      {/* Diff body — bottom padding clears the floating action bar */}
-      <div className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto pb-24">
+      {/* Diff body — bottom padding clears the mobile floating action bar */}
+      <div className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto pb-24 md:pb-4">
         {issue.prNumber != null ? (
           <DiffView issueId={issue.id} showFileNav={false} defaultCollapsed />
         ) : (
@@ -379,9 +442,11 @@ function ReviewDetailPage() {
       </div>
 
       {/* Floating action bar (EXP-248) — dismiss · Merge · GitHub, matching the
-          mobile clients' review-detail bar and the app's glass-pill chrome. */}
+          mobile clients' review-detail bar and the app's glass-pill chrome.
+          Mobile-only since EXP-333 — desktop gets the inline header actions
+          above, like the IDE. */}
       {(isOpen || issue.prUrl) && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center gap-2 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center gap-2 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:hidden">
           {actionError && (
             <div className="pointer-events-auto flex max-w-lg flex-wrap items-center justify-center gap-2 rounded-lg border border-glass-stroke-card bg-popover/85 px-3 py-2 shadow-lg shadow-black/40 backdrop-blur-xl">
               <span className="text-destructive text-xs">
