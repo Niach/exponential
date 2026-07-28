@@ -32,6 +32,12 @@ final class ChangesViewModel {
     private(set) var merging = false
     private(set) var closing = false
     private(set) var actionError: String?
+    /// Which action produced `actionError` — merge and close share the caption.
+    /// The "Fix conflicts" run rebases, force-pushes and then MERGES the pull
+    /// request, so it may only be offered after a failed MERGE: a user who
+    /// asked to CLOSE a PR must never be handed a button that merges it.
+    enum PrAction { case merge, close }
+    private(set) var actionErrorFrom: PrAction?
 
     private let accountId: String
     private let issueId: String
@@ -141,11 +147,13 @@ final class ChangesViewModel {
         guard !merging else { return }
         merging = true
         actionError = nil
+        actionErrorFrom = nil
         Task {
             do {
                 try await issuesApi.mergePr(accountId: accountId, issueId: issueId)
             } catch {
                 actionError = error.localizedDescription
+                actionErrorFrom = .merge
             }
             merging = false
         }
@@ -157,11 +165,13 @@ final class ChangesViewModel {
         guard !closing else { return }
         closing = true
         actionError = nil
+        actionErrorFrom = nil
         Task {
             do {
                 try await issuesApi.closePr(accountId: accountId, issueId: issueId)
             } catch {
                 actionError = error.localizedDescription
+                actionErrorFrom = .close
             }
             closing = false
         }
@@ -407,9 +417,12 @@ struct ChangesView: View {
 
                         // A conflict is the common refusal, so the recovery
                         // run sits where the failure was reported (EXP-323).
-                        // It rebases the PR's branch, so one must be recorded.
+                        // MERGE failures only — the run ends in a merge, the
+                        // opposite of what a failed close asked for. It
+                        // rebases the PR's branch, so one must be recorded.
                         if steerEnabled,
-                            vm.permissions.isMember,
+                            vm.actionErrorFrom == .merge,
+                            canReview,
                             !(vm.issue?.branch ?? "").isEmpty {
                             Button {
                                 fixSheetOpen = true

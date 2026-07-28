@@ -576,7 +576,11 @@ impl PropertiesPanel {
         column = column.child(self.start_coding.clone());
         if issue.pr_state.as_deref() == Some("open") {
             column = column.child(self.merge_button(issue, cx));
-            let error = crate::pr_merge::MergeState::global(cx).read(cx).error(&issue.id);
+            let (error, failed_op) = {
+                let state = crate::pr_merge::MergeState::global(cx);
+                let state = state.read(cx);
+                (state.error(&issue.id), state.failed_op(&issue.id))
+            };
             if let Some(error) = error {
                 column = column.child(
                     div()
@@ -587,9 +591,12 @@ impl PropertiesPanel {
                 // EXP-313: a failed merge (typically conflicts) offers the
                 // builtin fix run right here — the Reviews-rail affordance,
                 // routed through the Start-coding dialog with this PR
-                // preselected. Needs the PR's recorded branch (the run
-                // rebases it); parks while a local run already works it.
-                if issue.branch.is_some() {
+                // preselected. MERGE failures only: the run ends in a merge,
+                // so a failed CLOSE (captioned on this same row from the
+                // Reviews rail) must never offer it. Needs the PR's recorded
+                // branch (the run rebases it); parks while a local run
+                // already works it.
+                if failed_op == Some(crate::pr_merge::FailedOp::Merge) && issue.branch.is_some() {
                     column = column.child(self.fix_conflicts_button(issue, cx));
                 }
             }

@@ -172,6 +172,15 @@ class ChangesViewModel @Inject constructor(
     private val _actionError = MutableStateFlow<String?>(null)
     val actionError: StateFlow<String?> = _actionError
 
+    /** Which action produced [actionError] — merge and close share the caption. */
+    enum class PrAction { Merge, Close }
+
+    // The "Fix conflicts" run rebases, force-pushes and then MERGES the PR, so
+    // it may only be offered after a failed MERGE: a user who asked to CLOSE a
+    // pull request must never be handed a button that merges it.
+    private val _actionErrorFrom = MutableStateFlow<PrAction?>(null)
+    val actionErrorFrom: StateFlow<PrAction?> = _actionErrorFrom
+
     // ── Remote start (EXP-323) ───────────────────────────────────────────────
     // A refused merge is usually a conflict, so the bar offers the builtin
     // "Fix merge conflicts" run right under the error — desktop parity.
@@ -230,10 +239,12 @@ class ChangesViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             _merging.value = true
             _actionError.value = null
+            _actionErrorFrom.value = null
             runCatching { issuesApi.mergePr(accountId, issueId) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     _actionError.value = trpcErrorMessage(t, "The pull request could not be merged")
+                    _actionErrorFrom.value = PrAction.Merge
                 }
             _merging.value = false
         }
@@ -246,10 +257,12 @@ class ChangesViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             _closing.value = true
             _actionError.value = null
+            _actionErrorFrom.value = null
             runCatching { issuesApi.closePr(accountId, issueId) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     _actionError.value = trpcErrorMessage(t, "The pull request could not be closed")
+                    _actionErrorFrom.value = PrAction.Close
                 }
             _closing.value = false
         }
@@ -269,6 +282,7 @@ fun ChangesScreen(
     val merging by viewModel.merging.collectAsStateWithLifecycle()
     val closing by viewModel.closing.collectAsStateWithLifecycle()
     val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+    val actionErrorFrom by viewModel.actionErrorFrom.collectAsStateWithLifecycle()
 
     // "Fix conflicts" (EXP-323): the launcher, its start feedback, and the
     // jump into the session the desktop reports back.
@@ -377,9 +391,12 @@ fun ChangesScreen(
                 runState = runState,
                 // A refused merge is usually a conflict; the recovery run
                 // rebases the PR's branch, so it needs one recorded (EXP-323).
-                canFixConflicts = actionError != null &&
+                // MERGE failures only — the run ends in a merge, the opposite
+                // of what a failed close asked for.
+                canFixConflicts = actionErrorFrom == ChangesViewModel.PrAction.Merge &&
                     steerEnabled == true &&
                     permissions.isMember &&
+                    issue?.prState == DomainContract.prStateOpen &&
                     !issue?.branch.isNullOrBlank(),
                 onMerge = { mergeConfirmOpen = true },
                 onClosePr = { closeConfirmOpen = true },

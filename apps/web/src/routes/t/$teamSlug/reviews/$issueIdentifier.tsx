@@ -207,8 +207,14 @@ function ReviewDetailPage() {
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false)
   // A refused merge/close captions the action bar that produced it (EXP-323)
   // instead of only flashing a toast — the reason has to stay next to the
-  // conflict-recovery button.
-  const [actionError, setActionError] = useState<string | null>(null)
+  // conflict-recovery button. WHICH action failed rides along: the recovery
+  // run rebases, force-pushes and then MERGES the PR, so it may only be
+  // offered after a failed MERGE — a user who asked to CLOSE a PR must never
+  // be handed a button that merges it.
+  const [actionError, setActionError] = useState<{
+    action: `merge` | `close`
+    message: string
+  } | null>(null)
 
   // "Fix conflicts" (EXP-323, desktop parity). Presence is fetched only once
   // an action has actually failed — opening a review must not poll for
@@ -233,9 +239,13 @@ function ReviewDetailPage() {
     trpc.issues.mergePr
       .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
       .catch((error: unknown) => {
-        setActionError(
-          trpcErrorMessage(error, `The pull request could not be merged`)
-        )
+        setActionError({
+          action: `merge`,
+          message: trpcErrorMessage(
+            error,
+            `The pull request could not be merged`
+          ),
+        })
         setMerging(false)
       })
   }
@@ -248,9 +258,13 @@ function ReviewDetailPage() {
     trpc.issues.closePr
       .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
       .catch((error: unknown) => {
-        setActionError(
-          trpcErrorMessage(error, `The pull request could not be closed`)
-        )
+        setActionError({
+          action: `close`,
+          message: trpcErrorMessage(
+            error,
+            `The pull request could not be closed`
+          ),
+        })
         setClosing(false)
       })
   }
@@ -370,19 +384,26 @@ function ReviewDetailPage() {
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center gap-2 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           {actionError && (
             <div className="pointer-events-auto flex max-w-lg flex-wrap items-center justify-center gap-2 rounded-lg border border-glass-stroke-card bg-popover/85 px-3 py-2 shadow-lg shadow-black/40 backdrop-blur-xl">
-              <span className="text-destructive text-xs">{actionError}</span>
-              {/* The recovery run rebases the PR's branch, so it needs one
-                  recorded — the same guard the desktop applies. */}
-              {isOpen && issue.branch && steerEnabled && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setFixOpen(true)}
-                >
-                  <GitBranch className="size-3.5" />
-                  Fix conflicts
-                </Button>
-              )}
+              <span className="text-destructive text-xs">
+                {actionError.message}
+              </span>
+              {/* Merge failures only: the run ends in a MERGE, which is the
+                  opposite of what a failed close was asked to do. The recovery
+                  run rebases the PR's branch, so it needs one recorded — the
+                  same guards the desktop applies. */}
+              {actionError.action === `merge` &&
+                isOpen &&
+                issue.branch &&
+                steerEnabled && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setFixOpen(true)}
+                  >
+                    <GitBranch className="size-3.5" />
+                    Fix conflicts
+                  </Button>
+                )}
             </div>
           )}
           <div className="flex items-center justify-center gap-3">

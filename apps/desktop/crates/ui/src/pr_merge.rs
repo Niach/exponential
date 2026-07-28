@@ -16,7 +16,8 @@
 //! [`pull_merge_key`] (`<repo-uuid>#<number>`) for unlinked pulls — the
 //! prefixes/`#` can never collide. Error captions always key on the ROW
 //! (the issue id / pull key), so a failed close renders under the same row
-//! as a failed merge.
+//! as a failed merge — the caption carries a [`FailedOp`] so the surfaces can
+//! still tell the two apart (only a failed merge offers "Fix conflicts").
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -46,6 +47,16 @@ pub fn user_message(err: api::ApiError) -> String {
         api::ApiError::Http { message, .. } => message,
         other => other.to_string(),
     }
+}
+
+/// Which op produced a failure caption. The "Fix conflicts" recovery run
+/// rebases, force-pushes and then MERGES the pull request, so it may only be
+/// offered after a failed MERGE — a user who asked to CLOSE a PR must never
+/// be handed a button that merges it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailedOp {
+    Merge,
+    Close,
 }
 
 /// One confirmable merge-shaped server call.
@@ -87,6 +98,15 @@ impl MergeOp {
                 issue_id.clone()
             }
             MergeOp::MergePull { .. } => self.key(),
+        }
+    }
+
+    /// Which action a failure of this op reports — the recovery affordance
+    /// gates on it (a failed close must not offer a run that merges).
+    fn failed_op(&self) -> FailedOp {
+        match self {
+            MergeOp::CloseIssuePr { .. } => FailedOp::Close,
+            MergeOp::MergeIssuePr { .. } | MergeOp::MergePull { .. } => FailedOp::Merge,
         }
     }
 
@@ -147,10 +167,11 @@ pub struct MergeState {
     /// issues-collection observer sees `pr_state` leave `open`; pull ops
     /// clear on completion.
     merging: HashSet<String>,
-    /// The last failure, `(row_key, message)` — one caption at a time,
-    /// cleared on the next confirmed attempt anywhere (the pre-EXP-325
-    /// reviews-rail semantic).
-    error: Option<(String, SharedString)>,
+    /// The last failure, `(row_key, message, failed_op)` — one caption at a
+    /// time, cleared on the next confirmed attempt anywhere (the pre-EXP-325
+    /// reviews-rail semantic). `failed_op` says whether merge or close
+    /// produced it, so only a merge failure offers the recovery run.
+    error: Option<(String, SharedString, FailedOp)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -198,8 +219,17 @@ impl MergeState {
     pub fn error(&self, row_key: &str) -> Option<SharedString> {
         self.error
             .as_ref()
-            .filter(|(key, _)| key == row_key)
-            .map(|(_, message)| message.clone())
+            .filter(|(key, _, _)| key == row_key)
+            .map(|(_, message, _)| message.clone())
+    }
+
+    /// Which action produced this row's caption — the "Fix conflicts"
+    /// recovery run is offered on [`FailedOp::Merge`] only.
+    pub fn failed_op(&self, row_key: &str) -> Option<FailedOp> {
+        self.error
+            .as_ref()
+            .filter(|(key, _, _)| key == row_key)
+            .map(|(_, _, op)| *op)
     }
 
     /// First click of the two-click confirm: arm `key` and start the ~5s
@@ -248,7 +278,7 @@ impl MergeState {
             self.arm_seq += 1;
             changed = true;
         }
-        if self.error.as_ref().is_some_and(|(key, _)| dead(key)) {
+        if self.error.as_ref().is_some_and(|(key, _, _)| dead(key)) {
             self.error = None;
             changed = true;
         }
@@ -286,7 +316,7 @@ impl MergeState {
                 self.arm_seq += 1;
                 changed = true;
             }
-            if self.error.as_ref().is_some_and(|(key, _)| settled(key)) {
+            if self.error.as_ref().is_some_and(|(key, _, _)| settled(key)) {
                 self.error = None;
                 changed = true;
             }
@@ -359,8 +389,11 @@ pub fn two_click(
                     Err(err) => {
                         log::warn!("[ui] {} failed: {err}", call_op.describe());
                         this.merging.remove(&key);
-                        this.error =
-                            Some((call_op.row_key(), SharedString::from(user_message(err))));
+                        this.error = Some((
+                            call_op.row_key(),
+                            SharedString::from(user_message(err)),
+                            call_op.failed_op(),
+                        ));
                         cx.notify();
                         if let Some(on_failure) = on_failure {
                             on_failure(cx);
@@ -405,6 +438,11 @@ mod tests {
         assert!(merge.echo_settled());
         assert!(close.echo_settled());
         assert!(!pull.echo_settled());
+        // …but the caption still says WHICH op failed: "Fix conflicts" ends
+        // in a merge, so a failed close must never be offered it.
+        assert_eq!(merge.failed_op(), FailedOp::Merge);
+        assert_eq!(close.failed_op(), FailedOp::Close);
+        assert_eq!(pull.failed_op(), FailedOp::Merge);
     }
 
     #[test]

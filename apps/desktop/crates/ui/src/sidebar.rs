@@ -2140,7 +2140,7 @@ impl SidebarPanel {
         // app-global merge state — a merge driven from the issue-detail
         // sidebar or a terminal tab renders here identically.
         let close_key = close_pr_key(&issue.id);
-        let (merging, armed, closing, close_armed, error) = {
+        let (merging, armed, closing, close_armed, error, failed_op) = {
             let state = MergeState::global(cx);
             let state = state.read(cx);
             (
@@ -2149,32 +2149,40 @@ impl SidebarPanel {
                 state.merging(&close_key),
                 state.armed(&close_key),
                 state.error(&issue.id),
+                state.failed_op(&issue.id),
             )
         };
         // EXP-259: a failed merge (typically "not mergeable" — conflicts)
         // offers the builtin "Fix merge conflicts" action run right on the
-        // row. Needs the PR's recorded branch (the run rebases it); while a
-        // local run is already working that branch the button parks.
+        // row. MERGE failures only — the run ends in a merge, the opposite of
+        // what a failed close was asked to do (merge and close share this
+        // row's caption). Needs the PR's recorded branch (the run rebases
+        // it); while a local run is already working that branch the button
+        // parks.
         let fixing = issue.branch.as_deref().is_some_and(|branch| {
             crate::coding_flow::LocalSessions::global_ref(cx)
                 .is_some_and(|sessions| sessions.read(cx).is_branch_live(branch))
         });
-        let fix_button = error.as_ref().filter(|_| issue.branch.is_some()).map(|_| {
-            let mut button =
-                Button::new(SharedString::from(format!("review-fix-{}", issue.id)))
-                    .xsmall()
-                    .outline();
-            if fixing {
-                button = button.label("Fixing…").disabled(true);
-            } else {
-                button = button.label("Fix conflicts");
-            }
-            let click_id = issue.id.clone();
-            button.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                cx.stop_propagation();
-                this.on_fix_conflicts_click(click_id.clone(), window, cx);
-            }))
-        });
+        let fix_button = error
+            .as_ref()
+            .filter(|_| failed_op == Some(crate::pr_merge::FailedOp::Merge))
+            .filter(|_| issue.branch.is_some())
+            .map(|_| {
+                let mut button =
+                    Button::new(SharedString::from(format!("review-fix-{}", issue.id)))
+                        .xsmall()
+                        .outline();
+                if fixing {
+                    button = button.label("Fixing…").disabled(true);
+                } else {
+                    button = button.label("Fix conflicts");
+                }
+                let click_id = issue.id.clone();
+                button.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.on_fix_conflicts_click(click_id.clone(), window, cx);
+                }))
+            });
 
         let sub: String = match (issue.pr_number, issue.branch.as_deref()) {
             (Some(number), Some(branch)) => format!("#{number} \u{00B7} {branch}"),
