@@ -260,8 +260,8 @@ await ExponentialWidget.submit({
             </p>
             <p>
               <strong>Support requests are different</strong>: with the{` `}
-              <a href="/docs/feedback/#helpdesk">helpdesk</a> enabled (Pro
-              plans and up), they skip the board entirely and open a{` `}
+              <a href="/docs/feedback/#helpdesk">helpdesk</a> enabled (Team
+              plan), they skip the board entirely and open a{` `}
               <strong>ticket in your team&apos;s Support inbox</strong> — an
               email conversation with the reporter that any member can answer,
               and escalate into an issue on any board when it turns out to be

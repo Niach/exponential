@@ -33,9 +33,8 @@ import { resolveTeamAccess } from "@/lib/team-membership"
 function allowedProductIds(): Set<string> {
   return new Set(
     [
-      process.env.CREEM_PRO_PRODUCT_ID,
-      process.env.CREEM_BUSINESS_PRODUCT_ID,
-      process.env.CREEM_BUSINESS_YEARLY_PRODUCT_ID,
+      process.env.CREEM_TEAM_PRODUCT_ID,
+      process.env.CREEM_TEAM_YEARLY_PRODUCT_ID,
     ].filter((id): id is string => Boolean(id))
   )
 }
@@ -178,9 +177,9 @@ export const billingRouter = router({
 
   // Change the seat count on the team's EXISTING subscription — the fix
   // for the pay-twice bug: mutating the subscription (Creem `units`) never
-  // creates a second one. With `proration-none` (see creem-subscriptions.ts
-  // for why) the new seats are usable immediately and the next renewal
-  // invoice bills the new count.
+  // creates a second one. With `proration-charge-immediately` (see
+  // creem-subscriptions.ts for why) the new seats are usable immediately and
+  // the prorated delta is charged (or refunded) at the moment of change.
   updateSeats: authedProcedure
     .input(
       z.object({
@@ -223,7 +222,7 @@ export const billingRouter = router({
     }),
 
   // Switch the team's existing subscription to a different product
-  // (Pro ↔ Business, monthly ↔ yearly) via Creem's upgrade endpoint — same
+  // (monthly ↔ yearly) via Creem's upgrade endpoint — same
   // one-subscription-per-team rule as updateSeats.
   changePlan: authedProcedure
     .input(

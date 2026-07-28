@@ -45,9 +45,9 @@ export function DocsPage() {
           <DocsSection id="what-is" num="01" label="What is Exponential">
             <h2>What is Exponential</h2>
             <p>
-              Exponential is an issue tracker that closes the loop:{` `}
-              <strong>feedback in, issues on a board, agent-coded pull
-              requests out</strong>. User reports arrive through the{` `}
+              Exponential is one realtime workspace for{` `}
+              <strong>issues, customer support, and coding agents</strong>.
+              User reports arrive through the{` `}
               <a href="/docs/widget/">embeddable widget</a> or the{` `}
               <a href="/docs/feedback/">team helpdesk</a>, your team
               triages them as <a href="/docs/issues/">issues</a>, and the{` `}

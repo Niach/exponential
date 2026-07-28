@@ -1,14 +1,14 @@
-Make yourself go exponential.
+Vibecode together.
 
-Exponential is the development platform for teams and agents — a real-time issue tracker where the loop runs from user feedback all the way to a shipped pull request.
+Exponential is a realtime workspace for teams that build with AI — issues, customer support, and coding agents in one place, live on every device.
 
-Feedback in, pull requests out:
-• A visitor hits your feedback widget and files a report — screenshot, annotations, and page context attached automatically.
+From report to shipped:
+• A visitor files a report through your feedback widget — screenshot, annotations, and page context attached automatically.
 • The report lands as an issue on your board, in real time, on every device.
 • Pick an issue and hit Start coding — even from your phone. A coding agent works on a real branch in your desktop IDE and opens the pull request when it's done.
 • You review and merge — and the original reporter gets an email that their issue is resolved.
 
-One report, all the way to shipped.
+Bring your own agents. Coding agents run locally on your connected desktop, on your own Claude or Codex subscription — unlimited sessions, flat price.
 
 Native everywhere. The iOS app syncs live with the web and desktop apps over the same real-time engine, so your board is always current — no pull-to-refresh, no stale views.
 
@@ -20,6 +20,6 @@ Built for the way you actually work:
 • A shared Support inbox — helpdesk tickets from your users land next to your issues, and replies go out by email.
 • Push notifications for mentions, assignments, and PR activity.
 
-Free for individuals on the hosted cloud, and free to self-host for companies with fewer than 10 people — larger ones need a commercial license.
+Free for teams of up to three on the hosted cloud, and free to self-host for companies with fewer than 10 people — larger ones need a commercial license.
 
-Make yourself go exponential.
+Vibecode together.

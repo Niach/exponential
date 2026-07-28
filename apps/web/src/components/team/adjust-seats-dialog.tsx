@@ -18,8 +18,8 @@ import { invalidateBillingCache } from "@/hooks/use-billing"
 // Self-service seat adjustment on the team's EXISTING subscription
 // (billing.updateSeats). This replaces re-running checkout, which would stack
 // a second full-price subscription on top of the first one. Seats apply
-// immediately; the price change lands on the next renewal invoice
-// (proration-none — see lib/billing/creem-subscriptions.ts).
+// immediately and the prorated delta is charged (or refunded) right away
+// (proration-charge-immediately — see lib/billing/creem-subscriptions.ts).
 export function AdjustSeatsDialog({
   teamId,
   currentSeats,

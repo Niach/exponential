@@ -1,7 +1,7 @@
 // surfaces/terminal.tsx — TerminalDock: the bottom dock hosting the embedded Claude Code
 // CLI session, rendered with the REAL CLI grammar (● Tool(args) / "⎿ result" continuations /
 // ✳ spinner with live counters / "❯" prompt between hairline rules / bypass-permissions footer).
-// Pixel truth: movie-ref/desktop-claude-session-dock.png (plus the inline numbered diff
+// Pixel truth: the desktop-claude-session-dock reference screenshot (local-only, untracked; plus the inline numbered diff
 // lines a tool event can carry). Frames are composition-global via props.
 
 import React from "react"

@@ -17,18 +17,16 @@ export function UpgradeDialog({
   onOpenChange,
   title,
   description,
-  proProductId,
-  businessProductId,
-  businessYearlyProductId,
+  teamProductId,
+  teamYearlyProductId,
   teamId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
   description: string
-  proProductId: string | null
-  businessProductId: string | null
-  businessYearlyProductId?: string | null
+  teamProductId: string | null
+  teamYearlyProductId?: string | null
   // Checkout binds purchased seats to this team (the per-seat path —
   // billing.createSeatCheckout is the only checkout).
   teamId: string
@@ -77,9 +75,8 @@ export function UpgradeDialog({
 
         <PlanComparison
           currentPlan={billingPlan?.plan ?? `free`}
-          proProductId={proProductId}
-          businessProductId={businessProductId}
-          businessYearlyProductId={businessYearlyProductId}
+          teamProductId={teamProductId}
+          teamYearlyProductId={teamYearlyProductId}
           teamId={teamId}
           subscription={subscription}
         />

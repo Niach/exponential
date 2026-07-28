@@ -3,8 +3,8 @@ import { trpc } from "@/lib/trpc-client"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import type { PlanTier } from "@/lib/billing"
 
-// Per-seat model (masterplan v5 §3.2). The only monetized axes are seats
-// (non-agent members), attachment storage, and feedback-widget configs.
+// Per-seat model. The only monetized axes are seats (team members),
+// attachment storage, and feedback-widget configs.
 export type BillingSubscription = {
   productId: string
   seats: number

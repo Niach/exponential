@@ -185,9 +185,9 @@ export function GettingStartedDocsPage() {
           <DocsSection id="plans" num="05" label="Plans">
             <h2>Plans</h2>
             <p>
-              The cloud is per-seat: <strong>Free</strong> for individuals
-              (one seat), <strong>Pro</strong> at $5/seat/month (billed
-              yearly), and <strong>Business</strong> at $10/seat/month —
+              The cloud is per-seat: <strong>Free</strong> for teams of up to
+              three, and one paid <strong>Team</strong> plan at €12/seat/month
+              billed yearly (€15 billed monthly) with everything included —
               full details on the <a href="/pricing/">pricing page</a>.
             </p>
             <ul>
@@ -199,8 +199,8 @@ export function GettingStartedDocsPage() {
               <li>
                 Every tier includes the{` `}
                 <a href="/docs/widget/">feedback widget</a> — Free has one
-                widget, Pro has three plus the{` `}
-                <a href="/docs/feedback/">helpdesk</a>, Business is unlimited.
+                widget, Team is unlimited and adds the{` `}
+                <a href="/docs/feedback/">helpdesk</a>.
               </li>
               <li>
                 <strong>Self-hosting is free under 10 people</strong> — set

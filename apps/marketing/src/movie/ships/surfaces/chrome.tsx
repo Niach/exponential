@@ -1,6 +1,6 @@
 // surfaces/chrome.tsx — the desktop shell chrome: TopBar, IconRail, TabsBar,
 // DockCollapsedStrip, CenterEmptyState.
-// Pixel truth: movie-ref/desktop-hero-board-issue.png + movie-ref/desktop-claude-session-dock.png.
+// Pixel truth: the desktop-hero-board-issue + desktop-claude-session-dock reference screenshots (local-only, untracked).
 // Measured off the refs: ALL chrome strips (top bar / rail / tab strip / collapsed
 // dock strip) sit on #171717 (C.panel) — the app's title_bar/tab_bar token — while
 // the sidebar + center content sit on #0a0a0a. Active center tab bg = #262626

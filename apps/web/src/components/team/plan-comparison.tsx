@@ -22,7 +22,7 @@ import {
 } from "@/hooks/use-billing"
 import { cn } from "@/lib/utils"
 
-// Per-seat model (masterplan v5 §3.2). The cards list ONLY the monetized
+// Per-seat model (EXP-286 rebrand). The cards list ONLY the monetized
 // axes — seats (team size), storage per team, the feedback widget, the
 // helpdesk, priority support (EXP-176 unified this across the marketing
 // frontpage, /pricing and this grid — canonical copy lives in
@@ -32,12 +32,12 @@ import { cn } from "@/lib/utils"
 // EVERY_PLAN_INCLUDES sentence under the grid.
 const EVERY_PLAN_INCLUDES = `Every plan includes unlimited boards, repos and coding sessions, all native apps, real-time sync, and push, email & remote steer.`
 
-// Display-only union: Enterprise is a "Contact sales" card, not a PlanTier —
-// it never reaches checkout/seat logic (getProductId returns null for it).
-type ComparisonTier = PlanTier | `enterprise`
+// Enterprise stopped being a card (EXP-286) — it's this one line under the
+// grid, pointing at the contact page.
+const ENTERPRISE_LINE = `Need SSO, SLA, DPA or a self-host contract?`
 
 type TierInfo = {
-  tier: ComparisonTier
+  tier: PlanTier
   name: string
   // Per-seat monthly price, shown as the big number.
   pricePerSeat: string
@@ -48,54 +48,31 @@ type TierInfo = {
   features: string[]
 }
 
+// The Team card's price/cadence follow the yearly toggle, so they're built in
+// the component; this table carries the static parts.
 const TIERS: TierInfo[] = [
   {
     tier: `free`,
     name: `Free`,
-    pricePerSeat: `$0`,
+    pricePerSeat: `€0`,
     priceUnit: `forever`,
     // The seat cap doubles as the cadence caption, so it isn't a bullet.
-    cadence: `1 seat`,
+    cadence: `3 seats`,
     features: [`250 MB attachment storage`, `1 feedback widget`],
   },
   {
-    tier: `pro`,
-    name: `Pro`,
-    pricePerSeat: `$5`,
-    priceUnit: `/seat/mo`,
-    cadence: `Billed yearly`,
-    features: [
-      `Everything in Free`,
-      `2 GB attachment storage`,
-      `3 feedback widgets`,
-      `Helpdesk & support inbox`,
-    ],
-  },
-  {
-    tier: `business`,
-    name: `Business`,
-    pricePerSeat: `$10`,
+    tier: `team`,
+    name: `Team`,
+    pricePerSeat: `€15`,
     priceUnit: `/seat/mo`,
     cadence: `Billed monthly or yearly`,
     features: [
-      `Everything in Pro`,
+      `Everything in Free`,
+      `As many seats as you buy`,
       `10 GB attachment storage`,
       `Unlimited feedback widgets`,
+      `Helpdesk & support inbox`,
       `Priority support`,
-    ],
-  },
-  {
-    tier: `enterprise`,
-    name: `Enterprise`,
-    pricePerSeat: `Custom`,
-    priceUnit: ``,
-    cadence: `For larger teams`,
-    features: [
-      `Everything in Business`,
-      `SSO / OIDC (coming soon)`,
-      `SLA & DPA`,
-      `Dedicated support channel`,
-      `Onboarding & migration help`,
     ],
   },
 ]
@@ -159,20 +136,19 @@ function SeatStepper({
 
 export function PlanComparison({
   currentPlan,
-  proProductId,
-  businessProductId,
-  businessYearlyProductId,
+  teamProductId,
+  teamYearlyProductId,
   teamId,
   subscription,
   onCheckout,
 }: {
   currentPlan: PlanTier
-  proProductId: string | null
-  // Business monthly product id.
-  businessProductId: string | null
-  // Business yearly product id — when present, Business shows a monthly/yearly
-  // toggle. When absent, Business bills monthly only.
-  businessYearlyProductId?: string | null
+  // Team monthly product id (€15/seat/mo).
+  teamProductId: string | null
+  // Team yearly product id (€12/seat/mo billed annually) — when present, the
+  // Team card shows a monthly/yearly toggle. When absent, Team bills monthly
+  // only.
+  teamYearlyProductId?: string | null
   // Checkout binds seats to this team via billing.createSeatCheckout —
   // the ONLY checkout path (no legacy unbound fallback).
   teamId: string
@@ -185,7 +161,7 @@ export function PlanComparison({
 }) {
   const [loading, setLoading] = useState<string | null>(null)
   const [seats, setSeats] = useState(1)
-  const [businessYearly, setBusinessYearly] = useState(true)
+  const [teamYearly, setTeamYearly] = useState(true)
   const yearlyToggleId = useId()
 
   const startCheckout = async (productId: string, quantity: number) => {
@@ -202,7 +178,7 @@ export function PlanComparison({
     if (url) window.location.href = url
   }
 
-  const handleCheckout = async (tier: ComparisonTier) => {
+  const handleCheckout = async (tier: PlanTier) => {
     const productId = getProductId(tier)
     if (!productId) return
     setLoading(tier)
@@ -220,7 +196,7 @@ export function PlanComparison({
     }
   }
 
-  const handleSwitchPlan = async (tier: ComparisonTier) => {
+  const handleSwitchPlan = async (tier: PlanTier) => {
     const productId = getProductId(tier)
     if (!productId) return
     setLoading(tier)
@@ -240,29 +216,26 @@ export function PlanComparison({
     }
   }
 
-  const getProductId = (tier: ComparisonTier): string | null => {
-    if (tier === `pro`) return proProductId
-    if (tier === `business`) {
-      if (businessYearlyProductId && businessYearly)
-        return businessYearlyProductId
-      return businessProductId
+  const getProductId = (tier: PlanTier): string | null => {
+    if (tier === `team`) {
+      if (teamYearlyProductId && teamYearly) return teamYearlyProductId
+      return teamProductId
     }
-    // `free` has no product; `enterprise` is display-only (Contact us).
+    // `free` has no product.
     return null
   }
 
   // Container-query columns (EXP-184): this grid renders inside fixed-width
   // containers (settings content ~640px, upgrade dialog) where viewport
   // breakpoints overflowed the cards — column count must follow the CONTAINER.
-  // @4xl (56rem) is the narrowest that fits four seat-stepper cards.
   return (
     <div className="space-y-3">
-      <div className="@container grid grid-cols-1 gap-3 @xl:grid-cols-2 @4xl:grid-cols-4">
+      <div className="@container grid grid-cols-1 gap-3 @xl:grid-cols-2">
         {TIERS.map((t) => {
           const isCurrent = t.tier === currentPlan
           const productId = getProductId(t.tier)
           // With an active subscription, "current" means the exact product —
-          // so a Business-monthly team can still switch to Business-yearly.
+          // so a monthly team can still switch to yearly billing.
           const isCurrentProduct = subscription
             ? productId === subscription.productId
             : isCurrent
@@ -278,7 +251,19 @@ export function PlanComparison({
             t.tier !== `free` &&
             productId !== null
           const showYearlyToggle =
-            t.tier === `business` && Boolean(businessYearlyProductId)
+            t.tier === `team` && Boolean(teamYearlyProductId)
+          // The Team price follows the billing-cadence toggle: €12/seat/mo
+          // billed yearly, €15/seat/mo billed monthly.
+          const pricePerSeat =
+            t.tier === `team` && showYearlyToggle && teamYearly
+              ? `€12`
+              : t.pricePerSeat
+          const cadence =
+            t.tier === `team` && showYearlyToggle
+              ? teamYearly
+                ? `Billed yearly`
+                : `Billed monthly`
+              : t.cadence
 
           return (
             <Card
@@ -299,13 +284,13 @@ export function PlanComparison({
                 </div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-semibold tracking-tight">
-                    {t.pricePerSeat}
+                    {pricePerSeat}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {t.priceUnit}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">{t.cadence}</p>
+                <p className="text-xs text-muted-foreground">{cadence}</p>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-4 px-4">
                 <div className="space-y-2">
@@ -322,12 +307,12 @@ export function PlanComparison({
                           htmlFor={yearlyToggleId}
                           className="text-xs text-muted-foreground"
                         >
-                          Bill yearly
+                          Bill yearly (€12/seat/mo)
                         </Label>
                         <Switch
                           id={yearlyToggleId}
-                          checked={businessYearly}
-                          onCheckedChange={setBusinessYearly}
+                          checked={teamYearly}
+                          onCheckedChange={setTeamYearly}
                         />
                       </div>
                     )}
@@ -378,25 +363,6 @@ export function PlanComparison({
                   </div>
                 )}
 
-                {t.tier === `enterprise` && (
-                  <div className="mt-auto border-t pt-3">
-                    <Button
-                      className="w-full"
-                      size="sm"
-                      variant="outline"
-                      asChild
-                    >
-                      <a
-                        href="https://exponential.at/contact/"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Contact sales
-                      </a>
-                    </Button>
-                  </div>
-                )}
-
                 {isCurrentProduct && t.tier !== `free` && (
                   <p className="mt-auto text-center text-xs text-muted-foreground">
                     Your current plan
@@ -409,6 +375,18 @@ export function PlanComparison({
       </div>
       <p className="text-xs leading-snug text-muted-foreground">
         {EVERY_PLAN_INCLUDES}
+      </p>
+      <p className="text-xs leading-snug text-muted-foreground">
+        {ENTERPRISE_LINE}{` `}
+        <a
+          href="https://exponential.at/contact/"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          Talk to us
+        </a>
+        .
       </p>
     </div>
   )

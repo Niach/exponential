@@ -13,7 +13,9 @@
 }
 
 .plan-grid-cloud {
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 760px;
+  margin: 0 auto;
 }
 
 .plan-grid-selfhost {
@@ -22,11 +24,6 @@
   margin: 28px auto 0;
 }
 
-@media (max-width: 1080px) {
-  .plan-grid-cloud {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
 @media (max-width: 640px) {
   .plan-grid-cloud {
     grid-template-columns: 1fr;
@@ -38,9 +35,23 @@
   }
 }
 
-/* ── Home-page pricing strip (HomePricing.tsx) — compact four-up ──
+/* Enterprise sales line under the cloud grid (EXP-286 — not a card). */
+.plan-enterprise-line {
+  text-align: center;
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin: 20px auto 0;
+}
+
+.plan-enterprise-line a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Home-page pricing strip (HomePricing.tsx) — compact two-up ──
    The grid reuses .plan-grid-cloud so home and /pricing break identically
-   (4 → 2 @1080px → 1 @640px). */
+   (2 → 1 @640px). */
 .home-pricing-links {
   display: flex;
   flex-wrap: wrap;

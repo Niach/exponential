@@ -372,7 +372,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
       })
     } catch (err) {
       if (isPlanLimitError(err)) {
-        setHelpdeskError(`The helpdesk is available on Pro and Business plans.`)
+        setHelpdeskError(`The helpdesk is available on the Team plan.`)
       } else if (
         err instanceof TRPCClientError &&
         err.data?.code === `PRECONDITION_FAILED`

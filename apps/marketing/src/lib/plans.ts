@@ -2,18 +2,19 @@
    Consumed by PlanCards.tsx (the full cards, rendered on BOTH the home
    pricing section and /pricing/ — EXP-207), PricingPage.tsx (footnote)
    and seo.ts (JSON-LD offers derive from priceNumber, so contact-sales
-   Enterprise stays out automatically).
+   cards stay out automatically).
 
    Values mirror apps/web/src/lib/billing.ts PLAN_LIMITS and the in-app grid
    in apps/web/src/components/team/plan-comparison.tsx — keep the three in
    sync when prices, limits or the canonical bullets change (EXP-176 unified
    them: cards list ONLY the monetized axes — seats, storage, widgets,
    helpdesk, priority support; everything never-gated lives in the shared
-   EVERY_PLAN_INCLUDES sentence). */
+   EVERY_PLAN_INCLUDES sentence). EXP-286 collapsed the cloud grid to two
+   cards (Free + Team) — Enterprise is a text line, not a card. */
 import { LINKS } from "./links"
 
 export type CloudPlan = {
-  id: `free` | `pro` | `business` | `enterprise`
+  id: `free` | `team` | `commercial`
   name: string
   amount: string
   /* Set only for self-serve tiers — drives the schema.org Offer list. */
@@ -32,68 +33,39 @@ export type CloudPlan = {
    comparison carry the same sentence verbatim. */
 export const EVERY_PLAN_INCLUDES = `Every plan includes unlimited boards, repos and coding sessions, all native apps, real-time sync, and push, email & remote steer.`
 
+/* Enterprise stopped being a pricing card (EXP-286) — it is a sales
+   motion, rendered as one line under the cloud grid. */
+export const ENTERPRISE_LINE = `Need SSO, SLA, DPA or a self-host contract?`
+
 export const CLOUD_PLANS: CloudPlan[] = [
   {
     id: `free`,
     name: `Free`,
-    amount: `$0`,
+    amount: `€0`,
     priceNumber: 0,
     cadence: `forever`,
-    tagline: `For you and your side projects.`,
-    features: [`1 seat`, `250 MB attachment storage`, `1 feedback widget`],
+    tagline: `For you and two teammates.`,
+    features: [`3 seats`, `250 MB attachment storage`, `1 feedback widget`],
     cta: { label: `Sign up free`, href: LINKS.app.login },
   },
   {
-    id: `pro`,
-    name: `Pro`,
-    amount: `$5`,
-    priceNumber: 5,
-    priceDescription: `Per seat, per month, billed yearly.`,
+    id: `team`,
+    name: `Team`,
+    amount: `€12`,
+    priceNumber: 12,
+    priceDescription: `Per seat, per month, billed yearly. €15 billed monthly.`,
     cadence: `/seat/mo`,
-    note: `· billed yearly`,
-    tagline: `For teams that ship together.`,
+    note: `billed yearly · €15 monthly`,
+    tagline: `Everything, for teams that ship together.`,
     highlight: true,
     features: [
       `Everything in Free`,
-      `2 GB attachment storage`,
-      `3 feedback widgets`,
-      `Helpdesk & support inbox`,
-    ],
-    cta: { label: `Start with Pro`, href: LINKS.app.login },
-  },
-  {
-    id: `business`,
-    name: `Business`,
-    amount: `$10`,
-    priceNumber: 10,
-    priceDescription: `Per seat, per month, billed monthly or yearly.`,
-    cadence: `/seat/mo`,
-    note: `monthly or yearly`,
-    tagline: `For orgs with room to grow.`,
-    features: [
-      `Everything in Pro`,
       `10 GB attachment storage`,
       `Unlimited feedback widgets`,
+      `Helpdesk & support inbox`,
       `Priority support`,
     ],
-    cta: { label: `Start with Business`, href: LINKS.app.login },
-  },
-  {
-    id: `enterprise`,
-    name: `Enterprise`,
-    amount: `Custom`,
-    cadence: `let's talk`,
-    tagline: `For companies that need guarantees.`,
-    enterprise: true,
-    features: [
-      `Everything in Business`,
-      `SSO / OIDC (coming soon)`,
-      `SLA & DPA`,
-      `Dedicated support channel`,
-      `Onboarding & migration help`,
-    ],
-    /* No self-serve checkout — sales form on the contact page (EXP-39). */
-    cta: { label: `Contact sales`, href: `/contact/` },
+    cta: { label: `Start with Team`, href: LINKS.app.login },
   },
 ]
 
@@ -101,9 +73,8 @@ export type SelfHostPlan = CloudPlan & { selfHost?: boolean }
 
 /* Run-it-yourself tiers — self-host is free under the Exponential Small
    Team License 1.0 while you are under 10 people; at 10 or more a
-   commercial license is required, which is what Enterprise sells (still
-   contact-sales). A different offer from the cloud grid, so its bullets
-   stay independent. */
+   commercial license is required, at a published annual price (EXP-286).
+   A different offer from the cloud grid, so its bullets stay independent. */
 export const SELF_HOST_PLANS: SelfHostPlan[] = [
   {
     id: `free`,
@@ -121,17 +92,19 @@ export const SELF_HOST_PLANS: SelfHostPlan[] = [
     cta: { label: `Read self-host docs`, href: `/docs/self-host/` },
   },
   {
-    id: `enterprise`,
-    name: `Enterprise`,
-    amount: `Custom`,
-    cadence: `self-hosted, supported`,
-    tagline: `For teams of 10 or more running it in-house.`,
+    id: `commercial`,
+    name: `Commercial license`,
+    amount: `€590`,
+    cadence: `/year`,
+    note: `up to 25 people`,
+    tagline: `For companies of 10 or more running it in-house.`,
     enterprise: true,
     features: [
-      `Commercial self-host license`,
-      `Everything in self-hosted`,
-      `Prioritized support`,
-      `Deployment & upgrade help`,
+      `€590/yr up to 25 people`,
+      `€1,900/yr up to 100 people`,
+      `Custom above 100`,
+      `One annual invoice`,
+      `Extended support`,
     ],
     /* Dedicated contact page with the sales form (EXP-39). */
     cta: { label: `Contact sales`, href: `/contact/` },

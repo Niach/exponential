@@ -26,8 +26,7 @@ import { CancelSubscriptionDialog } from "@/components/team/cancel-subscription-
 
 const PLAN_LABELS: Record<PlanTier, string> = {
   free: `Free`,
-  pro: `Pro`,
-  business: `Business`,
+  team: `Team`,
   unlimited: `Unlimited`,
 }
 
@@ -36,8 +35,7 @@ const PLAN_BADGE_VARIANT: Record<
   `default` | `secondary` | `outline`
 > = {
   free: `secondary`,
-  pro: `default`,
-  business: `default`,
+  team: `default`,
   unlimited: `outline`,
 }
 
@@ -87,14 +85,12 @@ export function UsageBar({
 
 export function TeamBillingSection({
   teamId,
-  proProductId,
-  businessProductId,
-  businessYearlyProductId,
+  teamProductId,
+  teamYearlyProductId,
 }: {
   teamId: string
-  proProductId: string | null
-  businessProductId: string | null
-  businessYearlyProductId?: string | null
+  teamProductId: string | null
+  teamYearlyProductId?: string | null
 }) {
   const billingPlan = useBillingPlan(teamId)
   const [portalLoading, setPortalLoading] = useState(false)
@@ -106,7 +102,7 @@ export function TeamBillingSection({
   if (!billingPlan || billingPlan.plan === `unlimited`) return null
 
   const { plan, limits, usage, subscription } = billingPlan
-  const isPaid = plan === `pro` || plan === `business`
+  const isPaid = plan === `team`
   // Seat changes mutate the existing subscription (billing.updateSeats) — a
   // second checkout would stack a second full-price subscription (pay-twice).
   const canAdjustSeats = Boolean(subscription && !subscription.cancelAtPeriodEnd)
@@ -298,9 +294,8 @@ export function TeamBillingSection({
           <PlanComparison
             currentPlan={plan}
             teamId={teamId}
-            proProductId={proProductId}
-            businessProductId={businessProductId}
-            businessYearlyProductId={businessYearlyProductId}
+            teamProductId={teamProductId}
+            teamYearlyProductId={teamYearlyProductId}
             subscription={subscription}
           />
         </div>
@@ -324,9 +319,8 @@ export function TeamBillingSection({
               <PlanComparison
                 currentPlan={plan}
                 teamId={teamId}
-                proProductId={proProductId}
-                businessProductId={businessProductId}
-                businessYearlyProductId={businessYearlyProductId}
+                teamProductId={teamProductId}
+                teamYearlyProductId={teamYearlyProductId}
                 subscription={subscription}
               />
             </div>

@@ -104,8 +104,8 @@ export function CollabSection() {
             updates live for the whole team.
           </p>
           <span className={`co-pro`}>
-            <span className={`co-pro-badge`}>Pro</span> Helpdesk is included in
-            the Pro plan.
+            <span className={`co-pro-badge`}>Team</span> Helpdesk is included
+            in the Team plan.
           </span>
         </motion.div>
 

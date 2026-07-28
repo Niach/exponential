@@ -79,7 +79,7 @@ beforeEach(() => {
   process.env.CREEM_API_KEY = ORIGINAL_KEY ?? `creem_test_key`
   mocks.subscription = {
     id: `row-1`,
-    productId: `prod_pro`,
+    productId: `prod_team`,
     creemSubscriptionId: `sub_1`,
     seats: 3,
     periodEnd: PERIOD_END,

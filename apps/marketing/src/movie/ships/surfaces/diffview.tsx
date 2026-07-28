@@ -1,7 +1,7 @@
 // surfaces/diffview.tsx — ChangesPane: the EXP-142 Changes tab (S7).
 // Header row (branch · PR · rolling stats), 240px file list, side-by-side diff
 // with paint-in rows, hot-flash add/del tints and a tiny TS syntax tinter.
-// Pixel truth: movie-ref/desktop-source-control-diff.png (right half).
+// Pixel truth: the desktop-source-control-diff reference screenshot (local-only, untracked; right half).
 // The component fills its parent (position:absolute inset 0) — the assembler
 // places it over the center pane (window-local x 304–1568, below the tab strip).
 

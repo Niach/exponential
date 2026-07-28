@@ -1,5 +1,5 @@
 // The ONE shared fixture world every scene draws from (storyboard §2, corrected
-// against the real-app reference screenshots in apps/marketing/movie-ref/).
+// against the local-only real-app reference screenshots, untracked since EXP-286).
 
 export type IssueStatus = "backlog" | "todo" | "in_progress" | "done"
 export type Priority = "none" | "urgent" | "high" | "medium" | "low"
@@ -66,7 +66,7 @@ export const HERO = {
   sessionTab: "Fix live-steer terminal reconnect", // real app titles session tabs by task
 } as const
 
-// ── Claude session events — REAL Claude Code CLI grammar (see movie-ref/desktop-claude-session-dock.png):
+// ── Claude session events — REAL Claude Code CLI grammar (see the desktop-claude-session-dock reference screenshot, local-only):
 //    tool:   "● Bash(bun run typecheck)" then "  ⎿ <result summary>" (muted)
 //    prose:  "● <assistant text>" (white dot, wraps)
 //    spinner:"✳ Vibing… (2m 41s · ↓ 12.3k tokens)" — ✳ + verb yellow, parens muted; ticks live
@@ -94,7 +94,7 @@ export const HERO_SESSION: SessionEvent[] = [
 ]
 export const FLASH_FORWARD_FROM = 2 // S1 crop starts at the Update event
 
-// Phone steer feed (iOS activity view — see movie-ref/ios-steer-activity.png).
+// Phone steer feed (iOS activity view — see the ios-steer-activity reference screenshot, local-only).
 // Tool rows: crossed-tools glyph + bold name + muted mono summary. Narration: sparkle + bubble.
 export type SteerItem =
   | { kind: "tool"; name: string; summary?: string }
@@ -174,17 +174,3 @@ export const REVIEW_ROW = {
   sub: "#214 · exp/EXP-142",
 } as const
 
-// ── Overlay copy (verbatim, storyboard §3) ───────────────────────────────────
-export const COPY = {
-  hook1: "Your issue tracker.",
-  hook2: "Writing code.",
-  s2: "Exponential — desktop IDE",
-  s3: "Pick an issue.",
-  s5: "Model. Effort. Plan mode.",
-  s6a: "Claude runs in the dock.",
-  s6b: "Steer it from your phone.",
-  s7: "Review it in place.",
-  s8: "Merge. Done.",
-  tagline: "Issue tracking that ships code.",
-  url: "exponential.at",
-} as const

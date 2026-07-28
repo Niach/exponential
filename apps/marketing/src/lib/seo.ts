@@ -44,12 +44,12 @@ const softwareApplication: Record<string, unknown> = {
   name: SITE_NAME,
   applicationCategory: `DeveloperApplication`,
   operatingSystem: `Web, iOS, Android, macOS, Windows, Linux`,
-  description: `An issue tracker with a built-in coding IDE. Assign issues to local AI agents that run in your terminal and open GitHub pull requests.`,
+  description: `Issues, customer support and coding agents in one realtime workspace. AI agents run locally on your machines and open GitHub pull requests — unlimited sessions, flat price.`,
   url: `${SITE_ORIGIN}/`,
   offers: {
     "@type": `Offer`,
     price: `0`,
-    priceCurrency: `USD`,
+    priceCurrency: `EUR`,
   },
 }
 
@@ -61,7 +61,7 @@ const pricingProduct: Record<string, unknown> = {
   "@context": `https://schema.org`,
   "@type": `Product`,
   name: `${SITE_NAME} — plans`,
-  description: `Per-seat pricing for Exponential cloud. Free for individuals; local AI agents on every tier.`,
+  description: `Per-seat pricing for Exponential cloud. Free for teams of three; local AI agents on every tier.`,
   /* Google's merchant-listing validation REQUIRES image on Product — 16:9 and
      1:1 variants per its aspect-ratio recommendations (GSC flags the page
      invalid without it). */
@@ -72,7 +72,7 @@ const pricingProduct: Record<string, unknown> = {
       "@type": `Offer`,
       name: plan.name,
       price: String(plan.priceNumber),
-      priceCurrency: `USD`,
+      priceCurrency: `EUR`,
       url: `${SITE_ORIGIN}/pricing/`,
       ...(plan.priceDescription ? { description: plan.priceDescription } : {}),
     })
@@ -104,8 +104,8 @@ export const PAGES: PageSeo[] = [
       `src/components/PlanCards.tsx`,
       `src/lib/plans.ts`,
     ],
-    title: `Exponential — The development platform for teams and agents`,
-    description: `Issue tracking with coding agents built in. Feedback in, pull requests out. Native on web, iOS, Android, macOS, Windows and Linux. Free for individuals, free to self-host under 10 people.`,
+    title: `Exponential — Vibecode together`,
+    description: `Issues, customer support and coding agents in one realtime workspace. Agents run locally — unlimited sessions, flat price. Native on web, iOS, Android, macOS, Windows and Linux. Free for teams of three, free to self-host under 10 people.`,
     ogImage: `/og/og-home.png`,
     jsonLd: [organization, softwareApplication],
   },
@@ -118,7 +118,7 @@ export const PAGES: PageSeo[] = [
       `src/lib/plans.ts`,
     ],
     title: `Pricing — Exponential`,
-    description: `Per-seat pricing: Free for individuals, Pro $5/seat/mo, Business $10/seat/mo, Enterprise custom — contact sales. Local AI agents free on every tier. Self-host free under 10 people.`,
+    description: `Free for teams of three. One Team plan at €12/seat/mo billed yearly (€15 monthly) with everything included. Local AI agents free on every plan. Self-host free under 10 people, published license pricing above.`,
     ogImage: `/og/og-pricing.png`,
     jsonLd: pricingProduct,
   },
@@ -238,7 +238,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/self-host/index.html`,
     sources: [`src/SelfHostDocsPage.tsx`],
     title: `Self-host — Exponential`,
-    description: `Self-host Exponential with one Docker Compose — Postgres, ElectricSQL, Garage and Caddy. No plan limits with SELF_HOSTED=true, free under 10 people.`,
+    description: `Self-host Exponential with one Docker Compose — Postgres, ElectricSQL, Garage and Caddy. No plan limits with SELF_HOSTED=true. Free under 10 people, published commercial pricing above.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

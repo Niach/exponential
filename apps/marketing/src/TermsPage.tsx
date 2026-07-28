@@ -23,7 +23,7 @@ export function TermsPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · issue tracker · last updated 2026-07-21
+            Exponential · last updated 2026-07-28
           </p>
 
           <p style={prose}>
@@ -84,7 +84,8 @@ export function TermsPage() {
             the license above. Running it for your own company is free while
             that company and its affiliates have fewer than 10 total individuals
             working as employees and independent contractors; at 10 or more you
-            need a commercial license (
+            need a commercial license — €590/year for companies of up to 25
+            people, €1,900/year up to 100, custom above (
             <a href="mailto:support@exponential.at" style={linkStyle}>
               support@exponential.at
             </a>

@@ -1,8 +1,8 @@
 # Exponential
 
-**Issue tracking that ships code.** A real-time issue tracker with a built-in coding IDE — feedback in, pull requests out. Native on web, macOS, Windows, Linux, iOS, and Android.
+**Vibecode together.** Issues, customer support, and coding agents in one realtime workspace — agents run locally on your machines, on your subscription, with unlimited sessions at a flat price. Native on web, macOS, Windows, Linux, iOS, and Android.
 
-- **Cloud**: [app.exponential.at](https://app.exponential.at) — free for individuals
+- **Cloud**: [app.exponential.at](https://app.exponential.at) — free for teams of up to three
 - **Self-host**: one `docker compose`, every feature, free for companies under 10 people ([docs](https://exponential.at/docs/self-host/))
 - **Download the desktop IDE**: [exponential.at/download](https://exponential.at/download/)
 
@@ -94,4 +94,4 @@ First call opens a browser login; every tool call after runs as your user.
 
 ## License
 
-[Exponential Small Team License 1.0](./LICENSE) — source-available, not open source. Read it, change it, and self-host it in production for free while your company, affiliates included, has **fewer than 10 people** (employees plus independent contractors). 10 or more needs a commercial license — support@exponential.at. Evaluation, development, testing, and non-commercial research stay free at any size. Nobody may offer it to third parties as a hosted or managed service, whatever their size.
+[Exponential Small Team License 1.0](./LICENSE) — source-available, not open source. Read it, change it, and self-host it in production for free while your company, affiliates included, has **fewer than 10 people** (employees plus independent contractors). 10 or more needs a commercial self-host license — €590/yr up to 25 people, €1,900/yr up to 100, custom above ([pricing](https://exponential.at/pricing/), support@exponential.at). Evaluation, development, testing, and non-commercial research stay free at any size. Nobody may offer it to third parties as a hosted or managed service, whatever their size.

@@ -358,7 +358,7 @@ describe(`teamInvites.accept — seat gate ordering (REV2-71)`, () => {
   }
 
   it(`returns the alreadyMember no-op in a team that is at its seat cap`, async () => {
-    assertCanInviteMember.mockRejectedValue(new Error(`up to 1 seat.`))
+    assertCanInviteMember.mockRejectedValue(new Error(`up to 3 seats.`))
     selectQueue.push([validInvite])
     selectQueue.push([{ teamId: WS, userId: `user-a` }])
     selectQueue.push([{ id: WS, name: `Acme` }])
@@ -370,7 +370,7 @@ describe(`teamInvites.accept — seat gate ordering (REV2-71)`, () => {
   })
 
   it(`reports a used invite as used, not as a plan limit`, async () => {
-    assertCanInviteMember.mockRejectedValue(new Error(`up to 1 seat.`))
+    assertCanInviteMember.mockRejectedValue(new Error(`up to 3 seats.`))
     selectQueue.push([{ ...validInvite, acceptedAt: new Date() }])
 
     await expect(caller().accept({ token: `tok` })).rejects.toThrow(
@@ -380,14 +380,14 @@ describe(`teamInvites.accept — seat gate ordering (REV2-71)`, () => {
   })
 
   it(`still blocks a fresh join past the seat cap`, async () => {
-    assertCanInviteMember.mockRejectedValue(new Error(`up to 1 seat.`))
+    assertCanInviteMember.mockRejectedValue(new Error(`up to 3 seats.`))
     selectQueue.push([validInvite])
     selectQueue.push([])
     selectQueue.push([{ id: WS, name: `Acme` }])
     updateReturningQueue.push([{ id: INVITE_ID }])
 
     await expect(caller().accept({ token: `tok` })).rejects.toThrow(
-      /up to 1 seat/
+      /up to 3 seats/
     )
     expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
     // The membership insert never runs (and the claim update rolls back with

@@ -13,9 +13,8 @@ vi.mock(`@/hooks/use-create-board`, () => ({
 
 vi.mock(`@/lib/runtime-config`, () => ({
   getRuntimeConfig: async () => ({
-    creemProProductId: null,
-    creemBusinessProductId: null,
-    creemBusinessYearlyProductId: null,
+    creemTeamProductId: null,
+    creemTeamYearlyProductId: null,
   }),
 }))
 

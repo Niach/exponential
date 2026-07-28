@@ -48,7 +48,7 @@ export function SiteHeader() {
 
 export function FooterCTA({
   title = `Go Exponential.`,
-  subtitle = `Free for individuals and teams. No credit card required.`,
+  subtitle = `Free for teams of three. No credit card required.`,
 }: {
   title?: string
   subtitle?: string
