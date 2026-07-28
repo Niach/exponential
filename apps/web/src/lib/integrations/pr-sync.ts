@@ -7,7 +7,14 @@ import {
   issueStatuses,
   boards,
   repositories,
+  teams,
 } from "@/db/schema"
+import {
+  CATEGORY_ANCHOR,
+  type IssueStatus,
+  type IssueStatusCategory,
+} from "@/lib/domain"
+import { applyStatusDerivations } from "@/lib/status-derivations"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
@@ -88,19 +95,78 @@ export async function findIssueIdByBranch(
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 // Coding-flow status transitions (EXP-120): an opened PR parks its issue in
-// `in_review`; a merged PR completes it (`done`). Explicit human resolutions
-// (cancelled/duplicate) and already-reached targets are never overridden, so
-// the webhook/cron/MCP writers stay idempotent.
-const IN_REVIEW_FROM_STATUSES = new Set([`backlog`, `todo`, `in_progress`])
-const DONE_FROM_STATUSES = new Set([
+// the team's PR-open target (default: the builtin In Review); a merged PR
+// moves it to the PR-merge target (default: the builtin Done). Targets are
+// per-team configurable, including "do nothing" (EXP-319). Explicit human
+// resolutions (cancelled/duplicate) and already-reached targets are never
+// overridden, so the webhook/cron/MCP writers stay idempotent.
+const OPENED_FROM_STATUSES = new Set([`backlog`, `todo`, `in_progress`])
+const MERGED_FROM_STATUSES = new Set([
   `backlog`,
   `todo`,
   `in_progress`,
   `in_review`,
 ])
 
+export type PrAutomationEvent = `opened` | `merged`
+
+// The builtin fallback target per event — used when a team has no explicit
+// target (pristine state, or the configured status row was deleted and the
+// FK's SET NULL fell back).
+export const PR_AUTOMATION_DEFAULT_KEY: Record<
+  PrAutomationEvent,
+  `in_review` | `done`
+> = {
+  opened: `in_review`,
+  merged: `done`,
+}
+
+// Pure decision core of the PR lifecycle automation (unit-tested in
+// pr-sync.test.ts). `target` is the already-resolved issue_statuses row the
+// team points this event at (configured row, else the builtin default row),
+// or null when even the builtin row is missing (unseeded team) — then the
+// write degrades to the bare anchor enum and the populate_issue_status_id
+// trigger resolves status_id. Returns the status write to apply, or null to
+// leave the issue untouched.
+export function planPrAutomationTransition(opts: {
+  event: PrAutomationEvent
+  automationEnabled: boolean
+  current: { status: string; statusId: string | null }
+  target: {
+    id: string
+    builtinKey: string | null
+    category: IssueStatusCategory
+  } | null
+}): { status: IssueStatus; statusId?: string } | null {
+  if (!opts.automationEnabled) return null
+
+  // Eligibility gates on the ANCHOR enum (EXP-314): an issue parked in a
+  // CUSTOM started/unstarted status anchors into these sets and IS moved.
+  // Explicit human resolutions (cancelled/duplicate anchors) stay
+  // never-overridden, and the default targets can't re-trigger themselves
+  // (in_review is not in the opened set, done not in the merged set).
+  const eligibleFrom =
+    opts.event === `merged` ? MERGED_FROM_STATUSES : OPENED_FROM_STATUSES
+  if (!eligibleFrom.has(opts.current.status)) return null
+
+  // Already parked in the exact target row → nothing to do. Matters for
+  // custom targets whose anchor sits inside the from-set (e.g. a started
+  // "In review (custom)" open target): repeated webhook deliveries must not
+  // re-fire status_changed events.
+  if (opts.target && opts.current.statusId === opts.target.id) return null
+
+  const anchor = opts.target
+    ? (opts.target.builtinKey ?? CATEGORY_ANCHOR[opts.target.category])
+    : PR_AUTOMATION_DEFAULT_KEY[opts.event]
+  return {
+    status: anchor as IssueStatus,
+    ...(opts.target ? { statusId: opts.target.id } : {}),
+  }
+}
+
 // Shared in-transaction status writer for the PR lifecycle: flips the issue's
-// status (stamping/clearing completedAt) and records the status_changed
+// status to the team's configured target for the event (stamping/clearing
+// completedAt via the shared derivation) and records the status_changed
 // activity event. No notification fan-out here — the pr_opened/pr_merged
 // notifications already cover the same moment.
 export async function applyPrLifecycleStatusInTx(
@@ -110,10 +176,10 @@ export async function applyPrLifecycleStatusInTx(
     teamId: string
     actorUserId: string | null
     currentStatus: string
-    to: `in_review` | `done`
+    event: PrAutomationEvent
   }
 ): Promise<void> {
-  if (opts.to === `in_review`) {
+  if (opts.event === `opened`) {
     // The agent's PR is up — its live session enters review so every client
     // can show "ready for review" instead of "coding now" (EXP-194). Placed
     // BEFORE the eligibility gate: the session must flip even when a human
@@ -134,44 +200,106 @@ export async function applyPrLifecycleStatusInTx(
       )
   }
 
-  // Eligibility gates on the ANCHOR enum (EXP-314): an issue parked in a
-  // CUSTOM started/unstarted status anchors into these sets and IS flipped —
-  // PR automation deliberately exits custom statuses into the team's builtin
-  // In Review/Done (per-status automation targets are v2). Explicit human
-  // resolutions (cancelled/duplicate anchors) stay never-overridden.
-  const eligible =
-    opts.to === `done` ? DONE_FROM_STATUSES : IN_REVIEW_FROM_STATUSES
-  if (!eligible.has(opts.currentStatus)) return
+  // EXP-319: the team's automation config for this event. "Do nothing"
+  // (automation=false) leaves the issue's status entirely alone — completedAt
+  // then only ever comes from a manual status change; prState/prMergedAt,
+  // notifications, and the session lifecycle above/in the callers are
+  // deliberately NOT gated on it.
+  const [teamConfig] = await tx
+    .select({
+      prOpenedStatusId: teams.prOpenedStatusId,
+      prOpenedAutomation: teams.prOpenedAutomation,
+      prMergedStatusId: teams.prMergedStatusId,
+      prMergedAutomation: teams.prMergedAutomation,
+    })
+    .from(teams)
+    .where(eq(teams.id, opts.teamId))
+    .limit(1)
+  const automationEnabled =
+    (opts.event === `opened`
+      ? teamConfig?.prOpenedAutomation
+      : teamConfig?.prMergedAutomation) ?? true
+  if (!automationEnabled) return
 
-  // The precise from-row (for the event's name snapshot) and the builtin
-  // target row. A missing target (unseeded team) leaves statusId to the
+  // The precise from-row (for the event's name snapshot + completedAt
+  // derivation) and the target row: the team's configured status, else the
+  // builtin default for the event. The configured lookup is team-scoped as
+  // defense in depth (setPrAutomation already rejects cross-team rows). A
+  // missing target (unseeded team) leaves statusId to the
   // populate_issue_status_id trigger, which resolves to NULL — never an
   // error; clients fall back to the anchor.
   const [fromRow] = await tx
-    .select({ statusId: issues.statusId, fromName: issueStatuses.name })
+    .select({
+      statusId: issues.statusId,
+      duplicateOfId: issues.duplicateOfId,
+      fromName: issueStatuses.name,
+    })
     .from(issues)
     .leftJoin(issueStatuses, eq(issueStatuses.id, issues.statusId))
     .where(eq(issues.id, opts.issueId))
     .limit(1)
-  const [target] = await tx
-    .select({ id: issueStatuses.id, name: issueStatuses.name })
-    .from(issueStatuses)
-    .where(
-      and(
-        eq(issueStatuses.teamId, opts.teamId),
-        eq(issueStatuses.builtinKey, opts.to)
-      )
-    )
-    .limit(1)
 
-  await tx
-    .update(issues)
-    .set({
-      status: opts.to,
-      ...(target ? { statusId: target.id } : {}),
-      completedAt: opts.to === `done` ? new Date() : null,
-    })
-    .where(eq(issues.id, opts.issueId))
+  const configuredStatusId =
+    opts.event === `opened`
+      ? teamConfig?.prOpenedStatusId
+      : teamConfig?.prMergedStatusId
+  const targetColumns = {
+    id: issueStatuses.id,
+    name: issueStatuses.name,
+    builtinKey: issueStatuses.builtinKey,
+    category: issueStatuses.category,
+  }
+  let target = configuredStatusId
+    ? ((
+        await tx
+          .select(targetColumns)
+          .from(issueStatuses)
+          .where(
+            and(
+              eq(issueStatuses.id, configuredStatusId),
+              eq(issueStatuses.teamId, opts.teamId)
+            )
+          )
+          .limit(1)
+      )[0] ?? null)
+    : null
+  if (!target) {
+    target =
+      (
+        await tx
+          .select(targetColumns)
+          .from(issueStatuses)
+          .where(
+            and(
+              eq(issueStatuses.teamId, opts.teamId),
+              eq(issueStatuses.builtinKey, PR_AUTOMATION_DEFAULT_KEY[opts.event])
+            )
+          )
+          .limit(1)
+      )[0] ?? null
+  }
+
+  const plan = planPrAutomationTransition({
+    event: opts.event,
+    automationEnabled,
+    current: {
+      status: opts.currentStatus,
+      statusId: fromRow?.statusId ?? null,
+    },
+    target,
+  })
+  if (!plan) return
+
+  // completedAt/duplicate derivations ride the same shared rules as every
+  // other status writer (EXP-319): a merge target in a non-completed
+  // category must NOT stamp completedAt, and a redundant terminal write must
+  // not clobber the original completion time.
+  const setValues: Record<string, unknown> = { ...plan }
+  applyStatusDerivations(setValues, {
+    status: opts.currentStatus,
+    duplicateOfId: fromRow?.duplicateOfId ?? null,
+  })
+  await tx.update(issues).set(setValues).where(eq(issues.id, opts.issueId))
 
   await recordIssueEvent(tx, {
     issueId: opts.issueId,
@@ -180,7 +308,7 @@ export async function applyPrLifecycleStatusInTx(
     type: `status_changed`,
     payload: {
       from: opts.currentStatus,
-      to: opts.to,
+      to: plan.status,
       fromStatusId: fromRow?.statusId ?? null,
       toStatusId: target?.id ?? null,
       fromName: fromRow?.fromName ?? null,
@@ -266,13 +394,14 @@ export async function applyPrOpenedState(opts: {
       },
     })
 
-    // An open PR moves the issue into review (EXP-120).
+    // An open PR moves the issue to the team's PR-open target (EXP-120;
+    // default In Review, per-team configurable since EXP-319).
     await applyPrLifecycleStatusInTx(tx, {
       issueId: opts.issueId,
       teamId: current.teamId,
       actorUserId: opts.actorUserId ?? null,
       currentStatus: current.status,
-      to: `in_review`,
+      event: `opened`,
     })
     return true
   })
@@ -345,13 +474,15 @@ export async function applyPrMergeState(opts: {
         payload: { prUrl: opts.prUrl ?? current.prUrl ?? null },
       })
 
-      // The merged PR completes the issue (EXP-120: in_review → done).
+      // The merged PR moves the issue to the team's PR-merge target
+      // (EXP-120: default in_review → done; per-team configurable since
+      // EXP-319, including "do nothing").
       await applyPrLifecycleStatusInTx(tx, {
         issueId: opts.issueId,
         teamId: current.teamId,
         actorUserId: opts.actorUserId ?? null,
         currentStatus: current.status,
-        to: `done`,
+        event: `merged`,
       })
 
       // EXP-268: the merge ends the issue's live coding session. The ended

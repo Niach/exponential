@@ -37,6 +37,7 @@ import {
 } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { escapeLikePattern } from "@/lib/like-pattern"
+import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
   applyPrClosedState,
   applyPrMergeState,
@@ -173,44 +174,9 @@ async function resolveStatusWrite(
   }
 }
 
-// Status-derived column management, shared by update and bulkUpdate.
-// Mutates setValues in place. Only applies the duplicate-clear rule when the
-// caller hasn't already decided duplicate linkage (setValues.duplicateOfId
-// === undefined) — update's duplicateOfId input block runs BEFORE this.
-// setValues.status is always the ANCHOR enum (resolveStatusWrite), so the
-// terminal rules below cover custom statuses too: a custom completed status
-// anchors `done` and stamps completedAt; moving between two same-category
-// customs keeps the anchor stable, deliberately preserving completedAt.
-// Exported for statuses.delete's reassignment writer (EXP-314).
-export function applyStatusDerivations(
-  setValues: Record<string, unknown>,
-  current: { status: string; duplicateOfId: string | null }
-): void {
-  if (
-    setValues.status !== undefined &&
-    setValues.status !== `duplicate` &&
-    current.duplicateOfId !== null &&
-    setValues.duplicateOfId === undefined
-  ) {
-    // Moving off 'duplicate' via a plain status change also unmarks.
-    setValues.duplicateOfId = null
-  }
-
-  const nextStatus = setValues.status as string | undefined
-  if (
-    nextStatus === `done` ||
-    nextStatus === `cancelled` ||
-    nextStatus === `duplicate`
-  ) {
-    // Only an actual transition stamps completedAt — a redundant write of the
-    // same terminal status must not clobber the original completion time.
-    if (nextStatus !== current.status) {
-      setValues.completedAt = new Date()
-    }
-  } else if (nextStatus) {
-    setValues.completedAt = null
-  }
-}
+// Status-derived column management moved to lib/status-derivations.ts
+// (EXP-319): shared with statuses.delete AND pr-sync's automation writer,
+// which cannot import this module (issues.ts already imports pr-sync).
 
 // The per-issue write core shared by update and bulkUpdate: persists
 // setValues, records status/assignee activity events (comparing the FINAL

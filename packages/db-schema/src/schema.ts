@@ -133,6 +133,24 @@ export const teams = pgTable(`teams`, {
   // Synced so every client can gate its Support-inbox menu entry; the
   // conversation tables themselves stay server-only.
   helpdeskEnabled: boolean(`helpdesk_enabled`).notNull().default(false),
+  // EXP-319 — per-team PR automation targets. NULL status_id = the builtin
+  // default (In Review on open, Done on merge) — deliberately NOT "do
+  // nothing", so the FK's SET NULL (target status deleted) falls back to the
+  // builtin instead of silently disabling the automation. "Do nothing" is the
+  // explicit *_automation=false flag. Synced through the teams shape so
+  // clients can render the automation hint.
+  // The `AnyPgColumn` annotations break the teams ↔ issue_statuses circular
+  // type inference (issue_statuses.team_id references teams).
+  prOpenedStatusId: uuid(`pr_opened_status_id`).references(
+    (): AnyPgColumn => issueStatuses.id,
+    { onDelete: `set null` }
+  ),
+  prOpenedAutomation: boolean(`pr_opened_automation`).notNull().default(true),
+  prMergedStatusId: uuid(`pr_merged_status_id`).references(
+    (): AnyPgColumn => issueStatuses.id,
+    { onDelete: `set null` }
+  ),
+  prMergedAutomation: boolean(`pr_merged_automation`).notNull().default(true),
   ...timestamps,
 })
 

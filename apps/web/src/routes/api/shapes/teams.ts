@@ -15,6 +15,13 @@ const TEAM_COLUMNS = [
   `slug`,
   `icon_url`,
   `helpdesk_enabled`,
+  // EXP-319 — PR automation targets: NULL status_id = builtin default,
+  // *_automation=false = "do nothing". Synced so clients can render the
+  // automation setting/hint.
+  `pr_opened_status_id`,
+  `pr_opened_automation`,
+  `pr_merged_status_id`,
+  `pr_merged_automation`,
   `created_at`,
   `updated_at`,
 ]

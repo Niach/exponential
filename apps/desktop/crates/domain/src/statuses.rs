@@ -474,6 +474,38 @@ pub fn resolve_status_sorted(issue: &Issue, sorted: &[IssueStatusRow]) -> Resolv
     constructed_default(anchor)
 }
 
+/// EXP-319 — resolve one of a team's PR-automation targets against its
+/// ALREADY-[`sort_team_statuses`]-ordered rows. Inputs are the synced
+/// `teams` columns: `status_id` pins a row (`None` = builtin default),
+/// `automation` is the enable flag (`None` = enabled — pre-column rows match
+/// the server DEFAULT true; only `Some(false)` is "do nothing").
+/// `default_builtin` is `"in_review"` (PR open) or `"done"` (PR merge).
+/// Returns `None` for "do nothing".
+pub fn resolve_pr_target(
+    sorted: &[IssueStatusRow],
+    status_id: Option<&str>,
+    automation: Option<bool>,
+    default_builtin: &str,
+) -> Option<ResolvedStatus> {
+    if automation == Some(false) {
+        return None;
+    }
+    if let Some(id) = status_id {
+        if let Some(index) = sorted.iter().position(|row| row.id == id) {
+            return Some(resolve_row(sorted, index));
+        }
+        // Dangling pin (a status delete raced the sync — the server FK is
+        // ON DELETE SET NULL, so this is transient): builtin fallback below.
+    }
+    if let Some(index) = sorted
+        .iter()
+        .position(|row| row.builtin_key.as_deref() == Some(default_builtin))
+    {
+        return Some(resolve_row(sorted, index));
+    }
+    Some(constructed_default(IssueStatus::from_wire(default_builtin)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,5 +849,32 @@ mod tests {
             .find(|status| status.builtin_key.as_deref() == Some("in_progress"))
             .unwrap();
         assert!(status_key_matches(fallback_wip, "builtin:in_progress"));
+    }
+
+    #[test]
+    fn resolve_pr_target_covers_all_config_states() {
+        let mut rows = builtin_rows();
+        rows.push(row("qa", "started", "QA", 9.0, None));
+        let sorted = sort_team_statuses(&rows);
+
+        // Pinned custom row.
+        let pinned = resolve_pr_target(&sorted, Some("qa"), None, "in_review").unwrap();
+        assert_eq!(pinned.row_id.as_deref(), Some("qa"));
+
+        // NULL pin → the builtin default row; None flag = enabled.
+        let default = resolve_pr_target(&sorted, None, Some(true), "done").unwrap();
+        assert_eq!(default.builtin_key.as_deref(), Some("done"));
+
+        // Dangling pin (deleted status raced the sync) → builtin fallback.
+        let healed = resolve_pr_target(&sorted, Some("gone"), None, "in_review").unwrap();
+        assert_eq!(healed.builtin_key.as_deref(), Some("in_review"));
+
+        // "Do nothing" beats any pin.
+        assert!(resolve_pr_target(&sorted, Some("qa"), Some(false), "in_review").is_none());
+
+        // No synced rows at all → the constructed default (never fails).
+        let constructed = resolve_pr_target(&[], None, None, "done").unwrap();
+        assert!(constructed.is_fallback());
+        assert_eq!(constructed.builtin_key.as_deref(), Some("done"));
     }
 }

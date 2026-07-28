@@ -9,7 +9,7 @@ import { z } from "zod"
 import { and, asc, eq, ne, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { issues, issueStatuses } from "@/db/schema"
+import { issues, issueStatuses, teams } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/team-membership"
 import {
   CATEGORY_ANCHOR,
@@ -17,7 +17,7 @@ import {
   type IssueStatusCategory,
   issueStatusCategorySchema,
 } from "@/lib/domain"
-import { applyStatusDerivations } from "@/lib/trpc/issues"
+import { applyStatusDerivations } from "@/lib/status-derivations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 
 const statusNameSchema = z.string().min(1).max(255)
@@ -448,6 +448,86 @@ export const statusesRouter = router({
           reassigned: referencing.length,
           reassignedToId: target?.id ?? null,
         }
+      })
+    }),
+
+  // EXP-319 — per-team PR automation targets ("when a PR opens/merges, move
+  // issues to …"). Member-gated like every other write in this router: the
+  // setting is part of status management, not team administration. Writes
+  // the teams columns applyPrLifecycleStatusInTx (pr-sync) reads: a status
+  // row id pins the target, 'default' resets to the builtin (NULL — also
+  // what the FK's SET NULL leaves behind when a target status is deleted),
+  // 'none' disables the automation entirely ("do nothing" — merged PRs then
+  // never auto-complete their issues).
+  setPrAutomation: authedProcedure
+    .input(
+      z.object({
+        teamId: z.string().uuid(),
+        event: z.enum([`pr_opened`, `pr_merged`]),
+        target: z.union([
+          z.string().uuid(),
+          z.literal(`default`),
+          z.literal(`none`),
+        ]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await resolveTeamAccess(
+        ctx.session.user.id,
+        input.teamId,
+        `mutate_resources`
+      )
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+
+        let statusId: string | null = null
+        if (input.target !== `default` && input.target !== `none`) {
+          const [row] = await tx
+            .select({
+              id: issueStatuses.id,
+              category: issueStatuses.category,
+            })
+            .from(issueStatuses)
+            .where(
+              and(
+                eq(issueStatuses.id, input.target),
+                eq(issueStatuses.teamId, input.teamId)
+              )
+            )
+            .limit(1)
+          if (!row) {
+            throw new TRPCError({
+              code: `NOT_FOUND`,
+              message: `Status not found`,
+            })
+          }
+          if (row.category === `duplicate`) {
+            // Duplicate requires a canonical issue (enum + duplicateOfId
+            // lockstep) — an automation can never supply one.
+            throw new TRPCError({
+              code: `BAD_REQUEST`,
+              message: `Duplicate cannot be an automation target`,
+            })
+          }
+          statusId = row.id
+        }
+
+        await tx
+          .update(teams)
+          .set(
+            input.event === `pr_opened`
+              ? {
+                  prOpenedStatusId: statusId,
+                  prOpenedAutomation: input.target !== `none`,
+                }
+              : {
+                  prMergedStatusId: statusId,
+                  prMergedAutomation: input.target !== `none`,
+                }
+          )
+          .where(eq(teams.id, input.teamId))
+
+        return { txId }
       })
     }),
 })

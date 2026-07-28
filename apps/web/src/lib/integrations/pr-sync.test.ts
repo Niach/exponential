@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   parseIssueIdentifierFromBranch,
+  planPrAutomationTransition,
   prStateTransitionAllowed,
 } from "@/lib/integrations/pr-sync"
 
@@ -163,5 +164,136 @@ describe(`prStateTransitionAllowed`, () => {
         { to: `merged` }
       )
     ).toBe(true)
+  })
+})
+
+// EXP-319 — the pure decision core of the per-team PR automation targets.
+describe(`planPrAutomationTransition`, () => {
+  const builtinInReview = {
+    id: `s-in-review`,
+    builtinKey: `in_review`,
+    category: `started` as const,
+  }
+  const builtinDone = {
+    id: `s-done`,
+    builtinKey: `done`,
+    category: `completed` as const,
+  }
+  const customStarted = {
+    id: `s-custom-started`,
+    builtinKey: null,
+    category: `started` as const,
+  }
+  const customCompleted = {
+    id: `s-custom-completed`,
+    builtinKey: null,
+    category: `completed` as const,
+  }
+
+  it(`moves an eligible issue to the builtin default`, () => {
+    expect(
+      planPrAutomationTransition({
+        event: `opened`,
+        automationEnabled: true,
+        current: { status: `in_progress`, statusId: `s-in-progress` },
+        target: builtinInReview,
+      })
+    ).toEqual({ status: `in_review`, statusId: `s-in-review` })
+    expect(
+      planPrAutomationTransition({
+        event: `merged`,
+        automationEnabled: true,
+        current: { status: `in_review`, statusId: `s-in-review` },
+        target: builtinDone,
+      })
+    ).toEqual({ status: `done`, statusId: `s-done` })
+  })
+
+  it(`does nothing when the team disabled the automation`, () => {
+    expect(
+      planPrAutomationTransition({
+        event: `merged`,
+        automationEnabled: false,
+        current: { status: `in_review`, statusId: `s-in-review` },
+        target: builtinDone,
+      })
+    ).toBeNull()
+  })
+
+  it(`anchors a custom target via its category`, () => {
+    expect(
+      planPrAutomationTransition({
+        event: `opened`,
+        automationEnabled: true,
+        current: { status: `todo`, statusId: `s-todo` },
+        target: customStarted,
+      })
+    ).toEqual({ status: `in_progress`, statusId: `s-custom-started` })
+    expect(
+      planPrAutomationTransition({
+        event: `merged`,
+        automationEnabled: true,
+        current: { status: `in_review`, statusId: `s-in-review` },
+        target: customCompleted,
+      })
+    ).toEqual({ status: `done`, statusId: `s-custom-completed` })
+  })
+
+  it(`never overrides explicit human resolutions (cancelled/duplicate anchors)`, () => {
+    for (const status of [`cancelled`, `duplicate`, `done`]) {
+      expect(
+        planPrAutomationTransition({
+          event: `merged`,
+          automationEnabled: true,
+          current: { status, statusId: null },
+          target: builtinDone,
+        })
+      ).toBeNull()
+    }
+    // An issue already parked in review is not re-parked by a webhook replay.
+    expect(
+      planPrAutomationTransition({
+        event: `opened`,
+        automationEnabled: true,
+        current: { status: `in_review`, statusId: `s-in-review` },
+        target: builtinInReview,
+      })
+    ).toBeNull()
+  })
+
+  it(`skips when the issue already sits in the exact target row`, () => {
+    // A custom started target anchors in_progress — inside the opened
+    // from-set — so only the statusId equality keeps webhook replays from
+    // re-firing status_changed events.
+    expect(
+      planPrAutomationTransition({
+        event: `opened`,
+        automationEnabled: true,
+        current: { status: `in_progress`, statusId: `s-custom-started` },
+        target: customStarted,
+      })
+    ).toBeNull()
+  })
+
+  it(`still moves between two rows sharing an anchor`, () => {
+    expect(
+      planPrAutomationTransition({
+        event: `opened`,
+        automationEnabled: true,
+        current: { status: `in_progress`, statusId: `s-other-started` },
+        target: customStarted,
+      })
+    ).toEqual({ status: `in_progress`, statusId: `s-custom-started` })
+  })
+
+  it(`degrades to the bare anchor enum when no target row exists (unseeded team)`, () => {
+    expect(
+      planPrAutomationTransition({
+        event: `merged`,
+        automationEnabled: true,
+        current: { status: `in_progress`, statusId: null },
+        target: null,
+      })
+    ).toEqual({ status: `done` })
   })
 })
