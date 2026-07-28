@@ -1113,35 +1113,21 @@ impl Render for RailView {
         // Settings gear — the SINGLE settings entry point (EXP-282 dropped
         // the duplicate account-menu item). Navigates directly for the same
         // EXP-17 reason as the search button above; the keymap still
-        // dispatches `OpenSettings`.
-        let settings_entry: gpui::AnyElement = if expanded {
-            rail_row(
-                "rail-settings",
-                Icon::new(registry::NAV_SETTINGS),
-                "Settings",
-                matches!(
-                    resolved_screen(&self.nav, cx),
-                    Some(Screen::Settings) | Some(Screen::Account)
-                ),
-                accent,
-                None,
-                cx,
-            )
+        // dispatches `OpenSettings`. EXP-340: icon-only in BOTH rail states —
+        // expanded it sits in the account row, hugging the rail's right edge,
+        // instead of taking a full-width row of its own.
+        let settings_entry = Button::new("rail-settings")
+            .ghost()
+            .small()
+            .icon(registry::NAV_SETTINGS)
+            .selected(matches!(
+                resolved_screen(&self.nav, cx),
+                Some(Screen::Settings) | Some(Screen::Account)
+            ))
+            .tooltip("Settings")
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 navigate(window, cx, Screen::Settings)
-            }))
-            .into_any_element()
-        } else {
-            Button::new("rail-settings")
-                .ghost()
-                .small()
-                .icon(registry::NAV_SETTINGS)
-                .tooltip("Settings")
-                .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                    navigate(window, cx, Screen::Settings)
-                }))
-                .into_any_element()
-        };
+            }));
 
         v_flex()
             .w(px(if expanded { RAIL_EXPANDED_W } else { RAIL_W }))
@@ -1252,8 +1238,28 @@ impl Render for RailView {
                         cx,
                     )),
             ))
-            .child(settings_entry)
-            .child(self.render_account_button(expanded, cx))
+            .map(|this| {
+                if expanded {
+                    // EXP-340: one bottom row — the account button fills the
+                    // width, the gear rides its right edge.
+                    this.child(
+                        h_flex()
+                            .w_full()
+                            .gap_1()
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(self.render_account_button(true, cx)),
+                            )
+                            .child(settings_entry),
+                    )
+                } else {
+                    this.child(settings_entry)
+                        .child(self.render_account_button(false, cx))
+                }
+            })
     }
 }
 
