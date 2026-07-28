@@ -948,18 +948,18 @@ class IssueDetailViewModel @Inject constructor(
     // ── File attachments (EXP-297) ───────────────────────────────────────────
 
     /**
-     * Upload a picked document as an issue attachment. Failures stay on the
-     * pending row (with the server's reason and a Retry) rather than becoming a
-     * snackbar that scrolls away — the file is only ever gone if the user
-     * dismisses it.
-     */
-    /**
      * Installed by the screen (EXP-327): where an image that reached the FILE
      * path goes instead of erroring — appended to the description editor, whose
      * model the screen owns. Null (no editor mounted) leaves the pick dropped.
      */
     var onInlineImagePicked: ((android.net.Uri, String) -> Unit)? = null
 
+    /**
+     * Upload a picked document as an issue attachment. Failures stay on the
+     * pending row (with the server's reason and a Retry) rather than becoming a
+     * snackbar that scrolls away — the file is only ever gone if the user
+     * dismisses it.
+     */
     fun uploadFile(uri: android.net.Uri) {
         val key = UUID.randomUUID().toString()
         // Placeholder name from the URI only — the real display name needs a

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.markdown
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ListType
@@ -82,11 +84,20 @@ fun MarkdownToolbar(
                 } else {
                     Box {
                         ToolbarButton(ExpIcons.editorImage, "Attach", active = false, enabled = imageEnabled) {
-                            attachMenuOpen = true
+                            attachMenuOpen = !attachMenuOpen
                         }
+                        // This whole toolbar only exists while the IME is up
+                        // (MarkdownToolbarHost gates the overlay on imeVisible),
+                        // so a FOCUSABLE popup would take focus, drop the
+                        // keyboard, and tear its own menu out of composition —
+                        // the same trap BlockTextField's `@`/`#` menu documents.
+                        // Non-focusable keeps the keyboard, so dismissal rides
+                        // the item taps, a re-tap of the button, and BackHandler.
+                        BackHandler(enabled = attachMenuOpen) { attachMenuOpen = false }
                         DropdownMenu(
                             expanded = attachMenuOpen,
                             onDismissRequest = { attachMenuOpen = false },
+                            properties = PopupProperties(focusable = false),
                         ) {
                             DropdownMenuItem(
                                 leadingIcon = { Icon(ExpIcons.uiAttach, contentDescription = null) },

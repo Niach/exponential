@@ -137,6 +137,14 @@ struct MarkdownEditor: View {
         .onChange(of: showsMentionButton) { _, newValue in
             toolbar.showsMentionButton = newValue
         }
+        // Same race for the attach gate: `onAttachFile` is derived from
+        // membership too, and on a cold start the editor mounts before the
+        // team_members rows land. Without this the "Files" entry would stay
+        // missing for the life of the view — and EXP-327 removed the Files
+        // section's own paperclip, so there is no other way in.
+        .onChange(of: onAttachFile == nil) { _, isNil in
+            toolbar.onFilePick = isNil ? nil : { showFileImporter = true }
+        }
     }
 
     // @-mention autocomplete: a non-focus-stealing candidate bar. Tapping inserts
@@ -235,12 +243,33 @@ struct MarkdownEditor: View {
             onAttachFile?(url)
             return
         }
+        // Size check BEFORE buffering, like the sibling attachment path: the
+        // pick is classified from its extension alone, so a 300 MB `.png` would
+        // otherwise be read whole into memory only to be rejected on upload —
+        // leaving an uncommittable draft that blocks every later description
+        // save. Over the cap it goes to the host as an ordinary attachment
+        // pick, which re-checks the size and renders a real failure row; the
+        // editor has no error surface for a block it never inserted.
+        // Cheap metadata read, so it stays inline rather than off-main.
+        let scoped = url.startAccessingSecurityScopedResource()
+        let declaredSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        if scoped { url.stopAccessingSecurityScopedResource() }
+        if let declaredSize, declaredSize > AttachmentFiles.maxFileUploadBytes {
+            onAttachFile?(url)
+            return
+        }
+
         let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
         let editorModel = model
         Task.detached {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url) else { return }
+            // Backstop for a provider that reports no file size up front.
+            guard data.count <= AttachmentFiles.maxFileUploadBytes else {
+                log.error("Picked image exceeds the upload cap: \(data.count, privacy: .public) bytes")
+                return
+            }
             let decoded = UIImage(data: data)
             let width = decoded.map { Int($0.size.width * $0.scale) }
             let height = decoded.map { Int($0.size.height * $0.scale) }

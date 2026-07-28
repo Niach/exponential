@@ -770,7 +770,7 @@ class IssueListViewModel @Inject constructor(
 
             // Draft files last: the issue is already committed, so a failed
             // attachment must never turn a successful create into a failure —
-            // it is logged and skipped, like a failed draft image.
+            // it is skipped and reported through _error, never silently dropped.
             if (pendingFiles.isNotEmpty()) {
                 uploadPendingFiles(accountId, created.id, pendingFiles)
             }
@@ -857,7 +857,10 @@ class IssueListViewModel @Inject constructor(
     /**
      * Upload the create screen's draft file attachments against the now-existing
      * issue (EXP-327). Best-effort per file: the issue is already committed, so
-     * a rejected attachment is logged and skipped rather than failing the create.
+     * a rejected attachment is skipped rather than failing the create — but the
+     * skipped names are reported through [_error], because a file the user
+     * attached must never disappear without a word (the size cap did exactly
+     * that).
      */
     private suspend fun uploadPendingFiles(
         accountId: String,
@@ -865,30 +868,44 @@ class IssueListViewModel @Inject constructor(
         files: List<android.net.Uri>,
     ) {
         val resolver = appContext.contentResolver
+        val failed = mutableListOf<String>()
         for (uri in files) {
+            val filename = sanitizeFilename(
+                runCatching {
+                    resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+                    }
+                }.getOrNull() ?: uri.lastPathSegment
+            )
             try {
                 val contentType = canonicalContentType(resolver.getType(uri))
                 // Inline-image types never belong in the Files section — the
                 // editor's attach menu already routes those into the
                 // description, so anything landing here is a real file.
                 if (isInlineImage(contentType)) continue
-                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
-                if (bytes.size > MAX_FILE_UPLOAD_BYTES) {
-                    android.util.Log.w("IssueListViewModel", "Draft file over the size cap, skipped")
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes == null) {
+                    android.util.Log.w("IssueListViewModel", "Draft file could not be read, skipped")
+                    failed += filename
                     continue
                 }
-                val filename = sanitizeFilename(
-                    resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                        if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
-                    } ?: uri.lastPathSegment
-                )
+                if (bytes.size > MAX_FILE_UPLOAD_BYTES) {
+                    android.util.Log.w("IssueListViewModel", "Draft file over the size cap, skipped")
+                    failed += "$filename (over ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB)"
+                    continue
+                }
                 attachmentsApi.upload(accountId, issueId, bytes, filename, contentType)
             } catch (cancel: kotlinx.coroutines.CancellationException) {
                 throw cancel
             } catch (error: Throwable) {
                 android.util.Log.w("IssueListViewModel", "Draft file upload failed", error)
+                failed += filename
             }
+        }
+        if (failed.isNotEmpty()) {
+            _error.value = "Couldn't attach ${failed.joinToString(", ")} — " +
+                "add ${if (failed.size == 1) "it" else "them"} from the issue"
         }
     }
 }

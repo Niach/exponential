@@ -64,6 +64,10 @@ struct CreateIssueSheet: View {
     /// that member (EXP-50). Multi-member teams keep the picker.
     @State private var singleMemberTeam = false
     @State private var createMore = false
+    /// True once this sheet's issue was created but the sheet stayed up to
+    /// report a failed attachment — Create is inert from then on, so the only
+    /// way out is Cancel and no second issue can be filed.
+    @State private var createCommitted = false
     @State private var loading = false
     @State private var error: String?
     @State private var permissions: TeamPermissions = .denied
@@ -276,7 +280,7 @@ struct CreateIssueSheet: View {
                                 .fontWeight(.medium)
                         }
                     }
-                    .disabled(title.isEmpty || loading)
+                    .disabled(title.isEmpty || loading || createCommitted)
                 }
             }
             // Presenting a picker over a focused editor kept the editor first
@@ -541,8 +545,11 @@ struct CreateIssueSheet: View {
 
     /// Upload the held drafts against the now-existing issue. The issue is
     /// already committed, so a rejected attachment surfaces as an error but
-    /// never turns a successful create into a failure.
-    private func uploadDraftFiles(issueId: String) async {
+    /// never turns a successful create into a failure. Returns false when any
+    /// file failed, so the caller can hold the sheet open — dismissing right
+    /// after setting `error` unmounted the only report the user ever gets, and
+    /// the file vanished silently.
+    private func uploadDraftFiles(issueId: String) async -> Bool {
         var failed: [String] = []
         for file in draftFiles {
             do {
@@ -557,9 +564,11 @@ struct CreateIssueSheet: View {
                 failed.append(file.filename)
             }
         }
-        if !failed.isEmpty {
-            self.error = "Couldn't attach \(failed.joined(separator: ", "))."
+        guard failed.isEmpty else {
+            self.error = "Issue created, but couldn't attach \(failed.joined(separator: ", "))."
+            return false
         }
+        return true
     }
 
     private func createIssue() async {
@@ -627,8 +636,9 @@ struct CreateIssueSheet: View {
 
             // Draft files last: the issue is committed, so a failed attachment
             // is reported but never fails the create (EXP-327).
+            var draftsUploaded = true
             if !draftFiles.isEmpty {
-                await uploadDraftFiles(issueId: createdId)
+                draftsUploaded = await uploadDraftFiles(issueId: createdId)
             }
 
             // Remember the board so the Share Extension defaults its picker to it.
@@ -641,8 +651,13 @@ struct CreateIssueSheet: View {
                 selectedLabelIds = []
                 configureEditor()
                 titleFocused = true
-            } else {
+            } else if draftsUploaded {
                 dismiss()
+            } else {
+                // The issue exists; only an attachment failed. Hold the sheet
+                // so the error is actually read, and latch the create so
+                // acknowledging it can't file a duplicate issue.
+                createCommitted = true
             }
             onCreated()
         } catch {

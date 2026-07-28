@@ -626,7 +626,8 @@ final class IssueDetailViewModel {
         // with an error telling the user to go press the other button, put it
         // where it belongs — appended to the description. (The editor's attach
         // menu classifies picks up front, so this only catches a URL whose type
-        // resolves differently here.)
+        // resolves differently here, or an oversize image the editor handed
+        // over precisely because this path can report the failure.)
         guard !AttachmentFiles.isInlineImage(contentType: contentType) else {
             appendImageToDescription(from: url, filename: filename, contentType: contentType)
             return
@@ -673,11 +674,33 @@ final class IssueDetailViewModel {
         Task.detached { [weak self] in
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+            // Size check before buffering, exactly like the non-image branch
+            // above — an oversize pick must never be read into memory, and an
+            // appended draft that can't upload blocks every later description
+            // save.
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            if let size, size > AttachmentFiles.maxFileUploadBytes {
+                await self?.appendFailedUpload(
+                    filename: filename,
+                    contentType: contentType,
+                    failure: "Files must be 50 MB or smaller."
+                )
+                return
+            }
             guard let data = try? Data(contentsOf: url) else {
                 await self?.appendFailedUpload(
                     filename: filename,
                     contentType: contentType,
                     failure: "Couldn't read this file."
+                )
+                return
+            }
+            guard data.count <= AttachmentFiles.maxFileUploadBytes else {
+                await self?.appendFailedUpload(
+                    filename: filename,
+                    contentType: contentType,
+                    failure: "Files must be 50 MB or smaller."
                 )
                 return
             }
@@ -691,8 +714,18 @@ final class IssueDetailViewModel {
                 width: (width ?? 0) > 0 ? width : nil,
                 height: (height ?? 0) > 0 ? height : nil
             )
-            await self?.commitDescription()
+            await self?.commitDescriptionNow()
         }
+    }
+
+    /// Commit the description immediately, superseding the debounced autosave
+    /// that `appendImage`'s edit hook just scheduled. `commitPendingImages` has
+    /// no in-flight guard, so letting the 1.2s timer fire during a slower
+    /// upload would upload the same draft twice and orphan an attachment row.
+    private func commitDescriptionNow() async {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        await commitDescription()
     }
 
     private func appendFailedUpload(filename: String, contentType: String, failure: String) {

@@ -265,7 +265,9 @@ fun rememberMarkdownFilePicker(
             // Fall back to octet-stream, NOT the photo picker's image/jpeg: an
             // untyped document is a file, not a picture.
             val mime = canonicalContentType(
-                MarkdownMediaUtils.guessMimeType(context, uri, fallback = "application/octet-stream")
+                withContext(Dispatchers.IO) {
+                    MarkdownMediaUtils.guessMimeType(context, uri, fallback = "application/octet-stream")
+                }
             )
             if (!isInlineImage(mime)) {
                 attach?.invoke(uri)
@@ -296,17 +298,24 @@ suspend fun appendPickedImage(
     contentType: String,
     uploader: suspend (Uri) -> String?,
 ) {
-    val bytes = MarkdownMediaUtils.readBytes(context, uri)
-    val name = MarkdownMediaUtils.guessFilename(context, uri)
-    val size = MarkdownMediaUtils.probeSize(context, uri)
-    if (bytes == null) {
+    // ALL ContentResolver work rides Dispatchers.IO (same rule as
+    // IssueDetailViewModel.runUpload): callers launch this on the composition's
+    // Main scope, and an OpenDocument pick from a cloud-backed DocumentsProvider
+    // streams the bytes over the network inside openInputStream/readBytes.
+    // Snapshot-state writes stay on the caller's dispatcher.
+    val pending = withContext(Dispatchers.IO) {
+        val bytes = MarkdownMediaUtils.readBytes(context, uri) ?: return@withContext null
+        val name = MarkdownMediaUtils.guessFilename(context, uri)
+        val size = MarkdownMediaUtils.probeSize(context, uri)
+        PendingImage(uri, bytes, name, contentType, size.width, size.height)
+    }
+    if (pending == null) {
         // No preview bytes — upload first, then insert (nothing to show while
         // the upload runs).
         val url = runCatching { uploader(uri) }.getOrNull() ?: return
         model.appendImageUrl(url, alt = "image")
         return
     }
-    val pending = PendingImage(uri, bytes, name, contentType, size.width, size.height)
     val rowId = model.appendImageUrl(draftUrl(), alt = "image", pending = pending)
     model.runUpload(rowId) { uploader(uri) }
 }

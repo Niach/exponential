@@ -326,8 +326,11 @@ fun IssueDetailScreen(
                                 }
                                 DropdownMenuItem(
                                     leadingIcon = {
+                                        // Menu row: the icon depicts the ACTION, like the
+                                        // label beside it — bell-off next to "Unsubscribe",
+                                        // not the current state (iOS parity).
                                         Icon(
-                                            if (isSubscribed) ExpIcons.uiSubscribe else ExpIcons.uiUnsubscribe,
+                                            if (isSubscribed) ExpIcons.uiUnsubscribe else ExpIcons.uiSubscribe,
                                             contentDescription = null,
                                         )
                                     },
@@ -936,7 +939,7 @@ private fun RemoteEditBanner(onReload: () -> Unit) {
 }
 
 // Origin pill for widget-filed issues (source == "widget"): a muted, read-only
-// "Feedback widget" indicator matching the RepoChip glass idiom.
+// "Feedback widget" indicator built on the shared glass chip idiom.
 @Composable
 private fun FeedbackWidgetChip() {
     Row(

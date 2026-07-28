@@ -708,7 +708,7 @@ function PrAutomationCard({
 }
 
 export function TeamStatusesSection({ teamId }: { teamId: string }) {
-  const { options } = useTeamStatuses(teamId)
+  const { options, ready } = useTeamStatuses(teamId)
   const counts = useIssueCountsByStatus(teamId, options)
   const [creatingIn, setCreatingIn] = useState<IssueStatusCategory | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -737,6 +737,24 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
     { status: `backlog`, statusId: null },
     options
   ).id
+
+  // Until the shape syncs, `options` is the CONSTRUCTED fallback set, whose
+  // synthetic `builtin:<key>` ids are not row uuids — every control here is
+  // row-level, so a move/rename/delete on one would send `builtin:todo` to the
+  // server and bounce off its uuid check. Wait for real rows instead of
+  // offering dead controls (desktop guards the same way, settings/statuses.rs).
+  if (!ready) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Statuses</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="py-2 text-sm text-muted-foreground">Loading…</p>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <>

@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-one-way-to-attach`,
+    date: `2026-07-28`,
+    title: `One way to attach, on every screen`,
+    summary: `Mobile stops asking whether a file is an image, and the issue page loses its clutter.`,
+    body: `- **One attach button on iOS and Android** — attachments arrived with their own paperclip next to the description's image button, so adding something to an issue meant guessing which of two gestures to use, and picking an image through the paperclip dead-ended in an error. The description toolbar's button now offers Files or Photo library and sorts the pick itself: an image goes into the description, anything else becomes an attachment. The paperclip is gone.
+- **New issues take files too** — attaching a file while composing a new issue now holds it as a draft and uploads it the moment the issue is created, exactly like draft images already worked.
+- **No more empty Files block** — an issue with nothing attached shows nothing at all instead of a permanent "No files attached" row. Failed uploads still show up so you can retry them.
+- **A calmer issue page** — the rule above Activity now spans the full pane on web and desktop, the linked PR row runs the full width instead of hugging its text, and the mobile issue menu is a single \`…\` that holds Share, notifications and Move to board, with words instead of an ambiguous bell.
+- **Status settings say less** — the issue-statuses pane dropped the explanatory paragraphs the rows already made obvious, the two cards no longer sit flush against each other, and the PR-automation pickers line up.`,
+  },
+  {
     id: `2026-07-custom-statuses`,
     date: `2026-07-28`,
     title: `Statuses that match how you work`,
