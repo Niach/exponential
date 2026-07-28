@@ -1,0 +1,1 @@
+One attach button on every editor — pick Files or Photo library and we sort it out, plus a calmer issue page and a tidier status settings pane.

@@ -1,5 +1,5 @@
-• Custom issue statuses — add your own statuses per team, with categories, colors and progress icons
-• Choose what a pull request does — pick which status opening or merging a PR sets, or turn it off
-• Merge failures are readable — the reason appears inline, with a Fix conflicts button beside it
-• Issue chips in the editor — typing #EXP-42 now shows the issue's title, and the suggestion list behaves
-• Fixed a bug where an issue reference inside a table could corrupt the saved description
+• One attach button — the editor's attach menu offers Files or Photo library and sorts the pick itself: images go into the description, everything else becomes an attachment
+• New issues take files too — attach while composing and it uploads as soon as the issue is created
+• No more empty Files block — an issue with nothing attached no longer shows a placeholder row
+• A calmer issue page — a full-width rule above Activity, a full-width linked PR row, and Share and notifications tucked into one menu
+• Fixed an attachment that could fail to upload without telling you
