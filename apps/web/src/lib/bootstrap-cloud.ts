@@ -253,15 +253,15 @@ async function ensurePublicRepositoryInstallation(publicTeamId: string) {
 }
 
 // The dogfood helpdesk gate rides the normal plan machinery
-// (assertCanUseHelpdesk is Pro+ on cloud) — comp the feedback team to
-// `business` via the existing admin comp floor instead of special-casing it
+// (assertCanUseHelpdesk is paid-only on cloud) — comp the feedback team to
+// `team` via the existing admin comp floor instead of special-casing it
 // in billing. One-shot (only when comp_tier IS NULL) so a deliberate admin
-// change sticks. Side effect: business limits (storage/widgets/seats) apply
+// change sticks. Side effect: Team limits (storage/widgets/seats) apply
 // to the shared dogfood team — intended.
 async function ensureFeedbackTeamComp(publicTeamId: string) {
   await db
     .update(teams)
-    .set({ compTier: `business` })
+    .set({ compTier: `team` })
     .where(and(eq(teams.id, publicTeamId), sql`${teams.compTier} IS NULL`))
 }
 

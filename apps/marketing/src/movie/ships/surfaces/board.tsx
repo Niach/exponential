@@ -1,7 +1,7 @@
 // surfaces/board.tsx — issue-board primitives (status/priority/avatar/label/calendar),
 // the 260px SidebarPane chassis, BoardTool (tinted status groups, 28px rows, cascade
 // entrance, hover/selected, PR dot, FLIP regroup) and ReviewsTool (merge-button morph).
-// Pixel truth: movie-ref/desktop-hero-board-issue.png — sidebar chrome (#171717 header +
+// Pixel truth: the desktop-hero-board-issue reference screenshot (local-only, untracked) — sidebar chrome (#171717 header +
 // pills) over a #0a0a0a issue list, tinted group bands, lucide-style glyphs, the
 // fuchsia DS avatar, indigo "+ New Issue" button.
 // All frame props are COMPOSITION-GLOBAL frames; every interpolation clamps.
@@ -14,7 +14,7 @@ import { riseIn } from "../rig"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
-// Avatar recipe sampled from movie-ref/desktop-hero-board-issue.png (the DS circles):
+// Avatar recipe sampled from the desktop-hero-board-issue reference screenshot (the DS circles):
 // dark fuchsia fill ≈ #3d0f3a, brighter fuchsia ring, bright fuchsia initials.
 // (Deliberately local — the shared theme has no fuchsia token; matched to the ref.)
 const AVATAR_BG = `rgba(192,38,211,0.28)`

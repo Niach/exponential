@@ -106,7 +106,7 @@ function AdminOverview() {
         />
         <StatCard
           label="Est. MRR"
-          value={`$${totals.estimatedMrr}`}
+          value={`€${totals.estimatedMrr}`}
           hint="yearly plans normalized to /mo"
         />
       </div>

@@ -11,40 +11,36 @@ import {
 import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "@/lib/plan-limit-error"
 
-export type PlanTier = `free` | `pro` | `business` | `unlimited`
+export type PlanTier = `free` | `team` | `unlimited`
 
-// Per-seat model (masterplan v5 §3.2, L19–L22). The ONLY monetized axes are
+// Per-seat model (EXP-286 rebrand). The ONLY monetized axes are
 // seats (team size), storage per team, and feedback-widget configs.
 // Boards, repositories, and coding-session capacity are unlimited on every
 // tier. Push + email notification delivery and remote steer are FREE on every
 // tier and are never plan-gated — do NOT add booleans for them here.
 type PlanLimits = {
-  // Purchased seats a team may fill with non-agent members. Free = 1;
-  // paid tiers override this placeholder with the subscription's purchased
+  // Purchased seats a team may fill with members. Free = 3;
+  // the paid tier overrides this placeholder with the subscription's purchased
   // quantity (see planFromSubscription).
   seats: number
   // Attachment storage budget per team, in megabytes.
   storageMb: number
   // Feedback-widget configs a team may create. Free = 1 (EXP-180),
-  // Pro = 3, Business = unlimited.
+  // Team = unlimited.
   widgetConfigs: number
 }
 
-// NOTE: the `seats` value on the paid tiers is only a placeholder — the real
+// NOTE: the `seats` value on the paid tier is only a placeholder — the real
 // seat allowance is the subscription's purchased quantity, applied in
-// planFromSubscription. Free stays at a hard 1 (the owner alone).
+// planFromSubscription. Free stays at a hard 3 (enough to experience the
+// realtime-collaboration core single-team, EXP-286).
 const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   free: {
-    seats: 1,
+    seats: 3,
     storageMb: 250,
     widgetConfigs: 1,
   },
-  pro: {
-    seats: 1,
-    storageMb: 2048,
-    widgetConfigs: 3,
-  },
-  business: {
+  team: {
     seats: 1,
     storageMb: 10240,
     widgetConfigs: Infinity,
@@ -56,7 +52,7 @@ const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   },
 }
 
-// Invisible abuse guard (§3.2): a FREE user may own at most this many
+// Invisible abuse guard: a FREE user may own at most this many
 // teams. Not shown in any pricing UI — it only exists to stop storage
 // farming (N free teams × the per-team storage budget). Paid users
 // have no cap.
@@ -81,13 +77,12 @@ export function getPlanLimits(plan: PlanTier): PlanLimits {
 const warnedUnknownProductIds = new Set<string>()
 
 function productIdToTier(productId: string): PlanTier {
-  if (productId === process.env.CREEM_BUSINESS_PRODUCT_ID) return `business`
-  if (productId === process.env.CREEM_BUSINESS_YEARLY_PRODUCT_ID) return `business`
-  if (productId === process.env.CREEM_PRO_PRODUCT_ID) return `pro`
+  if (productId === process.env.CREEM_TEAM_PRODUCT_ID) return `team`
+  if (productId === process.env.CREEM_TEAM_YEARLY_PRODUCT_ID) return `team`
   // Fail closed: an unrecognized product id (rotated/decommissioned product,
   // unset CREEM_*_PRODUCT_ID env) must not grant paid entitlements — a
-  // Business customer silently under-provisioned to Pro would go unnoticed,
-  // and a legacy product would be over-granted forever.
+  // paying customer silently under-provisioned to Free would be noticed and
+  // fixed, while a legacy product would be over-granted forever.
   if (!warnedUnknownProductIds.has(productId)) {
     warnedUnknownProductIds.add(productId)
     console.warn(
@@ -114,9 +109,8 @@ export const ACTIVE_STATUSES = [
 // tier, never lower it.
 const TIER_RANK: Record<PlanTier, number> = {
   free: 0,
-  pro: 1,
-  business: 2,
-  unlimited: 3,
+  team: 1,
+  unlimited: 2,
 }
 
 // Defensive parse of the raw teams.comp_tier column value. `free` is not
@@ -126,7 +120,7 @@ const TIER_RANK: Record<PlanTier, number> = {
 export function parseCompTier(
   value: string | null | undefined
 ): PlanTier | null {
-  if (value === `pro` || value === `business` || value === `unlimited`) {
+  if (value === `team` || value === `unlimited`) {
     return value
   }
   return null
@@ -238,12 +232,9 @@ export async function getUserPlan(
   let bestPlan: PlanTier = `free`
   for (const sub of subs) {
     const tier = productIdToTier(sub.productId)
-    if (tier === `business`) {
-      bestPlan = `business`
+    if (tier === `team`) {
+      bestPlan = `team`
       break
-    }
-    if (tier === `pro` && bestPlan === `free`) {
-      bestPlan = `pro`
     }
   }
 
@@ -299,8 +290,8 @@ export async function getTeamUsage(
   }
 }
 
-// Pure seat gate (§3.3, L19): a team may hold at most `seats` non-agent
-// members. Throws the plan-limit error when full. Exported for unit tests.
+// Pure seat gate: a team may hold at most `seats` members. Throws the
+// plan-limit error when full. Exported for unit tests.
 export function assertSeatAvailable(
   memberCount: number,
   seats: number
@@ -363,12 +354,12 @@ export function assertWidgetCreatable(
   }
 }
 
-// Pure helpdesk gate: the support inbox is a Pro+ feature (no per-tier count —
+// Pure helpdesk gate: the support inbox is a paid feature (no per-tier count —
 // it's a per-team boolean). Exported for unit tests.
 export function assertHelpdeskUsable(plan: PlanTier): void {
   if (plan === `free`) {
     throw planLimitError(
-      `the helpdesk on Pro and Business plans. Upgrade to enable support conversations.`
+      `the helpdesk on the Team plan. Upgrade to enable support conversations.`
     )
   }
 }

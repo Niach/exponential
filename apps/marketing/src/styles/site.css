@@ -170,13 +170,12 @@ h1.hero-title {
   line-height: 1;
   letter-spacing: -0.04em;
   margin: 0 0 20px;
-  /* The widest transient slot segment may briefly exceed tiny viewports
-     mid-spin — clip instead of widening the page scroll width. */
+  /* Clip instead of widening the page scroll width on tiny viewports. */
   overflow-x: clip;
 }
 
-/* Authored H1 lines — block + nowrap pins the wrap point, so the hero
-   slot machine can never change the line count (no vertical page jump). */
+/* Authored H1 lines — block + nowrap pins the wrap point, so the line
+   count (and H1 height) is constant at every viewport (no page jump). */
 .hero-title-line {
   display: block;
   white-space: nowrap;

@@ -50,7 +50,7 @@ export const Route = createFileRoute(
   component: AdminTeamDetail,
 })
 
-type CompChoice = `none` | `pro` | `business` | `unlimited`
+type CompChoice = `none` | `team` | `unlimited`
 
 function eventText(
   type: string,
@@ -226,8 +226,7 @@ function AdminTeamDetail() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="pro">Pro</SelectItem>
-                  <SelectItem value="business">Business</SelectItem>
+                  <SelectItem value="team">Team</SelectItem>
                   <SelectItem value="unlimited">Unlimited</SelectItem>
                 </SelectContent>
               </Select>

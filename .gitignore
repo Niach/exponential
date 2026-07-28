@@ -16,6 +16,14 @@ Caddyfile
 test-results
 recordings
 
+# Internal strategy/marketing docs — kept locally, not part of the public repo (EXP-286)
+docs/masterplan.md
+docs/vision.md
+docs/marketing-playbook.md
+docs/archive/
+docs/reviews/
+apps/marketing/movie-ref/
+
 # Rust (apps/desktop)
 /apps/desktop/target
 

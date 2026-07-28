@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-new-pricing`,
+    date: `2026-07-28`,
+    title: `New pricing: bring two friends`,
+    summary: `The free plan now has 3 seats, and the paid tiers collapsed into one Team plan with everything included.`,
+    body: `- **Free is a team now** — every free team gets **3 seats** instead of 1, with the same 250 MB of attachment storage and a feedback widget. Real-time collaboration is the point of Exponential; now you can try it without paying.
+- **One paid plan: Team** — Pro and Business merged into a single **Team** plan at **€15/seat/mo**, or **€12/seat/mo billed yearly**, with everything included: 10 GB attachment storage, unlimited feedback widgets, the helpdesk & support inbox, and priority support. Existing complimentary tiers carry over automatically.
+- **Self-hosting stays free under 10 people** — and commercial self-host licensing now has published pricing instead of "email us".
+- Enterprise needs (SSO, SLA, DPA, self-host contracts) live behind one Talk-to-us line instead of a fourth plan card.`,
+  },
+  {
     id: `2026-07-one-way-to-attach`,
     date: `2026-07-28`,
     title: `One way to attach, on every screen`,

@@ -14,7 +14,7 @@ export const { fontFamily: MONO_FONT } = loadMono("normal", {
   ignoreTooManyRequestsWarning: true,
 })
 
-// App-exact palette (design-tokens + web styles.css conversions; matched against movie-ref/*.png).
+// App-exact palette (design-tokens + web styles.css conversions; matched against the local-only real-app reference screenshots (untracked)).
 export const C = {
   canvas: "#09090b", // video canvas only
   bg: "#0a0a0a", // app background

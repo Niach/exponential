@@ -10,9 +10,11 @@ export type FeedbackWidgetConfig = {
 
 export type RuntimeConfig = {
   isCloud: boolean
-  creemProProductId: string | null
-  creemBusinessProductId: string | null
-  creemBusinessYearlyProductId: string | null
+  // Team plan product ids: monthly (€15/seat/mo) and yearly (€12/seat/mo,
+  // billed annually). When the yearly id is present the plan card shows a
+  // monthly/yearly toggle.
+  creemTeamProductId: string | null
+  creemTeamYearlyProductId: string | null
   feedbackWidget: FeedbackWidgetConfig | null
 }
 
@@ -21,14 +23,11 @@ export function buildRuntimeConfig(): RuntimeConfig {
 
   return {
     isCloud,
-    creemProProductId: isCloud
-      ? (process.env.CREEM_PRO_PRODUCT_ID ?? null)
+    creemTeamProductId: isCloud
+      ? (process.env.CREEM_TEAM_PRODUCT_ID ?? null)
       : null,
-    creemBusinessProductId: isCloud
-      ? (process.env.CREEM_BUSINESS_PRODUCT_ID ?? null)
-      : null,
-    creemBusinessYearlyProductId: isCloud
-      ? (process.env.CREEM_BUSINESS_YEARLY_PRODUCT_ID ?? null)
+    creemTeamYearlyProductId: isCloud
+      ? (process.env.CREEM_TEAM_YEARLY_PRODUCT_ID ?? null)
       : null,
     // Cloud-only — filled in from the DB by getRuntimeConfig.
     feedbackWidget: null,

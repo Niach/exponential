@@ -642,7 +642,7 @@ export const adminRouter = router({
         teamId: z.string().uuid(),
         // null clears the comp back to the pure Creem-derived plan. `free` is
         // deliberately not grantable — a floor of free is a no-op.
-        compTier: z.enum([`pro`, `business`, `unlimited`]).nullable(),
+        compTier: z.enum([`team`, `unlimited`]).nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -706,18 +706,21 @@ export const adminRouter = router({
         .orderBy(wsDay),
     ])
 
-    // Naive monthly revenue: pro $5/seat/mo, business $10/seat/mo. Yearly
-    // subscriptions (pro is yearly-ONLY, business optionally yearly) are
-    // normalized to their monthly-equivalent rate here — this is an MRR-style
-    // estimate, not this month's actual cash collection.
+    // Naive monthly revenue in EUR: Team monthly €15/seat/mo, Team yearly
+    // €12/seat/mo (billed annually — normalized to its monthly-equivalent
+    // rate here). This is an MRR-style estimate, not this month's actual
+    // cash collection.
     let estimatedMrr = 0
     let seatTotal = 0
     for (const sub of subRows) {
       const tier = planFromSubscription(sub).plan
       const seats = Number.isInteger(sub.seats) && sub.seats > 0 ? sub.seats : 1
       seatTotal += seats
-      if (tier === `pro`) estimatedMrr += 5 * seats
-      else if (tier === `business`) estimatedMrr += 10 * seats
+      if (tier === `team`) {
+        const monthlyRate =
+          sub.productId === process.env.CREEM_TEAM_YEARLY_PRODUCT_ID ? 12 : 15
+        estimatedMrr += monthlyRate * seats
+      }
     }
 
     return {

@@ -25,9 +25,8 @@ function SettingsBilling() {
       {team && config && (
         <TeamBillingSection
           teamId={team.id}
-          proProductId={config.creemProProductId}
-          businessProductId={config.creemBusinessProductId}
-          businessYearlyProductId={config.creemBusinessYearlyProductId}
+          teamProductId={config.creemTeamProductId}
+          teamYearlyProductId={config.creemTeamYearlyProductId}
         />
       )}
     </SettingsSectionGuard>

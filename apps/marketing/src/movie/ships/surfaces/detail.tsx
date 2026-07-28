@@ -1,6 +1,6 @@
 // surfaces/detail.tsx — IssueDetailPane: the EXP-142 center pane (Details/Changes header,
 // title, markdown toolbar + description, activity, composer) + the 288px properties panel.
-// Pixel truth: movie-ref/desktop-hero-board-issue.png (right two-thirds). All frames are
+// Pixel truth: the desktop-hero-board-issue reference screenshot (local-only, untracked; right two-thirds). All frames are
 // composition-global; the assembler passes `frame` down (no useCurrentFrame here).
 //
 // Coordinates: the pane lays out in PANE-LOCAL px. The assembler is expected to place it

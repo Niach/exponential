@@ -31,7 +31,7 @@ export const Route = createRootRoute({
       },
       {
         name: `description`,
-        content: `Real-time issue tracker`,
+        content: `Issues, support and coding agents in one realtime workspace`,
       },
       {
         // No page of the app instance is indexable — public feedback boards

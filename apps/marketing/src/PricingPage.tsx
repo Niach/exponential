@@ -1,6 +1,6 @@
 import { motion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
-import { PlanCards, SelfHostCards } from "./components/PlanCards"
+import { EnterpriseLine, PlanCards, SelfHostCards } from "./components/PlanCards"
 import { ComparisonTable } from "./components/ComparisonTable"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 import { EVERY_PLAN_INCLUDES } from "./lib/plans"
@@ -19,13 +19,13 @@ export function PricingPage() {
             animate="visible"
           >
             <motion.h1 className="hero-title" variants={heroChild}>
-              Free for individuals.
+              Free for teams of three.
               <br />
-              <em>Affordable for teams.</em>
+              <em>One plan after that.</em>
             </motion.h1>
             <motion.p className="hero-sub" variants={heroChild}>
-              Start solo for free. Bring your team when you&apos;re ready —
-              without breaking the bank.
+              Start with your whole team for free. One paid plan with
+              everything in it — no feature matrix to decode.
             </motion.p>
           </motion.div>
         </section>
@@ -33,6 +33,7 @@ export function PricingPage() {
         <section style={{ paddingTop: 0 }}>
           <div className="shell">
             <PlanCards />
+            <EnterpriseLine />
             <p className="plan-footnote">
               {EVERY_PLAN_INCLUDES} Agents are free everywhere — you only ever
               pay for people.
@@ -50,10 +51,11 @@ export function PricingPage() {
         >
           <motion.div className="shell" {...sectionReveal}>
             <span className="section-eyebrow">Run it yourself</span>
-            <h2 className="section-title">Self-host it, free.</h2>
+            <h2 className="section-title">Self-host it. Your data.</h2>
             <p className="section-sub">
               Every feature unlocked, on your own hardware. Free under the
-              Exponential Small Team License while you&apos;re under 10 people.
+              Exponential Small Team License while you&apos;re under 10 people
+              — published annual pricing above that, no negotiation required.
             </p>
             <SelfHostCards />
           </motion.div>
@@ -73,7 +75,7 @@ export function PricingPage() {
 
         <FooterCTA
           title="Start free today."
-          subtitle="A team for you and your coding agents, free forever. No card required."
+          subtitle="Three seats and your coding agents, free forever. No card required."
         />
       </main>
       <SiteFooter />

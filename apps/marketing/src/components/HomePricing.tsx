@@ -3,9 +3,9 @@ import { eyebrowDraw, sectionReveal } from "../lib/animations"
 import { EVERY_PLAN_INCLUDES } from "../lib/plans"
 import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
-import { PlanCards } from "./PlanCards"
+import { EnterpriseLine, PlanCards } from "./PlanCards"
 
-/* ── Home pricing — the four cloud tiers ──
+/* ── Home pricing — Free + Team ──
    The SAME full feature cards as /pricing/ (shared PlanCards over the
    canonical lib/plans.ts); the self-host tiers + comparison table stay
    on /pricing/. */
@@ -17,13 +17,14 @@ export function HomePricing() {
           <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
             Pricing
           </motion.span>
-          <h2 className={`section-title`}>Free for individuals.</h2>
+          <h2 className={`section-title`}>Free for teams of three.</h2>
           <p className={`section-sub`}>
-            Upgrade when your team does. Self-hosting is free under 10 people.
+            One plan when you grow. Self-hosting is free under 10 people.
           </p>
         </motion.div>
 
         <PlanCards />
+        <EnterpriseLine />
 
         <p className={`plan-footnote`}>{EVERY_PLAN_INCLUDES}</p>
 

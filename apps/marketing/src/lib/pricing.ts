@@ -17,19 +17,27 @@ export type CompareRow = {
    plain wording — no technical/env-var strings. */
 export const linearComparison: CompareRow[] = [
   {
-    label: `Paid plans start at`,
-    exponential: { value: `$5 / seat / mo`, good: true },
-    linear: { value: `$10 / user / mo` },
+    label: `Free tier`,
+    exponential: { value: `3 seats, full product`, good: true },
+    linear: { value: `Limited issues` },
   },
   {
-    label: `Team of 5, one year`,
-    exponential: { value: `$300`, good: true },
-    linear: { value: `$600` },
+    label: `One paid plan`,
+    exponential: {
+      value: `€12 / seat / mo billed yearly — everything included`,
+      good: true,
+    },
+    linear: { value: `$10–14 / user / mo, features split across tiers` },
+  },
+  {
+    label: `Helpdesk & feedback widget`,
+    exponential: { value: `Built in — one seat price`, good: true },
+    linear: { value: `Separate tools, separately billed` },
   },
   {
     label: `AI coding`,
     exponential: {
-      value: `Bring your own agents — run locally, free`,
+      value: `Bring your own agents — unlimited sessions, flat price`,
       good: true,
     },
     linear: { value: `Cloud agents, billed per use` },

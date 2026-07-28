@@ -1,7 +1,12 @@
 import { motion } from "motion/react"
 import { Check, Mail, Server } from "lucide-react"
 import { cardReveal, staggerContainer, viewportOnce } from "../lib/animations"
-import { CLOUD_PLANS, SELF_HOST_PLANS, type CloudPlan } from "../lib/plans"
+import {
+  CLOUD_PLANS,
+  ENTERPRISE_LINE,
+  SELF_HOST_PLANS,
+  type CloudPlan,
+} from "../lib/plans"
 import { IcArrow } from "./icons"
 
 function FeatureList({ features }: { features: string[] }) {
@@ -59,6 +64,16 @@ export function PlanCards() {
         </motion.div>
       ))}
     </motion.div>
+  )
+}
+
+/* Enterprise is a sales motion, not a tier (EXP-286) — one line under the
+   cloud grid instead of a fourth card. */
+export function EnterpriseLine() {
+  return (
+    <p className="plan-enterprise-line">
+      {ENTERPRISE_LINE} <a href="/contact/">Talk to us</a>.
+    </p>
   )
 }
 

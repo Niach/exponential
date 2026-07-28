@@ -50,8 +50,9 @@ export function ContactPage() {
             Self-hosting is free while your company and its affiliates have
             fewer than 10 total individuals working as employees and
             independent contractors. At 10 or more you need a{` `}
-            <strong>commercial self-host license</strong> — this form is how
-            you get one. Enterprise cloud, prioritized support, and deployment
+            <strong>commercial self-host license</strong> — €590/year up to 25
+            people, €1,900/year up to 100, custom above — and this form is how
+            you get one. SSO, SLA, DPA, prioritized support, and deployment
             help start here too.
           </p>
 

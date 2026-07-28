@@ -701,11 +701,14 @@ docker rm -f exponential-web
 
             <h3>10 or more — commercial license</h3>
             <p>
-              Once you count 10 or more, you need a commercial license. Email
-              {` `}
+              Once you count 10 or more, you need a commercial license. The
+              pricing is published: <strong>€590/year</strong> for companies of
+              up to 25 people, <strong>€1,900/year</strong> up to 100, custom
+              above that — one annual invoice, extended support included.{` `}
+              <a href="/contact/">Contact sales</a> or email{` `}
               <a href="mailto:support@exponential.at">support@exponential.at</a>
               {` `}
-              and we&apos;ll sort it out.
+              to get one.
             </p>
 
             <h3>Non-production is free at any size</h3>

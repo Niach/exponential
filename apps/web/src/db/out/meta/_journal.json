@@ -379,6 +379,13 @@
       "when": 1785199436113,
       "tag": "0053_small_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1785650000000,
+      "tag": "0054_team_tier_rebrand",
+      "breakpoints": true
     }
   ]
 }

@@ -1,1 +1,1 @@
-The development platform for teams and agents. Feedback in, pull requests out — track issues in real time and let a coding agent open the PR.
+Vibecode together. Issues, support and coding agents in one realtime workspace — agents run locally on your subscription. Unlimited sessions, flat price.

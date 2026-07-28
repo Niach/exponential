@@ -226,10 +226,9 @@ function InviteControls({ teamId }: { teamId: string }) {
   const [sending, setSending] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [productIds, setProductIds] = useState<{
-    pro: string | null
-    business: string | null
-    businessYearly: string | null
-  }>({ pro: null, business: null, businessYearly: null })
+    team: string | null
+    teamYearly: string | null
+  }>({ team: null, teamYearly: null })
   const invites = useTeamInvites(teamId).filter(
     (invite) => !invite.acceptedAt
   )
@@ -237,9 +236,8 @@ function InviteControls({ teamId }: { teamId: string }) {
   useEffect(() => {
     void getRuntimeConfig().then((config) => {
       setProductIds({
-        pro: config.creemProProductId,
-        business: config.creemBusinessProductId,
-        businessYearly: config.creemBusinessYearlyProductId,
+        team: config.creemTeamProductId,
+        teamYearly: config.creemTeamYearlyProductId,
       })
     })
   }, [])
@@ -428,9 +426,8 @@ function InviteControls({ teamId }: { teamId: string }) {
         onOpenChange={setUpgradeOpen}
         title="Out of seats"
         description="Everyone on your plan's seats is already in this team. Add seats to invite more teammates."
-        proProductId={productIds.pro}
-        businessProductId={productIds.business}
-        businessYearlyProductId={productIds.businessYearly}
+        teamProductId={productIds.team}
+        teamYearlyProductId={productIds.teamYearly}
         teamId={teamId}
       />
     </>

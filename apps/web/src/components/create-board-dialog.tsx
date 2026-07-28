@@ -49,10 +49,9 @@ export function CreateBoardDialog({
   const [submitting, setSubmitting] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [productIds, setProductIds] = useState<{
-    pro: string | null
-    business: string | null
-    businessYearly: string | null
-  }>({ pro: null, business: null, businessYearly: null })
+    team: string | null
+    teamYearly: string | null
+  }>({ team: null, teamYearly: null })
 
   const [selection, setSelection] = useState<RepoSelection | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -60,9 +59,8 @@ export function CreateBoardDialog({
   useEffect(() => {
     void getRuntimeConfig().then((config) => {
       setProductIds({
-        pro: config.creemProProductId,
-        business: config.creemBusinessProductId,
-        businessYearly: config.creemBusinessYearlyProductId,
+        team: config.creemTeamProductId,
+        teamYearly: config.creemTeamYearlyProductId,
       })
     })
   }, [])
@@ -218,9 +216,8 @@ export function CreateBoardDialog({
         onOpenChange={setUpgradeOpen}
         title="Board limit reached"
         description="You've reached the maximum number of boards for your plan. Upgrade to create more."
-        proProductId={productIds.pro}
-        businessProductId={productIds.business}
-        businessYearlyProductId={productIds.businessYearly}
+        teamProductId={productIds.team}
+        teamYearlyProductId={productIds.teamYearly}
         teamId={teamId}
       />
     </>

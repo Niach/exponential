@@ -15,7 +15,7 @@ import { isCloudInstance } from "@/lib/bootstrap-cloud"
 // `new config + old config` (later ~7× the delta) instead of `new − old`, and
 // by 07-09 the DECREASE path had regressed to charging instead of refunding.
 // We pinned `proration-none` while that was true. Re-verified 2026-07-21 on the
-// reference sub (`sub_6SozDXpVcqEKSm7BkibgOR`, Pro yearly $60/seat/yr, ~14.6d
+// reference sub (`sub_6SozDXpVcqEKSm7BkibgOR`, then-Pro yearly $60/seat/yr, ~14.6d
 // into the period): both paths are now correct — an increase 2→3 charged
 // exactly the prorated delta ($57.60) and a decrease 3→2 refunded it in full.
 // Both flip gates met, so we run `proration-charge-immediately`: seat/plan
@@ -292,7 +292,7 @@ export async function findActiveSubscriptionsForTeams(
  *    fully served — by the incumbent the duplicate competes with. The
  *    duplicate funds nothing on top of that, so every day it stays open is
  *    pure double-charge; `scheduled` would leave it live (and the invariant
- *    broken) until period end, which on the yearly-only Pro plan is up to a
+ *    broken) until period end, which on a yearly-billed plan is up to a
  *    year away, long past any refund window for the charge that just landed.
  *
  * Self-service cancellation is the opposite case and uses

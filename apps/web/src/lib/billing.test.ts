@@ -1,11 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import { TRPCError } from "@trpc/server"
 
-// Per-seat billing (masterplan v5 §3). The db-backed helpers query drizzle
-// chains and read isCloudInstance(); both are mocked so the resolution/gating
-// logic can be exercised without Postgres. `db.select()` shifts the next
-// pre-seeded result array off a FIFO queue — within any single billing helper
-// the select order is deterministic, so the queue order matches call order.
+// Per-seat billing (EXP-286 tier model: free | team | unlimited). The
+// db-backed helpers query drizzle chains and read isCloudInstance(); both are
+// mocked so the resolution/gating logic can be exercised without Postgres.
+// `db.select()` shifts the next pre-seeded result array off a FIFO queue —
+// within any single billing helper the select order is deterministic, so the
+// queue order matches call order.
 const { selectResults, cloud } = vi.hoisted(() => ({
   selectResults: [] as unknown[][],
   cloud: { value: true },
@@ -57,37 +58,30 @@ import {
 } from "./billing"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "./plan-limit-error"
 
-const PRO_ID = `prod_pro_yearly`
-const BUSINESS_ID = `prod_business_monthly`
-const BUSINESS_YEARLY_ID = `prod_business_yearly`
+const TEAM_ID = `prod_team_monthly`
+const TEAM_YEARLY_ID = `prod_team_yearly`
 const WS = `11111111-1111-1111-1111-111111111111`
 const USER = `user-1`
 
 beforeEach(() => {
   selectResults.length = 0
   cloud.value = true
-  process.env.CREEM_PRO_PRODUCT_ID = PRO_ID
-  process.env.CREEM_BUSINESS_PRODUCT_ID = BUSINESS_ID
-  process.env.CREEM_BUSINESS_YEARLY_PRODUCT_ID = BUSINESS_YEARLY_ID
+  process.env.CREEM_TEAM_PRODUCT_ID = TEAM_ID
+  process.env.CREEM_TEAM_YEARLY_PRODUCT_ID = TEAM_YEARLY_ID
 })
 
-describe(`getPlanLimits — the §3.2 target table`, () => {
-  it(`free = 1 seat / 250 MB / 1 widget`, () => {
+describe(`getPlanLimits — the tier table`, () => {
+  it(`free = 3 seats / 250 MB / 1 widget`, () => {
     expect(getPlanLimits(`free`)).toEqual({
-      seats: 1,
+      seats: 3,
       storageMb: 250,
       widgetConfigs: 1,
     })
   })
-  it(`pro = 2 GB / 3 widgets`, () => {
-    const pro = getPlanLimits(`pro`)
-    expect(pro.storageMb).toBe(2048)
-    expect(pro.widgetConfigs).toBe(3)
-  })
-  it(`business = 10 GB / unlimited widgets`, () => {
-    const biz = getPlanLimits(`business`)
-    expect(biz.storageMb).toBe(10240)
-    expect(biz.widgetConfigs).toBe(Infinity)
+  it(`team = 10 GB / unlimited widgets`, () => {
+    const team = getPlanLimits(`team`)
+    expect(team.storageMb).toBe(10240)
+    expect(team.widgetConfigs).toBe(Infinity)
   })
   it(`unlimited = everything Infinity`, () => {
     expect(getPlanLimits(`unlimited`)).toEqual({
@@ -102,36 +96,36 @@ describe(`planFromSubscription — team-bound resolution`, () => {
   it(`null subscription → free defaults`, () => {
     expect(planFromSubscription(null)).toEqual({
       plan: `free`,
-      limits: { seats: 1, storageMb: 250, widgetConfigs: 1 },
+      limits: { seats: 3, storageMb: 250, widgetConfigs: 1 },
     })
   })
 
-  it(`pro subscription: purchased seats override the placeholder`, () => {
+  it(`team subscription: purchased seats override the placeholder`, () => {
     const { plan, limits } = planFromSubscription({
-      productId: PRO_ID,
+      productId: TEAM_ID,
       seats: 7,
     })
-    expect(plan).toBe(`pro`)
+    expect(plan).toBe(`team`)
     expect(limits.seats).toBe(7)
-    expect(limits.storageMb).toBe(2048)
-    expect(limits.widgetConfigs).toBe(3)
+    expect(limits.storageMb).toBe(10240)
+    expect(limits.widgetConfigs).toBe(Infinity)
   })
 
-  it(`business (monthly + yearly product ids) both resolve to business`, () => {
-    expect(planFromSubscription({ productId: BUSINESS_ID, seats: 3 }).plan).toBe(
-      `business`
+  it(`team (monthly + yearly product ids) both resolve to team`, () => {
+    expect(planFromSubscription({ productId: TEAM_ID, seats: 3 }).plan).toBe(
+      `team`
     )
     expect(
-      planFromSubscription({ productId: BUSINESS_YEARLY_ID, seats: 3 }).plan
-    ).toBe(`business`)
+      planFromSubscription({ productId: TEAM_YEARLY_ID, seats: 3 }).plan
+    ).toBe(`team`)
   })
 
   it(`invalid/zero seats fall back to 1 (never leaves a paid ws at 0 seats)`, () => {
-    expect(planFromSubscription({ productId: PRO_ID, seats: 0 }).limits.seats).toBe(
-      1
-    )
     expect(
-      planFromSubscription({ productId: PRO_ID, seats: -5 }).limits.seats
+      planFromSubscription({ productId: TEAM_ID, seats: 0 }).limits.seats
+    ).toBe(1)
+    expect(
+      planFromSubscription({ productId: TEAM_ID, seats: -5 }).limits.seats
     ).toBe(1)
   })
 
@@ -145,11 +139,11 @@ describe(`planFromSubscription — team-bound resolution`, () => {
     expect(limits.widgetConfigs).toBe(1)
   })
 
-  it(`a configured id no longer matching after env rotation resolves free, not pro`, () => {
-    delete process.env.CREEM_BUSINESS_PRODUCT_ID
-    expect(
-      planFromSubscription({ productId: BUSINESS_ID, seats: 3 }).plan
-    ).toBe(`free`)
+  it(`a configured id no longer matching after env rotation resolves free, not team`, () => {
+    delete process.env.CREEM_TEAM_PRODUCT_ID
+    expect(planFromSubscription({ productId: TEAM_ID, seats: 3 }).plan).toBe(
+      `free`
+    )
   })
 })
 
@@ -179,27 +173,26 @@ describe(`assertWidgetCreatable — per-tier count cap`, () => {
     expect(() => assertWidgetCreatable(`free`, free, 0)).not.toThrow()
     expect(() => assertWidgetCreatable(`free`, free, 1)).toThrow(TRPCError)
   })
-  it(`pro allows up to three configs, blocks the fourth`, () => {
-    const pro = getPlanLimits(`pro`)
-    expect(() => assertWidgetCreatable(`pro`, pro, 2)).not.toThrow()
-    expect(() => assertWidgetCreatable(`pro`, pro, 3)).toThrow(TRPCError)
-  })
-  it(`business allows many (unlimited configs)`, () => {
-    const biz = getPlanLimits(`business`)
-    expect(() => assertWidgetCreatable(`business`, biz, 99)).not.toThrow()
+  it(`team allows many (unlimited configs)`, () => {
+    const team = getPlanLimits(`team`)
+    expect(() => assertWidgetCreatable(`team`, team, 99)).not.toThrow()
   })
 })
 
 describe(`parseCompTier — defensive column parse`, () => {
-  it(`accepts the three grantable tiers`, () => {
-    expect(parseCompTier(`pro`)).toBe(`pro`)
-    expect(parseCompTier(`business`)).toBe(`business`)
+  it(`accepts the two grantable tiers`, () => {
+    expect(parseCompTier(`team`)).toBe(`team`)
     expect(parseCompTier(`unlimited`)).toBe(`unlimited`)
   })
-  it(`rejects null, undefined, free, and garbage strings`, () => {
+  it(`rejects null, undefined, free, legacy tiers, and garbage strings`, () => {
     expect(parseCompTier(null)).toBeNull()
     expect(parseCompTier(undefined)).toBeNull()
     expect(parseCompTier(`free`)).toBeNull()
+    // The pre-EXP-286 tiers are a clean cut — migration 0054 rewrites any
+    // stored `pro`/`business` comp to `team`; the parser must not resurrect
+    // them.
+    expect(parseCompTier(`pro`)).toBeNull()
+    expect(parseCompTier(`business`)).toBeNull()
     expect(parseCompTier(`gold`)).toBeNull()
     expect(parseCompTier(``)).toBeNull()
   })
@@ -207,21 +200,19 @@ describe(`parseCompTier — defensive column parse`, () => {
 
 describe(`resolveEffectiveTier — comp floor (effective = max by rank)`, () => {
   it(`comp lifts a lower creem tier`, () => {
-    expect(resolveEffectiveTier(`free`, `pro`)).toBe(`pro`)
-    expect(resolveEffectiveTier(`free`, `business`)).toBe(`business`)
-    expect(resolveEffectiveTier(`pro`, `business`)).toBe(`business`)
+    expect(resolveEffectiveTier(`free`, `team`)).toBe(`team`)
     expect(resolveEffectiveTier(`free`, `unlimited`)).toBe(`unlimited`)
+    expect(resolveEffectiveTier(`team`, `unlimited`)).toBe(`unlimited`)
   })
   it(`never lowers: a comp below the creem tier is a no-op`, () => {
-    expect(resolveEffectiveTier(`business`, `pro`)).toBe(`business`)
-    expect(resolveEffectiveTier(`unlimited`, `business`)).toBe(`unlimited`)
+    expect(resolveEffectiveTier(`unlimited`, `team`)).toBe(`unlimited`)
   })
   it(`equal tiers keep the creem tier (purchased seats stay authoritative)`, () => {
-    expect(resolveEffectiveTier(`business`, `business`)).toBe(`business`)
+    expect(resolveEffectiveTier(`team`, `team`)).toBe(`team`)
   })
   it(`null / unknown comp values are ignored`, () => {
     expect(resolveEffectiveTier(`free`, null)).toBe(`free`)
-    expect(resolveEffectiveTier(`pro`, undefined)).toBe(`pro`)
+    expect(resolveEffectiveTier(`team`, undefined)).toBe(`team`)
     expect(resolveEffectiveTier(`free`, `gold`)).toBe(`free`)
     expect(resolveEffectiveTier(`free`, `free`)).toBe(`free`)
   })
@@ -261,38 +252,31 @@ describe(`getTeamPlan — team-bound lookup (no owner fan-out)`, () => {
   })
 
   it(`resolves the plan + seats from the bound subscription row`, async () => {
-    seedPlan([{ productId: PRO_ID, seats: 12 }], null)
+    seedPlan([{ productId: TEAM_ID, seats: 12 }], null)
     const { plan, limits } = await getTeamPlan(WS)
-    expect(plan).toBe(`pro`)
+    expect(plan).toBe(`team`)
     expect(limits.seats).toBe(12)
   })
 
   it(`comp tier lifts a free team — limits follow the comped tier`, async () => {
-    seedPlan([], `business`)
+    seedPlan([], `team`)
     const { plan, limits } = await getTeamPlan(WS)
-    expect(plan).toBe(`business`)
+    expect(plan).toBe(`team`)
     expect(limits.storageMb).toBe(10240)
     expect(limits.widgetConfigs).toBe(Infinity)
     // No purchased quantity behind a comp → seats are uncapped, never 1.
     expect(limits.seats).toBe(Infinity)
   })
 
-  it(`comp below the subscription tier changes nothing`, async () => {
-    seedPlan([{ productId: BUSINESS_ID, seats: 8 }], `pro`)
-    const { plan, limits } = await getTeamPlan(WS)
-    expect(plan).toBe(`business`)
-    expect(limits.seats).toBe(8)
-  })
-
   it(`comp equal to the subscription tier keeps purchased seat gating`, async () => {
-    seedPlan([{ productId: PRO_ID, seats: 4 }], `pro`)
+    seedPlan([{ productId: TEAM_ID, seats: 4 }], `team`)
     const { plan, limits } = await getTeamPlan(WS)
-    expect(plan).toBe(`pro`)
+    expect(plan).toBe(`team`)
     expect(limits.seats).toBe(4)
   })
 
   it(`comp above the subscription tier wins and lifts limits`, async () => {
-    seedPlan([{ productId: PRO_ID, seats: 4 }], `unlimited`)
+    seedPlan([{ productId: TEAM_ID, seats: 4 }], `unlimited`)
     const { plan, limits } = await getTeamPlan(WS)
     expect(plan).toBe(`unlimited`)
     expect(limits).toEqual(getPlanLimits(`unlimited`))
@@ -300,6 +284,11 @@ describe(`getTeamPlan — team-bound lookup (no owner fan-out)`, () => {
 
   it(`garbage comp_tier values are ignored`, async () => {
     seedPlan([], `platinum`)
+    expect((await getTeamPlan(WS)).plan).toBe(`free`)
+  })
+
+  it(`legacy pro/business comp values no longer resolve (migration 0054 rewrites them)`, async () => {
+    seedPlan([], `business`)
     expect((await getTeamPlan(WS)).plan).toBe(`free`)
   })
 
@@ -325,9 +314,12 @@ describe(`getUserPlan — best purchased tier for the abuse guard`, () => {
     selectResults.push([])
     expect((await getUserPlan(USER)).plan).toBe(`free`)
   })
-  it(`business wins over pro across multiple subs`, async () => {
-    selectResults.push([{ productId: PRO_ID }, { productId: BUSINESS_ID }])
-    expect((await getUserPlan(USER)).plan).toBe(`business`)
+  it(`any team subscription resolves to team`, async () => {
+    selectResults.push([
+      { productId: `prod_unknown` },
+      { productId: TEAM_YEARLY_ID },
+    ])
+    expect((await getUserPlan(USER)).plan).toBe(`team`)
   })
   it(`self-hosted → unlimited`, async () => {
     cloud.value = false
@@ -335,10 +327,10 @@ describe(`getUserPlan — best purchased tier for the abuse guard`, () => {
   })
 })
 
-describe(`getTeamUsage — agent-excluded member count`, () => {
+describe(`getTeamUsage`, () => {
   it(`counts members, storage MB, and widget configs`, async () => {
     // Order matches getTeamUsage's Promise.all: members, storage, widgets.
-    selectResults.push([{ count: 1 }]) // members (already agent-excluded by SQL)
+    selectResults.push([{ count: 1 }]) // members
     selectResults.push([{ totalBytes: `${5 * 1024 * 1024}` }]) // 5 MB
     selectResults.push([{ count: 2 }]) // widget configs
     const usage = await getTeamUsage(WS)
@@ -362,23 +354,28 @@ describe(`assertCanInviteMember — seat gate wired to team usage`, () => {
     selectResults.push([{ count: 0 }]) // usage widgets
   }
 
-  it(`blocks the first invite on free (1 seat, owner already fills it)`, async () => {
+  it(`allows the first invites on free (3 seats)`, async () => {
     await seed([], 1)
+    await expect(assertCanInviteMember(WS)).resolves.toBeUndefined()
+  })
+
+  it(`blocks the invite that would exceed free's 3 seats`, async () => {
+    await seed([], 3)
     await expect(assertCanInviteMember(WS)).rejects.toThrow(TRPCError)
   })
 
   it(`a comped team is never seat-gated (no purchased quantity)`, async () => {
-    await seed([], 25, `pro`)
+    await seed([], 25, `team`)
     await expect(assertCanInviteMember(WS)).resolves.toBeUndefined()
   })
 
   it(`allows an invite when purchased seats exceed members`, async () => {
-    await seed([{ productId: PRO_ID, seats: 5 }], 2)
+    await seed([{ productId: TEAM_ID, seats: 5 }], 2)
     await expect(assertCanInviteMember(WS)).resolves.toBeUndefined()
   })
 
   it(`blocks once members reach the purchased seat count (downgrade → invites only)`, async () => {
-    await seed([{ productId: PRO_ID, seats: 3 }], 3)
+    await seed([{ productId: TEAM_ID, seats: 3 }], 3)
     await expect(assertCanInviteMember(WS)).rejects.toThrow(TRPCError)
   })
 
@@ -388,7 +385,7 @@ describe(`assertCanInviteMember — seat gate wired to team usage`, () => {
   })
 })
 
-describe(`assertCanCreateWidget — server-side Pro gate`, () => {
+describe(`assertCanCreateWidget — server-side widget-count gate`, () => {
   async function seed(
     sub: unknown[],
     widgets: number,
@@ -411,14 +408,9 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
     await expect(assertCanCreateWidget(WS)).rejects.toThrow(TRPCError)
   })
 
-  it(`pro team can create a second widget (3-config cap)`, async () => {
-    await seed([{ productId: PRO_ID, seats: 3 }], 1)
+  it(`team plan is never capped (unlimited configs)`, async () => {
+    await seed([{ productId: TEAM_ID, seats: 3 }], 99)
     await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
-  })
-
-  it(`pro team blocked at its 3-config cap`, async () => {
-    await seed([{ productId: PRO_ID, seats: 3 }], 3)
-    await expect(assertCanCreateWidget(WS)).rejects.toThrow(TRPCError)
   })
 
   it(`self-hosted skips the gate`, async () => {
@@ -427,34 +419,33 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
   })
 })
 
-describe(`assertCanUseHelpdesk — server-side Pro gate`, () => {
+describe(`assertCanUseHelpdesk — server-side paid gate`, () => {
   function seedPlan(sub: unknown[], compTier: string | null = null) {
     selectResults.push(sub) // getTeamPlan sub lookup
     selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
   }
 
   it(`pure gate: free throws the plan-limit error, paid tiers pass`, () => {
-    expect(() => assertHelpdeskUsable(`free`)).toThrow(/Pro and Business/)
+    expect(() => assertHelpdeskUsable(`free`)).toThrow(/Team plan/)
     expect(() => assertHelpdeskUsable(`free`)).toThrow(
       new RegExp(PLAN_LIMIT_MESSAGE_PREFIX)
     )
-    expect(() => assertHelpdeskUsable(`pro`)).not.toThrow()
-    expect(() => assertHelpdeskUsable(`business`)).not.toThrow()
+    expect(() => assertHelpdeskUsable(`team`)).not.toThrow()
     expect(() => assertHelpdeskUsable(`unlimited`)).not.toThrow()
   })
 
   it(`free team cannot use the helpdesk`, async () => {
     seedPlan([])
-    await expect(assertCanUseHelpdesk(WS)).rejects.toThrow(/Pro and Business/)
+    await expect(assertCanUseHelpdesk(WS)).rejects.toThrow(/Team plan/)
   })
 
-  it(`pro team can`, async () => {
-    seedPlan([{ productId: PRO_ID, seats: 3 }])
+  it(`team-plan team can`, async () => {
+    seedPlan([{ productId: TEAM_ID, seats: 3 }])
     await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
   })
 
-  it(`a pro comp unlocks it`, async () => {
-    seedPlan([], `pro`)
+  it(`a team comp unlocks it`, async () => {
+    seedPlan([], `team`)
     await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
   })
 
@@ -482,8 +473,8 @@ describe(`assertWithinStorageLimit — per-team storage budget`, () => {
     await expect(assertWithinStorageLimit(WS, 1)).rejects.toThrow(TRPCError)
   })
 
-  it(`a business comp lifts the storage budget past the free cap`, async () => {
-    await seed([], 250, `business`)
+  it(`a team comp lifts the storage budget past the free cap`, async () => {
+    await seed([], 250, `team`)
     await expect(assertWithinStorageLimit(WS, 1024)).resolves.toBeUndefined()
   })
 
@@ -501,8 +492,8 @@ describe(`assertWithinStorageLimit — per-team storage budget`, () => {
 })
 
 describe(`PlanTier type export is usable`, () => {
-  it(`accepts the four tiers`, () => {
-    const tiers: PlanTier[] = [`free`, `pro`, `business`, `unlimited`]
-    expect(tiers).toHaveLength(4)
+  it(`accepts the three tiers`, () => {
+    const tiers: PlanTier[] = [`free`, `team`, `unlimited`]
+    expect(tiers).toHaveLength(3)
   })
 })

@@ -114,7 +114,7 @@ const readAnnotations = { readOnlyHint: true, idempotentHint: true }
 export function WebMcpReadTools() {
   useWebMCP({
     name: `get_context`,
-    description: `Get what is currently open in the Exponential issue tracker: team, board, issue on screen, and the signed-in user. Call this first to orient.`,
+    description: `Get what is currently open in the Exponential workspace: team, board, issue on screen, and the signed-in user. Call this first to orient.`,
     annotations: readAnnotations,
     handler: async () => {
       const ctx = getWebMcpAppContext()

@@ -65,8 +65,8 @@ export function FeedbackDocsPage() {
             <h2>Helpdesk &amp; support inbox</h2>
             <p>
               One switch gives your whole team a helpdesk:{` `}
-              <strong>Settings → Feedback widget → Helpdesk</strong> (Pro
-              plans and up). With it on, support requests from the widget open
+              <strong>Settings → Feedback widget → Helpdesk</strong> (Team
+              plan). With it on, support requests from the widget open
               {` `}
               <strong>tickets in your team&apos;s shared Support inbox</strong>
               {` `}— standalone email conversations with the reporter, not
