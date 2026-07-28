@@ -22,7 +22,7 @@ const h = vi.hoisted(() => {
       update: vi.fn(),
       delete: vi.fn(),
     },
-    issues: { prFiles: vi.fn() },
+    issues: { prFiles: vi.fn(), retargetPr: vi.fn() },
     boards: { delete: vi.fn(), setRepository: vi.fn() },
     teams: { create: vi.fn(), update: vi.fn() },
     teamInvites: { create: vi.fn(), list: vi.fn(), revoke: vi.fn() },
@@ -331,6 +331,14 @@ const descriptors: Array<Descriptor> = [
     resolved: { repo: `a/b`, prNumber: 7, files: [] },
     expected: { repo: `a/b`, prNumber: 7, files: [] },
     calledWith: { issueId: UUID },
+  },
+  {
+    tool: `exponential_pr_retarget`,
+    pick: () => caller.issues.retargetPr,
+    args: { issueId: UUID, base: `master` },
+    resolved: { retargeted: true, base: `master` },
+    expected: { retargeted: true, base: `master` },
+    calledWith: { issueId: UUID, base: `master` },
   },
   {
     tool: `exponential_boards_delete`,

@@ -141,16 +141,24 @@ pub enum ActionRunKind {
     CreateAction,
     /// The "Fix merge conflicts" run (EXP-259): spawned in the WORKTREE of
     /// the selected PR's branch (the caller resolved the `pr` input to the
-    /// representative issue), rebases onto `origin/<default_branch>`,
-    /// resolves, force-pushes, and merges via `exponential_pr_merge`.
+    /// representative issue), rebases onto the PR's LIVE base (resolved via
+    /// `issues.prepareConflictFix` at launch — EXP-324; a stacked PR rebases
+    /// onto its parent's branch, a stale base is server-retargeted to the
+    /// default first), resolves, force-pushes, and merges via
+    /// `exponential_pr_merge`.
     FixConflicts {
         /// The PR's head branch (e.g. `exp/EXP-42` / `exp/batch-<id8>`).
         branch: String,
-        /// The rebase target — the repo's server-reported default branch.
+        /// The repo's server-reported default branch — the rebase-target
+        /// FALLBACK for old servers without `issues.prepareConflictFix`
+        /// (EXP-324); the live resolution in [`prepare`] wins otherwise.
         default_branch: String,
         /// The representative issue's identifier (prompt context + the
         /// `exponential_pr_merge` argument).
         identifier: String,
+        /// The representative issue's UUID — the `issues.prepareConflictFix`
+        /// argument (EXP-324).
+        issue_id: String,
     },
 }
 
@@ -1054,6 +1062,10 @@ fn prepare_action(
     // repo-backed runs even when the cwd is a worktree (fix-conflicts) —
     // the shared cargo cache and the session registry key off it.
     let mut trunk_clone: Option<PathBuf> = None;
+    // EXP-324: the fix-conflicts rebase target, resolved live inside the
+    // repo-backed arm below (None for every other kind); consumed by the
+    // prompt render in step 3.
+    let mut fix_rebase_onto: Option<String> = None;
     let (cwd, repository_id) = match repo {
         Some(repo) => {
             // Repo-backed: JIT token via the cache (same refresher-lead
@@ -1067,6 +1079,30 @@ fn prepare_action(
                 Err(err) => return map_token_error(err, &repo.full_name),
             };
             let url = minted.url.clone();
+            // EXP-324: resolve the PR's LIVE rebase target before any git
+            // work. A stacked PR's base is its parent's branch, not the repo
+            // default, and a stale base (parent squash-merged, branch left
+            // behind) is healed — retargeted onto the default — by this call
+            // server-side. Guessing the base instead is exactly the EXP-320
+            // bug, and this run ends in a force-push + auto-merge, so any
+            // failure other than "old server without the procedure" (404 →
+            // legacy default-branch behavior) is a hard, retryable error.
+            fix_rebase_onto = match &req.kind {
+                ActionRunKind::FixConflicts {
+                    issue_id,
+                    default_branch,
+                    ..
+                } => match issues::prepare_conflict_fix(&deps.trpc, issue_id) {
+                    Ok(resolved) => Some(resolved.rebase_onto),
+                    Err(ApiError::Http { status: 404, .. }) => Some(default_branch.clone()),
+                    Err(err) => {
+                        return Err(CodingError::Io(format!(
+                            "could not resolve the pull request's base branch: {err}"
+                        )))
+                    }
+                },
+                _ => None,
+            };
             let repos_root = deps.settings.repos_root_path();
             let clone = crate::git_worktree::ensure_clone(&repos_root, url.full_name(), &url)?;
             git_credentials::ensure(&clone, &url, minted.expires_at.as_deref())?;
@@ -1091,6 +1127,18 @@ fn prepare_action(
                 ActionRunKind::FixConflicts { branch, .. } => {
                     crate::git_worktree::validate_branch_arg(branch, "fix conflicts")?;
                     crate::git_worktree::fetch_base(&clone, branch, &url)?;
+                    // EXP-324: the rebase target must exist as a local
+                    // remote-tracking ref too — auto_sync above is
+                    // best-effort. Server data is untrusted (same stance as
+                    // the branch arg), so the ref is validated before it can
+                    // reach git argv.
+                    if let Some(rebase_onto) = fix_rebase_onto.as_deref() {
+                        crate::git_worktree::validate_branch_arg(
+                            rebase_onto,
+                            "fix conflicts base",
+                        )?;
+                        crate::git_worktree::fetch_base(&clone, rebase_onto, &url)?;
+                    }
                     let worktree = crate::git_worktree::create_worktree(
                         &clone,
                         branch,
@@ -1176,7 +1224,14 @@ fn prepare_action(
             branch,
             default_branch,
             identifier,
-        } => fix_pr_conflicts_prompt(identifier, branch, default_branch),
+            ..
+        } => fix_pr_conflicts_prompt(
+            identifier,
+            branch,
+            // The live base resolved above; the repo default only when the
+            // server predates issues.prepareConflictFix (EXP-324).
+            fix_rebase_onto.as_deref().unwrap_or(default_branch),
+        ),
         ActionRunKind::Team => render_action_prompt(&req.action_name, &req.body, &req.inputs),
     };
     let delivery = deliver_prompt(&cwd, &cwd, &rendered)
@@ -2292,6 +2347,7 @@ mod tests {
             branch: "exp/EXP-42".to_string(),
             default_branch: "main".to_string(),
             identifier: "EXP-42".to_string(),
+            issue_id: "issue-1".to_string(),
         };
         req.repo = None;
 
@@ -2301,6 +2357,119 @@ mod tests {
             }
             other => panic!("expected the missing-repo error, got {other:?}"),
         }
+    }
+
+    /// A fix-conflicts action request with the PR's repo group attached
+    /// (EXP-324 tests). Unique repository ids per test — the token cache is
+    /// process-global, and a shared id would swallow the mint request and
+    /// misalign the canned-server sequence.
+    fn fix_conflicts_request(repository_id: &str) -> ActionLaunchRequest {
+        let mut req = action_request();
+        req.action_id = "builtin:fix-conflicts".to_string();
+        req.action_name = "Fix merge conflicts".to_string();
+        req.body = String::new();
+        req.kind = ActionRunKind::FixConflicts {
+            branch: "exp/EXP-42".to_string(),
+            default_branch: "main".to_string(),
+            identifier: "EXP-42".to_string(),
+            issue_id: "issue-fix-1".to_string(),
+        };
+        req.repo = Some(RepoGroup {
+            repository_id: repository_id.to_string(),
+            full_name: "acme/web".to_string(),
+            default_branch: "main".to_string(),
+        });
+        req
+    }
+
+    /// EXP-324: the run rebases onto the PR's LIVE base and ends in a
+    /// force-push + auto-merge — proceeding on a guessed base is the EXP-320
+    /// bug, so a failed `issues.prepareConflictFix` (other than 404) is a
+    /// hard, retryable error BEFORE any git work.
+    #[test]
+    fn prepare_action_fix_conflicts_hard_errors_when_base_resolution_fails() {
+        let dir = temp_dir("action-fix-conflicts-base-502");
+        let (base, captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                502,
+                r#"{"error":{"message":"GitHub returned 500 for acme/web#241","code":-32603,"data":{"code":"BAD_GATEWAY","httpStatus":502}}}"#.to_string(),
+            ),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        match prepare(
+            &PrepareRequest::Action(fix_conflicts_request("repo-fix-502")),
+            &deps,
+        ) {
+            Err(CodingError::Io(message)) => {
+                assert!(
+                    message.contains("could not resolve the pull request's base branch"),
+                    "{message}"
+                );
+            }
+            other => panic!("expected the base-resolution error, got {other:?}"),
+        }
+        let requests = captured.lock().unwrap();
+        assert!(requests[0].starts_with("POST /api/trpc/repositories.installationToken"));
+        assert!(requests[1].starts_with("POST /api/trpc/issues.prepareConflictFix"));
+        assert!(requests[1].ends_with(r#"{"issueId":"issue-fix-1"}"#));
+        // Hard-stopped before any git work.
+        assert!(!dir.0.join("repos").join("acme").exists());
+    }
+
+    /// EXP-324: an OLD server without `issues.prepareConflictFix` answers
+    /// 404 — the launch degrades to the legacy default-branch rebase instead
+    /// of failing. The pre-seeded clone (no `origin` remote) makes the flow
+    /// die at the branch fetch — a GIT error, past the base resolution —
+    /// without any network.
+    #[test]
+    fn prepare_action_fix_conflicts_falls_back_to_default_branch_on_404() {
+        let dir = temp_dir("action-fix-conflicts-base-404");
+        let (base, captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                404,
+                r#"{"error":{"message":"No procedure found on path \"issues.prepareConflictFix\"","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}"#.to_string(),
+            ),
+        ]);
+        // Pre-seed the clone at the §7.1 layout path so ensure_clone reuses
+        // it instead of cloning over the network.
+        let clone = dir.0.join("repos").join("acme").join("web");
+        fs::create_dir_all(&clone).unwrap();
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&clone)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&["init", "--quiet"]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        let result = prepare(
+            &PrepareRequest::Action(fix_conflicts_request("repo-fix-404")),
+            &deps,
+        );
+        match result {
+            // Died on git plumbing (the seeded clone has no `origin`
+            // remote) — i.e. PAST the 404'd base resolution, on the legacy
+            // path. The exact op doesn't matter; NOT being the
+            // base-resolution Io error is the assertion.
+            Err(CodingError::Git(_)) => {}
+            other => panic!("expected a git error past the base resolution, got {other:?}"),
+        }
+        let requests = captured.lock().unwrap();
+        assert!(requests[1].starts_with("POST /api/trpc/issues.prepareConflictFix"));
     }
 
     #[test]

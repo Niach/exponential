@@ -27,12 +27,16 @@ import {
 } from "@/lib/team-membership"
 import {
   closePullRequest,
+  diagnoseUnmergeablePr,
   fetchPullFiles,
   GitHubMergeError,
   mergePullRequest,
+  resolvePrBaseState,
+  retargetPullRequest,
 } from "@/lib/integrations/github-pr"
 import {
   githubAppConfigured,
+  resolveRepoDefaultBranchCached,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
@@ -1224,11 +1228,29 @@ export const issuesRouter = router({
       } catch (err) {
         if (err instanceof GitHubMergeError) {
           // 405 covers "not mergeable" and "squash merges not allowed" —
-          // GitHub's message is the most useful thing to show verbatim.
+          // GitHub's message is shown verbatim, EXCEPT for "not mergeable",
+          // where it is actively misleading on a stacked PR whose base is
+          // stale (EXP-324): the real fix is a retarget, not another rebase.
+          // The diagnosis names the cause; on any failure it degrades to
+          // GitHub's original message.
           if (err.status === 405) {
+            let message = err.message
+            if (/not mergeable/i.test(err.message)) {
+              const defaultBranch =
+                await resolveRepoDefaultBranchCached(repoFullName)
+              const diagnosed = defaultBranch
+                ? await diagnoseUnmergeablePr({
+                    repo: repoFullName,
+                    prNumber: row.prNumber,
+                    token: resolved.token,
+                    defaultBranch,
+                  })
+                : null
+              if (diagnosed) message = diagnosed
+            }
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
-              message: err.message,
+              message,
             })
           }
           if (err.status === 409) {
@@ -1392,6 +1414,265 @@ export const issuesRouter = router({
       }
 
       return { closed: true }
+    }),
+
+  // Change the base branch of the issue's open PR on GitHub (EXP-324). The
+  // stacked-PR self-heal: after a parent PR is squash-merged its branch goes
+  // stale, and GitHub only auto-retargets children when the base branch is
+  // DELETED — we leave it in place. Omitting `base` targets the repo's live
+  // default branch (the right call after a squash-merge). Nothing is
+  // persisted locally — the DB carries no base column; GitHub stays the
+  // source of truth.
+  retargetPr: authedProcedure
+    .input(
+      z.object({
+        issueId: z.string().uuid(),
+        base: z.string().min(1).max(255).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }): Promise<{ retargeted: true; base: string }> => {
+      const { teamId } = await assertIssueAccess(
+        ctx.session.user.id,
+        input.issueId,
+        `write`
+      )
+
+      const [row] = await ctx.db
+        .select({
+          prNumber: issues.prNumber,
+          prUrl: issues.prUrl,
+          prState: issues.prState,
+        })
+        .from(issues)
+        .where(eq(issues.id, input.issueId))
+        .limit(1)
+
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+      }
+      if (!row.prNumber || !row.prUrl) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This issue has no linked pull request`,
+        })
+      }
+      if (row.prState !== `open`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The pull request is ${row.prState} — only open pull requests can be retargeted`,
+        })
+      }
+
+      // Retarget against the repo the PR actually lives in — derived from
+      // prUrl, never the board's CURRENT repository (same derivation as
+      // mergePr).
+      const repoFullName = repoFromPrUrl(row.prUrl)
+      if (!repoFullName) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The linked pull request URL is not a GitHub PR URL`,
+        })
+      }
+      if (!githubAppConfigured()) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not configured on this instance`,
+        })
+      }
+      const resolved = await resolveRepoInstallationTokenInfo(repoFullName)
+      if (!resolved) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not installed on ${repoFullName}`,
+        })
+      }
+      // Link-gate (mirrors mergePr): the installation serving this repo must
+      // still be claimed by the issue's team.
+      if (
+        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
+      ) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
+        })
+      }
+
+      const base =
+        input.base ?? (await resolveRepoDefaultBranchCached(repoFullName))
+      if (!base) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `Could not resolve the default branch of ${repoFullName}`,
+        })
+      }
+
+      try {
+        await retargetPullRequest({
+          repo: repoFullName,
+          prNumber: row.prNumber,
+          base,
+          token: resolved.token,
+        })
+      } catch (err) {
+        if (err instanceof GitHubMergeError) {
+          if (err.status === 422) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `'${base}' is not a valid base branch on ${repoFullName}`,
+            })
+          }
+          if (err.status === 404) {
+            throw new TRPCError({
+              code: `NOT_FOUND`,
+              message: `Pull request not found on GitHub`,
+            })
+          }
+          throw new TRPCError({
+            code: `INTERNAL_SERVER_ERROR`,
+            message: `GitHub retarget failed: ${err.message}`,
+          })
+        }
+        throw err
+      }
+
+      return { retargeted: true, base }
+    }),
+
+  // Resolve the LIVE rebase target for a fix-conflicts run on this issue's PR
+  // (EXP-324), healing a dead base along the way. The desktop calls this at
+  // launch instead of assuming the repo default: a stacked PR rebases onto its
+  // real base, and a PR whose base is already merged/closed/gone is retargeted
+  // to the default branch right here — deterministically, before the agent
+  // spawns. Idempotent: once retargeted, a re-run classifies `default` and
+  // no-ops.
+  prepareConflictFix: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const { teamId } = await assertIssueAccess(
+        ctx.session.user.id,
+        input.issueId,
+        `write`
+      )
+
+      const [row] = await ctx.db
+        .select({
+          prNumber: issues.prNumber,
+          prUrl: issues.prUrl,
+          prState: issues.prState,
+        })
+        .from(issues)
+        .where(eq(issues.id, input.issueId))
+        .limit(1)
+
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+      }
+      if (!row.prNumber || !row.prUrl) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This issue has no linked pull request`,
+        })
+      }
+      if (row.prState !== `open`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The pull request is ${row.prState} — only open pull requests can be conflict-fixed`,
+        })
+      }
+
+      const repoFullName = repoFromPrUrl(row.prUrl)
+      if (!repoFullName) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The linked pull request URL is not a GitHub PR URL`,
+        })
+      }
+      if (!githubAppConfigured()) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not configured on this instance`,
+        })
+      }
+      const resolved = await resolveRepoInstallationTokenInfo(repoFullName)
+      if (!resolved) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not installed on ${repoFullName}`,
+        })
+      }
+      if (
+        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
+      ) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
+        })
+      }
+
+      const defaultBranch = await resolveRepoDefaultBranchCached(repoFullName)
+      if (!defaultBranch) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `Could not resolve the default branch of ${repoFullName}`,
+        })
+      }
+
+      let state
+      try {
+        state = await resolvePrBaseState({
+          repo: repoFullName,
+          prNumber: row.prNumber,
+          token: resolved.token,
+          defaultBranch,
+        })
+      } catch (err) {
+        throw new TRPCError({
+          code: `BAD_GATEWAY`,
+          message:
+            err instanceof Error
+              ? err.message
+              : `Failed to read the pull request from GitHub`,
+        })
+      }
+      if (state.prState !== `open`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The pull request is already ${state.merged ? `merged` : `closed`} on GitHub`,
+        })
+      }
+
+      let retargeted = false
+      if (state.retargetTo != null) {
+        try {
+          await retargetPullRequest({
+            repo: repoFullName,
+            prNumber: row.prNumber,
+            base: state.retargetTo,
+            token: resolved.token,
+          })
+          retargeted = true
+        } catch (err) {
+          // 422 = already retargeted (a concurrent heal won the race) —
+          // proceed; the rebase target is right either way.
+          if (!(err instanceof GitHubMergeError && err.status === 422)) {
+            throw new TRPCError({
+              code: `BAD_GATEWAY`,
+              message: `GitHub retarget failed: ${err instanceof Error ? err.message : `unknown error`}`,
+            })
+          }
+        }
+      }
+
+      return {
+        repo: repoFullName,
+        prNumber: row.prNumber,
+        headRef: state.headRef,
+        baseRef: state.baseRef,
+        baseKind: state.kind,
+        rebaseOnto: state.rebaseOnto,
+        retargeted,
+        defaultBranch,
+      }
     }),
 
   // Changed files for the issue's PR (one issue = one PR), for the diff view.

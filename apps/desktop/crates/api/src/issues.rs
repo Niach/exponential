@@ -379,6 +379,54 @@ pub fn close_pr(trpc: &TrpcClient, issue_id: &str) -> Result<CloseResult, ApiErr
 }
 
 // ---------------------------------------------------------------------------
+// issues.prepareConflictFix (EXP-324)
+// ---------------------------------------------------------------------------
+
+/// Output of `issues.prepareConflictFix` — the LIVE rebase target for a
+/// fix-conflicts run on the issue's PR. The server reads the PR fresh from
+/// GitHub (the DB deliberately persists no base branch), classifies the base
+/// (stacked on an open parent / stale after a squash-merged parent / …), and
+/// retargets a dead base onto the repo default before returning. The launcher
+/// only needs `rebase_onto`; the rest is context for logs/UI.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareConflictFix {
+    pub repo: String,
+    pub pr_number: i64,
+    pub head_ref: String,
+    pub base_ref: String,
+    /// Classification token ("default" / "open-parent" / "merged-parent" /
+    /// "closed-parent" / "custom-branch" / "missing-branch"). Kept as a
+    /// string per the §5.5 tolerant-decode posture — a new kind must never
+    /// fail the launch.
+    pub base_kind: String,
+    /// The ref the run must rebase onto (post-retarget when one applied).
+    pub rebase_onto: String,
+    /// True when the server just retargeted the PR onto the default branch.
+    pub retargeted: bool,
+    #[serde(default)]
+    pub default_branch: Option<String>,
+}
+
+/// `issues.prepareConflictFix` — mutation (it may retarget the PR on GitHub).
+/// Guard failures (no linked PR, PR not open, App not installed, GitHub
+/// unreachable) surface as [`ApiError::Http`] with the server's user-facing
+/// message; an OLD server without the procedure answers 404, which the
+/// launcher maps to the legacy default-branch behavior. Blocking; background
+/// executor only (§3.5).
+pub fn prepare_conflict_fix(
+    trpc: &TrpcClient,
+    issue_id: &str,
+) -> Result<PrepareConflictFix, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        issue_id: &'a str,
+    }
+    trpc.mutation("issues.prepareConflictFix", &Input { issue_id })
+}
+
+// ---------------------------------------------------------------------------
 // issues.search (EXP-3)
 // ---------------------------------------------------------------------------
 
@@ -662,6 +710,41 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.create HTTP/1.1"));
         assert!(request.ends_with(r#"{"boardId":"p-1","title":"New","priority":"high"}"#));
+    }
+
+    #[test]
+    fn prepare_conflict_fix_posts_and_decodes_the_rebase_target() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repo":"owner/repo","prNumber":241,"headRef":"exp/EXP-320","baseRef":"exp/EXP-314","baseKind":"merged-parent","rebaseOnto":"master","retargeted":true,"defaultBranch":"master"}}}"#,
+        );
+        let out = prepare_conflict_fix(&client(&base), "i-1").unwrap();
+        assert_eq!(out.repo, "owner/repo");
+        assert_eq!(out.pr_number, 241);
+        assert_eq!(out.base_ref, "exp/EXP-314");
+        assert_eq!(out.base_kind, "merged-parent");
+        assert_eq!(out.rebase_onto, "master");
+        assert!(out.retargeted);
+        assert_eq!(out.default_branch.as_deref(), Some("master"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.prepareConflictFix HTTP/1.1"));
+        assert!(request.ends_with(r#"{"issueId":"i-1"}"#));
+    }
+
+    #[test]
+    fn prepare_conflict_fix_surfaces_guard_failures_with_the_server_message() {
+        let (base, _captured) = one_shot_server(
+            412,
+            r#"{"error":{"message":"This issue has no linked pull request","code":-32000,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+        );
+        let err = prepare_conflict_fix(&client(&base), "i-1").unwrap_err();
+        match err {
+            ApiError::Http { status, message } => {
+                assert_eq!(status, 412);
+                assert!(message.contains("no linked pull request"));
+            }
+            other => panic!("expected Http error, got {other:?}"),
+        }
     }
 
     #[test]

@@ -14,6 +14,7 @@ import {
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
 import {
+  diagnoseUnmergeablePr,
   GitHubMergeError,
   listOpenPulls,
   mergePullRequest,
@@ -450,9 +451,28 @@ export const repositoriesRouter = router({
       } catch (err) {
         if (err instanceof GitHubMergeError) {
           if (err.status === 405) {
+            // "Not mergeable" is misleading on a stacked PR whose base is
+            // stale (EXP-324) — diagnose the base's real state; degrade to
+            // GitHub's message when the diagnosis can't run (same treatment
+            // as issues.mergePr).
+            let message = err.message
+            if (/not mergeable/i.test(err.message)) {
+              const defaultBranch =
+                repo.defaultBranch ??
+                (await resolveRepoDefaultBranchCached(repo.fullName))
+              const diagnosed = defaultBranch
+                ? await diagnoseUnmergeablePr({
+                    repo: repo.fullName,
+                    prNumber: input.prNumber,
+                    token,
+                    defaultBranch,
+                  })
+                : null
+              if (diagnosed) message = diagnosed
+            }
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
-              message: err.message,
+              message,
             })
           }
           if (err.status === 409) {
