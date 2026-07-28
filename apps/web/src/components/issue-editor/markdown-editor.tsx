@@ -28,6 +28,7 @@ import {
   Unlink,
   Check,
   Image as ImageIcon,
+  Paperclip,
   Quote,
   RemoveFormatting,
   Code,
@@ -384,8 +385,44 @@ function ImageControl({
   )
 }
 
+/** Attach-file button (static toolbar only) — EXP-335: the one file picker,
+ *  any type. Inline-image picks embed at the caret like the image button;
+ *  everything else routes to the host's Files flow (detail: immediate upload,
+ *  create dialog: queued draft files). Hidden when the host has no non-image
+ *  destination. */
+function AttachControl({
+  imageUpload,
+}: {
+  imageUpload?: MarkdownEditorImageUploadConfig
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  if (!imageUpload?.enabled || !imageUpload.onOtherFiles) return null
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(event) => {
+          const { images, others } = partitionUploadFiles(event.target.files)
+          if (images.length > 0) void imageUpload.onFiles(images)
+          if (others.length > 0) void imageUpload.onOtherFiles?.(others)
+          event.target.value = ``
+        }}
+      />
+      <ToolbarButton
+        onClick={() => inputRef.current?.click()}
+        title="Attach file"
+      >
+        <Paperclip className="size-3.5" />
+      </ToolbarButton>
+    </>
+  )
+}
+
 /** Always-visible toolbar above the editor (discoverability; houses the image
- *  button). */
+ *  and attach-file buttons). */
 function StaticToolbar({
   editor,
   imageUpload,
@@ -398,6 +435,7 @@ function StaticToolbar({
     <div className="static-toolbar">
       <ToolbarActions editor={editor} />
       <ImageControl imageUpload={imageUpload} />
+      <AttachControl imageUpload={imageUpload} />
     </div>
   )
 }

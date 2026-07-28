@@ -88,6 +88,10 @@ impl WysiwygSeamEditor {
             window,
             cx,
         );
+        // EXP-335: the toolbar's attach button routes non-inline-image picks
+        // to the detail view's Files-section upload flow.
+        let on_attach = params.on_attach_files.clone();
+        editor.update(cx, |editor, _| editor.set_attach_handler(on_attach));
         Self { editor }
     }
 }

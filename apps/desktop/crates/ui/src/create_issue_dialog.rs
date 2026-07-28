@@ -143,6 +143,17 @@ fn title_breadcrumb(prefix: &str, color: Option<&str>, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// EXP-335: one NON-image file queued via the toolbar's attach button — web
+/// `draftFiles` parity. Bytes are read (and size-capped) at pick time, then
+/// uploaded to the created issue right after `issues.create`.
+struct StagedDraftFile {
+    /// Process-local chip key (element ids + removal).
+    key: u64,
+    filename: String,
+    content_type: String,
+    bytes: std::sync::Arc<Vec<u8>>,
+}
+
 pub struct CreateIssueDialogView {
     board_id: String,
     team_id: String,
@@ -168,6 +179,9 @@ pub struct CreateIssueDialogView {
     label_query: Entity<InputState>,
     due_date: Option<chrono::NaiveDate>,
     due_calendar: Entity<CalendarState>,
+    /// EXP-335: non-image files queued for the post-create upload.
+    staged_files: Vec<StagedDraftFile>,
+    next_staged_file_key: u64,
     create_more: bool,
     submitting: bool,
     error: Option<SharedString>,
@@ -210,6 +224,20 @@ impl CreateIssueDialogView {
         // EXP-285: the dialog pins the formatting bar ABOVE its scroll
         // region (a long description must not scroll the toolbar away).
         description.update(cx, |description, _| description.use_external_toolbar());
+        // EXP-335: the toolbar's attach button — image picks embed inline via
+        // the editor itself; non-image picks land here and queue for the
+        // post-create upload (web draftFiles parity).
+        {
+            let dialog = cx.entity().downgrade();
+            description.update(cx, |description, _| {
+                description.set_attach_handler(Rc::new(move |paths, window, cx| {
+                    let Some(dialog) = dialog.upgrade() else {
+                        return;
+                    };
+                    dialog.update(cx, |this, cx| this.stage_files(paths, window, cx));
+                }));
+            });
+        }
         // EXP-288: hand the scroll container's handle to the editor so the
         // caret stays visible while typing/pasting ("we always wanna see
         // what we type").
@@ -289,6 +317,8 @@ impl CreateIssueDialogView {
             label_query,
             due_date: None,
             due_calendar,
+            staged_files: Vec::new(),
+            next_staged_file_key: 0,
             create_more: false,
             submitting: false,
             error: None,
@@ -335,6 +365,45 @@ impl CreateIssueDialogView {
         window.defer(cx, move |window, _cx| window.resize(new_size));
     }
 
+    /// EXP-335: read picked non-image files off the foreground (read_any_file
+    /// enforces the 50 MB cap) and queue them for the post-create upload; an
+    /// unreadable/oversize pick surfaces in the footer's error slot.
+    fn stage_files(
+        &mut self,
+        paths: Vec<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        for path in paths {
+            cx.spawn_in(window, async move |this, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { crate::markdown::read_any_file(&path) })
+                    .await;
+                this.update_in(cx, |this, _window, cx| {
+                    match result {
+                        Ok((filename, content_type, bytes)) => {
+                            let key = this.next_staged_file_key;
+                            this.next_staged_file_key += 1;
+                            this.staged_files.push(StagedDraftFile {
+                                key,
+                                filename,
+                                content_type,
+                                bytes: std::sync::Arc::new(bytes),
+                            });
+                        }
+                        Err(error) => {
+                            this.error = Some(format!("{error}").into());
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+    }
+
     /// Web `resetFields`: clear everything except "Create more".
     fn reset_fields(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.title.update(cx, |state, cx| {
@@ -354,6 +423,7 @@ impl CreateIssueDialogView {
         self.due_calendar.update(cx, |state, cx| {
             state.set_date(Date::Single(None), window, cx);
         });
+        self.staged_files.clear();
         self.error = None;
         self.submitting = false;
         self.title.update(cx, |state, cx| state.focus(window, cx));
@@ -391,6 +461,20 @@ impl CreateIssueDialogView {
             input.description = Some(stripped_description.clone());
         }
         let transport = queries::attachment_transport(cx);
+        // EXP-335: queued non-image draft files ride the same post-create
+        // window (cheap Arc clones — the bytes are shared, not copied).
+        let staged_files: Vec<(String, String, std::sync::Arc<Vec<u8>>)> = self
+            .staged_files
+            .iter()
+            .map(|file| {
+                (
+                    file.filename.clone(),
+                    file.content_type.clone(),
+                    file.bytes.clone(),
+                )
+            })
+            .collect();
+        let transport_files = transport.clone();
         // `TrpcClient` is not `Clone` — a second one for the post-create
         // description update (cheap: an `Agent` + two `Arc`s, §5.7).
         let trpc_update = queries::trpc_client(cx);
@@ -471,6 +555,31 @@ impl CreateIssueDialogView {
                             })
                             .await;
                         let _ = final_description; // board renders off the echo
+                    }
+                    // EXP-335: upload the queued non-image files (web
+                    // draftFiles parity — per-file failures are logged and
+                    // tolerated, they never block the created issue).
+                    if let (false, Some(transport)) =
+                        (staged_files.is_empty(), transport_files)
+                    {
+                        let upload_issue = issue_id.clone();
+                        window
+                            .background_executor()
+                            .spawn(async move {
+                                for (filename, content_type, bytes) in &staged_files {
+                                    if let Err(err) = transport.upload_file(
+                                        &upload_issue,
+                                        filename,
+                                        content_type,
+                                        bytes,
+                                    ) {
+                                        log::warn!(
+                                            "[ui] create-dialog file upload failed: {err}"
+                                        );
+                                    }
+                                }
+                            })
+                            .await;
                     }
                     if create_more {
                         // Web parity: reset immediately, keep the dialog open,
@@ -745,6 +854,45 @@ impl CreateIssueDialogView {
                             remove,
                             cx,
                         )
+                    }))
+                    // EXP-335: queued non-image draft files, one chip each
+                    // (web `issue-attachment-file-chip-*` parity).
+                    .children(self.staged_files.iter().map(|file| {
+                        let remove: Option<attachments_row::ChipRemove> =
+                            removable.then(|| {
+                                let view = cx.entity().clone();
+                                let key = file.key;
+                                let on_click = Box::new(
+                                    move |_: &gpui::ClickEvent,
+                                          _window: &mut Window,
+                                          cx: &mut App| {
+                                        view.update(cx, |this, cx| {
+                                            this.staged_files
+                                                .retain(|staged| staged.key != key);
+                                            cx.notify();
+                                        });
+                                    },
+                                )
+                                    as Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+                                (
+                                    SharedString::from(format!(
+                                        "create-attachment-file-remove-{}",
+                                        file.key
+                                    )),
+                                    on_click,
+                                )
+                            });
+                        attachments_row::file_chip(
+                            gpui::ElementId::from((
+                                "create-attachment-file-chip",
+                                file.key as usize,
+                            )),
+                            file.filename.clone(),
+                            Some(file.content_type.as_str()),
+                            file.bytes.len() as i64,
+                            remove,
+                            cx,
+                        )
                     })),
             )
             .child(
@@ -752,9 +900,12 @@ impl CreateIssueDialogView {
                     .flex_shrink_0()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(attachments_row::image_count_label(
-                        count,
-                    ))),
+                    .child(SharedString::from(
+                        attachments_row::attachment_count_label(
+                            count,
+                            self.staged_files.len(),
+                        ),
+                    )),
             )
     }
 

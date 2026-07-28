@@ -46,6 +46,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
       editorRef,
       footer,
       formProps,
+      imageUpload,
       onDescriptionChange,
       onDismissAttempt,
       onOpenChange: handleOpenChange,
@@ -62,6 +63,10 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
       }>
       footer: ReactNode
       formProps?: ComponentPropsWithoutRef<`form`>
+      imageUpload?: {
+        onFiles: (files: File[]) => void | Promise<void>
+        onOtherFiles?: (files: File[]) => void | Promise<void>
+      }
       onDescriptionChange: (markdown: string) => void
       onDismissAttempt?: () => boolean
       onOpenChange: (open: boolean) => void
@@ -113,6 +118,30 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
           />
           {footer}
         </form>
+        {/* EXP-335: the pickers live in the editor's formatting toolbar now —
+            mirror them as plain buttons wired to the imageUpload config. */}
+        <button
+          type="button"
+          aria-label="Add image"
+          onClick={() => {
+            if (mockState.attachmentFiles.length > 0 && imageUpload) {
+              void imageUpload.onFiles(mockState.attachmentFiles)
+            }
+          }}
+        >
+          Add image
+        </button>
+        <button
+          type="button"
+          aria-label="Attach file"
+          onClick={() => {
+            if (mockState.draftFiles.length > 0 && imageUpload?.onOtherFiles) {
+              void imageUpload.onOtherFiles(mockState.draftFiles)
+            }
+          }}
+        >
+          Attach file
+        </button>
         <button type="button" onClick={() => handleOpenChange(false)}>
           Close dialog
         </button>
@@ -131,35 +160,6 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
       </div>
     )
   }),
-  IssueEditorAttachmentButton: ({
-    disabled,
-    label = `Add image`,
-    onFiles,
-    uploading,
-  }: {
-    disabled?: boolean
-    label?: string
-    onFiles?: (files: File[]) => void | Promise<void>
-    uploading?: boolean
-  }) => (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled || uploading}
-      onClick={() => {
-        const queued =
-          label === `Attach file`
-            ? mockState.draftFiles
-            : mockState.attachmentFiles
-
-        if (queued.length > 0 && onFiles) {
-          void onFiles(queued)
-        }
-      }}
-    >
-      {label}
-    </button>
-  ),
 }))
 
 describe(`CreateIssueDialog`, () => {

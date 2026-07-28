@@ -163,6 +163,9 @@ pub struct DescriptionEditorParams {
     /// Save hook — called by the editor on blur / explicit save with the
     /// current source. The detail view wires this to `issues.update`.
     pub on_save: OnSaveDescription,
+    /// EXP-335: non-inline-image files picked via the editor toolbar's attach
+    /// button — the detail view wires this to the Files-section upload flow.
+    pub on_attach_files: Rc<dyn Fn(Vec<PathBuf>, &mut Window, &mut App)>,
 }
 
 /// Builds a [`DescriptionEditor`] for one issue.
@@ -491,6 +494,20 @@ impl IssueDetailView {
                 };
                 spawn_issue_update(cx, input);
             }),
+            on_attach_files: {
+                let view = cx.entity().downgrade();
+                let issue_id = issue.id.clone();
+                Rc::new(move |paths: Vec<PathBuf>, window, cx: &mut App| {
+                    let Some(view) = view.upgrade() else {
+                        return;
+                    };
+                    view.update(cx, |view, cx| {
+                        for path in paths {
+                            view.start_file_upload(issue_id.clone(), path, window, cx);
+                        }
+                    });
+                })
+            },
         };
         let editor = build(&params, window, cx);
         // EXP-288: the detail body's scroll container follows the caret
@@ -734,10 +751,16 @@ impl IssueDetailView {
             .map(|pending| (pending.key, pending.filename.clone(), pending.error.clone()))
             .collect();
 
+        // EXP-335: with nothing to list the section renders NOTHING — the
+        // attach entry point moved into the description toolbar's paperclip
+        // (web parity; the old lone right-aligned button confused everyone).
+        let has_rows = !attachments.is_empty() || !pending.is_empty();
+        if !has_rows {
+            return gpui::Empty.into_any_element();
+        }
+
         let issue_id = issue.id.clone();
-        // EXP-316: icon-only attach button (tooltip carries the wording), and
-        // with nothing to list the whole section collapses to just it — no
-        // "Files" heading (web parity).
+        // EXP-316: icon-only attach button (tooltip carries the wording).
         let attach_button = Button::new("issue-files-attach")
             .ghost()
             .xsmall()
@@ -746,23 +769,18 @@ impl IssueDetailView {
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.pick_files(issue_id.clone(), window, cx);
             }));
-        let has_rows = !attachments.is_empty() || !pending.is_empty();
-        let header = if has_rows {
-            h_flex()
-                .w_full()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Files"),
-                )
-                .child(attach_button)
-        } else {
-            h_flex().w_full().items_center().justify_end().child(attach_button)
-        };
+        let header = h_flex()
+            .w_full()
+            .items_center()
+            .justify_between()
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Files"),
+            )
+            .child(attach_button);
 
         let mut section = v_flex()
             .w_full()

@@ -62,9 +62,6 @@ struct RenderedRowSpacingInfo {
     is_callout_header: bool,
     footnote_anchor: Option<uuid::Uuid>,
     is_footnote_header: bool,
-    /// EXP-277 vendoring: image-adjacent rows widen the gap (see
-    /// [`rendered_row_top_gap`]).
-    is_standalone_image: bool,
 }
 
 impl RenderedRowSpacingInfo {
@@ -77,7 +74,6 @@ impl RenderedRowSpacingInfo {
             is_callout_header: block.kind().is_callout(),
             footnote_anchor: block.footnote_anchor,
             is_footnote_header: block.kind().is_footnote_definition(),
-            is_standalone_image: block.renders_as_standalone_image(),
         }
     }
 }
@@ -95,11 +91,11 @@ fn rendered_row_top_gap(
         && previous.quote_group_anchor == current.quote_group_anchor
     {
         0.0
-    } else if previous.is_standalone_image || current.is_standalone_image {
-        // EXP-277 vendoring: the default 6px gap is a needle-thin target for
-        // the image gap-click affordance — double it around images.
-        default_gap * 2.0
     } else {
+        // EXP-335: image-adjacent rows use the SAME gap as everything else —
+        // the EXP-277 doubling read as a dead band you couldn't type in (web
+        // renders ~12px total around images; the gap-click affordance still
+        // covers the block paddings either side of this margin).
         default_gap
     }
 }
@@ -787,7 +783,50 @@ impl Render for Editor {
             scroll_content
         };
 
+        // EXP-335: record the painted content width into the shared
+        // environment. Embedded editors fill their host slot — no
+        // viewport-derived math can know that width — and standalone image
+        // rows cap their width budget with it (see
+        // `container_image_width_budget`). Change-gated: only a real width
+        // change re-renders the image rows, so steady frames stay quiet.
+        // A prepaint listener, deliberately NOT an extra canvas element — an
+        // absolutely-positioned recorder child measurably corrupted this
+        // auto-height container's layout (the timeline below the editor
+        // vanished behind a phantom scroll region).
+        let width_listener = {
+            let layout_width = self.environment.layout_width.clone();
+            let blocks: Vec<Entity<crate::components::Block>> = self
+                .document
+                .flatten_visible_blocks()
+                .iter()
+                .map(|visible| visible.entity.clone())
+                .collect();
+            move |bounds: Vec<Bounds<Pixels>>, _window: &mut Window, cx: &mut App| {
+                let Some(width) = bounds.first().map(|bounds| f32::from(bounds.size.width))
+                else {
+                    return;
+                };
+                let previous =
+                    f32::from_bits(layout_width.load(std::sync::atomic::Ordering::Relaxed));
+                if (width - previous).abs() > 0.5 {
+                    layout_width.store(width.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                    // Notify EVERY block, not just the image rows: the image
+                    // rows re-render for the new width budget, and the text
+                    // rows must re-shape so their persistent measure state is
+                    // rebuilt against the post-transition intrinsic widths —
+                    // a partial invalidation left ancestors sized off stale
+                    // text measurements (a ~4× phantom column height).
+                    for block in &blocks {
+                        block.update(cx, |_, cx| cx.notify());
+                    }
+                }
+            }
+        };
+
         let content_area = div()
+            // Registered on the bare `Div` — `.id()` wraps it Stateful, which
+            // no longer exposes the listener hook.
+            .on_children_prepainted(width_listener)
             .id("editor-scroll")
             .w_full()
             .when(!self.embedded, |this| this.h_full().flex_1())

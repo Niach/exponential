@@ -136,6 +136,19 @@ pub(crate) fn image_count_label(count: usize) -> String {
     }
 }
 
+/// Web `countLabel` (EXP-335): "N images" plus ", M file(s)" once the create
+/// dialog has queued non-image draft files.
+pub(crate) fn attachment_count_label(images: usize, files: usize) -> String {
+    let mut label = image_count_label(images);
+    if files > 0 {
+        label.push_str(&format!(
+            ", {files} file{}",
+            if files == 1 { "" } else { "s" }
+        ));
+    }
+    label
+}
+
 /// Remove-✕ handler of one chip (element id + click callback).
 pub(crate) type ChipRemove = (
     SharedString,
@@ -215,6 +228,69 @@ pub(crate) fn image_chip(
                 )
                 .on_click(move |event, window, cx| {
                     // The ✕ must never also fire the chip-open click.
+                    cx.stop_propagation();
+                    on_click(event, window, cx);
+                }),
+        );
+    }
+    row.into_any_element()
+}
+
+/// EXP-335: one queued NON-image draft file in the create dialog's footer
+/// rail (web `issue-attachment-file-chip-*`): type glyph · filename · size ·
+/// optional remove ✕. No lightbox — nothing to preview before upload.
+pub(crate) fn file_chip(
+    id: impl Into<ElementId>,
+    filename: String,
+    content_type: Option<&str>,
+    size_bytes: i64,
+    on_remove: Option<ChipRemove>,
+    cx: &App,
+) -> gpui::AnyElement {
+    let glyph = crate::issue_files::icon_for_content_type(content_type);
+    let mut row = h_flex()
+        .id(id.into())
+        .flex_shrink_0()
+        .gap_1p5()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .items_center()
+        .child(
+            Icon::from(glyph)
+                .xsmall()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .child(
+            div()
+                .max_w(gpui::px(96.))
+                .text_xs()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(SharedString::from(filename)),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(crate::issue_files::format_bytes(
+                    size_bytes,
+                ))),
+        );
+
+    if let Some((id, on_click)) = on_remove {
+        row = row.child(
+            Button::new(id)
+                .ghost()
+                .xsmall()
+                .icon(
+                    Icon::new(registry::UI_CLOSE)
+                        .xsmall()
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .on_click(move |event, window, cx| {
                     cx.stop_propagation();
                     on_click(event, window, cx);
                 }),
