@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -147,6 +148,11 @@ fun SupportThreadScreen(
         Column(
             modifier = Modifier
                 .padding(padding)
+                // consumeWindowInsets keeps imePadding from re-adding the
+                // nav-bar inset already applied by the Scaffold padding —
+                // without it the composer floats a nav-bar-height above the
+                // keyboard (EXP-336).
+                .consumeWindowInsets(padding)
                 .fillMaxSize()
                 .imePadding(),
         ) {
