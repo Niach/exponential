@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import { Loader2, MonitorUp } from "lucide-react"
+import { LoaderCircle, MonitorUp } from "lucide-react"
 import { contract } from "@exp/domain-contract"
 import type { CodingSession, Issue } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
@@ -614,7 +614,7 @@ export function LaunchDialog({
             onClick={submit}
             disabled={starting || !device || submitBlocked}
           >
-            {starting ? <Loader2 className="animate-spin" /> : <MonitorUp />}
+            {starting ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
             {tab === `actions`
               ? `Run action`
               : isBatch

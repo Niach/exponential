@@ -13,7 +13,7 @@ use gpui::{
     div, App, Entity, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{h_flex, input::InputState, v_flex, Icon, IconName, Sizable as _};
+use gpui_component::{h_flex, input::InputState, v_flex, Icon, Sizable as _};
 
 use domain::rows::Label;
 use domain::statuses::ResolvedStatus;
@@ -23,6 +23,7 @@ use crate::actions::NewIssue;
 use crate::active_filter_pills::ActiveFilterPills;
 use crate::create_issue_dialog::indigo_button;
 use crate::filter_popover::{FilterView, IssueFilterPopover, OnFiltersChange, OnViewChange};
+use crate::icons::registry;
 
 #[derive(IntoElement)]
 pub struct IssueFilterBar {
@@ -111,7 +112,7 @@ impl RenderOnce for IssueFilterBar {
                                 .ml_1()
                                 .h_7()
                                 .px_3()
-                                .child(Icon::new(IconName::Plus).small())
+                                .child(Icon::new(registry::UI_ADD).small())
                                 .child("New Issue")
                                 .on_click(|_, window, cx| {
                                     window.dispatch_action(Box::new(NewIssue), cx)

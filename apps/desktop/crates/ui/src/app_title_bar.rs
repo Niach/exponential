@@ -15,7 +15,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    h_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
 // EXP-269: the vendored TitleBar (rounded window controls — see
@@ -24,7 +24,7 @@ use gpui_component::{
 use crate::title_bar::TitleBar;
 use sync::{SessionPhase, Store};
 
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::screens::ScreensPanel;
 use crate::update::UpdateState;
 
@@ -184,7 +184,7 @@ impl Render for AppTitleBar {
                 Button::new("titlebar-rail-expand")
                     .ghost()
                     .small()
-                    .icon(IconName::PanelLeftOpen)
+                    .icon(registry::NAV_RAIL_EXPAND)
                     .tooltip("Expand sidebar")
                     // Direct call (EXP-17): titlebar buttons must not
                     // dispatch App-global actions.

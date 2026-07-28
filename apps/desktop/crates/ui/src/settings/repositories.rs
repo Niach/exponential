@@ -24,7 +24,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use serde::{Deserialize, Serialize};
 use sync::Store;
@@ -35,6 +35,7 @@ use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
 use super::{section, card_header, error_notice, open_url};
+use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
 // Server-only reads (typed mirrors of the web loader results)
@@ -269,7 +270,7 @@ impl Render for RepositoriesPane {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(div().size_2().rounded_full().bg(theme::tokens::GREEN.to_hsla()))
-                            .child(Icon::new(IconName::Github).xsmall())
+                            .child(Icon::new(registry::UI_GITHUB).xsmall())
                             .child(label);
                         if let Some(url) = status.install_url.clone() {
                             banner = banner.child(
@@ -277,7 +278,7 @@ impl Render for RepositoriesPane {
                                     .link()
                                     .xsmall()
                                     .label("Manage on GitHub")
-                                    .icon(IconName::ExternalLink)
+                                    .icon(registry::UI_EXTERNAL_LINK)
                                     .on_click(move |_, _, cx| open_url(cx, url.clone())),
                             );
                         }
@@ -302,7 +303,7 @@ impl Render for RepositoriesPane {
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
                                 .child(
-                                    Icon::new(IconName::TriangleAlert)
+                                    Icon::new(registry::UI_WARNING)
                                         .xsmall()
                                         .text_color(theme::tokens::YELLOW.to_hsla()),
                                 )
@@ -321,7 +322,7 @@ impl Render for RepositoriesPane {
                                         .outline()
                                         .xsmall()
                                         .label("Reconnect GitHub")
-                                        .icon(IconName::Github)
+                                        .icon(registry::UI_GITHUB)
                                         .on_click(move |_, _, cx| open_url(cx, url.clone())),
                                 );
                             }
@@ -344,7 +345,7 @@ impl Render for RepositoriesPane {
                             .border_color(super::row_stroke(cx))
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(Icon::new(IconName::Github).xsmall())
+                            .child(Icon::new(registry::UI_GITHUB).xsmall())
                             .child(
                                 div().flex_1().min_w_0().child(
                                     "The Exponential GitHub App isn't connected for your \
@@ -364,7 +365,7 @@ impl Render for RepositoriesPane {
                                     .outline()
                                     .xsmall()
                                     .label("Connect GitHub")
-                                    .icon(IconName::ExternalLink)
+                                    .icon(registry::UI_EXTERNAL_LINK)
                                     .on_click(move |_, _, cx| open_url(cx, url.clone())),
                             );
                         }
@@ -437,7 +438,7 @@ fn render_repo_row(repo: &RepoRow, cx: &gpui::App) -> impl IntoElement {
         .gap_2()
         .items_center()
         .child(
-            Icon::new(IconName::Github)
+            Icon::new(registry::UI_GITHUB)
                 .small()
                 .text_color(cx.theme().muted_foreground),
         )

@@ -1,4 +1,4 @@
-import { FolderInput, Tag, UserRound, X } from "lucide-react"
+import { FolderInput, Tag, UserX, X } from "lucide-react"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { getIssuePriorityConfig, issuePriorityOptions } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -107,7 +107,7 @@ export function AssigneeSubmenu({
             </AvatarFallback>
           </Avatar>
         ) : (
-          <UserRound className="size-4" />
+          <UserX className="size-4" />
         )}
         Assignee
         <ContextMenuShortcut className={topLevelValueClass}>

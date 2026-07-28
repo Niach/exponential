@@ -17,6 +17,7 @@ use gpui_component::{
 };
 use std::ops::Range;
 
+use crate::icons::registry;
 use crate::ExpIcon;
 
 use super::editor::MarkdownEditor;
@@ -227,32 +228,32 @@ pub(super) fn render_toolbar(
         .py_0p5()
         .border_b_1()
         .border_color(cx.theme().border)
-        .child(toolbar_button("md-h1", ExpIcon::Heading1, "Heading 1", cx, |this, window, cx| {
+        .child(toolbar_button("md-h1", registry::EDITOR_HEADING_1, "Heading 1", cx, |this, window, cx| {
             this.apply_line_prefix(LinePrefix::Heading(1), window, cx);
         }))
-        .child(toolbar_button("md-h2", ExpIcon::Heading2, "Heading 2", cx, |this, window, cx| {
+        .child(toolbar_button("md-h2", registry::EDITOR_HEADING_2, "Heading 2", cx, |this, window, cx| {
             this.apply_line_prefix(LinePrefix::Heading(2), window, cx);
         }))
-        .child(toolbar_button("md-h3", ExpIcon::Heading3, "Heading 3", cx, |this, window, cx| {
+        .child(toolbar_button("md-h3", registry::EDITOR_HEADING_3, "Heading 3", cx, |this, window, cx| {
             this.apply_line_prefix(LinePrefix::Heading(3), window, cx);
         }))
         .child(separator(cx))
-        .child(toolbar_button("md-bold", ExpIcon::Bold, "Bold", cx, |this, window, cx| {
+        .child(toolbar_button("md-bold", registry::EDITOR_BOLD, "Bold", cx, |this, window, cx| {
             this.apply_inline_wrap("**", window, cx);
         }))
-        .child(toolbar_button("md-italic", ExpIcon::Italic, "Italic", cx, |this, window, cx| {
+        .child(toolbar_button("md-italic", registry::EDITOR_ITALIC, "Italic", cx, |this, window, cx| {
             this.apply_inline_wrap("*", window, cx);
         }))
         .child(toolbar_button(
             "md-strike",
-            ExpIcon::Strikethrough,
+            registry::EDITOR_STRIKETHROUGH,
             "Strikethrough",
             cx,
             |this, window, cx| {
                 this.apply_inline_wrap("~~", window, cx);
             },
         ))
-        .child(toolbar_button("md-code", ExpIcon::Code, "Code", cx, |this, window, cx| {
+        .child(toolbar_button("md-code", registry::EDITOR_CODE, "Code", cx, |this, window, cx| {
             this.apply_inline_wrap("`", window, cx);
         }))
         .child(separator(cx))
@@ -262,21 +263,21 @@ pub(super) fn render_toolbar(
             if let Some((url_input, text_input)) = link_editor {
                 this.child(render_link_editor(url_input, text_input, cx))
             } else {
-                this.child(toolbar_button("md-link", ExpIcon::Link, "Link", cx, |this, window, cx| {
+                this.child(toolbar_button("md-link", registry::EDITOR_LINK, "Link", cx, |this, window, cx| {
                     this.open_link_editor(window, cx);
                 }))
             }
         })
-        .child(toolbar_button("md-quote", ExpIcon::Quote, "Quote", cx, |this, window, cx| {
+        .child(toolbar_button("md-quote", registry::EDITOR_QUOTE, "Quote", cx, |this, window, cx| {
             this.apply_line_prefix(LinePrefix::Quote, window, cx);
         }))
         .child(separator(cx))
-        .child(toolbar_button("md-ul", ExpIcon::List, "Bullet list", cx, |this, window, cx| {
+        .child(toolbar_button("md-ul", registry::EDITOR_LIST, "Bullet list", cx, |this, window, cx| {
             this.apply_line_prefix(LinePrefix::Bullet, window, cx);
         }))
         .child(toolbar_button(
             "md-ol",
-            ExpIcon::ListOrdered,
+            registry::EDITOR_LIST_ORDERED,
             "Numbered list",
             cx,
             |this, window, cx| {
@@ -285,7 +286,7 @@ pub(super) fn render_toolbar(
         ))
         .child(toolbar_button(
             "md-task",
-            ExpIcon::ListChecks,
+            registry::EDITOR_LIST_TODO,
             "Task list",
             cx,
             |this, window, cx| {
@@ -295,7 +296,7 @@ pub(super) fn render_toolbar(
         .child(separator(cx))
         .child(toolbar_button(
             "md-clear",
-            ExpIcon::RemoveFormatting,
+            registry::EDITOR_CLEAR_FORMATTING,
             "Clear formatting",
             cx,
             |this, window, cx| {
@@ -305,7 +306,7 @@ pub(super) fn render_toolbar(
         .child(separator(cx))
         .child(toolbar_button(
             "md-image",
-            ExpIcon::Image,
+            registry::EDITOR_IMAGE,
             "Insert image",
             cx,
             |this, window, cx| {
@@ -328,7 +329,7 @@ fn render_link_editor(
             Button::new("md-link-apply")
                 .ghost()
                 .xsmall()
-                .icon(Icon::from(ExpIcon::Check))
+                .icon(Icon::from(registry::UI_CHECK))
                 .tooltip("Apply link")
                 .on_click(cx.listener(|this, _, window, cx| this.apply_link(window, cx))),
         )
@@ -336,7 +337,7 @@ fn render_link_editor(
             Button::new("md-link-cancel")
                 .ghost()
                 .xsmall()
-                .icon(Icon::from(ExpIcon::Unlink))
+                .icon(Icon::from(registry::EDITOR_UNLINK))
                 .tooltip("Cancel")
                 .on_click(cx.listener(|this, _, window, cx| this.close_link_editor(window, cx))),
         )

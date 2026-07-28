@@ -16,10 +16,10 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    h_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 
 /// One `![alt](url)` occurrence in a markdown string — the web's
 /// `MarkdownImageOccurrence` (byte offsets over the source).
@@ -209,7 +209,7 @@ pub(crate) fn image_chip(
                 .ghost()
                 .xsmall()
                 .icon(
-                    Icon::new(IconName::Close)
+                    Icon::new(registry::UI_CLOSE)
                         .xsmall()
                         .text_color(cx.theme().muted_foreground),
                 )

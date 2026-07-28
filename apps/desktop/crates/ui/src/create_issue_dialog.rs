@@ -38,7 +38,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::DropdownMenu as _,
     switch::Switch,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -47,7 +47,7 @@ use domain::{IssuePriority, IssueStatus};
 
 use crate::actions::NewIssue;
 use crate::attachments_row;
-use crate::icons::{option_icon, ExpIcon};
+use crate::icons::{option_icon, registry, ExpIcon};
 use crate::markdown::image_paste::strip_draft_images;
 use crate::markdown::{self};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -138,7 +138,7 @@ fn title_breadcrumb(prefix: &str, color: Option<&str>, cx: &App) -> AnyElement {
                 .child(div().size_2p5().rounded_full().bg(pill_color))
                 .child(SharedString::from(prefix.to_string())),
         )
-        .child(Icon::new(IconName::ChevronRight).xsmall())
+        .child(Icon::new(registry::UI_CHEVRON_RIGHT).xsmall())
         .child("New issue")
         .into_any_element()
 }
@@ -593,7 +593,7 @@ impl CreateIssueDialogView {
 
         chip_button("create-assignee-chip", cx)
             .icon(
-                Icon::new(IconName::User)
+                Icon::new(registry::UI_ASSIGNEE)
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
             )

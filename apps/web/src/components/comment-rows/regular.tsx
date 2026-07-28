@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { MoreHorizontal } from "lucide-react"
+import { Ellipsis } from "lucide-react"
 import type { Comment, User } from "@/db/schema"
 import { getCommentBodyText } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
@@ -65,7 +65,7 @@ export function RegularCommentRow({
                   className="ml-auto text-muted-foreground"
                   aria-label="Comment actions"
                 >
-                  <MoreHorizontal className="size-3" />
+                  <Ellipsis className="size-3" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

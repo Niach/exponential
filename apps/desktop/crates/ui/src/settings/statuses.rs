@@ -36,7 +36,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
-    v_flex, ActiveTheme as _, Disableable as _, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 use sync::Store;
 
@@ -52,6 +52,7 @@ use crate::navigation::{active_team_id, Navigation};
 
 use super::labels::{swatch_grid, LABEL_COLORS};
 use super::{card_header, section};
+use crate::icons::registry;
 
 /// Web parity with the labels pane's duplicate message (the server's unique is
 /// `(team_id, lower(name))` across ALL statuses, builtins included).
@@ -683,7 +684,7 @@ impl StatusesPane {
                 Button::new(row_id("status-up", &status_id))
                     .ghost()
                     .xsmall()
-                    .icon(IconName::ChevronUp)
+                    .icon(registry::UI_CHEVRON_UP)
                     .tooltip("Move up")
                     .disabled(first_in_category)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -694,7 +695,7 @@ impl StatusesPane {
                 Button::new(row_id("status-down", &status_id))
                     .ghost()
                     .xsmall()
-                    .icon(IconName::ChevronDown)
+                    .icon(registry::UI_CHEVRON_DOWN)
                     .tooltip("Move down")
                     .disabled(last_in_category)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -724,7 +725,7 @@ impl StatusesPane {
                 Button::new(row_id("status-delete", &status_id))
                     .ghost()
                     .xsmall()
-                    .icon(IconName::Delete)
+                    .icon(registry::UI_DELETE)
                     .tooltip("Delete status")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         let Some(preselected) = preselected.clone() else {
@@ -930,7 +931,7 @@ impl Render for StatusesPane {
                                 Button::new(category_id("status-new", category))
                                     .outline()
                                     .xsmall()
-                                    .icon(IconName::Plus)
+                                    .icon(registry::UI_ADD)
                                     .label("Add status")
                                     .disabled(capped)
                                     .on_click(cx.listener(move |this, _, window, cx| {

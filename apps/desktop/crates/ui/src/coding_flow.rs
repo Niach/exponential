@@ -47,7 +47,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
@@ -62,6 +62,7 @@ use crate::queries;
 use crate::session::AuthContext;
 use crate::terminal_dock::TerminalDockPanel;
 use crate::shell::Shell;
+use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
 // CodingHub — settings + doctor (§7.7)
@@ -1230,7 +1231,7 @@ impl Render for StartCodingControl {
                         .outline()
                         .small()
                         .w_full()
-                        .icon(Icon::new(IconName::CircleX).text_color(cx.theme().danger))
+                        .icon(Icon::new(registry::CODING_STOP).text_color(cx.theme().danger))
                         .label("Stop")
                         .tooltip("Stop the coding session and close its terminal")
                         .on_click(cx.listener(|this, _, window, cx| this.stop(window, cx))),
@@ -1246,7 +1247,7 @@ impl Render for StartCodingControl {
             .outline()
             .small()
             .flex_1()
-            .icon(Icon::new(IconName::Play).text_color(if disabled.is_some() {
+            .icon(Icon::new(registry::ACTION_RUN).text_color(if disabled.is_some() {
                 cx.theme().muted_foreground
             } else {
                 theme::tokens::GREEN.to_hsla()
@@ -1263,7 +1264,7 @@ impl Render for StartCodingControl {
                             .ghost()
                             .xsmall()
                             .icon(
-                                Icon::new(IconName::Undo2)
+                                Icon::new(registry::UI_UNDO)
                                     .text_color(cx.theme().muted_foreground),
                             )
                             .tooltip("Re-check repository and tools")

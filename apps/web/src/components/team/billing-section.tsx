@@ -4,7 +4,7 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  AlertTriangle,
+  TriangleAlert,
   Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -252,7 +252,7 @@ export function TeamBillingSection({
 
           {seatsFull && (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
               <div className="space-y-1.5">
                 <p className="text-muted-foreground">
                   {usage.members > limits.seats

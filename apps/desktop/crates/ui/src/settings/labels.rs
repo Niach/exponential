@@ -23,7 +23,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     popover::Popover,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -32,6 +32,7 @@ use domain::rows::Label;
 use crate::navigation::{active_team_id, Navigation};
 
 use super::{section, card_header, parse_hex_color, spawn_trpc};
+use crate::icons::registry;
 
 /// Web `LABEL_COLORS` (lib/label-colors.ts) — verbatim.
 pub(crate) const LABEL_COLORS: [&str; 20] = [
@@ -387,7 +388,7 @@ impl LabelsPane {
                         Button::new(row_id("label-delete-confirm", &label.id))
                             .ghost()
                             .xsmall()
-                            .icon(Icon::new(IconName::Check).text_color(cx.theme().danger))
+                            .icon(Icon::new(registry::UI_CHECK).text_color(cx.theme().danger))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let team_id = del_team.clone();
                                 let label_id = del_label.clone();
@@ -402,7 +403,7 @@ impl LabelsPane {
                         Button::new(row_id("label-delete-cancel", &label.id))
                             .ghost()
                             .xsmall()
-                            .icon(IconName::Close)
+                            .icon(registry::UI_CLOSE)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.confirming_delete = None;
                                 cx.notify();
@@ -415,7 +416,7 @@ impl LabelsPane {
                 Button::new(row_id("label-delete", &label.id))
                     .ghost()
                     .xsmall()
-                    .icon(IconName::Delete)
+                    .icon(registry::UI_DELETE)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.confirming_delete = Some(confirm_id.clone());
                         cx.notify();
@@ -559,7 +560,7 @@ impl Render for LabelsPane {
                     Button::new("label-new")
                         .outline()
                         .small()
-                        .icon(IconName::Plus)
+                        .icon(registry::UI_ADD)
                         .label("New label")
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.creating = true;

@@ -19,6 +19,7 @@ use gpui_component::{
 use gpui_markdown_editor::{FormatCommand, FormatState};
 
 use super::description::WysiwygDescription;
+use crate::icons::registry;
 use crate::ExpIcon;
 
 /// EXP-285: horizontal toolbar inset — the editor's `block_padding_x` (12)
@@ -70,7 +71,7 @@ impl WysiwygDescription {
                 .px(gpui::px(TOOLBAR_GLYPH_ALIGN_PX))
                 .child(Self::format_button(
                     "wysiwyg-h1",
-                    ExpIcon::Heading1,
+                    registry::EDITOR_HEADING_1,
                     "Heading 1",
                     state.heading == Some(1),
                     FormatCommand::Heading(1),
@@ -78,7 +79,7 @@ impl WysiwygDescription {
                 ))
                 .child(Self::format_button(
                     "wysiwyg-h2",
-                    ExpIcon::Heading2,
+                    registry::EDITOR_HEADING_2,
                     "Heading 2",
                     state.heading == Some(2),
                     FormatCommand::Heading(2),
@@ -86,7 +87,7 @@ impl WysiwygDescription {
                 ))
                 .child(Self::format_button(
                     "wysiwyg-h3",
-                    ExpIcon::Heading3,
+                    registry::EDITOR_HEADING_3,
                     "Heading 3",
                     state.heading == Some(3),
                     FormatCommand::Heading(3),
@@ -95,7 +96,7 @@ impl WysiwygDescription {
                 .child(separator(cx))
                 .child(Self::format_button(
                     "wysiwyg-bold",
-                    ExpIcon::Bold,
+                    registry::EDITOR_BOLD,
                     "Bold",
                     state.bold,
                     FormatCommand::Bold,
@@ -103,7 +104,7 @@ impl WysiwygDescription {
                 ))
                 .child(Self::format_button(
                     "wysiwyg-italic",
-                    ExpIcon::Italic,
+                    registry::EDITOR_ITALIC,
                     "Italic",
                     state.italic,
                     FormatCommand::Italic,
@@ -111,7 +112,7 @@ impl WysiwygDescription {
                 ))
                 .child(Self::format_button(
                     "wysiwyg-strike",
-                    ExpIcon::Strikethrough,
+                    registry::EDITOR_STRIKETHROUGH,
                     "Strikethrough",
                     state.strikethrough,
                     FormatCommand::Strikethrough,
@@ -119,7 +120,7 @@ impl WysiwygDescription {
                 ))
                 .child(Self::format_button(
                     "wysiwyg-code",
-                    ExpIcon::Code,
+                    registry::EDITOR_CODE,
                     "Code",
                     state.code,
                     FormatCommand::Code,
@@ -135,7 +136,7 @@ impl WysiwygDescription {
                         Button::new("wysiwyg-link")
                             .ghost()
                             .xsmall()
-                            .icon(Icon::from(ExpIcon::Link))
+                            .icon(Icon::from(registry::EDITOR_LINK))
                             .tooltip("Link")
                             .selected(has_link)
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -145,7 +146,7 @@ impl WysiwygDescription {
                 })
                 .child(Self::format_button(
                     "wysiwyg-quote",
-                    ExpIcon::Quote,
+                    registry::EDITOR_QUOTE,
                     "Quote",
                     state.quote,
                     FormatCommand::Quote,
@@ -154,7 +155,7 @@ impl WysiwygDescription {
                 .child(separator(cx))
                 .child(Self::format_button(
                     "wysiwyg-ul",
-                    ExpIcon::List,
+                    registry::EDITOR_LIST,
                     "Bullet list",
                     state.bullet_list,
                     FormatCommand::BulletList,
@@ -162,7 +163,7 @@ impl WysiwygDescription {
                 ))
                 .child(Self::format_button(
                     "wysiwyg-ol",
-                    ExpIcon::ListOrdered,
+                    registry::EDITOR_LIST_ORDERED,
                     "Numbered list",
                     state.ordered_list,
                     FormatCommand::OrderedList,
@@ -170,7 +171,7 @@ impl WysiwygDescription {
                 ))
                 .child(Self::format_button(
                     "wysiwyg-task",
-                    ExpIcon::ListChecks,
+                    registry::EDITOR_LIST_TODO,
                     "Task list",
                     state.task_list,
                     FormatCommand::TaskList,
@@ -179,7 +180,7 @@ impl WysiwygDescription {
                 .child(separator(cx))
                 .child(Self::format_button(
                     "wysiwyg-clear",
-                    ExpIcon::RemoveFormatting,
+                    registry::EDITOR_CLEAR_FORMATTING,
                     "Clear formatting",
                     false,
                     FormatCommand::ClearFormatting,
@@ -190,7 +191,7 @@ impl WysiwygDescription {
                     Button::new("wysiwyg-image")
                         .ghost()
                         .xsmall()
-                        .icon(Icon::from(ExpIcon::Image))
+                        .icon(Icon::from(registry::EDITOR_IMAGE))
                         .tooltip("Insert image")
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.pick_image(window, cx);
@@ -213,7 +214,7 @@ fn render_link_editor(
             Button::new("wysiwyg-link-apply")
                 .ghost()
                 .xsmall()
-                .icon(Icon::from(ExpIcon::Check))
+                .icon(Icon::from(registry::UI_CHECK))
                 .tooltip("Apply link")
                 .on_click(cx.listener(|this, _, window, cx| this.apply_link(window, cx))),
         )
@@ -223,7 +224,7 @@ fn render_link_editor(
                 Button::new("wysiwyg-link-remove")
                     .ghost()
                     .xsmall()
-                    .icon(Icon::from(ExpIcon::Unlink))
+                    .icon(Icon::from(registry::EDITOR_UNLINK))
                     .tooltip("Remove link")
                     .on_click(cx.listener(|this, _, window, cx| this.remove_link(window, cx))),
             )

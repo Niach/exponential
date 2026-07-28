@@ -31,7 +31,7 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use std::collections::HashMap;
 use sync::Store;
@@ -43,6 +43,7 @@ use crate::coding_flow::CodingHub;
 use crate::native_dialog::{self, AlertSpec};
 
 use super::{section, card_header};
+use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
 // Background scan model
@@ -268,7 +269,7 @@ impl LocalReposPane {
                 h_flex()
                     .gap_1()
                     .items_center()
-                    .child(Icon::new(IconName::HardDrive).xsmall())
+                    .child(Icon::new(registry::SETTINGS_STORAGE).xsmall())
                     .child(SharedString::from(format_size(repo.size_bytes))),
             )
             .child(div().child("·"))
@@ -313,7 +314,7 @@ impl LocalReposPane {
             let mut button = Button::new(("repo-remove", ix))
                 .ghost()
                 .xsmall()
-                .icon(Icon::new(IconName::Delete).text_color(if in_use {
+                .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
                     cx.theme().muted_foreground
                 } else {
                     cx.theme().danger
@@ -345,7 +346,7 @@ impl LocalReposPane {
                     .gap_3()
                     .items_center()
                     .child(
-                        Icon::new(IconName::Folder)
+                        Icon::new(registry::UI_FOLDER)
                             .small()
                             .text_color(cx.theme().muted_foreground),
                     )

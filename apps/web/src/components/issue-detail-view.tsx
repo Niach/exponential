@@ -6,7 +6,7 @@ import {
   ChevronUp,
   Files,
   Link2,
-  MoreHorizontal,
+  Ellipsis,
   Trash2,
   Undo2,
 } from "lucide-react"
@@ -665,7 +665,7 @@ export function IssueDetailView({
                   className="text-muted-foreground"
                   aria-label="Issue actions"
                 >
-                  <MoreHorizontal className="size-4" />
+                  <Ellipsis className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
             </IconTooltip>

@@ -7,7 +7,7 @@ import {
   ExternalLink,
   Info,
   LifeBuoy,
-  Loader2,
+  LoaderCircle,
   Lock,
   Mail,
   MailWarning,
@@ -184,7 +184,7 @@ export function SupportInbox({
         <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
           {threads === null ? (
             <div className="flex items-center justify-center py-10">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
           ) : threads.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
@@ -235,7 +235,7 @@ export function SupportInbox({
                 onClick={() => void loadMore()}
               >
                 {loadingMore ? (
-                  <Loader2 className="size-3 animate-spin" />
+                  <LoaderCircle className="size-3 animate-spin" />
                 ) : null}
                 Load older conversations
               </Button>
@@ -382,7 +382,7 @@ function ConversationPane({
             onClick={() => void toggleClosed()}
           >
             {statusBusy ? (
-              <Loader2 className="size-3 animate-spin" />
+              <LoaderCircle className="size-3 animate-spin" />
             ) : isResolved ? (
               <RotateCcw className="size-3" />
             ) : (
@@ -404,7 +404,7 @@ function ConversationPane({
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
           {detail === null ? (
             <div className="flex flex-1 items-center justify-center">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
           ) : (
             detail.messages.map((message) => {
@@ -534,7 +534,7 @@ function ConversationPane({
               aria-label={mode === `reply` ? `Send reply` : `Save note`}
             >
               {sending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <LoaderCircle className="h-4 w-4 animate-spin" />
               ) : (
                 <Send className="h-4 w-4" />
               )}
@@ -776,7 +776,7 @@ function ThreadDetails({
               onClick={() => void escalate()}
             >
               {escalating ? (
-                <Loader2 className="size-3 animate-spin" />
+                <LoaderCircle className="size-3 animate-spin" />
               ) : null}
               Create issue
             </Button>

@@ -28,7 +28,7 @@ use gpui_component::{
     input::{Input, InputState},
     menu::{PopupMenu, PopupMenuItem},
     popover::Popover,
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _, Side,
+    v_flex, ActiveTheme as _, Icon, Sizable as _, Side,
 };
 use theme::tokens as t;
 
@@ -37,7 +37,7 @@ use domain::rows::{Board, Label, User};
 use domain::statuses::{IssueStatusCategory, ResolvedStatus};
 use domain::{IssuePriority, IssueStatus};
 
-use crate::icons::{option_icon, resolved_status_icon};
+use crate::icons::{option_icon, registry, resolved_status_icon};
 use crate::settings::parse_hex_color;
 
 /// A pick callback (the host owns the mutation — tRPC write vs local draft).
@@ -88,7 +88,7 @@ pub(crate) fn picker_trigger(
                         .child(label),
                 )
                 .child(
-                    Icon::new(IconName::ChevronDown)
+                    Icon::new(registry::UI_CHEVRON_DOWN)
                         .size_3()
                         .flex_shrink_0()
                         .text_color(cx.theme().muted_foreground),
@@ -543,7 +543,7 @@ pub(crate) fn board_picker_popover(
                 );
                 if is_current {
                     row = row.child(
-                        Icon::new(IconName::Check)
+                        Icon::new(registry::UI_CHECK)
                             .size_3()
                             .flex_shrink_0()
                             .text_color(cx.theme().muted_foreground),

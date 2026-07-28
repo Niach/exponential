@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import { toast } from "sonner"
-import { Eraser, Loader2, Trash2 } from "lucide-react"
+import { Eraser, LoaderCircle, Trash2 } from "lucide-react"
 import type { Issue, Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -209,7 +209,7 @@ export function TeamStorageSection({
             <p className="text-sm text-destructive">{loadError}</p>
           ) : !list ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
+              <LoaderCircle className="size-3.5 animate-spin" />
               Loading attachments...
             </p>
           ) : rows.length === 0 ? (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { Check, Github, Loader2, Lock, Plus } from "lucide-react"
+import { Check, Github, LoaderCircle, Lock, Plus } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -75,7 +75,7 @@ export function ConnectedRepoPicker({
   if (repos === null) {
     return (
       <div className="flex items-center gap-2 rounded-md border px-3 py-6 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <LoaderCircle className="h-4 w-4 animate-spin" />
         Loading repositories…
       </div>
     )

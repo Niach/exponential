@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
-import { MoreHorizontal, Trash2 } from "lucide-react"
+import { Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
 import { PlanBadge, formatStorageMb } from "./-shared"
@@ -128,7 +128,7 @@ function AdminTeams() {
                       className="h-8 w-8"
                       aria-label="Team actions"
                     >
-                      <MoreHorizontal className="h-4 w-4" />
+                      <Ellipsis className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -219,7 +219,7 @@ function AdminTeams() {
                     className="h-8 w-8"
                     aria-label="Team actions"
                   >
-                    <MoreHorizontal className="h-4 w-4" />
+                    <Ellipsis className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">

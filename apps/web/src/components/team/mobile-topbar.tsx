@@ -1,14 +1,6 @@
 import { useState } from "react"
 import { useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
-import {
-  Bell,
-  ChevronsUpDown,
-  LifeBuoy,
-  LogOut,
-  Megaphone,
-  Settings,
-  Shield,
-} from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
@@ -31,6 +23,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+
+// EXP-317: the cross-client nav glyphs come from the shared registry
+// (packages/icons/icons.json) so web, desktop, iOS and Android agree.
+const NavAdminIcon = conceptIcon(`nav-admin`)
+const NavChangelogIcon = conceptIcon(`nav-changelog`)
+const NavNotificationsIcon = conceptIcon(`nav-notifications`)
+const NavSettingsIcon = conceptIcon(`nav-settings`)
+const NavSignOutIcon = conceptIcon(`nav-sign-out`)
+const NavSupportIcon = conceptIcon(`nav-support`)
+const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
 
 interface TeamMobileTopbarProps {
   teamSlug: string
@@ -102,7 +104,7 @@ export function TeamMobileTopbar({
             />
           )}
           <span className="truncate">{switcherLabel}</span>
-          <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+          <NavTeamSwitcherIcon className="size-3.5 shrink-0 text-muted-foreground" />
         </button>
       )}
 
@@ -128,7 +130,7 @@ export function TeamMobileTopbar({
           <DropdownMenuContent align="end" className="w-56">
             {isAdminUser(session?.user) && (
               <DropdownMenuItem onClick={() => navigate({ to: `/admin` })}>
-                <Shield className="mr-2 size-4" />
+                <NavAdminIcon className="mr-2 size-4" />
                 Admin
               </DropdownMenuItem>
             )}
@@ -140,28 +142,28 @@ export function TeamMobileTopbar({
                 })
               }
             >
-              <Settings className="mr-2 size-4" />
+              <NavSettingsIcon className="mr-2 size-4" />
               Settings
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => navigate({ to: `/account/notifications` })}
             >
-              <Bell className="mr-2 size-4" />
+              <NavNotificationsIcon className="mr-2 size-4" />
               Account & notifications
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
-              <Megaphone className="mr-2 size-4" />
+              <NavChangelogIcon className="mr-2 size-4" />
               What&apos;s new
             </DropdownMenuItem>
             {feedbackAvailable && (
               <DropdownMenuItem onClick={() => openFeedbackWidget()}>
-                <LifeBuoy className="mr-2 size-4" />
+                <NavSupportIcon className="mr-2 size-4" />
                 Feedback & support
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut}>
-              <LogOut className="mr-2 size-4" />
+              <NavSignOutIcon className="mr-2 size-4" />
               Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>

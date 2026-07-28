@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button"
-import { CircleHelp, X } from "lucide-react"
+import { CircleQuestionMark, X } from "lucide-react"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import {
   PriorityIcon,
@@ -85,7 +85,7 @@ export function ActiveFilterPills({
           {option ? (
             <StatusIcon option={option} className="!h-3 !w-3" />
           ) : (
-            <CircleHelp className="!h-3 !w-3 text-muted-foreground" />
+            <CircleQuestionMark className="!h-3 !w-3 text-muted-foreground" />
           )}
           {option ? option.name : `Unknown status`}
           <X className="size-2.5 ml-0.5" />

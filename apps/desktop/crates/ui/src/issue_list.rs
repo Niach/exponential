@@ -37,7 +37,7 @@ use gpui_component::{
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem},
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
-    v_flex, v_virtual_list, ActiveTheme as _, Disableable as _, Icon, IconName, Side, Sizable as _,
+    v_flex, v_virtual_list, ActiveTheme as _, Disableable as _, Icon, Side, Sizable as _,
     VirtualListScrollHandle,
 };
 use sync::Store;
@@ -49,7 +49,7 @@ use domain::rows::{Issue, Label, Board, User};
 use domain::statuses::{ResolvedStatus, StatusTint};
 use domain::{IssueFilters, IssueStatus};
 
-use crate::icons::{option_icon, resolved_status_icon, ExpIcon};
+use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_detail::{apply_status_selection, set_duplicate_of};
 use crate::pickers::{option_item, status_menu, StatusMenuScope, StatusPick};
 use crate::navigation::{navigate, Screen};
@@ -358,9 +358,9 @@ impl IssueListView {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let chevron = if collapsed {
-            IconName::ChevronRight
+            registry::UI_CHEVRON_RIGHT
         } else {
-            IconName::ChevronDown
+            registry::UI_CHEVRON_DOWN
         };
         let group_key = status.group_key.clone();
 
@@ -697,14 +697,14 @@ impl IssueListView {
                 Button::new("bulk-assignee")
                     .ghost()
                     .small()
-                    .icon(Icon::new(IconName::CircleUser))
+                    .icon(Icon::new(registry::UI_ASSIGNEE))
                     .tooltip("Assignee")
                     .disabled(busy)
                     .dropdown_menu(move |menu, _window, _cx| {
                         let mut menu = menu.scrollable(true).max_h(px(320.));
                         menu = menu.item(
                             PopupMenuItem::new("Unassign")
-                                .icon(Icon::new(IconName::Close))
+                                .icon(Icon::new(registry::UI_CLOSE))
                                 .on_click({
                                     let ids = ids.clone();
                                     let list = list.clone();
@@ -735,7 +735,7 @@ impl IssueListView {
                             let user_id = user.id.clone();
                             menu = menu.item(
                                 PopupMenuItem::new(SharedString::from(name))
-                                    .icon(Icon::new(IconName::CircleUser))
+                                    .icon(Icon::new(registry::UI_ASSIGNEE))
                                     .on_click(move |_, _, cx| {
                                         let user_id = user_id.clone();
                                         spawn_bulk_op(
@@ -863,7 +863,7 @@ impl IssueListView {
             Button::new("bulk-start-coding")
                 .ghost()
                 .small()
-                .icon(Icon::new(IconName::Play))
+                .icon(Icon::new(registry::ACTION_RUN))
                 .tooltip("Start coding")
                 .disabled(busy)
                 .on_click(move |_, window, cx| {
@@ -882,7 +882,7 @@ impl IssueListView {
             Button::new("bulk-delete")
                 .ghost()
                 .small()
-                .icon(Icon::new(IconName::Delete).text_color(danger))
+                .icon(Icon::new(registry::UI_DELETE).text_color(danger))
                 .tooltip("Delete selected")
                 .disabled(busy)
                 .dropdown_menu(move |menu, _window, _cx| {
@@ -896,7 +896,7 @@ impl IssueListView {
                     let list = list.clone();
                     menu.item(
                         PopupMenuItem::new(SharedString::from(label))
-                            .icon(Icon::new(IconName::Delete))
+                            .icon(Icon::new(registry::UI_DELETE))
                             .on_click(move |_, _, cx| {
                                 spawn_bulk_op(
                                     list.clone(),
@@ -944,7 +944,7 @@ impl IssueListView {
                 Button::new("bulk-clear")
                     .ghost()
                     .small()
-                    .icon(Icon::new(IconName::Close))
+                    .icon(Icon::new(registry::UI_CLOSE))
                     .tooltip("Clear selection")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.clear_selection(cx);
@@ -1315,7 +1315,7 @@ fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
                 .items_center()
                 .justify_center()
                 .child(
-                    Icon::new(IconName::User)
+                    Icon::new(registry::UI_AVATAR_PLACEHOLDER)
                         .size_2p5()
                         .text_color(cx.theme().muted_foreground.opacity(0.5)),
                 ),
@@ -1348,7 +1348,7 @@ fn assignee_menu(
         let issue_id = issue_id.to_string();
         menu = menu.item(
             PopupMenuItem::new("Unassign")
-                .icon(Icon::new(IconName::Close))
+                .icon(Icon::new(registry::UI_CLOSE))
                 .on_click(move |_, _, cx| {
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                     input.assignee_id = api::Patch::Null;
@@ -1363,7 +1363,7 @@ fn assignee_menu(
         let user_id = user.id.clone();
         menu = menu.item(
             PopupMenuItem::new(SharedString::from(name))
-                .icon(Icon::new(IconName::CircleUser))
+                .icon(Icon::new(registry::UI_ASSIGNEE))
                 .checked(checked)
                 .on_click(move |_, _, cx| {
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
@@ -1489,7 +1489,7 @@ fn build_row_context_menu(
         let issue_id = issue.id.clone();
         menu = menu.item(
             PopupMenuItem::new("Unmark duplicate")
-                .icon(Icon::new(IconName::Undo2))
+                .icon(Icon::new(registry::UI_UNDO))
                 .on_click(move |_, _, cx| {
                     // Server restores the prior status and clears the link.
                     set_duplicate_of(issue_id.clone(), None, cx);
@@ -1533,9 +1533,9 @@ fn build_row_context_menu(
         let board_id = issue.board_id.clone();
         let current = issue.assignee_id.clone();
         let icon = if current.is_some() {
-            Icon::new(IconName::CircleUser)
+            Icon::new(registry::UI_ASSIGNEE)
         } else {
-            Icon::new(IconName::User)
+            Icon::new(registry::UI_UNASSIGNED)
         };
         menu = menu.submenu_with_icon(Some(icon), "Assignee", window, cx, move |menu, _, cx| {
             assignee_menu(menu, &issue_id, &board_id, current.as_deref(), cx)
@@ -1679,7 +1679,7 @@ fn build_row_context_menu(
                 let issue_id = issue_id.clone();
                 menu = menu.separator().item(
                     PopupMenuItem::new("Clear due date")
-                        .icon(Icon::new(IconName::Close))
+                        .icon(Icon::new(registry::UI_CLOSE))
                         .on_click(move |_, _, cx| {
                             let mut input =
                                 api::issues::IssuesUpdateInput::new(issue_id.clone());
@@ -1696,7 +1696,7 @@ fn build_row_context_menu(
     {
         let issue_id = issue.id.clone();
         menu = menu.separator().submenu_with_icon(
-            Some(Icon::new(IconName::Delete)),
+            Some(Icon::new(registry::UI_DELETE)),
             "Delete issue",
             window,
             cx,
@@ -1704,7 +1704,7 @@ fn build_row_context_menu(
                 let issue_id = issue_id.clone();
                 menu.item(
                     PopupMenuItem::new("Confirm delete")
-                        .icon(Icon::new(IconName::Delete))
+                        .icon(Icon::new(registry::UI_DELETE))
                         .on_click(move |_, _, cx| {
                             spawn_issue_delete(cx, issue_id.clone());
                         }),

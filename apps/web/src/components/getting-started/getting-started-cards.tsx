@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import {
   BookOpen,
-  CheckCircle2,
+  CircleCheck,
   Download,
   FolderKanban,
   Github,
@@ -10,7 +10,7 @@ import {
   Lock,
   MessageSquarePlus,
   Plug,
-  TerminalSquare,
+  SquareTerminal,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -53,7 +53,7 @@ export interface GettingStartedCardsProps {
 const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
   github: Github,
   board: FolderKanban,
-  coding: TerminalSquare,
+  coding: SquareTerminal,
   widget: MessageSquarePlus,
   helpdesk: LifeBuoy,
   mcp: Plug,
@@ -116,7 +116,7 @@ function GettingStartedCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           {state === `done` ? (
-            <CheckCircle2 className="size-5 shrink-0 text-green-500" />
+            <CircleCheck className="size-5 shrink-0 text-green-500" />
           ) : locked ? (
             <Lock className="size-5 shrink-0 p-0.5 text-muted-foreground" />
           ) : (

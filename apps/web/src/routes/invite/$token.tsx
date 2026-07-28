@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Users, Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
+import { Users, LoaderCircle, CircleAlert, CircleCheck } from "lucide-react"
 
 export const Route = createFileRoute(`/invite/$token`)({
   component: InviteAcceptPage,
@@ -76,7 +76,7 @@ function InviteAcceptPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <LoaderCircle className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -112,7 +112,7 @@ function InviteAcceptPage() {
         <CardContent className="space-y-4">
           {success && (
             <div className="flex items-center justify-center gap-2 text-sm text-green-500">
-              <CheckCircle2 className="h-4 w-4" />
+              <CircleCheck className="h-4 w-4" />
               Successfully joined team
             </div>
           )}
@@ -130,19 +130,19 @@ function InviteAcceptPage() {
 
               {isExpired ? (
                 <div className="flex items-center gap-2 text-sm text-destructive">
-                  <AlertCircle className="h-4 w-4" />
+                  <CircleAlert className="h-4 w-4" />
                   This invite has expired
                 </div>
               ) : isUsed ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <AlertCircle className="h-4 w-4" />
+                  <CircleAlert className="h-4 w-4" />
                   This invite has already been used
                 </div>
               ) : isLoggedIn ? (
                 <>
                   {error && (
                     <div className="flex items-center gap-2 text-sm text-destructive">
-                      <AlertCircle className="h-4 w-4" />
+                      <CircleAlert className="h-4 w-4" />
                       {error}
                     </div>
                   )}
@@ -152,7 +152,7 @@ function InviteAcceptPage() {
                     disabled={accepting}
                   >
                     {accepting && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                     )}
                     Accept Invite
                   </Button>

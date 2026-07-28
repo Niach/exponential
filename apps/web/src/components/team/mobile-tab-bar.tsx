@@ -1,13 +1,5 @@
 import { Link, useMatchRoute, useParams } from "@tanstack/react-router"
-import {
-  Bot,
-  GitPullRequest,
-  Inbox,
-  LifeBuoy,
-  List,
-  Search,
-  SquarePen,
-} from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
@@ -19,6 +11,16 @@ import {
   useReviewsOpenPrCount,
   useAgentsRunningCount,
 } from "@/hooks/use-nav-counts"
+
+// EXP-317: the cross-client nav glyphs come from the shared registry
+// (packages/icons/icons.json) so web, desktop, iOS and Android agree.
+const NavAgentsIcon = conceptIcon(`nav-agents`)
+const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
+const NavInboxIcon = conceptIcon(`nav-inbox`)
+const NavIssuesIcon = conceptIcon(`nav-issues`)
+const NavReviewsIcon = conceptIcon(`nav-reviews`)
+const NavSearchIcon = conceptIcon(`nav-search`)
+const NavSupportIcon = conceptIcon(`nav-support`)
 
 // Bottom padding for every scroll container that sits under the floating
 // tab bar, so list ends scroll clear of the glass pill. Detail routes hide
@@ -162,7 +164,7 @@ export function MobileTabBar({
             aria-label="Issues"
             className={tabClass(onBoard || onTeamIndex)}
           >
-            <List className="size-5" />
+            <NavIssuesIcon className="size-5" />
           </Link>
         ) : (
           <Link
@@ -171,7 +173,7 @@ export function MobileTabBar({
             aria-label="Issues"
             className={tabClass(onBoard || onTeamIndex)}
           >
-            <List className="size-5" />
+            <NavIssuesIcon className="size-5" />
           </Link>
         )}
         <Link
@@ -180,7 +182,7 @@ export function MobileTabBar({
           aria-label="Inbox"
           className={tabClass(onInbox)}
         >
-          <Inbox className="size-5" />
+          <NavInboxIcon className="size-5" />
           <InboxDot />
         </Link>
         {team?.helpdeskEnabled === true && (
@@ -190,7 +192,7 @@ export function MobileTabBar({
             aria-label="Support"
             className={tabClass(onSupport)}
           >
-            <LifeBuoy className="size-5" />
+            <NavSupportIcon className="size-5" />
             <SupportDot teamId={team?.id} />
           </Link>
         )}
@@ -200,7 +202,7 @@ export function MobileTabBar({
           aria-label="Agents"
           className={tabClass(onAgents)}
         >
-          <Bot className="size-5" />
+          <NavAgentsIcon className="size-5" />
           <AgentsDot teamId={team?.id} />
         </Link>
         <Link
@@ -209,7 +211,7 @@ export function MobileTabBar({
           aria-label="Reviews"
           className={tabClass(onReviews)}
         >
-          <GitPullRequest className="size-5" />
+          <NavReviewsIcon className="size-5" />
           <ReviewsDot boards={boards} />
         </Link>
         {team && (
@@ -219,7 +221,7 @@ export function MobileTabBar({
             aria-label="Search"
             className={tabClass(false)}
           >
-            <Search className="size-5" />
+            <NavSearchIcon className="size-5" />
           </button>
         )}
       </nav>
@@ -231,7 +233,7 @@ export function MobileTabBar({
           aria-label="New issue"
           className="pointer-events-auto flex size-[3.25rem] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl"
         >
-          <SquarePen className="size-5" />
+          <NavCreateIssueIcon className="size-5" />
         </Link>
       )}
     </div>

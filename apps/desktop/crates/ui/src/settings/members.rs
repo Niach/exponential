@@ -23,7 +23,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -38,6 +38,7 @@ use super::{
     section, card_header, error_notice, is_owner, is_plan_limit, show_team_chrome, spawn_trpc,
     upgrade_notice,
 };
+use crate::icons::registry;
 
 /// One joined member row (web `members` + `userMap`).
 struct MemberRow {
@@ -243,9 +244,9 @@ impl MembersPane {
             (i_am_owner || is_self) && !(is_self && is_owner_row && owner_count <= 1);
 
         let role_icon = if is_owner_row {
-            IconName::Star
+            registry::UI_OWNER
         } else {
-            IconName::User
+            registry::UI_MEMBER
         };
 
         let mut identity = v_flex().gap_0p5().child(
@@ -314,7 +315,7 @@ fn member_actions_menu(
     Button::new(row_id("member-actions", &member_id))
         .ghost()
         .xsmall()
-        .icon(IconName::Ellipsis)
+        .icon(registry::UI_MORE)
         .dropdown_menu({
             let member_id = member_id.clone();
             let name = name.to_string();
@@ -324,9 +325,9 @@ fn member_actions_menu(
                     // owner is always safe (I stay an owner). The no-op variant
                     // is HIDDEN, not a disabled dead item (EXP-228).
                     let role_item = if is_owner_row {
-                        ("Make member", api::teams::TeamRole::Member, IconName::User)
+                        ("Make member", api::teams::TeamRole::Member, registry::UI_MEMBER)
                     } else {
-                        ("Make owner", api::teams::TeamRole::Owner, IconName::Star)
+                        ("Make owner", api::teams::TeamRole::Owner, registry::UI_OWNER)
                     };
                     let (label, role, icon) = role_item;
                     let member_id = member_id.clone();
@@ -350,7 +351,7 @@ fn member_actions_menu(
                     };
                     menu = menu.item(
                         PopupMenuItem::new(SharedString::from(label))
-                            .icon(Icon::new(IconName::Close))
+                            .icon(Icon::new(registry::UI_REMOVE_MEMBER))
                             .on_click(move |_, _, cx| {
                                 let member_id = member_id.clone();
                                 spawn_trpc(cx, "teamMembers.remove", move |trpc| {
@@ -486,7 +487,7 @@ impl Render for MembersPane {
                             } else {
                                 "Send invite"
                             })
-                            .icon(IconName::Plus)
+                            .icon(registry::UI_ADD)
                             .loading(self.generating)
                             .disabled(self.generating)
                             .on_click(cx.listener({
@@ -542,7 +543,7 @@ impl Render for MembersPane {
                         );
                     }
                     invite_identity = invite_identity
-                        .child(role_chip(IconName::User, role, cx))
+                        .child(role_chip(registry::UI_MEMBER, role, cx))
                         .child(
                             div()
                                 .text_xs()
@@ -563,7 +564,7 @@ impl Render for MembersPane {
                                 Button::new(row_id("invite-revoke", &invite.id))
                                     .ghost()
                                     .xsmall()
-                                    .icon(IconName::Delete)
+                                    .icon(registry::UI_DELETE)
                                     .on_click(move |_, _, cx| {
                                         let invite_id = invite_id.clone();
                                         spawn_trpc(cx, "teamInvites.revoke", move |trpc| {
@@ -616,7 +617,7 @@ fn sent_notice(message: SharedString, cx: &App) -> impl IntoElement {
 }
 
 /// Web role `Badge`: secondary chip with the role icon.
-fn role_chip(icon: IconName, label: SharedString, cx: &App) -> impl IntoElement {
+fn role_chip(icon: crate::icons::ExpIcon, label: SharedString, cx: &App) -> impl IntoElement {
     h_flex()
         .gap_1()
         .px_1p5()

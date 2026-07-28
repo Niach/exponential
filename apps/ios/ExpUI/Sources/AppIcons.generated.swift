@@ -163,6 +163,7 @@ public enum AppIcons {
         "list-filter",
         "list-ordered",
         "list-todo",
+        "loader-circle",
         "lock",
         "log-in",
         "log-out",
@@ -172,8 +173,10 @@ public enum AppIcons {
         "megaphone",
         "message-circle",
         "message-square",
+        "message-square-plus",
         "minus",
         "monitor",
+        "monitor-off",
         "move",
         "package",
         "palette",
@@ -230,6 +233,7 @@ public enum AppIcons {
         "undo-2",
         "unlink",
         "user",
+        "user-minus",
         "user-plus",
         "user-x",
         "users",
@@ -307,7 +311,7 @@ public enum AppIcons {
     /// Concept `editor-unlink`.
     public static let editorUnlink: String = "unlink"
     /// Concept `event-assignee-changed`.
-    public static let eventAssigneeChanged: String = "circle-user"
+    public static let eventAssigneeChanged: String = "user-plus"
     /// Concept `event-board-moved`.
     public static let eventBoardMoved: String = "move"
     /// Concept `event-label-added`.
@@ -315,7 +319,7 @@ public enum AppIcons {
     /// Concept `event-label-removed`.
     public static let eventLabelRemoved: String = "tag"
     /// Concept `event-status-changed`.
-    public static let eventStatusChanged: String = "circle-check"
+    public static let eventStatusChanged: String = "circle-dot"
     /// Concept `nav-account`.
     public static let navAccount: String = "circle-user"
     /// Concept `nav-admin`.
@@ -404,6 +408,8 @@ public enum AppIcons {
     public static let settingsAccount: String = "circle-user"
     /// Concept `settings-agents`.
     public static let settingsAgents: String = "bot"
+    /// Concept `settings-billing`.
+    public static let settingsBilling: String = "credit-card"
     /// Concept `settings-boards`.
     public static let settingsBoards: String = "square-kanban"
     /// Concept `settings-general`.
@@ -422,10 +428,14 @@ public enum AppIcons {
     public static let settingsServers: String = "server"
     /// Concept `settings-statuses`.
     public static let settingsStatuses: String = "circle-dot"
+    /// Concept `settings-storage`.
+    public static let settingsStorage: String = "hard-drive"
     /// Concept `settings-sync`.
     public static let settingsSync: String = "refresh-cw"
     /// Concept `settings-tools`.
     public static let settingsTools: String = "square-terminal"
+    /// Concept `settings-widget`.
+    public static let settingsWidget: String = "message-square-plus"
     /// Concept `status-backlog`.
     public static let statusBacklog: String = "circle-dashed"
     /// Concept `status-cancelled`.
@@ -452,6 +462,8 @@ public enum AppIcons {
     public static let uiAssignee: String = "circle-user"
     /// Concept `ui-attach`.
     public static let uiAttach: String = "paperclip"
+    /// Concept `ui-avatar-placeholder`.
+    public static let uiAvatarPlaceholder: String = "user"
     /// Concept `ui-back`.
     public static let uiBack: String = "arrow-left"
     /// Concept `ui-branch`.
@@ -486,6 +498,8 @@ public enum AppIcons {
     public static let uiDeleteAccount: String = "user-x"
     /// Concept `ui-device`.
     public static let uiDevice: String = "monitor"
+    /// Concept `ui-device-offline`.
+    public static let uiDeviceOffline: String = "monitor-off"
     /// Concept `ui-download`.
     public static let uiDownload: String = "download"
     /// Concept `ui-due-date`.
@@ -494,10 +508,14 @@ public enum AppIcons {
     public static let uiEdit: String = "pencil"
     /// Concept `ui-empty-search`.
     public static let uiEmptySearch: String = "search-x"
+    /// Concept `ui-error`.
+    public static let uiError: String = "circle-x"
     /// Concept `ui-external-link`.
     public static let uiExternalLink: String = "external-link"
     /// Concept `ui-file`.
     public static let uiFile: String = "file"
+    /// Concept `ui-folder`.
+    public static let uiFolder: String = "folder"
     /// Concept `ui-folder-open`.
     public static let uiFolderOpen: String = "folder-open"
     /// Concept `ui-github`.
@@ -510,6 +528,8 @@ public enum AppIcons {
     public static let uiInvite: String = "user-plus"
     /// Concept `ui-issue`.
     public static let uiIssue: String = "file-text"
+    /// Concept `ui-loading`.
+    public static let uiLoading: String = "loader-circle"
     /// Concept `ui-member`.
     public static let uiMember: String = "shield-check"
     /// Concept `ui-minus`.
@@ -534,6 +554,8 @@ public enum AppIcons {
     public static let uiRedock: String = "arrow-down-left"
     /// Concept `ui-refresh`.
     public static let uiRefresh: String = "refresh-cw"
+    /// Concept `ui-remove-member`.
+    public static let uiRemoveMember: String = "user-minus"
     /// Concept `ui-repeat`.
     public static let uiRepeat: String = "repeat"
     /// Concept `ui-repository`.

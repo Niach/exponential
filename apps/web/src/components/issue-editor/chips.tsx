@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { CalendarDays, MoreHorizontal } from "lucide-react"
+import { CalendarDays, Ellipsis } from "lucide-react"
 import type { User } from "@/db/schema"
 import { ISSUE_PRIORITY_FALLBACK, type IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -182,7 +182,7 @@ export function IssueEditorChips({
               disabled={disabled}
               className="text-muted-foreground shrink-0"
             >
-              <MoreHorizontal className="size-3" />
+              <Ellipsis className="size-3" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">

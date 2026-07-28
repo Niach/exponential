@@ -3,10 +3,10 @@ import { Link } from "@tanstack/react-router"
 import { TRPCClientError } from "@trpc/client"
 import {
   Check,
-  Code2,
+  CodeXml,
   Copy,
   LifeBuoy,
-  Loader2,
+  LoaderCircle,
   MessageSquarePlus,
   Pencil,
   Trash2,
@@ -416,7 +416,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
           <div className="space-y-2">
             {loading ? (
               <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <LoaderCircle className="h-4 w-4 animate-spin" />
                 Loading widgets
               </div>
             ) : error ? (
@@ -487,7 +487,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       onClick={() => setSnippetTarget(widget)}
                       aria-label={`Show snippet for ${widget.name}`}
                     >
-                      <Code2 className="h-4 w-4" />
+                      <CodeXml className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"

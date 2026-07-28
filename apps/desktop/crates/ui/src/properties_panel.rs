@@ -30,7 +30,7 @@ use gpui_component::{
     h_flex,
     input::InputState,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde::Serialize;
 use sync::Store;
@@ -41,7 +41,7 @@ use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
-use crate::icons::{option_icon, ExpIcon};
+use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::picker_trigger;
 use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of};
 use crate::issue_list::IssueQuery;
@@ -402,7 +402,7 @@ impl PropertiesPanel {
             Some(id) => picker_trigger(
                 "prop-assignee",
                 Some(
-                    Icon::new(gpui_component::IconName::User)
+                    Icon::new(registry::UI_ASSIGNEE)
                         .text_color(cx.theme().muted_foreground),
                 ),
                 SharedString::from(crate::comments::user_label(id, selected.as_ref())),
@@ -412,7 +412,7 @@ impl PropertiesPanel {
             None => picker_trigger(
                 "prop-assignee",
                 Some(
-                    Icon::new(gpui_component::IconName::User)
+                    Icon::new(registry::UI_UNASSIGNED)
                         .text_color(cx.theme().muted_foreground),
                 ),
                 "Assignee".into(),
@@ -862,7 +862,7 @@ impl PropertiesPanel {
                         .ghost()
                         .xsmall()
                         .icon(
-                            Icon::new(IconName::ChevronUp)
+                            Icon::new(registry::UI_CHEVRON_UP)
                                 .text_color(cx.theme().muted_foreground),
                         )
                         .disabled(state.prev_id.is_none())
@@ -876,7 +876,7 @@ impl PropertiesPanel {
                         .ghost()
                         .xsmall()
                         .icon(
-                            Icon::new(IconName::ChevronDown)
+                            Icon::new(registry::UI_CHEVRON_DOWN)
                                 .text_color(cx.theme().muted_foreground),
                         )
                         .disabled(state.next_id.is_none())
@@ -977,14 +977,14 @@ impl PropertiesPanel {
         Button::new("issue-actions")
             .ghost()
             .xsmall()
-            .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
+            .icon(Icon::new(registry::UI_MORE).text_color(cx.theme().muted_foreground))
             .dropdown_menu(move |mut menu, window, cx| {
                 if is_duplicate {
                     let issue_id = issue_id.clone();
                     menu = menu
                         .item(
                             PopupMenuItem::new("Unmark duplicate")
-                                .icon(Icon::new(IconName::Undo2))
+                                .icon(Icon::new(registry::UI_UNDO))
                                 .on_click(move |_, _, cx| {
                                     set_duplicate_of(issue_id.clone(), None, cx);
                                 }),
@@ -1011,7 +1011,7 @@ impl PropertiesPanel {
                 }
                 let issue_id = issue_id.clone();
                 menu.submenu_with_icon(
-                    Some(Icon::new(IconName::Delete)),
+                    Some(Icon::new(registry::UI_DELETE)),
                     "Delete issue",
                     window,
                     cx,
@@ -1019,7 +1019,7 @@ impl PropertiesPanel {
                         let issue_id = issue_id.clone();
                         menu.item(
                             PopupMenuItem::new("Confirm delete")
-                                .icon(Icon::new(IconName::Delete))
+                                .icon(Icon::new(registry::UI_DELETE))
                                 .on_click(move |_, window, cx| {
                                     crate::issue_list::spawn_issue_delete(cx, issue_id.clone());
                                     go_back(window, cx);

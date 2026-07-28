@@ -1,13 +1,15 @@
-import {
-  CircleDot,
-  FolderInput,
-  GitMerge,
-  GitPullRequest,
-  Tag,
-  UserPlus,
-} from "lucide-react"
 import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
+import { conceptIcon } from "@/lib/icons.generated"
+
+// EXP-317: timeline glyphs come from the shared registry, so a status change
+// (or a board move) looks the same here as it does in the desktop IDE.
+const StatusChangedIcon = conceptIcon(`event-status-changed`)
+const AssigneeChangedIcon = conceptIcon(`event-assignee-changed`)
+const LabelIcon = conceptIcon(`event-label-added`)
+const BoardMovedIcon = conceptIcon(`event-board-moved`)
+const PrOpenedIcon = conceptIcon(`pr-open`)
+const PrMergedIcon = conceptIcon(`pr-merged`)
 
 // EXP-314: `status_changed` payloads now carry the human status NAMES
 // (`fromName`/`toName`) alongside the legacy enum anchors, so a custom status
@@ -35,12 +37,12 @@ export function EventRow({
   const actorName = displayUserName(actor, event.actorUserId)
   const payload = (event.payload ?? {}) as Record<string, unknown>
 
-  let Icon = CircleDot
+  let Icon = StatusChangedIcon
   let text: React.ReactNode = null
 
   switch (event.type) {
     case `status_changed`:
-      Icon = CircleDot
+      Icon = StatusChangedIcon
       text = (
         <>
           changed status to{` `}
@@ -51,7 +53,7 @@ export function EventRow({
       )
       break
     case `assignee_changed`: {
-      Icon = UserPlus
+      Icon = AssigneeChangedIcon
       // `payload.to` can reference a user the viewer can't see (the users
       // shape only exposes co-members) — that's still an assignment, not a
       // removal.
@@ -70,7 +72,7 @@ export function EventRow({
     }
     case `label_added`:
     case `label_removed`: {
-      Icon = Tag
+      Icon = LabelIcon
       const label = payload.labelId
         ? labelMap.get(String(payload.labelId))
         : undefined
@@ -85,15 +87,15 @@ export function EventRow({
       break
     }
     case `pr_opened`:
-      Icon = GitPullRequest
+      Icon = PrOpenedIcon
       text = <>opened a pull request</>
       break
     case `pr_merged`:
-      Icon = GitMerge
+      Icon = PrMergedIcon
       text = <>merged the pull request</>
       break
     case `board_moved`: {
-      Icon = FolderInput
+      Icon = BoardMovedIcon
       // A deleted source board leaves no name behind — fall back
       // generically (the payload's from/toIdentifier keeps the row useful).
       const fromBoard = payload.fromBoardId

@@ -23,7 +23,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -35,6 +35,7 @@ use crate::sidebar::RailShared;
 
 use super::repositories::{fetch_repositories, RepoRow};
 use super::{card_header, error_notice, row_stroke, section, spawn_trpc, SettingsSection};
+use crate::icons::registry;
 
 /// Server fetch state for the per-board repository picker.
 enum RepoLoad {
@@ -334,7 +335,7 @@ impl BoardDetailPane {
             .outline()
             .small()
             .max_w(px(320.))
-            .icon(IconName::Github)
+            .icon(registry::UI_GITHUB)
             .label(label);
 
         let board_id = board.id.clone();
@@ -370,7 +371,7 @@ impl BoardDetailPane {
                             let repo_id = repo.id.clone();
                             menu = menu.item(
                                 PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
-                                    .icon(Icon::new(IconName::Github))
+                                    .icon(Icon::new(registry::UI_GITHUB))
                                     .checked(current.as_deref() == Some(repo.id.as_str()))
                                     .on_click(move |_, _, cx| {
                                         pane.update(cx, |this, cx| {
@@ -541,7 +542,7 @@ impl Render for BoardDetailPane {
                     Button::new(row_id("board-detail-trash", &board.id))
                         .danger()
                         .small()
-                        .icon(IconName::Delete)
+                        .icon(registry::UI_DELETE)
                         .label("Move to trash")
                         .on_click(cx.listener(move |_, _, window, cx| {
                             Self::open_trash_dialog(

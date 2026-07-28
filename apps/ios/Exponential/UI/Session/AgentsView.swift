@@ -201,7 +201,9 @@ struct AgentsView: View {
 
     private var deviceHintRow: some View {
         HStack(spacing: 8) {
-            AppIcon(AppIcons.uiOffline, size: AppIcon.Size.small)
+            // EXP-317: the same glyph the web draws next to this exact copy
+            // (`ui-device-offline`); `ui-offline` stays the network indicator.
+            AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
             Text("No desktop online — open the Exponential desktop app to run here.")
                 .font(.caption)
             Spacer(minLength: 0)

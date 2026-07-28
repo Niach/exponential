@@ -64,9 +64,10 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     scroll::ScrollableElement as _,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Root, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _,
 };
 use theme::tokens as t;
+use crate::icons::registry;
 
 const CONTEXT: &str = "NativeDialog";
 
@@ -749,7 +750,7 @@ impl Render for DialogShell {
                         .ghost()
                         .xsmall()
                         .icon(
-                            Icon::new(IconName::Close)
+                            Icon::new(registry::UI_CLOSE)
                                 .small()
                                 .text_color(cx.theme().muted_foreground),
                         )

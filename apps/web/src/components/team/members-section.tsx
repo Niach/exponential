@@ -4,10 +4,10 @@ import {
   Copy,
   Crown,
   Link as LinkIcon,
-  Loader2,
+  LoaderCircle,
   Mail,
-  MoreHorizontal,
-  Shield,
+  Ellipsis,
+  ShieldCheck,
   Trash2,
   UserMinus,
 } from "lucide-react"
@@ -103,7 +103,7 @@ export function TeamMembersSection({
               member.role === `owner` ? (
                 <Crown className="h-3.5 w-3.5" />
               ) : (
-                <Shield className="h-3.5 w-3.5" />
+                <ShieldCheck className="h-3.5 w-3.5" />
               )
 
             return (
@@ -152,7 +152,7 @@ export function TeamMembersSection({
                           className="h-7 w-7"
                           aria-label={`Member actions for ${displayName}`}
                         >
-                          <MoreHorizontal className="h-4 w-4" />
+                          <Ellipsis className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -174,7 +174,7 @@ export function TeamMembersSection({
                                   handleUpdateRole(member.id, `member`)
                                 }
                               >
-                                <Shield className="mr-2 h-4 w-4" />
+                                <ShieldCheck className="mr-2 h-4 w-4" />
                                 Make member
                               </DropdownMenuItem>
                             )}
@@ -344,7 +344,7 @@ function InviteControls({ teamId }: { teamId: string }) {
             disabled={sending || !email.trim()}
           >
             {sending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Mail className="mr-2 h-4 w-4" />
             )}
@@ -381,7 +381,7 @@ function InviteControls({ teamId }: { teamId: string }) {
           onClick={handleGenerate}
           disabled={generating}
         >
-          {generating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {generating && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
           <LinkIcon className="mr-2 h-4 w-4" />
           Generate invite link
         </Button>

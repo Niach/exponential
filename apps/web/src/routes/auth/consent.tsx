@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
-import { Loader2 } from "lucide-react"
+import { LoaderCircle } from "lucide-react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
 import { AuthFormShell } from "@/components/auth-form-shell"
@@ -148,7 +148,7 @@ function ConsentPage() {
         <p className="text-sm text-destructive">{loadError}</p>
       ) : !tree ? (
         <div className="flex justify-center py-6">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : (
         <div className="space-y-4">
