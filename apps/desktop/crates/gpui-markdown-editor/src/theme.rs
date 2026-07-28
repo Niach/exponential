@@ -126,6 +126,11 @@ pub struct ThemeColors {
     pub separator_color: Hsla,
     /// Background of inline code and code-block quads.
     pub code_bg: Hsla,
+    /// EXP-322 vendoring: pill background behind a resolved `@email` / `#IDENT`
+    /// reference (web `.issue-ref-pill` uses `var(--accent)`).
+    pub reference_bg: Hsla,
+    /// EXP-322 vendoring: text colour inside a reference pill.
+    pub reference_text: Hsla,
     /// Text colour inside code blocks.
     pub code_text: Hsla,
     /// Background of the focused code-block language input.
@@ -313,6 +318,16 @@ pub struct ThemeDimensions {
     pub code_bg_pad_y: f32,
     /// Corner radius for inline code background quads.
     pub code_bg_radius: f32,
+    /// EXP-322 vendoring: horizontal padding around reference pill quads.
+    /// Deliberately smaller than `code_bg_pad_x` — a pill embedded mid-sentence
+    /// ("see #EXP-238.") would otherwise overspill onto the neighbouring space
+    /// and period.
+    pub reference_pad_x: f32,
+    /// EXP-322 vendoring: vertical padding around reference pill quads.
+    pub reference_pad_y: f32,
+    /// EXP-322 vendoring: corner radius for reference pill quads (web uses
+    /// `border-radius: 9999px`, i.e. a full pill).
+    pub reference_radius: f32,
     /// Width of the code-block language input.
     pub code_language_input_width: f32,
     /// Text layout height inside the code-block language input.
@@ -558,6 +573,8 @@ struct ThemeColorsDe {
     task_checkbox_check: Option<Hsla>,
     separator_color: Option<Hsla>,
     code_bg: Option<Hsla>,
+    reference_bg: Option<Hsla>,
+    reference_text: Option<Hsla>,
     code_text: Hsla,
     code_language_input_bg: Option<Hsla>,
     code_language_input_border: Option<Hsla>,
@@ -704,6 +721,12 @@ impl<'de> Deserialize<'de> for ThemeColors {
                 .separator_color
                 .unwrap_or_else(|| Hsla::from(rgba(0x71717aff))),
             code_bg: raw.code_bg.unwrap_or_else(|| Hsla::from(rgba(0x111827ff))),
+            reference_bg: raw
+                .reference_bg
+                .unwrap_or_else(|| Hsla::from(rgba(0x1f2937ff))),
+            reference_text: raw
+                .reference_text
+                .unwrap_or_else(|| Hsla::from(rgba(0xe5e7ebff))),
             code_text: raw.code_text,
             code_language_input_bg: raw
                 .code_language_input_bg
@@ -866,6 +889,9 @@ struct ThemeDimensionsDe {
     code_bg_pad_x: f32,
     code_bg_pad_y: f32,
     code_bg_radius: f32,
+    reference_pad_x: f32,
+    reference_pad_y: f32,
+    reference_radius: f32,
     code_language_input_width: Option<f32>,
     code_language_input_height: Option<f32>,
     code_language_input_padding_x: Option<f32>,
@@ -989,6 +1015,9 @@ impl<'de> Deserialize<'de> for ThemeDimensions {
             code_bg_pad_x: raw.code_bg_pad_x,
             code_bg_pad_y: raw.code_bg_pad_y,
             code_bg_radius: raw.code_bg_radius,
+            reference_pad_x: raw.reference_pad_x,
+            reference_pad_y: raw.reference_pad_y,
+            reference_radius: raw.reference_radius,
             code_language_input_width: raw.code_language_input_width.unwrap_or(156.0),
             code_language_input_height: raw.code_language_input_height.unwrap_or(18.0),
             code_language_input_padding_x: raw.code_language_input_padding_x.unwrap_or(8.0),
@@ -1151,6 +1180,8 @@ impl Theme {
                 task_checkbox_check: Hsla::from(rgba(0x18181bff)),
                 separator_color: Hsla::from(rgba(0x71717aff)),
                 code_bg: Hsla::from(rgba(0x23272eff)),
+                reference_bg: Hsla::from(rgba(0x2f333bff)),
+                reference_text: Hsla::from(rgba(0xe6e6e6ff)),
                 code_text: Hsla::from(rgba(0xe5e7ebff)),
                 code_language_input_bg: Hsla::from(rgba(0x343941ff)),
                 code_language_input_border: Hsla::from(rgba(0x4b5563cc)),
@@ -1247,6 +1278,9 @@ impl Theme {
                 code_bg_pad_x: 3.0,
                 code_bg_pad_y: 1.0,
                 code_bg_radius: 4.0,
+                reference_pad_x: 2.0,
+                reference_pad_y: 1.0,
+                reference_radius: 999.0,
                 code_language_input_width: 156.0,
                 code_language_input_height: 18.0,
                 code_language_input_padding_x: 8.0,
@@ -1398,6 +1432,8 @@ impl Theme {
                 task_checkbox_check: Hsla::from(rgba(0xffffffff)),
                 separator_color: Hsla::from(rgba(0xcbd5e1ff)),
                 code_bg: Hsla::from(rgba(0xf1f5f9ff)),
+                reference_bg: Hsla::from(rgba(0xe2e8f0ff)),
+                reference_text: Hsla::from(rgba(0x0f172aff)),
                 code_text: Hsla::from(rgba(0x111827ff)),
                 code_language_input_bg: Hsla::from(rgba(0xffffffff)),
                 code_language_input_border: Hsla::from(rgba(0xcbd5e1ff)),

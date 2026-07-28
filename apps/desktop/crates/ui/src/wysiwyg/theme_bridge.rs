@@ -39,6 +39,10 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
     c.separator_color = app.border;
     c.code_bg = app.muted;
     c.code_text = app.foreground;
+    // EXP-322: mirrors web `.issue-ref-pill` (`background: var(--accent)`,
+    // `color: var(--accent-foreground)`).
+    c.reference_bg = app.accent;
+    c.reference_text = app.accent_foreground;
     c.cursor = app.caret;
     c.selection = app.selection;
     c.task_checkbox_border = app.border;

@@ -3232,6 +3232,7 @@ impl Render for Block {
             BlockKind::MathBlock => {
                 if !focused {
                     self.last_layout = None;
+                    self.last_shaped = None;
                     self.last_bounds = None;
                 }
                 let child = if focused {
@@ -3244,6 +3245,7 @@ impl Render for Block {
             BlockKind::MermaidBlock => {
                 if !focused {
                     self.last_layout = None;
+                    self.last_shaped = None;
                     self.last_bounds = None;
                 }
                 let child = if focused {

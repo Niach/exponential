@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use gpui::*;
 
+use super::shaped::ChipShapedText;
 use super::{Block, InlineFootnoteHit, InlineLinkHit, code_highlight_color};
 use crate::components::HtmlCssColor;
 use crate::theme::ThemeColors;
@@ -54,7 +55,7 @@ fn source_line_number_tops(lines: &[WrappedLine], line_height: Pixels) -> Vec<Pi
 
 fn build_text_runs(
     input: &Block,
-    display_text: &SharedString,
+    shaped: &ChipShapedText,
     base_run: &TextRun,
     underline_thickness: Pixels,
     link_color: Hsla,
@@ -62,27 +63,34 @@ fn build_text_runs(
     show_inline_code_backgrounds: bool,
     mono_family: &SharedString,
 ) -> Vec<TextRun> {
+    // EXP-322 vendoring: runs are built in SHAPED coordinates — the string
+    // handed to `shape_text` carries the chips' display-only titles, so every
+    // document range has to be lifted through the map first. The run lengths
+    // must sum to exactly `shaped.text().len()` or gpui panics while shaping.
+    let display_text = shaped.text();
     let spans = input.inline_spans();
     // EXP-261 vendoring: host-decorated `@email` / `#IDENT` pills (render-time
     // only; the tokens stay plain GFM text on serialization).
-    let reference_spans = input
-        .environment
-        .reference_decorator
-        .as_ref()
-        .map(|decorator| decorator.scan(display_text.as_ref()))
-        .unwrap_or_default();
+    let reference_spans: Vec<(std::ops::Range<usize>, crate::host::ReferenceKind)> = shaped
+        .spans()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, span)| Some((shaped.chip_range(index)?, span.kind)))
+        .collect();
     let mut boundaries = vec![0, display_text.len()];
     for span in spans {
-        boundaries.push(span.range.start);
-        boundaries.push(span.range.end);
+        let range = shaped.to_shaped_range(span.range.clone());
+        boundaries.push(range.start);
+        boundaries.push(range.end);
     }
-    for span in &reference_spans {
-        boundaries.push(span.range.start);
-        boundaries.push(span.range.end);
+    for (range, _) in &reference_spans {
+        boundaries.push(range.start);
+        boundaries.push(range.end);
     }
     if let Some(marked_range) = input.marked_range.as_ref() {
-        boundaries.push(marked_range.start);
-        boundaries.push(marked_range.end);
+        let range = shaped.to_shaped_range(marked_range.clone());
+        boundaries.push(range.start);
+        boundaries.push(range.end);
     }
     boundaries.sort_unstable();
     boundaries.dedup();
@@ -99,19 +107,26 @@ fn build_text_runs(
 
         // Spans are stored in ascending order and boundaries are sorted, so
         // we can advance a single index instead of re-scanning per boundary.
-        while span_idx < spans.len() && spans[span_idx].range.end <= start {
+        // Their ranges are DOCUMENT offsets, so compare in shaped coordinates.
+        while span_idx < spans.len()
+            && shaped.to_shaped(spans[span_idx].range.end) <= start
+        {
             span_idx += 1;
         }
-        let active_span = spans
-            .get(span_idx)
-            .filter(|span| span.range.start <= start && start < span.range.end);
+        let active_span = spans.get(span_idx).filter(|span| {
+            let range = shaped.to_shaped_range(span.range.clone());
+            range.start <= start && start < range.end
+        });
 
         let inline_style = active_span.map(|s| s.style).unwrap_or_default();
         let html_style = active_span.and_then(|s| s.html_style);
         let is_link = active_span.map(|s| s.link.is_some()).unwrap_or(false);
         let is_footnote = active_span.map(|s| s.footnote.is_some()).unwrap_or(false);
         let is_marked = marked_range
-            .map(|range| start < range.end && range.start < end)
+            .map(|range| {
+                let range = shaped.to_shaped_range(range.clone());
+                start < range.end && range.start < end
+            })
             .unwrap_or(false);
 
         let mut font = base_run.font.clone();
@@ -159,19 +174,22 @@ fn build_text_runs(
             background_color = Some(html_css_color_to_hsla(color, run_color));
         }
 
-        // EXP-261 vendoring: reference pills — tinted background, medium
-        // weight, link color for issue refs. Code style wins (a token inside
-        // a code span stays code).
+        // EXP-261 vendoring: reference pills. EXP-322: the background is now a
+        // rounded quad painted in `prepaint` (web's `border-radius: 9999px`),
+        // so the run itself carries NO background — a flat rect here would
+        // double-paint under the pill and square its corners off. The
+        // identifier renders monospace like web's `.issue-ref-pill`. Code style
+        // wins (a token inside a code span stays code).
         if !inline_style.code
-            && let Some(reference) = reference_spans
+            && let Some((_, kind)) = reference_spans
                 .iter()
-                .find(|span| span.range.start <= start && start < span.range.end)
+                .find(|(range, _)| range.start <= start && start < range.end)
         {
-            background_color = Some(code_bg);
             if font.weight < FontWeight::MEDIUM {
                 font.weight = FontWeight::MEDIUM;
             }
-            if reference.kind == crate::host::ReferenceKind::IssueRef {
+            if *kind == crate::host::ReferenceKind::IssueRef {
+                font.family = mono_family.clone();
                 run_color = link_color;
             }
         }
@@ -577,7 +595,10 @@ pub(crate) fn link_at_position<'a>(
         return None;
     }
 
-    let text = input.display_text();
+    // EXP-322 vendoring: hit-testing runs against the SHAPED text the lines
+    // were laid out from, so document ranges are lifted through the map.
+    let shaped = input.shaped_for_layout();
+    let text = shaped.text().as_ref();
     let align = input.text_align();
 
     for span in input.inline_spans() {
@@ -588,9 +609,14 @@ pub(crate) fn link_at_position<'a>(
             continue;
         }
 
-        for link_bounds in
-            range_segment_bounds(lines, bounds, line_height, text, span.range.clone(), align)
-        {
+        for link_bounds in range_segment_bounds(
+            lines,
+            bounds,
+            line_height,
+            text,
+            shaped.to_shaped_range(span.range.clone()),
+            align,
+        ) {
             if point_inside_bounds(link_bounds, position) {
                 return Some(link);
             }
@@ -618,19 +644,26 @@ pub(crate) fn reference_at_position(
         return None;
     }
 
-    let decorator = input.environment.reference_decorator.as_ref()?;
-    let text = input.display_text();
+    input.environment.reference_decorator.as_ref()?;
+    // EXP-322 vendoring: reuse the scan the layout already did instead of
+    // re-running the decorator, and hit-test the WHOLE chip (token + title) so
+    // clicking the title opens the issue. The returned value stays the bare
+    // token — the host resolves an identifier, not a label.
+    let shaped = input.shaped_for_layout();
+    let document = input.display_text();
+    let text = shaped.text().as_ref();
     let align = input.text_align();
 
-    for span in decorator.scan(text) {
-        if span.range.is_empty() {
+    for (index, span) in shaped.spans().iter().enumerate() {
+        let Some(chip) = shaped.chip_range(index) else {
             continue;
-        }
+        };
         for span_bounds in
-            range_segment_bounds(lines, bounds, line_height, text, span.range.clone(), align)
+            range_segment_bounds(lines, bounds, line_height, text, chip.clone(), align)
         {
             if point_inside_bounds(span_bounds, position) {
-                return Some((span.kind, text[span.range.clone()].to_string()));
+                let token = document.get(span.range.clone()).unwrap_or_default();
+                return Some((span.kind, token.to_string()));
             }
         }
     }
@@ -654,7 +687,8 @@ pub(crate) fn footnote_at_position<'a>(
         return None;
     }
 
-    let text = input.display_text();
+    let shaped = input.shaped_for_layout();
+    let text = shaped.text().as_ref();
     let align = input.text_align();
 
     for span in input.inline_spans() {
@@ -665,9 +699,14 @@ pub(crate) fn footnote_at_position<'a>(
             continue;
         }
 
-        for footnote_bounds in
-            range_segment_bounds(lines, bounds, line_height, text, span.range.clone(), align)
-        {
+        for footnote_bounds in range_segment_bounds(
+            lines,
+            bounds,
+            line_height,
+            text,
+            shaped.to_shaped_range(span.range.clone()),
+            align,
+        ) {
             if point_inside_bounds(footnote_bounds, position) {
                 return Some(footnote);
             }
@@ -929,6 +968,13 @@ impl BlockTextElement {
     }
 }
 
+/// EXP-322 vendoring: what `request_layout` hands `prepaint` — the shaped
+/// lines plus the document↔shaped offset map they were shaped with.
+pub struct BlockLayoutState {
+    lines: Rc<RefCell<Option<Vec<WrappedLine>>>>,
+    shaped: ChipShapedText,
+}
+
 /// Prepared text layout and paint geometry for one `BlockTextElement` frame.
 pub struct PrepaintState {
     lines: Vec<WrappedLine>,
@@ -939,6 +985,8 @@ pub struct PrepaintState {
     code_backgrounds: Vec<PaintQuad>,
     line_height: Pixels,
     hitbox: Hitbox,
+    /// EXP-322 vendoring: the map the lines above were shaped with.
+    shaped: Option<ChipShapedText>,
 }
 
 impl IntoElement for BlockTextElement {
@@ -950,7 +998,7 @@ impl IntoElement for BlockTextElement {
 }
 
 impl Element for BlockTextElement {
-    type RequestLayoutState = Rc<RefCell<Option<Vec<WrappedLine>>>>;
+    type RequestLayoutState = BlockLayoutState;
     type PrepaintState = PrepaintState;
 
     fn id(&self) -> Option<ElementId> {
@@ -977,7 +1025,7 @@ impl Element for BlockTextElement {
         let source_line_count = source_line_count(shared_text.as_ref());
         let style = window.text_style();
 
-        let (display_text, text_color): (SharedString, Hsla) = if is_placeholder {
+        let (document_text, text_color): (SharedString, Hsla) = if is_placeholder {
             (
                 self.placeholder_text
                     .clone()
@@ -988,6 +1036,26 @@ impl Element for BlockTextElement {
         } else {
             (shared_text, style.color)
         };
+        // EXP-322 vendoring: one decorator scan per frame, feeding BOTH the
+        // shaped string (document text + the chips' display-only titles) and
+        // the offset map every consumer of the layout reads back through.
+        // Binding the map to the layout it produced is what keeps them from
+        // ever going stale relative to each other.
+        //
+        // While an IME composition is live the injection is skipped entirely,
+        // so composition offsets behave exactly as they did before the chips
+        // existed — the one path with no automated coverage.
+        let shaped = if is_placeholder || input.marked_range.is_some() {
+            ChipShapedText::identity(&document_text)
+        } else {
+            match input.environment.reference_decorator.as_ref() {
+                Some(decorator) => {
+                    ChipShapedText::build(&document_text, decorator.scan(document_text.as_ref()))
+                }
+                None => ChipShapedText::identity(&document_text),
+            }
+        };
+        let display_text = shaped.text().clone();
 
         let mut run = TextRun {
             len: display_text.len(),
@@ -1015,7 +1083,7 @@ impl Element for BlockTextElement {
             } else {
                 build_text_runs(
                     input,
-                    &display_text,
+                    &shaped,
                     &run,
                     px(theme.dimensions.underline_thickness),
                     theme.colors.text_link,
@@ -1076,7 +1144,13 @@ impl Element for BlockTextElement {
             },
         );
 
-        (layout_id, shared_lines)
+        (
+            layout_id,
+            BlockLayoutState {
+                lines: shared_lines,
+                shaped,
+            },
+        )
     }
 
     fn prepaint(
@@ -1106,7 +1180,10 @@ impl Element for BlockTextElement {
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
 
-        let lines = request_layout.borrow_mut().take().unwrap_or_default();
+        // EXP-322 vendoring: everything below works in SHAPED coordinates —
+        // the text that was actually laid out, chips' titles included.
+        let shaped = request_layout.shaped.clone();
+        let lines = request_layout.lines.borrow_mut().take().unwrap_or_default();
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let source_line_number_gutter_width = show_source_line_numbers
             .then(|| source_line_number_gutter_width(lines.len().max(1), font_size))
@@ -1167,7 +1244,7 @@ impl Element for BlockTextElement {
                     )
                 } else if selected_range.is_empty() {
                     // No selection: just draw the cursor
-                    let text = input.display_text();
+                    let text = shaped.text().as_ref();
                     (
                         vec![],
                         cursor_bounds_for_offset(
@@ -1175,20 +1252,20 @@ impl Element for BlockTextElement {
                             text_bounds,
                             line_height,
                             text,
-                            cursor,
+                            shaped.to_shaped(cursor),
                             text_align,
                             px(cursor_width),
                         )
                         .map(|bounds| fill(bounds, cursor_color)),
                     )
                 } else {
-                    let text = input.display_text();
+                    let text = shaped.text().as_ref();
                     let quads = range_segment_bounds(
                         &lines,
                         text_bounds,
                         line_height,
                         text,
-                        selected_range,
+                        shaped.to_shaped_range(selected_range),
                         text_align,
                     )
                     .into_iter()
@@ -1203,7 +1280,7 @@ impl Element for BlockTextElement {
         // Compute code-span background quads with rounded corners and padding.
         let mut code_quads = Vec::new();
         if show_inline_code_backgrounds && !self.is_placeholder {
-            let text = input.display_text();
+            let text = shaped.text().as_ref();
             let code_color = theme.colors.code_bg;
             let pad_x = px(theme.dimensions.code_bg_pad_x);
             let pad_y = px(theme.dimensions.code_bg_pad_y);
@@ -1217,7 +1294,7 @@ impl Element for BlockTextElement {
                     text_bounds,
                     line_height,
                     text,
-                    span.range.clone(),
+                    shaped.to_shaped_range(span.range.clone()),
                     text_align,
                 ) {
                     let quad_bounds = Bounds::from_corners(
@@ -1226,6 +1303,44 @@ impl Element for BlockTextElement {
                     );
                     code_quads.push({
                         let mut q = fill(quad_bounds, code_color);
+                        q.corner_radii = Corners::all(radius);
+                        q
+                    });
+                }
+            }
+        }
+
+        // EXP-322 vendoring: the same machinery for resolved `@email` /
+        // `#IDENT` references, so a chip reads as a real pill instead of the
+        // flat highlight the text run used to carry (web `.issue-ref-pill`).
+        if !self.is_placeholder {
+            let text = shaped.text().as_ref();
+            let reference_color = theme.colors.reference_bg;
+            let pad_x = px(theme.dimensions.reference_pad_x);
+            let pad_y = px(theme.dimensions.reference_pad_y);
+            let radius = px(theme.dimensions.reference_radius);
+            // The chip range spans the token AND its title, so the pill wraps
+            // both — reusing the scan the layout already did.
+            for index in 0..shaped.spans().len() {
+                let Some(chip) = shaped.chip_range(index) else {
+                    continue;
+                };
+                for segment in range_segment_bounds(
+                    &lines,
+                    text_bounds,
+                    line_height,
+                    text,
+                    chip.clone(),
+                    text_align,
+                ) {
+                    let quad_bounds = Bounds::from_corners(
+                        point(segment.left() - pad_x, segment.top() - pad_y),
+                        point(segment.right() + pad_x, segment.bottom() + pad_y),
+                    );
+                    code_quads.push({
+                        let mut q = fill(quad_bounds, reference_color);
+                        // A full pill: gpui clamps the radius to half the
+                        // smaller side, so 999 is simply "as round as it gets".
                         q.corner_radii = Corners::all(radius);
                         q
                     });
@@ -1242,6 +1357,7 @@ impl Element for BlockTextElement {
             code_backgrounds: code_quads,
             line_height,
             hitbox,
+            shaped: Some(shaped),
         }
     }
 
@@ -1360,8 +1476,12 @@ impl Element for BlockTextElement {
             window.paint_quad(cursor);
         }
 
+        let shaped = std::mem::take(&mut prepaint.shaped);
         self.input.update(cx, |input, _cx| {
             input.last_layout = Some(lines);
+            // EXP-322 vendoring: stored WITH the layout it produced, so every
+            // consumer maps through the same map that shaped those lines.
+            input.last_shaped = shaped;
             input.last_bounds = Some(text_bounds);
             input.last_line_height = line_height;
         });
@@ -1632,9 +1752,10 @@ mod tests {
                 underline: None,
                 strikethrough: None,
             };
+            let shaped = super::super::shaped::ChipShapedText::identity(&display_text);
             let runs = super::build_text_runs(
                 block,
-                &display_text,
+                &shaped,
                 &base_run,
                 px(1.0),
                 Hsla::from(rgba(0x0066ccff)),
@@ -1982,5 +2103,196 @@ mod tests {
         let first_height = lines[0].size(px(20.0)).height;
         assert!(first_height > px(20.0));
         assert_eq!(super::wrapped_line_top(&lines, px(20.0), 1), first_height);
+    }
+}
+
+// EXP-322 vendoring: the chip title is display-only — it is injected into the
+// string the element shapes, never into the document.
+#[cfg(test)]
+mod chip_tests {
+    use super::{build_text_runs, reference_at_position};
+    use crate::components::block::shaped::ChipShapedText;
+    use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree};
+    use crate::environment::MarkdownEditorEnvironment;
+    use crate::host::{ReferenceDecorator, ReferenceKind, ReferenceSpan};
+    use gpui::{
+        AppContext, Bounds, Hsla, SharedString, TestAppContext, TextRun, VisualTestContext, font,
+        point, px, rgba, size,
+    };
+    use std::sync::Arc;
+
+    const TEXT: &str = "see #EXP-1 now";
+    const TITLE: &str = "Fix login flow";
+
+    struct TitleDecorator;
+
+    impl ReferenceDecorator for TitleDecorator {
+        fn scan(&self, text: &str) -> Vec<ReferenceSpan> {
+            match text.find("#EXP-1") {
+                Some(start) => vec![ReferenceSpan {
+                    range: start..start + "#EXP-1".len(),
+                    kind: ReferenceKind::IssueRef,
+                    display_suffix: Some(SharedString::from(TITLE)),
+                }],
+                None => Vec::new(),
+            }
+        }
+    }
+
+    fn environment() -> MarkdownEditorEnvironment {
+        MarkdownEditorEnvironment {
+            reference_decorator: Some(Arc::new(TitleDecorator)),
+            ..MarkdownEditorEnvironment::default()
+        }
+    }
+
+    fn shaped_lines(
+        text: &str,
+        width: gpui::Pixels,
+        cx: &mut VisualTestContext,
+    ) -> Vec<gpui::WrappedLine> {
+        cx.update(|window, _app| {
+            window
+                .text_system()
+                .shape_text(
+                    text.to_string().into(),
+                    px(16.0),
+                    &[TextRun {
+                        len: text.len(),
+                        font: font(".SystemUIFont"),
+                        color: Hsla::from(rgba(0xffffffff)),
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    }],
+                    Some(width),
+                    None,
+                )
+                .expect("text should shape")
+                .into_vec()
+        })
+    }
+
+    fn chip_block(cx: &mut TestAppContext) -> gpui::Entity<Block> {
+        cx.new(|cx| {
+            Block::with_record_and_environment(
+                cx,
+                BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown(TEXT)),
+                Arc::new(environment()),
+            )
+        })
+    }
+
+    #[gpui::test]
+    async fn the_chip_title_never_enters_the_document_text(cx: &mut TestAppContext) {
+        let block = chip_block(cx);
+        block.read_with(cx, |block, _cx| {
+            assert_eq!(block.display_text(), TEXT);
+            let shaped = ChipShapedText::build(
+                &SharedString::from(TEXT),
+                TitleDecorator.scan(TEXT),
+            );
+            assert!(shaped.text().len() > TEXT.len());
+            assert!(shaped.text().contains(TITLE));
+        });
+    }
+
+    /// gpui panics while shaping when the run lengths do not sum to the text
+    /// length — the single highest-risk invariant of the injection.
+    #[gpui::test]
+    async fn run_lengths_sum_to_the_shaped_text_length(cx: &mut TestAppContext) {
+        let block = chip_block(cx);
+        block.read_with(cx, |block, _cx| {
+            let shaped =
+                ChipShapedText::build(&SharedString::from(TEXT), TitleDecorator.scan(TEXT));
+            let base_run = TextRun {
+                len: shaped.text().len(),
+                font: font(".SystemUIFont"),
+                color: Hsla::from(rgba(0xffffffff)),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let runs = build_text_runs(
+                block,
+                &shaped,
+                &base_run,
+                px(1.0),
+                Hsla::from(rgba(0x0066ccff)),
+                Hsla::from(rgba(0x111111ff)),
+                true,
+                &SharedString::from(".SystemUIFont"),
+            );
+            assert_eq!(
+                runs.iter().map(|run| run.len).sum::<usize>(),
+                shaped.text().len()
+            );
+        });
+    }
+
+    /// Clicking the TITLE half of a chip must resolve the reference — and hand
+    /// the host the bare token, not the rendered label.
+    #[gpui::test]
+    async fn clicking_the_chip_title_resolves_the_bare_token(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = chip_block(cx);
+        let shaped = ChipShapedText::build(&SharedString::from(TEXT), TitleDecorator.scan(TEXT));
+        let lines = shaped_lines(shaped.text().as_ref(), px(600.0), cx);
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(600.0), px(20.0)));
+
+        let chip = shaped.chip_range(0).expect("chip range");
+        // A point inside the TITLE, past the identifier.
+        let title_x = {
+            let layout = &lines[0];
+            let token_end = layout
+                .position_for_index(chip.start + "#EXP-1".len(), px(20.0))
+                .expect("token end");
+            let chip_end = layout.position_for_index(chip.end, px(20.0)).expect("chip end");
+            (token_end.x + chip_end.x) / 2.0
+        };
+
+        block.update(cx, |block, _cx| {
+            block.last_shaped = Some(shaped.clone());
+            block.last_bounds = Some(bounds);
+            block.last_line_height = px(20.0);
+        });
+
+        block.read_with(cx, |block, _cx| {
+            let hit =
+                reference_at_position(block, &lines, bounds, px(20.0), point(title_x, px(10.0)));
+            assert_eq!(hit, Some((ReferenceKind::IssueRef, "#EXP-1".to_string())));
+        });
+    }
+
+    /// ...and it places the caret after the identifier rather than somewhere
+    /// that does not exist in the document.
+    #[gpui::test]
+    async fn clicking_the_chip_title_places_the_caret_after_the_token(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = chip_block(cx);
+        let shaped = ChipShapedText::build(&SharedString::from(TEXT), TitleDecorator.scan(TEXT));
+        let lines = shaped_lines(shaped.text().as_ref(), px(600.0), cx);
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(600.0), px(20.0)));
+        let chip = shaped.chip_range(0).expect("chip range");
+        let title_x = {
+            let layout = &lines[0];
+            let token_end = layout
+                .position_for_index(chip.start + "#EXP-1".len(), px(20.0))
+                .expect("token end");
+            let chip_end = layout.position_for_index(chip.end, px(20.0)).expect("chip end");
+            (token_end.x + chip_end.x) / 2.0
+        };
+
+        block.update(cx, |block, _cx| {
+            block.last_layout = Some(lines);
+            block.last_shaped = Some(shaped);
+            block.last_bounds = Some(bounds);
+            block.last_line_height = px(20.0);
+        });
+
+        block.read_with(cx, |block, _cx| {
+            let offset = block.index_for_mouse_position(point(title_x, px(10.0)));
+            assert_eq!(offset, TEXT.find("#EXP-1").unwrap() + "#EXP-1".len());
+        });
     }
 }

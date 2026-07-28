@@ -222,8 +222,16 @@ impl EntityInputHandler for Block {
         let lines = self.last_layout.as_ref()?;
         let range = self.range_from_utf16(&range_utf16);
         let line_height = self.last_line_height;
-        let text = self.display_text();
-        element::range_bounds(lines, bounds, line_height, text, range, self.text_align())
+        // EXP-322 vendoring: geometry lives in shaped coordinates.
+        let shaped = self.shaped_for_layout();
+        element::range_bounds(
+            lines,
+            bounds,
+            line_height,
+            shaped.text().as_ref(),
+            shaped.to_shaped_range(range),
+            self.text_align(),
+        )
     }
 
     fn character_index_for_point(
@@ -239,8 +247,8 @@ impl EntityInputHandler for Block {
 
         let bounds = self.last_bounds?;
         let lines = self.last_layout.as_ref()?;
-        let text = self.display_text();
-        let ranges = element::hard_line_ranges(text);
+        let shaped = self.shaped_for_layout();
+        let ranges = element::hard_line_ranges(shaped.text().as_ref());
         let relative = Point {
             x: pt.x - bounds.left(),
             y: pt.y - bounds.top(),
@@ -254,7 +262,9 @@ impl EntityInputHandler for Block {
         {
             Ok(idx) | Err(idx) => idx,
         };
-        let utf8_index = ranges[line_idx].start + utf8_offset_in_line;
-        Some(Self::utf8_to_utf16_in(self.display_text(), utf8_index))
+        // Back to document coordinates before anything else sees the index.
+        let utf8_index = shaped.to_doc(ranges[line_idx].start + utf8_offset_in_line);
+        let document = shaped.document().clone();
+        Some(Self::utf8_to_utf16_in(document.as_ref(), utf8_index))
     }
 }

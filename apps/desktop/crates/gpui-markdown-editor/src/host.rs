@@ -49,6 +49,11 @@ pub struct ReferenceSpan {
     /// Byte range in the scanned visible text.
     pub range: std::ops::Range<usize>,
     pub kind: ReferenceKind,
+    /// EXP-322 vendoring: display-only glyphs rendered right after `range` —
+    /// the issue title, so a chip reads `#EXP-238 Fix login flow` while
+    /// editing (web draws the same text from a CSS `::after`). NEVER part of
+    /// the document, so serialization is untouched; newlines are flattened.
+    pub display_suffix: Option<gpui::SharedString>,
 }
 
 /// EXP-261 vendoring: host hook decorating `@email` / `#IDENT` tokens as

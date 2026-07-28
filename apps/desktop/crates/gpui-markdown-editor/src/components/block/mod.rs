@@ -10,6 +10,7 @@ mod input;
 mod interactions;
 mod render;
 mod runtime;
+mod shaped;
 mod state;
 
 pub(crate) use crate::components::markdown::code_highlight::*;
