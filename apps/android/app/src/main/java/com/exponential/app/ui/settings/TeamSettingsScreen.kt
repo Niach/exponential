@@ -290,7 +290,7 @@ private fun BoardsSection(
                     Icon(
                         ExpIcons.uiDelete,
                         contentDescription = "Delete board",
-                        tint = DesignTokens.Palette.Red.copy(alpha = 0.5f),
+                        tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
                         modifier = Modifier
                             .clickable { onConfirm(SettingsConfirm.DeleteBoard(board)) }
                             .padding(4.dp)
@@ -912,7 +912,7 @@ private fun LabelRow(
         Icon(
             ExpIcons.uiDelete,
             contentDescription = "Delete label",
-            tint = DesignTokens.Palette.Red.copy(alpha = 0.5f),
+            tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
             modifier = Modifier
                 .clickable { onDelete(label) }
                 .padding(4.dp)
