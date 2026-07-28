@@ -239,10 +239,32 @@ pub(crate) fn toggle_rail_expanded(window: &mut Window, cx: &mut App) {
 }
 
 /// EXP-285: the rail's expanded state for this window — read by
-/// `AppTitleBar` (traffic-light padding compensation + the collapsed-state
-/// expand toggle live in the main titlebar now).
+/// `AppTitleBar` (the tab strip's width budget) and by the `Shell` (the
+/// macOS traffic-light tongue).
 pub(crate) fn rail_expanded(window: &mut Window, cx: &mut App) -> bool {
     rail_shared_for_window(window, cx).read(cx).rail_expanded
+}
+
+/// The rail expand/collapse toggle (EXP-282). EXP-326: shared, because the
+/// collapsed windowed-macOS case renders it in the `Shell`'s traffic-light
+/// tongue instead of the rail's own strip — one recipe, two hosts.
+///
+/// Direct call (EXP-17): rail buttons must not dispatch App-global actions.
+pub(crate) fn rail_toggle_button(id: &'static str, expanded: bool) -> Button {
+    Button::new(id)
+        .ghost()
+        .small()
+        .icon(if expanded {
+            registry::NAV_RAIL_COLLAPSE
+        } else {
+            registry::NAV_RAIL_EXPAND
+        })
+        .tooltip(if expanded {
+            "Collapse sidebar"
+        } else {
+            "Expand sidebar"
+        })
+        .on_click(|_: &ClickEvent, window, cx| toggle_rail_expanded(window, cx))
 }
 
 /// Select `section` in the settings nav (EXP-282 — the nav column lives
@@ -949,34 +971,48 @@ impl Render for RailView {
             }
         };
 
-        // EXP-282: the expand/collapse toggle. EXP-285: it sits in the rail's
-        // titlebar strip while expanded (the Cursor position); collapsed under
-        // client chrome it moves into the main titlebar (`AppTitleBar`) —
-        // the 44px strip is narrower than the macOS traffic-light cluster.
-        let toggle = Button::new("rail-toggle")
-            .ghost()
-            .small()
-            .icon(if expanded {
-                registry::NAV_RAIL_COLLAPSE
-            } else {
-                registry::NAV_RAIL_EXPAND
-            })
-            .tooltip(if expanded {
-                "Collapse sidebar"
-            } else {
-                "Expand sidebar"
-            })
-            // Direct call (EXP-17): rail buttons must not dispatch
-            // App-global actions.
-            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                toggle_rail_expanded(window, cx);
-            }));
+        // EXP-282: the expand/collapse toggle. EXP-326: it lives in the rail's
+        // own titlebar strip in EVERY state but one — collapsed on windowed
+        // macOS, where the native traffic lights bury the 44px strip and the
+        // toggle moves into the Shell's tongue instead (`shell::traffic_tongue`).
+        let toggle = rail_toggle_button("rail-toggle", expanded);
 
         // EXP-285: the rail spans the full window height — its top 34px sit
         // in the window-decoration band as a drag/zoom region (the vendored
         // `TitleBar` `should_move` pattern; on macOS the native traffic
         // lights float over the strip's left).
         let client_chrome = crate::app_title_bar::client_chrome(window);
+        // EXP-326: are the macOS traffic lights sitting in this strip? That is
+        // the ONE case where the strip has no room of its own — windowed
+        // macOS under client chrome. Keep in step with
+        // `shell::traffic_tongue_visible`, which draws the tongue for the
+        // collapsed half of it.
+        let macos_lights =
+            cfg!(target_os = "macos") && client_chrome && !window.is_fullscreen();
+        // EXP-326: the app brand moved out of the titlebar (which is all tab
+        // strip now) into the rail — but only where it fits: the expanded rail
+        // minus the lights. Collapsed there is no room at 44px, and windowed
+        // macOS spends the expanded strip's left half on the light cluster.
+        let brand = (expanded && !macos_lights).then(|| {
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .gap_2()
+                .child(
+                    Icon::from(ExpIcon::Logo)
+                        .small()
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_sm()
+                        .text_color(cx.theme().foreground.opacity(0.7))
+                        .child(crate::app_title_bar::APP_TITLE),
+                )
+        });
         let top_strip = h_flex()
             .id("rail-titlebar-strip")
             .w_full()
@@ -1013,20 +1049,31 @@ impl Render for RailView {
             })
             .map(|strip| {
                 if expanded {
+                    // Brand left, toggle right. `justify_between` only does
+                    // that with BOTH children present — on its own the toggle
+                    // would land at flex-start, so the brand-less case keeps
+                    // its EXP-285 `justify_end`.
                     strip
-                        .justify_end()
+                        .map(|strip| {
+                            if brand.is_some() {
+                                strip.justify_between()
+                            } else {
+                                strip.justify_end()
+                            }
+                        })
+                        .children(brand)
                         .child(crate::app_title_bar::interactive(toggle))
-                } else if !client_chrome {
-                    // Linux SSD: no in-app titlebar to host the expand
-                    // toggle — keep it centered in the strip.
+                } else if macos_lights {
+                    // EXP-326: the traffic lights own this strip — the toggle
+                    // renders in the Shell's tongue, just right of them.
+                    strip
+                } else {
+                    // Collapsed with the strip to itself (macOS fullscreen,
+                    // Windows/Linux either way): center the toggle in the
+                    // 44px rail rather than leaking it into the titlebar.
                     strip
                         .justify_center()
                         .child(crate::app_title_bar::interactive(toggle))
-                } else {
-                    // Collapsed under client chrome: the strip stays empty
-                    // (traffic lights float here on macOS); the expand
-                    // toggle lives in the main titlebar.
-                    strip
                 }
             });
 

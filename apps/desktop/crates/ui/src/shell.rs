@@ -87,6 +87,25 @@ const TERMINAL_DOCK_HEIGHT: Pixels = px(240.);
 /// asked for minimal right padding).
 const TRAFFIC_TONGUE_W: f32 = 34.;
 
+/// EXP-326: the tongue's second half — it now HOSTS the rail expand toggle
+/// (a 24px `small` icon button) instead of the main titlebar. 12px of right
+/// padding keeps the button clear of the 10px corner notch below it.
+const TRAFFIC_TONGUE_TOGGLE_W: f32 = 24. + 12.;
+
+/// Full tongue width, for [`crate::app_title_bar`]'s tab-strip budget.
+pub(crate) const TRAFFIC_TONGUE_TOTAL_W: f32 = TRAFFIC_TONGUE_W + TRAFFIC_TONGUE_TOGGLE_W;
+
+/// Whether this window renders the traffic-light tongue: macOS only, and only
+/// while the native lights are actually over the rail's 44px top strip —
+/// fullscreen hides them, and the expanded rail is wide enough to clear the
+/// cluster on its own. Callers additionally gate on the rail being present
+/// (the tongue is part of the rail column's chrome).
+pub(crate) fn traffic_tongue_visible(window: &mut Window, cx: &mut App) -> bool {
+    cfg!(target_os = "macos")
+        && !window.is_fullscreen()
+        && !crate::sidebar::rail_expanded(window, cx)
+}
+
 /// The tongue element: TRUE sidebar material — a flat sample of the sidebar
 /// ramp's top stop plus the rail's `FILL_SECTION` wash — with a CONVEX
 /// rounded bottom-right corner, so the glass reads as curving around the
@@ -109,6 +128,11 @@ const TRAFFIC_TONGUE_W: f32 = 34.;
 /// the window, where both ramps' drift is invisible.
 fn traffic_tongue() -> impl IntoElement {
     let radius = px(10.);
+    // EXP-326: the toggle rides in the tongue whenever the tongue exists —
+    // that is exactly the collapsed-macOS-windowed case, where the 44px rail
+    // strip is buried under the traffic lights and the main titlebar (which
+    // used to host it) has been given over entirely to the tab strip.
+    let toggle = crate::sidebar::rail_toggle_button("tongue-rail-expand", false);
     let sidebar_top = theme::sidebar_background_gradient_stops().0;
     let wash = theme::tokens::glass::FILL_SECTION.to_hsla();
     let content_top = theme::background_gradient_stops().0;
@@ -124,7 +148,7 @@ fn traffic_tongue() -> impl IntoElement {
     };
     let notch_fill = content_top.opacity(over);
     div()
-        .w(px(TRAFFIC_TONGUE_W))
+        .w(px(TRAFFIC_TONGUE_TOTAL_W))
         // Explicit height is load-bearing: the strip row is an `h_flex`
         // (items-center), and this div's children are all ABSOLUTE — without
         // a definite height it collapses to 0px and paints nothing (the
@@ -187,6 +211,22 @@ fn traffic_tongue() -> impl IntoElement {
                 .w(px(7.))
                 .h(px(1.))
                 .bg(theme::tokens::glass::STROKE_ROW.to_hsla()),
+        )
+        .child(
+            // Absolute like every other layer here (see the height comment
+            // above) — and `interactive` so pressing the toggle can't start a
+            // window drag, exactly as in the titlebar.
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left_0()
+                .right_0()
+                .flex()
+                .items_center()
+                .justify_end()
+                .pr(px(12.))
+                .child(crate::app_title_bar::interactive(toggle)),
         )
 }
 
@@ -692,9 +732,7 @@ impl Render for Shell {
                         // backdrop and reads as a different color than the
                         // rail (the review caught exactly that).
                         .when(client_chrome, |col| {
-                            let tongue = cfg!(target_os = "macos")
-                                && !window.is_fullscreen()
-                                && !crate::sidebar::rail_expanded(window, cx);
+                            let tongue = traffic_tongue_visible(window, cx);
                             col.child(
                                 h_flex()
                                     .flex_shrink_0()

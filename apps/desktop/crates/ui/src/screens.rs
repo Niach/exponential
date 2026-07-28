@@ -127,6 +127,97 @@ struct TabEntry {
     origin: TabOrigin,
 }
 
+/// Shaped width of a single line, in pixels (EXP-326).
+///
+/// `WindowTextSystem::layout_line` is the same path the text elements
+/// themselves take — including the per-frame layout cache — so measuring a
+/// label the strip is about to render is a cache hit, not a second shaping.
+/// The run carries no decorations: only the glyph advances matter here.
+fn measure_text(window: &Window, text: &str, font: gpui::Font, size: gpui::Rems) -> f32 {
+    if text.is_empty() {
+        return 0.;
+    }
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let layout = window
+        .text_system()
+        .layout_line(text, size.to_pixels(window.rem_size()), &[run], None);
+    f32::from(layout.width)
+}
+
+/// Gap between chips in the strip — the `gap_1()` on the strip's `h_flex`,
+/// which like every gpui spacing helper resolves against the rem size.
+fn chip_gap(window: &Window) -> f32 {
+    0.25 * f32::from(window.rem_size())
+}
+
+/// Width of the trailing "+N" button: an xsmall `Button` (`px_1` a side)
+/// with a `text_xs` label. `hidden_max` is the largest count the label could
+/// carry, so the reserve never comes out short.
+fn overflow_button_width(window: &Window, hidden_max: usize) -> f32 {
+    let label = format!("+{hidden_max}");
+    0.5 * f32::from(window.rem_size())
+        + measure_text(window, &label, window.text_style().font(), gpui::rems(0.75))
+}
+
+/// EXP-288: which tabs get a chip, in strip order — the rest collapse into
+/// the trailing "+N" dropdown.
+///
+/// Chips are laid out in tab order until the next one would not fit; the
+/// overflow button's own width is only reserved once something actually
+/// overflows, so a set that fits exactly keeps every chip. The ACTIVE tab is
+/// always among the visible ones — if it fell past the cut it displaces the
+/// last chip that fit (display order only; `self.tabs` keeps its order).
+///
+/// EXP-326: this used to run on estimates that came out long in three
+/// separate places, so the strip collapsed tabs while there was still empty
+/// room to its right. `widths`, `gap` and `overflow_w` are measured against
+/// the window now (see [`ScreensPanel::measure_chip_width`]) and `available`
+/// is computed from the window chrome, so "fits" means fits.
+fn partition_tabs(
+    widths: &[f32],
+    available: f32,
+    gap: f32,
+    overflow_w: f32,
+    active_ix: Option<usize>,
+) -> Vec<usize> {
+    let count = widths.len();
+    let available = available.max(0.);
+    let total = widths.iter().sum::<f32>() + gap * count.saturating_sub(1) as f32;
+    if total <= available {
+        return (0..count).collect();
+    }
+
+    let budget = (available - overflow_w - gap).max(0.);
+    let mut visible: Vec<usize> = Vec::new();
+    let mut used = 0.;
+    for (ix, width) in widths.iter().enumerate() {
+        let next = used + width + if visible.is_empty() { 0. } else { gap };
+        if next > budget && !visible.is_empty() {
+            break;
+        }
+        visible.push(ix);
+        used = next;
+    }
+    if visible.is_empty() && count > 0 {
+        visible.push(0);
+    }
+    if let Some(active) = active_ix {
+        if !visible.contains(&active) {
+            if let Some(last) = visible.last_mut() {
+                *last = active;
+            }
+        }
+    }
+    visible
+}
+
 /// Chip content for one tab (EXP-310): issue-backed tabs (issue detail + PR
 /// diff) lead with the colored status icon and the identifier shortcode. A
 /// blank issue title drops the title part — the shortcode already labels the
@@ -521,26 +612,56 @@ impl ScreensPanel {
         self.close_tab(ix, window, cx);
     }
 
-    /// Estimated chip width for the overflow computation (gpui has no
-    /// pre-layout measurement here): a rough glyph-width times the label
-    /// length, clamped to the chip's real max, plus the fixed chrome
-    /// (padding + close button + reserved undock slot + gaps).
-    fn estimate_chip_width(&self, entry: &TabEntry, cx: &App) -> f32 {
+    /// Chip width for the overflow computation.
+    ///
+    /// EXP-326: both halves of this used to be guesses that ran long, which
+    /// is why the strip collapsed tabs into "+N" with visible room still to
+    /// its right. The labels are SHAPED with the window's own text system
+    /// now, and the chrome is expressed in the units gpui actually lays it
+    /// out in: every spacing helper (`px_2`, `gap_1`, `size_3`, `size_5`,
+    /// `gap_0p5`) resolves against the REM size, and this app runs a 13px rem
+    /// — reading them as their 16px-rem pixel values inflated every chip by
+    /// ~23%. The one genuine pixel constant is the title's `max_w`.
+    fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
+        /// `tab_chip`'s `px_2`, both sides.
+        const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+        /// `Icon::xsmall()` — `size_3`.
+        const STATUS_ICON_REMS: f32 = 0.75;
+        /// An icon-only xsmall `Button` — `size_5`.
+        const XSMALL_BUTTON_REMS: f32 = 1.25;
+        /// The trailing button cluster's own `gap_0p5`.
+        const CLUSTER_GAP_REMS: f32 = 0.125;
+        /// `.max_w(px(180.)).truncate()` on the title child — a real pixel
+        /// value, so it does NOT scale with the rem.
+        const TITLE_MAX_W: f32 = 180.;
+
+        let rem = f32::from(window.rem_size());
         let content = chip_content(&entry.screen, cx);
-        let title_w = content
-            .title
-            .as_ref()
-            .map(|title| (title.chars().count() as f32 * 7.5).clamp(40., 180.))
-            .unwrap_or(0.);
-        // EXP-310 issue chrome: xsmall status icon and the mono text_xs
-        // shortcode, each plus the chip gap.
-        let icon_w = if content.status.is_some() { 18. } else { 0. };
-        let identifier_w = content
-            .identifier
-            .as_ref()
-            .map(|identifier| identifier.chars().count() as f32 * 6.2 + 4.)
-            .unwrap_or(0.);
-        title_w + icon_w + identifier_w + 68.
+        let base_font = window.text_style().font();
+        let mut children: Vec<f32> = Vec::with_capacity(4);
+        if content.status.is_some() {
+            children.push(STATUS_ICON_REMS * rem);
+        }
+        if let Some(identifier) = content.identifier.as_ref() {
+            // EXP-310: the shortcode renders `text_xs` in the terminal mono
+            // family, not the bar's proportional font.
+            let mut font = base_font.clone();
+            font.family = theme::terminal::FONT_FAMILY.into();
+            children.push(measure_text(window, identifier, font, gpui::rems(0.75)));
+        }
+        if let Some(title) = content.title.as_ref() {
+            let width = measure_text(window, title, base_font, gpui::rems(0.875));
+            children.push(width.min(TITLE_MAX_W));
+        }
+        // The undock slot is `invisible`, not absent, so it keeps its box.
+        children.push(if entry.screen.undockable() {
+            (XSMALL_BUTTON_REMS * 2. + CLUSTER_GAP_REMS) * rem
+        } else {
+            XSMALL_BUTTON_REMS * rem
+        });
+
+        let gaps = chip_gap(window) * children.len().saturating_sub(1) as f32;
+        CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
     }
 
     /// EXP-277: the hand-rolled rounded tab strip. Hosted INSIDE the titlebar
@@ -553,11 +674,12 @@ impl ScreensPanel {
     /// EXP-288: tabs that don't fit `available` collapse into a trailing
     /// "+N" dropdown of the hidden tabs (no more cut-off horizontal scroll);
     /// the ACTIVE tab is always kept visible (it displaces the last fitting
-    /// chip). `available` is the caller's width estimate — heuristic, with
+    /// chip). `available` is the caller's width for the strip, with
     /// `max_w_full` as the safety net.
     pub(crate) fn render_tab_strip(
         &mut self,
         available: gpui::Pixels,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         if self.tabs.is_empty() {
@@ -568,43 +690,18 @@ impl ScreensPanel {
         let panel = cx.entity().downgrade();
         let tab_count = self.tabs.len();
 
-        // --- overflow partition (estimate-based) --------------------------
-        const CHIP_GAP: f32 = 4.; // .gap_1()
-        const OVERFLOW_BUTTON_W: f32 = 48.;
         let widths: Vec<f32> = self
             .tabs
             .iter()
-            .map(|entry| self.estimate_chip_width(entry, cx))
+            .map(|entry| self.measure_chip_width(entry, window, cx))
             .collect();
-        let total: f32 =
-            widths.iter().sum::<f32>() + CHIP_GAP * (tab_count.saturating_sub(1)) as f32;
-        let available_f = f32::from(available).max(0.);
-        let mut visible: Vec<usize>;
-        if total <= available_f {
-            visible = (0..tab_count).collect();
-        } else {
-            let budget = (available_f - OVERFLOW_BUTTON_W - CHIP_GAP).max(0.);
-            visible = Vec::new();
-            let mut used = 0.;
-            for (ix, width) in widths.iter().enumerate() {
-                let next = used + width + if visible.is_empty() { 0. } else { CHIP_GAP };
-                if next > budget && !visible.is_empty() {
-                    break;
-                }
-                visible.push(ix);
-                used = next;
-            }
-            if visible.is_empty() {
-                visible.push(0);
-            }
-            // The active tab must always be visible: swap it into the last
-            // visible slot (display only — `self.tabs` keeps its order).
-            if let Some(active) = active_ix {
-                if !visible.contains(&active) {
-                    *visible.last_mut().expect("non-empty") = active;
-                }
-            }
-        }
+        let visible = partition_tabs(
+            &widths,
+            f32::from(available),
+            chip_gap(window),
+            overflow_button_width(window, tab_count.saturating_sub(1)),
+            active_ix,
+        );
         let hidden: Vec<usize> = (0..tab_count).filter(|ix| !visible.contains(ix)).collect();
         let chips: Vec<(usize, Screen)> = visible
             .iter()
@@ -1042,7 +1139,7 @@ impl Render for ScreensPanel {
                 .pb_1()
                 .border_b_1()
                 .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                .child(self.render_tab_strip(available, cx))
+                .child(self.render_tab_strip(available, window, cx))
         });
 
         div().size_full().bg(cx.theme().colors.list).child(
@@ -1051,5 +1148,60 @@ impl Render for ScreensPanel {
                 .children(fallback_strip)
                 .child(div().flex_1().min_h_0().child(content)),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::partition_tabs;
+
+    /// The strip's `gap_1` and the "+N" button at the app's 13px rem.
+    const GAP: f32 = 3.25;
+    const OVERFLOW: f32 = 22.;
+
+    fn partition(widths: &[f32], available: f32, active: Option<usize>) -> Vec<usize> {
+        partition_tabs(widths, available, GAP, OVERFLOW, active)
+    }
+
+    /// Widths that add up to exactly the available space keep every chip —
+    /// the overflow button's width is only spent once something overflows.
+    #[test]
+    fn an_exact_fit_keeps_every_tab() {
+        let widths = [100., 100., 100.];
+        assert_eq!(partition(&widths, 300. + GAP * 2., Some(0)), vec![0, 1, 2]);
+    }
+
+    /// EXP-326: the strip runs to the right edge — a tab is only dropped when
+    /// it genuinely does not fit, not one chip early.
+    #[test]
+    fn the_last_fitting_tab_is_kept() {
+        let widths = [100., 100., 100.];
+        // Room for two chips plus the "+N" button, one pixel short of three.
+        let available = 200. + GAP + OVERFLOW + GAP;
+        assert_eq!(partition(&widths, available, Some(0)), vec![0, 1]);
+        // One pixel less and only the first chip survives the budget.
+        assert_eq!(partition(&widths, available - 1., Some(0)), vec![0]);
+    }
+
+    /// The active tab is never hidden: it displaces the last chip that fit.
+    #[test]
+    fn the_active_tab_displaces_the_last_visible_chip() {
+        let widths = [100., 100., 100.];
+        let available = 200. + GAP + OVERFLOW + GAP;
+        assert_eq!(partition(&widths, available, Some(2)), vec![0, 2]);
+    }
+
+    /// A single chip wider than the whole strip still renders (clipped by
+    /// `max_w_full`) — collapsing everything into "+N" would leave the strip
+    /// showing nothing at all.
+    #[test]
+    fn one_tab_always_survives() {
+        assert_eq!(partition(&[500.], 40., Some(0)), vec![0]);
+        assert_eq!(partition(&[500., 500.], 0., None), vec![0]);
+    }
+
+    #[test]
+    fn no_tabs_partition_to_nothing() {
+        assert!(partition(&[], 400., None).is_empty());
     }
 }

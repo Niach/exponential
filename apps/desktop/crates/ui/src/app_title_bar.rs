@@ -6,17 +6,14 @@
 //! Windows/Linux min–max–close controls, double-click zoom, and the Linux
 //! right-click window menu. The bar's background/border come from the theme
 //! (`title_bar` is transparent glass over the page gradient). This module
-//! wraps it with the app branding and the guard for the one case where
+//! wraps it with the center tab strip and the guard for the one case where
 //! native chrome remains.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, ClickEvent, Entity, InteractiveElement as _,
-    IntoElement, MouseButton, ParentElement as _, Render, Styled as _, Subscription, Window,
+    prelude::FluentBuilder as _, px, App, Entity, InteractiveElement as _, IntoElement, MouseButton,
+    ParentElement as _, Render, Styled as _, Subscription, Window,
 };
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon, Sizable as _,
-};
+use gpui_component::h_flex;
 
 // EXP-269: the vendored TitleBar (rounded window controls — see
 // `crate::title_bar`), not gpui-component's, whose close-button hover fill is
@@ -24,14 +21,20 @@ use gpui_component::{
 use crate::title_bar::TitleBar;
 use sync::{SessionPhase, Store};
 
-use crate::icons::{registry, ExpIcon};
 use crate::screens::ScreensPanel;
 use crate::update::UpdateState;
 
+/// The app's display name. EXP-326: rendered by the RAIL, not by this bar —
+/// the titlebar band is the tab row and gives every pixel to the strip.
 #[cfg(not(feature = "staging"))]
-const APP_TITLE: &str = "Exponential";
+pub(crate) const APP_TITLE: &str = "Exponential";
 #[cfg(feature = "staging")]
-const APP_TITLE: &str = "Exponential (staging)";
+pub(crate) const APP_TITLE: &str = "Exponential (staging)";
+
+/// The bar's own breathing room, left of the strip and right of it before the
+/// window controls. One constant so the rendered padding and the strip's width
+/// budget can never drift apart.
+const BAR_INSET: f32 = 8.;
 
 /// True when this window paints its own chrome. False only on Linux when gpui
 /// fell back to server-side decorations (X11 without a compositor forces
@@ -69,10 +72,12 @@ pub(crate) fn interactive(children: impl IntoElement) -> impl IntoElement {
         .child(children)
 }
 
-/// The main window's titlebar content: brand glyph + app name, then the
-/// center tab strip (EXP-277 — the decoration band doubles as the tab row so
-/// the content area gains its height back). Search/update/account affordances
-/// stay in the rail.
+/// The main window's titlebar content: the center tab strip, and nothing
+/// else (EXP-277 — the decoration band doubles as the tab row so the content
+/// area gains its height back). EXP-326: the brand and the collapsed-rail
+/// expand toggle both moved into the rail column, so the strip runs from the
+/// rail's right edge all the way to the window controls.
+/// Search/update/account affordances stay in the rail.
 pub struct AppTitleBar {
     /// This window's center screens panel, resolved lazily from the
     /// per-window registry — the panel is built after the titlebar during
@@ -136,32 +141,65 @@ impl Render for AppTitleBar {
                 self._observe_update = Some(cx.observe(&update, |_, _, cx| cx.notify()));
             }
         }
-        // Building the strip via `update` on the panel entity is safe here —
-        // the titlebar renders outside the panel's own render pass.
-        // EXP-288: the strip gets a width budget (viewport minus the
-        // titlebar's left cluster and right window-control reserve — rough
-        // estimates; overflowing tabs collapse into the strip's "+N" menu).
-        let strip_available = {
-            let left_reserve = px(240.);
-            let right_reserve = if cfg!(target_os = "macos") {
-                px(24.)
-            } else {
-                px(150.)
-            };
-            (window.viewport_size().width - left_reserve - right_reserve).max(px(160.))
-        };
-        let strip = self
-            .screens
-            .as_ref()
-            .map(|panel| panel.update(cx, |panel, cx| panel.render_tab_strip(strip_available, cx)));
-
         // EXP-285: with the full-height rail to our left, the vendored 80px
         // macOS traffic-light reserve is wrong — the lights float over the
         // RAIL now. Expanded (164px) the rail clears the cluster entirely;
-        // collapsed (44px) the bar still needs the remainder. Fullscreen
-        // hides the lights, so the reserve is reclaimed outright.
+        // collapsed (44px) the Shell's tongue covers the remainder.
+        // Fullscreen hides the lights, so the reserve is reclaimed outright.
         let rail = rail_present(cx);
         let expanded = rail && crate::sidebar::rail_expanded(window, cx);
+
+        // EXP-326: the strip's width budget, computed instead of guessed.
+        // Everything left and right of it is fixed-width chrome whose widths
+        // are constants here, so the old 240/150 "rough estimates" (which cost
+        // the strip ~100px and collapsed tabs into "+N" with visible room to
+        // spare) have exact replacements:
+        //
+        //   left  = the rail column + the tongue when it is drawn + this
+        //           bar's own inset (`pl` below, or the vendored default when
+        //           there is no rail), plus the vendored fullscreen `pl_3`.
+        //   right = the window controls: none on macOS (the lights are over
+        //           the rail), otherwise three `TITLE_BAR_HEIGHT`-wide
+        //           buttons — `TitleBar` draws min + max + close here.
+        let strip_available = {
+            let rail_w = if !rail {
+                0.
+            } else if expanded {
+                crate::sidebar::RAIL_EXPANDED_W
+            } else {
+                crate::sidebar::RAIL_W
+            };
+            let tongue_w = if rail && crate::shell::traffic_tongue_visible(window, cx) {
+                crate::shell::TRAFFIC_TONGUE_TOTAL_W
+            } else {
+                0.
+            };
+            let left_inset = if rail {
+                BAR_INSET
+            } else if cfg!(target_os = "macos") {
+                // The vendored `TITLE_BAR_LEFT_PADDING` — the traffic-light
+                // gutter, still ours to reserve when no rail is present.
+                80.
+            } else {
+                12.
+            };
+            let fullscreen_inset = if window.is_fullscreen() { 12. } else { 0. };
+            let right_reserve = if cfg!(target_os = "macos") {
+                BAR_INSET
+            } else {
+                3. * f32::from(crate::title_bar::TITLE_BAR_HEIGHT) + BAR_INSET
+            };
+            let taken = rail_w + tongue_w + left_inset + fullscreen_inset + right_reserve;
+            (window.viewport_size().width - px(taken)).max(px(160.))
+        };
+        // Building the strip via `update` on the panel entity is safe here —
+        // the titlebar renders outside the panel's own render pass.
+        let strip = self.screens.as_ref().map(|panel| {
+            panel.update(cx, |panel, cx| {
+                panel.render_tab_strip(strip_available, window, cx)
+            })
+        });
+
         let bar = TitleBar::new()
             // EXP-288: a hairline under the tab row — the chips' vertical
             // strokes used to end into nothing.
@@ -174,59 +212,21 @@ impl Render for AppTitleBar {
                 // renders the sidebar-material tongue segment LEFT of this
                 // bar (`shell::traffic_tongue`), which consumes the reserve.
                 // Either way the bar itself only needs its normal inset.
-                bar.pl(px(8.))
+                bar.pl(px(BAR_INSET))
             });
 
-        // Collapsed rail: the 44px strip can't host the expand toggle (the
-        // macOS traffic lights sit over it) — surface it here instead.
-        let expand_toggle = (rail && !expanded).then(|| {
-            interactive(
-                Button::new("titlebar-rail-expand")
-                    .ghost()
-                    .small()
-                    .icon(registry::NAV_RAIL_EXPAND)
-                    .tooltip("Expand sidebar")
-                    // Direct call (EXP-17): titlebar buttons must not
-                    // dispatch App-global actions.
-                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                        crate::sidebar::toggle_rail_expanded(window, cx);
-                    })),
-            )
-        });
-
         bar.child(
+            // The strip content swallows its own mouse-downs (interactive
+            // wrapper) so tab presses never start a window drag; the empty
+            // remainder of the flex_1 container stays a drag/zoom zone.
+            // EXP-282: this wrapper must be a FLEX container — a plain
+            // `div()` is display:block, which stretched the interactive
+            // strip to 100% width and swallowed every drag on the bar.
             h_flex()
                 .flex_1()
                 .min_w_0()
                 .items_center()
-                .gap_3()
-                .children(expand_toggle)
-                .child(
-                    h_flex()
-                        .flex_none()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Icon::from(ExpIcon::Logo)
-                                .small()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().foreground.opacity(0.7))
-                                .child(APP_TITLE),
-                        ),
-                )
-                // The strip content swallows its own mouse-downs (interactive
-                // wrapper) so tab presses never start a window drag; the empty
-                // remainder of the flex_1 container stays a drag/zoom zone.
-                // EXP-282: this wrapper must be a FLEX container — a plain
-                // `div()` is display:block, which stretched the interactive
-                // strip to 100% width and swallowed every drag on the bar.
-                .when_some(strip, |bar, strip| {
-                    bar.child(h_flex().flex_1().min_w_0().child(interactive(strip)))
-                }),
+                .when_some(strip, |bar, strip| bar.child(interactive(strip))),
         )
     }
 }
