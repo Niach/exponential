@@ -115,10 +115,15 @@ MCP tools."
 
 /// Prompt for the builtin "Fix merge conflicts" run (EXP-259): the run is
 /// spawned in a worktree checked out to the selected pull request's branch.
-/// It rebases onto `origin/<default_branch>`, resolves the conflicts,
+/// It rebases onto `origin/<base_branch>` — the PR's LIVE base resolved by
+/// the launcher via `issues.prepareConflictFix` (EXP-324: a stacked PR's
+/// base is its parent's branch, and a stale base was already retargeted to
+/// the repo default before this prompt renders) — resolves the conflicts,
 /// verifies the build, force-pushes, and then MERGES the PR via the
 /// `exponential_pr_merge` MCP tool — merging completes every linked issue.
-pub fn fix_pr_conflicts_prompt(identifier: &str, branch: &str, default_branch: &str) -> String {
+/// If the base goes stale MID-RUN (the parent merges while the agent works),
+/// the prompt points at `exponential_pr_retarget` as the self-heal.
+pub fn fix_pr_conflicts_prompt(identifier: &str, branch: &str, base_branch: &str) -> String {
     format!(
         "The pull request for `{identifier}` (branch `{branch}`) has merge conflicts and \
 cannot be merged. You are in a worktree checked out to `{branch}`. First run \
@@ -126,10 +131,15 @@ cannot be merged. You are in a worktree checked out to `{branch}`. First run \
 `git rev-parse origin/{branch}` — if HEAD is missing commits that exist on \
 `origin/{branch}`, stop and summarize the mismatch instead (force-pushing from a \
 stale checkout would discard remote commits). Then rebase onto \
-`origin/{default_branch}`, resolve every conflict preserving both sides' intent, and \
+`origin/{base_branch}` (the pull request's base branch), resolve every conflict \
+preserving both sides' intent, and \
 verify the build still passes. Then push the branch with `--force-with-lease` and \
 merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
-`{identifier}` — merging completes every issue linked to the PR. If the conflicts \
+`{identifier}` — merging completes every issue linked to the PR. If the merge is \
+rejected because the base branch is stale, merged, or closed, call the \
+`exponential_pr_retarget` MCP tool with the same issueId (omit `base` to retarget \
+onto the repository's default branch), rebase onto the new base, push again with \
+`--force-with-lease`, and retry the merge. If the conflicts \
 cannot be resolved safely, do NOT push or merge: stop and summarize what blocks the \
 rebase instead."
     )
@@ -152,7 +162,7 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
         domain::contract::BUILTIN_FIX_CONFLICTS_ID => Some(fix_pr_conflicts_prompt(
             "<the issue you pick>",
             "<its PR branch>",
-            "<the repo's default branch>",
+            "<the PR's base branch>",
         )),
         _ => None,
     }
@@ -279,6 +289,10 @@ board, label, and comment operations. When you finish, summarize what you did \
 
     /// EXP-259: the fix-conflicts prompt is the whole builtin's program —
     /// byte-lock it so a drive-by edit can't change what the run executes.
+    /// Deliberately rewritten for EXP-324: the rebase slot now carries the
+    /// PR's LIVE base branch (launcher-resolved), and the prompt gained the
+    /// `exponential_pr_retarget` self-heal for a base that goes stale
+    /// mid-run.
     #[test]
     fn fix_pr_conflicts_prompt_rebases_pushes_and_merges_via_mcp() {
         let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main");
@@ -290,10 +304,15 @@ cannot be merged. You are in a worktree checked out to `exp/EXP-42`. First run \
 `git rev-parse origin/exp/EXP-42` — if HEAD is missing commits that exist on \
 `origin/exp/EXP-42`, stop and summarize the mismatch instead (force-pushing from a \
 stale checkout would discard remote commits). Then rebase onto \
-`origin/main`, resolve every conflict preserving both sides' intent, and \
+`origin/main` (the pull request's base branch), resolve every conflict \
+preserving both sides' intent, and \
 verify the build still passes. Then push the branch with `--force-with-lease` and \
 merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
-`EXP-42` — merging completes every issue linked to the PR. If the conflicts \
+`EXP-42` — merging completes every issue linked to the PR. If the merge is \
+rejected because the base branch is stale, merged, or closed, call the \
+`exponential_pr_retarget` MCP tool with the same issueId (omit `base` to retarget \
+onto the repository's default branch), rebase onto the new base, push again with \
+`--force-with-lease`, and retry the merge. If the conflicts \
 cannot be resolved safely, do NOT push or merge: stop and summarize what blocks the \
 rebase instead."
         );
@@ -301,10 +320,24 @@ rebase instead."
         // merges through the server rails — never `gh`, never a raw API call.
         assert!(prompt.contains("--force-with-lease"));
         assert!(prompt.contains("exponential_pr_merge"));
+        // EXP-324: the mid-run self-heal for a base merged while the agent
+        // works.
+        assert!(prompt.contains("exponential_pr_retarget"));
         assert!(!prompt.contains("gh "));
         // Belt-and-braces alongside the launcher's ensure_branch_at_origin:
         // the agent re-verifies the checkout matches origin before pushing.
         assert!(prompt.contains("git rev-parse origin/exp/EXP-42"));
+    }
+
+    /// EXP-324: a stacked PR's rebase slot carries the PARENT branch the
+    /// launcher resolved, not the repo default.
+    #[test]
+    fn fix_pr_conflicts_prompt_substitutes_a_stacked_base() {
+        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314");
+        assert!(
+            prompt.contains("rebase onto `origin/exp/EXP-314` (the pull request's base branch)")
+        );
+        assert!(!prompt.contains("origin/main"));
     }
 
     /// EXP-298: the builtin detail screens render these — they must resolve

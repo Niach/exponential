@@ -19,6 +19,24 @@ import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { getSteerRelayConfig, relayPostKill } from "@/lib/steer"
+import {
+  listOpenPullsByBase,
+  retargetPullRequest,
+} from "@/lib/integrations/github-pr"
+import {
+  githubAppConfigured,
+  resolveRepoDefaultBranchCached,
+  resolveRepoInstallationTokenInfo,
+} from "@/lib/integrations/github-app"
+
+// Extract `owner/repo` from a GitHub PR URL. Deliberately a duplicate of the
+// identical helper in lib/trpc/issues.ts — importing the router from here
+// would be circular, and several router tests mock this module's other
+// import targets wholesale.
+function repoFromPrUrl(prUrl: string): string | null {
+  const match = prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
+  return match ? match[1] : null
+}
 
 // Parse a team issue identifier ("MET-12") out of a PR head-branch name.
 // Matches the launcher's `exp/<IDENTIFIER>` convention and any custom prefix
@@ -433,7 +451,14 @@ export async function applyPrMergeState(opts: {
   actorUserId?: string | null
 }): Promise<void> {
   const result = await db.transaction(
-    async (tx): Promise<{ applied: boolean; endedSessionIds: string[] }> => {
+    async (
+      tx
+    ): Promise<{
+      applied: boolean
+      endedSessionIds: string[]
+      prUrl?: string | null
+      headBranch?: string | null
+    }> => {
       const txId = await generateTxId(tx)
       void txId
 
@@ -441,6 +466,7 @@ export async function applyPrMergeState(opts: {
         .select({
           prState: issues.prState,
           prUrl: issues.prUrl,
+          branch: issues.branch,
           status: issues.status,
           teamId: boards.teamId,
         })
@@ -503,7 +529,12 @@ export async function applyPrMergeState(opts: {
         )
         .returning({ id: codingSessions.id })
 
-      return { applied: true, endedSessionIds: endedSessions.map((s) => s.id) }
+      return {
+        applied: true,
+        endedSessionIds: endedSessions.map((s) => s.id),
+        prUrl: opts.prUrl ?? current.prUrl,
+        headBranch: current.branch,
+      }
     }
   )
 
@@ -517,6 +548,19 @@ export async function applyPrMergeState(opts: {
       type: `pr_merged`,
       actorUserId: opts.actorUserId ?? null,
     })
+    // EXP-324: heal the stack — retarget open child PRs that were based on
+    // the just-merged head branch. GitHub only does this itself when the
+    // base branch is DELETED; we squash-merge and leave it, so the children
+    // would keep pointing at a dead branch (the EXP-320 incident).
+    // Fire-and-forget: never blocks the webhook response or the caller.
+    if (result.prUrl && result.headBranch) {
+      void retargetChildrenOfMergedPr({
+        prUrl: result.prUrl,
+        headBranch: result.headBranch,
+      }).catch((err) => {
+        console.error(`retargetChildrenOfMergedPr failed:`, err)
+      })
+    }
   }
 
   // Best-effort relay kills for the sessions the merge just ended — the
@@ -527,6 +571,51 @@ export async function applyPrMergeState(opts: {
     if (config) {
       await Promise.all(
         result.endedSessionIds.map((id) => relayPostKill(config, id))
+      )
+    }
+  }
+}
+
+// Retarget every open PR based on a just-merged PR's head branch onto the
+// repo's default branch (EXP-324). Exported for direct tests; called
+// fire-and-forget from applyPrMergeState, so it must never throw for one
+// child. Best-effort by design — every bail-out is silent (a self-hosted
+// instance without the App, an unreachable repo, …) and the fix-conflicts /
+// merge paths re-diagnose the base live anyway. Idempotent by construction:
+// once retargeted, a child no longer matches the base filter.
+export async function retargetChildrenOfMergedPr(opts: {
+  prUrl: string
+  headBranch: string
+}): Promise<void> {
+  const repo = repoFromPrUrl(opts.prUrl)
+  if (!repo || !opts.headBranch) return
+  if (!githubAppConfigured()) return
+  const defaultBranch = await resolveRepoDefaultBranchCached(repo)
+  if (!defaultBranch) return
+  // Load-bearing guard: a default-based PR's "children" would be every other
+  // default-based PR in the repo.
+  if (opts.headBranch === defaultBranch) return
+  const resolved = await resolveRepoInstallationTokenInfo(repo)
+  if (!resolved) return
+
+  const children = await listOpenPullsByBase(
+    repo,
+    opts.headBranch,
+    resolved.token
+  )
+  for (const child of children) {
+    try {
+      await retargetPullRequest({
+        repo,
+        prNumber: child.number,
+        base: defaultBranch,
+        token: resolved.token,
+      })
+    } catch (err) {
+      // One unreachable child never blocks the rest.
+      console.error(
+        `retarget of ${repo}#${child.number} onto ${defaultBranch} failed:`,
+        err
       )
     }
   }

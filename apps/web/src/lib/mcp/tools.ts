@@ -1141,7 +1141,7 @@ export function registerExponentialTools(
     `exponential_pr_merge`,
     {
       title: `Squash-merge open pull requests`,
-      description: `Squash-merge linked open pull requests via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (one PR) or 'issueIds' (merge MANY at once — one PR per distinct prUrl: issues sharing a batch PR are merged once). Merging flips EVERY issue linked to each PR to prState='merged' and moves it to the team's configured PR-merge status (default 'done'; a team may have disabled the status automation, in which case only the PR state changes). Use this after conflict-resolution work (e.g. the "Fix merge conflicts" run: rebase, resolve, push --force-with-lease, then merge). Merges run sequentially and report a per-PR result — one unmergeable PR (GitHub's own message is returned for it) never blocks the rest. Idempotent when a PR is already merged. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
+      description: `Squash-merge linked open pull requests via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (one PR) or 'issueIds' (merge MANY at once — one PR per distinct prUrl: issues sharing a batch PR are merged once). Merging flips EVERY issue linked to each PR to prState='merged' and moves it to the team's configured PR-merge status (default 'done'; a team may have disabled the status automation, in which case only the PR state changes). Use this after conflict-resolution work (e.g. the "Fix merge conflicts" run: rebase, resolve, push --force-with-lease, then merge). Merges run sequentially and report a per-PR result — one unmergeable PR (GitHub's own message is returned for it) never blocks the rest. If a merge is rejected because the PR's base branch is stale (e.g. it belonged to an already-merged parent PR), fix it with exponential_pr_retarget first. Idempotent when a PR is already merged. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -1218,6 +1218,36 @@ export function registerExponentialTools(
           }
         }
         return ok({ results })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_pr_retarget`,
+    {
+      title: `Change a pull request's base branch`,
+      description: `Change the base branch of the issue's open pull request via the GitHub App (EXP-324). Use this when a merge is rejected because the PR's base branch is stale — e.g. the PR was stacked on a parent PR whose branch was already merged or closed. Omit 'base' to retarget onto the repository's default branch (the right choice after the parent was squash-merged). After retargeting, rebase the PR branch onto the new base, push with --force-with-lease, then merge with exponential_pr_merge. Accepts a UUID or human identifier (e.g. "MET-12").`,
+      inputSchema: {
+        issueId: z.string().min(1),
+        base: z.string().min(1).max(255).optional(),
+      },
+    },
+    async ({ issueId, base }) => {
+      try {
+        const id = await resolveIssueId(issueId, user.id, access)
+        const issueCtx = await getIssueTeamContext(id)
+        assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
+        await resolveTeamAccess(user.id, issueCtx.teamId)
+
+        // The tRPC mutation owns the guards (open-state, repo-from-prUrl,
+        // installation link-gate) and the default-branch fill-in.
+        const result = await caller(user, request).issues.retargetPr({
+          issueId: id,
+          base,
+        })
+        return ok({ retargeted: true, base: result.base })
       } catch (e) {
         return err(e)
       }

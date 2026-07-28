@@ -34,6 +34,9 @@ use coding::{
 struct FixConflictsTarget {
     identifier: String,
     branch: String,
+    /// The representative issue's UUID — the launcher resolves the PR's LIVE
+    /// rebase target from it via `issues.prepareConflictFix` (EXP-324).
+    issue_id: String,
     /// The PR issue's board repository — pins the run's repo group on LOCAL
     /// starts (remote frames carry the server-resolved group).
     repository_id: Option<String>,
@@ -74,6 +77,7 @@ fn resolve_fix_conflicts_target(
     Ok(FixConflictsTarget {
         identifier,
         branch,
+        issue_id,
         repository_id,
     })
 }
@@ -164,7 +168,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
     // owns `fix_target` for its repo resolution).
     let fix_kind = fix_target
         .as_ref()
-        .map(|fix| (fix.branch.clone(), fix.identifier.clone()));
+        .map(|fix| (fix.branch.clone(), fix.identifier.clone(), fix.issue_id.clone()));
 
     cx.spawn(async move |cx| {
         // Background: fetch-fresh + resolve the repo. The builtins construct
@@ -270,7 +274,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
             }
 
             let kind = match fix_kind {
-                Some((branch, identifier)) => {
+                Some((branch, identifier, issue_id)) => {
                     let default_branch = repo_group
                         .as_ref()
                         .map(|group| group.default_branch.clone())
@@ -294,6 +298,7 @@ team settings → Repositories.";
                         branch,
                         default_branch,
                         identifier,
+                        issue_id,
                     }
                 }
                 None if builtin => ActionRunKind::CreateAction,
