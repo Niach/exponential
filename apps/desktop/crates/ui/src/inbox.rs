@@ -30,12 +30,12 @@ fn relative_time_between(now: i64, then: i64) -> String {
     format!("{}d", (hours as f64 / 24.).round() as i64)
 }
 
-/// Tolerant ISO-8601 → epoch seconds. Electric forwards Postgres `timestamptz`
-/// text (`2026-07-03 10:11:12.345+00` — space separator, short offset), tRPC
-/// echoes RFC 3339; accept both.
-fn parse_epoch_seconds(value: &str) -> Option<i64> {
+/// Tolerant ISO-8601 parse. Electric forwards Postgres `timestamptz` text
+/// (`2026-07-03 10:11:12.345+00` — space separator, short offset), tRPC
+/// echoes RFC 3339; accept both. An offset-less form reads as UTC.
+pub(crate) fn parse_timestamp(value: &str) -> Option<chrono::DateTime<chrono::FixedOffset>> {
     if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(value) {
-        return Some(parsed.timestamp());
+        return Some(parsed);
     }
     for format in [
         "%Y-%m-%d %H:%M:%S%.f%#z",
@@ -44,13 +44,19 @@ fn parse_epoch_seconds(value: &str) -> Option<i64> {
         "%Y-%m-%dT%H:%M:%S%.f",
     ] {
         if let Ok(parsed) = chrono::DateTime::parse_from_str(value, format) {
-            return Some(parsed.timestamp());
+            return Some(parsed);
         }
         if let Ok(parsed) = chrono::NaiveDateTime::parse_from_str(value, format) {
-            return Some(parsed.and_utc().timestamp());
+            return Some(parsed.and_utc().fixed_offset());
         }
     }
     None
+}
+
+/// [`parse_timestamp`] as epoch seconds (what the relative-time formatting
+/// works in).
+fn parse_epoch_seconds(value: &str) -> Option<i64> {
+    parse_timestamp(value).map(|parsed| parsed.timestamp())
 }
 
 #[cfg(test)]

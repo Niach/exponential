@@ -237,29 +237,14 @@ impl TrunkSync {
     }
 
     /// Why the trunk needs the user (the rail's amber badge + tooltip): a
-    /// paused rebase/merge, local commits, or a dirty working tree. Every one
-    /// of these blocks the ff-only autopull, so without surfacing the trunk
-    /// parks stale silently and forever (EXP-346 — a diverged trunk showed
-    /// NOTHING while auto-sync skipped it on every pass). The fix is always
-    /// the Source Control screen's hatch (or finishing the conflict).
+    /// paused rebase/merge, a detached HEAD, local commits, or a dirty working
+    /// tree. Every one of these blocks the ff-only autopull, so without
+    /// surfacing the trunk parks stale silently and forever (EXP-346 — a
+    /// diverged trunk showed NOTHING while auto-sync skipped it on every
+    /// pass). The fix is always the Source Control screen's hatch (or
+    /// finishing the conflict).
     pub(crate) fn attention(&self) -> Option<SharedString> {
-        if self.trunk.conflict.is_some() {
-            return Some("a rebase/merge is paused with conflicts".into());
-        }
-        if self.trunk.ahead > 0 && self.trunk.has_upstream {
-            let noun = if self.trunk.ahead == 1 { "commit" } else { "commits" };
-            return Some(
-                format!(
-                    "{} local {noun} not on origin — auto-pull is paused",
-                    self.trunk.ahead
-                )
-                .into(),
-            );
-        }
-        if self.trunk.dirty {
-            return Some("local changes in the working tree — auto-pull is paused".into());
-        }
-        None
+        attention_reason(&self.trunk)
     }
 
     /// Whether a sync op is in flight — the rail badge's "syncing" state.
@@ -361,9 +346,14 @@ impl TrunkSync {
         if self.repo_tasks_alive(window, cx) {
             return;
         }
-        self.pending_merge_sync = false;
         let prune = self.prunable_worktree_branches(window, cx);
-        self.start_sync_with_prune(SyncMode::AutoSync, prune, cx);
+        // Consume the merge trigger only once the pass is actually spawned —
+        // `start_sync_with_prune` still no-ops without a resolved tRPC client,
+        // and dropping the flag there would park the post-merge pull until a
+        // later merge re-raised it.
+        if self.start_sync_with_prune(SyncMode::AutoSync, prune, cx) {
+            self.pending_merge_sync = false;
+        }
     }
 
     /// Merge-reactive autopull (EXP-346): the rail re-renders on every issue
@@ -371,7 +361,7 @@ impl TrunkSync {
     /// appears on this repo's issues, pull immediately instead of waiting
     /// out the timer + debounce ("when a PR is merged, every IDE is on the
     /// newest master"). The first read after the shapes are ready only seeds
-    /// the baseline; `Option` ordering makes a first-ever merge
+    /// the baseline; [`stamp_is_newer`] makes a first-ever merge
     /// (`None → Some`) trigger too.
     fn check_merge_autopull(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if !self.repo.as_ref().is_some_and(|repo| repo.clone_exists) {
@@ -385,7 +375,7 @@ impl TrunkSync {
         if !self.merge_stamp_seeded {
             self.merge_stamp_seeded = true;
             self.merge_stamp = stamp;
-        } else if stamp > self.merge_stamp {
+        } else if stamp_is_newer(stamp.as_deref(), self.merge_stamp.as_deref()) {
             self.merge_stamp = stamp;
             self.pending_merge_sync = true;
         }
@@ -688,21 +678,22 @@ impl TrunkSync {
     /// [`Self::start_sync`] with the auto-sync pass's worktree-prune
     /// nominations (empty for every user-triggered op — pruning rides ONLY
     /// the background pass, whose trigger has the Window needed for the
-    /// live-tab check).
+    /// live-tab check). Returns whether the op was actually spawned, so a
+    /// caller holding a one-shot trigger can keep it across a no-op.
     fn start_sync_with_prune(
         &mut self,
         mode: SyncMode,
         prune_branches: Vec<String>,
         cx: &mut gpui::Context<Self>,
-    ) {
+    ) -> bool {
         if self.syncing {
-            return;
+            return false;
         }
         let Some(repo) = self.repo.clone() else {
-            return;
+            return false;
         };
         let Some(trpc) = queries::trpc_client(cx) else {
-            return;
+            return false;
         };
         // A user freshness pass on a missing clone RE-ATTEMPTS the clone —
         // the old error+Retry chrome is gone, so refresh is the retry path
@@ -748,6 +739,7 @@ impl TrunkSync {
                 run_sync_worker(mode, &trpc, &repo, &prune_branches, &tx);
             })
             .detach();
+        true
     }
 
     /// Apply one marshaled [`SyncMsg`] on the foreground. Stale messages (a
@@ -810,6 +802,57 @@ impl TrunkSync {
         }
         cx.notify();
     }
+}
+
+/// Whether a freshly read `pr_merged_at` is NEWER than the scope's baseline
+/// (the EXP-346 merge trigger). Compares parsed instants, not the raw text:
+/// Electric forwards Postgres `timestamptz` in whatever form the server
+/// encodes (`2026-07-03 10:11:12.345+00`, RFC 3339 from tRPC, trailing
+/// fractional zeros trimmed), and a lexicographic compare is only
+/// decimal-correct by accident of that trimming. Unparseable text falls back
+/// to the string order — never worse than the compare it replaced. A first
+/// stamp (`None → Some`) counts as newer; a stamp never disappears.
+fn stamp_is_newer(stamp: Option<&str>, baseline: Option<&str>) -> bool {
+    match (stamp, baseline) {
+        (Some(stamp), Some(baseline)) => {
+            match (
+                crate::inbox::parse_timestamp(stamp),
+                crate::inbox::parse_timestamp(baseline),
+            ) {
+                (Some(fresh), Some(seen)) => fresh > seen,
+                _ => stamp > baseline,
+            }
+        }
+        (Some(_), None) => true,
+        (None, _) => false,
+    }
+}
+
+/// The pure core of [`TrunkSync::attention`] (unit-tested without a window):
+/// the first reason the ff-only autopull is parked, in precedence order.
+/// Mirrors [`TrunkState::ff_eligible`]'s refusals — every state that gate
+/// rejects must have a voice here, or the trunk goes stale in silence.
+fn attention_reason(trunk: &TrunkState) -> Option<SharedString> {
+    if trunk.conflict.is_some() {
+        return Some("a rebase/merge is paused with conflicts".into());
+    }
+    // A detached HEAD (`# branch.head (detached)`) has no branch to
+    // fast-forward, so `ff_eligible` refuses it forever — silently, until
+    // someone checks the default branch back out (the Source Control hatch
+    // does exactly that).
+    if trunk.branch.starts_with('(') {
+        return Some("not on a branch — auto-pull is paused".into());
+    }
+    if trunk.ahead > 0 && trunk.has_upstream {
+        let noun = if trunk.ahead == 1 { "commit" } else { "commits" };
+        return Some(
+            format!("{} local {noun} not on origin — auto-pull is paused", trunk.ahead).into(),
+        );
+    }
+    if trunk.dirty {
+        return Some("local changes in the working tree — auto-pull is paused".into());
+    }
+    None
 }
 
 /// The "synced Xm ago" pair: the short form + the tooltip sentence.
@@ -960,4 +1003,92 @@ fn run_sync_worker(
     // mode even though the op returned an error.
     let trunk = trunk_state::read(clone).map_err(|err| err.to_string());
     let _ = tx.send(SyncMsg::Trunk(trunk));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use coding::scm::{ConflictKind, ConflictState};
+
+    fn trunk(branch: &str, ahead: u32, dirty: bool) -> TrunkState {
+        TrunkState {
+            branch: branch.to_string(),
+            ahead,
+            behind: 0,
+            conflict: None,
+            syncing: false,
+            dirty,
+            has_upstream: true,
+        }
+    }
+
+    #[test]
+    fn attention_is_silent_while_the_autopull_can_do_its_job() {
+        // Clean on a branch — `ff_eligible`'s happy path, no badge.
+        assert_eq!(attention_reason(&trunk("master", 0, false)), None);
+        // Ahead without an upstream: nothing to be "not on origin" about.
+        assert_eq!(
+            attention_reason(&TrunkState { has_upstream: false, ..trunk("master", 3, false) }),
+            None
+        );
+    }
+
+    #[test]
+    fn attention_names_every_state_ff_eligible_refuses() {
+        assert_eq!(
+            attention_reason(&trunk("master", 1, false)).as_deref(),
+            Some("1 local commit not on origin — auto-pull is paused")
+        );
+        assert_eq!(
+            attention_reason(&trunk("master", 0, true)).as_deref(),
+            Some("local changes in the working tree — auto-pull is paused")
+        );
+        // A detached HEAD parks the autopull forever and used to show NOTHING.
+        assert_eq!(
+            attention_reason(&trunk("(detached)", 0, false)).as_deref(),
+            Some("not on a branch — auto-pull is paused")
+        );
+        // A paused rebase/merge outranks the rest (it is the actionable one).
+        let conflict = ConflictState { kind: ConflictKind::Rebase, files: Vec::new() };
+        assert_eq!(
+            attention_reason(&TrunkState {
+                conflict: Some(conflict),
+                ..trunk("(detached)", 2, true)
+            })
+            .as_deref(),
+            Some("a rebase/merge is paused with conflicts")
+        );
+    }
+
+    #[test]
+    fn merge_stamp_compare_is_instant_based_not_lexicographic() {
+        // The forms Electric and tRPC each hand us for the SAME instant must
+        // compare equal — a raw string compare would call them different and
+        // fire a spurious pull.
+        assert!(!stamp_is_newer(
+            Some("2026-07-03T10:11:12.000+00:00"),
+            Some("2026-07-03 10:11:12+00"),
+        ));
+        // Trailing-zero trimming is what made the string compare work by
+        // accident; the parse is right either way.
+        assert!(stamp_is_newer(
+            Some("2026-07-03 10:11:12.5+00"),
+            Some("2026-07-03 10:11:12.25+00"),
+        ));
+        assert!(!stamp_is_newer(
+            Some("2026-07-03 10:11:12.25+00"),
+            Some("2026-07-03 10:11:12.5+00"),
+        ));
+        // Offsets are instants, not text.
+        assert!(stamp_is_newer(
+            Some("2026-07-03 11:00:00+00"),
+            Some("2026-07-03 12:00:00+02"),
+        ));
+        // Unparseable text keeps the old string ordering.
+        assert!(stamp_is_newer(Some("zzz"), Some("aaa")));
+        // A first-ever merge triggers; a vanished stamp never does.
+        assert!(stamp_is_newer(Some("2026-07-03 10:11:12+00"), None));
+        assert!(!stamp_is_newer(None, Some("2026-07-03 10:11:12+00")));
+        assert!(!stamp_is_newer(None, None));
+    }
 }

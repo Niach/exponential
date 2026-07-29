@@ -761,6 +761,14 @@ impl Render for SourceControlView {
 /// clean/in-sync state (no strip). Conflicts are the banner's job — the
 /// caller gates on `conflict.is_none()`.
 fn anomaly_strip_message(status: &scm::StatusSummary) -> Option<String> {
+    // A detached HEAD (`# branch.head (detached)`) has no branch to
+    // fast-forward, so the autopull refuses it forever. It gets the strip to
+    // itself — the counts below are meaningless off a branch, and the reset
+    // hatch beside the message (force-checkout the default branch) is the way
+    // back.
+    if status.branch.starts_with('(') {
+        return Some("Not on a branch — auto-pull is paused".to_string());
+    }
     let mut parts: Vec<String> = Vec::new();
     if status.ahead > 0 && status.upstream.is_some() {
         let noun = if status.ahead == 1 { "local commit" } else { "local commits" };
@@ -1122,6 +1130,18 @@ mod tests {
                 "1 local commit not on origin (2 behind origin) · \
                  3 changed files in the working tree — auto-pull is paused"
             )
+        );
+    }
+
+    #[test]
+    fn anomaly_strip_names_a_detached_head() {
+        // `ff_eligible` refuses a detached HEAD forever — the strip says so
+        // instead of leaving a clean-looking trunk to park stale, and it wins
+        // over the counts (which mean nothing off a branch).
+        let detached = StatusSummary { branch: "(detached)".to_string(), ..summary(0, 7, 2, true) };
+        assert_eq!(
+            anomaly_strip_message(&detached).as_deref(),
+            Some("Not on a branch — auto-pull is paused")
         );
     }
 }
