@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-merge-and-close-fix`,
+    date: `2026-07-30`,
+    title: `Merges unstuck`,
+    summary: `Cloud PR merges could fail with a database error — fixed, and finished subagent tabs now tidy up after themselves.`,
+    body: `- **"Merge and close" works again** — a skipped schema migration made every PR merge on the cloud fail with a database error (and left the session's terminal open). The migration now applies correctly, and a new guard test keeps migration ordering honest so this class of bug can't sneak back in.
+- **Subagent tabs clean up** — completed subagents (like quick explore runs) no longer linger in the desktop session view after they finish.
+- **A fresh coat of paint for the homepage movie** — the exponential.at hero video now matches the app's glassy design, pixel for pixel.`,
+  },
+  {
     id: `2026-07-session-close-on-merge`,
     date: `2026-07-29`,
     title: `Sessions survive the merge`,
