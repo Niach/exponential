@@ -135,7 +135,7 @@ pub(crate) enum ImageSlot {
 }
 
 /// How long a failed fetch is displayed before the next render retries it.
-const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
+pub(crate) const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Caches decoded attachment images per URL. `/api/attachments/{id}` is
 /// auth-gated, so bytes go through the [`AttachmentTransport`] (bearer
@@ -183,6 +183,15 @@ impl ImageCache {
         if let Some(slot) = self.slots.get(from).cloned() {
             self.slots.insert(to, slot);
         }
+    }
+
+    /// Drop every `Failed` slot so the next [`Self::slot`] call re-fetches
+    /// immediately. The WYSIWYG description has no render-driven `slot()`
+    /// loop to ride the [`RETRY_AFTER`] backoff, so its scheduled retry
+    /// (EXP-354) waits the backoff out on its own timer and then evicts.
+    pub(crate) fn evict_failed(&mut self) {
+        self.slots
+            .retain(|_, slot| !matches!(slot, ImageSlot::Failed(_)));
     }
 
     pub(crate) fn slot(&mut self, url: &str, cx: &mut Context<Self>) -> ImageSlot {

@@ -104,6 +104,9 @@ pub struct WysiwygDescription {
     /// create-issue dialog pins it above its scroll region) and the inline
     /// toolbar is suppressed.
     external_toolbar: bool,
+    /// EXP-354: a retry for `Failed` attachment fetches is already pending —
+    /// at most one timer runs at a time.
+    failed_retry_scheduled: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -246,6 +249,17 @@ impl WysiwygDescription {
             this.sync_images(cx);
         }));
 
+        // EXP-354: the synced `attachments` row can land after the issues
+        // echo that referenced it — re-derive natural sizes (and resolutions)
+        // when it does; the equality gates in `sync_images` keep quiet
+        // updates from repainting.
+        if let Some(store) = sync::Store::try_global(cx) {
+            let attachments = store.collections().attachments.clone();
+            subscriptions.push(cx.observe(&attachments, |this, _, cx| {
+                this.sync_images(cx);
+            }));
+        }
+
         // Presentation-only theme refresh on light/dark switches.
         subscriptions.push(cx.observe_global::<gpui_component::Theme>(|this, cx| {
             let theme = super::editor_theme_with_placeholder(cx, this.placeholder.as_ref());
@@ -273,6 +287,7 @@ impl WysiwygDescription {
             completion: None,
             probed_sizes: HashMap::new(),
             external_toolbar: false,
+            failed_retry_scheduled: false,
             _subscriptions: subscriptions,
         };
         // Kick off fetches for images already present in the description and
@@ -578,6 +593,14 @@ impl WysiwygDescription {
                 }
             })
             .unwrap_or(false);
+        // EXP-354: a failed FETCH (never a failed `draft://` upload — its
+        // bytes are gone for good) must not stay broken until the issue is
+        // reopened. The block editor re-fetches from its render loop; this
+        // surface has no render-driven `slot()` call, so schedule the retry
+        // explicitly.
+        let any_failed_fetch = next.iter().any(|(key, resolution)| {
+            matches!(resolution, ImageSourceResolution::Failed) && !key.starts_with(DRAFT_SCHEME)
+        });
         let changed = self
             .shared
             .resolutions
@@ -594,6 +617,38 @@ impl WysiwygDescription {
         if changed || sizes_changed {
             self.refresh_editor_environment(cx);
         }
+        if any_failed_fetch {
+            self.schedule_failed_retry(cx);
+        }
+    }
+
+    /// EXP-354: one delayed re-sync per failure round. After the backoff the
+    /// `Failed` slots are evicted so [`ImageCache::slot`] re-fetches
+    /// immediately, and a transport that was missing at construction (editor
+    /// built mid-login) is re-resolved. Still-failing images re-enter through
+    /// `sync_images`, so the retry keeps its `IMAGE_RETRY_AFTER` cadence.
+    fn schedule_failed_retry(&mut self, cx: &mut Context<Self>) {
+        if self.failed_retry_scheduled {
+            return;
+        }
+        self.failed_retry_scheduled = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(crate::markdown::IMAGE_RETRY_AFTER)
+                .await;
+            this.update(cx, |this, cx| {
+                this.failed_retry_scheduled = false;
+                if this.images.read(cx).transport().is_none() {
+                    let transport = queries::attachment_transport(cx);
+                    this.images
+                        .update(cx, |cache, _| cache.set_transport(transport));
+                }
+                this.images.update(cx, |cache, _| cache.evict_failed());
+                this.sync_images(cx);
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Redistribute the (unchanged) environment so the vendored editor
@@ -1212,10 +1267,172 @@ impl Render for WysiwygDescription {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use gpui::TestAppContext;
 
     use super::*;
     use crate::markdown::autocomplete::{CompletionItem, CompletionTrigger};
+    use crate::markdown::{AttachmentTransport, UploadedImage};
+
+    /// A valid 1×1 PNG (imagesize can probe its header).
+    const PNG_1X1: [u8; 67] = [
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+
+    /// Fetch-only transport: fails the first `failures` fetches, then serves
+    /// [`PNG_1X1`]. Uploads are unreachable in these tests.
+    struct StubTransport {
+        failures_left: AtomicUsize,
+        fetches: AtomicUsize,
+    }
+
+    impl StubTransport {
+        fn new(failures: usize) -> Arc<Self> {
+            Arc::new(Self {
+                failures_left: AtomicUsize::new(failures),
+                fetches: AtomicUsize::new(0),
+            })
+        }
+    }
+
+    impl AttachmentTransport for StubTransport {
+        fn upload(
+            &self,
+            _issue_id: &str,
+            _filename: &str,
+            _content_type: &str,
+            _bytes: &[u8],
+        ) -> anyhow::Result<UploadedImage> {
+            unreachable!("fetch-only stub")
+        }
+
+        fn upload_file(
+            &self,
+            _issue_id: &str,
+            _filename: &str,
+            _content_type: &str,
+            _bytes: &[u8],
+        ) -> anyhow::Result<UploadedImage> {
+            unreachable!("fetch-only stub")
+        }
+
+        fn fetch(&self, _url: &str) -> anyhow::Result<Vec<u8>> {
+            self.fetches.fetch_add(1, Ordering::SeqCst);
+            if self
+                .failures_left
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                    left.checked_sub(1)
+                })
+                .is_ok()
+            {
+                anyhow::bail!("stubbed network failure");
+            }
+            Ok(PNG_1X1.to_vec())
+        }
+    }
+
+    fn resolution_of(view: &WysiwygDescription, key: &str) -> Option<ImageSourceResolution> {
+        view.shared.resolutions.lock().unwrap().get(key).cloned()
+    }
+
+    // EXP-354: another machine adds an image to the description while the
+    // issue is open — the remote echo's `set_markdown` must fetch and render
+    // the new image without leaving the issue.
+    #[gpui::test]
+    async fn a_remote_echo_with_a_new_image_resolves_live(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(None, None, "Add description...", "hello", None, window, cx)
+        });
+        let transport = StubTransport::new(0);
+        cx.update(|_window, cx| {
+            view.update(cx, |view, cx| {
+                view.images.update(cx, |cache, _| {
+                    cache.set_transport(Some(transport.clone() as Arc<dyn AttachmentTransport>));
+                });
+            });
+        });
+
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.set_markdown("hello\n\n![shot](/api/attachments/abc)", window, cx);
+            });
+        });
+        cx.run_until_parked();
+
+        view.read_with(cx, |view, _| {
+            assert!(
+                matches!(
+                    resolution_of(view, "/api/attachments/abc"),
+                    Some(ImageSourceResolution::Decoded(_))
+                ),
+                "the echoed image resolved without reopening the issue"
+            );
+        });
+        assert_eq!(transport.fetches.load(Ordering::SeqCst), 1);
+    }
+
+    // EXP-354: a transient fetch failure (auth blip, brief offline) must not
+    // brick the image until the issue is reopened. The block editor retries
+    // failed slots from its render loop; the WYSIWYG surface has no such
+    // driver, so it schedules its own retry.
+    #[gpui::test]
+    async fn a_failed_fetch_retries_and_recovers(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(None, None, "Add description...", "hello", None, window, cx)
+        });
+        let transport = StubTransport::new(1);
+        cx.update(|_window, cx| {
+            view.update(cx, |view, cx| {
+                view.images.update(cx, |cache, _| {
+                    cache.set_transport(Some(transport.clone() as Arc<dyn AttachmentTransport>));
+                });
+            });
+        });
+
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.set_markdown("hello\n\n![shot](/api/attachments/abc)", window, cx);
+            });
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert!(
+                matches!(
+                    resolution_of(view, "/api/attachments/abc"),
+                    Some(ImageSourceResolution::Failed)
+                ),
+                "the first fetch failed"
+            );
+        });
+
+        cx.executor()
+            .advance_clock(crate::markdown::IMAGE_RETRY_AFTER + std::time::Duration::from_secs(1));
+        cx.run_until_parked();
+
+        view.read_with(cx, |view, _| {
+            assert!(
+                matches!(
+                    resolution_of(view, "/api/attachments/abc"),
+                    Some(ImageSourceResolution::Decoded(_))
+                ),
+                "the retry recovered the image"
+            );
+        });
+        assert_eq!(transport.fetches.load(Ordering::SeqCst), 2);
+    }
 
     /// One fixed `#EXP-42` candidate for every query — enough to open the
     /// popup without a synced Store behind it.

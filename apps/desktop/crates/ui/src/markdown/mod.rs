@@ -48,6 +48,7 @@ pub use blocks::{ContentBlock, RichText};
 pub(crate) use editor::{
     attachment_natural_size, byte_offset_to_position, download_image, placeholder_box,
     scan_issue_refs, scan_mentions, sniff_format, truncate_chip_title, ImageSlot,
+    RETRY_AFTER as IMAGE_RETRY_AFTER,
 };
 pub use editor::{ImageCache, MarkdownEditor, MarkdownView, RefResolver};
 pub use image_paste::{
