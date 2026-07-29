@@ -23,6 +23,7 @@ import {
   attachQuestionAnswer,
   beginAnswer,
   clearAnswer,
+  collectSubagents,
   consumeEcho,
   dismissPendingQuestions,
   failAnswer,
@@ -40,6 +41,7 @@ import {
   type AnswerState,
   type AnswerStates,
   type EchoEntry,
+  type SubagentSummary,
 } from "@/lib/agent-feed"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
@@ -317,6 +319,10 @@ export function AgentSessionView({
   /** Per-card answer locks, keyed by `answerKey` — a card locks the instant
    *  its answer goes out and only re-enables when the ack times out. */
   const [answerStates, setAnswerStates] = useState<AnswerStates>({})
+  /** EXP-356: the selected conversation tab — `null` is the main agent; a
+   *  subagent id focuses that agent's stream. Falls back to Main whenever the
+   *  id vanishes from the feed (an `activity_reset` replay). */
+  const [agentTab, setAgentTab] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const nextIdRef = useRef(0)
@@ -807,6 +813,13 @@ export function AgentSessionView({
     if (el) el.scrollTop = el.scrollHeight
   }, [feed, atBottom, phase.kind])
 
+  // Switching conversation tabs re-pins to the newest event (EXP-356).
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+    setAtBottom(true)
+  }, [agentTab])
+
   const diffFiles = useMemo(
     () => (latestDiff ? splitUnifiedDiff(latestDiff) : []),
     [latestDiff]
@@ -838,6 +851,24 @@ export function AgentSessionView({
    *  (EXP-97), one ask's questions into a stepper and a subagent's work into
    *  its own group — a projection only, the flat feed stays the state. */
   const rows = useMemo(() => groupFeedRows(feed), [feed])
+  /** EXP-356: the subagents seen so far — one conversation tab each. */
+  const agents = useMemo(() => collectSubagents(feed), [feed])
+  const activeAgent =
+    agentTab !== null && agents.some((a) => a.subagentId === agentTab)
+      ? agentTab
+      : null
+  /** The focused agent's stream (its lifecycle markers + tool calls). */
+  const agentItems = useMemo(
+    () =>
+      activeAgent === null
+        ? []
+        : feed.filter(
+            (item) =>
+              (item.kind === `tool` || item.kind === `subagent`) &&
+              item.subagentId === activeAgent
+          ),
+    [feed, activeAgent]
+  )
   /** A trailing question/plan means the session is blocked on a human — the
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && questionIds.size > 0
@@ -900,6 +931,25 @@ export function AgentSessionView({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
+          {/* EXP-356: conversation tabs — Main plus one per subagent. */}
+          {agents.length > 0 && (
+            <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-2 py-1">
+              <AgentTab
+                label="Main"
+                active={activeAgent === null}
+                onClick={() => setAgentTab(null)}
+              />
+              {agents.map((agent) => (
+                <AgentTab
+                  key={agent.subagentId}
+                  label={agent.agentType}
+                  running={!agent.done}
+                  active={activeAgent === agent.subagentId}
+                  onClick={() => setAgentTab(agent.subagentId)}
+                />
+              ))}
+            </div>
+          )}
           {/* The activity feed (bottom-anchored, follow-scroll) */}
           <div className="relative min-h-0 flex-1">
             <div
@@ -928,6 +978,13 @@ export function AgentSessionView({
                     an update.
                   </span>
                 </CenteredState>
+              ) : activeAgent !== null ? (
+                <div className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2">
+                  <AgentConversation
+                    summary={agents.find((a) => a.subagentId === activeAgent)}
+                    items={agentItems}
+                  />
+                </div>
               ) : (
                 <div className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2">
                   {rows.map((row, index) => {
@@ -1701,6 +1758,78 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** One conversation tab chip (EXP-356) — Main or a subagent. */
+function AgentTab({
+  label,
+  active,
+  running,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  running?: boolean
+  onClick: () => void
+}) {
+  return (
+    <Button
+      variant={active ? `secondary` : `ghost`}
+      size="sm"
+      className="h-6 shrink-0 gap-1.5 px-2 text-xs"
+      onClick={onClick}
+    >
+      {label}
+      {running && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
+    </Button>
+  )
+}
+
+/** A focused subagent conversation (EXP-356): its delegation summary on top,
+ *  then every tool call as a full row — the flat feed stays the state, this
+ *  is a per-agent projection like the grouped main view. */
+function AgentConversation({
+  summary,
+  items,
+}: {
+  summary?: SubagentSummary
+  items: FeedItem[]
+}) {
+  const tools = items.filter(
+    (i): i is Extract<FeedItem, { kind: `tool` }> => i.kind === `tool`
+  )
+  return (
+    <>
+      {summary && (
+        <div className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5 text-muted-foreground">
+          <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
+          <span className="shrink-0 text-xs font-medium">
+            {summary.agentType}
+          </span>
+          {!summary.done && (
+            <UiLoadingIcon className="size-3 shrink-0 animate-spin" />
+          )}
+          <span className="shrink-0 text-[0.6875rem]">
+            {summary.done ? `done` : `running`}
+          </span>
+          {summary.detail && (
+            <span className="truncate text-[0.6875rem]" title={summary.detail}>
+              {summary.detail}
+            </span>
+          )}
+        </div>
+      )}
+      {tools.length === 0 ? (
+        <div className="py-1 pl-0.5 text-xs text-muted-foreground">
+          No tool calls yet.
+        </div>
+      ) : (
+        tools.map((tool) => (
+          <ToolRow key={tool.id} name={tool.name} detail={tool.detail} />
+        ))
+      )}
+    </>
   )
 }
 

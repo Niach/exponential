@@ -8,6 +8,7 @@ import {
   attachQuestionAnswer,
   beginAnswer,
   clearAnswer,
+  collectSubagents,
   consumeEcho,
   dismissPendingQuestions,
   failAnswer,
@@ -711,5 +712,59 @@ describe(`summarizeSubagentRow`, () => {
       marker({ agentType: `explore`, status: `completed`, detail: `Fresh` }),
     ])
     expect(row.detail).toBe(`Fresh`)
+  })
+})
+
+describe(`collectSubagents`, () => {
+  it(`one summary per subagent id, in first-appearance order (EXP-356)`, () => {
+    const feed = [
+      { kind: `narration`, text: `Delegating.` },
+      {
+        kind: `subagent`,
+        subagentId: `toolu_a`,
+        agentType: `Explore`,
+        status: `started`,
+        detail: `Map the crate`,
+      },
+      { kind: `tool`, subagentId: `toolu_a` },
+      { kind: `tool` }, // main-agent tool — never a tab
+      {
+        kind: `subagent`,
+        subagentId: `toolu_b`,
+        agentType: `review`,
+        status: `started`,
+      },
+      { kind: `tool`, subagentId: `toolu_a` },
+      {
+        kind: `subagent`,
+        subagentId: `toolu_a`,
+        agentType: `Explore`,
+        status: `completed`,
+        detail: `Map the crate`,
+      },
+    ]
+    expect(collectSubagents(feed)).toEqual([
+      {
+        subagentId: `toolu_a`,
+        agentType: `Explore`,
+        done: true,
+        detail: `Map the crate`,
+        toolCount: 2,
+      },
+      {
+        subagentId: `toolu_b`,
+        agentType: `review`,
+        done: false,
+        detail: undefined,
+        toolCount: 0,
+      },
+    ])
+  })
+
+  it(`an empty or subagent-free feed yields no tabs`, () => {
+    expect(collectSubagents([])).toEqual([])
+    expect(
+      collectSubagents([{ kind: `tool` }, { kind: `narration` }])
+    ).toEqual([])
   })
 })

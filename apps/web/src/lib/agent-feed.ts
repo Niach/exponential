@@ -494,6 +494,49 @@ export function groupFeedRows<
  *  the label selection must skip past, never a type to prefer (EXP-350). */
 export const SUBAGENT_FALLBACK_TYPE = `agent`
 
+/** One subagent's summary for tab navigation (EXP-356). */
+export interface SubagentSummary {
+  subagentId: string
+  agentType: string
+  done: boolean
+  detail?: string
+  toolCount: number
+}
+
+/** Every subagent seen in the feed, in first-appearance order, each summarized
+ *  like its group row (EXP-356) — the session view renders one conversation
+ *  tab per entry. */
+export function collectSubagents<
+  T extends {
+    kind: string
+    subagentId?: string
+    agentType?: string
+    status?: string
+    detail?: string
+  },
+>(feed: readonly T[]): SubagentSummary[] {
+  const order: string[] = []
+  const byId = new Map<string, T[]>()
+  for (const item of feed) {
+    if (
+      (item.kind !== `subagent` && item.kind !== `tool`) ||
+      item.subagentId === undefined
+    )
+      continue
+    let bucket = byId.get(item.subagentId)
+    if (!bucket) {
+      bucket = []
+      byId.set(item.subagentId, bucket)
+      order.push(item.subagentId)
+    }
+    bucket.push(item)
+  }
+  return order.map((subagentId) => ({
+    subagentId,
+    ...summarizeSubagentRow(byId.get(subagentId) ?? []),
+  }))
+}
+
 /** What a subagent group row displays (EXP-350) — one place for the label /
  *  status / detail selection so all clients can mirror it:
  *  - `agentType`: the first marker's real type — a later marker carrying the
