@@ -71,6 +71,21 @@ pub(crate) fn frame_radii(window: &Window) -> Corners<Pixels> {
     }
 }
 
+/// Horizontal width the Linux CSD frame takes out of the viewport: the
+/// shadow padding plus the 1px border on each untiled side. [`WindowFrame`]
+/// renders both INSIDE the window's bounds, so `Window::viewport_size` minus
+/// this is what content can actually use — width budgets computed from the
+/// viewport (the titlebar tab strip, EXP-343) must subtract it or they run
+/// ~26px long and overflow into the window controls. Zero off Linux CSD and
+/// on tiled edges (a tiled side drops both its shadow and its border).
+pub(crate) fn frame_horizontal_chrome(window: &Window) -> Pixels {
+    let Decorations::Client { tiling } = window.window_decorations() else {
+        return px(0.0);
+    };
+    let side = |tiled: bool| if tiled { px(0.0) } else { SHADOW_SIZE + BORDER_SIZE };
+    side(tiling.left) + side(tiling.right)
+}
+
 /// Apply [`frame_radii`] to a layer that paints to ALL FOUR window edges —
 /// the full-size page-gradient background every `window_frame()` host puts
 /// directly inside the frame. A no-op off Linux CSD (all radii zero).
