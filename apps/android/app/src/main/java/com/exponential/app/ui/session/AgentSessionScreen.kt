@@ -496,8 +496,7 @@ private fun ActivityFeed(
                         liveTail = live && row.id == rows.last().id,
                     )
                     is AgentFeedRow.SubagentRun -> SubagentGroupRow(
-                        subagent = row.subagent,
-                        tools = row.tools,
+                        run = row,
                         liveTail = live && row.id == rows.last().id,
                     )
                     is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
@@ -514,7 +513,20 @@ private fun ActivityFeed(
                         is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
                         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
                         is AgentFeedItem.Permission -> PermissionRow(item.tool, item.detail)
-                        is AgentFeedItem.Subagent -> SubagentGroupRow(item, emptyList(), false)
+                        // Unreachable in practice — groupFeedRows folds every
+                        // subagent marker into a SubagentRun — kept for `when`
+                        // exhaustiveness.
+                        is AgentFeedItem.Subagent -> SubagentGroupRow(
+                            run = AgentFeedRow.SubagentRun(
+                                id = item.id,
+                                subagentId = item.subagentId,
+                                agentType = item.agentType,
+                                completed = item.completed,
+                                detail = item.detail,
+                                tools = emptyList(),
+                            ),
+                            liveTail = false,
+                        )
                         is AgentFeedItem.Question -> QuestionCard(
                             item = item,
                             active = item.id in activeQuestionIds,
@@ -1046,31 +1058,36 @@ private fun PermissionRow(tool: String, detail: String?) {
     }
 }
 
-// A subagent and the tool calls it made (EXP-249), collapsed into one
-// expandable group. While the group is the trailing row of a live session its
-// latest call stays visible so the viewer still sees progress.
+// A subagent and the tool calls it made (EXP-249), collapsed into one group.
+// The header always shows the agent type, a check/spinner, and the delegation
+// detail; expansion only reveals the tool calls — a run with none renders as a
+// static row with no chevron (EXP-350: the chevron used to expand to nothing).
+// While the group is the trailing row of a live session its latest call stays
+// visible so the viewer still sees progress.
 @Composable
 private fun SubagentGroupRow(
-    subagent: AgentFeedItem.Subagent,
-    tools: List<AgentFeedItem.Tool>,
+    run: AgentFeedRow.SubagentRun,
     liveTail: Boolean,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val expandable = run.tools.isNotEmpty()
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
+                .let { if (expandable) it.clickable { expanded = !expanded } else it }
                 .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+            if (expandable) {
+                Icon(
+                    if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
             Icon(
                 ExpIcons.codingSubagent,
                 contentDescription = null,
@@ -1078,11 +1095,11 @@ private fun SubagentGroupRow(
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
             Text(
-                "${subagent.agentType} subagent",
+                run.agentType,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            if (subagent.completed) {
+            if (run.completed) {
                 Icon(
                     ExpIcons.uiCheck,
                     contentDescription = null,
@@ -1096,27 +1113,30 @@ private fun SubagentGroupRow(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            if (tools.isNotEmpty()) {
+            if (run.tools.isNotEmpty()) {
                 Text(
-                    "${tools.size} tool calls",
+                    "${run.tools.size} tool calls",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             }
         }
+        if (!run.detail.isNullOrBlank()) {
+            Text(
+                run.detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 22.dp),
+            )
+        }
         when {
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                if (!subagent.detail.isNullOrBlank()) {
-                    Text(
-                        subagent.detail,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
-                tools.forEach { ToolRow(it.name, it.detail) }
+                run.tools.forEach { ToolRow(it.name, it.detail) }
             }
-            liveTail && tools.isNotEmpty() -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                val latest = tools.last()
+            liveTail && run.tools.isNotEmpty() -> Column(modifier = Modifier.padding(start = 22.dp)) {
+                val latest = run.tools.last()
                 ToolRow(latest.name, latest.detail)
             }
         }

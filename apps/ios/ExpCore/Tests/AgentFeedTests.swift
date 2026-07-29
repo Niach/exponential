@@ -375,6 +375,56 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(orphan.id, 9)
     }
 
+    func testAFallbackTypedCompletedEdgeNeverDegradesTheLabel() {
+        // Old desktops stamp the fallback "agent" onto the completed edge
+        // (claude's SubagentStop hook carries no agent_type) — the started
+        // marker's real type must win (EXP-350).
+        let feed: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s1", agentType: "explore", status: .started, detail: "map"),
+            tool(2, subagentId: "s1"),
+            .subagent(id: 3, subagentId: "s1", agentType: "agent", status: .completed, detail: nil),
+        ]
+        guard case let .subagentRun(run) = AgentFeed.rows(feed)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(run.agentType, "explore")
+        XCTAssertTrue(run.done)
+        XCTAssertEqual(run.detail, "map")
+    }
+
+    func testACompletedOnlyMarkerKeepsItsRealTypeAndAnHonestAgentStaysAgent() {
+        let typed: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s1", agentType: "review", status: .completed, detail: nil),
+        ]
+        guard case let .subagentRun(run) = AgentFeed.rows(typed)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(run.agentType, "review")
+
+        let fallback: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s1", agentType: "agent", status: .completed, detail: nil),
+        ]
+        guard case let .subagentRun(bare) = AgentFeed.rows(fallback)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(bare.agentType, "agent")
+    }
+
+    func testASubagentRunIsExpandableOnlyOnceItHasToolCalls() {
+        let markerOnly: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s1", agentType: "explore", status: .started, detail: "map"),
+        ]
+        guard case let .subagentRun(bare) = AgentFeed.rows(markerOnly)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertFalse(bare.expandable)
+
+        guard case let .subagentRun(working) = AgentFeed.rows(markerOnly + [tool(2, subagentId: "s1")])[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertTrue(working.expandable)
+    }
+
     func testGroupedItemsJoinTheirRowEvenWhenSomethingElseLandsBetween() {
         let feed: [AgentFeedItem] = [
             .subagent(id: 1, subagentId: "s1", agentType: "explorer", status: .started, detail: nil),

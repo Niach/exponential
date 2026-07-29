@@ -15,6 +15,7 @@ import {
   hasSemanticQuestions,
   isAnswerLocked,
   pushEcho,
+  summarizeSubagentRow,
   upsertQuestion,
   ECHO_CAP,
   ECHO_TTL_MS,
@@ -656,5 +657,59 @@ describe(`groupFeedRows`, () => {
       { kind: `single`, item: feed[0] },
       { kind: `single`, item: feed[1] },
     ])
+  })
+})
+
+describe(`summarizeSubagentRow`, () => {
+  const marker = (over: Record<string, unknown> = {}) => ({
+    kind: `subagent`,
+    ...over,
+  })
+  const tool = () => ({ kind: `tool` })
+
+  it(`an old desktop's "agent" completed edge never degrades the label`, () => {
+    const row = summarizeSubagentRow([
+      marker({ agentType: `explore`, status: `started`, detail: `Map the crate` }),
+      tool(),
+      marker({ agentType: `agent`, status: `completed` }),
+    ])
+    expect(row).toEqual({
+      agentType: `explore`,
+      done: true,
+      detail: `Map the crate`,
+      toolCount: 1,
+    })
+  })
+
+  it(`a completed-only marker with a real type keeps it`, () => {
+    const row = summarizeSubagentRow([
+      marker({ agentType: `review`, status: `completed` }),
+    ])
+    expect(row).toMatchObject({ agentType: `review`, done: true, toolCount: 0 })
+  })
+
+  it(`an honest "agent"-only group still reads "agent"`, () => {
+    const row = summarizeSubagentRow([
+      marker({ agentType: `agent`, status: `completed` }),
+    ])
+    expect(row).toMatchObject({ agentType: `agent`, done: true })
+  })
+
+  it(`a tools-only orphan group falls back and counts its tools`, () => {
+    const row = summarizeSubagentRow([tool(), tool()])
+    expect(row).toEqual({
+      agentType: `agent`,
+      done: false,
+      detail: undefined,
+      toolCount: 2,
+    })
+  })
+
+  it(`the LATEST non-empty detail wins (the completed edge restates it)`, () => {
+    const row = summarizeSubagentRow([
+      marker({ agentType: `explore`, status: `started`, detail: `Old` }),
+      marker({ agentType: `explore`, status: `completed`, detail: `Fresh` }),
+    ])
+    expect(row.detail).toBe(`Fresh`)
   })
 })

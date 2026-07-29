@@ -488,3 +488,36 @@ export function groupFeedRows<
   }
   return rows
 }
+
+/** `subagent.agentType` when the desktop's hook payload carried none — old
+ *  desktop builds also stamp it onto the COMPLETED edge, so it is a sentinel
+ *  the label selection must skip past, never a type to prefer (EXP-350). */
+export const SUBAGENT_FALLBACK_TYPE = `agent`
+
+/** What a subagent group row displays (EXP-350) — one place for the label /
+ *  status / detail selection so all clients can mirror it:
+ *  - `agentType`: the first marker's real type — a later marker carrying the
+ *    fallback (an old desktop's completed edge) can never degrade the label;
+ *  - `done`: any marker completed;
+ *  - `detail`: the LATEST non-empty detail (the completed edge restates the
+ *    freshest);
+ *  - `toolCount`: the tool calls attributed to the subagent. */
+export function summarizeSubagentRow<
+  T extends { kind: string; agentType?: string; status?: string; detail?: string },
+>(
+  items: readonly T[]
+): { agentType: string; done: boolean; detail?: string; toolCount: number } {
+  const markers = items.filter((i) => i.kind === `subagent`)
+  const types = markers
+    .map((m) => m.agentType?.trim() ?? ``)
+    .filter((t) => t !== ``)
+  return {
+    agentType:
+      types.find((t) => t !== SUBAGENT_FALLBACK_TYPE) ??
+      types[0] ??
+      SUBAGENT_FALLBACK_TYPE,
+    done: markers.some((m) => m.status === `completed`),
+    detail: [...markers].reverse().find((m) => m.detail?.trim())?.detail,
+    toolCount: items.filter((i) => i.kind === `tool`).length,
+  }
+}

@@ -95,6 +95,10 @@ pub const ANSWERS_MAX: usize = 10;
 /// `subagent.id` / `answer_ack.id` / `question.id` / `permission.tool`.
 pub const ID_MAX: usize = 128;
 pub const AGENT_TYPE_MAX: usize = 64;
+/// `subagent.agentType` when a hook payload carries none. Clients treat this
+/// exact string as the sentinel their label selection skips past (EXP-350) —
+/// never rename it without a protocol bump.
+const SUBAGENT_TYPE_FALLBACK: &str = "agent";
 /// Relay-enforced option-count cap; also the range of digit keys we can map.
 const QUESTION_OPTIONS_MAX: usize = 9;
 
@@ -369,6 +373,13 @@ pub struct TranscriptState {
     /// answered, so this is the "plan resolved" signal that still arrives
     /// while the viewport is scrolled (the grid watcher is sticky there).
     pub plan_twin_flushed: bool,
+    /// EXP-350: the hooks sidecar is wired, so every `Task` call already
+    /// publishes a descriptive `subagent` card — the main transcript's own
+    /// bare "Task" tool headline is then dropped instead of doubling each
+    /// fan-out row. Suppression is by flag, not per dispatched id: the
+    /// transcript entry can flush before the hook's HTTP delivery drains, so
+    /// id matching would race the wrong way.
+    pub suppress_task_headlines: bool,
 }
 
 /// Grid-question memory cap — a session never has this many live pickers.
@@ -462,6 +473,13 @@ pub fn process_transcript_line(
                         plan_mode: None,
                         ..
                     } => !hook_published && !state.consume_grid_question(text),
+                    // The hook's subagent card already represents this Task
+                    // call (EXP-350).
+                    ActivityEvent::Tool {
+                        name,
+                        subagent_id: None,
+                        ..
+                    } if name == "Task" => !state.suppress_task_headlines,
                     _ => true,
                 })
                 .collect()
@@ -778,9 +796,9 @@ fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityE
 /// nothing safe is present the headline shows the tool name alone.
 fn tool_detail(name: &str, input: Option<&Value>) -> Option<String> {
     let input = input?;
-    if name.eq_ignore_ascii_case("bash") {
-        // The command string is NEVER published — only the model's own
-        // human-readable description of what it's doing.
+    if name.eq_ignore_ascii_case("bash") || name == "Task" {
+        // The command string / delegation prompt is NEVER published — only
+        // the model's own human-readable description of what it's doing.
         return input
             .get("description")
             .and_then(Value::as_str)
@@ -930,6 +948,30 @@ fn parse_sidechain_line(
             _ => None,
         })
         .collect()
+}
+
+/// EXP-350: sidechain tool headlines carry claude's raw agent id, but the
+/// subagent card publishes under the Task `tool_use_id` — remap through the
+/// alias so tools group under the card on every client. An id with no alias
+/// yet passes through raw: the `SubagentStart` hook drains every 1s tick while
+/// sidechain discovery runs on a 3s cadence, so the alias is virtually always
+/// in place first, and the residual race just degrades to the hookless path
+/// for one tick.
+fn attribute_to_card(event: ActivityEvent, subagents: &Subagents) -> ActivityEvent {
+    match event {
+        ActivityEvent::Tool {
+            name,
+            detail,
+            subagent_id: Some(id),
+            at,
+        } => ActivityEvent::Tool {
+            name,
+            detail,
+            subagent_id: Some(subagents.card_id(&id)),
+            at,
+        },
+        other => other,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1110,23 +1152,64 @@ struct Subagents {
     unbound: VecDeque<String>,
     /// `agent_id` → the id the card was published under.
     alias: HashMap<String, String>,
+    /// Card id → what the card was published with. `SubagentStop` carries no
+    /// `agent_type`, so the completion edge re-states these (EXP-350: clients
+    /// that render the LAST marker were degrading the label to "agent").
+    meta: HashMap<String, CardMeta>,
+}
+
+/// What a subagent card was published with (already redacted/truncated).
+struct CardMeta {
+    agent_type: String,
+    detail: Option<String>,
 }
 
 /// Live subagent cap — a wide fan-out must not grow these maps without bound.
 const SUBAGENTS_CAP: usize = 32;
 
 impl Subagents {
-    fn dispatch(&mut self, tool_use_id: String) {
+    fn dispatch(&mut self, tool_use_id: String, agent_type: String, detail: Option<String>) {
+        self.remember(tool_use_id.clone(), agent_type, detail);
         self.unbound.push_back(tool_use_id);
         while self.unbound.len() > SUBAGENTS_CAP {
             self.unbound.pop_front();
         }
     }
 
-    /// Bind a starting agent to the oldest unbound dispatch; the published id
-    /// wins so the card stays the one the dispatch created.
-    fn started(&mut self, agent_id: &str) -> Option<String> {
-        let dispatched = self.unbound.pop_front()?;
+    /// Record a card's published metadata (dispatch, or an unbound start).
+    fn remember(&mut self, card_id: String, agent_type: String, detail: Option<String>) {
+        self.meta.insert(card_id, CardMeta { agent_type, detail });
+        while self.meta.len() > SUBAGENTS_CAP {
+            let Some(stale) = self.meta.keys().next().cloned() else { break };
+            self.meta.remove(&stale);
+        }
+    }
+
+    /// Bind a starting agent to an unbound dispatch — preferring one whose
+    /// dispatched type matches the start's, so a mixed fan-out (explore +
+    /// review dispatched together) binds each start to the right card. Two
+    /// same-type concurrent dispatches can still swap children; both cards
+    /// carry the right type and detail, which is acceptable — `SubagentStart`
+    /// offers nothing better to correlate on. The published id wins so the
+    /// card stays the one the dispatch created.
+    fn started(&mut self, agent_id: &str, agent_type: Option<&str>) -> Option<String> {
+        let pos = agent_type
+            .and_then(|t| {
+                self.unbound
+                    .iter()
+                    .position(|id| self.meta.get(id).is_some_and(|m| m.agent_type == t))
+            })
+            .unwrap_or(0);
+        let dispatched = self.unbound.remove(pos)?;
+        // A dispatch without a `subagent_type` stored the fallback — the
+        // start's real type upgrades it for the completion edge.
+        if let Some(t) = agent_type {
+            if let Some(meta) = self.meta.get_mut(&dispatched) {
+                if meta.agent_type == SUBAGENT_TYPE_FALLBACK {
+                    meta.agent_type = t.to_string();
+                }
+            }
+        }
         self.alias.insert(agent_id.to_string(), dispatched.clone());
         while self.alias.len() > SUBAGENTS_CAP {
             let Some(stale) = self.alias.keys().next().cloned() else { break };
@@ -1143,6 +1226,11 @@ impl Subagents {
             .cloned()
             .unwrap_or_else(|| agent_id.to_string())
     }
+
+    /// The published metadata for a card id.
+    fn card_meta(&self, card_id: &str) -> Option<&CardMeta> {
+        self.meta.get(card_id)
+    }
 }
 
 /// The emitter's steering brain: what the hooks said, what is published, what
@@ -1157,6 +1245,9 @@ struct SteerState {
     answered: HashSet<String>,
     /// Fallback plan identity when a hook payload carries no `tool_use_id`.
     plan_seq: u32,
+    /// Fallback subagent-card identity when a `Task` hook payload carries no
+    /// `tool_use_id` (EXP-350 — the card used to be dropped entirely).
+    task_seq: u32,
     /// EXP-275: the session runs with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass). A real permission
     /// prompt cannot happen then, so a permission-flavored Notification is
@@ -1298,15 +1389,19 @@ impl SteerState {
                 description,
                 subagent_type,
             } => {
-                let Some(id) = tool_use_id else { return };
+                let id = tool_use_id.unwrap_or_else(|| {
+                    self.task_seq += 1;
+                    format!("task-{}", self.task_seq)
+                });
                 let id = truncate(&id, ID_MAX);
                 let agent_type = truncate(
-                    subagent_type.as_deref().unwrap_or("agent"),
+                    subagent_type.as_deref().unwrap_or(SUBAGENT_TYPE_FALLBACK),
                     AGENT_TYPE_MAX,
                 );
                 let detail = description
                     .map(|detail| truncate(&redactor.redact(&detail), TOOL_DETAIL_MAX));
-                self.subagents.dispatch(id.clone());
+                self.subagents
+                    .dispatch(id.clone(), agent_type.clone(), detail.clone());
                 sender.send(ActivityEvent::Subagent {
                     id,
                     agent_type,
@@ -1321,16 +1416,25 @@ impl SteerState {
             } => {
                 let Some(agent_id) = agent_id else { return };
                 let agent_id = truncate(&agent_id, ID_MAX);
+                let agent_type = truncate(
+                    agent_type.as_deref().unwrap_or(SUBAGENT_TYPE_FALLBACK),
+                    AGENT_TYPE_MAX,
+                );
                 // Bound to a dispatch we already carded ⇒ nothing new to show.
-                if self.subagents.started(&agent_id).is_some() {
+                if self
+                    .subagents
+                    .started(&agent_id, Some(&agent_type))
+                    .is_some()
+                {
                     return;
                 }
+                // Hookless-dispatch card — remember the type so the stop edge
+                // can re-state it (its payload never carries one).
+                self.subagents
+                    .remember(agent_id.clone(), agent_type.clone(), None);
                 sender.send(ActivityEvent::Subagent {
                     id: agent_id,
-                    agent_type: truncate(
-                        agent_type.as_deref().unwrap_or("agent"),
-                        AGENT_TYPE_MAX,
-                    ),
+                    agent_type,
                     status: SubagentStatus::Started,
                     detail: None,
                     at: None,
@@ -1342,14 +1446,22 @@ impl SteerState {
             } => {
                 let Some(agent_id) = agent_id else { return };
                 let agent_id = truncate(&agent_id, ID_MAX);
+                let id = self.subagents.card_id(&agent_id);
+                // claude's SubagentStop payload carries no agent_type — restate
+                // what the card was published with, or last-marker-wins clients
+                // degrade the label to the fallback (EXP-350).
+                let meta = self.subagents.card_meta(&id);
+                let agent_type = agent_type
+                    .as_deref()
+                    .map(|t| truncate(t, AGENT_TYPE_MAX))
+                    .or_else(|| meta.map(|m| m.agent_type.clone()))
+                    .unwrap_or_else(|| SUBAGENT_TYPE_FALLBACK.to_string());
+                let detail = meta.and_then(|m| m.detail.clone());
                 sender.send(ActivityEvent::Subagent {
-                    id: self.subagents.card_id(&agent_id),
-                    agent_type: truncate(
-                        agent_type.as_deref().unwrap_or("agent"),
-                        AGENT_TYPE_MAX,
-                    ),
+                    id,
+                    agent_type,
                     status: SubagentStatus::Completed,
-                    detail: None,
+                    detail,
                     at: None,
                 });
             }
@@ -1851,7 +1963,10 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut transcript_deadline = Some(Instant::now() + TRANSCRIPT_WAIT);
     let mut picker_watcher = PlanPickerWatcher::new();
     let mut question_watcher = QuestionPickerWatcher::new();
-    let mut transcript_state = TranscriptState::default();
+    let mut transcript_state = TranscriptState {
+        suppress_task_headlines: config.hooks.is_some(),
+        ..TranscriptState::default()
+    };
     let mut steer = SteerState {
         bypass_permissions: config.bypass_permissions,
         ..SteerState::default()
@@ -2063,7 +2178,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     path,
                     start,
                     &mut |line| parse_sidechain_line(line, &agent_id, &redactor),
-                    &mut |event| sender.send(event),
+                    &mut |event| sender.send(attribute_to_card(event, &steer.subagents)),
                 );
                 sidechain_offsets.insert(path.clone(), next);
             }
@@ -3314,18 +3429,202 @@ mod tests {
             &mut transcript,
         );
         match &drained(&rx)[..] {
-            [ActivityEvent::Subagent { id, agent_type, status, detail, .. }, ActivityEvent::Subagent { id: done_id, status: done, .. }] =>
-            {
+            [ActivityEvent::Subagent { id, agent_type, status, detail, .. }, ActivityEvent::Subagent {
+                id: done_id,
+                agent_type: done_type,
+                status: done,
+                detail: done_detail,
+                ..
+            }] => {
                 assert_eq!(id, "toolu_task");
                 assert_eq!(agent_type, "explore");
                 assert_eq!(*status, SubagentStatus::Started);
                 assert_eq!(detail.as_deref(), Some("Map the steer crate"));
-                // The start bound agent_01 to the dispatch — no second card.
+                // The start bound agent_01 to the dispatch — no second card,
+                // and the stop (whose payload carries no agent_type) restates
+                // what the card was published with (EXP-350).
                 assert_eq!(done_id, "toolu_task");
+                assert_eq!(done_type, "explore");
                 assert_eq!(*done, SubagentStatus::Completed);
+                assert_eq!(done_detail.as_deref(), Some("Map the steer crate"));
             }
             other => panic!("expected started + completed on one card, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn sidechain_tools_land_on_the_dispatch_card() {
+        let mut subagents = Subagents::default();
+        subagents.dispatch(
+            "toolu_task".to_string(),
+            "explore".to_string(),
+            Some("Map the steer crate".to_string()),
+        );
+        subagents.started("agent_01", Some("explore"));
+        let tool = ActivityEvent::Tool {
+            name: "Grep".to_string(),
+            detail: Some("fn main".to_string()),
+            subagent_id: Some("agent_01".to_string()),
+            at: None,
+        };
+        match attribute_to_card(tool, &subagents) {
+            ActivityEvent::Tool { subagent_id, .. } => {
+                assert_eq!(subagent_id.as_deref(), Some("toolu_task"));
+            }
+            other => panic!("expected a tool, got {other:?}"),
+        }
+        // An id with no alias (hookless / pre-alias tick) passes through raw.
+        let orphan = ActivityEvent::Tool {
+            name: "Read".to_string(),
+            detail: None,
+            subagent_id: Some("agent_99".to_string()),
+            at: None,
+        };
+        match attribute_to_card(orphan, &subagents) {
+            ActivityEvent::Tool { subagent_id, .. } => {
+                assert_eq!(subagent_id.as_deref(), Some("agent_99"));
+            }
+            other => panic!("expected a tool, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn subagent_stop_without_dispatch_keeps_type_from_start() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        // No Task dispatch (hookless PreToolUse) — the start cards the raw id.
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStarted {
+                agent_id: Some("agent_01".to_string()),
+                agent_type: Some("review".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("agent_01".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        match &drained(&rx)[..] {
+            [ActivityEvent::Subagent { .. }, ActivityEvent::Subagent { id, agent_type, status, .. }] =>
+            {
+                assert_eq!(id, "agent_01");
+                assert_eq!(agent_type, "review");
+                assert_eq!(*status, SubagentStatus::Completed);
+            }
+            other => panic!("expected started + completed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn concurrent_fanout_binds_starts_by_type() {
+        let mut subagents = Subagents::default();
+        subagents.dispatch("toolu_explore".to_string(), "explore".to_string(), None);
+        subagents.dispatch("toolu_review".to_string(), "review".to_string(), None);
+        // The review start arrives first — it must bind to the review
+        // dispatch, not FIFO-steal the explore card.
+        assert_eq!(
+            subagents.started("agent_r", Some("review")).as_deref(),
+            Some("toolu_review")
+        );
+        assert_eq!(
+            subagents.started("agent_e", Some("explore")).as_deref(),
+            Some("toolu_explore")
+        );
+        assert_eq!(subagents.card_id("agent_r"), "toolu_review");
+        assert_eq!(subagents.card_id("agent_e"), "toolu_explore");
+    }
+
+    #[test]
+    fn dispatch_without_tool_use_id_still_cards() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::SubagentDispatched {
+                tool_use_id: None,
+                description: Some("Audit the tests".to_string()),
+                subagent_type: Some("review".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStarted {
+                agent_id: Some("agent_01".to_string()),
+                agent_type: Some("review".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("agent_01".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        match &drained(&rx)[..] {
+            [ActivityEvent::Subagent { id, detail, .. }, ActivityEvent::Subagent {
+                id: done_id,
+                agent_type: done_type,
+                status: done,
+                ..
+            }] => {
+                assert_eq!(id, "task-1");
+                assert_eq!(detail.as_deref(), Some("Audit the tests"));
+                // The start bound to the synthesized card — no second card.
+                assert_eq!(done_id, "task-1");
+                assert_eq!(done_type, "review");
+                assert_eq!(*done, SubagentStatus::Completed);
+            }
+            other => panic!("expected started + completed on the task-1 card, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn task_headline_suppressed_when_hooks_wired_and_descriptive_when_not() {
+        let redactor = Redactor::new(vec![]);
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "Task",
+                  "input": {
+                      "description": "Map the steer crate",
+                      "prompt": "Read every file under crates/steer and report...",
+                      "subagent_type": "explore",
+                  } },
+            ]}
+        })
+        .to_string();
+        // Hooks wired: the subagent card already represents the call.
+        let mut hooked = TranscriptState {
+            suppress_task_headlines: true,
+            ..TranscriptState::default()
+        };
+        assert!(process_transcript_line(&line, &redactor, &mut hooked).is_empty());
+        // Hookless: the Task row is the only subagent visibility — it carries
+        // the description (never the prompt).
+        let events = parse_transcript_line(&line, &redactor);
+        assert_eq!(
+            events,
+            vec![ActivityEvent::tool("Task", Some("Map the steer crate".into()))]
+        );
+        let joined = format!("{events:?}");
+        assert!(!joined.contains("Read every file"), "task prompt leaked: {joined}");
     }
 
     #[test]
