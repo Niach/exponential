@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-steering-subagents`,
+    date: `2026-07-29`,
+    title: `Watch subagents work, live`,
+    summary: `Agent sessions show every subagent as its own tab — on web, desktop, iOS, and Android.`,
+    body: `- **Subagent tabs** — when your coding agent fans out into subagents, the live session view gives each one its own tab with a readable name and its tool activity, instead of a flood of anonymous "agent" cards. Works on all four clients.
+- **Queued follow-ups show up** — messages you send while the agent is busy now appear in the session feed instead of vanishing until the agent picks them up.
+- **A steadier "Needs input" badge** — the desktop no longer flags a session as waiting while a background subagent is still working, and the badge retries until it lands.
+- **Live images in the IDE** — images in issue descriptions render the moment their upload finishes, including ones pasted from another device.
+- **Actions remember their repository** — running a saved action pre-fills its bound repo in the run dialog on every client.`,
+  },
+  {
     id: `2026-07-apache-2`,
     date: `2026-07-29`,
     title: `Exponential is now open source`,

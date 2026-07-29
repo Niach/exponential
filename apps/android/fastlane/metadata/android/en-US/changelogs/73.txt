@@ -1,0 +1,1 @@
+Live agent sessions now show each subagent as its own tab, with steadier status and quicker follow-up answers.
