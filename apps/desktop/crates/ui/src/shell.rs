@@ -82,10 +82,11 @@ const TERMINAL_DOCK_HEIGHT: Pixels = px(240.);
 
 /// EXP-303: width of the traffic-light tongue — the sidebar glass extended
 /// into the titlebar strip under the rest of the macOS traffic-light cluster
-/// when the rail is collapsed (the rail is 44px, the cluster ends ~68px, so
-/// 44 + 34 = 78 leaves a small margin after the green light — the review
-/// asked for minimal right padding).
-const TRAFFIC_TONGUE_W: f32 = 34.;
+/// when the rail is collapsed (the rail is 44px and the lights sit at (9,9)
+/// with 12px buttons and 8px gaps, so the cluster ends at 61px; 44 + 24 = 68
+/// leaves a small gap between the green light and the toggle — EXP-342
+/// tightened this from 34, which read as a too-wide gap).
+const TRAFFIC_TONGUE_W: f32 = 24.;
 
 /// EXP-326: the tongue's second half — it now HOSTS the rail expand toggle
 /// (a 24px `small` icon button) instead of the main titlebar. 12px of right
