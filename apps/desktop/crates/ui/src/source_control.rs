@@ -451,10 +451,10 @@ impl SourceControlView {
             })
             .unwrap_or_else(|| "the remote branch".to_string());
         let trunk_sync = self.rail.read(cx).trunk_sync().clone();
-        // The hatch stays available while a Claude task / Action tab is
+        // The hatch stays available while an Action / agent-shell tab is
         // working on this clone (it's the escape hatch), but the confirm
         // must say the tree is about to move under a live session.
-        let session_live = trunk_sync.read(cx).repo_tasks_alive(window, cx);
+        let session_live = trunk_sync.read(cx).repo_agents_alive(window, cx);
         let this = cx.entity().downgrade();
         let mut description = format!(
             "This resets the trunk to origin/{branch}, discarding all \
@@ -648,11 +648,17 @@ impl SourceControlView {
                 .into_any_element();
         }
 
-        let changed = self
-            .status
-            .as_ref()
-            .map(|status| status.changes.len())
-            .unwrap_or(0);
+        // A dirty tree OR local commits are ANOMALIES (view-only editor, PRs
+        // merge cleanly, autopull only ever fast-forwards) — no changes UI,
+        // just a slim strip naming the anomaly plus the discard escape hatch,
+        // the ONE write affordance (a conflicted tree gets it in the banner
+        // instead). EXP-346: a diverged-but-clean trunk used to render
+        // NOTHING here while auto-sync silently skipped it forever.
+        let anomaly = self
+            .conflict
+            .is_none()
+            .then(|| self.status.as_ref().and_then(anomaly_strip_message))
+            .flatten();
         // Copied out (Hsla is Copy) so the theme borrow doesn't overlap the
         // mutable cx borrows of the render calls below.
         // EXP-277: faint glass row stroke for the content header line.
@@ -662,11 +668,7 @@ impl SourceControlView {
         gpui_component::v_flex()
             .flex_1()
             .min_h_0()
-            // A dirty tree is an ANOMALY (view-only editor, PRs merge
-            // cleanly) — no changes UI, just a slim strip with the count and
-            // the discard escape hatch, the ONE write affordance (a
-            // conflicted tree gets it in the banner instead).
-            .when(changed > 0 && self.conflict.is_none(), |this| {
+            .when_some(anomaly, |this, message| {
                 this.child(
                     gpui_component::h_flex()
                         .flex_shrink_0()
@@ -677,13 +679,10 @@ impl SourceControlView {
                         .border_b_1()
                         .border_color(border)
                         .child(
-                            div().text_xs().text_color(muted).child(SharedString::from(
-                                if changed == 1 {
-                                    "1 changed file in the working tree".to_string()
-                                } else {
-                                    format!("{changed} changed files in the working tree")
-                                },
-                            )),
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(SharedString::from(message)),
                         )
                         .child(
                             Button::new("scm-hard-reset")
@@ -753,6 +752,35 @@ impl Render for SourceControlView {
             })
             .child(self.render_body(cx))
     }
+}
+
+/// The anomaly strip's message (EXP-346): local commits (a diverged or
+/// ahead-only trunk) and/or working-tree changes — every one of these parks
+/// the ff-only autopull, so the strip must SAY so instead of leaving the
+/// trunk to go stale silently. `None` when the tree is the expected
+/// clean/in-sync state (no strip). Conflicts are the banner's job — the
+/// caller gates on `conflict.is_none()`.
+fn anomaly_strip_message(status: &scm::StatusSummary) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if status.ahead > 0 && status.upstream.is_some() {
+        let noun = if status.ahead == 1 { "local commit" } else { "local commits" };
+        let lag = if status.behind > 0 {
+            format!(" ({} behind origin)", status.behind)
+        } else {
+            String::new()
+        };
+        parts.push(format!("{} {noun} not on origin{lag}", status.ahead));
+    }
+    let changed = status.changes.len();
+    if changed == 1 {
+        parts.push("1 changed file in the working tree".to_string());
+    } else if changed > 1 {
+        parts.push(format!("{changed} changed files in the working tree"));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!("{} — auto-pull is paused", parts.join(" · ")))
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,5 +1065,63 @@ impl Render for HistoryList {
                     .scrollbar(&self.scroll, ScrollbarAxis::Vertical),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use coding::scm::{FileChange, FileStatus, StatusSummary};
+
+    fn summary(ahead: u32, behind: u32, changed: usize, upstream: bool) -> StatusSummary {
+        StatusSummary {
+            branch: "master".to_string(),
+            upstream: upstream.then(|| "origin/master".to_string()),
+            ahead,
+            behind,
+            changes: (0..changed)
+                .map(|ix| FileChange {
+                    path: format!("src/file{ix}.rs"),
+                    status: FileStatus::Modified,
+                    staged: false,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn anomaly_strip_is_silent_for_the_expected_states() {
+        // Clean + in sync, clean + behind-only (autopull's normal food), and
+        // ahead-without-upstream (no origin to diverge from) → no strip.
+        assert_eq!(anomaly_strip_message(&summary(0, 0, 0, true)), None);
+        assert_eq!(anomaly_strip_message(&summary(0, 48, 0, true)), None);
+        assert_eq!(anomaly_strip_message(&summary(3, 0, 0, false)), None);
+    }
+
+    #[test]
+    fn anomaly_strip_names_local_commits_and_dirt() {
+        // The Linux EXP-346 screenshot: 1 local commit, 48 behind, clean.
+        assert_eq!(
+            anomaly_strip_message(&summary(1, 48, 0, true)).as_deref(),
+            Some("1 local commit not on origin (48 behind origin) — auto-pull is paused")
+        );
+        // Ahead-only (nothing behind yet) drops the lag suffix, plural noun.
+        assert_eq!(
+            anomaly_strip_message(&summary(2, 0, 0, true)).as_deref(),
+            Some("2 local commits not on origin — auto-pull is paused")
+        );
+        // Dirty-only keeps the pre-EXP-346 count wording.
+        assert_eq!(
+            anomaly_strip_message(&summary(0, 0, 1, true)).as_deref(),
+            Some("1 changed file in the working tree — auto-pull is paused")
+        );
+        // Both compose into one strip.
+        assert_eq!(
+            anomaly_strip_message(&summary(1, 2, 3, true)).as_deref(),
+            Some(
+                "1 local commit not on origin (2 behind origin) · \
+                 3 changed files in the working tree — auto-pull is paused"
+            )
+        );
     }
 }

@@ -17,7 +17,13 @@
 //! window-focus observer call [`TrunkSync::maybe_auto_sync`], debounced
 //! through [`clone_manager::should_fetch`] and skipped while a sync is in
 //! flight or an Action tab is alive for this repo (never fast-forward the
-//! tree under Claude's feet). The background pass is
+//! tree under Claude's feet; EXP-346 pulled promptless AgentShell tabs OUT
+//! of that hold-off — they live for entire work days and were parking the
+//! trunk stale). A PR merging is a sync trigger of its own (EXP-346,
+//! [`TrunkSync::check_merge_autopull`]): a fresh `pr_merged_at` on any of
+//! this repo's synced issues fires an immediate debounce-bypassing pull, so
+//! every IDE lands on the new master right after a merge instead of on the
+//! next timer tick. The background pass is
 //! [`clone_manager::auto_sync`]: fetch → fast-forward ONLY when clean +
 //! behind-only; anything else is a loud-but-quiet Skipped outcome. Background
 //! failures collapse into one sticky badge (cleared on the next success) —
@@ -159,6 +165,19 @@ pub struct TrunkSync {
     /// surfaces (the Source Control history pane, EXP-67) compare instead of
     /// diffing trunk snapshots.
     sync_seq: u64,
+    /// The newest `pr_merged_at` stamp seen across synced issues of this
+    /// repo's boards (EXP-346 merge-reactive autopull). A later stamp means
+    /// a PR merged while we watch → pull NOW, not on the next timer tick.
+    merge_stamp: Option<String>,
+    /// Whether `merge_stamp` holds this scope's baseline yet — the first
+    /// post-ready read only seeds it (the board-open fetch already covers
+    /// startup freshness) and must not fire a sync itself.
+    merge_stamp_seeded: bool,
+    /// A merge landed and its pull has not started yet. Sticky through
+    /// in-flight ops and the Action hold-off (retried every render and on
+    /// the auto-sync timer); consumed — and the [`clone_manager::FETCH_DEBOUNCE`]
+    /// bypassed — by the next [`Self::maybe_auto_sync`] that actually runs.
+    pending_merge_sync: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -198,6 +217,9 @@ impl TrunkSync {
             job_failed: false,
             generation: 0,
             sync_seq: 0,
+            merge_stamp: None,
+            merge_stamp_seeded: false,
+            pending_merge_sync: false,
             _subscriptions: subscriptions,
         }
     }
@@ -214,10 +236,30 @@ impl TrunkSync {
         navigation::active_board_id(&self.nav, cx)
     }
 
-    /// Whether the trunk sits in conflict mode — the rail paints an amber
-    /// badge on the Source Control icon off this.
-    pub(crate) fn has_conflict(&self) -> bool {
-        self.trunk.conflict.is_some()
+    /// Why the trunk needs the user (the rail's amber badge + tooltip): a
+    /// paused rebase/merge, local commits, or a dirty working tree. Every one
+    /// of these blocks the ff-only autopull, so without surfacing the trunk
+    /// parks stale silently and forever (EXP-346 — a diverged trunk showed
+    /// NOTHING while auto-sync skipped it on every pass). The fix is always
+    /// the Source Control screen's hatch (or finishing the conflict).
+    pub(crate) fn attention(&self) -> Option<SharedString> {
+        if self.trunk.conflict.is_some() {
+            return Some("a rebase/merge is paused with conflicts".into());
+        }
+        if self.trunk.ahead > 0 && self.trunk.has_upstream {
+            let noun = if self.trunk.ahead == 1 { "commit" } else { "commits" };
+            return Some(
+                format!(
+                    "{} local {noun} not on origin — auto-pull is paused",
+                    self.trunk.ahead
+                )
+                .into(),
+            );
+        }
+        if self.trunk.dirty {
+            return Some("local changes in the working tree — auto-pull is paused".into());
+        }
+        None
     }
 
     /// Whether a sync op is in flight — the rail badge's "syncing" state.
@@ -292,10 +334,13 @@ impl TrunkSync {
         self.start_sync(SyncMode::HardReset, cx);
     }
 
-    /// Debounced background sync trigger (timer tick + window focus): no-op
-    /// while an op is in flight, before the clone exists, inside the
-    /// [`clone_manager::FETCH_DEBOUNCE`] window, or while an Action tab is
-    /// alive for this repo (never move the tree under Claude's feet).
+    /// Debounced background sync trigger (timer tick + window focus + the
+    /// EXP-346 merge trigger): no-op while an op is in flight, before the
+    /// clone exists, inside the [`clone_manager::FETCH_DEBOUNCE`] window
+    /// (bypassed while a merge-triggered pull is pending — a fresh merge
+    /// must land now, not after the debounce), or while an Action tab is
+    /// alive for this repo (never move the tree under Claude's feet — the
+    /// pending flag survives the hold-off and fires once it lifts).
     fn maybe_auto_sync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.syncing {
             return;
@@ -306,17 +351,69 @@ impl TrunkSync {
         if !repo.clone_exists {
             return;
         }
-        if self
-            .last_synced
-            .is_some_and(|last| !clone_manager::should_fetch(last))
+        if !self.pending_merge_sync
+            && self
+                .last_synced
+                .is_some_and(|last| !clone_manager::should_fetch(last))
         {
             return;
         }
         if self.repo_tasks_alive(window, cx) {
             return;
         }
+        self.pending_merge_sync = false;
         let prune = self.prunable_worktree_branches(window, cx);
         self.start_sync_with_prune(SyncMode::AutoSync, prune, cx);
+    }
+
+    /// Merge-reactive autopull (EXP-346): the rail re-renders on every issue
+    /// sync, so this runs per render — when a NEW `pr_merged_at` stamp
+    /// appears on this repo's issues, pull immediately instead of waiting
+    /// out the timer + debounce ("when a PR is merged, every IDE is on the
+    /// newest master"). The first read after the shapes are ready only seeds
+    /// the baseline; `Option` ordering makes a first-ever merge
+    /// (`None → Some`) trigger too.
+    fn check_merge_autopull(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.repo.as_ref().is_some_and(|repo| repo.clone_exists) {
+            return;
+        }
+        let collections = Store::global(cx).collections().clone();
+        if !collections.issues.read(cx).is_ready() || !collections.boards.read(cx).is_ready() {
+            return;
+        }
+        let stamp = self.latest_merge_stamp(cx);
+        if !self.merge_stamp_seeded {
+            self.merge_stamp_seeded = true;
+            self.merge_stamp = stamp;
+        } else if stamp > self.merge_stamp {
+            self.merge_stamp = stamp;
+            self.pending_merge_sync = true;
+        }
+        if self.pending_merge_sync {
+            self.maybe_auto_sync(window, cx);
+        }
+    }
+
+    /// The newest `pr_merged_at` across synced issues whose board points at
+    /// the scoped repo. A batch PR stamps all its linked issues in one sync
+    /// batch — `max` coalesces that to a single trigger.
+    fn latest_merge_stamp(&self, cx: &App) -> Option<String> {
+        let repo = self.repo.as_ref()?;
+        let collections = Store::global(cx).collections().clone();
+        let boards = collections.boards.read(cx);
+        let repo_boards: Vec<&str> = boards
+            .iter()
+            .filter(|board| {
+                board.repository_id.as_deref() == Some(repo.repository_id.as_str())
+            })
+            .map(|board| board.id.as_str())
+            .collect();
+        let issues = collections.issues.read(cx);
+        issues
+            .iter()
+            .filter(|issue| repo_boards.contains(&issue.board_id.as_str()))
+            .filter_map(|issue| issue.pr_merged_at.clone())
+            .max()
     }
 
     /// Branches whose session worktrees are safe to prune (EXP-76 disk
@@ -379,17 +476,39 @@ impl TrunkSync {
         branches
     }
 
-    /// Whether a live Action (or EXP-325 promptless AgentShell) tab is
-    /// working inside this repo's clone (or one of its worktrees) — the sync
-    /// hold-off (both run ON the trunk clone or a PR worktree, so an ff
-    /// under them would move the tree under Claude's feet; EXP-259 deleted
-    /// the ClaudeTask kind this also used to match).
-    /// AutoSync skips its whole pass; a user Fetch degrades to fetch-only;
-    /// Source Control reads it to word the hard-reset confirm. Shell tabs
-    /// deliberately do NOT hold sync off: a shell is alive for entire work
-    /// sessions, and an ff under it is the same event as the manual pull it
-    /// replaces.
+    /// Whether a live Action tab is working inside this repo's clone (or one
+    /// of its worktrees) — the sync hold-off (action runs execute ON the
+    /// trunk clone or a PR worktree, so an ff under them would move the tree
+    /// under Claude's feet; EXP-259 deleted the ClaudeTask kind this also
+    /// used to match). AutoSync skips its whole pass; a user Fetch degrades
+    /// to fetch-only. Shell AND AgentShell tabs deliberately do NOT hold
+    /// sync off (EXP-346 pulled AgentShell back out of the EXP-325 hold-off):
+    /// both are user-attended sessions that live for entire work days, so
+    /// holding sync off for them parked the trunk stale indefinitely — and an
+    /// ff under an interactive session is the same event as the manual pull
+    /// it replaces.
     pub(crate) fn repo_tasks_alive(&self, window: &Window, cx: &App) -> bool {
+        self.repo_tabs_alive(window, cx, |kind| matches!(kind, TabKind::Action(_)))
+    }
+
+    /// [`Self::repo_tasks_alive`] widened to promptless agent shells — NOT a
+    /// sync hold-off, only the hard-reset confirm's "a session is live in
+    /// this clone" warning (a reset moves the tree under a live Claude no
+    /// matter which tab kind hosts it).
+    pub(crate) fn repo_agents_alive(&self, window: &Window, cx: &App) -> bool {
+        self.repo_tabs_alive(window, cx, |kind| {
+            matches!(kind, TabKind::Action(_) | TabKind::AgentShell)
+        })
+    }
+
+    /// Whether any running terminal tab of a matching kind has its cwd inside
+    /// this repo's trunk clone or one of its session worktrees.
+    fn repo_tabs_alive(
+        &self,
+        window: &Window,
+        cx: &App,
+        kind_matches: impl Fn(&TabKind) -> bool,
+    ) -> bool {
         let Some(repo) = &self.repo else {
             return false;
         };
@@ -398,7 +517,7 @@ impl TrunkSync {
         };
         let worktrees = git_worktree::worktrees_dir(&repo.clone);
         manager.read(cx).tabs().iter().any(|tab| {
-            matches!(tab.kind, TabKind::Action(_) | TabKind::AgentShell)
+            kind_matches(&tab.kind)
                 && tab.is_running()
                 && tab
                     .cwd
@@ -434,9 +553,16 @@ impl TrunkSync {
             self.auto_sync_error = None;
             self.last_synced = None;
             self.job_failed = false;
+            self.merge_stamp = None;
+            self.merge_stamp_seeded = false;
+            self.pending_merge_sync = false;
             // Kill the previous scope's timer loop + in-flight job tail.
             self.generation += 1;
         }
+        // Merge-reactive autopull (EXP-346) — every render, not just while a
+        // load is pending (the rail re-renders on issue sync, which is what
+        // carries a fresh `pr_merged_at` in).
+        self.check_merge_autopull(window, cx);
         if !matches!(self.load, Load::Idle) {
             return;
         }
