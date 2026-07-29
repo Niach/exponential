@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.CommentKind
@@ -130,6 +131,10 @@ fun CommentThread(
             "Activity",
             style = MaterialTheme.typography.labelMedium,
             color = CommentMeta,
+            // Stable hook for the store-screenshot test (mirrors the iOS
+            // `comment-thread-header` accessibility id) — the copy has already
+            // drifted once and silently killed the screengrab run.
+            modifier = Modifier.testTag("comment-thread-header"),
         )
         Spacer(Modifier.height(8.dp))
 

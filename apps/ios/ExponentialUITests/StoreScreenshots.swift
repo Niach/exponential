@@ -5,11 +5,13 @@ import XCTest
 /// Drives the real app against a seeded local backend: sign in on the
 /// InstanceView/LoginView flow, wait for Electric to sync the demo team,
 /// then capture the store shots (board, issue detail, comments, board
-/// switcher, inbox, agents, support inbox, search, create issue). Run via
-/// `fastlane screenshots` (apps/ios) with the seeded dev server running
-/// (`apps/web/scripts/seed-screenshots.ts` — demo@exponential.at /
-/// screenshots-demo, team "Acme", board "Mobile App", showcase issue APP-5,
-/// live coding sessions, helpdesk threads).
+/// switcher, agents, reviews, actions, inbox, support inbox, search — 10,
+/// the App Store cap; the create-issue shot gave way to reviews/actions in
+/// EXP-348). Run via `fastlane screenshots` (apps/ios) with the seeded dev
+/// server running (`apps/web/scripts/seed-screenshots.ts` —
+/// demo@exponential.at / screenshots-demo, team "Acme", board "Mobile App",
+/// showcase issue APP-5, live coding sessions, open PRs, saved actions,
+/// helpdesk threads).
 ///
 /// The instance URL defaults to http://localhost:5173 and can be overridden
 /// with the SNAPSHOT_INSTANCE_URL environment variable.
@@ -61,14 +63,21 @@ final class StoreScreenshots: XCTestCase {
         // ── 02: issue detail (APP-5) ────────────────────────────────────────
         // The detail ScrollView renders its whole content tree, so the comment
         // header existing (even offscreen) means the detail is fully loaded.
-        // Retry the tap: a late springboard sheet can swallow the first one.
-        let showcaseRow = app.buttons["issue-row-\(Self.showcaseIdentifier)"]
+        //
+        // Tap the row's TITLE text, never the `issue-row-*` button element:
+        // since the glass chip rework the row element's accessibility
+        // activation point lands on the leading priority control, so an
+        // element tap opens the priority picker sheet instead of navigating
+        // (EXP-348 — it silently killed all three snapshot retries).
         let commentsHeader = app.staticTexts["comment-thread-header"]
+        // The last seeded comment renders as a markdown TextView (label, not
+        // StaticText) — the scroll target that proves the thread is on screen.
+        let lastComment = app.textViews.containing(
+            NSPredicate(format: "label CONTAINS %@", "re-run the profiling")
+        ).firstMatch
         var detailOpened = false
         for _ in 0..<3 {
-            if showcaseRow.waitForExistence(timeout: 10) {
-                showcaseRow.tap()
-            } else {
+            if showcaseRowTitle.exists && showcaseRowTitle.isHittable {
                 showcaseRowTitle.tap()
             }
             // 30s per attempt: the comment thread renders only once the
@@ -80,16 +89,20 @@ final class StoreScreenshots: XCTestCase {
             }
             dismissSavePasswordSheet(timeout: 2)
         }
+        if !detailOpened {
+            print("EXP-DEBUG hierarchy after failed detail open:\n\(app.debugDescription)")
+        }
         XCTAssertTrue(detailOpened, "Issue detail did not open")
         settle(2)
         snapshot("02_issue-detail")
 
         // ── 03: comment thread ──────────────────────────────────────────────
-        // Skip when the comments are already on screen (iPad: the 13" detail
-        // shows the whole thread without scrolling, so 03 would duplicate 02).
-        if !commentsHeader.isHittable {
+        // Scroll until the LAST comment is on screen so the thread fills the
+        // viewport; skip when it already is (iPad: the 13" detail shows the
+        // whole thread without scrolling, so 03 would duplicate 02).
+        if !lastComment.isHittable {
             var scrollAttempts = 0
-            while !commentsHeader.isHittable && scrollAttempts < 12 {
+            while !lastComment.isHittable && scrollAttempts < 12 {
                 app.swipeUp()
                 scrollAttempts += 1
             }
@@ -116,25 +129,12 @@ final class StoreScreenshots: XCTestCase {
         // area above the medium-detent sheet.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
 
-        // ── 05: inbox (My Work tab, Inbox segment — the default) ────────────
-        // Wait for a real notification group — capturing the "You're all
-        // caught up" empty state would silently ship an empty store shot.
-        let inboxTab = app.buttons["tab-mywork"]
-        XCTAssertTrue(inboxTab.waitForExistence(timeout: 15), "Tab bar missing after sheet dismissal")
-        inboxTab.tap()
-        XCTAssertTrue(
-            app.staticTexts[Self.showcaseTitle].firstMatch.waitForExistence(timeout: 60),
-            "Inbox never showed the seeded notifications"
-        )
-        settle(2)
-        snapshot("05_inbox")
-
-        // ── 06: agents (live coding sessions) ───────────────────────────────
+        // ── 05: agents (live coding sessions) ───────────────────────────────
         // The seed inserts a running session on APP-5 and an in-review session
         // with an open PR, both with a fresh heartbeat (the clients hide
         // sessions past the staleness window).
         let agentsTab = app.buttons["tab-agents"]
-        XCTAssertTrue(agentsTab.waitForExistence(timeout: 15), "Agents tab missing")
+        XCTAssertTrue(agentsTab.waitForExistence(timeout: 15), "Agents tab missing after sheet dismissal")
         agentsTab.tap()
         let sessionRow = app.descendants(matching: .any)
             .matching(identifier: "agent-session-row").firstMatch
@@ -143,9 +143,53 @@ final class StoreScreenshots: XCTestCase {
             "Agents tab never showed the seeded coding sessions"
         )
         settle(2)
-        snapshot("06_agents")
+        snapshot("05_agents")
 
-        // ── 07: support inbox (helpdesk threads) ────────────────────────────
+        // ── 07: actions (EXP-253 — captured before 06, it rides the Agents
+        // toolbar). The seed inserts three team actions above the builtins.
+        let actionsLink = app.buttons["Actions"]
+        XCTAssertTrue(actionsLink.waitForExistence(timeout: 10), "Actions toolbar entry missing")
+        actionsLink.tap()
+        let actionRow = app.descendants(matching: .any)
+            .matching(identifier: "action-row").firstMatch
+        XCTAssertTrue(
+            actionRow.waitForExistence(timeout: 30),
+            "Actions list never showed the seeded actions"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Update dependencies"].firstMatch.waitForExistence(timeout: 30),
+            "Seeded team actions never synced"
+        )
+        settle(2)
+        snapshot("07_actions")
+        goBack(app)
+
+        // ── 06: reviews (open pull requests — 4 seeded) ─────────────────────
+        let reviewsTab = app.buttons["tab-reviews"]
+        XCTAssertTrue(reviewsTab.waitForExistence(timeout: 15), "Reviews tab missing")
+        reviewsTab.tap()
+        XCTAssertTrue(
+            app.staticTexts["Batch-edit labels from the board"].firstMatch
+                .waitForExistence(timeout: 60),
+            "Reviews tab never showed the seeded open PRs"
+        )
+        settle(2)
+        snapshot("06_reviews")
+
+        // ── 08: inbox (My Work tab, Inbox segment — the default) ────────────
+        // Wait for a real notification group — capturing the "You're all
+        // caught up" empty state would silently ship an empty store shot.
+        let inboxTab = app.buttons["tab-mywork"]
+        XCTAssertTrue(inboxTab.waitForExistence(timeout: 15), "My Work tab missing")
+        inboxTab.tap()
+        XCTAssertTrue(
+            app.staticTexts[Self.showcaseTitle].firstMatch.waitForExistence(timeout: 60),
+            "Inbox never showed the seeded notifications"
+        )
+        settle(2)
+        snapshot("08_inbox")
+
+        // ── 09: support inbox (helpdesk threads) ────────────────────────────
         // The tab only exists because the seed flips the team's
         // helpdesk_enabled on; threads come from tRPC polling, not Electric.
         let supportTab = app.buttons["tab-support"]
@@ -161,9 +205,9 @@ final class StoreScreenshots: XCTestCase {
             "Support inbox never showed the seeded threads"
         )
         settle(2)
-        snapshot("07_support")
+        snapshot("09_support")
 
-        // ── 08: search ──────────────────────────────────────────────────────
+        // ── 10: search ──────────────────────────────────────────────────────
         app.buttons["tab-search"].tap()
         let searchField = app.textFields["search-field"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field missing")
@@ -175,24 +219,7 @@ final class StoreScreenshots: XCTestCase {
             "Search results never appeared"
         )
         settle(2)
-        snapshot("08_search")
-
-        // ── 09: create issue ────────────────────────────────────────────────
-        app.buttons["tab-issues"].tap()
-        XCTAssertTrue(
-            showcaseRowTitle.waitForExistence(timeout: 15),
-            "Board did not come back before the compose capture"
-        )
-        let composeButton = app.buttons["compose-button"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: 10), "Compose button missing")
-        composeButton.tap()
-        let titleField = app.textFields["issue-title-field"]
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Create-issue sheet did not open")
-        focus(titleField)
-        titleField.typeText("Weekly summary email digest")
-        settle(2)
-        snapshot("09_new-issue")
-        app.buttons["Cancel"].tap()
+        snapshot("10_search")
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         app.buttons["tab-issues"].tap()

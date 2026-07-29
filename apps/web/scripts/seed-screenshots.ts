@@ -24,11 +24,13 @@
 import { eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  actions,
   codingSessions,
   comments,
   issueEvents,
   issueLabels,
   issues,
+  issueStatuses,
   issueSubscribers,
   labels,
   notifications,
@@ -203,6 +205,20 @@ async function main() {
     },
   ])
 
+  // A custom STARTED status (EXP-314) so the screenshots show team-defined
+  // statuses: three started rows exercise the 1/4..3/4 pie-clock ladder
+  // (builtin In Progress + In Review sort at 1 and 2 — In QA slots after).
+  const [inQa] = await db
+    .insert(issueStatuses)
+    .values({
+      teamId: ws.id,
+      category: `started`,
+      name: `In QA`,
+      color: `#f472b6`,
+      sortOrder: 3,
+    })
+    .returning()
+
   const labelRows = await db
     .insert(labels)
     .values([
@@ -225,6 +241,9 @@ async function main() {
     title: string
     description?: string
     status: `backlog` | `todo` | `in_progress` | `in_review` | `done`
+    // Optional custom-status row (EXP-314) — dual-written with the anchor
+    // `status` enum, exactly like the clients do.
+    statusId?: string
     priority: `none` | `urgent` | `high` | `medium` | `low`
     assigneeId?: string
     creatorId: string
@@ -269,6 +288,7 @@ async function main() {
     {
       title: `Real-time sync indicator in the board header`,
       status: `in_progress`,
+      statusId: inQa.id,
       priority: `medium`,
       assigneeId: mira,
       creatorId: demoId,
@@ -368,6 +388,40 @@ async function main() {
       createdDaysAgo: 2,
       pr: `open`,
     },
+    // Three more open PRs (APP-15..17) so the Reviews tab screenshot is a
+    // real list, not a single row. Appended AFTER the original 14 — the
+    // identifiers APP-1..APP-14 are load-bearing for the UI tests and the
+    // hand-written notification titles above.
+    {
+      title: `Batch-edit labels from the board`,
+      status: `in_review`,
+      priority: `medium`,
+      assigneeId: mira,
+      creatorId: demoId,
+      labels: [`Feature`],
+      createdDaysAgo: 1,
+      pr: `open`,
+    },
+    {
+      title: `Fix flaky scroll restore on the issue list`,
+      status: `in_review`,
+      priority: `high`,
+      assigneeId: jonas,
+      creatorId: sofia,
+      labels: [`Bug`],
+      createdDaysAgo: 1,
+      pr: `open`,
+    },
+    {
+      title: `Thumbnail pipeline for faster image loading`,
+      status: `in_review`,
+      priority: `medium`,
+      assigneeId: sofia,
+      creatorId: mira,
+      labels: [`Performance`],
+      createdDaysAgo: 2,
+      pr: `open`,
+    },
   ]
 
   const inserted: Array<typeof issues.$inferSelect> = []
@@ -380,6 +434,7 @@ async function main() {
         title: spec.title,
         description: spec.description,
         status: spec.status,
+        statusId: spec.statusId,
         priority: spec.priority,
         assigneeId: spec.assigneeId,
         creatorId: spec.creatorId,
@@ -441,6 +496,16 @@ async function main() {
       authorId: demoId,
       body: `Deferral PR is merged. CI numbers:\n\n- cold start: ~1.4s → **860 ms**\n- warm start: unchanged\n\nSnapshot cache should get us under target.`,
       createdAt: hoursAgo(5),
+    },
+    // @mention + #issue ref so the comments screenshot shows both pill types
+    // (interchange forms: plain `@<email>` and `#<IDENTIFIER>` GFM text).
+    {
+      issueId: showcase.id,
+      teamId: ws.id,
+      boardId: showcase.boardId,
+      authorId: sofia,
+      body: `@${TEAMMATES[1].email} once #APP-2 is verified on device, can you re-run the profiling? The HEIC fix might shave a little more off the cold start.`,
+      createdAt: hoursAgo(2),
     },
   ])
   await db.insert(issueSubscribers).values([
@@ -562,6 +627,38 @@ async function main() {
       deviceLabel: `Alex's MacBook Pro`,
       status: `in_review`,
       startedAt: hoursAgo(3),
+    },
+  ])
+
+  // Team actions (EXP-253) so the Actions screenshot lists real saved actions
+  // above the two client-side builtins. Bodies are short but plausible — the
+  // list shows name + description; the body is only fetched on run/edit.
+  await db.insert(actions).values([
+    {
+      teamId: ws.id,
+      repositoryId: repo.id,
+      name: `Update dependencies`,
+      description: `Bump every package to the latest compatible release and open a PR.`,
+      icon: `package`,
+      body: `Update all dependencies to their latest compatible versions. Run the full test suite, fix any breakage the bumps cause, and open a PR summarizing notable upgrades.`,
+      sortOrder: 0,
+    },
+    {
+      teamId: ws.id,
+      repositoryId: repo.id,
+      name: `Nightly test triage`,
+      description: `Investigate failing or flaky tests and file issues for real bugs.`,
+      icon: `flask-conical`,
+      body: `Run the test suite three times. For every failure, decide flaky vs real: quarantine and file an issue for flaky tests, fix trivial breakage directly, and file detailed issues for anything deeper.`,
+      sortOrder: 10,
+    },
+    {
+      teamId: ws.id,
+      name: `Draft release notes`,
+      description: `Summarize merged PRs since the last release into user-facing notes.`,
+      icon: `sparkles`,
+      body: `Collect the PRs merged since the last release tag and draft concise, user-facing release notes grouped by feature, fix, and performance. Post the draft as a comment for review.`,
+      sortOrder: 20,
     },
   ])
 
@@ -693,11 +790,13 @@ async function main() {
   console.log(`
 Seeded screenshot demo data:
   team        ${ws.name} (/${ws.slug})
-  board       ${board.name} (APP), ${inserted.length} issues
+  board       ${board.name} (APP), ${inserted.length} issues (1 on custom status "In QA")
   login       ${DEMO_EMAIL} / ${DEMO_PASSWORD}
-  showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${3} comments)
+  showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${4} comments incl. @mention + #issue ref)
   inbox       5 notifications (3 unread)
   agents      3 coding sessions (2 running + 1 in review)
+  reviews     4 open pull requests
+  actions     3 saved team actions
   support     ${seedThreads.length} helpdesk threads
 
 `)

@@ -4,7 +4,6 @@ import android.Manifest
 import android.os.Build
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasContentDescription
-import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -33,10 +32,12 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * Drives the REAL app UI end-to-end against a locally seeded backend
  * (apps/web/scripts/seed-screenshots.ts): instance picker → password login →
- * board → issue detail → comments → create issue → search → inbox → agents →
- * support inbox. The backend must be reachable from the emulator (default
- * http://10.0.2.2:5173, override via the `instanceUrl` instrumentation
- * argument / SCREENGRAB_INSTANCE_URL).
+ * board → issue detail → comments → agents → actions → reviews → inbox →
+ * support inbox. Play caps phone screenshots at 8, so the create-issue and
+ * search shots gave way to agents/reviews/actions (EXP-348) — the surfaces
+ * that actually differentiate the product. The backend must be reachable
+ * from the emulator (default http://10.0.2.2:5173, override via the
+ * `instanceUrl` instrumentation argument / SCREENGRAB_INSTANCE_URL).
  *
  * Synchronization notes:
  * - `waitUntil` polls semantics without requiring Compose idleness, so infinite
@@ -110,8 +111,11 @@ class StoreScreenshotsTest {
         composeRule.onNode(hasTestTag("login-submit-button")).performClick()
 
         // --- Board: wait out session fetch + first Electric sync until the
-        // showcase issue row is on screen (in-progress group sits at the top).
+        // showcase issue row is on screen (in-progress group sits at the top),
+        // then until the transient "Syncing…" pill has cleared — it photobombed
+        // the board shot once (EXP-348).
         waitFor(hasText(SHOWCASE_ISSUE_TITLE), SYNC_TIMEOUT)
+        waitForGone(hasText("Syncing", substring = true), SYNC_TIMEOUT)
         settle()
         Screengrab.screenshot("1_board")
 
@@ -122,50 +126,49 @@ class StoreScreenshotsTest {
         Screengrab.screenshot("2_issue-detail")
 
         // --- Comments: scroll the (non-lazy) detail column down to the thread.
-        waitFor(hasText("Comments (", substring = true), SYNC_TIMEOUT)
+        // Gate on the stable test tag, NOT the header copy — the header text
+        // already drifted once ("Comments (n)" → "Activity") and silently
+        // killed the whole screengrab run at shot 3 (EXP-348).
+        waitFor(hasTestTag("comment-thread-header"), SYNC_TIMEOUT)
         // Aim for the last seeded comment so the thread fills the viewport;
         // fall back to the section header if markdown splits the text node.
         runCatching {
-            composeRule.onAllNodes(hasText("Snapshot cache", substring = true))
+            composeRule.onAllNodes(hasText("re-run the profiling", substring = true))
                 .onFirst()
                 .performScrollTo()
         }.recoverCatching {
-            composeRule.onAllNodes(hasText("Comments (", substring = true))
+            composeRule.onAllNodes(hasTestTag("comment-thread-header"))
                 .onFirst()
                 .performScrollTo()
         }
         settle()
         Screengrab.screenshot("3_comments")
 
-        // --- New issue: back to the board, compose FAB, type a draft title.
+        // --- Agents tab: the seed inserts a running session on APP-5 and an
+        // in-review session with an open PR, both with a fresh heartbeat (the
+        // liveness guard hides sessions past the staleness window).
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        waitFor(hasContentDescription("New issue"), NAV_TIMEOUT)
-        composeRule.onNode(hasContentDescription("New issue")).performClick()
-        waitFor(hasTestTag("create-issue-title-field"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("create-issue-title-field"))
-            .performTextInput("Polish the launch animation")
-        Espresso.closeSoftKeyboard()
+        waitFor(hasContentDescription("Agents"), NAV_TIMEOUT)
+        composeRule.onNode(hasContentDescription("Agents")).performClick()
+        waitFor(hasTestTag("agent-session-row"), SYNC_TIMEOUT)
         settle()
-        Screengrab.screenshot("4_new-issue")
+        Screengrab.screenshot("4_agents")
 
-        // Leave without creating: the close affordance asks to discard the draft.
-        composeRule.onNode(hasContentDescription("Cancel")).performClick()
-        waitFor(hasText("Discard"), NAV_TIMEOUT)
-        composeRule.onNode(hasText("Discard")).performClick()
-        waitFor(hasContentDescription("New issue"), NAV_TIMEOUT)
-
-        // --- Search tab (EXP-58: pure search — the field + results, no
-        // embedded My-Issues list). Type a query so the store screenshot
-        // shows results instead of the empty hint; gate on a seeded match —
-        // a bare settle() once captured the board because the tab switch
-        // hadn't landed yet.
-        composeRule.onNode(hasContentDescription("Search")).performClick()
-        waitFor(hasSetTextAction(), NAV_TIMEOUT)
-        composeRule.onNode(hasSetTextAction()).performTextInput("issue")
-        waitFor(hasText("Offline queue for issue edits", substring = true), SYNC_TIMEOUT)
-        Espresso.closeSoftKeyboard()
+        // --- Actions (EXP-253): the list rides the Agents header pill; the
+        // seed inserts three team actions above the two client builtins.
+        composeRule.onNode(hasTestTag("open-actions")).performClick()
+        waitFor(hasTestTag("action-row"), SYNC_TIMEOUT)
+        waitFor(hasText("Update dependencies", substring = true), SYNC_TIMEOUT)
         settle()
-        Screengrab.screenshot("5_search")
+        Screengrab.screenshot("6_actions")
+
+        // --- Reviews tab: the team's open pull requests (4 seeded).
+        composeRule.onNode(hasContentDescription("Back")).performClick()
+        waitFor(hasContentDescription("Reviews"), NAV_TIMEOUT)
+        composeRule.onNode(hasContentDescription("Reviews")).performClick()
+        waitFor(hasText("Batch-edit labels from the board", substring = true), SYNC_TIMEOUT)
+        settle()
+        Screengrab.screenshot("5_reviews")
 
         // --- My Work tab (EXP-58: Inbox + My Issues merged behind a
         // segmented control; Inbox is the default segment, seeded with 5
@@ -174,15 +177,7 @@ class StoreScreenshotsTest {
         composeRule.onNode(hasContentDescription("My Work")).performClick()
         waitFor(hasText(SHOWCASE_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         settle()
-        Screengrab.screenshot("6_inbox")
-
-        // --- Agents tab: the seed inserts a running session on APP-5 and an
-        // in-review session with an open PR, both with a fresh heartbeat (the
-        // liveness guard hides sessions past the staleness window).
-        composeRule.onNode(hasContentDescription("Agents")).performClick()
-        waitFor(hasTestTag("agent-session-row"), SYNC_TIMEOUT)
-        settle()
-        Screengrab.screenshot("7_agents")
+        Screengrab.screenshot("7_inbox")
 
         // --- Support inbox: the tab only exists because the seed flips the
         // team's helpdesk_enabled on; threads come from tRPC polling.
@@ -196,6 +191,13 @@ class StoreScreenshotsTest {
     private fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long) {
         composeRule.waitUntil(timeoutMillis) {
             composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    /** Poll until no node matches [matcher] anymore. */
+    private fun waitForGone(matcher: SemanticsMatcher, timeoutMillis: Long) {
+        composeRule.waitUntil(timeoutMillis) {
+            composeRule.onAllNodes(matcher).fetchSemanticsNodes().isEmpty()
         }
     }
 

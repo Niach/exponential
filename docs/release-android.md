@@ -138,15 +138,16 @@ subsequent release goes through the lanes below.
 |------|------|
 | `build`      | Signed `.aab` + APK for the `production` flavor (unsigned fallback when `RELEASE_STORE_FILE` unset). |
 | `closed`     | `build` → `supply` upload to the **closed** testing track (draft; `PLAY_TRACK` overrides the track name, default `beta`). Needs `SUPPLY_JSON_KEY`. |
-| `production` | Promote **closed → production** + push listing metadata. Needs `SUPPLY_JSON_KEY`. |
-| `screenshots` | `assembleProductionDebug(+AndroidTest)` → `screengrab`: drives `StoreScreenshotsTest` on a booted emulator against a seeded local backend → `fastlane/metadata/android/en-US/images/phoneScreenshots/`. See *Store screenshots* below. |
+| `production` | Promote **closed → production** + push listing metadata (screenshots are NOT pushed here — they aren't version-controlled). Needs `SUPPLY_JSON_KEY`. |
+| `screenshots` | `assembleProductionDebug(+AndroidTest)` → `screengrab`: drives `StoreScreenshotsTest` on a booted emulator against a seeded local backend → `fastlane/metadata/android/en-US/images/phoneScreenshots/` (gitignored). See *Store screenshots* below. |
+| `sync_store` | Push listing metadata + the freshly captured screenshots to Play, no binary/track changes (mirrors the iOS `sync_store`). Refuses to run when the phoneScreenshots dir is empty. Needs `SUPPLY_JSON_KEY`. |
 
 ### Store screenshots (automated)
 
 `fastlane screenshots` captures the eight Play shots (board, issue detail, comments,
-new issue, search, inbox, agents, support inbox) by signing into the real app from an
-instrumentation test (`app/src/androidTest/.../StoreScreenshotsTest.kt`). Prereqs,
-from the repo root:
+agents, reviews, actions, inbox, support inbox — Play's cap is 8, so there is no
+new-issue/search shot) by signing into the real app from an instrumentation test
+(`app/src/androidTest/.../StoreScreenshotsTest.kt`). Prereqs, from the repo root:
 
 ```bash
 bun run backend:up                                  # Postgres + Electric
@@ -166,9 +167,10 @@ Notes:
   It also enables the team helpdesk (support threads for the Support shot) and
   inserts live coding sessions (Agents shot — their heartbeat goes stale after a
   couple of hours). Re-run it right before capturing.
-- Output **overwrites** the committed store screenshots, and the `production` lane
-  uploads them with the listing metadata (`skip_upload_screenshots: false`); review
-  the PNGs before pushing metadata.
+- Output lands in `fastlane/metadata/android/en-US/images/phoneScreenshots/`, which is
+  **gitignored** (EXP-348 — screenshots live only in the Play listing, matching iOS).
+  Review the PNGs, then push them together with the listing metadata via
+  `bundle exec fastlane sync_store`.
 - `adb` must be on PATH (screengrab shells out to it) and the run reinstalls the app
   (clears state) so the sign-in flow always executes.
 
@@ -199,6 +201,7 @@ Everything below is required before the production listing can be submitted (Pla
 
 Listing **text** is version-controlled under `apps/android/fastlane/metadata/android/en-US/`
 (`title.txt`, `short_description.txt`, `full_description.txt`, `changelogs/default.txt`) and
-`supply` pushes it on `internal`/`production`. Only the **binary assets** (icon, feature
-graphic, screenshots) still need to be dropped into `metadata/.../images/` (or entered in the
-Console) — add them there and they ride the lanes too.
+`supply` pushes it on `production`/`sync_store`. The icon and feature graphic are committed
+under `metadata/android/en-US/images/` but never pushed by the lanes (`skip_upload_images:
+true` — update them in the Console when they change). Screenshots are **not**
+version-controlled: regenerate with `fastlane screenshots`, then push with `sync_store`.

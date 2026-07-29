@@ -125,9 +125,39 @@ platform :android do
       skip_upload_apk: true,
       skip_upload_metadata: false,
       skip_upload_images: true,
-      # Screenshots are version-controlled (metadata/android/en-US/images/
-      # phoneScreenshots, refreshed by the `screenshots` lane) — push them so
-      # the listing tracks the repo (EXP-220).
+      # Screenshots are NOT version-controlled (EXP-348, matching iOS) — they only
+      # exist locally after a `screenshots` run and in the Play listing. Push them
+      # explicitly via `sync_store` after regenerating; promoting a build must not
+      # clobber the listing with whatever happens to sit in the working tree.
+      skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Upload listing metadata + freshly generated screenshots to Play WITHOUT " \
+       "touching binaries or track states. Run `fastlane screenshots` first — the " \
+       "phoneScreenshots dir is gitignored (EXP-348), so this lane pushes whatever " \
+       "the last screengrab run produced. supply's metadata path must anchor to an " \
+       "EXISTING release, so the lane targets the closed track (the only track with " \
+       "releases so far) and defaults version_code to the newest changelogs/<vc>.txt; " \
+       "override with `fastlane sync_store version_code:NN`."
+  lane :sync_store do |options|
+    screenshot_dir = File.expand_path("metadata/android/en-US/images/phoneScreenshots")
+    shots = Dir.glob("#{screenshot_dir}/*.png")
+    UI.user_error!("No screenshots in #{screenshot_dir} — run `fastlane screenshots` first.") if shots.empty?
+    version_code = options[:version_code] ||
+      Dir.glob(File.expand_path("metadata/android/en-US/changelogs/[0-9]*.txt"))
+         .map { |f| File.basename(f, ".txt").to_i }.max
+    UI.user_error!("No changelogs/<versionCode>.txt found — pass version_code:NN.") unless version_code
+    UI.message("Uploading #{shots.length} phone screenshots + listing metadata (anchor release #{version_code} on #{CLOSED_TRACK}).")
+    upload_to_play_store(
+      track: CLOSED_TRACK,
+      version_code: version_code,
+      json_key: ENV.fetch("SUPPLY_JSON_KEY"),
+      skip_upload_aab: true,
+      skip_upload_apk: true,
+      skip_upload_changelogs: true,
+      skip_upload_metadata: false,
+      skip_upload_images: true,
       skip_upload_screenshots: false,
     )
   end
