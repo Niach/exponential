@@ -39,33 +39,19 @@ packages/
 
 ## Self-host quick start
 
-```sh
-git clone https://github.com/Niach/exponential
-cd exponential
-cp .env.example .env             # set BETTER_AUTH_SECRET
-ln -s ../../.env apps/web/.env   # the web app reads env from apps/web/
-cp Caddyfile.example Caddyfile   # gitignored — compose bind-mounts it
-openssl rand -hex 32 > infra/garage/secrets/rpc_secret
-openssl rand -base64 32 > infra/garage/secrets/admin_token
-chmod 600 infra/garage/secrets/rpc_secret infra/garage/secrets/admin_token  # garage refuses world-readable secrets
-docker compose up -d             # postgres, electric, garage, caddy
-bun install && bun migrate
-docker exec -i exponential-postgres-1 \
-  psql -U postgres -d exponential < apps/web/src/db/out/custom/0001_triggers.sql
-bun run storage:init             # prints S3 keys — paste into .env
-bun dev
-```
-
-App at `https://localhost:3000` (Caddy proxies for HTTP/2). Teams, boards, and issues work out of the box: a **GitHub App is only needed for coding** — backing a board with a repository, and the PRs coding sessions open. Set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` when you want that; see [`.env.example`](./.env.example) for these and everything else (OIDC, Google login, SMTP/Amazon SES, push, steer). Full guide: [self-host docs](https://exponential.at/docs/self-host/).
-
-For production, build the web image and run it instead of `bun dev` — note that with `NODE_ENV=production`, password sign-up is **disabled by default**, so opt in (or configure an OAuth/OIDC provider):
+No checkout, no build — two files and a `docker compose up`, pulling the published multi-arch image [`ghcr.io/niach/exponential-web`](https://github.com/Niach/exponential/pkgs/container/exponential-web):
 
 ```sh
-docker build -t exponential-web .
-docker run -d --name exponential-web --network host \
-  --env-file .env -e PORT=5173 -e AUTH_SIGNUP_ENABLED=true \
-  exponential-web   # Caddy proxies host port 5173; migrations run on boot
+mkdir exponential && cd exponential
+curl -fsSLO https://raw.githubusercontent.com/Niach/exponential/master/selfhost/docker-compose.yaml
+curl -fsSL https://raw.githubusercontent.com/Niach/exponential/master/selfhost/.env.example -o .env
+# fill in .env: two openssl-generated secrets + your S3 credentials
+docker compose up -d
 ```
+
+App at `http://localhost` — migrations and the custom trigger SQL apply themselves at every boot. Bring any S3-compatible bucket for attachments (Hetzner, MinIO, R2, AWS, Garage, …); everything else is bundled. The full runbook — domain + automatic HTTPS, email, sign-in providers, steer relay, upgrades — is [`INSTALL.md`](./INSTALL.md) (written so you can also hand it to a coding agent), with a longer walkthrough in the [self-host docs](https://exponential.at/docs/self-host/).
+
+Teams, boards, and issues work out of the box: a **GitHub App is only needed for coding** — backing a board with a repository, and the PRs coding sessions open. Set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` when you want that; see [`.env.example`](./.env.example) for these and everything else (OIDC, Google login, SMTP/Amazon SES, steer). Upgrades are `docker compose pull && docker compose up -d`; pin `IMAGE_TAG` to a [release tag](https://github.com/Niach/exponential/tags) if you'd rather move deliberately than track `master`.
 
 ## Development
 

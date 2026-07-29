@@ -5,10 +5,10 @@ import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
 import { EnterpriseLine, PlanCards } from "./PlanCards"
 
-/* ── Home pricing — Free + Team ──
+/* ── Home pricing — Free · Team · Self-hosted (EXP-338) ──
    The SAME full feature cards as /pricing/ (shared PlanCards over the
-   canonical lib/plans.ts); the self-host tiers + comparison table stay
-   on /pricing/. */
+   canonical lib/plans.ts); the commercial-license card + comparison table
+   stay on /pricing/. */
 export function HomePricing() {
   return (
     <section id={`pricing`} className={`home-pricing`}>

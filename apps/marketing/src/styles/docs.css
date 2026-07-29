@@ -27,6 +27,7 @@
 
 .docs-hero-cta {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -232,6 +233,9 @@
   padding: 1.5px 6px;
   border-radius: 4px;
   color: var(--fg);
+  /* Long tokens (env URLs like ${BETTER_AUTH_URL}/api/...) must break on
+     narrow screens instead of widening the whole page. */
+  overflow-wrap: anywhere;
 }
 
 /* Embedded product demos — fit the docs column */

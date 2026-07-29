@@ -1,0 +1,168 @@
+name: Build web image
+
+# Builds the root Dockerfile and publishes the multi-arch (amd64 + arm64)
+# image to ghcr.io/niach/exponential-web — the ONE distribution artifact for
+# both the cloud (Coolify pulls it as a dockerimage app, deployed manually via
+# `coolify deploy uuid <uuid>` after each green build) and self-hosting
+# (selfhost/docker-compose.yaml pins it; INSTALL.md is the runbook).
+#
+# Tags: `latest` + `master` + `sha-<short>` on master pushes; semver
+# (`0.18.13` / `0.18`) on v* tag pushes. `latest` moves on EVERY master push,
+# so self-hosters pin semver. The ghcr package must stay PUBLIC so anonymous
+# `docker pull` works.
+#
+# arm64 builds on GitHub's free native arm runner (public repo) — the
+# bun/vite build is JIT-heavy and would crawl under QEMU. Each platform leg
+# pushes by digest; the merge job stitches them into one manifest index and
+# stamps the index-level OCI description annotation ghcr shows on the
+# package page.
+
+on:
+  push:
+    branches: [master]
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-dev"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/niach/exponential-web
+
+jobs:
+  # Gate: the production image must never ship on a red typecheck/test run.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Typecheck web
+        run: bun run typecheck
+      - name: Web unit tests
+        env:
+          # Unit tests never query the DB, but db/connection.ts throws at
+          # import time without a URL — give it an unreachable dummy.
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:59999/ci
+        run: bun run test
+      - name: Widget unit tests
+        run: bun run test:widget
+      - name: Steer relay + ticket tests
+        run: bun run test:steer-relay
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare platform slug
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=web-${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        env:
+          # ghcr reads the package-page description from the INDEX-level
+          # annotation on multi-arch images.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch,enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+          annotations: |
+            org.opencontainers.image.description=Exponential — realtime issue tracker with local coding agents. Self-hostable web image; see INSTALL.md in the repo.
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          eval "docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(jq -cr '.annotations | map("--annotation \"" + . + "\"") | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)"
+
+      - name: Inspect
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}

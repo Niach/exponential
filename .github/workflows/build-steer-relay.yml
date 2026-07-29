@@ -1,8 +1,14 @@
-name: Build issues-web image
+name: Build steer relay image
 
-# Builds the root Dockerfile and publishes to ghcr.io/niach/exponential-web.
-# Coolify (app.exponential.at) pulls this image as a dockerimage app —
-# triggered manually via `coolify deploy uuid <uuid>` after each green build.
+# Publishes the multi-arch (amd64 + arm64) steer relay image to
+# ghcr.io/niach/exponential-steer-relay — pulled by the Coolify steer relay
+# apps (steer.exponential.at / steer-next.exponential.at) as dockerimage apps
+# and by the selfhost compose `steer` profile. Same triggers + tag scheme as
+# the web image; the ghcr package must stay PUBLIC for anonymous pulls.
+#
+# Dockerfile.steer-relay has no build step (bun install + source copy), so
+# QEMU multi-arch in one job is fine here — unlike the web image's JIT-heavy
+# vite build, which needs native runners.
 
 on:
   push:
@@ -17,7 +23,7 @@ permissions:
   packages: write
 
 jobs:
-  # Gate: the production image must never ship on a red typecheck/test run.
+  # Gate: never ship the relay on red relay/ticket tests.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -25,26 +31,18 @@ jobs:
         uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - name: Typecheck web
-        run: bun run typecheck
-      - name: Web unit tests
-        env:
-          # Unit tests never query the DB, but db/connection.ts throws at
-          # import time without a URL — give it an unreachable dummy.
-          DATABASE_URL: postgresql://ci:ci@127.0.0.1:59999/ci
-        run: bun run test
-      - name: Widget unit tests
-        run: bun run test:widget
       - name: Steer relay + ticket tests
         run: bun run test:steer-relay
 
   build:
     needs: test
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -59,8 +57,12 @@ jobs:
       - name: Compute image tags
         id: meta
         uses: docker/metadata-action@v5
+        env:
+          # ghcr reads the package-page description from the INDEX-level
+          # annotation on multi-arch images.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
-          images: ghcr.io/niach/exponential-web
+          images: ghcr.io/niach/exponential-steer-relay
           tags: |
             type=ref,event=branch,enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
@@ -68,15 +70,18 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+          annotations: |
+            org.opencontainers.image.description=Exponential steer relay — remote-start + live terminal watch/steer WebSocket hub.
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
+          file: ./Dockerfile.steer-relay
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha,scope=steer-relay
+          cache-to: type=gha,mode=max,scope=steer-relay

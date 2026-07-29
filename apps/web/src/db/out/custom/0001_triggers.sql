@@ -1,5 +1,8 @@
 -- Custom triggers for Exponential
--- Apply after migrations: docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
+-- Applied automatically at every app boot (bootstrap-cloud applyCustomSql —
+-- bundled via Vite ?raw, every statement idempotent). Manual application is
+-- only needed where the app never boots, e.g. CI:
+--   docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
 
 -- 1. Auto-update updated_at timestamp on all tables that carry it. Tables
 --    with a board_deleted_at mirror column (REV2-5) guard the bump with a

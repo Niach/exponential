@@ -113,8 +113,9 @@ jobs:
             exit 1
           fi
       - name: Apply custom triggers
-        # Use the service container's own psql (mirrors the documented
-        # deploy command) — ON_ERROR_STOP so SQL errors fail the job.
+        # The app applies this file idempotently at every boot
+        # (bootstrap-cloud applyCustomSql); CI applies it manually because it
+        # never boots the app — ON_ERROR_STOP so SQL errors fail the job.
         run: docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0001_triggers.sql
 
   desktop:

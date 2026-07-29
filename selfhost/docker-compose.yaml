@@ -1,0 +1,132 @@
+# Exponential — self-host stack (pull-an-image, no repo checkout needed).
+#
+# Runbook: https://github.com/Niach/exponential/blob/master/INSTALL.md
+# Quick version: put this file next to a filled-in .env (template:
+# selfhost/.env.example in the repo) and run `docker compose up -d`.
+#
+# Needs Docker Compose >= 2.23.1 (inline `configs:` content). The web image
+# applies database migrations AND its custom trigger SQL at every boot — no
+# manual SQL steps, ever. Attachment storage is any S3-compatible bucket you
+# bring (S3_* in .env); nothing but Caddy (80/443) and the optional steer
+# relay (4002) is exposed to the host.
+
+name: exponential-selfhost
+
+services:
+  web:
+    image: ghcr.io/niach/exponential-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # .env flows through wholesale so optional subsystems (SMTP_*, GOOGLE_*,
+    # GITHUB_APP_*, STEER_RELAY_*, ...) work without editing this file; the
+    # explicit environment block below wins for the in-network URLs.
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?generate with `openssl rand -hex 32` in .env}@postgres:5432/exponential?sslmode=disable
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?generate with `openssl rand -hex 32` in .env}
+      BETTER_AUTH_URL: ${APP_URL:-http://localhost}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${APP_URL:-http://localhost}
+      ELECTRIC_URL: http://electric:3000
+      SELF_HOSTED: "true"
+      # NODE_ENV=production disables password sign-up by default; flip to
+      # false in .env once your accounts exist.
+      AUTH_SIGNUP_ENABLED: ${AUTH_SIGNUP_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      electric:
+        condition: service_started
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: exponential
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    command:
+      - -c
+      - listen_addresses=*
+      - -c
+      - wal_level=logical
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d exponential"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  electric:
+    # Pinned like the dev stack — bump deliberately, never track latest.
+    image: electricsql/electric:1.4.11
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?}@postgres:5432/exponential?sslmode=disable
+      # Safe ONLY because this service is never published to the host — every
+      # shape request goes through the web app's auth-gated proxy.
+      ELECTRIC_INSECURE: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      # Default ":80" serves plain HTTP on localhost. Set DOMAIN in .env to a
+      # real hostname and Caddy provisions HTTPS automatically (APP_URL must
+      # be set alongside — see .env.example).
+      DOMAIN: ${DOMAIN:-:80}
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+  # Optional remote-start/steer relay: `docker compose --profile steer up -d`.
+  # Pair it with STEER_RELAY_URL + STEER_RELAY_SECRET in .env (the web app
+  # picks both up via env_file).
+  steer-relay:
+    profiles: [steer]
+    image: ghcr.io/niach/exponential-steer-relay:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # Deliberately NOT `:?` — compose interpolates the whole file even when
+      # the profile is inactive.
+      STEER_RELAY_SECRET: ${STEER_RELAY_SECRET:-}
+    ports:
+      - 4002:4002
+
+configs:
+  caddyfile:
+    # The transport timeouts + flush_interval -1 are REQUIRED for Electric's
+    # live long-poll shape requests — don't trim them. Caddy resolves
+    # {$DOMAIN} from its process env at runtime (the doubled $$ only escapes
+    # compose interpolation).
+    content: |
+      {$$DOMAIN} {
+      	reverse_proxy web:3000 {
+      		transport http {
+      			dial_timeout 10s
+      			read_timeout 5m
+      			write_timeout 5m
+      			keepalive 5m
+      		}
+      		flush_interval -1
+      	}
+      }
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
