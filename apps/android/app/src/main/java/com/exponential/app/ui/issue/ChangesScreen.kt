@@ -76,6 +76,7 @@ import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -502,11 +503,17 @@ private fun ChangesBottomBar(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (actionError != null) {
+            // OPAQUE glass (EXP-357): this banner floats over the diff list, and
+            // the translucent section fill let the file rows read straight
+            // through the failure message — the one thing on screen that must
+            // be legible. Full width so it reads as the bar's own header
+            // instead of a wrap-width blob dropped on the changed files.
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .glassSection()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .fillMaxWidth()
+                    .glassCard(opaque = true)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
                 Text(
                     actionError,
@@ -542,7 +549,8 @@ private fun ChangesBottomBar(
                 }
             }
         }
-        SteerRunCaptionRow(runState, modifier = Modifier.padding(top = 6.dp))
+        // Floating: this caption sits on top of the scrolling diff too.
+        SteerRunCaptionRow(runState, modifier = Modifier.padding(top = 6.dp), floating = true)
         Row(
             modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,

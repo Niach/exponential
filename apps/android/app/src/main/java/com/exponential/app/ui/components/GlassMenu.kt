@@ -15,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
@@ -33,9 +32,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  *
  * The recipe is `Modifier.glassButton(opaque = true)`'s (EXP-165): a menu floats
  * over arbitrary content, where the low-alpha fill alone bleeds through, so the
- * white glass tint is composited over an OPAQUE base. The base is
- * [DesignTokens.Palette.Popover] — the design system's own popover token, and
- * the same #171717 the opaque glass recipe uses. (GlassSheet's
+ * white glass tint is composited over an OPAQUE base — [GlassTokens.OpaqueCardFill],
+ * the one shared opaque glass fill, over the design system's own
+ * [DesignTokens.Palette.Card]/`Popover` #171717. (GlassSheet's
  * `BackgroundBottom` is deliberately NOT reused: a bottom sheet continues the
  * app gradient where it ends, a menu has no such anchor.)
  *
@@ -47,8 +46,8 @@ object GlassMenuDefaults {
     /** 12dp — iOS `UIMenu` is ~13pt; M3's 4dp `extraSmall` reads as a different product. */
     val Shape: Shape = RoundedCornerShape(GlassTokens.SectionRadius)
 
-    /** White .06 over #171717 == opaque #252525 — `glassCard`'s fill on `glassButton(opaque)`'s base. */
-    val ContainerColor: Color = GlassTokens.CardFill.compositeOver(DesignTokens.Palette.Popover)
+    /** White .06 over #171717 == opaque #252525 — the shared opaque glass fill (EXP-357). */
+    val ContainerColor: Color = GlassTokens.OpaqueCardFill
 
     /** Hairline white .10. The floating bars hand-roll .12; indistinguishable at 0.5dp, so prefer the token. */
     val Border = BorderStroke(GlassTokens.Hairline, GlassTokens.StrokeCard)

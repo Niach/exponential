@@ -187,14 +187,24 @@ class SteerLaunchDelegate @Inject constructor(
                     teamId = action.teamId.takeIf { action.isBuiltin },
                     inputs = inputs.takeIf { it.isNotEmpty() },
                 )
-                _runState.value = ActionRunState.Sent(device.deviceLabel.ifBlank { device.deviceId })
+                val label = device.deviceLabel.ifBlank { device.deviceId }
+                _runState.value = ActionRunState.Sent(label)
                 watchForStartedRun(action.name, auth.userId.value)
                 // Keep the Sent caption for the whole watch deadline — a slow
                 // desktop pickup can still navigate late, and a captionless
                 // late jump reads as a glitch.
-                delay(180_000)
+                delay(WATCH_DEADLINE_MS)
                 if (_runState.value is ActionRunState.Sent) {
-                    _runState.value = ActionRunState.Idle
+                    // The deadline passed with no session row (EXP-357). This
+                    // used to fall back to Idle, so a run the desktop REFUSED
+                    // — a conflicted worktree, a doctor failure — was
+                    // indistinguishable from one still starting: the caption
+                    // just vanished and nothing ever appeared. The desktop
+                    // holds the reason (it notifies there); say so.
+                    _runState.value = ActionRunState.Failed(
+                        "$label never started this run — open the Exponential desktop app " +
+                            "there to see why.",
+                    )
                 }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -242,7 +252,7 @@ class SteerLaunchDelegate @Inject constructor(
         if (userId == null) return
         val cutoffMs = System.currentTimeMillis() - 120_000
         watchJob = scope.launch {
-            val match = withTimeoutOrNull(180_000) {
+            val match = withTimeoutOrNull(WATCH_DEADLINE_MS) {
                 dbFlow.scopedQuery(emptyList()) {
                     it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
                 }.mapNotNull { sessions ->
@@ -263,3 +273,9 @@ class SteerLaunchDelegate @Inject constructor(
 
 // Terminal issue statuses ineligible to start a new coding run.
 private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")
+
+// How long a remote action run may take to surface its coding_sessions row
+// before the caption calls it dead. The session watch and the caption share
+// it — a caption that outlives the watch would keep spinning forever, one
+// that dies first would strand a late navigation with no explanation.
+private const val WATCH_DEADLINE_MS = 180_000L
