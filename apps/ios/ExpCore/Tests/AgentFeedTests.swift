@@ -375,6 +375,29 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(orphan.id, 9)
     }
 
+    func testSubagentsListsEveryRunInFirstAppearanceOrder() {
+        // EXP-356: one conversation tab per subagent, first-appearance order,
+        // summarized exactly like the group rows.
+        let feed: [AgentFeedItem] = [
+            .narration(id: 1, text: "Delegating."),
+            .subagent(id: 2, subagentId: "a", agentType: "Explore", status: .started, detail: "map"),
+            tool(3, subagentId: "a"),
+            tool(4),
+            .subagent(id: 5, subagentId: "b", agentType: "review", status: .started, detail: nil),
+            tool(6, subagentId: "a"),
+            .subagent(id: 7, subagentId: "a", agentType: "Explore", status: .completed, detail: "map"),
+        ]
+        let agents = AgentFeed.subagents(feed)
+        XCTAssertEqual(agents.map(\.subagentId), ["a", "b"])
+        XCTAssertEqual(agents[0].agentType, "Explore")
+        XCTAssertTrue(agents[0].done)
+        XCTAssertEqual(agents[0].toolCount, 2)
+        XCTAssertEqual(agents[1].agentType, "review")
+        XCTAssertFalse(agents[1].done)
+        XCTAssertEqual(agents[1].toolCount, 0)
+        XCTAssertEqual(AgentFeed.subagents([tool(1), .narration(id: 2, text: "x")]), [])
+    }
+
     func testAFallbackTypedCompletedEdgeNeverDegradesTheLabel() {
         // Old desktops stamp the fallback "agent" onto the completed edge
         // (claude's SubagentStop hook carries no agent_type) — the started

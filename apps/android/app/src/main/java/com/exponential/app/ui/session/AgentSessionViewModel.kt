@@ -483,6 +483,12 @@ fun groupFeedRows(feed: List<AgentFeedItem>): List<AgentFeedRow> {
 fun orderedSteps(steps: List<AgentFeedItem.Question>): List<AgentFeedItem.Question> =
     steps.sortedWith(compareBy(nullsLast<Int>()) { it.index })
 
+/** Every subagent seen in the feed, in first-appearance order (EXP-356) — the
+ *  session screen renders one conversation tab per run, labeled and summarized
+ *  exactly like its group row (iOS/web parity). */
+fun collectSubagents(feed: List<AgentFeedItem>): List<AgentFeedRow.SubagentRun> =
+    groupFeedRows(feed).filterIsInstance<AgentFeedRow.SubagentRun>()
+
 /** The step a stepper card should show: the first one still waiting on this
  *  client, or null once every step is answered — the card then renders the
  *  whole ask with its answers. [answered] holds the lock keys of steps whose

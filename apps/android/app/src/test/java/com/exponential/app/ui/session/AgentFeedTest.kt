@@ -644,6 +644,31 @@ class AgentFeedTest {
         assertEquals(0L, reset.nextEventId)
     }
 
+    @Test
+    fun `collectSubagents lists every run in first-appearance order`() {
+        // EXP-356: one conversation tab per subagent, summarized exactly like
+        // the group rows (iOS/web parity).
+        val feed = listOf(
+            AgentFeedItem.Narration(1, "Delegating."),
+            AgentFeedItem.Subagent(2, "a", "Explore", completed = false, detail = "map"),
+            AgentFeedItem.Tool(3, "Grep", null, subagentId = "a"),
+            tool(4),
+            AgentFeedItem.Subagent(5, "b", "review", completed = false),
+            AgentFeedItem.Tool(6, "Read", null, subagentId = "a"),
+            AgentFeedItem.Subagent(7, "a", "Explore", completed = true, detail = "map"),
+        )
+        val agents = collectSubagents(feed)
+        assertEquals(listOf("a", "b"), agents.map { it.subagentId })
+        assertEquals("Explore", agents[0].agentType)
+        assertTrue(agents[0].completed)
+        assertEquals("map", agents[0].detail)
+        assertEquals(2, agents[0].tools.size)
+        assertEquals("review", agents[1].agentType)
+        assertFalse(agents[1].completed)
+        assertTrue(agents[1].tools.isEmpty())
+        assertTrue(collectSubagents(listOf(tool(1))).isEmpty())
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────────
 
     private fun ActivityFeedState.applying(event: JsonObject) = applyActivityEvent(event)

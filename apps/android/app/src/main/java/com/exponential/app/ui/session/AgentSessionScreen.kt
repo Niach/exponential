@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -453,6 +455,12 @@ private fun ActivityFeed(
     // Subagent groups, askId steppers and consecutive tool runs are all
     // render-time projections only — the flat feed stays the state.
     val rows = remember(feed) { groupFeedRows(feed) }
+    // EXP-356: conversation tabs — null is the main agent; a subagent id
+    // focuses that agent's stream. Falls back to Main whenever the id
+    // vanishes from the feed (an activity_reset replay).
+    var agentTab by remember { mutableStateOf<String?>(null) }
+    val agents = remember(feed) { collectSubagents(feed) }
+    val focused = agents.firstOrNull { it.subagentId == agentTab }
     // A HOLDING lock counts as answered for stepper advance — a Sending lock
     // advances the stepper the moment the tap goes out (claude-TUI-snappy; web
     // parity). A Failed lock (5s no-ack timeout, EXP-334) does NOT: its step
@@ -472,15 +480,28 @@ private fun ActivityFeed(
     // Keyed on feed.size (not rows.size) — a growing trailing tool run adds
     // feed items without adding rows. scrollToItem alone lands on the last
     // item's TOP, which for a long message is nowhere near the end — the
-    // scrollBy finishes the scroll to the true bottom (EXP-197).
-    LaunchedEffect(feed.size, follow) {
-        if (follow && rows.isNotEmpty()) {
-            listState.scrollToItem(rows.size - 1)
+    // scrollBy finishes the scroll to the true bottom (EXP-197). agentTab is a
+    // key too: switching conversations re-pins to the newest event (EXP-356).
+    LaunchedEffect(feed.size, follow, agentTab) {
+        val visible = if (focused != null) focused.tools.size + 1 else rows.size
+        if (follow && visible > 0) {
+            listState.scrollToItem(visible - 1)
             listState.scrollBy(1_000_000f)
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (agents.isNotEmpty()) {
+            AgentTabStrip(
+                agents = agents,
+                selected = focused?.subagentId,
+                onSelect = { id ->
+                    agentTab = id
+                    follow = true
+                },
+            )
+        }
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -489,6 +510,29 @@ private fun ActivityFeed(
             verticalArrangement = Arrangement.Bottom,
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
+            if (focused != null) {
+                // EXP-356: the focused subagent's conversation — its
+                // delegation summary, then every tool call as a full row.
+                item(key = "agent-summary") {
+                    SubagentGroupRow(run = focused.copy(tools = emptyList()), liveTail = false)
+                }
+                if (focused.tools.isEmpty()) {
+                    item(key = "agent-empty") {
+                        Text(
+                            "No tool calls yet.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Tertiary,
+                            ),
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                    }
+                } else {
+                    items(focused.tools, key = { it.id }) { tool ->
+                        ToolRow(tool.name, tool.detail)
+                    }
+                }
+            } else {
             items(rows, key = { it.id }) { row ->
                 when (row) {
                     is AgentFeedRow.ToolRun -> ToolGroupRow(
@@ -539,6 +583,7 @@ private fun ActivityFeed(
                     }
                 }
             }
+            }
         }
         if (!follow) {
             Text(
@@ -552,6 +597,71 @@ private fun ActivityFeed(
                     .glassButton(active = true, opaque = true)
                     .clickable { follow = true }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+        }
+    }
+}
+
+/** EXP-356: conversation tabs — Main plus one chip per subagent, labeled with
+ *  the run's real agent type and a spinner while it works. */
+@Composable
+private fun AgentTabStrip(
+    agents: List<AgentFeedRow.SubagentRun>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AgentTabChip(label = "Main", running = false, selected = selected == null) {
+            onSelect(null)
+        }
+        agents.forEach { run ->
+            AgentTabChip(
+                label = run.agentType,
+                running = !run.completed,
+                selected = selected == run.subagentId,
+            ) {
+                onSelect(run.subagentId)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentTabChip(
+    label: String,
+    running: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .glassButton(active = selected)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (selected) TextEmphasis.Primary else TextEmphasis.Secondary,
+            ),
+            maxLines = 1,
+        )
+        if (running) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(10.dp),
+                strokeWidth = 1.5.dp,
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
     }
