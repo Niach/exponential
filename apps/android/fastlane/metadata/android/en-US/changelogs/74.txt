@@ -1,0 +1,1 @@
+Merging a PR no longer ends the coding session — it keeps running until you explicitly close it with the new "Merge and close" button.

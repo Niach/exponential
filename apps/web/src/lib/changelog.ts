@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-session-close-on-merge`,
+    date: `2026-07-29`,
+    title: `Sessions survive the merge`,
+    summary: `Merging a PR no longer kills the coding session — close it when you're done, with the new "Merge and close" button.`,
+    body: `- **Merge without losing the session** — merging an agent's PR used to end its coding session immediately. Now the session parks in a new **Merged** state and stays fully alive: keep steering it, ask follow-up questions, or let it finish cleanup.
+- **"Merge and close"** — every live session row (web, desktop, iOS, Android) gets an explicit button that merges the PR *and* tears the session down in one step, for when you really are done.
+- All other merge buttons are now merge-only and leave the session running.`,
+  },
+  {
     id: `2026-07-steering-subagents`,
     date: `2026-07-29`,
     title: `Watch subagents work, live`,

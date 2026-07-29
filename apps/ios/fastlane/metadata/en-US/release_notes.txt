@@ -1,4 +1,3 @@
-• Live agent sessions show each subagent as its own tab with readable names and activity
-• Follow-up messages you send while the agent is busy now appear in the session feed
-• Running a saved action pre-fills its repository input automatically
-• Assorted steering and session-view polish
+• Merging a PR no longer ends the coding session — it keeps running until you explicitly close it
+• New "Merge and close" button on live session rows for one-tap merge + teardown
+• Session status now shows "Merged" while a session outlives its merged PR
