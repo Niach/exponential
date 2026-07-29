@@ -45,20 +45,25 @@ type ReposResult = {
 //
 // The connect hop prefers `connectUrl` (the OAuth claim flow — one authorize
 // screen, no configure page) and falls back to `installUrl` (the install-page
-// round-trip) when the instance has no OAuth client secret. "Add more repos"
-// always uses the install page — that's where GitHub keeps repo grants.
+// round-trip) when the instance has no OAuth client secret.
 //
 // v4: repo-less boards no longer exist, so there is no skip escape. Every
 // surface uses the built-in inline install CTA; `installEmptyState` remains
 // for callers that need a custom App-absent state.
+//
+// `variant="plain"` drops the Command's own card chrome for hosts that already
+// provide a glass surface (the Add-repository dialog); inline hosts keep the
+// default bordered card.
 export function GithubRepoPicker({
   teamId,
   onSelect,
   installEmptyState,
+  variant = `card`,
 }: {
   teamId: string
   onSelect: (repo: PickerRepo) => void
   installEmptyState?: ReactNode
+  variant?: `card` | `plain`
 }) {
   const [data, setData] = useState<ReposResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -101,12 +106,6 @@ export function GithubRepoPicker({
     }
   }
 
-  const openInstall = () => {
-    if (data?.installUrl) {
-      window.open(data.installUrl, `gh-install`, `popup,width=980,height=820`)
-    }
-  }
-
   if (loading && !data) {
     return (
       <div className="flex items-center gap-2 rounded-md border px-3 py-6 text-sm text-muted-foreground">
@@ -139,8 +138,8 @@ export function GithubRepoPicker({
         <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
           <Github className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            Connect a GitHub account to this team to pick a repository to
-            code in.
+            Connect the Exponential GitHub App to pick a repository.
+            You&rsquo;ll come right back here.
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -155,7 +154,7 @@ export function GithubRepoPicker({
             onClick={() => void refresh(true)}
           >
             <RefreshCw className="mr-2 h-4 w-4" />
-            I’ve connected
+            I’ve connected — refresh
           </Button>
         </div>
       </div>
@@ -164,8 +163,8 @@ export function GithubRepoPicker({
 
   // Installed → searchable repo list. We only ever show repositories a member
   // proved user-scoped access to at connect time (the grant snapshot), so a repo
-  // created or shared AFTER the last connect won't appear until "Refresh from
-  // GitHub" (a re-auth) re-captures the set. `needsReauth` flags a linked
+  // created or shared AFTER the last connect won't appear until a reconnect
+  // (the banner's re-auth) re-captures the set. `needsReauth` flags a linked
   // account whose grants haven't been captured at all.
   const suspendedAccounts = (data.installations ?? [])
     .filter((i) => i.suspended)
@@ -205,9 +204,13 @@ export function GithubRepoPicker({
       )}
 
       {!empty && (
-        <Command className="rounded-md border bg-glass-card">
+        <Command
+          className={
+            variant === `plain` ? undefined : `rounded-md border bg-glass-card`
+          }
+        >
           <CommandInput placeholder="Search repositories…" />
-          <CommandList>
+          <CommandList className="max-h-[min(20rem,50dvh)]">
             <CommandEmpty>No repositories found.</CommandEmpty>
             <CommandGroup>
               {data.repos.map((repo) => (
@@ -233,29 +236,6 @@ export function GithubRepoPicker({
           No repositories found for your connected GitHub accounts.
         </div>
       )}
-
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <Button
-          type="button"
-          variant="link"
-          size="sm"
-          className="px-0 text-xs text-muted-foreground"
-          onClick={openConnect}
-          title="Re-syncs your repositories from GitHub — pick up repos created or shared with you since you last connected"
-        >
-          <RefreshCw className="mr-1.5 h-3 w-3" />
-          Don’t see your repo? Refresh from GitHub
-        </Button>
-        <Button
-          type="button"
-          variant="link"
-          size="sm"
-          className="px-0 text-xs text-muted-foreground"
-          onClick={openInstall}
-        >
-          Manage repo access on GitHub
-        </Button>
-      </div>
     </div>
   )
 }

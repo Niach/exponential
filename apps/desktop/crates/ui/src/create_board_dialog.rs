@@ -440,7 +440,7 @@ impl CreateBoardDialogView {
                         .outline()
                         .small()
                         .w_full()
-                        .label("Loading repositories\u{2026}")
+                        .label("Loading your GitHub repositories\u{2026}")
                         .disabled(true),
                 );
         }
@@ -565,7 +565,17 @@ impl CreateBoardDialogView {
                         .on_click(move |_, _, cx| open_url(cx, url.clone())),
                 );
             }
-            column = column.child(row);
+            column = column
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(
+                            "Connect the Exponential GitHub App to pick a repository. You'll \
+                             come right back here.",
+                        ),
+                )
+                .child(row);
         }
 
         // Grant-model reconnect: installed but the per-user grant snapshot is
@@ -658,11 +668,17 @@ impl CreateBoardDialogView {
         // OAuth connect only appear after reconnecting) and a "manage on
         // GitHub" link when the installed repo list was truncated (the
         // target repo may need granting on GitHub first).
+        // In the connect state the Refresh button IS the "I came back from the
+        // browser" affordance, so it says that instead of a bare "Refresh".
         let mut actions = h_flex().gap_2().items_center().child(
             Button::new("board-repo-refresh")
                 .ghost()
                 .xsmall()
-                .label("Refresh")
+                .label(if configured_not_installed {
+                    "I've connected \u{2014} refresh"
+                } else {
+                    "Refresh"
+                })
                 .on_click(cx.listener(|this, _, _, cx| this.spawn_fetches(true, cx))),
         );
         if let Some(url) = github_result.and_then(|result| {
@@ -834,7 +850,7 @@ pub(crate) fn is_plan_limit(err: &api::ApiError) -> bool {
 /// (`apps/web/src/lib/trpc/integrations.ts`). Check this BEFORE
 /// [`is_plan_limit`] — that helper matches ANY 403, so this error would
 /// otherwise be misread as a plan cap.
-fn is_grant_forbidden(err: &api::ApiError) -> bool {
+pub(crate) fn is_grant_forbidden(err: &api::ApiError) -> bool {
     matches!(
         err,
         api::ApiError::Http { status: 403, message } if message.contains("reconnect GitHub")

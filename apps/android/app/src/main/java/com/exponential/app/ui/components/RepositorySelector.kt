@@ -98,15 +98,18 @@ fun RepositorySelector(
             }
         }
 
-        if (repos.isEmpty() && addedRepo == null) {
+        val empty = repos.isEmpty() && addedRepo == null
+        if (empty) {
             Text(
-                "Connect a GitHub repository to back this board.",
+                "No repositories connected yet.",
                 style = MaterialTheme.typography.bodySmall,
                 color = tertiary,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         }
 
+        // The empty state doubles as the inline "Connect GitHub" affordance —
+        // the picker sheet it opens handles the not-installed case itself.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -114,10 +117,15 @@ fun RepositorySelector(
                 .clickable { showPicker = true }
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(ExpIcons.uiAdd, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+            Icon(
+                if (empty) ExpIcons.uiGithub else ExpIcons.uiAdd,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = secondary,
+            )
             Spacer(Modifier.width(6.dp))
             Text(
-                if (repos.isEmpty() && addedRepo == null) "Add a repository from GitHub…" else "Add another repository…",
+                if (empty) "Connect GitHub…" else "Add another repository…",
                 style = MaterialTheme.typography.labelMedium,
                 color = secondary,
             )

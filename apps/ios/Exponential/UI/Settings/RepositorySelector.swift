@@ -9,7 +9,7 @@ import SwiftUI
 /// the user also add a brand-new repo by name via the installed-repos picker —
 /// that path connects the repo inline through `boards.create`'s
 /// `repository: { fullName }`. Empty state (nothing connected, nothing added):
-/// an inline "Add a repository from GitHub…" picker. Binds a `BoardRepositoryChoice`.
+/// an inline "Connect GitHub…" picker. Binds a `BoardRepositoryChoice`.
 struct RepositorySelector: View {
     let accountId: String
     let teamId: String
@@ -79,7 +79,7 @@ struct RepositorySelector: View {
                 } label: {
                     HStack(spacing: 6) {
                         AppIcon(repos.isEmpty && addedRepo == nil
-                            ? AppIcons.uiRepository
+                            ? AppIcons.uiGithub
                             : AppIcons.uiAdd, size: 11)
                         Text(repos.isEmpty && addedRepo == nil
                             ? "Connect GitHub…"

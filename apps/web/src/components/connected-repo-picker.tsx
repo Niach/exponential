@@ -11,14 +11,14 @@ import {
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 export type ConnectedRepo = RepoList[number]
 
-// The connected-repo list + optional "Connect another repo…" inline-connect
+// The connected-repo list + optional "Add another repository…" inline-connect
 // expansion, shared by the create-board dialog and the team "Change
 // repository" dialog. Owns loading the team's connected repos (registry)
 // and re-detecting on window focus so a repo installed through the picker's
 // popup shows up when the user returns.
 //
 // Selecting a connected repo calls `onSelectRegistry`. When `onConnectNew` is
-// provided the "Connect another repo…" affordance is shown (and, when no repos
+// provided the "Add another repository…" affordance is shown (and, when no repos
 // are connected yet, the inline GithubRepoPicker is rendered directly); picking
 // a brand-new repo through it calls `onConnectNew`. Callers own what happens on
 // select/connect (immediate mutate vs. deferred selection) and any chosen-row
@@ -140,7 +140,7 @@ export function ConnectedRepoPicker({
             onClick={() => setPickerOpen(true)}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Connect another repo…
+            Add another repository…
           </Button>
         ))}
     </div>

@@ -2,7 +2,6 @@ package com.exponential.app.ui.onboarding
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
@@ -117,8 +117,9 @@ fun GithubRepoPickerSheet(
                     ConnectPrompt(
                         data = data,
                         message = "Connect the Exponential GitHub App to pick a repository. " +
-                            "You'll be brought back here when it's done.",
+                            "You'll come right back here.",
                         buttonLabel = "Connect GitHub",
+                        buttonIcon = ExpIcons.uiGithub,
                         onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
                     )
                 }
@@ -132,10 +133,12 @@ fun GithubRepoPickerSheet(
                 data.repos.isEmpty() -> item(key = "reconnect") {
                     ConnectPrompt(
                         data = data,
-                        message = "Reconnect GitHub to load your repositories — we only " +
-                            "list repos you can access. You'll be brought back here when it's done.",
+                        message = "Reconnect GitHub to load the repositories you can access.",
                         buttonLabel = "Reconnect GitHub",
-                        onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
+                        buttonIcon = ExpIcons.uiRefresh,
+                        // The reconnect hop returns here and re-queries by itself;
+                        // only the not-installed state keeps a manual escape hatch.
+                        onRefresh = null,
                     )
                 }
                 else -> installedRepoItems(
@@ -185,13 +188,15 @@ private fun NotConfigured() {
 }
 
 // Connect/reconnect prompt: not-installed and the needs-reauth/empty-grant
-// states share the same Custom-Tab hop, differing only in copy.
+// states share the same Custom-Tab hop, differing in copy and in whether the
+// manual "I've connected — refresh" escape hatch is offered ([onRefresh]).
 @Composable
 private fun ConnectPrompt(
     data: GithubReposResult,
     message: String,
     buttonLabel: String,
-    onRefresh: () -> Unit,
+    buttonIcon: ImageVector,
+    onRefresh: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -214,22 +219,25 @@ private fun ConnectPrompt(
             enabled = connectUrl != null,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(16.dp))
+            Icon(buttonIcon, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text(buttonLabel)
         }
-        OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-            Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("I've connected — refresh")
+        if (onRefresh != null) {
+            OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
+                Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("I've connected — refresh")
+            }
         }
     }
 }
 
 // The installed-repos list as LazyColumn items (EXP-46: repo lists can run to
 // hundreds of rows, so the rows are lazy and the sheet scrolls): reconnect
-// banner + search field as header items, one item per filtered repo, then the
-// refresh/manage footer items.
+// banner + search field as header items, then one item per filtered repo. The
+// old refresh/manage footer links are gone (EXP-329) — reconnecting is the
+// banner's job and repo access is managed on GitHub itself.
 private fun LazyListScope.installedRepoItems(
     data: GithubReposResult,
     query: String,
@@ -247,29 +255,33 @@ private fun LazyListScope.installedRepoItems(
             val context = LocalContext.current
             val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
             val reconnectUrl = data.connectUrl ?: data.installUrl
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .glassRow()
-                    .then(
-                        if (reconnectUrl != null) {
-                            Modifier.clickable {
-                                CustomTabsIntent.Builder().build()
-                                    .launchUrl(context, android.net.Uri.parse(reconnectUrl))
-                            }
-                        } else Modifier,
-                    )
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
-                Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
-                Spacer(Modifier.width(8.dp))
                 Text(
-                    "Reconnect GitHub to load more repositories — we only list repos you can access.",
+                    "Reconnect GitHub to refresh — repos created or shared with you since " +
+                        "your last connect won't appear until you do.",
                     style = MaterialTheme.typography.bodySmall,
                     color = secondary,
-                    modifier = Modifier.weight(1f),
                 )
+                OutlinedButton(
+                    onClick = {
+                        reconnectUrl?.let {
+                            CustomTabsIntent.Builder().build()
+                                .launchUrl(context, android.net.Uri.parse(it))
+                        }
+                    },
+                    enabled = reconnectUrl != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Reconnect GitHub")
+                }
             }
         }
     }
@@ -319,49 +331,6 @@ private fun LazyListScope.installedRepoItems(
             if (repo.isPrivate) {
                 Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = tertiary)
             }
-        }
-    }
-    // Grant-scoped repos go stale when new repos are created/shared on
-    // GitHub — re-running the OAuth connect re-captures the grants, and the
-    // exponential://github-connected return refreshes this list.
-    item(key = "refresh") {
-        val context = LocalContext.current
-        val connectUrl = data.connectUrl ?: data.installUrl
-        OutlinedButton(
-            onClick = {
-                connectUrl?.let {
-                    CustomTabsIntent.Builder().build()
-                        .launchUrl(context, android.net.Uri.parse(it))
-                }
-            },
-            enabled = connectUrl != null,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Refresh from GitHub")
-        }
-    }
-    // Always offered (not just when the list is truncated): the App install
-    // page is where repo access itself is granted/managed.
-    item(key = "manage") {
-        val context = LocalContext.current
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    data.installUrl?.let {
-                        CustomTabsIntent.Builder().build()
-                            .launchUrl(context, android.net.Uri.parse(it))
-                    }
-                }
-                .padding(vertical = 6.dp),
-        ) {
-            Text(
-                "Don't see your repo? Manage repositories on GitHub.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
         }
     }
 }

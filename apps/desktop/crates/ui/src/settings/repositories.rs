@@ -12,29 +12,37 @@
 //!
 //! The GitHub-App **install** is a browser hand-off: the buttons open the
 //! install/manage URL in the system browser through the robust opener chain
-//! (the App's install OAuth flow can't run in-process). Inline repo *connect*
-//! now happens in the create-board dialog once the App is installed — the
-//! shared status/repo fetches live in [`crate::github_connect`]. This pane is
-//! the read-only connected-repo surface + the install/manage hand-off.
+//! (the App's install OAuth flow can't run in-process). EXP-329 gave the pane
+//! the two mutations the web card has had all along — "Add repository"
+//! (the [`super::add_repository_dialog`] picker over `repositories.add`) and
+//! the per-row remove — so connecting a repo no longer requires creating a
+//! board to hang it off. The shared status/repo fetches live in
+//! [`crate::github_connect`].
+//!
+//! A browser hand-off finishes OUTSIDE the app, so window activation is the
+//! refetch trigger: coming back re-reads the connect state without flashing
+//! the skeleton over a list that is already up.
 
 use gpui::{
     div, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
+    notification::Notification,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use serde::{Deserialize, Serialize};
 use sync::Store;
 
 use crate::github_connect::{fetch_github_status, GithubStatus};
+use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
-use super::{section, card_header, error_notice, open_url};
+use super::{card_title, error_notice, open_url, section};
 use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
@@ -47,7 +55,7 @@ use crate::icons::registry;
 #[serde(rename_all = "camelCase")]
 pub(super) struct RepoRow {
     /// Consumed by the Boards pane's repository picker
-    /// (`boards.setRepository`); this read-only pane doesn't render it.
+    /// (`boards.setRepository`) and this pane's per-row remove.
     pub id: String,
     pub full_name: String,
     #[serde(default)]
@@ -108,11 +116,17 @@ pub struct RepositoriesPane {
     loaded_links: Option<Vec<(String, String)>>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
+    /// A remove is in flight — disables every row's trash button.
+    busy: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl RepositoriesPane {
-    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(
+        nav: Entity<Navigation>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
         // The GitHub-App install state + repo list (incl. board names) come
         // straight from the server; navigation (team switch) and — since
         // the per-repo board chips mirror `boards.repository_id` — a
@@ -123,6 +137,13 @@ impl RepositoriesPane {
             cx.observe(&boards, |this: &mut Self, _, cx| {
                 this.refresh_if_links_changed(cx);
             }),
+            // The GitHub connect/install hand-off completes in the browser —
+            // regaining focus is the only signal it happened (EXP-329).
+            cx.observe_window_activation(window, |this, window, cx| {
+                if window.is_window_active() {
+                    this.refetch_stale(cx);
+                }
+            }),
         ];
         Self {
             nav,
@@ -131,6 +152,7 @@ impl RepositoriesPane {
             account_id: None,
             loaded_links: None,
             generation: 0,
+            busy: false,
             _subscriptions: subscriptions,
         }
     }
@@ -165,11 +187,30 @@ impl RepositoriesPane {
         if same_team && !matches!(self.load, Load::Idle) {
             return;
         }
+        self.start_fetch(team_id, true, cx);
+    }
+
+    /// Window activation refetch (EXP-329): re-read the connect state a
+    /// browser hand-off may have changed, WITHOUT flipping back to the
+    /// skeleton — an alt-tab must not blank a list that is already up.
+    fn refetch_stale(&mut self, cx: &mut gpui::Context<Self>) {
+        if !matches!(self.load, Load::Ready(_)) {
+            return;
+        }
+        let Some(team_id) = self.loaded_team.clone() else {
+            return;
+        };
+        self.start_fetch(&team_id, false, cx);
+    }
+
+    fn start_fetch(&mut self, team_id: &str, show_loading: bool, cx: &mut gpui::Context<Self>) {
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
 
-        self.load = Load::Loading;
+        if show_loading {
+            self.load = Load::Loading;
+        }
         self.loaded_team = Some(team_id.to_string());
         self.loaded_links = Some(links_snapshot(team_id, cx));
         self.generation += 1;
@@ -203,9 +244,76 @@ impl RepositoriesPane {
         .detach();
     }
 
-    fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
+    /// Hard refetch after a mutation (add/remove): drop the cached list; the
+    /// next render re-fetches with the skeleton.
+    pub(super) fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
         cx.notify();
+    }
+
+    /// The per-row remove confirm + `repositories.remove` → refetch. The
+    /// server refuses (CONFLICT) while any board still points at the repo —
+    /// including a trashed one, which no chip shows — so its message is
+    /// user-presentable and surfaces verbatim.
+    fn confirm_remove(
+        &mut self,
+        repo: &RepoRow,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let view = cx.entity().downgrade();
+        // The OPENER's window — the alert closes on confirm, so a failure
+        // notification has to land back on the settings window.
+        let handle = window.window_handle();
+        let repository_id = repo.id.clone();
+        let full_name = repo.full_name.clone();
+        let spec = AlertSpec::new(
+            "Remove repository",
+            format!("This disconnects {full_name} from the team."),
+            "Remove",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            let Some(trpc) = queries::trpc_client(cx) else {
+                return true;
+            };
+            let _ = view.update(cx, |this, cx| {
+                this.busy = true;
+                cx.notify();
+            });
+            let view = view.clone();
+            let repository_id = repository_id.clone();
+            let full_name = full_name.clone();
+            cx.spawn(async move |cx| {
+                let removed_id = repository_id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { api::repositories::remove(&trpc, &removed_id) })
+                    .await;
+                let _ = view.update(cx, |this, cx| {
+                    this.busy = false;
+                    if result.is_ok() {
+                        this.refresh(cx);
+                    }
+                    cx.notify();
+                });
+                if let Err(error) = result {
+                    log::warn!("[ui] repositories.remove({repository_id}) failed: {error}");
+                    let message = match &error {
+                        api::ApiError::Http { message, .. } => SharedString::from(message.clone()),
+                        other => SharedString::from(format!(
+                            "Could not remove {full_name}: {other}"
+                        )),
+                    };
+                    let _ = handle.update(cx, |_, window, cx| {
+                        window.push_notification(Notification::error(message), cx);
+                    });
+                }
+            })
+            .detach();
+            true
+        });
+        open_alert(window, cx, spec);
     }
 }
 
@@ -222,16 +330,49 @@ impl Render for RepositoriesPane {
         self.ensure_loaded(&team_id, cx);
 
         let repo_count = match &self.load {
-            Load::Ready(loaded) => loaded.repos.as_ref().map(|repos| repos.len()).unwrap_or(0),
-            _ => 0,
+            Load::Ready(loaded) => loaded.repos.as_ref().ok().map(|repos| repos.len()),
+            _ => None,
         };
+        let dialog_team = team_id.clone();
 
-        let mut body = section(cx).child(card_header(
-            format!("Repositories · {repo_count}"),
-            "Connect GitHub repos so issues in this team can be coded on. Link a repo \
-             to a board to make it the clone target for \u{201c}Start coding\u{201d}.",
-            cx,
-        ));
+        let mut body = section(cx)
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .child(card_title("Repositories"))
+                    .children(
+                        repo_count.map(|count| chip(SharedString::from(count.to_string()), cx)),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("repos-add")
+                            .primary()
+                            .small()
+                            .icon(registry::UI_ADD)
+                            .label("Add repository")
+                            .on_click(cx.listener(move |_, _, window, cx| {
+                                let pane = cx.entity().downgrade();
+                                super::add_repository_dialog::open(
+                                    window,
+                                    cx,
+                                    dialog_team.clone(),
+                                    pane,
+                                );
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(
+                        "Connect GitHub repos so boards in this team can be coded on. Point a \
+                         board at a repo to make it the clone target for \u{201c}Start \
+                         coding\u{201d}.",
+                    ),
+            );
 
         match &self.load {
             Load::Idle | Load::Loading => {
@@ -244,145 +385,8 @@ impl Render for RepositoriesPane {
                 );
             }
             Load::Ready(loaded) => {
-                // GitHub-App banner: live server truth.
-                match &loaded.status {
-                    Some(status) if !status.configured => {
-                        body = body.child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(
-                                    "GitHub is not configured on this server. Set GITHUB_APP_ID \
-                                     and GITHUB_APP_PRIVATE_KEY to enable it.",
-                                ),
-                        );
-                    }
-                    Some(status) if status.installed => {
-                        let label: SharedString = if status.accounts.is_empty() {
-                            "GitHub App installed".into()
-                        } else {
-                            format!("GitHub App installed as {}", status.accounts.join(", "))
-                                .into()
-                        };
-                        let mut banner = h_flex()
-                            .gap_1p5()
-                            .items_center()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(div().size_2().rounded_full().bg(theme::tokens::GREEN.to_hsla()))
-                            .child(Icon::new(registry::UI_GITHUB).xsmall())
-                            .child(label);
-                        if let Some(url) = status.install_url.clone() {
-                            banner = banner.child(
-                                Button::new("gh-manage")
-                                    .link()
-                                    .xsmall()
-                                    .label("Manage on GitHub")
-                                    .icon(registry::UI_EXTERNAL_LINK)
-                                    .on_click(move |_, _, cx| open_url(cx, url.clone())),
-                            );
-                        }
-                        body = body.child(banner);
-                        // Grant-model reconnect (web parity:
-                        // `repositories-section.tsx`): a linked installation
-                        // whose per-user repo grants were never captured
-                        // (`needs_reauth`) lists no repos until the user
-                        // re-runs the OAuth connect — `connect_url`, NOT the
-                        // install page (installing does not re-capture
-                        // grants).
-                        if status.installations.iter().any(|inst| inst.needs_reauth) {
-                            let mut notice = h_flex()
-                                .flex_wrap()
-                                .gap_2()
-                                .items_center()
-                                .px_3()
-                                .py_2()
-                                .rounded(cx.theme().radius)
-                                .border_1()
-                                .border_color(super::row_stroke(cx))
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(
-                                    Icon::new(registry::UI_WARNING)
-                                        .xsmall()
-                                        .text_color(theme::tokens::YELLOW.to_hsla()),
-                                )
-                                .child(div().flex_1().min_w_0().child(
-                                    "Reconnect GitHub to refresh which repositories you can \
-                                     access — repos created or shared with you since your \
-                                     last connect won't appear until you do.",
-                                ));
-                            let reconnect_url = status
-                                .connect_url
-                                .clone()
-                                .or_else(|| status.install_url.clone());
-                            if let Some(url) = reconnect_url {
-                                notice = notice.child(
-                                    Button::new("gh-reconnect")
-                                        .outline()
-                                        .xsmall()
-                                        .label("Reconnect GitHub")
-                                        .icon(registry::UI_GITHUB)
-                                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
-                                );
-                            }
-                            body = body.child(notice);
-                        }
-                    }
-                    Some(status) => {
-                        // Configured but not installed → the install nudge.
-                        // Install is a browser hand-off: open the install URL,
-                        // never carry the App's OAuth flow in-app.
-                        let mut banner = h_flex()
-                            .flex_wrap()
-                            .gap_2()
-                            .items_center()
-                            .px_3()
-                            .py_2()
-                            .rounded(cx.theme().radius)
-                            .border_1()
-                            .border_dashed()
-                            .border_color(super::row_stroke(cx))
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(Icon::new(registry::UI_GITHUB).xsmall())
-                            .child(
-                                div().flex_1().min_w_0().child(
-                                    "The Exponential GitHub App isn't connected for your \
-                                     account yet — connect it here to add repositories.",
-                                ),
-                            );
-                        // Connect claims the account for the team: prefer
-                        // the single-consent connect URL, fall back to the App
-                        // install page.
-                        let connect_url = status
-                            .connect_url
-                            .clone()
-                            .or_else(|| status.install_url.clone());
-                        if let Some(url) = connect_url {
-                            banner = banner.child(
-                                Button::new("gh-install")
-                                    .outline()
-                                    .xsmall()
-                                    .label("Connect GitHub")
-                                    .icon(registry::UI_EXTERNAL_LINK)
-                                    .on_click(move |_, _, cx| open_url(cx, url.clone())),
-                            );
-                        }
-                        body = body.child(banner);
-                    }
-                    None => {
-                        // Status probe failed — banner is best-effort; say
-                        // nothing definite rather than a false "not
-                        // connected".
-                        body = body.child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("Couldn't reach GitHub install state — refresh to retry."),
-                        );
-                    }
-                }
+                // GitHub connect state: live server truth, ONE line.
+                body = body.child(github_status_line(loaded.status.as_ref(), cx));
 
                 match &loaded.repos {
                     Err(message) => {
@@ -406,8 +410,8 @@ impl Render for RepositoriesPane {
                     }
                     Ok(repos) => {
                         let mut list = v_flex().gap_2();
-                        for repo in repos {
-                            list = list.child(render_repo_row(repo, cx));
+                        for (index, repo) in repos.iter().enumerate() {
+                            list = list.child(self.render_repo_row(index, repo, cx));
                         }
                         body = body.child(list);
                     }
@@ -415,83 +419,216 @@ impl Render for RepositoriesPane {
             }
         }
 
-        body = body.child(
-            h_flex().gap_2().child(
-                Button::new("repos-refresh")
-                    .ghost()
-                    .xsmall()
-                    .label("Refresh")
-                    .loading(matches!(self.load, Load::Loading))
-                    .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
-            ),
-        );
-
         v_flex().child(body)
     }
 }
 
-/// Web `RepoRow` (read-only v1): name + branch/private chips, then the
-/// "used by" line — one chip per board the repo backs (v4 one-repo-per-
-/// board; names resolved server-side).
-fn render_repo_row(repo: &RepoRow, cx: &gpui::App) -> impl IntoElement {
-    let mut head = h_flex()
+/// The GitHub connect state as ONE muted line (EXP-329 replaced the stack of
+/// boxed banners): the arms are precedence-ordered, and each carries at most
+/// one hand-off button. Reconnect/Manage open `connect_url` — the OAuth
+/// authorize is what re-captures the per-user repo grants; the App install
+/// page does NOT.
+fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl IntoElement {
+    let row = h_flex()
+        .w_full()
+        .flex_wrap()
         .gap_2()
         .items_center()
-        .child(
-            Icon::new(registry::UI_GITHUB)
-                .small()
-                .text_color(cx.theme().muted_foreground),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_sm()
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(SharedString::from(repo.full_name.clone())),
-        )
-        .child(chip(SharedString::from(repo.default_branch.clone()), cx));
-    if repo.private {
-        head = head.child(chip("Private".into(), cx));
+        .text_xs()
+        .text_color(cx.theme().muted_foreground);
+
+    let Some(status) = status else {
+        // The probe is best-effort — say nothing definite rather than a false
+        // "not connected".
+        return row
+            .child(Icon::new(registry::UI_GITHUB).xsmall())
+            .child("Couldn't reach GitHub connect state.");
+    };
+    if !status.configured {
+        return row
+            .child(Icon::new(registry::UI_GITHUB).xsmall())
+            .child("GitHub isn't configured on this server.");
     }
 
-    let mut links = h_flex().flex_wrap().gap_1p5().pl_6().items_center();
-    if repo.boards.is_empty() {
-        links = links.child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child("No boards linked"),
-        );
+    let connect_url = status
+        .connect_url
+        .clone()
+        .or_else(|| status.install_url.clone());
+
+    if !status.installed {
+        return row
+            .child(Icon::new(registry::UI_GITHUB).xsmall())
+            .child("No GitHub account connected")
+            .children(connect_url.map(|url| {
+                Button::new("gh-connect")
+                    .outline()
+                    .xsmall()
+                    .label("Connect GitHub")
+                    .on_click(move |_, _, cx| open_url(cx, url.clone()))
+            }));
+    }
+
+    // A linked installation whose per-user repo grants were never captured
+    // lists no repos until the user re-runs the OAuth connect.
+    if status.installations.iter().any(|inst| inst.needs_reauth) {
+        return row
+            .child(
+                Icon::new(registry::UI_WARNING)
+                    .xsmall()
+                    .text_color(theme::tokens::YELLOW.to_hsla()),
+            )
+            .child("Reconnect GitHub to refresh which repositories you can access.")
+            .children(connect_url.map(|url| {
+                Button::new("gh-reconnect")
+                    .ghost()
+                    .xsmall()
+                    .label("Reconnect")
+                    .on_click(move |_, _, cx| open_url(cx, url.clone()))
+            }));
+    }
+
+    let label: SharedString = if status.accounts.is_empty() {
+        "GitHub connected".into()
     } else {
-        for board in &repo.boards {
-            links = links.child(
-                h_flex()
-                    .gap_1()
-                    .px_1p5()
-                    .py_0p5()
-                    .items_center()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(super::row_stroke(cx))
-                    .text_xs()
-                    .child(SharedString::from(board.name.clone())),
-            );
-        }
-    }
+        format!("GitHub: {}", status.accounts.join(", ")).into()
+    };
+    row.child(
+        div()
+            .size_2()
+            .flex_shrink_0()
+            .rounded_full()
+            .bg(theme::tokens::GREEN.to_hsla()),
+    )
+    .child(Icon::new(registry::UI_GITHUB).xsmall())
+    .child(label)
+    .children(connect_url.map(|url| {
+        Button::new("gh-manage")
+            .ghost()
+            .xsmall()
+            .label("Manage")
+            .on_click(move |_, _, cx| open_url(cx, url.clone()))
+    }))
+}
 
-    v_flex()
-        .gap_1p5()
-        .px_3()
-        .py_2()
+impl RepositoriesPane {
+    /// Web `RepoRow`: name + branch/private chips + remove, then the "used by"
+    /// line — one chip per board the repo backs (v4 one-repo-per-board; names
+    /// resolved server-side). The server refuses a remove while any board
+    /// still points here (FK restrict), so a linked repo's button says so up
+    /// front instead of firing a doomed mutation.
+    fn render_repo_row(
+        &self,
+        index: usize,
+        repo: &RepoRow,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let mut head = h_flex()
+            .w_full()
+            .gap_2()
+            .items_center()
+            .child(
+                Icon::new(registry::UI_GITHUB)
+                    .small()
+                    .flex_shrink_0()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_sm()
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(SharedString::from(repo.full_name.clone())),
+            )
+            .child(chip(SharedString::from(repo.default_branch.clone()), cx));
+        if repo.private {
+            head = head.child(private_chip(cx));
+        }
+
+        let remove = Button::new(("repo-remove", index)).ghost().xsmall().icon(
+            Icon::new(registry::UI_DELETE)
+                .xsmall()
+                .text_color(cx.theme().muted_foreground),
+        );
+        let linked = repo.boards.len();
+        head = head.child(if linked > 0 {
+            let plural = if linked == 1 { "" } else { "s" };
+            remove.disabled(true).tooltip(SharedString::from(format!(
+                "In use by {linked} board{plural} — change their repository first"
+            )))
+        } else {
+            let repo_for_remove = repo.clone();
+            remove
+                .disabled(self.busy)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.confirm_remove(&repo_for_remove, window, cx);
+                }))
+        });
+
+        let mut links = h_flex().flex_wrap().gap_1p5().pl_6().items_center();
+        if repo.boards.is_empty() {
+            links = links.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Not used by any board"),
+            );
+        } else {
+            // The chips alone read as loose board names — the label says what
+            // the relationship is.
+            links = links.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Used by"),
+            );
+            for board in &repo.boards {
+                links = links.child(
+                    h_flex()
+                        .gap_1()
+                        .px_1p5()
+                        .py_0p5()
+                        .items_center()
+                        .rounded(cx.theme().radius)
+                        .border_1()
+                        .border_color(super::row_stroke(cx))
+                        .text_xs()
+                        .child(SharedString::from(board.name.clone())),
+                );
+            }
+        }
+
+        v_flex()
+            .gap_1p5()
+            .px_3()
+            .py_2()
+            .rounded(cx.theme().radius)
+            .border_1()
+            .border_color(super::row_stroke(cx))
+            .child(head)
+            .child(links)
+    }
+}
+
+/// The "Private" chip — same outline chip with the lock glyph, so private
+/// repos read at a glance instead of by word.
+fn private_chip(cx: &gpui::App) -> impl IntoElement {
+    h_flex()
+        .gap_1()
+        .px_1p5()
+        .py_0p5()
+        .items_center()
         .rounded(cx.theme().radius)
         .border_1()
         .border_color(super::row_stroke(cx))
-        .child(head)
-        .child(links)
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .flex_shrink_0()
+        .child(Icon::new(registry::UI_PRIVATE).xsmall())
+        .child("Private")
 }
 
 /// Outline chip (web `Badge variant="outline"` at compact density).
