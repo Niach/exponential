@@ -25,6 +25,18 @@ class GlassMenuDefaultsTest {
         assertEquals(1f, GlassMenuDefaults.ContainerColor.alpha)
     }
 
+    /**
+     * EXP-357: menus and `glassCard(opaque = true)` (the Review bar's failure
+     * banner) render the SAME opaque fill, from one token — a second recipe
+     * would drift the moment one of them is retuned.
+     */
+    @Test
+    fun theOpaqueFillIsTheSharedGlassToken() {
+        assertEquals(GlassTokens.OpaqueCardFill, GlassMenuDefaults.ContainerColor)
+        assertEquals(Color(0xFF252525), GlassTokens.OpaqueCardFill)
+        assertEquals(1f, GlassTokens.OpaqueCardFill.alpha)
+    }
+
     @Test
     fun strokeIsTheGlassHairline() {
         assertEquals(GlassTokens.Hairline, GlassMenuDefaults.Border.width)

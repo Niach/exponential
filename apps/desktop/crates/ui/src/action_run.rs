@@ -322,9 +322,13 @@ team settings → Repositories.";
     .detach();
 }
 
-/// Surface a runner failure on the target window (best-effort).
+/// Surface a runner failure on the target window (best-effort). A RELAY start
+/// carries no target (EXP-357) — it used to swallow the refusal into the log,
+/// so a remote "Fix merge conflicts" that resolved to nothing looked, from the
+/// phone that sent it, exactly like a start that was never picked up. Fall
+/// back to the shell window every other refusal in this file already uses.
 fn notify_target_error(target: Option<gpui::AnyWindowHandle>, message: &str, cx: &mut App) {
-    if let Some(window) = target {
+    if let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx)) {
         let message = SharedString::from(message.to_string());
         let _ = window.update(cx, |_, window, cx| {
             window.push_notification(Notification::error(message), cx);

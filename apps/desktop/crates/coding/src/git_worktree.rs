@@ -269,6 +269,9 @@ pub fn fetch_base(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<
 /// Idempotent: an existing worktree for the branch is reattached, an
 /// existing branch without a worktree gets one (no `-b`), and only a truly
 /// new branch is cut from `base_ref` (`origin/<defaultBranch>`).
+///
+/// A branch checked out at some OTHER path is reused THERE (EXP-357) — see
+/// [`checked_out_at`].
 pub fn create_worktree(
     clone: &Path,
     branch: &str,
@@ -288,6 +291,29 @@ pub fn create_worktree(
     // A manually deleted worktree dir leaves a stale registration that blocks
     // `worktree add` — prune is cheap and safe.
     let _ = run_git(Some(clone), &["worktree", "prune"], Some(url), "git worktree prune");
+
+    // EXP-357: the layout path is free, but the BRANCH may still be checked
+    // out somewhere else — an agent that ran `git checkout <branch>` inside a
+    // sibling worktree, or a hand-made checkout. `git worktree add` refuses
+    // hard then ("already used by worktree at …"), which killed the whole
+    // run — a remote "Fix merge conflicts" start died on it with nothing to
+    // see on the phone. Git allows one checkout per branch, so honor the one
+    // that exists instead of demanding our own path.
+    if let Some(existing) = checked_out_at(clone, branch) {
+        if !same_path(&existing, clone) {
+            return Ok(existing);
+        }
+        // The trunk clone itself holds the branch: reusing it would put the
+        // run (and its force-push) on the dir the autopull engine owns.
+        return Err(GitError {
+            op: format!("git worktree add ({branch})"),
+            detail: format!(
+                "{branch} is checked out in the main clone at {} — switch it back to the \
+default branch and retry",
+                clone.display()
+            ),
+        });
+    }
 
     let worktree_str = worktree.to_string_lossy().into_owned();
     if branch_exists(clone, branch, url) {
@@ -494,6 +520,29 @@ pub fn prune_merged_worktrees(clone: &Path, prunable_branches: &[String]) -> Vec
         }
     }
     removed
+}
+
+/// Where `branch` is currently checked out among `clone`'s worktrees, if
+/// anywhere. The main clone is the first [`list_worktrees`] entry, so the
+/// answer may be the clone dir itself; callers decide what that means.
+fn checked_out_at(clone: &Path, branch: &str) -> Option<PathBuf> {
+    list_worktrees(clone)
+        .ok()?
+        .into_iter()
+        .find(|entry| entry.branch.as_deref() == Some(branch))
+        .map(|entry| entry.path)
+}
+
+/// Path equality that survives symlinked roots (macOS `/tmp` → `/private/tmp`,
+/// where git reports the resolved path and we hold the symlinked one).
+fn same_path(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 fn branch_exists(clone: &Path, branch: &str, url: &TokenUrl) -> bool {
@@ -815,6 +864,55 @@ mod tests {
         // Relaunch: same issue → same worktree, no error (idempotent reuse).
         let again = create_worktree(&clone, &branch, "origin/main", &url).unwrap();
         assert_eq!(again, worktree);
+    }
+
+    /// EXP-357: the branch is checked out at a path that is NOT the layout
+    /// path (here: a sibling worktree an agent `git checkout`ed onto the PR
+    /// branch). `git worktree add` refuses that outright, which used to kill
+    /// the whole run — a remotely started "Fix merge conflicts" then failed
+    /// with nothing visible on the phone that started it.
+    #[test]
+    fn create_worktree_reuses_a_branch_checked_out_elsewhere() {
+        let dir = temp_dir("elsewhere");
+        let origin = seed_origin(&dir.0);
+        let repos_root = dir.0.join("repos");
+        let clone = clone_path(&repos_root, "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+
+        // A worktree cut for ANOTHER issue, then switched onto exp/EXP-42 —
+        // exactly the state that reproduced the bug.
+        let sibling = create_worktree(&clone, "exp/EXP-41", "origin/main", &url).unwrap();
+        git(&sibling, &["checkout", "--quiet", "-b", "exp/EXP-42"]);
+
+        let reused = create_worktree(&clone, "exp/EXP-42", "origin/main", &url).unwrap();
+        // canonicalize: git prints resolved paths (macOS /tmp → /private/tmp).
+        assert_eq!(reused, sibling.canonicalize().unwrap());
+        assert!(!worktree_path(&clone, "exp/EXP-42").exists());
+    }
+
+    /// The one case that stays an error — but a readable one: the branch sits
+    /// in the trunk clone, which the autopull engine owns.
+    #[test]
+    fn create_worktree_refuses_a_branch_checked_out_in_the_clone() {
+        let dir = temp_dir("in-clone");
+        let origin = seed_origin(&dir.0);
+        let repos_root = dir.0.join("repos");
+        let clone = clone_path(&repos_root, "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+        git(&clone, &["checkout", "--quiet", "-b", "exp/EXP-42"]);
+
+        let err = create_worktree(&clone, "exp/EXP-42", "origin/main", &url).unwrap_err();
+        assert!(err.detail.contains("main clone"), "detail: {}", err.detail);
     }
 
     /// Head of `ref` in `cwd` (short helper for tip comparisons).

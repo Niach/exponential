@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -34,6 +35,16 @@ object GlassTokens {
     val RowFillActive = Color.White.copy(alpha = 0.15f)
     val SectionFill = Color.White.copy(alpha = 0.04f)
     val CardFill = Color.White.copy(alpha = 0.06f)
+
+    /**
+     * [CardFill] composited over the opaque card base (white .06 over #171717 ==
+     * #252525) — the ONE opaque glass fill for surfaces that float over
+     * arbitrary scrolling content (EXP-165/332/357). Compose has no cheap
+     * backdrop blur, so the translucent fills above ghost whatever scrolls
+     * behind them; anything that must stay READABLE while content moves under
+     * it (menus, floating captions, the review bar's failure banner) uses this.
+     */
+    val OpaqueCardFill: Color = CardFill.compositeOver(DesignTokens.Palette.Card)
 
     // Hairline strokes.
     val StrokeRow = Color.White.copy(alpha = 0.06f)
@@ -103,12 +114,16 @@ fun Modifier.glassSection(): Modifier {
         .border(GlassTokens.Hairline, GlassTokens.StrokeSection, shape)
 }
 
-/** Frosted elevated card — iOS `.glassCard()`. */
-fun Modifier.glassCard(): Modifier {
+/**
+ * Frosted elevated card — iOS `.glassCard()`. [opaque] swaps the translucent
+ * tint for [GlassTokens.OpaqueCardFill] so the card can float over scrolling
+ * content without the rows underneath ghosting through it (EXP-357).
+ */
+fun Modifier.glassCard(opaque: Boolean = false): Modifier {
     val shape = RoundedCornerShape(GlassTokens.CardRadius)
     return this
         .clip(shape)
-        .background(GlassTokens.CardFill, shape)
+        .background(if (opaque) GlassTokens.OpaqueCardFill else GlassTokens.CardFill, shape)
         .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
 }
 
