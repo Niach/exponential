@@ -1,4 +1,3 @@
-• Edit labels in place — rename or recolor a label right from team settings
-• A tidier team settings screen with consistent rows and buttons
-• Your account name now shows on the server screen
-• Assorted polish across issue lists and toolbars
+• Answering agent questions from your phone is reliable now — picks confirm visibly and retry automatically
+• Repository settings look and work the same as on every other platform
+• Assorted polish across team settings and the agent session view

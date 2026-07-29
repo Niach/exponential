@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-selfhost-and-billing-portal`,
+    date: `2026-07-29`,
+    title: `Self-host with one docker compose`,
+    summary: `A pinnable self-host image with an agent-followable install guide, a customer billing portal, and a faster desktop IDE.`,
+    body: `- **Self-hosting is now a docker pull** — the cloud and self-host builds are the same published image, pinned by version, with a minimal compose file and an INSTALL.md your coding agent can follow end to end. Free for companies under 10 people.
+- **Manage billing yourself** — team owners can open a customer portal from team settings → Billing to view invoices and update payment details.
+- **Answering agent questions from your phone is reliable now** — plan approvals and question picks from iOS/Android land on the desktop with a visible confirmation, and retry automatically instead of silently vanishing.
+- **Desktop IDE polish** — git history on big repos scrolls smoothly, a merged PR pulls master onto every IDE immediately, a parked trunk (detached head, local commits, dirt) now says so instead of going silently stale, and the repositories settings page looks the same on every platform.
+- Attach any file straight from the editor toolbar on web and desktop.`,
+  },
+  {
     id: `2026-07-new-pricing`,
     date: `2026-07-28`,
     title: `New pricing: bring two friends`,
