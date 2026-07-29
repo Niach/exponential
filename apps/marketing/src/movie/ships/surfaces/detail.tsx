@@ -1,11 +1,13 @@
 // surfaces/detail.tsx — IssueDetailPane: the EXP-142 center pane (Details/Changes header,
-// title, markdown toolbar + description, activity, composer) + the 288px properties panel.
-// Pixel truth: the desktop-hero-board-issue reference screenshot (local-only, untracked; right two-thirds). All frames are
-// composition-global; the assembler passes `frame` down (no useCurrentFrame here).
+// title, markdown toolbar + description, activity, composer) + the 192px properties panel
+// (surface.rs DETAIL_SIDEBAR_WIDTH; Start coding lives HERE under AGENT, like the app).
+// Pixel truth (EXP-359 glass): the real-app reference screenshot — transparent panes
+// on the page gradient, hairline strokes, glass composer card, BOARD chip. All frames
+// are composition-global; the assembler passes `frame` down (no useCurrentFrame here).
 //
 // Coordinates: the pane lays out in PANE-LOCAL px. The assembler is expected to place it
-// at window-local (304, 67) — right of the rail+sidebar, under the 38px top bar + 29px
-// center tab strip. Default size 1264×884 (dock collapsed). See DETAIL_ANCHORS for the
+// at window-local (684, 34) — right of the expanded rail + tool window, under the 34px
+// titlebar. Default size 884×917 (dock collapsed). See DETAIL_ANCHORS for the
 // cursor-target positions of every clickable element (pane-local).
 
 import React from "react"
@@ -25,35 +27,37 @@ const GREEN_BORDER = "rgba(34,197,94,0.4)" // coding-now pill border
 // ── Layout constants (pane-local) ────────────────────────────────────────────
 const HEADER_H = 34
 const PAD_X = 16
-const PROPS_W = WIN.propsPanel // 288
-const DEFAULT_W = WIN.w - WIN.rail - WIN.sidebar // 1264
-const DEFAULT_H = WIN.h - WIN.topBar - WIN.dockTabs - WIN.dockStrip // 884
-const COL_W = 768 // centered content column (incl. its 16px side padding)
-const BTN_START_W = 104
-const BTN_STOP_W = 60
+const PROPS_W = WIN.propsPanel // 192
+const DEFAULT_W = WIN.w - WIN.rail - WIN.sidebar // 884
+const DEFAULT_H = WIN.h - WIN.titleBar - WIN.dockStrip // 917
+const COL_W = 640 // centered content column (incl. its 16px side padding)
 const BTN_SUB_W = 92
 const PILL_W = 184
 const PR_CHIP_W = 94
 
+// Properties-panel group pitch (pane-local Ys, panel padding 18 + ~64/group).
+const PROPS_X = DEFAULT_W - PROPS_W / 2
+
 // Pane-local anchor points for the cursor rig (details state, defaults, no pill/chip).
-// Window-local = anchor + (304, 67) when the pane sits under the center tab strip.
+// Window-local = anchor + (684, 34) when the pane sits under the titlebar.
 export const DETAIL_ANCHORS = {
   detailsTab: { x: 40, y: 17 },
   changesTab: { x: 110, y: 17 },
   switcher: { x: DEFAULT_W - 305, y: 17 },
   prevIssue: { x: DEFAULT_W - 267, y: 17 },
   nextIssue: { x: DEFAULT_W - 245, y: 17 },
-  startCoding: { x: DEFAULT_W - 172, y: 17 },
   subscribed: { x: DEFAULT_W - 62, y: 17 },
   title: { x: 224, y: 70 },
   composerInput: { x: 300, y: 428 },
-  composerSend: { x: 843, y: 444 },
-  propsStatus: { x: 1020, y: 85 },
-  propsPriority: { x: 1020, y: 149 },
-  propsLabels: { x: 1020, y: 213 },
-  propsDueDate: { x: 1020, y: 277 },
-  propsRecurrence: { x: 1030, y: 303 },
-  propsProject: { x: 1030, y: 367 },
+  composerSend: { x: 590, y: 444 },
+  propsStatus: { x: PROPS_X, y: 85 },
+  propsPriority: { x: PROPS_X, y: 149 },
+  propsLabels: { x: PROPS_X, y: 213 },
+  propsDueDate: { x: PROPS_X, y: 277 },
+  propsRecurrence: { x: PROPS_X + 10, y: 303 },
+  propsProject: { x: PROPS_X + 10, y: 367 },
+  // Start coding — the AGENT row in the properties panel (like the app).
+  startCoding: { x: PROPS_X, y: 448 },
 } as const
 
 // ── Tiny inline icons (lucide-like, stroke currentColor) ─────────────────────
@@ -229,11 +233,15 @@ const IcCircleDashed: React.FC<IconProps> = (p) => (
     <circle cx="12" cy="12" r="9" strokeDasharray="3.6 3.4" />
   </Svg>
 )
-const IcTimer: React.FC<IconProps> = (p) => (
+// Pie-clock started glyph (icons.json progress-2-4 — builtin In Progress).
+const IcPieClock: React.FC<IconProps> = (p) => (
   <Svg {...p}>
-    <path d="M10 2h4" />
-    <path d="m12 14 3-3" />
-    <circle cx="12" cy="14" r="8" />
+    <circle cx="12" cy="12" r="10" />
+    <path
+      d="M12 12 L12 6 A6 6 0 0 1 12 18 Z"
+      fill="currentColor"
+      stroke="none"
+    />
   </Svg>
 )
 const IcCircleCheck: React.FC<IconProps> = (p) => (
@@ -246,7 +254,7 @@ const IcCircleCheck: React.FC<IconProps> = (p) => (
 const STATUS_META: Record<IssueStatus, { label: string; color: string; Icon: React.FC<IconProps> }> = {
   backlog: { label: "Backlog", color: C.statusBacklog, Icon: IcCircleDashed },
   todo: { label: "Todo", color: C.statusTodo, Icon: IcCircle },
-  in_progress: { label: "In Progress", color: C.statusInProgress, Icon: IcTimer },
+  in_progress: { label: "In Progress", color: C.statusInProgress, Icon: IcPieClock },
   done: { label: "Done", color: C.statusDone, Icon: IcCircleCheck },
 }
 const PRIO_META: Record<Priority, { label: string; color: string; Icon: React.FC<IconProps> }> = {
@@ -302,13 +310,13 @@ const MarkdownToolbar: React.FC = () => (
       display: "flex",
       alignItems: "center",
       padding: "0 8px",
-      borderBottom: `1px solid ${C.borderSoft}`,
+      borderBottom: `1px solid ${C.strokeRow}`,
       color: C.muted,
     }}
   >
     {TOOLBAR_GROUPS.map((group, gi) => (
       <React.Fragment key={gi}>
-        {gi > 0 ? <div style={{ width: 1, height: 16, backgroundColor: C.border, margin: "0 5px" }} /> : null}
+        {gi > 0 ? <div style={{ width: 1, height: 16, backgroundColor: C.strokeSection, margin: "0 5px" }} /> : null}
         {group.map((glyph, bi) => (
           <div
             key={bi}
@@ -335,7 +343,7 @@ const LabelPill: React.FC<{ name: string; dot: string }> = ({ name, dot }) => (
       height: 20,
       padding: "0 8px",
       borderRadius: 999,
-      border: `1px solid ${C.border}`,
+      border: `1px solid ${C.strokeCard}`,
     }}
   >
     <div style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: dot }} />
@@ -427,7 +435,9 @@ const PropsPanel: React.FC<{
   status: IssueStatus
   priority: Priority
   issue: DetailIssueContent
-}> = ({ frame, staggerAt, status, priority, issue }) => {
+  codingActive?: boolean
+  hoverT?: number // Start-coding row hover wash 0→1
+}> = ({ frame, staggerAt, status, priority, issue, codingActive, hoverT = 0 }) => {
   const st = STATUS_META[status]
   const pr = PRIO_META[priority]
   const due = issue.due
@@ -442,8 +452,9 @@ const PropsPanel: React.FC<{
     <div
       style={{
         width: PROPS_W,
+        boxSizing: "border-box",
         flexShrink: 0,
-        borderLeft: `1px solid ${C.border}`,
+        borderLeft: `1px solid ${C.strokeRow}`,
         padding: "18px 12px",
         display: "flex",
         flexDirection: "column",
@@ -476,7 +487,7 @@ const PropsPanel: React.FC<{
           <span style={{ fontSize: 12.5, color: C.muted }}>Add recurrence</span>
         </div>
       </PropGroup>
-      <PropGroup label="Project" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
+      <PropGroup label="Board" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
         <div style={{ height: 22, display: "flex", alignItems: "center" }}>
           <div
             style={{
@@ -485,13 +496,44 @@ const PropsPanel: React.FC<{
               gap: 8,
               height: 24,
               padding: "0 10px",
-              borderRadius: 6,
-              backgroundColor: C.accentBg,
+              borderRadius: 8,
+              backgroundColor: C.fillCard,
+              border: `1px solid ${C.strokeCard}`,
             }}
           >
             <div style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: issue.projectColor ?? IDENTITY.projectColor }} />
             <span style={{ fontSize: 12, color: C.text }}>{issue.project ?? IDENTITY.project}</span>
           </div>
+        </div>
+      </PropGroup>
+      <PropGroup label="Agent" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
+        <div
+          style={{
+            height: 30,
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            borderRadius: 10,
+            border: `1px solid ${C.strokeCard}`,
+            backgroundColor:
+              hoverT > 0
+                ? `rgba(255,255,255,${0.06 + 0.06 * hoverT})`
+                : C.fillCard,
+          }}
+        >
+          {codingActive ? (
+            <>
+              <IcCircleX size={13} style={{ color: C.destructive }} />
+              <span style={{ fontSize: 12.5, fontWeight: 500, color: C.text }}>Stop</span>
+            </>
+          ) : (
+            <>
+              <IcPlay size={13} sw={1.8} style={{ color: C.green, opacity: 0.85 + 0.15 * hoverT }} />
+              <span style={{ fontSize: 12.5, fontWeight: 500, color: C.text, whiteSpace: "nowrap" }}>Start coding</span>
+            </>
+          )}
         </div>
       </PropGroup>
     </div>
@@ -610,7 +652,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
           display: "flex",
           alignItems: "center",
           padding: `0 ${PAD_X}px`,
-          borderBottom: `1px solid ${C.border}`,
+          borderBottom: `1px solid ${C.strokeRow}`,
           gap: 12,
         }}
       >
@@ -659,7 +701,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
                 height: 22,
                 padding: "0 9px",
                 borderRadius: 999,
-                border: `1px solid ${C.border}`,
+                border: `1px solid ${C.strokeCard}`,
                 scale: String(chipPop),
                 flexShrink: 0,
               }}
@@ -692,31 +734,6 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
             </div>
           </div>
         ) : null}
-        {/* Start coding / Stop */}
-        <div
-          style={{
-            width: codingActive ? BTN_STOP_W : BTN_START_W,
-            height: 24,
-            borderRadius: 6,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            backgroundColor: hoverT > 0 ? `rgba(255,255,255,${0.08 * hoverT})` : undefined,
-          }}
-        >
-          {codingActive ? (
-            <>
-              <IcCircleX size={13} style={{ color: C.destructive }} />
-              <span style={{ fontSize: 12.5, fontWeight: 500, color: C.text }}>Stop</span>
-            </>
-          ) : (
-            <>
-              <IcPlay size={13} sw={1.8} style={{ color: C.green, opacity: 0.85 + 0.15 * hoverT }} />
-              <span style={{ fontSize: 12.5, fontWeight: 500, color: C.text, whiteSpace: "nowrap" }}>Start coding</span>
-            </>
-          )}
-        </div>
         {/* Subscribe toggle */}
         <div
           style={{
@@ -754,8 +771,9 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
               <div style={{ paddingTop: 22, height: 28, fontSize: 20, fontWeight: 600, letterSpacing: -0.2, lineHeight: "28px", boxSizing: "content-box" }}>
                 {issue.title}
               </div>
-              {/* editor box: toolbar + description */}
-              <div style={{ marginTop: 12, border: `1px solid ${C.border}`, borderRadius: 6, height: 166, overflow: "hidden" }}>
+              {/* editor: toolbar + description — no box in the glass app; the
+                  toolbar's own hairline separates it from the text */}
+              <div style={{ marginTop: 12, height: 166, overflow: "hidden" }}>
                 <MarkdownToolbar />
                 <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
                   {issue.descriptionParas.map((para) => (
@@ -768,7 +786,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
               <div style={{ marginTop: 8, height: 16, fontSize: 12, color: C.muted, textAlign: "right" }}>{issue.imagesMeta ?? "0 images"}</div>
             </div>
             {/* full-bleed divider */}
-            <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}` }} />
+            <div style={{ marginTop: 14, borderTop: `1px solid ${C.strokeRow}` }} />
             {/* activity + composer (re-centered) */}
             <div style={{ marginLeft: colMargin, width: COL_W, padding: `14px ${PAD_X}px 0` }}>
               <div style={{ height: 16, fontSize: 12, fontWeight: 500, color: C.muted }}>
@@ -794,8 +812,10 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
                   style={{
                     flex: 1,
                     height: 58,
-                    border: `1px solid ${C.input}`,
-                    borderRadius: 8,
+                    boxSizing: "border-box",
+                    border: `1px solid ${C.strokeStrong}`,
+                    borderRadius: 12,
+                    backgroundColor: C.fillSection,
                     padding: "10px 12px",
                     fontSize: 13,
                     color: C.muted,
@@ -807,8 +827,9 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
                   style={{
                     width: 26,
                     height: 26,
-                    borderRadius: 6,
-                    backgroundColor: C.accentBg,
+                    borderRadius: 8,
+                    backgroundColor: C.fillCard,
+                    border: `1px solid ${C.strokeCard}`,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -821,7 +842,15 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
             </div>
           </div>
           {/* properties panel */}
-          <PropsPanel frame={frame} staggerAt={staggerAt} status={status} priority={priority} issue={issue} />
+          <PropsPanel
+            frame={frame}
+            staggerAt={staggerAt}
+            status={status}
+            priority={priority}
+            issue={issue}
+            codingActive={codingActive}
+            hoverT={hoverT}
+          />
         </div>
       ) : null}
     </div>

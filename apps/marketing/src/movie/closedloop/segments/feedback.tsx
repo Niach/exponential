@@ -23,9 +23,8 @@ import {
 import {
   CenterEmptyState,
   DockCollapsedStrip,
-  IconRail,
-  TabsBar,
-  TopBar,
+  ExpandedRail,
+  TitleBar,
 } from "../../ships/surfaces/chrome"
 import {
   BrowserChassis,
@@ -36,7 +35,7 @@ import {
 import { WIDGET_ANCHORS, WidgetPanel } from "../surfaces/widgetmock"
 import { CL, CL_BOARD, COPY, NEW_ISSUE_ID } from "../fixtures"
 import { SEGMENT_DURATIONS } from "../timeline"
-import { CLAMP, RAIL_IDS, SegmentShell, type SegmentProps } from "./common"
+import { CLAMP, SegmentShell, type SegmentProps } from "./common"
 
 const DUR = SEGMENT_DURATIONS.feedback
 
@@ -73,7 +72,7 @@ const CAMERA_KEYS: CamKey[] = [
   { f: 44, s: 1.55, x: 920, y: 475 },
   { f: 56, s: 1.85, x: 1049, y: 688 },
   { f: B.whip - 1, s: 1.85, x: 1049, y: 688 },
-  { f: B.whip, s: 1.9, x: 507, y: 331 },
+  { f: B.whip, s: 1.9, x: 640, y: 300 },
 ]
 
 const whipBlurAt = (frame: number): number =>
@@ -162,13 +161,14 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({
             </BrowserChassis>
           ) : (
             <WindowChassis>
-              <TopBar
+              <TitleBar frame={frame} />
+              <ExpandedRail
                 frame={frame}
-                projectName={CL.project}
-                runConfig={CL.runConfig}
+                active="board"
+                boardName={CL.project}
+                userName={CL.user}
+                userInitial={CL.initials}
               />
-              <IconRail frame={frame} active="issues" icons={RAIL_IDS} />
-              <TabsBar frame={frame} tabs={[]} activeId="" />
               <SidebarPane
                 title="All Issues"
                 actions={<BoardActions />}
@@ -186,7 +186,7 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({
               <CenterEmptyState
                 frame={frame}
                 bottom={WIN.dockStrip}
-                contentCenter={{ x: 658, y: 352 }}
+                contentCenter={{ x: 1000, y: 330 }}
               />
               <DockCollapsedStrip frame={frame} count={1} />
             </WindowChassis>

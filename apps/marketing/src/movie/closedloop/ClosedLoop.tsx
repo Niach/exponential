@@ -10,23 +10,20 @@
 import React from "react"
 import { AbsoluteFill } from "remotion"
 import { C } from "../ships/theme"
+import { wallpaperBackground } from "../ships/rig"
 import { Reel } from "./scenes/Reel"
 
 // Static background: identical at every frame (no staticFile assets), so the
 // loop point stays seamless and the @remotion/player embed needs no bundle.
+// EXP-359: the blobs play the macOS wallpaper behind the translucent window —
+// positioned so the bleed lands where the reference screenshot shows it
+// (strong violet at the window's bottom-left corner, a softer wash along the
+// right edge). ONE blob list shared with WindowChassis (rig.tsx), which
+// paints the same wallpaper window-locally as the glass "backdrop".
 const GradientBackground: React.FC = () => (
-  <AbsoluteFill style={{ backgroundColor: C.canvas }}>
-    <AbsoluteFill
-      style={{
-        background: `radial-gradient(720px 520px at 50% 32%, rgba(99,102,241,0.20), transparent 70%)`,
-      }}
-    />
-    <AbsoluteFill
-      style={{
-        background: `radial-gradient(600px 400px at 88% 92%, rgba(129,140,248,0.10), transparent 70%)`,
-      }}
-    />
-  </AbsoluteFill>
+  <AbsoluteFill
+    style={{ backgroundColor: C.canvas, backgroundImage: wallpaperBackground() }}
+  />
 )
 
 export const ClosedLoop: React.FC<{ textScale?: number }> = ({

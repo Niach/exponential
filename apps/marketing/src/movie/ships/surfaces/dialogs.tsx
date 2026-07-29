@@ -15,7 +15,7 @@
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { C, EASE, SETTLE, UI_FONT, WIN } from "../theme"
+import { C, EASE, GLASS, R, SETTLE, UI_FONT, WIN } from "../theme"
 import { HERO } from "../fixtures"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
@@ -89,7 +89,7 @@ export const DialogScrim: React.FC<{ frame: number; in: number; out: number }> =
       style={{
         position: "absolute",
         inset: 0,
-        backgroundColor: "rgba(0,0,0,0.5)",
+        backgroundColor: "rgba(0,0,0,0.6)",
         opacity: o,
         zIndex: 40,
       }}
@@ -119,7 +119,7 @@ export const CheckBox: React.FC<{
         width: size,
         height: size,
         borderRadius: 4,
-        border: `1px solid ${isChecked ? C.primary : C.input}`,
+        border: `1px solid ${isChecked ? C.primary : C.strokeStrong}`,
         backgroundColor: isChecked ? C.primary : "rgba(255,255,255,0.03)",
         scale: String(scale),
         display: "flex",
@@ -167,9 +167,9 @@ export const SelectBox: React.FC<{
           top: boxY,
           width: w,
           height: 30,
-          borderRadius: 6,
-          border: `1px solid ${C.input}`,
-          backgroundColor: "rgba(255,255,255,0.04)",
+          borderRadius: 8,
+          border: `1px solid ${C.strokeStrong}`,
+          backgroundColor: C.fillSection,
           boxShadow: glow > 0 ? `0 0 0 1px rgba(255,255,255,${0.25 * glow})` : undefined,
           opacity: disabled ? 0.55 : 1,
           display: "flex",
@@ -189,7 +189,7 @@ export const SelectBox: React.FC<{
   )
 }
 
-// Select popover menu (#171717 popover surface, check on the selected option).
+// Select popover menu (glass floating panel, check on the selected option).
 const MENU_ROW_H = 26
 const MENU_PAD = 4
 const SelectMenu: React.FC<{
@@ -215,10 +215,10 @@ const SelectMenu: React.FC<{
         left: x,
         top: y,
         width: w,
-        borderRadius: 6,
-        border: `1px solid ${C.border}`,
-        backgroundColor: C.panel,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+        borderRadius: 12,
+        border: `1px solid ${C.strokeCard}`,
+        backgroundColor: C.panelFloat,
+        boxShadow: `0 8px 24px rgba(0,0,0,0.5), ${GLASS.shadow}`,
         padding: MENU_PAD,
         boxSizing: "border-box",
         opacity: o,
@@ -235,8 +235,8 @@ const SelectMenu: React.FC<{
             key={opt}
             style={{
               height: MENU_ROW_H,
-              borderRadius: 4,
-              backgroundColor: hovered ? C.accentBg : "transparent",
+              borderRadius: 6,
+              backgroundColor: hovered ? C.fillActive : "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -291,7 +291,7 @@ export const FooterButtons: React.FC<{
           ...btn,
           left: rightEdge - PRIMARY_W - 8 - CANCEL_W,
           width: CANCEL_W,
-          border: `1px solid ${C.input}`,
+          border: `1px solid ${C.strokeStrong}`,
           backgroundColor: "rgba(255,255,255,0.02)",
           color: C.text,
         }}
@@ -347,10 +347,13 @@ export const DialogShell: React.FC<{
         top: y,
         width: w,
         height: h,
-        borderRadius: 8,
-        border: `1px solid ${C.border}`,
-        backgroundColor: C.bg, // ref pixel truth: card bg = app bg, not #171717
-        boxShadow: "0 24px 64px rgba(0,0,0,0.55), 0 4px 16px rgba(0,0,0,0.4)",
+        borderRadius: R.card,
+        border: `1px solid ${C.strokeCard}`,
+        // glass sheet: 95% #171717. NO backdrop-filter here — nesting a
+        // backdrop root inside the WindowChassis blur inverts the panes
+        // behind the dialog in headless chrome.
+        backgroundColor: C.panelFloat,
+        boxShadow: `0 24px 64px rgba(0,0,0,0.55), 0 4px 16px rgba(0,0,0,0.4), ${GLASS.shadow}`,
         opacity,
         scale: String(scale),
         translate: `0px ${80 * ct}px`,

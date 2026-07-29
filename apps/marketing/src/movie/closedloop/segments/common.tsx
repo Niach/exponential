@@ -8,7 +8,6 @@
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
 import { EASE, WIN } from "../../ships/theme"
-import type { RailIconId } from "../../ships/surfaces/chrome"
 
 export const CLAMP = {
   extrapolateLeft: "clamp",
@@ -18,23 +17,11 @@ export const CLAMP_EASE = { ...CLAMP, easing: EASE } as const
 
 export type SegmentProps = { frame: number; textScale: number }
 
-// Center-pane geometry (window-local).
-export const CENTER_X = WIN.rail + WIN.sidebar // 304
-export const CENTER_W = WIN.w - CENTER_X // 1264
-export const CONTENT_TOP = WIN.topBar + WIN.dockTabs // 67
-
-// The ClosedLoop rail set: NO rocket/releases icon (deleted feature).
-export const RAIL_IDS: RailIconId[] = [
-  "search",
-  "inbox",
-  "agents",
-  "issues",
-  "reviews",
-  "files",
-  "source-control",
-  "settings",
-  "account",
-]
+// Center-pane geometry (window-local, post-EXP-253/282 shell: expanded rail
+// 164 + issue-list tool window 520; tabs live in the 34px titlebar).
+export const CENTER_X = WIN.rail + WIN.sidebar // 684
+export const CENTER_W = WIN.w - CENTER_X // 884
+export const CONTENT_TOP = WIN.titleBar // 34
 
 const RISE_DUR = 6
 const SETTLE_DUR = 6
