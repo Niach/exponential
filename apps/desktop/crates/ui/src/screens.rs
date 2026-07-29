@@ -172,8 +172,8 @@ fn overflow_button_width(window: &Window, hidden_max: usize) -> f32 {
 /// Chips are laid out in tab order until the next one would not fit; the
 /// overflow button's own width is only reserved once something actually
 /// overflows, so a set that fits exactly keeps every chip. The ACTIVE tab is
-/// always among the visible ones — if it fell past the cut it displaces the
-/// last chip that fit (display order only; `self.tabs` keeps its order).
+/// always among the visible ones — its width is committed up front and the
+/// rest pack around it (display order only; `self.tabs` keeps its order).
 ///
 /// EXP-326: this used to run on estimates that came out long in three
 /// separate places, so the strip collapsed tabs while there was still empty
@@ -195,25 +195,35 @@ fn partition_tabs(
     }
 
     let budget = (available - overflow_w - gap).max(0.);
+    // EXP-343: the ACTIVE chip's width is committed before any packing — it
+    // is always visible, so the rest pack around it in tab order. The old
+    // shape of this packed a prefix and then swapped its last chip for the
+    // active one WITHOUT re-checking the budget, so a wide active tab
+    // overflowed the strip — far enough to shove the Linux window controls
+    // off the window edge and clip the "+N" button.
     let mut visible: Vec<usize> = Vec::new();
-    let mut used = 0.;
+    let mut used = active_ix.map_or(0., |ix| widths[ix]);
+    let mut chips = usize::from(active_ix.is_some());
     for (ix, width) in widths.iter().enumerate() {
-        let next = used + width + if visible.is_empty() { 0. } else { gap };
-        if next > budget && !visible.is_empty() {
+        if Some(ix) == active_ix {
+            visible.push(ix);
+            continue;
+        }
+        let next = used + width + if chips > 0 { gap } else { 0. };
+        if next > budget && chips > 0 {
             break;
         }
         visible.push(ix);
         used = next;
-    }
-    if visible.is_empty() && count > 0 {
-        visible.push(0);
+        chips += 1;
     }
     if let Some(active) = active_ix {
         if !visible.contains(&active) {
-            if let Some(last) = visible.last_mut() {
-                *last = active;
-            }
+            visible.push(active);
         }
+    }
+    if visible.is_empty() && count > 0 {
+        visible.push(0);
     }
     visible
 }
@@ -1189,6 +1199,21 @@ mod tests {
         let widths = [100., 100., 100.];
         let available = 200. + GAP + OVERFLOW + GAP;
         assert_eq!(partition(&widths, available, Some(2)), vec![0, 2]);
+    }
+
+    /// EXP-343: a WIDER active chip shrinks the visible prefix instead of
+    /// overflowing. The old displacement swapped the active chip in for the
+    /// last fitting one without re-checking the budget, so the strip ran
+    /// past its width — on Linux far enough to push the window controls off
+    /// the window edge and clip the "+N" button.
+    #[test]
+    fn a_wide_active_tab_shrinks_the_prefix_instead_of_overflowing() {
+        let widths = [100., 100., 250.];
+        // Room for the two 100s plus "+N" — but not for 250 + 100.
+        let available = 200. + GAP + OVERFLOW + GAP;
+        assert_eq!(partition(&widths, available, Some(2)), vec![2]);
+        // With room for 250 + 100 + "+N", the first chip stays.
+        assert_eq!(partition(&widths, available + 150., Some(2)), vec![0, 2]);
     }
 
     /// A single chip wider than the whole strip still renders (clipped by

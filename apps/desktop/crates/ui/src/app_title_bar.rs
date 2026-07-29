@@ -190,7 +190,12 @@ impl Render for AppTitleBar {
                 3. * f32::from(crate::title_bar::TITLE_BAR_HEIGHT) + BAR_INSET
             };
             let taken = rail_w + tongue_w + left_inset + fullscreen_inset + right_reserve;
-            (window.viewport_size().width - px(taken)).max(px(160.))
+            // EXP-343: on Linux CSD the viewport includes the rounded frame's
+            // shadow + border, which are NOT content space — without
+            // subtracting them the budget runs ~26px long and the strip's
+            // tail lands under the window controls.
+            let frame_chrome = crate::window_frame::frame_horizontal_chrome(window);
+            (window.viewport_size().width - frame_chrome - px(taken)).max(px(160.))
         };
         // Building the strip via `update` on the panel entity is safe here —
         // the titlebar renders outside the panel's own render pass.
