@@ -233,9 +233,12 @@ export function PlanComparison({
   // Container-query columns (EXP-184): this grid renders inside fixed-width
   // containers (settings content ~640px, upgrade dialog) where viewport
   // breakpoints overflowed the cards — column count must follow the CONTAINER.
+  // `@container` has to sit on an ANCESTOR of the queried element: an element
+  // can't query itself, so the old `@container @xl:grid-cols-2` on the grid
+  // itself never matched and the cards always stacked (EXP-341).
   return (
-    <div className="space-y-3">
-      <div className="@container grid grid-cols-1 gap-3 @xl:grid-cols-2">
+    <div className="@container space-y-3">
+      <div className="grid grid-cols-1 gap-3 @md:grid-cols-2">
         {TIERS.map((t) => {
           const isCurrent = t.tier === currentPlan
           const productId = getProductId(t.tier)
@@ -263,12 +266,9 @@ export function PlanComparison({
             t.tier === `team` && showYearlyToggle && teamYearly
               ? `€12`
               : t.pricePerSeat
-          const cadence =
-            t.tier === `team` && showYearlyToggle
-              ? teamYearly
-                ? `Billed yearly`
-                : `Billed monthly`
-              : t.cadence
+          // With the toggle present it IS the cadence caption (EXP-341) —
+          // a "Billed yearly" line under the price would just repeat it.
+          const cadence = showYearlyToggle ? null : t.cadence
 
           return (
             <Card
@@ -295,8 +295,29 @@ export function PlanComparison({
                     {t.priceUnit}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">{cadence}</p>
+                {cadence && (
+                  <p className="text-xs text-muted-foreground">{cadence}</p>
+                )}
               </CardHeader>
+
+              {/* Cadence toggle right under the price, fenced by rules —
+                  the price above follows it (EXP-341). */}
+              {showYearlyToggle && (
+                <div className="flex items-center gap-2.5 border-y px-4 py-2.5">
+                  <Switch
+                    id={yearlyToggleId}
+                    checked={teamYearly}
+                    onCheckedChange={setTeamYearly}
+                  />
+                  <Label
+                    htmlFor={yearlyToggleId}
+                    className="text-xs font-normal text-muted-foreground"
+                  >
+                    Billed yearly
+                  </Label>
+                </div>
+              )}
+
               <CardContent className="flex flex-1 flex-col gap-4 px-4">
                 <div className="space-y-2">
                   {t.features.map((f) => (
@@ -304,24 +325,8 @@ export function PlanComparison({
                   ))}
                 </div>
 
-                {(showYearlyToggle || canUpgrade || canSwitch) && (
+                {(canUpgrade || canSwitch) && (
                   <div className="mt-auto space-y-2.5 border-t pt-3">
-                    {showYearlyToggle && (
-                      <div className="flex items-center justify-between gap-2">
-                        <Label
-                          htmlFor={yearlyToggleId}
-                          className="text-xs text-muted-foreground"
-                        >
-                          Bill yearly (€12/seat/mo)
-                        </Label>
-                        <Switch
-                          id={yearlyToggleId}
-                          checked={teamYearly}
-                          onCheckedChange={setTeamYearly}
-                        />
-                      </div>
-                    )}
-
                     {canUpgrade && (
                       <>
                         <SeatStepper seats={seats} onChange={setSeats} />
@@ -382,7 +387,8 @@ export function PlanComparison({
         {EVERY_PLAN_INCLUDES}
       </p>
       <p className="text-xs leading-snug text-muted-foreground">
-        {ENTERPRISE_LINE}{` `}
+        {ENTERPRISE_LINE}
+        {` `}
         <a
           href="https://exponential.at/contact/"
           target="_blank"
