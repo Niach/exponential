@@ -171,6 +171,10 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
 
     public var id: Int { anchorId }
     public var toolCount: Int { items.count }
+    /// Whether the row has anything behind its chevron — the detail is always
+    /// visible collapsed, so only tool calls justify an expand affordance
+    /// (EXP-350: a chevron on an empty group expanded to nothing).
+    public var expandable: Bool { !items.isEmpty }
 
     public init(
         anchorId: Int,
@@ -317,6 +321,11 @@ public enum AgentFeed {
     /// Client-side feed cap — old events fall off the top. Matches the relay's
     /// ACTIVITY_LOG_CAP so a full replay never truncates.
     public static let feedCap = 2000
+    /// `subagent.agentType` when the desktop's hook payload carried none — old
+    /// desktop builds also stamp it onto the COMPLETED edge, so it is a
+    /// sentinel the label selection skips past, never a type to prefer
+    /// (EXP-350).
+    public static let subagentFallbackType = "agent"
 
     /// Ids of the question items still answerable.
     ///
@@ -578,15 +587,21 @@ public enum AgentFeed {
             return .ask(AgentAskGroup(askId: askId, questions: questions))
         case let .subagent(subagentId):
             guard let anchorId = builder.items.map(\.id).min() else { return nil }
-            var agentType = "agent"
+            var types: [String] = []
             var detail: String?
             var done = false
             for item in builder.items {
                 guard case let .subagent(_, _, type, status, markerDetail) = item else { continue }
-                agentType = type
+                if !type.isEmpty { types.append(type) }
                 if status == .completed { done = true }
                 if let markerDetail { detail = markerDetail }
             }
+            // First marker with a REAL type wins — "agent" is the desktop's
+            // fallback sentinel, and old builds stamp it onto the completed
+            // edge, so last-wins degraded every finished row's label (EXP-350).
+            let agentType = types.first { $0 != Self.subagentFallbackType }
+                ?? types.first
+                ?? Self.subagentFallbackType
             return .subagentRun(AgentSubagentRun(
                 anchorId: anchorId,
                 subagentId: subagentId,

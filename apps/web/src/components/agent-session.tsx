@@ -30,6 +30,7 @@ import {
   hasSemanticQuestions,
   isAnswerLocked,
   pushEcho,
+  summarizeSubagentRow,
   upsertQuestion,
   ANSWER_ACK_TIMEOUT_MS,
   FEED_CAP,
@@ -1644,18 +1645,40 @@ function PermissionRow({ tool, detail }: { tool: string; detail?: string }) {
 }
 
 /** A subagent's work (protocol v2): its lifecycle events plus every tool call
- *  it made, collapsed into one expandable row like a tool run. */
+ *  it made, collapsed into one expandable row like a tool run. Expandable only
+ *  when there ARE tool calls — the detail is always visible collapsed, so a
+ *  chevron on an empty group would expand to nothing (EXP-350). */
 function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   const [expanded, setExpanded] = useState(false)
-  const agents = items.filter(
-    (i): i is Extract<FeedItem, { kind: `subagent` }> => i.kind === `subagent`
-  )
   const tools = items.filter(
     (i): i is Extract<FeedItem, { kind: `tool` }> => i.kind === `tool`
   )
-  const latest = agents[agents.length - 1]
-  const completed = agents.some((a) => a.status === `completed`)
-  const detail = [...agents].reverse().find((a) => a.detail)?.detail
+  const { agentType, done, detail } = summarizeSubagentRow(items)
+  const expandable = tools.length > 0
+  const header = (
+    <>
+      <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
+      <span className="shrink-0 text-xs font-medium">{agentType}</span>
+      {!done && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
+      <span className="shrink-0 text-[0.6875rem]">
+        {done ? `done` : `running`}
+        {tools.length > 0 &&
+          ` · ${tools.length} tool call${tools.length === 1 ? `` : `s`}`}
+      </span>
+      {detail && (
+        <span className="truncate text-[0.6875rem]" title={detail}>
+          {detail}
+        </span>
+      )}
+    </>
+  )
+  if (!expandable) {
+    return (
+      <div className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5 text-muted-foreground">
+        {header}
+      </div>
+    )
+  }
   return (
     <div className="min-w-0">
       <button
@@ -1668,23 +1691,9 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
         ) : (
           <ChevronRight className="size-3 shrink-0" />
         )}
-        <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
-        <span className="shrink-0 text-xs font-medium">
-          {latest?.agentType ?? `subagent`}
-        </span>
-        {!completed && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
-        <span className="shrink-0 text-[0.6875rem]">
-          {completed ? `done` : `running`}
-          {tools.length > 0 &&
-            ` · ${tools.length} tool call${tools.length === 1 ? `` : `s`}`}
-        </span>
-        {detail && (
-          <span className="truncate text-[0.6875rem]" title={detail}>
-            {detail}
-          </span>
-        )}
+        {header}
       </button>
-      {expanded && tools.length > 0 && (
+      {expanded && (
         <div className="ml-5">
           {tools.map((tool) => (
             <ToolRow key={tool.id} name={tool.name} detail={tool.detail} />

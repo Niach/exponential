@@ -193,6 +193,11 @@ const val QUESTION_ANSWERED_PREFIX = "Question answered: "
  *  WITHOUT answers (Esc / rejected); retires every pending question card. */
 const val QUESTION_DISMISSED_NARRATION = "Question dismissed."
 
+/** `subagent.agentType` when the desktop's hook payload carried none — old
+ *  desktop builds also stamp it onto the COMPLETED edge, so it is a sentinel
+ *  the label selection skips past, never a type to prefer (EXP-350). */
+const val SUBAGENT_FALLBACK_TYPE = "agent"
+
 /** Fold an answer into the EARLIEST unanswered non-plan question card
  *  (answers arrive in question order, so earliest-first keeps multi-question
  *  asks aligned). Legacy path only — cards carrying a wire id resolve through
@@ -375,43 +380,70 @@ sealed interface AgentFeedRow {
         override val id get() = steps.minOf { it.id }
     }
 
+    /** A subagent's run, derived from every marker and tagged tool call in the
+     *  feed (EXP-350 — grouping is by id across the WHOLE feed, iOS/web
+     *  parity, so an interleaved fan-out never splits a group). The label is
+     *  the first marker's REAL type: a later marker carrying the fallback (an
+     *  old desktop's completed edge) can never degrade it. */
     data class SubagentRun(
-        val subagent: AgentFeedItem.Subagent,
+        override val id: Long,
+        val subagentId: String,
+        val agentType: String,
+        val completed: Boolean,
+        val detail: String?,
         val tools: List<AgentFeedItem.Tool>,
-    ) : AgentFeedRow {
-        override val id get() = subagent.id
-    }
+    ) : AgentFeedRow
 }
 
 /** Render-time projection of the flat feed — a pure function: the feed itself
  *  (and [activeQuestionIds] over it) is never restructured.
- *  - a subagent row absorbs the tool calls that follow it,
+ *  - a subagent's markers and its tagged tool calls collapse into ONE row by
+ *    id across the whole feed (EXP-350 — an interleaved fan-out used to strand
+ *    every group's tools), anchored where the group's first item landed,
  *  - all question cards sharing an askId collapse into ONE stepper row,
  *    anchored where the ask's first card landed,
- *  - runs of ≥2 consecutive tool calls collapse into one "N tool calls" row. */
+ *  - runs of ≥2 consecutive PLAIN tool calls collapse into one "N tool calls"
+ *    row (a tagged tool belongs to its subagent, never to a main-thread run). */
 fun groupFeedRows(feed: List<AgentFeedItem>): List<AgentFeedRow> {
     val stepsByAsk = feed.filterIsInstance<AgentFeedItem.Question>()
         .filter { it.askId != null }
         .groupBy { it.askId!! }
+    val markersBySubagent = feed.filterIsInstance<AgentFeedItem.Subagent>()
+        .groupBy { it.subagentId }
+    val toolsBySubagent = feed.filterIsInstance<AgentFeedItem.Tool>()
+        .filter { it.subagentId != null }
+        .groupBy { it.subagentId!! }
     val emittedAsks = mutableSetOf<String>()
+    val emittedSubagents = mutableSetOf<String>()
     val rows = mutableListOf<AgentFeedRow>()
     var i = 0
     while (i < feed.size) {
         val item = feed[i]
+        val subagentId = when {
+            item is AgentFeedItem.Subagent -> item.subagentId
+            item is AgentFeedItem.Tool -> item.subagentId
+            else -> null
+        }
         when {
-            item is AgentFeedItem.Subagent -> {
-                var end = i
-                while (end + 1 < feed.size) {
-                    val next = feed[end + 1]
-                    if (next is AgentFeedItem.Tool && next.subagentId == item.subagentId) end++ else break
+            subagentId != null -> {
+                if (emittedSubagents.add(subagentId)) {
+                    val markers = markersBySubagent[subagentId].orEmpty()
+                    val tools = toolsBySubagent[subagentId].orEmpty()
+                    val types = markers.map { it.agentType }.filter { it.isNotBlank() }
+                    rows.add(
+                        AgentFeedRow.SubagentRun(
+                            id = (markers.map { it.id } + tools.map { it.id }).min(),
+                            subagentId = subagentId,
+                            agentType = types.firstOrNull { it != SUBAGENT_FALLBACK_TYPE }
+                                ?: types.firstOrNull()
+                                ?: SUBAGENT_FALLBACK_TYPE,
+                            completed = markers.any { it.completed },
+                            detail = markers.lastOrNull { it.detail != null }?.detail,
+                            tools = tools,
+                        ),
+                    )
                 }
-                rows.add(
-                    AgentFeedRow.SubagentRun(
-                        item,
-                        feed.subList(i + 1, end + 1).map { it as AgentFeedItem.Tool },
-                    ),
-                )
-                i = end + 1
+                i++
             }
             item is AgentFeedItem.Question && item.askId != null -> {
                 if (emittedAsks.add(item.askId)) {
@@ -426,7 +458,10 @@ fun groupFeedRows(feed: List<AgentFeedItem>): List<AgentFeedRow> {
             }
             item is AgentFeedItem.Tool -> {
                 var end = i
-                while (end + 1 < feed.size && feed[end + 1] is AgentFeedItem.Tool) end++
+                while (end + 1 < feed.size) {
+                    val next = feed[end + 1]
+                    if (next is AgentFeedItem.Tool && next.subagentId == null) end++ else break
+                }
                 if (end == i) {
                     rows.add(AgentFeedRow.Single(item))
                 } else {

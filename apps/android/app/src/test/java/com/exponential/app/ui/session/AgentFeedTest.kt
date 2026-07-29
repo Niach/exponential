@@ -408,6 +408,71 @@ class AgentFeedTest {
         val rows = groupFeedRows(feed)
         assertTrue((rows[0] as AgentFeedRow.SubagentRun).tools.isEmpty())
         assertEquals(2, rows.size)
+        // The orphan (its marker fell off the top) still forms its own group.
+        val orphan = rows[1] as AgentFeedRow.SubagentRun
+        assertEquals("s2", orphan.subagentId)
+        assertEquals(SUBAGENT_FALLBACK_TYPE, orphan.agentType)
+        assertEquals(listOf(2L), orphan.tools.map { it.id })
+    }
+
+    @Test
+    fun `an interleaved fan-out groups every subagent's tools by id`() {
+        // EXP-350: two subagents' tools interleave — positional grouping used
+        // to strand every tool outside its group.
+        val feed = listOf<AgentFeedItem>(
+            subagent(1, "s1", completed = false),
+            subagent(2, "s2", completed = false),
+            tool(3).copy(subagentId = "s1"),
+            AgentFeedItem.Narration(4, "checking in"),
+            tool(5).copy(subagentId = "s2"),
+            tool(6).copy(subagentId = "s1"),
+        )
+        val rows = groupFeedRows(feed)
+        assertEquals(3, rows.size)
+        val first = rows[0] as AgentFeedRow.SubagentRun
+        assertEquals("s1", first.subagentId)
+        assertEquals(listOf(3L, 6L), first.tools.map { it.id })
+        val second = rows[1] as AgentFeedRow.SubagentRun
+        assertEquals("s2", second.subagentId)
+        assertEquals(listOf(5L), second.tools.map { it.id })
+        assertEquals(AgentFeedRow.Single(feed[3]), rows[2])
+    }
+
+    @Test
+    fun `a tagged tool never joins a main-thread tool run`() {
+        val feed = listOf<AgentFeedItem>(
+            tool(1),
+            tool(2),
+            tool(3).copy(subagentId = "s1"),
+        )
+        val rows = groupFeedRows(feed)
+        assertEquals(2, rows.size)
+        assertEquals(listOf(1L, 2L), (rows[0] as AgentFeedRow.ToolRun).items.map { it.id })
+        assertEquals("s1", (rows[1] as AgentFeedRow.SubagentRun).subagentId)
+    }
+
+    @Test
+    fun `a fallback-typed completed marker never degrades the label`() {
+        // An old desktop's completed edge carries the "agent" fallback as a
+        // SECOND marker (this client's completeSubagent normally folds it, but
+        // a replayed log can hold both) — the real type must win.
+        val feed = listOf<AgentFeedItem>(
+            subagent(1, "s1", completed = false).copy(detail = "map the repo"),
+            AgentFeedItem.Subagent(2, "s1", SUBAGENT_FALLBACK_TYPE, completed = true),
+        )
+        val run = groupFeedRows(feed)[0] as AgentFeedRow.SubagentRun
+        assertEquals("explore", run.agentType)
+        assertTrue(run.completed)
+        assertEquals("map the repo", run.detail)
+    }
+
+    @Test
+    fun `a completed-only marker keeps its type and renders a static empty group`() {
+        val feed = listOf<AgentFeedItem>(subagent(1, "s1", completed = true))
+        val run = groupFeedRows(feed)[0] as AgentFeedRow.SubagentRun
+        assertEquals("explore", run.agentType)
+        assertTrue(run.completed)
+        assertTrue(run.tools.isEmpty())
     }
 
     @Test
@@ -452,8 +517,8 @@ class AgentFeedTest {
         val rows = groupFeedRows(state.feed)
         assertEquals(2, rows.size)
         val run = rows[0] as AgentFeedRow.SubagentRun
-        assertTrue(run.subagent.completed)
-        assertEquals("done", run.subagent.detail)
+        assertTrue(run.completed)
+        assertEquals("done", run.detail)
         assertEquals(1, run.tools.size)
         assertEquals(
             AgentFeedItem.Permission(2, "Bash", "rm -rf"),

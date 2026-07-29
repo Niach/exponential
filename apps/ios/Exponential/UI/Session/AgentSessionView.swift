@@ -1034,7 +1034,10 @@ private struct ToolGroupRow: View {
 
 /// A subagent's run (EXP-249): its `started` marker plus every tool call the
 /// desktop tagged with it, collapsed into one expandable row so a long subagent
-/// detour never buries the main thread's activity.
+/// detour never buries the main thread's activity. The header always shows the
+/// agent type, a running/done status, and the delegation detail; expansion only
+/// reveals the tool calls — so a run with none renders as a static row with no
+/// chevron (EXP-350: the chevron used to expand to nothing).
 private struct SubagentGroupRow: View {
     let run: AgentSubagentRun
     /// The trailing row of a live session — keep the latest call visible.
@@ -1048,33 +1051,40 @@ private struct SubagentGroupRow: View {
         return count == 0 ? run.agentType : "\(run.agentType) · \(work)"
     }
 
+    private var header: some View {
+        HStack(spacing: 8) {
+            if run.expandable {
+                AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            AppIcon(AppIcons.codingSubagent, size: 11)
+                .foregroundStyle(DesignTokens.Semantic.blue)
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Text(run.done ? "done" : "running…")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                expanded.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    AppIcon(AppIcons.codingSubagent, size: 11)
-                        .foregroundStyle(DesignTokens.Semantic.blue)
-                    Text(title)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    if !run.done {
-                        Text("running…")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-                    Spacer(minLength: 0)
+            if run.expandable {
+                Button {
+                    expanded.toggle()
+                } label: {
+                    header.contentShape(Rectangle())
                 }
-                .padding(.vertical, 2)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel(expanded ? "Collapse subagent" : "Expand subagent")
+            } else {
+                header
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(expanded ? "Collapse subagent" : "Expand subagent")
-            if let detail = run.detail, !expanded {
+            if let detail = run.detail {
                 Text(detail)
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -1083,11 +1093,6 @@ private struct SubagentGroupRow: View {
             }
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let detail = run.detail {
-                        Text(detail)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
                     ForEach(run.items) { item in
                         if case let .tool(_, name, detail, _) = item {
                             ToolRow(name: name, detail: detail)
