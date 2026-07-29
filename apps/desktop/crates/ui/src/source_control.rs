@@ -34,16 +34,18 @@
 //! a library (DNR L5).
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, AppContext as _, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Render, ScrollHandle, SharedString,
+    div, px, size, AnyElement, App, AppContext as _, Entity, FocusHandle, Focusable, FontWeight,
+    InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    ActiveTheme as _, Disableable as _, Sizable as _,
+    scroll::{ScrollableElement as _, ScrollbarAxis},
+    v_virtual_list, ActiveTheme as _, Disableable as _, Sizable as _, VirtualListScrollHandle,
 };
 use sync::Store;
 
@@ -53,10 +55,14 @@ use crate::coding_flow::{self, CodingHub};
 use crate::diff::{build_scm_diff, DiffView};
 use crate::navigation::{self, Navigation};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
-use crate::scroll_pane::v_scroll_pane;
 
 /// History page size (§4.4: "200 at a time, Load more").
 const HISTORY_PAGE: usize = 200;
+/// Fixed sidebar history row height (EXP-344: the list is virtualized, so
+/// every row pins this height — two `text_xs` lines + the row inset).
+const HISTORY_ROW_HEIGHT: f32 = 48.;
+/// The trailing "Load more" row's height.
+const HISTORY_MORE_ROW_HEIGHT: f32 = 30.;
 
 /// What the diff pane is showing.
 #[derive(Clone)]
@@ -762,7 +768,7 @@ impl Render for SourceControlView {
 /// diff.
 pub struct HistoryList {
     rail: Entity<crate::sidebar::RailShared>,
-    scroll: ScrollHandle,
+    scroll: VirtualListScrollHandle,
     /// The clone the loaded history belongs to (scope-change reset key).
     seen_clone: Option<PathBuf>,
     /// The last trunk-sync `sync_seq` this list re-read for.
@@ -787,7 +793,7 @@ impl HistoryList {
         ];
         Self {
             rail,
-            scroll: ScrollHandle::new(),
+            scroll: VirtualListScrollHandle::new(),
             seen_clone: None,
             seen_sync_seq: 0,
             history: Vec::new(),
@@ -884,6 +890,15 @@ impl HistoryList {
         .detach();
     }
 
+    /// One virtual row: a commit for `ix < history.len()`, else the trailing
+    /// "Load more" row (present only while `history_has_more`).
+    fn render_row(&self, ix: usize, cx: &mut gpui::Context<Self>) -> AnyElement {
+        match self.history.get(ix) {
+            Some(commit) => self.commit_row(commit, cx).into_any_element(),
+            None => self.load_more_row(cx).into_any_element(),
+        }
+    }
+
     fn commit_row(&self, commit: &CommitInfo, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let selected = self
@@ -896,12 +911,15 @@ impl HistoryList {
         // EXP-282: flat edge-to-edge rows like the issue list — the pill
         // inset (rounded + horizontal container padding) and the pre-glass
         // `accent` fills are gone; hover/selected use the glass list tokens.
+        // EXP-344: the row pins the virtual list's fixed height.
         gpui_component::v_flex()
             .id(SharedString::from(format!("hist-commit-{}", commit.hash)))
             .w_full()
+            .h(px(HISTORY_ROW_HEIGHT))
+            .overflow_hidden()
+            .justify_center()
             .gap_0p5()
             .px_3()
-            .py_1()
             .when(selected, |this| this.bg(theme.list_active))
             .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
@@ -915,6 +933,7 @@ impl HistoryList {
             .child(
                 div()
                     .text_xs()
+                    .truncate()
                     .text_color(theme.muted_foreground)
                     .child(SharedString::from(meta)),
             )
@@ -929,67 +948,94 @@ impl HistoryList {
                 );
             }))
     }
+
+    /// History "Load more" (§4.4) as the list's trailing virtual row.
+    fn load_more_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+            .h(px(HISTORY_MORE_ROW_HEIGHT))
+            .px_2()
+            .flex()
+            .items_center()
+            .child(
+                Button::new("hist-more")
+                    .ghost()
+                    .xsmall()
+                    .label(if self.history_loading {
+                        "Loading…"
+                    } else {
+                        "Load more"
+                    })
+                    .disabled(self.history_loading)
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.load_more(cx);
+                    })),
+            )
+    }
 }
 
 impl Render for HistoryList {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_fresh(cx);
-        let muted = cx.theme().muted_foreground;
         let no_clone = self.seen_clone.is_none();
-        v_scroll_pane(
-            "hist-scroll",
-            &self.scroll,
-            gpui_component::v_flex()
-                // EXP-282: no horizontal padding — the commit rows run
-                // full-width (they carry their own `px_3`); the notices and
-                // the "Load more" button re-add the inset themselves.
+
+        // Empty states need no scroller at all.
+        if no_clone || self.history.is_empty() {
+            let muted = cx.theme().muted_foreground;
+            return div()
+                .flex_1()
+                .min_h_0()
                 .py_1()
-                .gap_0p5()
-                .when(no_clone, |this| {
-                    this.child(
-                        div()
-                            .px_3()
-                            .py_2()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("No repository resolved yet."),
-                    )
-                })
-                .children(
-                    self.history
-                        .iter()
-                        .map(|commit| self.commit_row(commit, cx)),
+                .child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(if no_clone {
+                            "No repository resolved yet."
+                        } else {
+                            "No commits yet."
+                        }),
                 )
-                .when(!no_clone && self.history.is_empty(), |this| {
-                    this.child(
-                        div()
-                            .px_3()
-                            .py_2()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("No commits yet."),
+                .into_any_element();
+        }
+
+        // EXP-344: the history is a virtualized fixed-height-row list (like
+        // the issue list) — the old plain scroll pane re-laid-out every
+        // loaded commit row each frame, which got visibly laggy at 200+
+        // rows. The optional "Load more" row rides along as the last index.
+        let mut sizes = vec![size(px(0.), px(HISTORY_ROW_HEIGHT)); self.history.len()];
+        if self.history_has_more {
+            sizes.push(size(px(0.), px(HISTORY_MORE_ROW_HEIGHT)));
+        }
+        let sizes: Rc<Vec<_>> = Rc::new(sizes);
+
+        div()
+            .flex_1()
+            .min_h_0()
+            .child(
+                gpui_component::v_flex()
+                    .id("hist-scroll")
+                    .relative()
+                    .size_full()
+                    .child(
+                        v_virtual_list(
+                            cx.entity().clone(),
+                            "hist-commits",
+                            sizes,
+                            |this, visible_range, _window, cx| {
+                                visible_range
+                                    .map(|ix| this.render_row(ix, cx))
+                                    .collect()
+                            },
+                        )
+                        // EXP-282: no horizontal padding — the commit rows
+                        // run full-width (they carry their own `px_3`).
+                        .py_1()
+                        .track_scroll(&self.scroll),
                     )
-                })
-                .when(self.history_has_more, |this| {
-                    this.child(
-                        // EXP-282: the container lost its horizontal padding
-                        // for full-width rows — the button keeps its inset.
-                        div().px_2().child(
-                            Button::new("hist-more")
-                                .ghost()
-                                .xsmall()
-                                .label(if self.history_loading {
-                                    "Loading…"
-                                } else {
-                                    "Load more"
-                                })
-                                .disabled(self.history_loading)
-                                .on_click(cx.listener(|this, _, _window, cx| {
-                                    this.load_more(cx);
-                                })),
-                        ),
-                    )
-                }),
-        )
+                    .scrollbar(&self.scroll, ScrollbarAxis::Vertical),
+            )
+            .into_any_element()
     }
 }
