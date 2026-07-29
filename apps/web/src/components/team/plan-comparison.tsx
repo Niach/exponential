@@ -35,7 +35,7 @@ const EVERY_PLAN_INCLUDES = `Every plan includes unlimited boards, repos and cod
 
 // Enterprise stopped being a card (EXP-286) — it's this one line under the
 // grid, pointing at the contact page.
-const ENTERPRISE_LINE = `Need SSO, SLA, DPA or a self-host contract?`
+const ENTERPRISE_LINE = `Need SSO, SLA or DPA?`
 
 type TierInfo = {
   tier: PlanTier
@@ -395,7 +395,7 @@ export function PlanComparison({
           rel="noreferrer"
           className="underline underline-offset-2 hover:text-foreground"
         >
-          Talk to us
+          Talk to us about Enterprise Support
         </a>
         .
       </p>

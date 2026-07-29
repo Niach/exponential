@@ -62,7 +62,7 @@ export function DocsPage() {
               it: the free cloud at{` `}
               <a href={LINKS.app.login}>app.exponential.at</a> or{` `}
               <a href="/docs/self-host/">self-hosted</a> on your own server,
-              free while your company is under 10 people.
+              free for everyone — open source under Apache-2.0.
             </p>
 
             <div className="docs-embed">
@@ -128,9 +128,9 @@ export function DocsPage() {
               The source is public at{` `}
               <a href={LINKS.github.repo}>github.com/Niach/exponential</a> —
               code, issues, and release notes all live there. Exponential is
-              source-available, not open source: see{` `}
-              <a href="/docs/self-host/#licensing">Licensing</a> for what you
-              may do with it.
+              fully open source under Apache-2.0: see{` `}
+              <a href="/docs/self-host/#licensing">Licensing</a> for the
+              details.
             </p>
             <p>
               Found a bug or want a feature? Hit the feedback button in the

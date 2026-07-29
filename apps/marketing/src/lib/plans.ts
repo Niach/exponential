@@ -18,7 +18,7 @@
 import { LINKS } from "./links"
 
 export type Plan = {
-  id: `free` | `team` | `selfhost` | `commercial`
+  id: `free` | `team` | `selfhost` | `support`
   name: string
   amount: string
   /* Set only for self-serve cloud tiers — drives the schema.org Offer list. */
@@ -35,6 +35,10 @@ export type Plan = {
   enterprise?: boolean
   selfHost?: boolean
   features: string[]
+  /* Rendered after the feature list with a warning glyph instead of a check —
+     an honest technical limitation, not a restriction (EXP-352: the self-host
+     card's "no mobile push"). */
+  caveat?: string
   cta: { label: string; href: string }
 }
 
@@ -48,8 +52,10 @@ export type CloudPlan = Plan
 export const EVERY_PLAN_INCLUDES = `Every plan includes unlimited boards, repos and coding sessions, all native apps, real-time sync, and email & remote steer.`
 
 /* Enterprise stopped being a pricing card (EXP-286) — it is a sales
-   motion, rendered as one line under the plan grid. */
-export const ENTERPRISE_LINE = `Need SSO, SLA, DPA or a self-host contract?`
+   motion, rendered as one line under the plan grid. Since EXP-352 the
+   product it sells is Enterprise Support, an optional add-on — the
+   Apache-2.0 license removed every mandatory contract. */
+export const ENTERPRISE_LINE = `Need SSO, SLA or DPA?`
 
 /* The main grid: Free · Team · Self-hosted (EXP-338). */
 export const PLANS: Plan[] = [
@@ -94,38 +100,38 @@ export const PLANS: Plan[] = [
     name: `Self-hosted`,
     amount: `Free`,
     cadence: `your hardware`,
-    tagline: `Free for individuals and small businesses — under 10 people.`,
+    tagline: `Free forever — open source under Apache-2.0.`,
     selfHost: true,
     features: [
+      `Free forever, unlimited users`,
       `Every feature unlocked`,
-      `Unlimited seats & storage`,
+      `Unlimited storage`,
       `One docker compose`,
-      `Source-available (ESTL-1.0)`,
-      `No mobile push (cloud-only)`,
+      `Open source (Apache-2.0)`,
     ],
+    caveat: `No push notifications`,
     cta: { label: `Read self-host docs`, href: `/docs/self-host/` },
   },
 ]
 
-/* Self-host licensing tier — self-host is free under the Exponential Small
-   Team License 1.0 while you are under 10 people; at 10 or more a
-   commercial license is required, at a published annual price (EXP-286).
-   Rendered as a single card in the /pricing licensing section (EXP-338 moved
-   the free self-host card into the main grid above). */
-export const COMMERCIAL_LICENSE: Plan = {
-  id: `commercial`,
-  name: `Commercial license`,
+/* Enterprise Support — an OPTIONAL add-on for self-hosters (EXP-352: the
+   Apache-2.0 switch deleted the mandatory 10+-people commercial license;
+   the published prices carried over as a support contract). Rendered as a
+   single card in the /pricing Enterprise Support section. */
+export const ENTERPRISE_SUPPORT: Plan = {
+  id: `support`,
+  name: `Enterprise Support`,
   amount: `€590`,
   cadence: `/year`,
-  note: `up to 25 people`,
-  tagline: `For companies of 10 or more running it in-house.`,
+  note: `up to 25 users`,
+  tagline: `Optional add-on — self-hosting stays free either way.`,
   enterprise: true,
   features: [
-    `€590/yr up to 25 people`,
-    `€1,900/yr up to 100 people`,
+    `€590/yr up to 25 users`,
+    `€1,900/yr up to 100 users`,
     `Custom above 100`,
-    `One annual invoice`,
-    `Extended support`,
+    `SLA & priority support`,
+    `Deployment help & custom development`,
   ],
   /* Dedicated contact page with the sales form (EXP-39). */
   cta: { label: `Contact sales`, href: `/contact/` },

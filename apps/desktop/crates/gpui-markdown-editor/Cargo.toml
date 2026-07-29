@@ -2,9 +2,10 @@
 # list of local modifications. Upstream: github.com/yuWorm/gpui-markdeditor
 # (Apache-2.0), itself an extraction of github.com/manyougz/velotype v0.7.0.
 #
-# License is EXPLICITLY Apache-2.0, never `license.workspace = true` — the
-# workspace default is LicenseRef-ESTL-1.0 and must not be stamped onto
-# third-party code. `gpui` resolves through [workspace.dependencies] to the
+# License is EXPLICITLY Apache-2.0, never `license.workspace = true` — this is
+# third-party code whose license is its own fact, not a workspace default to
+# inherit (the two happen to match since EXP-352 moved the repo to Apache-2.0).
+# `gpui` resolves through [workspace.dependencies] to the
 # zed GIT pin; upstream targeted the unrelated crates.io `gpui 0.2.2` package
 # id, which must never enter this graph (see the workspace Cargo.toml warning).
 [package]

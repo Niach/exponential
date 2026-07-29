@@ -203,11 +203,12 @@ export function GettingStartedDocsPage() {
                 <a href="/docs/feedback/">helpdesk</a>.
               </li>
               <li>
-                <strong>Self-hosting is free under 10 people</strong> — set
+                <strong>Self-hosting is free for everyone</strong> — open
+                source under Apache-2.0. Set <code>SELF_HOSTED=true</code> and
+                every plan limit disappears, billing included. Optional{` `}
+                <a href="/docs/self-host/#licensing">Enterprise Support</a>
                 {` `}
-                <code>SELF_HOSTED=true</code> and every plan limit disappears,
-                billing included. Companies with 10 or more people need a{` `}
-                <a href="/docs/self-host/#licensing">commercial license</a>.
+                is available if you want an SLA.
               </li>
             </ul>
           </DocsSection>

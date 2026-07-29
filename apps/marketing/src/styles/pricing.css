@@ -235,6 +235,15 @@
   flex: none;
 }
 
+/* Honest technical limitation on a card (EXP-352: self-host has no mobile
+   push) — visually distinct from the checked features, but calm, not red. */
+.plan-features li.plan-caveat {
+  color: var(--fg-dim);
+}
+.plan-features li.plan-caveat svg {
+  color: #d4a24e;
+}
+
 .plan-footnote {
   margin: 22px auto 0;
   max-width: 520px;

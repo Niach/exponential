@@ -1,7 +1,7 @@
 //! Inert replacement for Zed's `ztracing` profiling shim (EXP-222).
 //!
-//! The upstream crate is GPL-3.0-or-later — statically linking it is incompatible
-//! with distributing the desktop binary under ESTL-1.0 — so the workspace `[patch]`
+//! The upstream crate is GPL-3.0-or-later — statically linking it would put the
+//! shipped desktop binary under GPL-3.0 terms — so the workspace `[patch]`
 //! table swaps in this crate. It mirrors the API surface upstream exposes when the
 //! `ztracing` cfg is OFF (the only configuration this workspace ever builds): a
 //! pass-through `#[instrument]`, a unit `Span`, token-eating span/event macros, and

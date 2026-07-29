@@ -18,9 +18,10 @@ targets = [
 # Permissive licenses, plus MPL-2.0 — the one weak-copyleft exception: MPL's
 # copyleft is FILE-scoped (unmodified third-party crates satisfy it by their source
 # being public) and it imposes no terms on the larger work, so it is compatible with
-# distributing the binary under ESTL-1.0. Any strong copyleft (GPL/LGPL/AGPL) or
-# unknown license fails the check: the ESTL-1.0 headcount cap is a GPL-incompatible
-# "additional restriction". Extend this list deliberately.
+# distributing the binary under Apache-2.0. Any strong copyleft (GPL/LGPL/AGPL) or
+# unknown license fails the check: statically linking it would impose its terms on
+# the whole shipped binary, which we distribute under Apache-2.0 only. Extend this
+# list deliberately.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -41,8 +42,8 @@ allow = [
     "bzip2-1.0.6",           # libbz2-rs-sys (BSD-style bzip2 license)
     "0BSD",
 ]
-# Our own workspace crates (LicenseRef-ESTL-1.0, publish = false) are what we ship,
-# not third-party code — skip them instead of teaching SPDX our license id.
+# Our own workspace crates (Apache-2.0, publish = false) are what we ship, not
+# third-party code the audit is for — skip them.
 private = { ignore = true }
 
 # tree-sitter-graphql omits the `license` manifest field but ships a plain MIT

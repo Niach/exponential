@@ -2,8 +2,9 @@ gpui-markdown-editor — vendored third-party code (EXP-261)
 ===========================================================
 
 This crate is vendored source, licensed under the Apache License 2.0 (see the
-LICENSE file in this directory). It is NOT covered by the repository's
-Exponential Small Team License.
+LICENSE file in this directory). The upstream authors keep their copyright —
+this NOTICE and the crate LICENSE are authoritative for it (the repository as
+a whole is also Apache-2.0 since EXP-352).
 
 Provenance
 ----------

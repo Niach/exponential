@@ -1,9 +1,11 @@
 # Exponential
 
-**Vibecode together.** Issues, customer support, and coding agents in one realtime workspace — agents run locally on your machines, on your subscription, with unlimited sessions at a flat price. Native on web, macOS, Windows, Linux, iOS, and Android.
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+
+**Vibecode together.** Issues, customer support, and coding agents in one realtime workspace — agents run locally on your machines, on your subscription, with unlimited sessions at a flat price. Native on web, macOS, Windows, Linux, iOS, and Android. Open source under Apache-2.0.
 
 - **Cloud**: [app.exponential.at](https://app.exponential.at) — free for teams of up to three
-- **Self-host**: one `docker compose`, every feature, free for companies under 10 people ([docs](https://exponential.at/docs/self-host/))
+- **Self-host**: one `docker compose`, every feature, free for everyone — no seat caps, no restrictions ([docs](https://exponential.at/docs/self-host/))
 - **Download the desktop IDE**: [exponential.at/download](https://exponential.at/download/)
 
 ## What it does
@@ -78,6 +80,10 @@ claude mcp add --transport http exponential https://app.exponential.at/api/mcp
 
 First call opens a browser login; every tool call after runs as your user.
 
+## Push notifications on self-hosted instances
+
+One capability doesn't travel: **mobile push notifications**. The store-distributed iOS and Android apps are compiled against the first-party Firebase/APNs project, so a self-hosted instance can't push to them. Web and desktop are fully featured either way; the mobile apps work against a self-hosted instance (build them from source in this repo), they just won't receive push. Push notifications are available on the cloud plans, and an enterprise push relay for self-hosters is on the roadmap.
+
 ## License
 
-[Exponential Small Team License 1.0](./LICENSE) — source-available, not open source. Read it, change it, and self-host it in production for free while your company, affiliates included, has **fewer than 10 people** (employees plus independent contractors). 10 or more needs a commercial self-host license — €590/yr up to 25 people, €1,900/yr up to 100, custom above ([pricing](https://exponential.at/pricing/), support@exponential.at). Evaluation, development, testing, and non-commercial research stay free at any size. Nobody may offer it to third parties as a hosted or managed service, whatever their size.
+[Apache-2.0](./LICENSE) — fully open source. Self-host it in production for free, for any team size, with no restrictions. Optional [Enterprise Support](https://exponential.at/pricing/) is available for self-hosters who want an SLA, priority support, deployment help, or custom development (support@exponential.at).

@@ -1,6 +1,10 @@
 import { motion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
-import { EnterpriseLine, LicenseCard, PlanCards } from "./components/PlanCards"
+import {
+  EnterpriseLine,
+  EnterpriseSupportCard,
+  PlanCards,
+} from "./components/PlanCards"
 import { ComparisonTable } from "./components/ComparisonTable"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 import { EVERY_PLAN_INCLUDES } from "./lib/plans"
@@ -50,16 +54,25 @@ export function PricingPage() {
           }}
         >
           <motion.div className="shell" {...sectionReveal}>
-            <span className="section-eyebrow">Self-host licensing</span>
-            <h2 className="section-title">10 or more people? One invoice.</h2>
+            <span className="section-eyebrow">Self-hosting</span>
+            <h2 className="section-title">
+              Open source. Support if you want it.
+            </h2>
             <p className="section-sub">
-              Self-hosting is free under the Exponential Small Team License
-              while you&apos;re under 10 people — the card above. From 10
-              people it takes a commercial license, at published annual
-              pricing: no negotiation, no enforcement in the software, just a
-              contract.
+              Exponential is fully open source under Apache-2.0 — self-hosting
+              is free for everyone, at any size, forever. If you want an SLA,
+              priority support, deployment help, or custom development on top,
+              add Enterprise Support: an optional contract at published annual
+              pricing, never a requirement.
             </p>
-            <LicenseCard />
+            <EnterpriseSupportCard />
+            <p className="plan-footnote">
+              📱 Push notifications require App Store distribution. Self-hosted
+              instances can use the web and desktop apps with full
+              functionality; the mobile apps work (build from source) but
+              won&apos;t receive push notifications. Enterprise push relay
+              coming soon.
+            </p>
           </motion.div>
         </section>
 
