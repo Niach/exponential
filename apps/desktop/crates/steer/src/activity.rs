@@ -124,6 +124,12 @@ const PLAN_SUBMIT_PROBE: Duration = Duration::from_millis(500);
 /// questions publish before the TUI renders) or land on a mid-render frame —
 /// refusing those outright meant no ack, and the mobile stepper visibly
 /// rolled back to the already-answered step.
+///
+/// EXP-347: the viewers' answer-lock timeouts (web `ANSWER_ACK_TIMEOUT_MS`,
+/// Android `ANSWER_ACK_TIMEOUT_MS`, iOS `answerLockSeconds` — all 8s) are
+/// derived from this budget: retry TTL (4s) + [`ANSWER_SETTLE`] (2s) +
+/// [`PLAN_SUBMIT_PROBE`] (0.5s) + ~1.5s tick/relay margin. Grow them in
+/// lockstep or a worst-case ack lands after the card already flashed "Failed".
 const ANSWER_RETRY_TTL: Duration = Duration::from_secs(4);
 /// Gap between injected keystrokes — the TUI processes one key per render.
 const KEYSTROKE_GAP: Duration = Duration::from_millis(60);
@@ -358,6 +364,11 @@ pub struct TranscriptState {
     /// EXP-249: ask ids the HOOK already published (identity, not text) —
     /// their post-answer transcript twins are swallowed outright.
     pub hook_published_asks: HashSet<String>,
+    /// EXP-347: a suppressed plan twin flushed since the last emitter look —
+    /// claude only flushes the `ExitPlanMode` entry once the picker is
+    /// answered, so this is the "plan resolved" signal that still arrives
+    /// while the viewport is scrolled (the grid watcher is sticky there).
+    pub plan_twin_flushed: bool,
 }
 
 /// Grid-question memory cap — a session never has this many live pickers.
@@ -440,6 +451,7 @@ pub fn process_transcript_line(
                         ..
                     } if state.suppress_plan_questions > 0 => {
                         state.suppress_plan_questions -= 1;
+                        state.plan_twin_flushed = true;
                         false
                     }
                     // The late twin of an already-published AskUserQuestion —
@@ -1150,6 +1162,11 @@ struct SteerState {
     /// prompt cannot happen then, so a permission-flavored Notification is
     /// claude parked on input — never a blocked-on-approval card.
     bypass_permissions: bool,
+    /// EXP-347: a question/plan resolution was learned since the last
+    /// [`Self::take_resolution`] — the emitter clears the publisher's
+    /// grid-picker flag on it instead of waiting for the next grid tick
+    /// (which never comes while the viewport is scrolled).
+    resolution_seen: bool,
 }
 
 /// One question about to go on the wire.
@@ -1169,6 +1186,12 @@ impl SteerState {
     /// Whether a hook says the session is parked on a picker right now.
     fn has_pending_question(&self) -> bool {
         self.plan.is_some() || self.ask.is_some()
+    }
+
+    /// EXP-347: whether a resolution was learned since the last call — a
+    /// consuming read (`false` until the next resolution).
+    fn take_resolution(&mut self) -> bool {
+        std::mem::take(&mut self.resolution_seen)
     }
 
     fn publish_question(&mut self, question: Publishable, sender: &ActivitySender) {
@@ -1363,6 +1386,9 @@ impl SteerState {
             // the collected answers) still follows when it does land.
             HookEventKind::Stop | HookEventKind::SessionEnd { .. } => {
                 self.attention = None;
+                // The turn is over ⇒ no picker can be on the grid, whatever
+                // the (possibly scroll-stuck) watcher last saw (EXP-347).
+                self.resolution_seen = true;
                 if let Some(ask) = self.ask.take() {
                     self.live
                         .retain(|_, live| live.ask_id.as_deref() != Some(ask.ask_id.as_str()));
@@ -1436,6 +1462,7 @@ impl SteerState {
 
     /// The plan picker left the screen — answered, dismissed, or superseded.
     fn resolve_plan(&mut self, sender: &ActivitySender) {
+        self.resolution_seen = true;
         // Legacy signal FIRST: pre-v2 clients retire the card on this exact
         // narration and nothing else (EXP-150/EXP-174).
         sender.send(ActivityEvent::narration(PLAN_RESOLVED_NARRATION));
@@ -1547,6 +1574,7 @@ impl SteerState {
     /// cards, and any progress at all clears a stale attention flag.
     fn observe_published(&mut self, event: &ActivityEvent) {
         if let ActivityEvent::QuestionResolved { ask_id, .. } = event {
+            self.resolution_seen = true;
             if let Some(ask_id) = ask_id {
                 self.live
                     .retain(|_, live| live.ask_id.as_deref() != Some(ask_id.as_str()));
@@ -1999,6 +2027,23 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     sender.send(event);
                 },
             );
+        }
+
+        // 4b) EXP-347: a resolution learned this tick — from the hooks (Stop /
+        //     SessionEnd, step 0), the grid (plan Transition::Resolved, step
+        //     1), or the transcript flush just tailed (a QuestionResolved or
+        //     the suppressed plan twin, both of which claude only writes once
+        //     the picker is ANSWERED) — means no picker owns the keyboard
+        //     anymore. Clear the sticky grid memory and push the publisher's
+        //     flag NOW rather than at the next step-2 publish: while the
+        //     viewport is scrolled the grid recompute never runs, and a stale
+        //     `true` reroutes a remote message's Esc into a live turn,
+        //     cancelling it.
+        if steer.take_resolution() || std::mem::take(&mut transcript_state.plan_twin_flushed) {
+            grid_picker_visible = false;
+            if let Some(steering) = &config.steering {
+                steering.link.set_grid_picker_pending(false);
+            }
         }
 
         // 5) …and from the freshest subagent sidechains, whose tool headlines
@@ -2713,6 +2758,10 @@ mod tests {
             &mut |event| events.push(event),
         );
         assert_eq!(state.suppress_plan_questions, 0);
+        // EXP-347: a suppressed twin only flushes once the plan picker is
+        // ANSWERED — the emitter reads this flag to drop the publisher's
+        // grid-picker reroute signal even while the viewport is scrolled.
+        assert!(state.plan_twin_flushed, "the consumed twin flags a resolution");
         match &events[..] {
             [ActivityEvent::Narration { text, .. }, ActivityEvent::Question { plan_mode, .. }] => {
                 assert_eq!(text, "On it.");
@@ -3740,6 +3789,10 @@ mod tests {
             other => panic!("expected one ask resolution, got {other:?}"),
         }
         assert!(!steer.has_pending_question());
+        // EXP-347: the Stop doubles as a resolution signal — one consuming
+        // read clears the publisher's grid-picker flag without a grid tick.
+        assert!(steer.take_resolution());
+        assert!(!steer.take_resolution(), "consuming read");
 
         // The retired cards are no longer answerable — settled, not retried.
         let (write_input, keys) = recording_input(term.clone(), None, "\t");
@@ -3800,6 +3853,34 @@ mod tests {
         steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
         assert!(drained(&rx).is_empty(), "nothing was on the wire to retire");
         assert!(!steer.has_pending_question());
+    }
+
+    #[test]
+    fn resolutions_flag_a_consuming_take_resolution() {
+        // EXP-347: every path the emitter learns of a picker resolution
+        // through must raise the flag that clears the publisher's grid-picker
+        // reroute signal — the grid recompute alone never runs while the
+        // viewport is scrolled, and a stale `true` Escs (cancels) a turn the
+        // desktop user already started by answering locally.
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        assert!(!steer.take_resolution());
+
+        // A transcript-flushed ask resolution (observe_published).
+        steer.observe_published(&ActivityEvent::QuestionResolved {
+            id: None,
+            ask_id: Some("toolu_ask".to_string()),
+            answers: None,
+            dismissed: Some(true),
+            at: None,
+        });
+        assert!(steer.take_resolution());
+        assert!(!steer.take_resolution(), "consuming read");
+
+        // The plan picker leaving the grid (Transition::Resolved).
+        steer.resolve_plan(&sender);
+        assert!(steer.take_resolution());
+        drained(&rx);
     }
 
     #[test]

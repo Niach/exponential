@@ -65,8 +65,11 @@ const val FEED_CAP = 2000
 
 /** How long an unacknowledged answer keeps its card locked (EXP-249): the
  *  desktop confirms injection with `answer_ack`, and a silently dropped frame
- *  must not strand the card as un-answerable forever. */
-private const val ANSWER_ACK_TIMEOUT_MS = 5_000L
+ *  must not strand the card as un-answerable forever. Derived from the
+ *  desktop's worst-case ack budget (EXP-347): ANSWER_RETRY_TTL 4s +
+ *  ANSWER_SETTLE 2s + PLAN_SUBMIT_PROBE 0.5s + ~1.5s tick/relay margin —
+ *  web/iOS parity, move all three in lockstep. */
+private const val ANSWER_ACK_TIMEOUT_MS = 8_000L
 
 /** Redial cadence while the desktop's publisher socket is still starting. */
 private const val STARTING_RETRY_MS = 3_000L

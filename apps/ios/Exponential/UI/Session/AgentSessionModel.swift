@@ -141,8 +141,11 @@ final class AgentSessionModel {
     /// How long an optimistic answer lock holds without an `answer_ack` or a
     /// `question_resolved` — long enough to cover a slow desktop injection,
     /// short enough that a lost frame doesn't strand the card. Web/Android
-    /// parity (ANSWER_ACK_TIMEOUT_MS, EXP-249).
-    private static let answerLockSeconds: Double = 5
+    /// parity (ANSWER_ACK_TIMEOUT_MS, EXP-249). Derived from the desktop's
+    /// worst-case ack budget (EXP-347): ANSWER_RETRY_TTL 4s + ANSWER_SETTLE 2s
+    /// + PLAN_SUBMIT_PROBE 0.5s + ~1.5s tick/relay margin — move all three in
+    /// lockstep.
+    private static let answerLockSeconds: Double = 8
     /// Redial cadence while the desktop's publisher socket is still starting.
     private static let startingRetrySeconds: Double = 3
     /// Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
