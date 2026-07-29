@@ -18,9 +18,10 @@ export interface AgentSessionRow {
 // Team Agents page + dock data: the LIVE coding sessions in the
 // team (synced coding_sessions shape, team-scoped by the denormalized
 // team_id), joined client-side to their issue / board / driving user,
-// newest-first. Live = `running` OR `in_review` (EXP-194: the agent's PR is
-// open, terminal still alive awaiting review — consumers read
-// `session.status` to render "Ready for review" vs "Coding now"). Ended
+// newest-first. Live = `running` OR `in_review` OR `merged` (EXP-194: the
+// agent's PR is open, terminal still alive awaiting review; EXP-358: it
+// survives the merge too — consumers read `session.status` to render
+// "Ready for review" vs "Merged" vs "Coding now"). Ended
 // sessions dropped out with the redesign — the live trail lives on each
 // issue, and the dock/Agents page only surface live work.
 export function useAgentsData(teamId?: string) {
@@ -82,7 +83,9 @@ export function useAgentsData(teamId?: string) {
     const running = sessions
       .filter(
         (session) =>
-          (session.status === `running` || session.status === `in_review`) &&
+          (session.status === `running` ||
+            session.status === `in_review` ||
+            session.status === `merged`) &&
           !isCodingSessionStale(session.updatedAt, now)
       )
       .sort(

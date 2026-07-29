@@ -217,12 +217,13 @@ export const codingSessionsRouter = router({
           if (input.issueId) {
             const issueCtx = await getIssueTeamContext(input.issueId)
             await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
-            // A swept session may resurface AFTER its PR opened (laptop
-            // suspend through the whole run) — re-derive the review badge
+            // A swept session may resurface AFTER its PR opened — or merged
+            // (laptop suspend through the whole run) — re-derive the badge
             // from the issue so the re-created row doesn't claim
-            // "coding now" on a parked issue.
+            // "coding now" on a parked issue (EXP-358: nor "in review" on a
+            // merged one).
             const [issue] = await ctx.db
-              .select({ status: issues.status })
+              .select({ status: issues.status, prState: issues.prState })
               .from(issues)
               .where(eq(issues.id, input.issueId))
               .limit(1)
@@ -233,7 +234,12 @@ export const codingSessionsRouter = router({
               boardId: issueCtx.boardId,
               userId: ctx.session.user.id,
               deviceLabel: input.deviceLabel ?? null,
-              status: issue?.status === `in_review` ? `in_review` : `running`,
+              status:
+                issue?.prState === `merged`
+                  ? `merged`
+                  : issue?.status === `in_review`
+                    ? `in_review`
+                    : `running`,
             })
           } else {
             await assertTeamMember(ctx.session.user.id, input.teamId!)
@@ -296,14 +302,14 @@ export const codingSessionsRouter = router({
       // Status-conditioned so a heartbeat racing a kill/end can never
       // resurrect the row's freshness after it ended. The SET touches only
       // updatedAt — never status — so a ping cannot downgrade an
-      // `in_review` row back to `running`.
+      // `in_review`/`merged` row back to `running`.
       const updated = await ctx.db
         .update(codingSessions)
         .set({ updatedAt: new Date() })
         .where(
           and(
             eq(codingSessions.id, input.id),
-            inArray(codingSessions.status, [`running`, `in_review`])
+            inArray(codingSessions.status, [`running`, `in_review`, `merged`])
           )
         )
         .returning({ id: codingSessions.id })
@@ -346,7 +352,7 @@ export const codingSessionsRouter = router({
         .where(
           and(
             eq(codingSessions.id, input.id),
-            inArray(codingSessions.status, [`running`, `in_review`])
+            inArray(codingSessions.status, [`running`, `in_review`, `merged`])
           )
         )
         .returning({ id: codingSessions.id })

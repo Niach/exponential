@@ -76,6 +76,7 @@ vi.mock(`@/lib/trpc/integrations`, () => ({
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrClosedState: vi.fn(),
   applyPrMergeState: h.applyPrMergeState,
+  endMergedPrSessions: vi.fn(),
 }))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
   canonicalizeMarkdownImageUrls: vi.fn(),

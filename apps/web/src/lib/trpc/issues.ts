@@ -45,6 +45,7 @@ import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
   applyPrClosedState,
   applyPrMergeState,
+  endMergedPrSessions,
 } from "@/lib/integrations/pr-sync"
 import {
   CATEGORY_ANCHOR,
@@ -1139,7 +1140,15 @@ export const issuesRouter = router({
   // open→merged guard also absorbs the later webhook delivery for the same
   // merge.
   mergePr: authedProcedure
-    .input(z.object({ issueId: z.string().uuid() }))
+    .input(
+      z.object({
+        issueId: z.string().uuid(),
+        // EXP-358: merge no longer kills coding sessions — only the explicit
+        // "Merge and close" affordances opt in. Old clients omit the flag and
+        // get merge-only.
+        closeSessions: z.boolean().optional().default(false),
+      })
+    )
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
       // Member-gated issue write (EXP-180: membership is invite-only and
       // every member is trusted — no extra role clamp).
@@ -1171,7 +1180,16 @@ export const issuesRouter = router({
         })
       }
       if (row.prState === `merged`) {
-        // Already merged (e.g. the webhook beat us) — idempotent no-op.
+        // Already merged (e.g. the webhook beat us) — idempotent no-op for
+        // the PR itself, but "Merge and close" must still close: the webhook
+        // parked the sessions in `merged`, not `ended` (EXP-358).
+        if (input.closeSessions) {
+          const linked = await ctx.db
+            .select({ id: issues.id })
+            .from(issues)
+            .where(eq(issues.prUrl, row.prUrl))
+          await endMergedPrSessions(linked.map((issue) => issue.id))
+        }
         return { merged: true }
       }
       if (row.prState !== `open`) {
@@ -1290,6 +1308,11 @@ export const issuesRouter = router({
           mergedAt: new Date(),
           actorUserId: ctx.session.user.id,
         })
+      }
+      // "Merge and close" (EXP-358): end every linked live session — same
+      // blast radius as the pre-358 auto-kill, now opt-in per button.
+      if (input.closeSessions) {
+        await endMergedPrSessions(linkedIds)
       }
 
       return { merged: true }

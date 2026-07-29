@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
@@ -54,6 +55,7 @@ class AgentsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val steerApi: SteerApi,
+    private val issuesApi: IssuesApi,
     private val selection: TeamSelection,
 ) : ViewModel() {
 
@@ -237,6 +239,42 @@ class AgentsViewModel @Inject constructor(
                     trpcErrorMessage(t, "The start command could not be delivered"),
                 )
             }
+        }
+    }
+
+    // ── Merge and close (EXP-358) ────────────────────────────────────────────
+    // A merge alone leaves the session alive on `merged`; this is the explicit
+    // "and close" variant — the server merges AND ends the session, so the row
+    // drops off this list on its own once the `ended` flip syncs. Keyed by
+    // issue id: several rows can be in flight at once.
+    private val _merging = MutableStateFlow<Set<String>>(emptySet())
+    val merging: StateFlow<Set<String>> = _merging
+
+    // Rendered INLINE on the failing row (EXP-323 pattern — a snackbar hides
+    // behind the floating bottom nav pill). Cleared by the next attempt.
+    private val _mergeErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+    val mergeErrors: StateFlow<Map<String, String>> = _mergeErrors
+
+    /**
+     * Squash-merge the row's PR and END its coding session (EXP-358). For a
+     * batch PR the server resolves [issueId] to ALL linked issues and completes
+     * them together.
+     */
+    fun mergeAndClose(issueId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _mergeErrors.value = _mergeErrors.value - issueId
+            _merging.value = _merging.value + issueId
+            runCatching { issuesApi.mergePr(accountId, issueId, closeSessions = true) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    // Conflicts, branch protection and GitHub App errors are the
+                    // common, persistent failures of a squash merge — same copy
+                    // as Reviews and the issue Changes tab.
+                    _mergeErrors.value = _mergeErrors.value +
+                        (issueId to trpcErrorMessage(t, "The pull request could not be merged"))
+                }
+            _merging.value = _merging.value - issueId
         }
     }
 }

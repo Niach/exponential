@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +58,7 @@ import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.glassSection
 
 /**
  * The Agents tab: a remote-start launcher over the caller's online desktops
@@ -77,9 +80,14 @@ fun AgentsScreen(
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
+    val merging by viewModel.merging.collectAsStateWithLifecycle()
+    val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
 
     // The device the launcher sheet was opened from (non-null = sheet open).
     var sheetDevice by remember { mutableStateOf<SteerDevice?>(null) }
+
+    // The row whose "Merge and close" is awaiting confirmation (EXP-358).
+    var mergeTarget by remember { mutableStateOf<AgentRow?>(null) }
 
     // Re-poll device presence each time the tab comes to the foreground.
     LifecycleResumeEffect(Unit) {
@@ -164,6 +172,8 @@ fun AgentsScreen(
                             AgentSessionRow(
                                 session = row.session,
                                 issue = row.issue,
+                                merging = row.issue?.id in merging,
+                                errorMessage = row.issue?.id?.let(mergeErrors::get),
                                 onClick = {
                                     // EXP-312: only YOUR OWN session opens the
                                     // live viewer; teammates' rows fall back to
@@ -178,6 +188,7 @@ fun AgentsScreen(
                                     }
                                 },
                                 onInfo = { row.session.issueId?.let(onOpenIssue) },
+                                onMergeAndClose = { mergeTarget = row },
                             )
                         }
                     }
@@ -196,6 +207,30 @@ fun AgentsScreen(
             onStart = viewModel::startCoding,
             onRunAction = viewModel::runAction,
             onDismiss = { sheetDevice = null },
+        )
+    }
+
+    // EXP-358: merging alone parks the session on `merged`, so the destructive
+    // half ("and close") is confirm-gated — same shape as the Reviews dialog.
+    mergeTarget?.let { row ->
+        val issueId = row.issue?.id
+        AlertDialog(
+            onDismissRequest = { mergeTarget = null },
+            title = { Text("Merge and close?") },
+            text = {
+                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        issueId?.let(viewModel::mergeAndClose)
+                        mergeTarget = null
+                    },
+                ) { Text("Merge and close") }
+            },
+            dismissButton = {
+                TextButton(onClick = { mergeTarget = null }) { Text("Cancel") }
+            },
         )
     }
 }
@@ -301,81 +336,129 @@ private fun startStateCaption(state: SteerStartState): StartCaption? = when (sta
 private fun AgentSessionRow(
     session: CodingSessionEntity,
     issue: IssueEntity?,
+    merging: Boolean,
+    errorMessage: String?,
     onClick: () -> Unit,
     onInfo: () -> Unit,
+    onMergeAndClose: () -> Unit,
 ) {
     val state = codingSessionDisplayState(session, issue?.prState)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("agent-session-row")
-            .glassRow()
-            .clickable(onClick = onClick)
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // running → pulsing green; parked states → static dot: review green,
-        // done blue, needs-input amber (EXP-194/EXP-214).
-        when (state) {
-            CodingSessionDisplayState.Running -> PulsingDot()
-            CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
-            CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
-            CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    // EXP-358: "Merge and close" only shows while the linked PR is still open —
+    // a batch row (no issue) or an already-merged PR has nothing to merge.
+    val canMerge = issue?.prState == DomainContract.prStateOpen
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("agent-session-row")
+                .glassRow()
+                .clickable(onClick = onClick)
+                .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // running → pulsing green; parked states → static dot: review green,
+            // done/merged blue, needs-input amber (EXP-194/EXP-214/EXP-358).
+            when (state) {
+                CodingSessionDisplayState.Running -> PulsingDot()
+                CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
+                CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
+                CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
+                CodingSessionDisplayState.Merged -> StaticDot(DoneBlue)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        issue?.identifier ?: "…",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        // An issueless run is an action run when the row carries
+                        // its action_name snapshot (EXP-253), else a batch run —
+                        // never "not synced". Keep the not-yet-synced case for an
+                        // issue-scoped session whose issue hasn't landed.
+                        when {
+                            issue != null -> issue.title
+                            session.issueId == null -> session.actionName ?: "Batch run"
+                            else -> "Issue not synced yet"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                val device = session.deviceLabel?.takeIf { it.isNotBlank() } ?: "Desktop"
                 Text(
-                    issue?.identifier ?: "…",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    // An issueless run is an action run when the row carries
-                    // its action_name snapshot (EXP-253), else a batch run —
-                    // never "not synced". Keep the not-yet-synced case for an
-                    // issue-scoped session whose issue hasn't landed.
-                    when {
-                        issue != null -> issue.title
-                        session.issueId == null -> session.actionName ?: "Batch run"
-                        else -> "Issue not synced yet"
+                    when (state) {
+                        CodingSessionDisplayState.NeedsInput -> "Needs input · $device"
+                        CodingSessionDisplayState.Review -> "Ready for review · $device"
+                        CodingSessionDisplayState.Done -> "Done · $device"
+                        CodingSessionDisplayState.Merged -> "Merged · $device"
+                        CodingSessionDisplayState.Running ->
+                            "$device · started ${relativeTime(session.startedAt)}"
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when (state) {
+                        CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
+                        CodingSessionDisplayState.Review -> ReviewGreen
+                        CodingSessionDisplayState.Done -> DoneBlue
+                        CodingSessionDisplayState.Merged -> DoneBlue
+                        CodingSessionDisplayState.Running ->
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            val device = session.deviceLabel?.takeIf { it.isNotBlank() } ?: "Desktop"
-            Text(
-                when (state) {
-                    CodingSessionDisplayState.NeedsInput -> "Needs input · $device"
-                    CodingSessionDisplayState.Review -> "Ready for review · $device"
-                    CodingSessionDisplayState.Done -> "Done · $device"
-                    CodingSessionDisplayState.Running ->
-                        "$device · started ${relativeTime(session.startedAt)}"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = when (state) {
-                    CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
-                    CodingSessionDisplayState.Review -> ReviewGreen
-                    CodingSessionDisplayState.Done -> DoneBlue
-                    CodingSessionDisplayState.Running ->
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // EXP-358: a plain merge leaves the session alive on `merged`, so
+            // the list carries the explicit "and close" variant — confirm-gated,
+            // and only while the PR is actually open.
+            if (canMerge) {
+                IconButton(onClick = onMergeAndClose, enabled = !merging) {
+                    if (merging) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    } else {
+                        Icon(
+                            ExpIcons.prMerged,
+                            contentDescription = "Merge and close",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    }
+                }
+            }
+            IconButton(onClick = onInfo) {
+                Icon(
+                    ExpIcons.uiInfo,
+                    contentDescription = "Open issue",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
         }
-        IconButton(onClick = onInfo) {
-            Icon(
-                ExpIcons.uiInfo,
-                contentDescription = "Open issue",
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+
+        // A refused merge (conflicts, branch protection, GitHub App errors)
+        // captions THIS row (EXP-323 pattern) — inside the list, which already
+        // clears the floating nav pill, so the reason is always readable.
+        if (errorMessage != null) {
+            Text(
+                errorMessage,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 3.dp)
+                    .glassSection()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             )
         }
     }

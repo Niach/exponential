@@ -1221,6 +1221,7 @@ impl Render for StartCodingControl {
                     (theme::tokens::YELLOW, "Needs input…")
                 }
                 queries::CodingSessionDisplay::Review => (theme::tokens::GREEN, "In review…"),
+                queries::CodingSessionDisplay::Merged => (theme::tokens::BLUE, "Merged"),
                 queries::CodingSessionDisplay::Done => (theme::tokens::BLUE, "Done"),
                 queries::CodingSessionDisplay::Running => (theme::tokens::GREEN, "Coding…"),
             };

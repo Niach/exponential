@@ -244,9 +244,10 @@ export function LaunchDialog({
         ? query.from({ s: codingSessionCollection }).where(({ s }) =>
             and(
               eq(s.teamId, teamId),
-              // in_review terminals are still alive and occupy the issue's
-              // worktree (EXP-194) — they block a restart like running ones.
-              inArray(s.status, [`running`, `in_review`])
+              // in_review/merged terminals are still alive and occupy the
+              // issue's worktree (EXP-194/EXP-358) — they block a restart
+              // like running ones.
+              inArray(s.status, [`running`, `in_review`, `merged`])
             )
           )
         : undefined,

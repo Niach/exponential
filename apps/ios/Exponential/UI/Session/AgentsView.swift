@@ -21,6 +21,21 @@ struct AgentsView: View {
     // separate: a start error must read as an error and not persist forever.
     @State private var sentCaption: String?
     @State private var startError: String?
+    // "Merge and close" (EXP-358), keyed by row id: the confirm target, the
+    // in-flight rows, and the per-row failure caption (inline like the Reviews
+    // rows, EXP-323 — never a modal the tab bar can cover).
+    @State private var mergeTarget: MergeAndCloseTarget?
+    @State private var merging: Set<String> = []
+    @State private var mergeErrors: [String: String] = [:]
+
+    /// The row a "Merge and close" confirm is pending for. Only the ids are
+    /// captured — the alert copy is fixed, and the row itself may re-sync
+    /// underneath the alert.
+    private struct MergeAndCloseTarget: Identifiable {
+        let rowId: String
+        let issueId: String
+        var id: String { rowId }
+    }
 
     var body: some View {
         ZStack {
@@ -93,6 +108,19 @@ struct AgentsView: View {
                     runAction(on: chosenDevice, action: action, options: options, inputs: inputs)
                 }
             )
+        }
+        .alert(
+            "Merge and close?",
+            isPresented: Binding(
+                get: { mergeTarget != nil },
+                set: { if !$0 { mergeTarget = nil } }
+            ),
+            presenting: mergeTarget
+        ) { target in
+            Button("Merge and close", role: .destructive) { mergeAndClose(target) }
+            Button("Cancel", role: .cancel) { mergeTarget = nil }
+        } message: { _ in
+            Text("Merges the pull request, completes every linked issue, and closes the coding session.")
         }
     }
 
@@ -255,10 +283,29 @@ struct AgentsView: View {
         .tabBarBottomInset()
     }
 
-    // The primary tap target and the trailing info affordance are siblings
-    // (not nested controls) so both hit areas stay reliable.
+    // The primary tap target and the trailing affordances (merge-and-close,
+    // info) are siblings (not nested controls) so every hit area stays
+    // reliable.
     @ViewBuilder
     private func sessionRow(_ row: AgentsViewModel.Row) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sessionRowBody(row)
+            if let message = mergeErrors[row.id] {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .glassRow()
+        .accessibilityIdentifier("agent-session-row")
+    }
+
+    @ViewBuilder
+    private func sessionRowBody(_ row: AgentsViewModel.Row) -> some View {
         HStack(spacing: 12) {
             // With the relay configured, YOUR OWN row jumps straight into the
             // live agent session (EXP-312: live sessions are owner-only);
@@ -282,6 +329,29 @@ struct AgentsView: View {
                 }
             }
 
+            // Merging the PR no longer ends the run (EXP-358) — this is the one
+            // affordance that does both, so it only shows while there IS an
+            // open PR to merge. Every other merge button stays merge-only.
+            if let issue = row.issue, issue.prState == DomainContract.prStateOpen {
+                Button {
+                    mergeTarget = MergeAndCloseTarget(rowId: row.id, issueId: issue.id)
+                } label: {
+                    Group {
+                        if merging.contains(row.id) {
+                            ProgressView().controlSize(.mini).tint(.white)
+                        } else {
+                            AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium)
+                        }
+                    }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(merging.contains(row.id))
+                .accessibilityLabel("Merge and close")
+            }
+
             if let issue = row.issue {
                 NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
                     AppIcon(AppIcons.uiInfo, size: AppIcon.Size.medium)
@@ -293,19 +363,39 @@ struct AgentsView: View {
                 .accessibilityLabel("Open issue")
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .glassRow()
-        .accessibilityIdentifier("agent-session-row")
+    }
+
+    /// Merge the row's PR AND end its session (EXP-358). No local list surgery:
+    /// the server flips the row to `ended`, which drops it out of the live
+    /// query through sync. A refusal (conflicts, branch protection) captions
+    /// THIS row.
+    private func mergeAndClose(_ target: MergeAndCloseTarget) {
+        mergeTarget = nil
+        mergeErrors[target.rowId] = nil
+        merging.insert(target.rowId)
+        Task {
+            do {
+                try await deps.issuesApi.mergePr(
+                    accountId: accountId,
+                    issueId: target.issueId,
+                    closeSessions: true
+                )
+            } catch {
+                mergeErrors[target.rowId] = error.localizedDescription
+            }
+            merging.remove(target.rowId)
+        }
     }
 
     /// Static-dot/label tint per parked display state (EXP-194/EXP-214):
-    /// review green, done blue (the issue-status palette), needs-input amber.
+    /// review green, done/merged blue (the issue-status palette), needs-input
+    /// amber.
     private func stateColor(_ state: CodingSessionDisplayState) -> Color {
         switch state {
         case .needsInput: DesignTokens.Semantic.yellow
         case .review: DesignTokens.Semantic.green
         case .done: DesignTokens.Semantic.blue
+        case .merged: DesignTokens.Semantic.blue
         case .running: DesignTokens.Semantic.green
         }
     }
@@ -315,6 +405,7 @@ struct AgentsView: View {
         case .needsInput: "Needs input"
         case .review: "Ready for review"
         case .done: "Done"
+        case .merged: "Merged"
         case .running: nil
         }
     }

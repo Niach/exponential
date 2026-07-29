@@ -674,12 +674,14 @@ struct MainNavigator: View {
             } catch {}
         }
         // Live coding sessions drive the Agents tab's dot — running AND in_review
-        // (the "agent finished, look at it" signal counts too, EXP-194).
+        // (the "agent finished, look at it" signal counts too, EXP-194) AND
+        // merged (a merge parks the session, it no longer ends it, EXP-358).
         let sessionObs = ValueObservation.tracking { db in
             try CodingSessionEntity
                 .filter([
                     DomainContract.codingSessionStatusRunning,
                     DomainContract.codingSessionStatusInReview,
+                    DomainContract.codingSessionStatusMerged,
                 ].contains(Column("status")))
                 .fetchAll(db)
         }

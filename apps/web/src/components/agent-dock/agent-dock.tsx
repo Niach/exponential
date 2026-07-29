@@ -317,16 +317,18 @@ function DockTab({
         expanded && `bg-muted`
       )}
     >
-      {session.status === `running` || session.status === `in_review` ? (
+      {session.status === `running` ||
+      session.status === `in_review` ||
+      session.status === `merged` ? (
         (() => {
           // EXP-214 display split: needs-input amber beats everything, a
-          // merged PR renders the run done (blue), review stays green.
+          // merged PR/session renders blue, review stays green.
           const state = sessionDisplayState(session, issue?.prState)
           if (state === `running`) return <RunningDot />
           const dot =
             state === `needs_input`
               ? `bg-amber-500`
-              : state === `done`
+              : state === `done` || state === `merged`
                 ? `bg-sky-500`
                 : `bg-emerald-500`
           return <span className={`size-2 shrink-0 rounded-full ${dot}`} />

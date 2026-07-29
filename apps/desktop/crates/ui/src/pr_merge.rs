@@ -63,8 +63,15 @@ pub enum FailedOp {
 pub enum MergeOp {
     /// `issues.mergePr` — squash-merge the issue's linked PR (a batch PR
     /// completes every linked issue). Echo-settled: the spinner holds until
-    /// `pr_state` leaves `open`.
-    MergeIssuePr { issue_id: String },
+    /// `pr_state` leaves `open`. `close_sessions` (EXP-358) additionally asks
+    /// the server to END the issue's live coding sessions — only the terminal
+    /// tab's "Merge and close" sets it; every other surface merges alone and
+    /// leaves the session open in `merged`. Keys/guards/captions ignore it:
+    /// merging one issue's PR is one row action either way.
+    MergeIssuePr {
+        issue_id: String,
+        close_sessions: bool,
+    },
     /// `issues.closePr` — close the linked PR WITHOUT merging (EXP-100).
     /// Echo-settled like the merge.
     CloseIssuePr { issue_id: String },
@@ -81,7 +88,7 @@ impl MergeOp {
     /// The arm/in-flight key.
     fn key(&self) -> String {
         match self {
-            MergeOp::MergeIssuePr { issue_id } => issue_id.clone(),
+            MergeOp::MergeIssuePr { issue_id, .. } => issue_id.clone(),
             MergeOp::CloseIssuePr { issue_id } => close_pr_key(issue_id),
             MergeOp::MergePull {
                 repository_id,
@@ -94,7 +101,7 @@ impl MergeOp {
     /// issue id whichever of merge/close failed).
     fn row_key(&self) -> String {
         match self {
-            MergeOp::MergeIssuePr { issue_id } | MergeOp::CloseIssuePr { issue_id } => {
+            MergeOp::MergeIssuePr { issue_id, .. } | MergeOp::CloseIssuePr { issue_id } => {
                 issue_id.clone()
             }
             MergeOp::MergePull { .. } => self.key(),
@@ -114,7 +121,7 @@ impl MergeOp {
     /// same issue row guard each other.
     fn guard_keys(&self) -> Vec<String> {
         match self {
-            MergeOp::MergeIssuePr { issue_id } | MergeOp::CloseIssuePr { issue_id } => {
+            MergeOp::MergeIssuePr { issue_id, .. } | MergeOp::CloseIssuePr { issue_id } => {
                 vec![issue_id.clone(), close_pr_key(issue_id)]
             }
             MergeOp::MergePull { .. } => vec![self.key()],
@@ -129,7 +136,7 @@ impl MergeOp {
 
     fn describe(&self) -> String {
         match self {
-            MergeOp::MergeIssuePr { issue_id } => format!("issues.mergePr({issue_id})"),
+            MergeOp::MergeIssuePr { issue_id, .. } => format!("issues.mergePr({issue_id})"),
             MergeOp::CloseIssuePr { issue_id } => format!("issues.closePr({issue_id})"),
             MergeOp::MergePull {
                 repository_id,
@@ -140,9 +147,10 @@ impl MergeOp {
 
     fn run(&self, trpc: &api::TrpcClient) -> Result<(), api::ApiError> {
         match self {
-            MergeOp::MergeIssuePr { issue_id } => {
-                api::issues::merge_pr(trpc, issue_id).map(|_| ())
-            }
+            MergeOp::MergeIssuePr {
+                issue_id,
+                close_sessions,
+            } => api::issues::merge_pr(trpc, issue_id, *close_sessions).map(|_| ()),
             MergeOp::CloseIssuePr { issue_id } => {
                 api::issues::close_pr(trpc, issue_id).map(|_| ())
             }
@@ -418,6 +426,7 @@ mod tests {
         assert_eq!(close_pr_key("issue-1"), "close:issue-1");
         let merge = MergeOp::MergeIssuePr {
             issue_id: "i1".to_string(),
+            close_sessions: false,
         };
         let close = MergeOp::CloseIssuePr {
             issue_id: "i1".to_string(),
@@ -443,6 +452,15 @@ mod tests {
         assert_eq!(merge.failed_op(), FailedOp::Merge);
         assert_eq!(close.failed_op(), FailedOp::Close);
         assert_eq!(pull.failed_op(), FailedOp::Merge);
+        // EXP-358: "Merge and close" is the same row action — `close_sessions`
+        // must never split the key/guard/caption namespace.
+        let merge_and_close = MergeOp::MergeIssuePr {
+            issue_id: "i1".to_string(),
+            close_sessions: true,
+        };
+        assert_eq!(merge_and_close.key(), merge.key());
+        assert_eq!(merge_and_close.row_key(), merge.row_key());
+        assert_eq!(merge_and_close.guard_keys(), merge.guard_keys());
     }
 
     #[test]

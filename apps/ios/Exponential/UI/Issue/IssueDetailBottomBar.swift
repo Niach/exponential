@@ -191,6 +191,10 @@ struct IssueDetailBottomBar: View {
             Circle().fill(DesignTokens.Semantic.green).frame(width: 9, height: 9)
         case .done:
             Circle().fill(DesignTokens.Semantic.blue).frame(width: 9, height: 9)
+        case .merged:
+            // The PR merged but the session lives on (EXP-358) — same blue as
+            // the legacy PR-derived done state.
+            Circle().fill(DesignTokens.Semantic.blue).frame(width: 9, height: 9)
         }
     }
 

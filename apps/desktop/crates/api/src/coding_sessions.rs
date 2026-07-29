@@ -43,7 +43,8 @@ pub struct CodingSession {
     pub action_id: Option<String>,
     #[serde(default)]
     pub action_name: Option<String>,
-    /// `running` | `ended` (contract enum `coding_session_status`).
+    /// `running` | `in_review` | `merged` | `ended` (contract enum
+    /// `coding_session_status`).
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]

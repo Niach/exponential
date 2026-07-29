@@ -9,12 +9,19 @@ import com.exponential.app.data.db.CodingSessionEntity
 // attention flag (agent parked on a plan-approval / AskUserQuestion picker)
 // overrides everything still actionable as an amber "Needs input". Callers
 // pass only sessions that already passed CodingSessionLiveness.
-enum class CodingSessionDisplayState { Running, NeedsInput, Review, Done }
+//
+// EXP-358: the server now parks merged sessions on their own `merged` status,
+// so that is the FIRST thing checked. The legacy in_review + prState=merged
+// split stays for rows written before the flip (and older servers).
+enum class CodingSessionDisplayState { Running, NeedsInput, Review, Done, Merged }
 
 fun codingSessionDisplayState(
     session: CodingSessionEntity,
     prState: String?,
 ): CodingSessionDisplayState {
+    if (session.status == DomainContract.codingSessionStatusMerged) {
+        return CodingSessionDisplayState.Merged
+    }
     val merged = prState == DomainContract.prStateMerged
     if (session.needsInput && !merged) return CodingSessionDisplayState.NeedsInput
     if (session.status == DomainContract.codingSessionStatusInReview) {

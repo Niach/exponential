@@ -1,0 +1,1 @@
+ALTER TYPE "public"."coding_session_status" ADD VALUE 'merged' BEFORE 'ended';

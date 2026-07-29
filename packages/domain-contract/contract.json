@@ -178,6 +178,7 @@
     "values": [
       "running",
       "in_review",
+      "merged",
       "ended"
     ]
   },

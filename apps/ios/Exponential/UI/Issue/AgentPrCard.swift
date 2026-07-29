@@ -105,12 +105,14 @@ struct AgentPrCard: View {
         case .needsInput: DesignTokens.Semantic.yellow
         case .review: DesignTokens.Semantic.green
         case .done: DesignTokens.Semantic.blue
+        case .merged: DesignTokens.Semantic.blue
         case .running: DesignTokens.Semantic.green
         }
         let label = switch state {
         case .needsInput: "Needs input"
         case .review: "Ready for review"
         case .done: "Done"
+        case .merged: "Merged"
         case .running: "Coding now"
         }
         return HStack(spacing: 8) {

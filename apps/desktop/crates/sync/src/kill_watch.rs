@@ -1,13 +1,20 @@
 //! The §8.8 own-row Electric kill-switch (masterplan-v3) — the ONLY kill
 //! path that survives a dead relay.
 //!
-//! `steer.killSession` flips the synced `coding_sessions` row to
-//! `status = ended` (the relay `kill` fan-out is best-effort). This watch
-//! subscribes to the [`crate::collections`] `coding_sessions` entity
-//! (read-only — it consumes the public collections API and never writes) and
-//! fires a one-shot callback when a locally-watched session's row transitions
-//! to `ended`. The coding-flow glue registers each session it starts; its
-//! callback kills the `claude` child (`Terminal::kill`), tells the steer
+//! An explicit kill flips the synced `coding_sessions` row to
+//! `status = ended` (the relay `kill` fan-out is best-effort). Only three
+//! things do that (EXP-358): `steer.killSession`, `codingSessions.end`, and
+//! `issues.mergePr` when the caller opted into `closeSessions` (the terminal
+//! tab's "Merge and close"). A plain PR merge no longer routes through
+//! `ended` — the server moves live sessions to `merged` and leaves them
+//! running — so `ended` stays what it always was: the one status that tears a
+//! session down.
+//!
+//! This watch subscribes to the [`crate::collections`] `coding_sessions`
+//! entity (read-only — it consumes the public collections API and never
+//! writes) and fires a one-shot callback when a locally-watched session's row
+//! transitions to `ended`. The coding-flow glue registers each session it
+//! starts; its callback kills the `claude` child (`Terminal::kill`), tells the steer
 //! publisher (`PublisherHandle::session_ended()`), and marks the tab stopped.
 //!
 //! Dependency direction (§3.1): `steer` cannot depend on `sync` and `sync`
@@ -190,6 +197,13 @@ mod tests {
         // EXP-194: the server flips running→in_review when the agent's PR
         // opens — a REVIEW flip must never read as a remote kill.
         assert!(!session_row_is_ended(Some(&session("in_review"))));
+        // EXP-358: the PR MERGE flip is `merged`, and the session survives it
+        // — only an explicit "merge and close"/kill writes `ended`.
+        assert!(!session_row_is_ended(Some(&session("merged"))));
+        assert!(!session_row_fires_kill(
+            Some(&owned_session("merged", "me")),
+            Some("me")
+        ));
         // Absent row (sign-out clear / not yet synced) must NOT fire (§8.8:
         // the kill signal is the row FLIP, not the row's absence).
         assert!(!session_row_is_ended(None));
