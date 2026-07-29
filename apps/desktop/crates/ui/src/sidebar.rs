@@ -8,7 +8,8 @@
 //!   Search action, then the tool-window selectors — **Inbox / My Issues /
 //!   Board Issues / Reviews** (mini issue lists; Reviews carries a
 //!   dot while open PRs exist) and **Files / Source Control** (Source Control carries
-//!   an amber badge in conflict mode and opens the changes
+//!   an amber badge while the trunk needs attention — a paused conflict,
+//!   local commits, or a dirty tree, EXP-346 — and opens the changes
 //!   screen immediately). The active tool's icon is tinted with the active
 //!   board's color. One tool is ALWAYS active — re-clicking never
 //!   unselects. Bottom: terminal-dock toggle, settings gear, and the
@@ -850,11 +851,17 @@ impl RailView {
 impl Render for RailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Keep the git lifecycle live regardless of which tool window is
-        // open: auto-clone on board open + the conflict badge both ride the
+        // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
         let git_bar = self.shared.read(cx).git_bar.clone();
         git_bar.update(cx, |bar, cx| bar.ensure_loaded(window, cx));
-        let conflict = git_bar.read(cx).has_conflict();
+        // Trunk anomalies (paused conflict / local commits / dirty tree —
+        // each parks the autopull, EXP-346) paint the amber badge, EXCEPT
+        // while a live Action run is legitimately dirtying this clone.
+        let mut sc_attention = git_bar.read(cx).attention();
+        if sc_attention.is_some() && git_bar.read(cx).repo_tasks_alive(window, cx) {
+            sc_attention = None;
+        }
 
         // A branch checkout changes the working tree — refresh the file tree
         // the first render after the branch flips.
@@ -942,9 +949,10 @@ impl Render for RailView {
         });
 
         // Source Control badge (EXP-253 — the git bar is headless now, this
-        // badge is its whole rail presence): conflict beats sticky error
-        // beats syncing; the tooltip carries the "synced Xm ago" stamp.
-        let sc_badge = if conflict {
+        // badge is its whole rail presence): attention (conflict / local
+        // commits / dirty tree) beats sticky error beats syncing; the
+        // tooltip carries the attention reason or the "synced Xm ago" stamp.
+        let sc_badge = if sc_attention.is_some() {
             Some(cx.theme().warning)
         } else if git_bar.read(cx).sync_error().is_some() {
             Some(cx.theme().danger)
@@ -953,9 +961,9 @@ impl Render for RailView {
         } else {
             None
         };
-        let sc_tooltip: SharedString = if let Some(percent) =
-            git_bar.read(cx).clone_progress()
-        {
+        let sc_tooltip: SharedString = if let Some(reason) = sc_attention {
+            format!("Source Control — {reason}").into()
+        } else if let Some(percent) = git_bar.read(cx).clone_progress() {
             format!("Source Control — cloning… {percent}%").into()
         } else {
             match git_bar.read(cx).last_synced() {

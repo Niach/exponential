@@ -43,8 +43,10 @@ pub enum TabKind {
     Action(String),
     /// An EXP-325 "+"-menu agent session: a promptless interactive agent CLI
     /// on the repo's trunk clone with NO issue/batch/action subject — no
-    /// `coding_sessions` row, no steer room. Holds trunk auto-sync off like
-    /// an action run (the agent edits the trunk in place).
+    /// `coding_sessions` row, no steer room. Does NOT hold trunk auto-sync
+    /// off (EXP-346 — it's a user-attended session that lives for entire
+    /// work days, and an ff under it equals the manual pull it replaces);
+    /// only Action runs hold sync off.
     AgentShell,
     /// A plain "+" terminal (`$SHELL -l`), like any IDE.
     Shell,
