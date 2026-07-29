@@ -279,6 +279,24 @@ fun StartCodingSheet(
         seededPr = true
     }
 
+    // Pre-fill `repo` inputs with the action's bound repository (EXP-349) —
+    // a picker reading "None" while the run targets the bound repo anyway
+    // looked misconfigured. The id latch keeps a manual re-pick (including
+    // clearing to "None") from being re-seeded on sync re-emits, and the
+    // effect covers both the tap path (onSelect clears the values first) and
+    // a preselected action, which never goes through onSelect.
+    var seededRepoActionId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(selectedAction) {
+        val action = selectedAction ?: return@LaunchedEffect
+        if (seededRepoActionId == action.id) return@LaunchedEffect
+        seededRepoActionId = action.id
+        val repoId = action.repositoryId ?: return@LaunchedEffect
+        val seeds = action.inputs.orEmpty()
+            .filter { it.type == "repo" && inputValues[it.key] == null }
+            .associate { it.key to repoId }
+        if (seeds.isNotEmpty()) inputValues = seeds + inputValues
+    }
+
     var deviceId by remember {
         mutableStateOf(
             devices.firstOrNull { it.deviceId == preferredDeviceId }?.deviceId
