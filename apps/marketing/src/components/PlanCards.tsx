@@ -2,10 +2,10 @@ import { motion } from "motion/react"
 import { Check, Mail, Server } from "lucide-react"
 import { cardReveal, staggerContainer, viewportOnce } from "../lib/animations"
 import {
-  CLOUD_PLANS,
+  COMMERCIAL_LICENSE,
   ENTERPRISE_LINE,
-  SELF_HOST_PLANS,
-  type CloudPlan,
+  PLANS,
+  type Plan,
 } from "../lib/plans"
 import { IcArrow } from "./icons"
 
@@ -22,7 +22,7 @@ function FeatureList({ features }: { features: string[] }) {
   )
 }
 
-function PriceLockup({ plan }: { plan: CloudPlan }) {
+function PriceLockup({ plan }: { plan: Plan }) {
   return (
     <div className="plan-price">
       <span className="plan-amount">{plan.amount}</span>
@@ -32,6 +32,40 @@ function PriceLockup({ plan }: { plan: CloudPlan }) {
   )
 }
 
+function PlanCard({ plan }: { plan: Plan }) {
+  return (
+    <motion.div
+      className={`plan-card${plan.highlight ? ` is-highlight` : ``}${plan.selfHost ? ` is-selfhost` : ``}${plan.enterprise ? ` is-enterprise` : ``}`}
+      variants={cardReveal}
+    >
+      {plan.highlight && <span className="plan-flag">Most popular</span>}
+      <div className="plan-head">
+        <h3>
+          {plan.selfHost && (
+            <Server size={14} strokeWidth={2} style={{ marginRight: 6 }} />
+          )}
+          {plan.enterprise && (
+            <Mail size={14} strokeWidth={2} style={{ marginRight: 6 }} />
+          )}
+          {plan.name}
+        </h3>
+        <PriceLockup plan={plan} />
+        <p className="plan-tagline">{plan.tagline}</p>
+      </div>
+      <FeatureList features={plan.features} />
+      <a
+        className={`btn ${plan.highlight || plan.enterprise ? `btn-primary` : `btn-ghost`}`}
+        href={plan.cta.href}
+        style={{ justifyContent: `center` }}
+      >
+        {plan.cta.label} <IcArrow size={12} />
+      </a>
+    </motion.div>
+  )
+}
+
+/* The main grid — Free · Team · Self-hosted (EXP-338) — rendered on BOTH the
+   home pricing section and /pricing/. */
 export function PlanCards() {
   return (
     <motion.div
@@ -41,34 +75,15 @@ export function PlanCards() {
       whileInView="visible"
       viewport={viewportOnce}
     >
-      {CLOUD_PLANS.map((p) => (
-        <motion.div
-          key={p.name}
-          className={`plan-card${p.highlight ? ` is-highlight` : ``}${p.enterprise ? ` is-enterprise` : ``}`}
-          variants={cardReveal}
-        >
-          {p.highlight && <span className="plan-flag">Most popular</span>}
-          <div className="plan-head">
-            <h3>{p.name}</h3>
-            <PriceLockup plan={p} />
-            <p className="plan-tagline">{p.tagline}</p>
-          </div>
-          <FeatureList features={p.features} />
-          <a
-            className={`btn ${p.highlight ? `btn-primary` : `btn-ghost`}`}
-            href={p.cta.href}
-            style={{ justifyContent: `center` }}
-          >
-            {p.cta.label} <IcArrow size={12} />
-          </a>
-        </motion.div>
+      {PLANS.map((p) => (
+        <PlanCard key={p.name} plan={p} />
       ))}
     </motion.div>
   )
 }
 
 /* Enterprise is a sales motion, not a tier (EXP-286) — one line under the
-   cloud grid instead of a fourth card. */
+   plan grid instead of a fourth card. */
 export function EnterpriseLine() {
   return (
     <p className="plan-enterprise-line">
@@ -77,7 +92,9 @@ export function EnterpriseLine() {
   )
 }
 
-export function SelfHostCards() {
+/* Self-host licensing (EXP-338: the free self-host card lives in the main
+   grid; what remains here is the 10+-people commercial license). */
+export function LicenseCard() {
   return (
     <motion.div
       className="plan-grid plan-grid-selfhost"
@@ -86,34 +103,7 @@ export function SelfHostCards() {
       whileInView="visible"
       viewport={viewportOnce}
     >
-      {SELF_HOST_PLANS.map((p) => (
-        <motion.div
-          key={p.name}
-          className={`plan-card${p.selfHost ? ` is-selfhost` : ``}${p.enterprise ? ` is-enterprise` : ``}`}
-          variants={cardReveal}
-        >
-          <div className="plan-head">
-            <h3>
-              {p.selfHost ? (
-                <Server size={14} strokeWidth={2} style={{ marginRight: 6 }} />
-              ) : (
-                <Mail size={14} strokeWidth={2} style={{ marginRight: 6 }} />
-              )}
-              {p.name}
-            </h3>
-            <PriceLockup plan={p} />
-            <p className="plan-tagline">{p.tagline}</p>
-          </div>
-          <FeatureList features={p.features} />
-          <a
-            className={`btn ${p.enterprise ? `btn-primary` : `btn-ghost`}`}
-            href={p.cta.href}
-            style={{ justifyContent: `center` }}
-          >
-            {p.cta.label} <IcArrow size={12} />
-          </a>
-        </motion.div>
-      ))}
+      <PlanCard plan={COMMERCIAL_LICENSE} />
     </motion.div>
   )
 }

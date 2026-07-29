@@ -12,26 +12,25 @@
   align-items: stretch;
 }
 
+/* Main grid: Free · Team · Self-hosted (EXP-338 — self-host sits next to the
+   cloud cards on home AND /pricing). 3 → 1 in one step so no 2+1 orphan row. */
 .plan-grid-cloud {
-  grid-template-columns: repeat(2, 1fr);
-  max-width: 760px;
+  grid-template-columns: repeat(3, 1fr);
+  max-width: 1080px;
   margin: 0 auto;
 }
 
+/* The lone commercial-license card in the /pricing licensing section. */
 .plan-grid-selfhost {
-  grid-template-columns: repeat(2, 1fr);
-  max-width: 760px;
+  grid-template-columns: 1fr;
+  max-width: 400px;
   margin: 28px auto 0;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 880px) {
   .plan-grid-cloud {
     grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 600px) {
-  .plan-grid-selfhost {
-    grid-template-columns: 1fr;
+    max-width: 420px;
   }
 }
 
@@ -49,9 +48,9 @@
   text-underline-offset: 3px;
 }
 
-/* ── Home-page pricing strip (HomePricing.tsx) — compact two-up ──
+/* ── Home-page pricing strip (HomePricing.tsx) ──
    The grid reuses .plan-grid-cloud so home and /pricing break identically
-   (2 → 1 @640px). */
+   (3 → 1 @880px). */
 .home-pricing-links {
   display: flex;
   flex-wrap: wrap;

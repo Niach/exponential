@@ -1,3 +1,4 @@
+import { useRef, useState } from "react"
 import {
   DocsCallout,
   DocsCode,
@@ -7,19 +8,46 @@ import {
   type DocsSection as DocsSectionType,
 } from "./components/DocsLayout"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
-import { IcDocker, IcGithub } from "./components/icons"
+import { IcCheck, IcCopy, IcDocker, IcGithub } from "./components/icons"
 import { LINKS } from "./lib/links"
 
 const SECTIONS: DocsSectionType[] = [
   { id: `installation`, num: `01`, label: `Installation` },
-  { id: `github-app`, num: `02`, label: `GitHub App` },
-  { id: `push`, num: `03`, label: `Push notifications` },
-  { id: `steer`, num: `04`, label: `Steer relay` },
-  { id: `email`, num: `05`, label: `Email` },
-  { id: `environment`, num: `06`, label: `Environment variables` },
-  { id: `updating`, num: `07`, label: `Updating` },
-  { id: `licensing`, num: `08`, label: `Licensing` },
+  { id: `storage`, num: `02`, label: `S3 storage` },
+  { id: `github-app`, num: `03`, label: `GitHub App` },
+  { id: `push`, num: `04`, label: `Push notifications` },
+  { id: `steer`, num: `05`, label: `Steer relay` },
+  { id: `email`, num: `06`, label: `Email` },
+  { id: `environment`, num: `07`, label: `Environment variables` },
+  { id: `updating`, num: `08`, label: `Updating` },
+  { id: `licensing`, num: `09`, label: `Licensing` },
 ]
+
+/* The prompt the "Copy prompt for your agent" button puts on the clipboard —
+   INSTALL.md (repo root) is written as an agent-followable runbook, so the
+   prompt just points an agent at it and names the decisions it should ask
+   about instead of guessing. */
+const AGENT_PROMPT = `Install Exponential (a self-hosted issue tracker) on this machine.
+
+Fetch https://raw.githubusercontent.com/Niach/exponential/master/INSTALL.md and follow it end-to-end: download the two selfhost files, fill in .env, bring the stack up with Docker Compose, and verify /api/health responds. Ask me for the decisions the runbook marks [decision] — which S3-compatible storage to use (and its credentials), and whether/which domain to go live on — instead of guessing.`
+
+function CopyPromptButton() {
+  const [copied, setCopied] = useState(false)
+  const timeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onCopy = () => {
+    if (typeof navigator === `undefined` || !navigator.clipboard) return
+    navigator.clipboard.writeText(AGENT_PROMPT)
+    setCopied(true)
+    if (timeout.current) clearTimeout(timeout.current)
+    timeout.current = setTimeout(() => setCopied(false), 1400)
+  }
+  return (
+    <button type="button" className="btn btn-primary" onClick={onCopy}>
+      {copied ? <IcCheck size={14} /> : <IcCopy size={14} />}
+      {copied ? `Copied — paste it to your agent` : `Copy prompt for your agent`}
+    </button>
+  )
+}
 
 export function SelfHostDocsPage() {
   return (
@@ -31,12 +59,16 @@ export function SelfHostDocsPage() {
           <div className="shell docs-hero-content">
             <h1>Self-host</h1>
             <p>
-              Docker Compose on your own server. No SaaS dependencies, every
-              feature unlocked. Free while your company is under 10 people.
+              Two files and a <code>docker compose up</code> — pulling the
+              published image, no checkout, no build. Every feature unlocked.
+              Free while your company is under 10 people. Or skip reading
+              entirely: copy the prompt and let your coding agent do the
+              install.
             </p>
             <div className="docs-hero-cta">
-              <a className="btn btn-primary" href="#installation">
-                <IcDocker size={14} /> Install
+              <CopyPromptButton />
+              <a className="btn btn-ghost" href="#installation">
+                <IcDocker size={14} /> Install by hand
               </a>
               <a className="btn btn-ghost" href={LINKS.github.repo}>
                 <IcGithub size={14} /> View source
@@ -51,15 +83,17 @@ export function SelfHostDocsPage() {
             <h2>Installation</h2>
 
             <p>
-              One <code>docker compose</code> file, four services: Postgres,
-              Electric (real-time sync), Garage (S3-compatible attachment
-              storage), and Caddy (reverse proxy) — plus the optional{` `}
-              <a href="#steer">steer relay</a> behind a compose profile. Set
-              {` `}
-              <code>SELF_HOSTED=true</code> and every plan limit disappears —
-              seats, storage, widgets — and billing is disabled entirely.
-              Licensing is a separate question: free under 10 people, see{` `}
-              <a href="#licensing">Licensing</a>.
+              One <code>docker compose</code> file pulling published images:
+              the web app (
+              <code>ghcr.io/niach/exponential-web</code>, amd64 + arm64),
+              Postgres, Electric (real-time sync), and Caddy (reverse proxy +
+              automatic HTTPS) — plus the optional <a href="#steer">steer
+              relay</a> behind a compose profile. You bring an{` `}
+              <a href="#storage">S3-compatible bucket</a> for attachments. The
+              stack runs with <code>SELF_HOSTED=true</code>, so every plan
+              limit disappears — seats, storage, widgets — and billing is
+              disabled entirely. Licensing is a separate question: free under
+              10 people, see <a href="#licensing">Licensing</a>.
             </p>
 
             <DocsCallout kind="tip" title="Just want to use Exponential?">
@@ -68,91 +102,79 @@ export function SelfHostDocsPage() {
               install needed.
             </DocsCallout>
 
-            <h3>1. Clone the repo</h3>
-            <DocsCode language="shell">{`
-git clone https://github.com/Niach/exponential
-cd exponential
-`}</DocsCode>
-
-            <h3>2. Pick your sign-in method</h3>
             <p>
-              Email &amp; password is on by default (
-              <code>AUTH_PASSWORD_ENABLED=false</code>
+              The step-by-step below also lives as{` `}
+              <a href={`${LINKS.github.repo}/blob/master/INSTALL.md`}>
+                INSTALL.md
+              </a>
               {` `}
-              turns it off). For OIDC (Authentik, Keycloak, Zitadel, …),
-              configure providers as a JSON array:
+              in the repo — written so a coding agent can follow it
+              end-to-end. The &quot;Copy prompt for your agent&quot; button
+              above hands it to whatever agent you use.
+            </p>
+
+            <h3>1. Get the two files</h3>
+            <p>
+              Prerequisites: Docker Engine with Compose ≥ 2.23.1 (
+              <code>docker compose version</code>), free ports 80/443, and an
+              S3 bucket + key (<a href="#storage">next section</a>).
+            </p>
+            <DocsCode language="shell">{`
+mkdir exponential && cd exponential
+curl -fsSLO https://raw.githubusercontent.com/Niach/exponential/master/selfhost/docker-compose.yaml
+curl -fsSL https://raw.githubusercontent.com/Niach/exponential/master/selfhost/.env.example -o .env
+`}</DocsCode>
+
+            <h3>2. Fill in .env</h3>
+            <p>
+              Two generated secrets plus your S3 credentials — the file is
+              short and every entry is commented:
+            </p>
+            <DocsCode language="shell">{`
+sed -i "s/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" .env
+sed -i "s/^BETTER_AUTH_SECRET=$/BETTER_AUTH_SECRET=$(openssl rand -hex 32)/" .env
+# then set S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET / S3_REGION
+`}</DocsCode>
+
+            <h3>3. Up</h3>
+            <DocsCode language="shell">{`
+docker compose up -d
+curl -fsS http://localhost/api/health   # => {"ok":true,"db":true,...}
+`}</DocsCode>
+            <p>
+              Open <code>http://localhost</code> and register the first user —
+              that&apos;s your instance. Migrations <em>and</em> the custom
+              trigger SQL apply themselves at every boot; there are no manual
+              SQL steps, on install or on any update.
+            </p>
+
+            <h3>4. Go live on a domain</h3>
+            <p>
+              Point DNS at the host, then set <strong>both</strong> values in
+              {` `}
+              <code>.env</code> and <code>docker compose up -d</code> again —
+              Caddy provisions Let&apos;s Encrypt certificates automatically:
             </p>
             <DocsCode language="env">{`
-OIDC_PROVIDERS='[{"id":"authentik","name":"Authentik","clientId":"...","clientSecret":"...","discoveryUrl":"https://auth.example.com/application/o/app/.well-known/openid-configuration"}]'
+DOMAIN=issues.example.com
+APP_URL=https://issues.example.com
 `}</DocsCode>
-            <p>
-              The redirect URI in your IdP is{` `}
-              <code>{`\${BETTER_AUTH_URL}/api/auth/oauth2/callback/<id>`}</code>
-              . Google sign-in works too:
-            </p>
-            <DocsCode language="env">{`
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_LOGIN_ENABLED=true
-`}</DocsCode>
-
-            <h3>3. Bring the stack up</h3>
-            <p>
-              <code>Caddyfile</code> is gitignored but the compose file
-              bind-mounts it, so copy the example first — it ships the long-poll
-              timeouts Electric needs. Garage needs its two secret files
-              generated before the stack starts (the compose file mounts{` `}
-              <code>infra/garage/secrets</code> read-only, and Garage refuses to
-              start without them — or with world-readable ones, hence the{` `}
-              <code>chmod 600</code>). <code>storage:init</code> prints the S3
-              keys you&apos;ll need in the next step.
-            </p>
-            <DocsCode language="shell">{`
-bun install
-cp Caddyfile.example Caddyfile
-openssl rand -hex 32 > infra/garage/secrets/rpc_secret
-openssl rand -base64 32 > infra/garage/secrets/admin_token
-chmod 600 infra/garage/secrets/rpc_secret infra/garage/secrets/admin_token
-bun run backend:up
-bun run storage:init
-`}</DocsCode>
-
-            <h3>4. Configure</h3>
-            <p>
-              Copy the example env file to the repo root and fill in a session
-              secret and the S3 keys from the previous step. The web app (dev
-              server, migrations) reads env from <code>apps/web/</code>, so link
-              the root <code>.env</code> there — the root file stays the single
-              source of truth. The optional subsystems are all in there,
-              commented out: <a href="#push">push</a>,{` `}
-              <a href="#steer">steer</a> and <a href="#email">email</a> stay off
-              until you fill them in.
-            </p>
-            <DocsCode language="shell">{`
-cp apps/web/.env.example .env
-ln -s ../../.env apps/web/.env
-# generate a 32-character session secret
-openssl rand -hex 32
-`}</DocsCode>
-
-            <h3>5. Migrate &amp; run</h3>
-            <DocsCode language="shell">{`
-bun run migrate
-docker exec -i exponential-postgres-1 \\
-  psql -U postgres -d exponential \\
-  < apps/web/src/db/out/custom/0001_triggers.sql
-bun dev
-`}</DocsCode>
-            <p>
-              Open <code>http://localhost:5173</code> and register the first
-              user — that&apos;s your instance.
-            </p>
-
-            <DocsCallout kind="note" title="GitHub App — only for coding">
-              Boards work out of the box. Only coding — backing a board with a
-              GitHub repository for coding sessions and PRs — needs a configured
-              GitHub App; the next section walks through creating one, and you
-              can skip it if you just want issue tracking.
+            <DocsCallout kind="warn" title="Set both, identically">
+              <code>DOMAIN</code> is what Caddy serves; <code>APP_URL</code>
+              {` `}
+              is the origin the app runs auth against. If they disagree
+              (scheme included), sign-in breaks with origin errors.
+            </DocsCallout>
+            <DocsCallout
+              kind="warn"
+              title="Sign-up is off in production by default"
+            >
+              The image runs with <code>NODE_ENV=production</code>, which
+              disables password registration unless{` `}
+              <code>AUTH_SIGNUP_ENABLED=true</code> is set — the shipped
+              compose defaults it to <code>true</code> so your first account
+              works; set it to <code>false</code> in <code>.env</code> once
+              your accounts exist, and new teammates join via invite links.
             </DocsCallout>
 
             <h3>Connect the apps</h3>
@@ -162,42 +184,69 @@ bun dev
               URL instead of <code>app.exponential.at</code> and sign in.
             </p>
 
-            <h3>Going live</h3>
+            <DocsCallout kind="note" title="GitHub App — only for coding">
+              Boards work out of the box. Only coding — backing a board with a
+              GitHub repository for coding sessions and PRs — needs a
+              configured GitHub App; <a href="#github-app">section 03</a>
+              {` `}
+              walks through creating one, and you can skip it if you just want
+              issue tracking.
+            </DocsCallout>
+
             <p>
-              Build the web image with the root <code>Dockerfile</code> and run
-              it behind the Caddy from step 3 — the <code>Caddyfile</code> you
-              copied proxies <code>host.docker.internal:5173</code>, so serve
-              the app on port 5173:
+              Prefer running from a checkout (dev server, hacking on the
+              code)? That&apos;s the{` `}
+              <a href={`${LINKS.github.repo}#development`}>
+                Development section of the README
+              </a>
+              {` `}
+              — the compose file above is only for running released images.
             </p>
-            <DocsCode language="shell">{`
-docker build -f Dockerfile -t exponential-web:latest .
-docker run -d --name exponential-web \\
-  --network host \\
-  --env-file .env \\
-  -e PORT=5173 \\
-  -e AUTH_SIGNUP_ENABLED=true \\
-  exponential-web:latest
+          </DocsSection>
+
+          {/* ── 02 S3 storage ── */}
+          <DocsSection id="storage" num="02" label="S3 storage">
+            <h2>S3 storage</h2>
+            <p>
+              Attachments and widget screenshots live in an S3-compatible
+              bucket — the one external dependency you bring. <strong>Any
+              provider works</strong>: Hetzner Object Storage, MinIO,
+              Cloudflare R2, AWS S3, Garage, … The app talks to it with
+              path-style addressing (<code>forcePathStyle</code>) and streams
+              all attachment traffic server-side, so the endpoint never needs
+              to be reachable by browsers — a LAN-only MinIO is fine. The
+              bucket is created automatically at first use when the key has
+              create permission; otherwise create it up front.
+            </p>
+            <DocsCode language="env">{`
+# examples — one provider's block, into .env
+S3_ENDPOINT=https://nbg1.your-objectstorage.com   # Hetzner
+S3_REGION=nbg1
+# S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com   # Cloudflare R2
+# S3_REGION=auto
+# S3_ENDPOINT=http://minio.lan:9000                # MinIO on your network
+# S3_REGION=us-east-1
+S3_ACCESS_KEY=...
+S3_SECRET_KEY=...
+S3_BUCKET=exponential-attachments
 `}</DocsCode>
             <p>
-              The image applies pending migrations on boot and listens on{` `}
-              <code>PORT</code>; <code>--network host</code> keeps the{` `}
-              <code>localhost</code> URLs in your <code>.env</code> working from
-              inside the container.
+              Verify with the app itself: paste an image into any issue
+              description — if it renders back, the credentials are right (
+              <code>docker compose logs web</code> shows the S3 error
+              otherwise).
             </p>
-            <DocsCallout
-              kind="warn"
-              title="Sign-up is off in production by default"
-            >
-              The production image runs with <code>NODE_ENV=production</code>,
-              which disables password registration unless{` `}
-              <code>AUTH_SIGNUP_ENABLED=true</code> is set — without it (or an
-              OAuth/OIDC provider) nobody can register on your instance. Drop
-              the flag later to close public sign-up again.
+            <DocsCallout kind="tip" title="Want local S3?">
+              <a href="https://garagehq.deuxfleurs.fr">Garage</a> is a great
+              single-binary S3 server (it&apos;s what Exponential&apos;s dev
+              stack uses), MinIO the classic. Run either next to the stack,
+              point <code>S3_ENDPOINT</code> at it, and your attachments never
+              leave the machine.
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 02 GitHub App ── */}
-          <DocsSection id="github-app" num="02" label="GitHub App">
+          {/* ── 03 GitHub App ── */}
+          <DocsSection id="github-app" num="03" label="GitHub App">
             <h2>GitHub App</h2>
             <p>
               Coding runs against a GitHub repository, so a GitHub App is a{" "}
@@ -276,7 +325,8 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
 
             <h3>4. Connect an account</h3>
             <p>
-              Restart the app, then connect a GitHub account from{` `}
+              Apply the env changes (<code>docker compose up -d</code>), then
+              connect a GitHub account from{` `}
               <strong>Team settings → Repositories</strong>. With the OAuth
               credentials above configured, this opens a lightweight GitHub
               authorization — one consent screen, and if you manage several
@@ -294,29 +344,48 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 03 Push notifications ── */}
-          <DocsSection id="push" num="03" label="Push notifications">
+          {/* ── 04 Push notifications ── */}
+          <DocsSection id="push" num="04" label="Push notifications">
             <h2>Push notifications</h2>
+            <p>
+              The honest version first:{" "}
+              <strong>
+                mobile push does not work for self-hosted instances with the
+                store apps
+              </strong>
+              . The iOS and Android apps from the App Store / Play Store are
+              compiled against Exponential&apos;s first-party Firebase
+              project, and only the cloud&apos;s push relay can reach their
+              device tokens — a self-hosted relay cannot, by design. Push for
+              the official mobile apps is a cloud feature.
+            </p>
+            <p>
+              Self-hosted users still get web notifications, the email digest,
+              and the desktop app&apos;s notifications — only mobile push is
+              cloud-only.
+            </p>
+
+            <h3>Why a self-hosted relay can&apos;t serve the store apps</h3>
             <p>
               Native push goes through a small companion service, the{` `}
               <strong>push-relay</strong>, that wraps Firebase Cloud Messaging.
+              FCM only accepts sends from the Firebase project an app was
+              built against, and a relay always authenticates its senders: it
+              refuses to start without a <code>PUSH_RELAY_SECRET</code> and
+              rejects any <code>/send</code> whose{` `}
+              <code>x-relay-secret</code> doesn&apos;t match. The public relay
+              at <code>https://push.exponential.at</code> serves the official
+              cloud and mobile builds; its secret is not published, so a
+              self-hosted instance pointing at it just collects{` `}
+              <code>401</code>s.
             </p>
 
+            <h3>The escape hatch: build the apps yourself</h3>
             <p>
-              A relay always authenticates senders: it refuses to start without
-              a <code>PUSH_RELAY_SECRET</code>, and rejects any{` `}
-              <code>/send</code> request whose <code>x-relay-secret</code>{" "}
-              header doesn&apos;t match it. The public relay at{` `}
-              <code>https://push.exponential.at</code> serves the official cloud
-              and mobile builds and its secret is not published — a self-hosted
-              instance pointing at it gets <code>401</code>s, so run your own.
-            </p>
-
-            <h3>Run your own relay</h3>
-            <p>
-              Host the relay with your own Firebase project — you&apos;ll also
-              need to build the mobile apps with your own FCM credentials, since
-              the published binaries are wired to the public relay.
+              If you build the mobile apps from source against{` `}
+              <em>your own</em> Firebase project, your own relay serves them
+              (build from a checkout — the relay image isn&apos;t published,
+              precisely because this path is the exception):
             </p>
             <DocsCode language="shell">{`
 docker build -f Dockerfile.push-relay -t push-relay:latest .
@@ -334,14 +403,6 @@ curl https://push.yourapp.com/healthz   # => {"ok":true}
 PUSH_RELAY_URL=https://push.yourapp.com
 PUSH_RELAY_SECRET=<shared secret>
 `}</DocsCode>
-            <DocsCallout kind="warn" title="Set the secret on both sides">
-              <code>PUSH_RELAY_SECRET</code> is mandatory — the relay exits at
-              startup without it, private network or not (an open relay would
-              let anyone push notifications to harvested device tokens). Set the
-              same value on the relay process and the web app; the web app sends
-              it as the <code>x-relay-secret</code> header, and a missing or
-              mismatched value means every push fails with <code>401</code>.
-            </DocsCallout>
             <DocsCallout kind="note" title="What a relay sees">
               The FCM device token, the notification title/body, and the data
               payload (typically an issue ID). Never your database, auth state,
@@ -349,8 +410,8 @@ PUSH_RELAY_SECRET=<shared secret>
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 04 Steer relay ── */}
-          <DocsSection id="steer" num="04" label="Steer relay">
+          {/* ── 05 Steer relay ── */}
+          <DocsSection id="steer" num="05" label="Steer relay">
             <h2>Steer relay</h2>
             <p>
               Starting a coding session on your desktop from the phone or the
@@ -366,12 +427,16 @@ PUSH_RELAY_SECRET=<shared secret>
 
             <h3>Run the relay</h3>
             <p>
-              The compose file ships it behind an opt-in profile, so it stays
-              down until you ask for it. The service reads{` `}
-              <code>STEER_RELAY_SECRET</code> from your root{` `}
-              <code>.env</code> (falling back to a dev placeholder), so setting
-              it there configures both sides at once:
+              The self-host compose ships it behind an opt-in profile, pulling
+              the published image (
+              <code>ghcr.io/niach/exponential-steer-relay</code>). Set the two
+              vars in <code>.env</code> — they configure the relay container
+              and the web app at once — then bring the profile up:
             </p>
+            <DocsCode language="env">{`
+STEER_RELAY_URL=ws://your-host:4002   # what desktops + phones dial
+STEER_RELAY_SECRET=<shared secret>    # openssl rand -hex 32
+`}</DocsCode>
             <DocsCode language="shell">{`
 docker compose --profile steer up -d
 
@@ -379,20 +444,13 @@ docker compose --profile steer up -d
 curl http://localhost:4002/healthz   # => {"ok":true,...}
 `}</DocsCode>
             <p>
-              To host it on its own box, build the image directly — same
-              Dockerfile the profile uses:
+              To host it on its own box instead, run the same image there:
             </p>
             <DocsCode language="shell">{`
-docker build -f Dockerfile.steer-relay -t steer-relay:latest .
 docker run -d \\
   -p 4002:4002 \\
   -e STEER_RELAY_SECRET='<shared secret>' \\
-  steer-relay:latest
-`}</DocsCode>
-            <p>Either way, point the web app at it with the same secret:</p>
-            <DocsCode language="env">{`
-STEER_RELAY_URL=ws://localhost:4002   # or ws(s):// the host you run it on
-STEER_RELAY_SECRET=<shared secret>
+  ghcr.io/niach/exponential-steer-relay:latest
 `}</DocsCode>
             <p>
               The relay is reached over WebSocket, so give{` `}
@@ -424,8 +482,8 @@ STEER_RELAY_SECRET=<shared secret>
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 05 Email ── */}
-          <DocsSection id="email" num="05" label="Email">
+          {/* ── 06 Email ── */}
+          <DocsSection id="email" num="06" label="Email">
             <h2>Email</h2>
             <p>
               One sender handles all outgoing mail: password reset and address
@@ -434,7 +492,7 @@ STEER_RELAY_SECRET=<shared secret>
               transport configured every send is a logged no-op — nothing
               throws, the UI hides the affordances that depend on it (
               &quot;Forgot password?&quot;, the email-notification prefs), and
-              in-app plus push notifications keep working.
+              in-app notifications keep working.
             </p>
 
             <h3>SMTP</h3>
@@ -484,62 +542,86 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 06 Environment variables ── */}
-          <DocsSection id="environment" num="06" label="Environment variables">
+          {/* ── 07 Environment variables ── */}
+          <DocsSection id="environment" num="07" label="Environment variables">
             <h2>Environment variables</h2>
             <p>
-              Only three are strictly required — the rest have sensible
-              defaults, except the optional subsystems above (push, steer,
-              email), which stay off until you configure them.
+              With the shipped compose file, the in-network plumbing (
+              <code>DATABASE_URL</code>, <code>ELECTRIC_URL</code>,{` `}
+              <code>SELF_HOSTED</code>) is wired for you — what&apos;s left in
+              {` `}
+              <code>.env</code> is two secrets, the S3 block, your domain, and
+              whichever optional subsystems above you turn on. Everything in
+              {` `}
+              <code>.env</code> reaches the web container, so optional vars
+              are simply appended. The list below documents what the app
+              reads, for the shipped compose and custom setups alike; the
+              exhaustive commented reference is{` `}
+              <a href={`${LINKS.github.repo}/blob/master/.env.example`}>
+                .env.example
+              </a>
+              {` `}
+              at the repo root.
             </p>
 
             <dl className="docs-env-list">
-              <EnvVar name="DATABASE_URL" required>
-                Postgres connection string.
+              <EnvVar name="POSTGRES_PASSWORD" required>
+                Postgres password (compose wires it into{` `}
+                <code>DATABASE_URL</code> for you).
               </EnvVar>
               <EnvVar name="BETTER_AUTH_SECRET" required>
                 32+ character secret for session signing.
               </EnvVar>
-              <EnvVar name="BETTER_AUTH_URL" required>
-                Base URL of your instance (e.g.{` `}
-                <code>https://issues.yourcompany.com</code>).
+              <EnvVar name="S3_ENDPOINT" required>
+                S3-compatible storage URL — any provider, see{` `}
+                <a href="#storage">S3 storage</a>.
               </EnvVar>
-              <EnvVar name="BETTER_AUTH_TRUSTED_ORIGINS">
-                Comma-separated allowed origins.
+              <EnvVar name="S3_ACCESS_KEY" required>
+                S3 access key.
               </EnvVar>
-              <EnvVar name="ELECTRIC_URL">
-                Electric service URL (default:{" "}
-                <code>http://localhost:30000</code>).
+              <EnvVar name="S3_SECRET_KEY" required>
+                S3 secret key.
               </EnvVar>
-              <EnvVar name="S3_ENDPOINT">S3-compatible storage URL.</EnvVar>
-              <EnvVar name="S3_ACCESS_KEY">S3 access key.</EnvVar>
-              <EnvVar name="S3_SECRET_KEY">S3 secret key.</EnvVar>
               <EnvVar name="S3_BUCKET">
                 Attachment bucket name (default:{" "}
                 <code>exponential-attachments</code>).
               </EnvVar>
               <EnvVar name="S3_REGION">
-                S3 region (default: <code>garage</code>).
+                S3 region label your provider expects.
               </EnvVar>
-              <EnvVar name="SELF_HOSTED">
-                Set to <code>true</code> to disable billing and unlock all plan
-                limits.
+              <EnvVar name="DOMAIN">
+                Hostname Caddy serves with automatic HTTPS (default:{` `}
+                <code>:80</code>, plain HTTP on localhost). Always set together
+                with <code>APP_URL</code>.
+              </EnvVar>
+              <EnvVar name="APP_URL">
+                The instance origin (e.g.{` `}
+                <code>https://issues.yourcompany.com</code>) — becomes{` `}
+                <code>BETTER_AUTH_URL</code> and the trusted origin.
+              </EnvVar>
+              <EnvVar name="IMAGE_TAG">
+                Image tag for web + steer relay (default: <code>latest</code>,
+                which tracks upstream master — pin a release tag to move
+                deliberately).
               </EnvVar>
               <EnvVar name="AUTH_PASSWORD_ENABLED">
                 Enable email/password login (default: <code>true</code>).
               </EnvVar>
               <EnvVar name="AUTH_SIGNUP_ENABLED">
-                Allow public password sign-up. Defaults to on in dev but{` `}
-                <strong>off</strong> when <code>NODE_ENV=production</code> — set
-                {` `}
-                <code>true</code> or nobody can register on your instance.
+                Allow public password sign-up. The image runs{` `}
+                <code>NODE_ENV=production</code>, where this defaults{` `}
+                <strong>off</strong> — the shipped compose sets it{` `}
+                <code>true</code> so the first account works; flip to{` `}
+                <code>false</code> once onboarded.
               </EnvVar>
               <EnvVar name="INITIAL_ADMIN_EMAILS">
                 Comma-separated emails auto-promoted to instance admin at
                 startup.
               </EnvVar>
               <EnvVar name="OIDC_PROVIDERS">
-                JSON array of OIDC provider configs.
+                JSON array of OIDC provider configs (Authentik, Keycloak,
+                Zitadel, …). The redirect URI per provider is{` `}
+                <code>{`\${APP_URL}/api/auth/oauth2/callback/<id>`}</code>.
               </EnvVar>
               <EnvVar name="GOOGLE_CLIENT_ID">Google OAuth client ID.</EnvVar>
               <EnvVar name="GOOGLE_CLIENT_SECRET">
@@ -610,79 +692,55 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               <EnvVar name="EMAIL_REPLY_TO">
                 Monitored default Reply-To on every outbound email.
               </EnvVar>
-              <EnvVar name="PUSH_RELAY_URL">
-                Push notification relay URL.
-              </EnvVar>
-              <EnvVar name="PUSH_RELAY_SECRET">
-                Shared secret between the web app and the relay (sent as the
-                {` `}
-                <code>x-relay-secret</code> header) — must match the relay
-                process&apos;s env. Always set it alongside{` `}
-                <code>PUSH_RELAY_URL</code>: the relay refuses to start without
-                a secret, so a secretless web app just collects{` `}
-                <code>401</code>s.
-              </EnvVar>
               <EnvVar name="STEER_RELAY_URL">
                 Steer relay WebSocket URL (e.g.{` `}
-                <code>ws://relay.lan:4002</code>) — remote start and live
+                <code>ws://your-host:4002</code>) — remote start and live
                 watch/steer. Unset ⇒ the subsystem is off; local coding is
                 unaffected.
               </EnvVar>
               <EnvVar name="STEER_RELAY_SECRET">
-                Shared HS256 secret the web app signs steer tickets with — must
-                match the relay process&apos;s env. Both this and{` `}
-                <code>STEER_RELAY_URL</code> are needed: with either missing the
-                web app reports the subsystem as disabled, and a secretless
-                relay answers <code>503</code>.
+                Shared HS256 secret the web app signs steer tickets with — the
+                compose profile hands the same value to the relay container.
+                Both this and <code>STEER_RELAY_URL</code> are needed: with
+                either missing the web app reports the subsystem as disabled,
+                and a secretless relay answers <code>503</code>.
+              </EnvVar>
+              <EnvVar name="PUSH_RELAY_URL">
+                Push relay URL — only meaningful with self-built mobile apps,
+                see <a href="#push">Push notifications</a>.
+              </EnvVar>
+              <EnvVar name="PUSH_RELAY_SECRET">
+                Shared secret between the web app and the push relay (sent as
+                the <code>x-relay-secret</code> header) — must match the relay
+                process&apos;s env.
               </EnvVar>
             </dl>
           </DocsSection>
 
-          {/* ── 07 Updating ── */}
-          <DocsSection id="updating" num="07" label="Updating">
+          {/* ── 08 Updating ── */}
+          <DocsSection id="updating" num="08" label="Updating">
             <h2>Updating</h2>
+            <DocsCode language="shell">{`
+docker compose pull && docker compose up -d
+`}</DocsCode>
             <p>
-              Exponential rolls forward on <code>master</code>. To update:
+              That&apos;s the whole procedure: the web image applies pending
+              migrations and its custom trigger SQL at every boot, so there
+              are no separate migration steps.
             </p>
-
-            <h3>1. Pull the latest code</h3>
-            <DocsCode language="shell">{`
-git pull origin master
-`}</DocsCode>
-
-            <h3>2. Rebuild the image</h3>
-            <DocsCode language="shell">{`
-docker build -f Dockerfile -t exponential-web:latest .
-`}</DocsCode>
-
-            <h3>3. Run migrations</h3>
-            <DocsCode language="shell">{`
-bun run migrate
-docker exec -i exponential-postgres-1 \\
-  psql -U postgres -d exponential \\
-  < apps/web/src/db/out/custom/0001_triggers.sql
-`}</DocsCode>
-
-            <h3>4. Restart</h3>
             <p>
-              The compose command restarts the backend services (Postgres,
-              Electric, Garage, Caddy); the web app is a separate container, so
-              recreate it from the freshly built image.
+              By default (<code>IMAGE_TAG</code> unset ⇒ <code>latest</code>)
+              this tracks upstream <code>master</code>. To move deliberately
+              instead, pin a release in <code>.env</code> — e.g.{` `}
+              <code>IMAGE_TAG=0.18.13</code> from the{` `}
+              <a href={`${LINKS.github.repo}/tags`}>release tags</a> — and bump
+              it when you choose; the same tag applies to the steer relay
+              image.
             </p>
-            <DocsCode language="shell">{`
-docker compose down && docker compose up -d
-docker rm -f exponential-web
-# then re-run the \`docker run\` from "Going live"
-`}</DocsCode>
-
-            <DocsCallout kind="warn" title="Migrations first">
-              Always apply migrations before restarting the containers — the app
-              may fail to start otherwise.
-            </DocsCallout>
           </DocsSection>
 
-          {/* ── 08 Licensing ── */}
-          <DocsSection id="licensing" num="08" label="Licensing">
+          {/* ── 09 Licensing ── */}
+          <DocsSection id="licensing" num="09" label="Licensing">
             <h2>Licensing</h2>
             <p>
               Exponential is <strong>source-available</strong>, not open source.

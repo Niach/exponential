@@ -1,6 +1,6 @@
 import { motion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
-import { EnterpriseLine, PlanCards, SelfHostCards } from "./components/PlanCards"
+import { EnterpriseLine, LicenseCard, PlanCards } from "./components/PlanCards"
 import { ComparisonTable } from "./components/ComparisonTable"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 import { EVERY_PLAN_INCLUDES } from "./lib/plans"
@@ -50,14 +50,16 @@ export function PricingPage() {
           }}
         >
           <motion.div className="shell" {...sectionReveal}>
-            <span className="section-eyebrow">Run it yourself</span>
-            <h2 className="section-title">Self-host it. Your data.</h2>
+            <span className="section-eyebrow">Self-host licensing</span>
+            <h2 className="section-title">10 or more people? One invoice.</h2>
             <p className="section-sub">
-              Every feature unlocked, on your own hardware. Free under the
-              Exponential Small Team License while you&apos;re under 10 people
-              — published annual pricing above that, no negotiation required.
+              Self-hosting is free under the Exponential Small Team License
+              while you&apos;re under 10 people — the card above. From 10
+              people it takes a commercial license, at published annual
+              pricing: no negotiation, no enforcement in the software, just a
+              contract.
             </p>
-            <SelfHostCards />
+            <LicenseCard />
           </motion.div>
         </section>
 

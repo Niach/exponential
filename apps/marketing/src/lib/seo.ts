@@ -4,7 +4,7 @@
    The source HTML heads carry ONLY charset/viewport/title/fonts/icons — every
    description/canonical/og:/twitter:/ld+json tag is owned here. */
 
-import { CLOUD_PLANS } from "./plans"
+import { PLANS } from "./plans"
 
 export const SITE_ORIGIN = `https://exponential.at`
 export const SITE_NAME = `Exponential`
@@ -67,7 +67,7 @@ const pricingProduct: Record<string, unknown> = {
      invalid without it). */
   image: [`${SITE_ORIGIN}/og/og-pricing.png`, `${SITE_ORIGIN}/icon-512.png`],
   brand: { "@type": `Brand`, name: SITE_NAME },
-  offers: CLOUD_PLANS.filter((plan) => plan.priceNumber !== undefined).map(
+  offers: PLANS.filter((plan) => plan.priceNumber !== undefined).map(
     (plan) => ({
       "@type": `Offer`,
       name: plan.name,
@@ -238,7 +238,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/self-host/index.html`,
     sources: [`src/SelfHostDocsPage.tsx`],
     title: `Self-host — Exponential`,
-    description: `Self-host Exponential with one Docker Compose — Postgres, ElectricSQL, Garage and Caddy. No plan limits with SELF_HOSTED=true. Free under 10 people, published commercial pricing above.`,
+    description: `Self-host Exponential with one Docker Compose pulling the published image — no checkout, no build. Bring any S3-compatible storage; no plan limits. Free under 10 people, published commercial pricing above.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

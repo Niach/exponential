@@ -22,15 +22,16 @@ import {
 } from "@/hooks/use-billing"
 import { cn } from "@/lib/utils"
 
-// Per-seat model (EXP-286 rebrand). The cards list ONLY the monetized
-// axes — seats (team size), storage per team, the feedback widget, the
-// helpdesk, priority support (EXP-176 unified this across the marketing
-// frontpage, /pricing and this grid — canonical copy lives in
-// apps/marketing/src/lib/plans.ts; keep the bullets in sync). Everything
-// never-gated (unlimited boards/repos/coding sessions, native apps,
-// real-time sync, push/email/steer) lives in the ONE shared
-// EVERY_PLAN_INCLUDES sentence under the grid.
-const EVERY_PLAN_INCLUDES = `Every plan includes unlimited boards, repos and coding sessions, all native apps, real-time sync, and push, email & remote steer.`
+// Per-seat model (EXP-286 rebrand). The cards list the monetized axes —
+// seats (team size), storage per team, the feedback widget, the helpdesk,
+// priority support — plus mobile push, called out per-card since EXP-338
+// because the marketing grid now carries a self-host card that does NOT get
+// it (EXP-176 unified the copy across the marketing frontpage, /pricing and
+// this grid — canonical copy lives in apps/marketing/src/lib/plans.ts; keep
+// the bullets in sync). Everything never-gated (unlimited boards/repos/
+// coding sessions, native apps, real-time sync, email/steer) lives in the
+// ONE shared EVERY_PLAN_INCLUDES sentence under the grid.
+const EVERY_PLAN_INCLUDES = `Every plan includes unlimited boards, repos and coding sessions, all native apps, real-time sync, and email & remote steer.`
 
 // Enterprise stopped being a card (EXP-286) — it's this one line under the
 // grid, pointing at the contact page.
@@ -58,7 +59,11 @@ const TIERS: TierInfo[] = [
     priceUnit: `forever`,
     // The seat cap doubles as the cadence caption, so it isn't a bullet.
     cadence: `3 seats`,
-    features: [`250 MB attachment storage`, `1 feedback widget`],
+    features: [
+      `250 MB attachment storage`,
+      `1 feedback widget`,
+      `Mobile push notifications`,
+    ],
   },
   {
     tier: `team`,
