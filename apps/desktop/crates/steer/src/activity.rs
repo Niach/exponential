@@ -390,7 +390,38 @@ pub struct TranscriptState {
     /// entries — a queued message delivered at a turn BOUNDARY can land as a
     /// regular human `user` entry too, which must not double the bubble.
     pub published_queued: Vec<String>,
+    /// EXP-360: subagent lifecycle facts read off the MAIN transcript, drained
+    /// by the emitter each tick. claude ≥2.1.220 runs `Agent` subagents in the
+    /// BACKGROUND: the tool_result is an immediate launch ack
+    /// (`toolUseResult.status == "async_launched"`) and the agent's end never
+    /// fires the `SubagentStop` hook — it lands only as a `task-notification`
+    /// user entry. Without this channel the completion edge never published
+    /// and every background subagent tab spun forever.
+    pub task_events: Vec<TaskEvent>,
 }
+
+/// One background-subagent lifecycle fact from the main transcript (EXP-360).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaskEvent {
+    /// An `Agent` launch ack — the ack's `toolUseResult` names BOTH ids, the
+    /// deterministic dispatch→agent binding (the `SubagentStart` type-matching
+    /// dance can swap children of a same-type fan-out).
+    Launched {
+        agent_id: String,
+        tool_use_id: String,
+    },
+    /// The agent is done: a `task-notification` entry (background agents), or
+    /// a subagent tool_result (foreground runs whose `SubagentStop` the
+    /// sidecar missed).
+    Ended {
+        agent_id: Option<String>,
+        tool_use_id: Option<String>,
+    },
+}
+
+/// Undrained [`TranscriptState::task_events`] cap — the emitter drains every
+/// tick, so this only bounds the stateless-wrapper path.
+const TASK_EVENTS_CAP: usize = 32;
 
 /// Grid-question memory cap — a session never has this many live pickers.
 const RECENT_GRID_QUESTIONS_CAP: usize = 16;
@@ -496,6 +527,7 @@ pub fn process_transcript_line(
                 .collect()
         }
         Some("user") => {
+            collect_task_events(&entry, state);
             let mut events = take_ask_answers(&entry, redactor, state);
             events.extend(parse_user_entry(&entry, redactor, state));
             events
@@ -547,6 +579,123 @@ fn parse_queued_command(
         state.published_queued.drain(..excess);
     }
     Some(ActivityEvent::user_message(redacted))
+}
+
+/// EXP-360: read background-subagent lifecycle facts off a `user` entry into
+/// [`TranscriptState::task_events`] (never published directly — the emitter
+/// resolves them against the subagent cards):
+/// * a `task-notification` entry (`origin.kind == "task-notification"`) is
+///   the ONLY end signal a background agent leaves — its tagged body names
+///   the agent id and the dispatch's tool_use id;
+/// * an async launch ack (`toolUseResult.status == "async_launched"`) names
+///   both ids at spawn — the deterministic binding;
+/// * any other tool_result whose `toolUseResult` carries an `agentId` is a
+///   FOREGROUND subagent finishing (belt for a missed `SubagentStop`).
+///   Ordinary tool results carry no `agentId` and stay out of the channel.
+fn collect_task_events(entry: &Value, state: &mut TranscriptState) {
+    let push = |state: &mut TranscriptState, event: TaskEvent| {
+        state.task_events.push(event);
+        if state.task_events.len() > TASK_EVENTS_CAP {
+            let excess = state.task_events.len() - TASK_EVENTS_CAP;
+            state.task_events.drain(..excess);
+        }
+    };
+    if entry
+        .get("origin")
+        .and_then(|o| o.get("kind"))
+        .and_then(Value::as_str)
+        == Some("task-notification")
+    {
+        let text = entry_text(entry);
+        let agent_id = tag_value(&text, "task-id");
+        let tool_use_id = tag_value(&text, "tool-use-id");
+        if agent_id.is_some() || tool_use_id.is_some() {
+            push(
+                state,
+                TaskEvent::Ended {
+                    agent_id,
+                    tool_use_id,
+                },
+            );
+        }
+        return;
+    }
+    let Some(blocks) = entry
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    for block in blocks {
+        if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+            continue;
+        }
+        let Some(tool_use_id) = block.get("tool_use_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let result = entry.get("toolUseResult");
+        let Some(agent_id) = result
+            .and_then(|r| r.get("agentId"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let is_launch_ack = result.and_then(|r| r.get("status")).and_then(Value::as_str)
+            == Some("async_launched")
+            || result
+                .and_then(|r| r.get("isAsync"))
+                .and_then(Value::as_bool)
+                == Some(true);
+        let agent_id = truncate(agent_id, ID_MAX);
+        let tool_use_id = truncate(tool_use_id, ID_MAX);
+        if is_launch_ack {
+            push(
+                state,
+                TaskEvent::Launched {
+                    agent_id,
+                    tool_use_id,
+                },
+            );
+        } else {
+            // Resolve via the block's OWN tool_use_id only — a foreground
+            // dispatch's result carries the dispatch id. Other agent-flavored
+            // results (a TaskOutput poll of a still-running agent, say) have
+            // ids nothing carded, so they can never complete a card early.
+            push(
+                state,
+                TaskEvent::Ended {
+                    agent_id: None,
+                    tool_use_id: Some(tool_use_id),
+                },
+            );
+        }
+    }
+}
+
+/// A user entry's textual content — the plain string, or its text blocks
+/// joined (task-notification bodies have landed as both).
+fn entry_text(entry: &Value) -> String {
+    match entry.get("message").and_then(|m| m.get("content")) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|b| b.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// The trimmed body of the FIRST `<tag>…</tag>` in `text`, id-truncated.
+fn tag_value(text: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&close)? + start;
+    let value = text[start..end].trim();
+    (!value.is_empty()).then(|| truncate(value, ID_MAX))
 }
 
 /// Stateless wrapper over [`process_transcript_line`] (kept for callers/tests
@@ -1253,6 +1402,11 @@ struct Subagents {
     /// `agent_type`, so the completion edge re-states these (EXP-350: clients
     /// that render the LAST marker were degrading the label to "agent").
     meta: HashMap<String, CardMeta>,
+    /// Card ids whose completion edge already published (EXP-360): a
+    /// background agent's end can be seen twice (task-notification + a late
+    /// hook stop, or repeat notifications when the agent is resumed) — the
+    /// card completes ONCE.
+    completed: HashSet<String>,
 }
 
 /// What a subagent card was published with (already redacted/truncated).
@@ -1405,6 +1559,66 @@ impl Subagents {
     /// The published metadata for a card id.
     fn card_meta(&self, card_id: &str) -> Option<&CardMeta> {
         self.meta.get(card_id)
+    }
+
+    /// EXP-360: bind an async launch ack's `agent_id → tool_use_id` pairing —
+    /// authoritative, so it OVERWRITES whatever the `SubagentStart`
+    /// type-matching dance guessed (a same-type parallel fan-out swaps
+    /// children there). Only a dispatched card is bound: alias entries must
+    /// keep implying "a card was published" (the sidechain meta cards and
+    /// binds hookless dispatches on its own).
+    fn bind_launch(&mut self, agent_id: &str, tool_use_id: &str) {
+        if !self.meta.contains_key(tool_use_id) {
+            return;
+        }
+        self.unbound.retain(|id| id != tool_use_id);
+        self.alias
+            .insert(agent_id.to_string(), tool_use_id.to_string());
+        while self.alias.len() > SUBAGENTS_CAP {
+            let Some(stale) = self.alias.keys().next().cloned() else {
+                break;
+            };
+            self.alias.remove(&stale);
+        }
+    }
+
+    /// EXP-360: resolve an end signal — a `SubagentStop` hook, a
+    /// `task-notification` entry, or a dispatched card's tool_result — to its
+    /// card and mark it completed, ONCE. `None` = nothing to publish: an id
+    /// nothing ever carded (claude's internal machinery), or a card whose
+    /// completion already went out. Returns what the completion edge restates
+    /// (EXP-350: the stop payload carries no type, and last-marker-wins
+    /// clients degrade the label without it).
+    fn complete(
+        &mut self,
+        agent_id: Option<&str>,
+        tool_use_id: Option<&str>,
+    ) -> Option<(String, String, Option<String>)> {
+        let card_id = match agent_id {
+            Some(id) if self.knows_agent(id) => Some(self.card_id(id)),
+            _ => None,
+        }
+        .or_else(|| {
+            tool_use_id
+                .filter(|id| self.meta.contains_key(*id))
+                .map(str::to_string)
+        })?;
+        if !self.completed.insert(card_id.clone()) {
+            return None;
+        }
+        while self.completed.len() > SUBAGENTS_CAP * 2 {
+            let Some(stale) = self.completed.iter().next().cloned() else {
+                break;
+            };
+            self.completed.remove(&stale);
+        }
+        let meta = self.card_meta(&card_id);
+        Some((
+            card_id.clone(),
+            meta.map(|m| m.agent_type.clone())
+                .unwrap_or_else(|| SUBAGENT_TYPE_FALLBACK.to_string()),
+            meta.and_then(|m| m.detail.clone()),
+        ))
     }
 }
 
@@ -1655,21 +1869,21 @@ impl SteerState {
                 let agent_id = truncate(&agent_id, ID_MAX);
                 // A stop for an agent no card was ever published for is
                 // claude's internal machinery — completing a card nobody saw
-                // minted an endless "agent subagent ✓" stream (EXP-356).
-                if !self.subagents.knows_agent(&agent_id) {
+                // minted an endless "agent subagent ✓" stream (EXP-356). A
+                // card whose completion the transcript already delivered
+                // (EXP-360) stays silent too.
+                let Some((id, stored_type, detail)) =
+                    self.subagents.complete(Some(&agent_id), None)
+                else {
                     return;
-                }
-                let id = self.subagents.card_id(&agent_id);
+                };
                 // claude's SubagentStop payload carries no agent_type — restate
                 // what the card was published with, or last-marker-wins clients
                 // degrade the label to the fallback (EXP-350).
-                let meta = self.subagents.card_meta(&id);
                 let agent_type = agent_type
                     .as_deref()
                     .map(|t| truncate(t, AGENT_TYPE_MAX))
-                    .or_else(|| meta.map(|m| m.agent_type.clone()))
-                    .unwrap_or_else(|| SUBAGENT_TYPE_FALLBACK.to_string());
-                let detail = meta.and_then(|m| m.detail.clone());
+                    .unwrap_or(stored_type);
                 sender.send(ActivityEvent::Subagent {
                     id,
                     agent_type,
@@ -2368,6 +2582,38 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     sender.send(event);
                 },
             );
+        }
+
+        // 4a) EXP-360: background-subagent lifecycle read off the lines just
+        //     tailed. A launch ack pins the agent→dispatch binding; an end —
+        //     the task-notification that is a background agent's ONLY stop
+        //     signal (SubagentStop never fires for them), or a foreground
+        //     subagent's tool_result — publishes the completion edge the
+        //     hooks missed, so the tab's spinner actually stops.
+        for task_event in std::mem::take(&mut transcript_state.task_events) {
+            match task_event {
+                TaskEvent::Launched {
+                    agent_id,
+                    tool_use_id,
+                } => steer.subagents.bind_launch(&agent_id, &tool_use_id),
+                TaskEvent::Ended {
+                    agent_id,
+                    tool_use_id,
+                } => {
+                    if let Some((id, agent_type, detail)) = steer
+                        .subagents
+                        .complete(agent_id.as_deref(), tool_use_id.as_deref())
+                    {
+                        sender.send(ActivityEvent::Subagent {
+                            id,
+                            agent_type,
+                            status: SubagentStatus::Completed,
+                            detail,
+                            at: None,
+                        });
+                    }
+                }
+            }
         }
 
         // 4b) EXP-347: a resolution learned this tick — from the hooks (Stop /
@@ -4102,6 +4348,207 @@ mod tests {
         assert_eq!(meta.detail.as_deref(), Some("Find the flow"));
         // The consumed dispatch can no longer be claimed by a foreign start.
         assert_eq!(subagents.started("internal_01", None), None);
+    }
+
+    /// The real background-agent lifecycle on claude ≥2.1.220 (EXP-360):
+    /// dispatch hook → immediate async launch ack → (no SubagentStop, ever) →
+    /// task-notification user entry. The notification must complete the
+    /// dispatch's card exactly once.
+    #[test]
+    fn a_task_notification_completes_a_background_subagent_card() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::SubagentDispatched {
+                tool_use_id: Some("toolu_bg".to_string()),
+                description: Some("Explore glassy design system".to_string()),
+                subagent_type: Some("Explore".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        drained(&rx); // the Started card
+
+        // The launch ack (shape captured from a real 2.1.220 transcript).
+        let ack = serde_json::json!({
+            "type": "user",
+            "message": { "role": "user", "content": [{
+                "type": "tool_result",
+                "tool_use_id": "toolu_bg",
+                "content": [{ "type": "text", "text": "Async agent launched successfully." }]
+            }]},
+            "toolUseResult": {
+                "isAsync": true,
+                "status": "async_launched",
+                "agentId": "a3c7e29c06c05ef9b",
+                "description": "Explore glassy design system"
+            }
+        })
+        .to_string();
+        assert!(
+            process_transcript_line(&ack, &redactor, &mut transcript).is_empty(),
+            "a launch ack is internal metadata, never published"
+        );
+        assert_eq!(
+            transcript.task_events,
+            vec![TaskEvent::Launched {
+                agent_id: "a3c7e29c06c05ef9b".to_string(),
+                tool_use_id: "toolu_bg".to_string(),
+            }]
+        );
+        for event in std::mem::take(&mut transcript.task_events) {
+            if let TaskEvent::Launched {
+                agent_id,
+                tool_use_id,
+            } = event
+            {
+                steer.subagents.bind_launch(&agent_id, &tool_use_id);
+            }
+        }
+
+        // …the end lands ONLY as a task-notification entry.
+        let notification = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "task-notification" },
+            "promptSource": "system",
+            "message": { "role": "user", "content": "<task-notification>\n<task-id>a3c7e29c06c05ef9b</task-id>\n<tool-use-id>toolu_bg</tool-use-id>\n<status>failed</status>\n<summary>Agent failed: API Error 529</summary>\n</task-notification>" }
+        })
+        .to_string();
+        assert!(
+            process_transcript_line(&notification, &redactor, &mut transcript).is_empty(),
+            "a task notification is injected content, never a user bubble"
+        );
+        let ended = std::mem::take(&mut transcript.task_events);
+        assert_eq!(
+            ended,
+            vec![TaskEvent::Ended {
+                agent_id: Some("a3c7e29c06c05ef9b".to_string()),
+                tool_use_id: Some("toolu_bg".to_string()),
+            }]
+        );
+        let (id, agent_type, detail) = steer
+            .subagents
+            .complete(Some("a3c7e29c06c05ef9b"), Some("toolu_bg"))
+            .expect("the notification completes the card");
+        assert_eq!(id, "toolu_bg");
+        assert_eq!(agent_type, "Explore");
+        assert_eq!(detail.as_deref(), Some("Explore glassy design system"));
+
+        // A repeat notification (the agent was resumed) and a late hook stop
+        // both stay silent — the card completed once.
+        assert_eq!(
+            steer
+                .subagents
+                .complete(Some("a3c7e29c06c05ef9b"), Some("toolu_bg")),
+            None
+        );
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("a3c7e29c06c05ef9b".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(drained(&rx).is_empty(), "no doubled completion edge");
+    }
+
+    #[test]
+    fn launch_acks_repair_a_swapped_same_type_binding() {
+        let mut subagents = Subagents::default();
+        subagents.dispatch("toolu_a".to_string(), "Explore".to_string(), None);
+        subagents.dispatch("toolu_b".to_string(), "Explore".to_string(), None);
+        // The type-matching dance can only guess between same-type dispatches
+        // — here it guesses wrong…
+        assert_eq!(
+            subagents.started("agent_1", Some("Explore")).as_deref(),
+            Some("toolu_a")
+        );
+        // …and the acks state the REAL pairing.
+        subagents.bind_launch("agent_1", "toolu_b");
+        subagents.bind_launch("agent_2", "toolu_a");
+        assert_eq!(subagents.card_id("agent_1"), "toolu_b");
+        assert_eq!(subagents.card_id("agent_2"), "toolu_a");
+        // An ack for a dispatch nothing carded binds nothing (alias must keep
+        // implying "a card exists").
+        subagents.bind_launch("agent_9", "toolu_unknown");
+        assert!(!subagents.knows_agent("agent_9"));
+    }
+
+    #[test]
+    fn a_foreground_subagent_tool_result_completes_a_missed_stop() {
+        let redactor = Redactor::new(vec![]);
+        let mut subagents = Subagents::default();
+        let mut transcript = TranscriptState::default();
+        subagents.dispatch(
+            "toolu_fg".to_string(),
+            "review".to_string(),
+            Some("Check the diff".to_string()),
+        );
+        // A foreground subagent's result carries the agentId but no async
+        // marker — the agent is done even if SubagentStop never arrived.
+        let result = serde_json::json!({
+            "type": "user",
+            "message": { "role": "user", "content": [{
+                "type": "tool_result",
+                "tool_use_id": "toolu_fg",
+                "content": "All good."
+            }]},
+            "toolUseResult": { "agentId": "agent_fg", "content": [] }
+        })
+        .to_string();
+        assert!(process_transcript_line(&result, &redactor, &mut transcript).is_empty());
+        // The end resolves via the dispatch's own tool_use_id — never the
+        // agent id, so an agent-flavored result for an uncarded id (a
+        // TaskOutput poll, say) can't complete a live card early.
+        assert_eq!(
+            transcript.task_events,
+            vec![TaskEvent::Ended {
+                agent_id: None,
+                tool_use_id: Some("toolu_fg".to_string()),
+            }]
+        );
+        let (id, agent_type, detail) = subagents
+            .complete(None, Some("toolu_fg"))
+            .expect("the result completes the dispatch card");
+        assert_eq!(id, "toolu_fg");
+        assert_eq!(agent_type, "review");
+        assert_eq!(detail.as_deref(), Some("Check the diff"));
+    }
+
+    #[test]
+    fn ordinary_tool_results_stay_out_of_the_task_channel() {
+        let redactor = Redactor::new(vec![]);
+        let mut transcript = TranscriptState::default();
+        // No agentId in toolUseResult ⇒ not a subagent result.
+        let bash = serde_json::json!({
+            "type": "user",
+            "message": { "role": "user", "content": [{
+                "type": "tool_result",
+                "tool_use_id": "toolu_bash",
+                "content": "ok"
+            }]},
+            "toolUseResult": { "stdout": "ok", "stderr": "" }
+        })
+        .to_string();
+        assert!(process_transcript_line(&bash, &redactor, &mut transcript).is_empty());
+        assert!(transcript.task_events.is_empty());
+        // A tag-less notification (nothing to correlate) pushes nothing.
+        let bare = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "task-notification" },
+            "message": { "content": "<task-notification>agent done</task-notification>" }
+        })
+        .to_string();
+        assert!(process_transcript_line(&bare, &redactor, &mut transcript).is_empty());
+        assert!(transcript.task_events.is_empty());
+        // And an end for ids nothing ever carded completes nothing.
+        let mut subagents = Subagents::default();
+        assert_eq!(subagents.complete(Some("agent_x"), Some("toolu_x")), None);
     }
 
     #[test]
