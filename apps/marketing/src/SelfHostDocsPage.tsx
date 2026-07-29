@@ -61,7 +61,7 @@ export function SelfHostDocsPage() {
             <p>
               Two files and a <code>docker compose up</code> — pulling the
               published image, no checkout, no build. Every feature unlocked.
-              Free while your company is under 10 people. Or skip reading
+              Free for everyone, open source under Apache-2.0. Or skip reading
               entirely: copy the prompt and let your coding agent do the
               install.
             </p>
@@ -92,8 +92,8 @@ export function SelfHostDocsPage() {
               <a href="#storage">S3-compatible bucket</a> for attachments. The
               stack runs with <code>SELF_HOSTED=true</code>, so every plan
               limit disappears — seats, storage, widgets — and billing is
-              disabled entirely. Licensing is a separate question: free under
-              10 people, see <a href="#licensing">Licensing</a>.
+              disabled entirely. It&apos;s free for any team size — open
+              source under Apache-2.0, see <a href="#licensing">Licensing</a>.
             </p>
 
             <DocsCallout kind="tip" title="Just want to use Exponential?">
@@ -743,59 +743,38 @@ docker compose pull && docker compose up -d
           <DocsSection id="licensing" num="09" label="Licensing">
             <h2>Licensing</h2>
             <p>
-              Exponential is <strong>source-available</strong>, not open source.
-              The source is public, you can read it and modify it, and the only
-              condition on running it is the size of your company.
+              Exponential is <strong>fully open source</strong> under the{` `}
+              <a href={`${LINKS.github.repo}/blob/master/LICENSE`}>
+                Apache License 2.0
+              </a>
+              . Self-hosting is free for everyone — any company size, in
+              production, forever. No seat caps, no headcount thresholds, no
+              commercial license, no phone home, no nag screens.
             </p>
 
-            <h3>Under 10 people — free</h3>
+            <h3>Enterprise Support — optional</h3>
             <p>
-              If your company and its affiliates have fewer than 10 total
-              individuals working as employees and independent contractors, you
-              may self-host Exponential for free, in production, for as long as
-              you like. The threshold is permanent — it doesn&apos;t expire and
-              it doesn&apos;t convert into anything else.
-            </p>
-
-            <h3>10 or more — commercial license</h3>
-            <p>
-              Once you count 10 or more, you need a commercial license. The
-              pricing is published: <strong>€590/year</strong> for companies of
-              up to 25 people, <strong>€1,900/year</strong> up to 100, custom
-              above that — one annual invoice, extended support included.{` `}
+              If you want more than the community around the repo, add{` `}
+              <strong>Enterprise Support</strong>: <strong>€590/year</strong>
+              {` `}
+              for organizations of up to 25 users, <strong>€1,900/year</strong>
+              {` `}
+              up to 100, custom above that — SLA, priority support, deployment
+              help, and custom development, on one annual invoice. It&apos;s an
+              add-on, never a requirement.{` `}
               <a href="/contact/">Contact sales</a> or email{` `}
               <a href="mailto:support@exponential.at">support@exponential.at</a>
-              {` `}
-              to get one.
+              . Need SSO, SLA, or DPA? That conversation starts there too.
             </p>
 
-            <h3>Non-production is free at any size</h3>
-            <p>
-              Evaluating, developing against, and testing Exponential is free no
-              matter how big you are. Clone it, run it locally, point it at your
-              stack — the cap only applies to production use.
-            </p>
-
-            <DocsCallout kind="warn" title="What you may not do">
-              Offer Exponential to third parties as a hosted or managed service.
-              Running an instance for your own company is the point; reselling
-              it as a service to other people is not.
+            <DocsCallout kind="warn" title="No push notifications">
+              Push notifications require App Store distribution: the store
+              mobile apps are compiled against the first-party Firebase/APNs
+              project, so a self-hosted instance cannot push to them. Web and
+              desktop apps are fully functional; the mobile apps work against
+              your instance (build them from source) but won&apos;t receive
+              push notifications. Enterprise push relay coming soon.
             </DocsCallout>
-
-            <p>
-              The full terms are the{` `}
-              <a href={`${LINKS.github.repo}/blob/master/LICENSE`}>
-                Exponential Small Team License 1.0
-              </a>
-              {` `}
-              (ESTL-1.0) — that text is the authority, this section is just a
-              plain-language summary.
-            </p>
-            <p>
-              Nothing in the software enforces any of this: no seat check, no
-              phone home, no nag screen. It&apos;s a contract, on the honor
-              system.
-            </p>
           </DocsSection>
         </DocsLayout>
       </main>

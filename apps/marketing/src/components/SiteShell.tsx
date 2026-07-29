@@ -124,7 +124,7 @@ export function SiteFooter() {
                 href={`${LINKS.github.repo}/blob/master/LICENSE`}
                 style={{ color: `inherit` }}
               >
-                Exponential Small Team License 1.0
+                Apache-2.0 — open source
               </a>
             </span>
           </span>

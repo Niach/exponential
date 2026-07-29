@@ -23,7 +23,7 @@ export function TermsPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · last updated 2026-07-28
+            Exponential · last updated 2026-07-29
           </p>
 
           <p style={prose}>
@@ -35,18 +35,14 @@ export function TermsPage() {
 
           <h2 style={h2Style}>License</h2>
           <p style={prose}>
-            Exponential is source-available under the Exponential Small Team
-            License 1.0 (ESTL-1.0). The full license text and source are at{` `}
+            Exponential is open source under the Apache License, Version 2.0.
+            The full license text and source are at{` `}
             <a href="https://github.com/Niach/exponential" style={linkStyle}>
               github.com/Niach/exponential
             </a>
             . You may use, modify, and redistribute the software subject to the
-            terms of that license. Use in production is free while your company
-            and its affiliates have fewer than 10 total individuals working as
-            employees and independent contractors; at 10 or more you need a
-            commercial license. Evaluation, development, and testing are free at
-            any size. Nobody may offer the software to third parties as a hosted
-            or managed service.
+            terms of that license, free of charge, at any company size, in
+            production and otherwise.
           </p>
 
           <h2 style={h2Style}>No warranty</h2>
@@ -80,20 +76,21 @@ export function TermsPage() {
 
           <h2 style={h2Style}>Self-hosted operation</h2>
           <p style={prose}>
-            You may self-host Exponential on your own infrastructure, subject to
-            the license above. Running it for your own company is free while
-            that company and its affiliates have fewer than 10 total individuals
-            working as employees and independent contractors; at 10 or more you
-            need a commercial license — €590/year for companies of up to 25
-            people, €1,900/year up to 100, custom above (
+            You may self-host Exponential on your own infrastructure for free,
+            at any company size, under the license above. Optional Enterprise
+            Support — SLA, priority support, deployment help, custom
+            development — is available as a paid add-on: €590/year for
+            organizations of up to 25 users, €1,900/year up to 100, custom
+            above (
             <a href="mailto:support@exponential.at" style={linkStyle}>
               support@exponential.at
             </a>
-            ). You may not offer a self-hosted instance to third parties as a
-            hosted or managed service. As operator of a self-hosted instance,
-            you are responsible for its availability, security, backups, lawful
-            use, and for any data stored within it. The author has no access to
-            self-hosted data and provides no support obligations.
+            ). As operator of a self-hosted instance, you are responsible for
+            its availability, security, backups, lawful use, and for any data
+            stored within it. The author has no access to self-hosted data and,
+            absent an Enterprise Support agreement, provides no support
+            obligations. Self-hosted instances cannot deliver push
+            notifications to the store-distributed mobile apps.
           </p>
 
           <h2 style={h2Style}>Third-party integrations</h2>

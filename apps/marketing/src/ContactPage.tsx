@@ -47,13 +47,12 @@ export function ContactPage() {
               margin: `0 0 28px`,
             }}
           >
-            Self-hosting is free while your company and its affiliates have
-            fewer than 10 total individuals working as employees and
-            independent contractors. At 10 or more you need a{` `}
-            <strong>commercial self-host license</strong> — €590/year up to 25
-            people, €1,900/year up to 100, custom above — and this form is how
-            you get one. SSO, SLA, DPA, prioritized support, and deployment
-            help start here too.
+            Self-hosting is free for everyone — Exponential is open source
+            under Apache-2.0. If you want more than the community, this form is
+            how you get <strong>Enterprise Support</strong>: €590/year up to 25
+            users, €1,900/year up to 100, custom above — SLA, priority support,
+            deployment help, and custom development. SSO and DPA conversations
+            start here too.
           </p>
 
           <ContactForm />

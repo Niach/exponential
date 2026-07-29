@@ -19,7 +19,8 @@ export function HomePricing() {
           </motion.span>
           <h2 className={`section-title`}>Free for teams of three.</h2>
           <p className={`section-sub`}>
-            One plan when you grow. Self-hosting is free under 10 people.
+            One plan when you grow. Or self-host for free — open source under
+            Apache-2.0.
           </p>
         </motion.div>
 

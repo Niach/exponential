@@ -2,10 +2,10 @@ ui — vendored third-party code (EXP-269)
 ========================================
 
 The `ui` crate is Exponential's own source, covered by the repository's
-Exponential Small Team License (see /LICENSE at the repo root) — WITH THE
-EXCEPTIONS listed below. The exceptions are licensed under the Apache License
-2.0 (see the LICENSE-APACHE-2.0 file in this directory) and are NOT covered by
-the repository's licence.
+Apache License 2.0 (see /LICENSE at the repo root) — EXCEPT the vendored
+third-party files listed below. Those are also Apache License 2.0 (see the
+LICENSE-APACHE-2.0 file in this directory), but their upstream authors keep
+their copyright; this NOTICE records their provenance.
 
 src/window_frame.rs
 -------------------

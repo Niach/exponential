@@ -5,12 +5,10 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 version = "0.8.42"
-# Source-available, NOT Apache-2.0 and NOT open source: the whole repo is under the
-# Exponential Small Team License 1.0 (verbatim text in the repo-root LICENSE). There
-# is no SPDX id for it, so this is an SPDX `LicenseRef-` document reference. Do NOT
-# switch this to `license-file` — the two keys are mutually exclusive, and every crate
-# inherits this one via `license.workspace = true`.
-license = "LicenseRef-ESTL-1.0"
+# The whole repo is Apache-2.0 (EXP-352; verbatim text in the repo-root LICENSE).
+# Every crate inherits this via `license.workspace = true`, except the vendored
+# gpui-markdown-editor which pins its own explicit Apache-2.0.
+license = "Apache-2.0"
 
 [workspace.dependencies]
 # gpui + backend selector + macros pinned to gpui-component's EXACT rev (LD-7,
@@ -100,10 +98,10 @@ sha2 = "0.10"
 libc = "0.2"
 
 # EXP-222: zed's `ztracing`/`ztracing_macro` (and `zlog`, reachable only through
-# ztracing) are GPL-3.0-or-later — statically linking them into the shipped binary
-# is incompatible with the ESTL-1.0 headcount cap (a GPL-3.0 §5 "additional
-# restriction"). The rest of the pinned zed/gpui-component stack is Apache-2.0 or
-# permissive. These clean-room no-op shims replace the whole consumed API surface
+# ztracing) are GPL-3.0-or-later — statically linking them would put the shipped
+# binary as a whole under GPL-3.0 terms, which we do not distribute under. The
+# rest of the pinned zed/gpui-component stack is Apache-2.0 or permissive.
+# These clean-room no-op shims replace the whole consumed API surface
 # (only `sum_tree`'s `#[instrument]` in practice — the workspace never sets
 # `--cfg ztracing`, so upstream is inert no-ops in our builds anyway). Do NOT fix
 # by bumping the gpui rev instead: ztracing is GPL on zed main too. Guarded by

@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-apache-2`,
+    date: `2026-07-29`,
+    title: `Exponential is now open source`,
+    summary: `The whole repo moved to Apache-2.0 — self-hosting is free for everyone, with optional Enterprise Support.`,
+    body: `- **Apache-2.0, fully open source** — the Exponential Small Team License is gone. Read it, change it, and self-host it in production for free, at any company size.
+- **No more headcount math** — the 10-person limit and the mandatory commercial license are deleted. Nothing changes for cloud plans.
+- **Enterprise Support is now an optional add-on** — self-hosters who want an SLA, priority support, deployment help, or custom development can get a support contract at the same published prices.
+- One honest caveat remains: self-hosted instances can't push notifications to the store mobile apps (they're built against our Firebase project). Web and desktop are fully featured either way.`,
+  },
+  {
     id: `2026-07-selfhost-and-billing-portal`,
     date: `2026-07-29`,
     title: `Self-host with one docker compose`,

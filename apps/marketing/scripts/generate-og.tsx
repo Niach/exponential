@@ -52,7 +52,7 @@ const CARDS: Card[] = [
   {
     file: `og-pricing.png`,
     title: `Free for teams of three. One plan after that.`,
-    subtitle: `€12/seat/mo billed yearly, everything included. Local AI agents free on every plan. Self-host free under 10 people.`,
+    subtitle: `€12/seat/mo billed yearly, everything included. Local AI agents free on every plan. Self-host free — open source under Apache-2.0.`,
   },
   {
     file: `og-download.png`,

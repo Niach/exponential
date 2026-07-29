@@ -110,6 +110,10 @@ The image self-migrates on boot — no other steps. `latest` tracks upstream `ma
 | Nobody can register | `AUTH_SIGNUP_ENABLED` is false/unset in production. Set `true` while onboarding, or configure an OAuth/OIDC provider. |
 | No certificates on your domain | Ports 80/443 not reachable from the internet, or DNS not propagated — `docker compose logs caddy`. |
 
+## Limitations
+
+**Push notifications are not available for self-hosted mobile apps.** The store-distributed iOS and Android apps are compiled against the first-party Firebase/APNs project, so a self-hosted instance cannot push to them. Web and desktop apps are fully featured; the mobile apps work against your instance (build them from source), they just won't receive push. An enterprise push relay for self-hosters is planned.
+
 ## Licensing
 
-Self-hosting is free while your company (affiliates included) has **fewer than 10 people**; 10 or more needs a commercial license (€590/yr up to 25 people, €1,900/yr up to 100). Full terms: [LICENSE](https://github.com/Niach/exponential/blob/master/LICENSE) (Exponential Small Team License 1.0). Nothing in the software enforces this — it's a contract, on the honor system.
+Exponential is free to self-host under [Apache-2.0](https://github.com/Niach/exponential/blob/master/LICENSE) — open source, any team size, no restrictions. Optional Enterprise Support (SLA, priority support, deployment help, custom development) is available at [exponential.at/pricing](https://exponential.at/pricing/) or support@exponential.at.

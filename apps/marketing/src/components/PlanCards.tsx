@@ -1,16 +1,22 @@
 import { useId, useState } from "react"
 import { motion } from "motion/react"
-import { Check, Mail, Server } from "lucide-react"
+import { Check, Mail, Server, TriangleAlert } from "lucide-react"
 import { cardReveal, staggerContainer, viewportOnce } from "../lib/animations"
 import {
-  COMMERCIAL_LICENSE,
   ENTERPRISE_LINE,
+  ENTERPRISE_SUPPORT,
   PLANS,
   type Plan,
 } from "../lib/plans"
 import { IcArrow } from "./icons"
 
-function FeatureList({ features }: { features: string[] }) {
+function FeatureList({
+  features,
+  caveat,
+}: {
+  features: string[]
+  caveat?: string
+}) {
   return (
     <ul className="plan-features">
       {features.map((f) => (
@@ -19,6 +25,12 @@ function FeatureList({ features }: { features: string[] }) {
           {f}
         </li>
       ))}
+      {caveat && (
+        <li className="plan-caveat">
+          <TriangleAlert size={13} strokeWidth={2.4} />
+          {caveat}
+        </li>
+      )}
     </ul>
   )
 }
@@ -90,7 +102,7 @@ function PlanCard({ plan }: { plan: Plan }) {
       {plan.monthlyAmount && (
         <CadenceToggle yearly={yearly} onChange={setYearly} />
       )}
-      <FeatureList features={plan.features} />
+      <FeatureList features={plan.features} caveat={plan.caveat} />
       <a
         className={`btn ${plan.highlight || plan.enterprise ? `btn-primary` : `btn-ghost`}`}
         href={plan.cta.href}
@@ -121,18 +133,21 @@ export function PlanCards() {
 }
 
 /* Enterprise is a sales motion, not a tier (EXP-286) — one line under the
-   plan grid instead of a fourth card. */
+   plan grid instead of a fourth card. Since EXP-352 it sells the optional
+   Enterprise Support add-on. */
 export function EnterpriseLine() {
   return (
     <p className="plan-enterprise-line">
-      {ENTERPRISE_LINE} <a href="/contact/">Talk to us</a>.
+      {ENTERPRISE_LINE}{` `}
+      <a href="/contact/">Talk to us about Enterprise Support</a>.
     </p>
   )
 }
 
-/* Self-host licensing (EXP-338: the free self-host card lives in the main
-   grid; what remains here is the 10+-people commercial license). */
-export function LicenseCard() {
+/* Enterprise Support (EXP-352: the free self-host card lives in the main
+   grid; this optional add-on card replaced the old mandatory 10+-people
+   commercial license). */
+export function EnterpriseSupportCard() {
   return (
     <motion.div
       className="plan-grid plan-grid-selfhost"
@@ -141,7 +156,7 @@ export function LicenseCard() {
       whileInView="visible"
       viewport={viewportOnce}
     >
-      <PlanCard plan={COMMERCIAL_LICENSE} />
+      <PlanCard plan={ENTERPRISE_SUPPORT} />
     </motion.div>
   )
 }
