@@ -1,15 +1,16 @@
-// ClosedLoop — composition root. A looping product story: feedback in → PR
-// out → shipped on every platform. 1920×1080 @ 30fps, 940 story frames plus
-// an END_HOLD rest tail (see timeline.ts). Player-compatible by construction:
-// the background is a static CSS gradient (no staticFile assets), everything
-// below is frame-driven. `textScale` (Player inputProps) scales ONLY the
-// screen-space caption layer — the marketing embed passes 1.5 on phone
-// widths so the narrative text stays readable at small sizes (EXP-176).
+// ClosedLoop — composition root. Five per-flow clips inside one stable frame
+// (EXP-337): start coding → live steer → review & merge → live board →
+// feedback intake, plus an END_HOLD rest tail (see timeline.ts).
+// Player-compatible by construction: the background is a static CSS gradient
+// (no staticFile assets), everything below is frame-driven. `textScale`
+// (Player inputProps) scales ONLY the screen-space caption layer — the
+// marketing embed passes 1.3 on phone widths so the narrative text stays
+// readable at small sizes (EXP-176).
 
-import React from "react";
-import { AbsoluteFill } from "remotion";
-import { C } from "../ships/theme";
-import { Film } from "./scenes/Film";
+import React from "react"
+import { AbsoluteFill } from "remotion"
+import { C } from "../ships/theme"
+import { Reel } from "./scenes/Reel"
 
 // Static background: identical at every frame (no staticFile assets), so the
 // loop point stays seamless and the @remotion/player embed needs no bundle.
@@ -26,13 +27,13 @@ const GradientBackground: React.FC = () => (
       }}
     />
   </AbsoluteFill>
-);
+)
 
 export const ClosedLoop: React.FC<{ textScale?: number }> = ({
   textScale = 1,
 }) => (
   <AbsoluteFill>
     <GradientBackground />
-    <Film textScale={textScale} />
+    <Reel textScale={textScale} />
   </AbsoluteFill>
-);
+)

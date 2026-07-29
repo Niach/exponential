@@ -95,7 +95,9 @@ export function CollabSection() {
           <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
             Collaboration
           </motion.span>
-          <h2 className={`section-title`}>Work as a team in real time.</h2>
+          <h2 className={`section-title`}>
+            Customer support and feedback in one place.
+          </h2>
           <p className={`section-sub`}>
             A support request from the feedback widget lands in your
             team&rsquo;s shared Support inbox as an email conversation. Reply
@@ -104,8 +106,8 @@ export function CollabSection() {
             updates live for the whole team.
           </p>
           <span className={`co-pro`}>
-            <span className={`co-pro-badge`}>Team</span> Helpdesk is included
-            in the Team plan.
+            <span className={`co-pro-badge`}>Team</span> Helpdesk is included in
+            the Team plan.
           </span>
         </motion.div>
 

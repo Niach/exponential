@@ -3,8 +3,8 @@
   position: relative;
   padding: 80px 0;
   text-align: center;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
+  /* transparent — the page gradient's bottom stop shows through */
+  border-top: 1px solid var(--glass-stroke-section);
 }
 
 .footer-cta-inner h2 {
@@ -28,7 +28,7 @@
 
 /* ─── Footer ─── */
 footer {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--glass-stroke-section);
   padding: 48px 0 56px;
 }
 

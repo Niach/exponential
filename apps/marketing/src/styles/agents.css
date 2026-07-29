@@ -5,9 +5,9 @@
    stays readable at every viewport width. */
 
 .home-agents {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in oklab, var(--bg-elev) 40%, var(--bg));
+  border-top: 1px solid var(--glass-stroke-section);
+  border-bottom: 1px solid var(--glass-stroke-section);
+  background: var(--glass-fill-section);
 }
 
 .aw-grid {

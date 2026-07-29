@@ -18,7 +18,11 @@ import { IDENTITY } from "../fixtures"
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
 // ── Tiny inline icons (lucide-style, stroke 1.6–2, currentColor) ──────────────
-const Svg: React.FC<{ size: number; sw?: number; children: React.ReactNode }> = ({ size, sw = 1.8, children }) => (
+const Svg: React.FC<{
+  size: number
+  sw?: number
+  children: React.ReactNode
+}> = ({ size, sw = 1.8, children }) => (
   <svg
     width={size}
     height={size}
@@ -195,6 +199,11 @@ const XIcon: React.FC<{ size?: number }> = ({ size = 9 }) => (
 // name 13/600 + muted globe + chevrons-up-down switcher.
 // Right: run select + green play ▷ · divider · step-branch glyph + branch 13/600
 // + commit check + muted ↑N context chip.
+export type TopBarPresence = {
+  users: readonly { initials: string; color: string }[]
+  at?: number // global frame the facepile pops in (staggered 3f/avatar); omit = always on
+}
+
 export type TopBarProps = {
   frame: number
   projectName?: string
@@ -203,15 +212,18 @@ export type TopBarProps = {
   runConfig?: string
   branch?: string
   ahead?: number // 0 hides the ↑N chip
+  presence?: TopBarPresence // overlapping presence avatars + "N online" (EXP-337 board-live)
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
+  frame,
   projectName = IDENTITY.project,
   glyph = "code",
   showGlobe = true,
   runConfig = IDENTITY.runConfig,
   branch = IDENTITY.defaultBranch,
   ahead = 1,
+  presence,
 }) => (
   <div
     style={{
@@ -234,9 +246,23 @@ export const TopBar: React.FC<TopBarProps> = ({
     {/* left — project pill */}
     <div style={{ display: "flex", alignItems: "center" }}>
       <span style={{ color: C.indigoSoft, display: "flex" }}>
-        {glyph === "code" ? <CodeIcon size={16} /> : <MegaphoneIcon size={16} />}
+        {glyph === "code" ? (
+          <CodeIcon size={16} />
+        ) : (
+          <MegaphoneIcon size={16} />
+        )}
       </span>
-      <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: -0.1 }}>{projectName}</span>
+      <span
+        style={{
+          marginLeft: 8,
+          fontSize: 13,
+          fontWeight: 600,
+          color: C.text,
+          letterSpacing: -0.1,
+        }}
+      >
+        {projectName}
+      </span>
       {showGlobe ? (
         <span style={{ marginLeft: 8, color: C.muted, display: "flex" }}>
           <GlobeIcon size={13} />
@@ -245,12 +271,84 @@ export const TopBar: React.FC<TopBarProps> = ({
       <span style={{ marginLeft: 7, color: C.muted, display: "flex" }}>
         <ChevronsUpDownIcon size={12} />
       </span>
+      {/* presence facepile — left cluster so board-scoped camera crops keep
+          it in shot (EXP-337 board-live) */}
+      {presence ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            marginLeft: 14,
+          }}
+        >
+          <div style={{ display: "flex" }}>
+            {presence.users.map((u, i) => {
+              const at =
+                presence.at === undefined ? undefined : presence.at + i * 3
+              if (at !== undefined && frame < at) return null
+              const s =
+                at === undefined
+                  ? 1
+                  : spring({
+                      frame: frame - at,
+                      fps: 30,
+                      config: { damping: 12, stiffness: 200 },
+                    })
+              return (
+                <span
+                  key={u.initials}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    marginLeft: i === 0 ? 0 : -5,
+                    borderRadius: 999,
+                    backgroundColor: `color-mix(in srgb, ${u.color} 26%, #171717)`,
+                    border: `1.5px solid ${C.panel}`,
+                    outline: `1px solid ${u.color}`,
+                    color: u.color,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 8,
+                    fontWeight: 600,
+                    scale: String(0.6 + 0.4 * s),
+                    zIndex: presence.users.length - i,
+                  }}
+                >
+                  {u.initials}
+                </span>
+              )
+            })}
+          </div>
+          <span
+            style={{
+              fontSize: 11.5,
+              fontWeight: 500,
+              color: C.muted,
+              opacity:
+                presence.at === undefined
+                  ? 1
+                  : interpolate(
+                      frame,
+                      [presence.at + 8, presence.at + 14],
+                      [0, 1],
+                      CLAMP
+                    ),
+            }}
+          >
+            {`${presence.users.length} online`}
+          </span>
+        </div>
+      ) : null}
     </div>
 
     {/* right — run bar · divider · git cluster */}
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>{runConfig}</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
+          {runConfig}
+        </span>
         <span style={{ color: C.muted, display: "flex" }}>
           <ChevronDownIcon size={11} />
         </span>
@@ -258,18 +356,41 @@ export const TopBar: React.FC<TopBarProps> = ({
       <span style={{ color: C.green, display: "flex" }}>
         <PlayIcon size={13} />
       </span>
-      <div style={{ width: 1, height: 16, backgroundColor: C.border, margin: "0 4px" }} />
+      <div
+        style={{
+          width: 1,
+          height: 16,
+          backgroundColor: C.border,
+          margin: "0 4px",
+        }}
+      />
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ color: C.text, display: "flex" }}>
           <BranchStepIcon size={14} />
         </span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: -0.1 }}>{branch}</span>
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: C.text,
+            letterSpacing: -0.1,
+          }}
+        >
+          {branch}
+        </span>
       </div>
       <span style={{ color: C.muted, display: "flex" }}>
         <CheckIcon size={13} />
       </span>
       {ahead > 0 ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 2, color: C.muted }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 2,
+            color: C.muted,
+          }}
+        >
           <ArrowUpIcon size={11} />
           <span style={{ fontSize: 12, fontWeight: 500 }}>{ahead}</span>
         </div>
@@ -371,11 +492,24 @@ export type IconRailProps = {
   icons?: RailIconId[] // rail icon set (default: the full ships rail incl. releases)
 }
 
-export const IconRail: React.FC<IconRailProps> = ({ frame, active, activeTransition, dots = [], dotColor = C.synNumber, icons }) => {
+export const IconRail: React.FC<IconRailProps> = ({
+  frame,
+  active,
+  activeTransition,
+  dots = [],
+  dotColor = C.synNumber,
+  icons,
+}) => {
   const ids = icons ?? DEFAULT_RAIL_IDS
-  const yMap = icons === undefined ? (RAIL_Y as Record<string, number>) : railYMap(ids)
+  const yMap =
+    icons === undefined ? (RAIL_Y as Record<string, number>) : railYMap(ids)
   const t = activeTransition
-    ? interpolate(frame, [activeTransition.at, activeTransition.at + 10], [0, 1], { ...CLAMP, easing: EASE })
+    ? interpolate(
+        frame,
+        [activeTransition.at, activeTransition.at + 10],
+        [0, 1],
+        { ...CLAMP, easing: EASE }
+      )
     : 1
   const fromId = activeTransition?.from
   // Accent bar center Y (slides between icons during a transition).
@@ -385,8 +519,12 @@ export const IconRail: React.FC<IconRailProps> = ({ frame, active, activeTransit
 
   const tintOf = (id: RailIconId): string => {
     if (id === active && id === fromId) return C.indigoSoft
-    if (id === active) return activeTransition ? interpolateColors(t, [0, 1], [C.muted, C.indigoSoft]) : C.indigoSoft
-    if (id === fromId) return interpolateColors(t, [0, 1], [C.indigoSoft, C.muted])
+    if (id === active)
+      return activeTransition
+        ? interpolateColors(t, [0, 1], [C.muted, C.indigoSoft])
+        : C.indigoSoft
+    if (id === fromId)
+      return interpolateColors(t, [0, 1], [C.indigoSoft, C.muted])
     return C.muted
   }
   const bgOf = (id: RailIconId): number => {
@@ -411,7 +549,16 @@ export const IconRail: React.FC<IconRailProps> = ({ frame, active, activeTransit
       }}
     >
       {/* divider after search */}
-      <div style={{ position: "absolute", left: 12, top: RAIL_DIVIDER_Y - WIN.topBar, width: 20, height: 1, backgroundColor: C.border }} />
+      <div
+        style={{
+          position: "absolute",
+          left: 12,
+          top: RAIL_DIVIDER_Y - WIN.topBar,
+          width: 20,
+          height: 1,
+          backgroundColor: C.border,
+        }}
+      />
       {/* active accent bar (2px, rounded, hugs the rail's left edge) */}
       <div
         style={{
@@ -427,37 +574,37 @@ export const IconRail: React.FC<IconRailProps> = ({ frame, active, activeTransit
       {ids.map((id) => {
         const Icon = RAIL_ICON[id]
         return (
-        <div
-          key={id}
-          style={{
-            position: "absolute",
-            left: WIN.rail / 2 - 11,
-            top: (yMap[id] ?? RAIL_Y[id]) - WIN.topBar - 11,
-            width: 22,
-            height: 22,
-            borderRadius: 5,
-            backgroundColor: `rgba(255,255,255,${(0.05 * bgOf(id)).toFixed(3)})`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: tintOf(id),
-          }}
-        >
-          <Icon size={14} />
-          {dots.includes(id) ? (
-            <div
-              style={{
-                position: "absolute",
-                top: 1,
-                right: 1,
-                width: 5,
-                height: 5,
-                borderRadius: 999,
-                backgroundColor: dotColor,
-              }}
-            />
-          ) : null}
-        </div>
+          <div
+            key={id}
+            style={{
+              position: "absolute",
+              left: WIN.rail / 2 - 11,
+              top: (yMap[id] ?? RAIL_Y[id]) - WIN.topBar - 11,
+              width: 22,
+              height: 22,
+              borderRadius: 5,
+              backgroundColor: `rgba(255,255,255,${(0.05 * bgOf(id)).toFixed(3)})`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: tintOf(id),
+            }}
+          >
+            <Icon size={14} />
+            {dots.includes(id) ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 1,
+                  right: 1,
+                  width: 5,
+                  height: 5,
+                  borderRadius: 999,
+                  backgroundColor: dotColor,
+                }}
+              />
+            ) : null}
+          </div>
         )
       })}
     </div>
@@ -469,13 +616,19 @@ export type ChromeTab = { id: string; label: string; mono?: boolean }
 
 // Deterministic tab width so the assembler can aim the cursor (see tabsBarTabRect).
 export const chromeTabWidth = (t: ChromeTab): number =>
-  Math.min(240, Math.max(88, Math.round(12 + t.label.length * (t.mono ? 7.3 : 6.9) + 14 + 9 + 10)))
+  Math.min(
+    240,
+    Math.max(
+      88,
+      Math.round(12 + t.label.length * (t.mono ? 7.3 : 6.9) + 14 + 9 + 10)
+    )
+  )
 
 // Window-local rect of a tab (y 38–67). Returns null when the id isn't present.
 export const tabsBarTabRect = (
   tabs: ChromeTab[],
   id: string,
-  left = WIN.rail + WIN.sidebar,
+  left = WIN.rail + WIN.sidebar
 ): { x: number; y: number; w: number; h: number } | null => {
   let x = left
   for (const t of tabs) {
@@ -494,7 +647,13 @@ export type TabsBarProps = {
   left?: number // window-local x of the strip's left edge (default: center pane edge)
 }
 
-export const TabsBar: React.FC<TabsBarProps> = ({ frame, tabs, activeId, popAt, left = WIN.rail + WIN.sidebar }) => (
+export const TabsBar: React.FC<TabsBarProps> = ({
+  frame,
+  tabs,
+  activeId,
+  popAt,
+  left = WIN.rail + WIN.sidebar,
+}) => (
   <div
     style={{
       position: "absolute",
@@ -539,7 +698,16 @@ export const TabsBar: React.FC<TabsBarProps> = ({ frame, tabs, activeId, popAt, 
           }}
         >
           {isActive ? (
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, backgroundColor: C.indigoSoft }} />
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 2,
+                backgroundColor: C.indigoSoft,
+              }}
+            />
           ) : null}
           <span
             style={{
@@ -555,7 +723,13 @@ export const TabsBar: React.FC<TabsBarProps> = ({ frame, tabs, activeId, popAt, 
           >
             {t.label}
           </span>
-          <span style={{ marginLeft: 14, color: isActive ? C.muted : C.dim, display: "flex" }}>
+          <span
+            style={{
+              marginLeft: 14,
+              color: isActive ? C.muted : C.dim,
+              display: "flex",
+            }}
+          >
             <XIcon size={9} />
           </span>
         </div>
@@ -570,7 +744,9 @@ export type DockCollapsedStripProps = {
   count?: number
 }
 
-export const DockCollapsedStrip: React.FC<DockCollapsedStripProps> = ({ count = 1 }) => (
+export const DockCollapsedStrip: React.FC<DockCollapsedStripProps> = ({
+  count = 1,
+}) => (
   <div
     style={{
       position: "absolute",
@@ -592,7 +768,9 @@ export const DockCollapsedStrip: React.FC<DockCollapsedStripProps> = ({ count = 
     <span style={{ color: C.muted, display: "flex" }}>
       <SquareTerminalIcon size={13} />
     </span>
-    <span style={{ fontSize: 12, fontWeight: 500, color: C.muted }}>{`Terminal (${count})`}</span>
+    <span
+      style={{ fontSize: 12, fontWeight: 500, color: C.muted }}
+    >{`Terminal (${count})`}</span>
     <div style={{ flex: 1 }} />
     <span style={{ color: C.muted, display: "flex" }}>
       <ChevronUpIcon size={13} />
@@ -610,14 +788,23 @@ export type CenterEmptyStateProps = {
   contentCenter?: { x: number; y: number }
 }
 
-export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({ bottom = WIN.dockStrip, contentCenter }) => {
+export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({
+  bottom = WIN.dockStrip,
+  contentCenter,
+}) => {
   const content = (
     <>
       <span style={{ color: C.dim, display: "flex" }}>
         <InboxIcon size={24} />
       </span>
-      <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: C.text }}>Nothing open</div>
-      <div style={{ marginTop: 4, fontSize: 12, color: C.muted }}>Pick an issue from the sidebar — it opens as a tab here.</div>
+      <div
+        style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: C.text }}
+      >
+        Nothing open
+      </div>
+      <div style={{ marginTop: 4, fontSize: 12, color: C.muted }}>
+        Pick an issue from the sidebar — it opens as a tab here.
+      </div>
     </>
   )
   const paneLeft = WIN.rail + WIN.sidebar

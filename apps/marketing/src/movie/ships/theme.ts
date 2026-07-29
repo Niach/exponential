@@ -14,6 +14,11 @@ export const { fontFamily: MONO_FONT } = loadMono("normal", {
   ignoreTooManyRequestsWarning: true,
 })
 
+// Display type matching the marketing page: Geist resolves when the Player
+// renders inside the marketing document (which self-hosts it); Remotion
+// Studio falls back to Inter.
+export const PAGE_FONT = `"Geist", "${UI_FONT}", ui-sans-serif, system-ui, sans-serif`
+
 // App-exact palette (design-tokens + web styles.css conversions; matched against the local-only real-app reference screenshots (untracked)).
 export const C = {
   canvas: "#09090b", // video canvas only

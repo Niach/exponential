@@ -41,8 +41,8 @@
   font-size: 13.5px;
   letter-spacing: inherit;
   color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--input);
+  background: var(--glass-fill-row);
+  border: 1px solid var(--glass-stroke-strong);
   border-radius: var(--radius-md);
   padding: 9px 11px;
   outline: none;

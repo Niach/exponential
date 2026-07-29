@@ -1,7 +1,7 @@
 /* ─── Exponential marketing — design tokens (dark-only zinc) ─── */
 :root {
   /* Surfaces */
-  --bg: #0a0a0a;
+  --bg: #09090b;
   --bg-elev: #171717;
   --bg-soft: #262626;
 
@@ -30,8 +30,30 @@
   --pr-low: #3b82f6;
   --neutral: #a1a1aa;
 
-  /* Product accent (indigo) */
+  /* Product accent (indigo) — same value as --brand-strong below */
   --accent: #4f46e5;
+
+  /* ─── Glass ladder (EXP-337) — values mirror apps/web styles.css
+     (EXP-269 block) / the desktop IDE theme: pure white alphas over ONE
+     top→bottom zinc gradient; 1px strokes, never fractional. ─── */
+  --glass-bg-top: #09090b;
+  --glass-bg-bottom: #18181b;
+  --brand: #6366f1;
+  --brand-strong: #4f46e5; /* required under white text (AA) */
+  --glass-fill-section: oklch(1 0 0 / 4%);
+  --glass-fill-row: oklch(1 0 0 / 5%);
+  --glass-fill-card: oklch(1 0 0 / 6%);
+  --glass-fill-active: oklch(1 0 0 / 15%);
+  --glass-stroke-row: oklch(1 0 0 / 6%);
+  --glass-stroke-section: oklch(1 0 0 / 8%);
+  --glass-stroke-card: oklch(1 0 0 / 10%);
+  --glass-stroke-strong: oklch(1 0 0 / 12%);
+  --glass-stroke-active: oklch(1 0 0 / 20%);
+  --glass-panel-bg: color-mix(in oklab, #171717 95%, transparent);
+  --glass-blur: 16px; /* floating panels */
+  --glass-blur-sm: 12px; /* smaller chrome (topbar) */
+  --glass-shadow:
+    0 12px 32px -12px oklch(0 0 0 / 0.45), inset 0 1px 0 oklch(1 0 0 / 6%);
 
   /* Fonts — site chrome */
   --font-sans:
@@ -48,6 +70,15 @@
   --radius: 10px;
   --radius-lg: 16px;
   --radius-xl: 14px;
+
+  /* Glass radii ladder (EXP-337) — row 10 / section 12 / card 16 /
+     sheet 24, matching the IDE. Additive: the legacy radii above keep
+     serving the product recreations (ide/webui/mobile) and docs. */
+  --radius-row: 10px;
+  --radius-section: 12px;
+  --radius-card: 16px;
+  --radius-sheet: 24px;
+  --radius-pill: 999px;
 
   color-scheme: dark;
 }
@@ -71,6 +102,23 @@ body {
 
 body {
   overflow-x: hidden;
+}
+
+/* The IDE's ONE gradient, painted as a fixed pseudo (background-attachment:
+   fixed is broken on iOS Safari — same trick as apps/web). Negative z-index
+   sits above the propagated canvas background, below all content; --bg stays
+   the overscroll/fallback paint. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--glass-bg-top),
+    var(--glass-bg-bottom)
+  );
 }
 
 a {

@@ -23,9 +23,9 @@
   gap: 0.4rem;
   height: 34px;
   padding: 0 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
+  border: 1px solid var(--glass-stroke-row);
+  border-radius: var(--radius-pill);
+  background: var(--glass-fill-row);
   color: var(--fg-muted);
   font-size: 0.8125rem;
   font-weight: 500;
@@ -36,9 +36,9 @@
     border-color 0.15s ease;
 }
 .dl-iconbtn:hover {
-  background: var(--bg-soft);
+  background: var(--glass-fill-active);
   color: var(--fg);
-  border-color: var(--input);
+  border-color: var(--glass-stroke-active);
 }
 .dl-iconbtn svg {
   flex-shrink: 0;
@@ -83,9 +83,10 @@
   align-items: flex-start;
   gap: 0.5rem;
   padding: 1.5rem;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg-elev);
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-card);
+  background: var(--glass-fill-card);
+  --fg-dim: #8f8f8f;
   text-decoration: none;
   transition:
     background 0.15s ease,
@@ -93,7 +94,7 @@
     transform 0.15s ease;
 }
 .dl-card:not(.is-soon):hover {
-  border-color: var(--input);
+  border-color: var(--glass-stroke-active);
   transform: translateY(-2px);
 }
 .dl-card.is-soon {
@@ -106,8 +107,9 @@
   justify-content: center;
   width: 48px;
   height: 48px;
-  border-radius: 10px;
-  background: var(--bg-soft);
+  border-radius: var(--radius-row);
+  background: var(--glass-fill-active);
+  border: 1px solid var(--glass-stroke-row);
   color: var(--fg);
   margin-bottom: 0.5rem;
 }

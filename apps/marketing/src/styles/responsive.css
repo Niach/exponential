@@ -1,6 +1,16 @@
 /* ─── Responsive (site chrome only — demo components own their scaling) ─── */
+@media (max-width: 900px) {
+  /* Star count off — the GitHub mark alone is enough in a tight topbar. */
+  .topbar-gh-count.is-on {
+    display: none;
+  }
+}
+
 @media (max-width: 720px) {
   .nav {
+    display: none;
+  }
+  .topbar-dl {
     display: none;
   }
   .topbar-inner {

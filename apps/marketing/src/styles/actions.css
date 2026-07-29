@@ -1,0 +1,95 @@
+/* ─── Actions section (ac-*) + social-proof slot (sp-*) — EXP-337 ─── */
+
+.ac-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 980px) {
+  .ac-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .ac-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ac-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+}
+
+.ac-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-row);
+  background: var(--glass-fill-active);
+  border: 1px solid var(--glass-stroke-row);
+  color: var(--fg);
+}
+
+.ac-card-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+
+.ac-card-text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+/* ── Social proof (renders only once TESTIMONIALS has entries) ── */
+.sp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 880px) {
+  .sp-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sp-card {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+}
+
+.sp-quote {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+
+.sp-author {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.sp-author a {
+  color: var(--fg);
+}
+
+.sp-handle {
+  color: var(--fg-dim);
+}
