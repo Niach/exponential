@@ -271,8 +271,11 @@ export interface AnswerState {
 export type AnswerStates = Record<string, AnswerState>
 
 /** No `answer_ack` within this long re-enables the card with an inline note —
- *  the desktop may be an older build, or the injection was lost. */
-export const ANSWER_ACK_TIMEOUT_MS = 5_000
+ *  the desktop may be an older build, or the injection was lost. Derived from
+ *  the desktop's worst-case ack budget (EXP-347): ANSWER_RETRY_TTL 4s +
+ *  ANSWER_SETTLE 2s + PLAN_SUBMIT_PROBE 0.5s + ~1.5s tick/relay margin —
+ *  iOS/Android parity, move all three in lockstep. */
+export const ANSWER_ACK_TIMEOUT_MS = 8_000
 
 /** The key a card's answer state is tracked under: the wire question id when
  *  the desktop publishes one, else the local feed id. */

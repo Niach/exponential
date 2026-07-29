@@ -467,6 +467,14 @@ async fn pump_connection(
     // feedback / a free-form reply), after a short pause for the TUI to drop
     // the picker before the text lands.
     const PICKER_DISMISS_PAUSE: Duration = Duration::from_millis(350);
+    // EXP-347: the emitter publishes the grid-picker flag once per ~1s poll
+    // tick, so a `true` read here can be stale — the desktop user may have
+    // just answered the picker locally, and Escing then CANCELS the turn
+    // claude already started. Hold the message this long (> the emitter's 1s
+    // POLL_INTERVAL, so at least one fresh grid look lands in between) and
+    // re-read before committing to the Esc. Only the reroute path pays the
+    // latency, and there the agent is parked on a picker anyway.
+    const PICKER_REVALIDATE_DEFER: Duration = Duration::from_millis(1250);
     // One Esc per message: later chunks of the same (≤4 KiB-chunked) message
     // must not re-fire while the emitter's grid flag lags the dismissal.
     const ESC_REROUTE_WINDOW: Duration = Duration::from_secs(3);
@@ -531,16 +539,25 @@ async fn pump_connection(
                         // row. Single keystrokes (digits, Tab, Esc, arrow
                         // sequences) stay verbatim — they ARE picker input.
                         if is_message_text(&data) {
-                            let picker = hooks
-                                .answers
-                                .as_ref()
-                                .is_some_and(|answers| answers.grid_picker_pending());
+                            let picker = || {
+                                hooks
+                                    .answers
+                                    .as_ref()
+                                    .is_some_and(|answers| answers.grid_picker_pending())
+                            };
                             let routed = esc_routed_at
                                 .is_some_and(|at| at.elapsed() < ESC_REROUTE_WINDOW);
-                            if picker && !routed {
-                                esc_routed_at = Some(Instant::now());
-                                (hooks.write_input)(b"\x1b");
-                                tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
+                            if picker() && !routed {
+                                // EXP-347: the flag may be a stale tick — defer
+                                // past one emitter poll and re-confirm before
+                                // the Esc, which would cancel a live turn if
+                                // the picker was in fact just answered.
+                                tokio::time::sleep(PICKER_REVALIDATE_DEFER).await;
+                                if picker() {
+                                    esc_routed_at = Some(Instant::now());
+                                    (hooks.write_input)(b"\x1b");
+                                    tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
+                                }
                             }
                         }
                         if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
@@ -1099,6 +1116,51 @@ mod tests {
             .unwrap();
         wait_for(|| recorded.inputs.lock().unwrap().len() == 5);
         assert_eq!(recorded.inputs.lock().unwrap()[4], b"and add tests");
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn a_stale_picker_flag_is_revalidated_before_the_esc() {
+        // EXP-347: the emitter publishes the grid-picker flag once per ~1s
+        // tick, so it can read `true` right after the desktop user answered
+        // the picker locally — and the Esc would then CANCEL the turn claude
+        // already started. The publisher defers past one emitter tick and
+        // re-reads; a flag that dropped in the meantime means no Esc.
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let (link, _answers_rx) = AnswerLink::new();
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-r".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            recording_hooks_with(recorded.clone(), Some(link.clone())),
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        // The flag is (stale-)true when the message arrives…
+        link.set_grid_picker_pending(true);
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"input","data":"looks good, one note"}"#.to_string(),
+            ))
+            .unwrap();
+        // …but the emitter learns of the local answer during the publisher's
+        // revalidation defer and drops it.
+        std::thread::sleep(Duration::from_millis(300));
+        link.set_grid_picker_pending(false);
+        wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b"looks good, one note".to_vec()],
+            "no Esc — the re-read saw the picker gone"
+        );
         handle.shutdown(None);
     }
 
