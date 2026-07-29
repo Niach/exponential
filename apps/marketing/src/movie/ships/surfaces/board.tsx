@@ -9,7 +9,12 @@
 import React from "react"
 import { interpolate, spring } from "remotion"
 import { C, EASE, MONO_FONT, POP, UI_FONT, WIN } from "../theme"
-import { REVIEW_ROW, type BoardRow, type IssueStatus, type Priority } from "../fixtures"
+import {
+  REVIEW_ROW,
+  type BoardRow,
+  type IssueStatus,
+  type Priority,
+} from "../fixtures"
 import { riseIn } from "../rig"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
@@ -84,7 +89,10 @@ const TriangleAlertIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
 )
 
 // lucide signal-low / signal-medium / signal-high: baseline dot + 1/2/3 ascending bars.
-const SignalIcon: React.FC<{ bars: 1 | 2 | 3; size?: number }> = ({ bars, size = 13 }) => (
+const SignalIcon: React.FC<{ bars: 1 | 2 | 3; size?: number }> = ({
+  bars,
+  size = 13,
+}) => (
   <svg {...svgProps(size, 2)}>
     <path d="M2 20h.01" />
     <path d="M7 20v-4" />
@@ -140,7 +148,10 @@ export const CalendarGlyph: React.FC<{ size?: number }> = ({ size = 13 }) => (
 )
 
 // ── Primitives ────────────────────────────────────────────────────────────────
-export const StatusIcon: React.FC<{ status: IssueStatus; size?: number }> = ({ status, size = 13 }) => {
+export const StatusIcon: React.FC<{ status: IssueStatus; size?: number }> = ({
+  status,
+  size = 13,
+}) => {
   switch (status) {
     case `backlog`:
       return (
@@ -169,7 +180,10 @@ export const StatusIcon: React.FC<{ status: IssueStatus; size?: number }> = ({ s
   }
 }
 
-export const PriorityIcon: React.FC<{ p: Priority; size?: number }> = ({ p, size = 13 }) => {
+export const PriorityIcon: React.FC<{ p: Priority; size?: number }> = ({
+  p,
+  size = 13,
+}) => {
   switch (p) {
     case `none`:
       return (
@@ -205,7 +219,10 @@ export const PriorityIcon: React.FC<{ p: Priority; size?: number }> = ({ p, size
 }
 
 // initials undefined → the unassigned state (dashed ring + tiny muted user glyph).
-export const Avatar: React.FC<{ initials?: string; size?: number }> = ({ initials, size = 18 }) => {
+export const Avatar: React.FC<{ initials?: string; size?: number }> = ({
+  initials,
+  size = 18,
+}) => {
   if (!initials) {
     return (
       <span
@@ -250,7 +267,10 @@ export const Avatar: React.FC<{ initials?: string; size?: number }> = ({ initial
   )
 }
 
-export const LabelChip: React.FC<{ name: string; dot: string }> = ({ name, dot }) => (
+export const LabelChip: React.FC<{ name: string; dot: string }> = ({
+  name,
+  dot,
+}) => (
   <span
     style={{
       display: `inline-flex`,
@@ -269,7 +289,15 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({ name, dot }
       overflow: `hidden`,
     }}
   >
-    <span style={{ width: 6, height: 6, flex: `none`, borderRadius: 999, backgroundColor: dot }} />
+    <span
+      style={{
+        width: 6,
+        height: 6,
+        flex: `none`,
+        borderRadius: 999,
+        backgroundColor: dot,
+      }}
+    />
     <span style={{ overflow: `hidden`, textOverflow: `ellipsis` }}>{name}</span>
   </span>
 )
@@ -284,7 +312,16 @@ export type SidebarPills = { labels: string[]; activeIndex?: number } | boolean
 // The board header's right cluster ("≡ Filter" ghost + indigo "+ New Issue").
 export const BoardActions: React.FC = () => (
   <div style={{ display: `flex`, alignItems: `center`, gap: 8 }}>
-    <span style={{ display: `inline-flex`, alignItems: `center`, gap: 4, color: C.muted, fontFamily: UI_FONT, fontSize: 12 }}>
+    <span
+      style={{
+        display: `inline-flex`,
+        alignItems: `center`,
+        gap: 4,
+        color: C.muted,
+        fontFamily: UI_FONT,
+        fontSize: 12,
+      }}
+    >
       <ListFilterIcon size={13} />
       Filter
     </span>
@@ -349,11 +386,20 @@ export const SidebarPane: React.FC<{
           justifyContent: `space-between`,
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{title}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+          {title}
+        </span>
         {actions ?? null}
       </div>
       {pillSpec ? (
-        <div style={{ flex: `none`, display: `flex`, gap: 4, padding: `0 12px 8px` }}>
+        <div
+          style={{
+            flex: `none`,
+            display: `flex`,
+            gap: 4,
+            padding: `0 12px 8px`,
+          }}
+        >
           {pillSpec.labels.map((label, i) => {
             const active = i === pillSpec.activeIndex
             return (
@@ -378,7 +424,9 @@ export const SidebarPane: React.FC<{
           })}
         </div>
       ) : null}
-      <div style={{ flex: 1, minHeight: 0, position: `relative` }}>{children}</div>
+      <div style={{ flex: 1, minHeight: 0, position: `relative` }}>
+        {children}
+      </div>
     </div>
   )
 }
@@ -428,7 +476,20 @@ export const BoardTool: React.FC<{
   regroup?: { id: string; t: number; from?: IssueStatus } // FLIP slide between groups; from = group being left (defaults to the row's base status)
   showLabels?: boolean // ref truth: the real 260px sidebar board hides label chips (titles win)
   insertAt?: { id: string; at: number } // row pops in at `at`: height 0→ROW_H + fade, rows below slide down
-}> = ({ frame, rows, overrides, cascadeAt, hover, selectedId, prDotId, regroup, showLabels = true, insertAt }) => {
+  flashAt?: { id: string; at: number } // soft indigo pulse on a row at `at` (a teammate's live edit, EXP-337)
+}> = ({
+  frame,
+  rows,
+  overrides,
+  cascadeAt,
+  hover,
+  selectedId,
+  prDotId,
+  regroup,
+  showLabels = true,
+  insertAt,
+  flashAt,
+}) => {
   const eff = rows.map((r) => ({ ...r, ...(overrides?.[r.id] ?? {}) }))
   const t = regroup ? Math.min(1, Math.max(0, regroup.t)) : 1
   const layoutB = computeLayout(eff)
@@ -436,9 +497,15 @@ export const BoardTool: React.FC<{
     ? computeLayout(
         eff.map((r) =>
           r.id === regroup.id
-            ? { ...r, status: regroup.from ?? rows.find((b) => b.id === r.id)?.status ?? r.status }
-            : r,
-        ),
+            ? {
+                ...r,
+                status:
+                  regroup.from ??
+                  rows.find((b) => b.id === r.id)?.status ??
+                  r.status,
+              }
+            : r
+        )
       )
     : layoutB
 
@@ -448,9 +515,14 @@ export const BoardTool: React.FC<{
   const tIns =
     insertAt === undefined
       ? 1
-      : interpolate(frame, [insertAt.at, insertAt.at + INSERT_DUR], [0, 1], { ...CLAMP, easing: EASE })
+      : interpolate(frame, [insertAt.at, insertAt.at + INSERT_DUR], [0, 1], {
+          ...CLAMP,
+          easing: EASE,
+        })
   const layoutIns =
-    insertAt === undefined || tIns >= 1 ? undefined : computeLayout(eff.filter((r) => r.id !== insertAt.id))
+    insertAt === undefined || tIns >= 1
+      ? undefined
+      : computeLayout(eff.filter((r) => r.id !== insertAt.id))
 
   const yOf = (key: string): number => {
     const b = layoutB.get(key)
@@ -459,7 +531,11 @@ export const BoardTool: React.FC<{
     if (!b) y = a ? a.y : 0
     else if (!a || a.y === b.y) y = b.y
     else y = interpolate(t, [0, 1], [a.y, b.y], { ...CLAMP, easing: EASE })
-    if (layoutIns !== undefined && insertAt !== undefined && key !== insertAt.id) {
+    if (
+      layoutIns !== undefined &&
+      insertAt !== undefined &&
+      key !== insertAt.id
+    ) {
       const pre = layoutIns.get(key)
       if (pre !== undefined && pre.y !== y) y = pre.y + (y - pre.y) * tIns
     }
@@ -470,14 +546,24 @@ export const BoardTool: React.FC<{
     if (!hover) return 0
     if (typeof hover === `string`) return hover === id ? 1 : 0
     if (hover.id !== id) return 0
-    const on = interpolate(frame, [hover.from, hover.from + 4], [0, 1], { ...CLAMP, easing: EASE })
+    const on = interpolate(frame, [hover.from, hover.from + 4], [0, 1], {
+      ...CLAMP,
+      easing: EASE,
+    })
     const off =
-      hover.to === undefined ? 1 : interpolate(frame, [hover.to, hover.to + 4], [1, 0], { ...CLAMP, easing: EASE })
+      hover.to === undefined
+        ? 1
+        : interpolate(frame, [hover.to, hover.to + 4], [1, 0], {
+            ...CLAMP,
+            easing: EASE,
+          })
     return Math.min(on, off)
   }
 
   const enter = (index: number) =>
-    cascadeAt === undefined ? { opacity: 1, translate: `0px 0px` } : riseIn(frame, cascadeAt + index * 3, 9, 12)
+    cascadeAt === undefined
+      ? { opacity: 1, translate: `0px 0px` }
+      : riseIn(frame, cascadeAt + index * 3, 9, 12)
 
   const items: React.ReactNode[] = []
 
@@ -489,7 +575,8 @@ export const BoardTool: React.FC<{
     if (!placedB) continue
     const countA = layoutA.get(headerKey)?.count ?? placedB.count
     let count = t < 0.5 ? countA : placedB.count
-    if (layoutIns !== undefined && tIns < 0.5) count = layoutIns.get(headerKey)?.count ?? count
+    if (layoutIns !== undefined && tIns < 0.5)
+      count = layoutIns.get(headerKey)?.count ?? count
     items.push(
       <div
         key={headerKey}
@@ -512,9 +599,11 @@ export const BoardTool: React.FC<{
           <ChevronDownIcon size={12} />
         </span>
         <StatusIcon status={g.status} size={13} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{g.label}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+          {g.label}
+        </span>
         <span style={{ fontSize: 11, color: C.muted }}>{count}</span>
-      </div>,
+      </div>
     )
 
     for (const row of members) {
@@ -528,19 +617,40 @@ export const BoardTool: React.FC<{
       const selected = selectedId === row.id
       // In-flight accent tint peaks mid-slide (keeps the mover readable over rows it passes).
       const flightTint = inFlight ? 4 * t * (1 - t) * 0.45 : 0
-      const dotOn = prDotId !== undefined && prDotId.id === row.id && frame >= prDotId.at
+      const dotOn =
+        prDotId !== undefined && prDotId.id === row.id && frame >= prDotId.at
       const dotScale = dotOn
-        ? spring({ frame: frame - (prDotId as { at: number }).at, fps: 30, config: POP })
+        ? spring({
+            frame: frame - (prDotId as { at: number }).at,
+            fps: 30,
+            config: POP,
+          })
         : 0
       // Status-glyph pop as the mover lands in its new group (t-driven, deterministic).
       const iconScale =
-        isMover && t > 0 ? interpolate(t, [0, 0.18, 0.38], [0.4, 1.18, 1], CLAMP) : 1
+        isMover && t > 0
+          ? interpolate(t, [0, 0.18, 0.38], [0.4, 1.18, 1], CLAMP)
+          : 1
       // Inserted-row entrance: height 0→ROW_H + fade, plus a soft indigo flash that decays.
+      const liveFlash =
+        flashAt !== undefined && flashAt.id === row.id && frame >= flashAt.at
+          ? interpolate(frame, [flashAt.at, flashAt.at + 44], [0.22, 0], {
+              ...CLAMP,
+              easing: EASE,
+            })
+          : 0
       const insertFlash = isInserted
-        ? interpolate(frame, [insertAt.at + 2, insertAt.at + 44], [0.22, 0], { ...CLAMP, easing: EASE })
-        : 0
+        ? interpolate(frame, [insertAt.at + 2, insertAt.at + 44], [0.22, 0], {
+            ...CLAMP,
+            easing: EASE,
+          })
+        : liveFlash
       const insertStyle: React.CSSProperties = isInserted
-        ? { height: Math.max(0, ROW_H * tIns), overflow: `hidden`, opacity: tIns }
+        ? {
+            height: Math.max(0, ROW_H * tIns),
+            overflow: `hidden`,
+            opacity: tIns,
+          }
         : {}
       items.push(
         <div
@@ -556,15 +666,27 @@ export const BoardTool: React.FC<{
             gap: 6,
             padding: `0 10px`,
             borderBottom: `1px solid ${C.borderRow}`,
-            backgroundColor: selected ? C.accentBg : inFlight ? C.bg : undefined,
+            backgroundColor: selected
+              ? C.accentBg
+              : inFlight
+                ? C.bg
+                : undefined,
             zIndex: inFlight ? 5 : undefined,
-            boxShadow: inFlight ? `0 4px 16px rgba(0,0,0,${0.5 * 4 * t * (1 - t)})` : undefined,
+            boxShadow: inFlight
+              ? `0 4px 16px rgba(0,0,0,${0.5 * 4 * t * (1 - t)})`
+              : undefined,
             ...enter(placedRow.index),
             ...insertStyle,
           }}
         >
           {insertFlash > 0 ? (
-            <div style={{ position: `absolute`, inset: 0, backgroundColor: `rgba(99,102,241,${insertFlash})` }} />
+            <div
+              style={{
+                position: `absolute`,
+                inset: 0,
+                backgroundColor: `rgba(99,102,241,${insertFlash})`,
+              }}
+            />
           ) : null}
           {hoverO > 0 && !selected ? (
             <div
@@ -576,9 +698,23 @@ export const BoardTool: React.FC<{
             />
           ) : null}
           {flightTint > 0 ? (
-            <div style={{ position: `absolute`, inset: 0, backgroundColor: `rgba(38,38,38,${flightTint})` }} />
+            <div
+              style={{
+                position: `absolute`,
+                inset: 0,
+                backgroundColor: `rgba(38,38,38,${flightTint})`,
+              }}
+            />
           ) : null}
-          <span style={{ width: 16, flex: `none`, display: `flex`, justifyContent: `center`, position: `relative` }}>
+          <span
+            style={{
+              width: 16,
+              flex: `none`,
+              display: `flex`,
+              justifyContent: `center`,
+              position: `relative`,
+            }}
+          >
             <PriorityIcon p={row.priority} size={13} />
           </span>
           <span
@@ -636,7 +772,9 @@ export const BoardTool: React.FC<{
           >
             {row.title}
           </span>
-          {row.label && showLabels ? <LabelChip name={row.label.name} dot={row.label.dot} /> : null}
+          {row.label && showLabels ? (
+            <LabelChip name={row.label.name} dot={row.label.dot} />
+          ) : null}
           <Avatar initials={row.assignee} size={18} />
           <span
             style={{
@@ -649,7 +787,7 @@ export const BoardTool: React.FC<{
           >
             <CalendarGlyph size={13} />
           </span>
-        </div>,
+        </div>
       )
     }
   }
@@ -678,7 +816,10 @@ const MERGE_W: Record<Exclude<MergeState, `gone`>, number> = {
   confirm: 104,
   merging: 88,
 }
-const MERGE_PREV: Record<Exclude<MergeState, `gone`>, Exclude<MergeState, `gone`>> = {
+const MERGE_PREV: Record<
+  Exclude<MergeState, `gone`>,
+  Exclude<MergeState, `gone`>
+> = {
   rest: `rest`,
   confirm: `rest`,
   merging: `confirm`,
@@ -689,9 +830,26 @@ const MERGE_LABEL: Record<Exclude<MergeState, `gone`>, string> = {
   merging: `Merging…`,
 }
 
-const Spinner: React.FC<{ frame: number; size?: number }> = ({ frame, size = 11 }) => (
-  <span style={{ display: `flex`, rotate: `${(frame * 24) % 360}deg`, flex: `none` }}>
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round">
+const Spinner: React.FC<{ frame: number; size?: number }> = ({
+  frame,
+  size = 11,
+}) => (
+  <span
+    style={{
+      display: `flex`,
+      rotate: `${(frame * 24) % 360}deg`,
+      flex: `none`,
+    }}
+  >
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.4}
+      strokeLinecap="round"
+    >
       <path d="M21 12a9 9 0 1 1-6.2-8.56" />
     </svg>
   </span>
@@ -705,18 +863,41 @@ export const ReviewsTool: React.FC<{
   rowFade?: number // 0→1 row fade + height collapse (drive before/while switching to "gone")
   row?: { id: string; title: string; sub: string } // PR row content (default: the ships REVIEW_ROW)
   project?: string // group header project name (default "Exponential")
-}> = ({ frame, mergeState, morphAt, hover, rowFade, row = REVIEW_ROW, project = `Exponential` }) => {
-  const collapse = mergeState === `gone` ? 1 : Math.min(1, Math.max(0, rowFade ?? 0))
+}> = ({
+  frame,
+  mergeState,
+  morphAt,
+  hover,
+  rowFade,
+  row = REVIEW_ROW,
+  project = `Exponential`,
+}) => {
+  const collapse =
+    mergeState === `gone` ? 1 : Math.min(1, Math.max(0, rowFade ?? 0))
   const ROW_FULL = 48
 
   let button: React.ReactNode = null
   if (mergeState !== `gone`) {
     const morphT =
-      morphAt === undefined ? 1 : interpolate(frame, [morphAt, morphAt + 6], [0, 1], { ...CLAMP, easing: EASE })
-    const width = interpolate(morphT, [0, 1], [MERGE_W[MERGE_PREV[mergeState]], MERGE_W[mergeState]], CLAMP)
+      morphAt === undefined
+        ? 1
+        : interpolate(frame, [morphAt, morphAt + 6], [0, 1], {
+            ...CLAMP,
+            easing: EASE,
+          })
+    const width = interpolate(
+      morphT,
+      [0, 1],
+      [MERGE_W[MERGE_PREV[mergeState]], MERGE_W[mergeState]],
+      CLAMP
+    )
     const danger = mergeState === `confirm`
     const dangerO = danger ? morphT : 0
-    const fg = danger ? C.destructive : mergeState === `merging` ? C.muted : C.text
+    const fg = danger
+      ? C.destructive
+      : mergeState === `merging`
+        ? C.muted
+        : C.text
     button = (
       <span
         style={{
@@ -729,7 +910,8 @@ export const ReviewsTool: React.FC<{
           gap: 5,
           borderRadius: 6,
           border: `1px solid ${danger ? `rgba(255,100,103,${0.35 + 0.35 * dangerO})` : C.input}`,
-          backgroundColor: hover && mergeState === `rest` ? C.accentBg : `transparent`,
+          backgroundColor:
+            hover && mergeState === `rest` ? C.accentBg : `transparent`,
           color: fg,
           fontFamily: UI_FONT,
           fontSize: 12,
@@ -745,20 +927,60 @@ export const ReviewsTool: React.FC<{
   }
 
   return (
-    <div style={{ position: `absolute`, inset: 0, fontFamily: UI_FONT, overflow: `hidden` }}>
+    <div
+      style={{
+        position: `absolute`,
+        inset: 0,
+        fontFamily: UI_FONT,
+        overflow: `hidden`,
+      }}
+    >
       {/* group header: project dot + name */}
-      <div style={{ height: ROW_H, display: `flex`, alignItems: `center`, gap: 8, padding: `0 12px` }}>
-        <span style={{ width: 8, height: 8, flex: `none`, borderRadius: 999, backgroundColor: C.indigoSoft }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>{project}</span>
+      <div
+        style={{
+          height: ROW_H,
+          display: `flex`,
+          alignItems: `center`,
+          gap: 8,
+          padding: `0 12px`,
+        }}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            flex: `none`,
+            borderRadius: 999,
+            backgroundColor: C.indigoSoft,
+          }}
+        />
+        <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>
+          {project}
+        </span>
       </div>
       {/* the one PR row (collapses via rowFade / "gone") */}
-      <div style={{ height: ROW_FULL * (1 - collapse), opacity: 1 - collapse, overflow: `hidden` }}>
+      <div
+        style={{
+          height: ROW_FULL * (1 - collapse),
+          opacity: 1 - collapse,
+          overflow: `hidden`,
+        }}
+      >
         <div style={{ margin: `0 8px`, padding: `5px 6px`, borderRadius: 6 }}>
           <div style={{ display: `flex`, alignItems: `center`, gap: 6 }}>
             <span style={{ color: C.green, display: `flex`, flex: `none` }}>
               <GitPullRequestIcon size={14} />
             </span>
-            <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.muted, flex: `none` }}>{row.id}</span>
+            <span
+              style={{
+                fontFamily: MONO_FONT,
+                fontSize: 12,
+                color: C.muted,
+                flex: `none`,
+              }}
+            >
+              {row.id}
+            </span>
             <span
               style={{
                 flex: 1,

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { LINKS } from "../lib/links"
 import { DownloadIconRow } from "./DownloadSection"
+import { GitHubStarsButton } from "./GitHubStarsButton"
 import { ExpLogo, IcArrow } from "./icons"
 import { WidgetEmbed } from "./WidgetEmbed"
 
@@ -33,6 +34,10 @@ export function SiteHeader() {
             <a href={LINKS.downloadPage}>Download</a>
           </nav>
           <div className="topbar-right">
+            <GitHubStarsButton variant="compact" />
+            <a className="btn btn-sm topbar-dl" href={LINKS.downloadPage}>
+              Download
+            </a>
             <a className="btn btn-ghost btn-sm" href={LINKS.app.login}>
               Sign in
             </a>
@@ -47,8 +52,8 @@ export function SiteHeader() {
 }
 
 export function FooterCTA({
-  title = `Go Exponential.`,
-  subtitle = `Free for teams of three. No credit card required.`,
+  title = `Bring your team to the next level.`,
+  subtitle = `The only tool your team will need — free for teams of three, no credit card required.`,
 }: {
   title?: string
   subtitle?: string

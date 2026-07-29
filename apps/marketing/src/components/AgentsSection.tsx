@@ -100,12 +100,13 @@ export function AgentsSection() {
             <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
               Agents
             </motion.span>
-            <h2 className={`section-title`}>Work on issues from anywhere.</h2>
+            <h2 className={`section-title`}>Bring your own agents.</h2>
             <p className={`section-sub`}>
-              Pick an issue and hit Start coding &mdash; even from your phone.
-              Your agent works on a real branch in the desktop IDE and opens
-              the PR when it&rsquo;s done. Watch the session live and steer it
-              by message from anywhere.
+              Claude Code, Codex or pi &mdash; running locally on any connected
+              desktop app or your server, on your subscription. Pick an issue
+              and hit Start coding, even from your phone: your agent works on a
+              real branch and opens the PR when it&rsquo;s done. Watch the
+              session live and steer it by message from anywhere.
             </p>
             <a className={`btn btn-ghost`} href={LINKS.downloadPage}>
               Get the apps <IcArrow size={12} />

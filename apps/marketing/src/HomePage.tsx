@@ -1,10 +1,12 @@
 import { motion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
+import { ActionsSection } from "./components/ActionsSection"
 import { AgentIconRow } from "./components/agent-icons"
 import { AgentsSection } from "./components/AgentsSection"
 import { CollabSection } from "./components/CollabSection"
+import { HeroDownload } from "./components/HeroDownload"
 import { HomePricing } from "./components/HomePricing"
-import { IcArrow } from "./components/icons"
+import { SocialProofSection } from "./components/SocialProof"
 import {
   EASE_EXPO,
   heroChild,
@@ -12,7 +14,6 @@ import {
   heroTitleStagger,
   heroWord,
 } from "./lib/animations"
-import { LINKS } from "./lib/links"
 import { LoopMovie } from "./movie/LoopMovie"
 
 export function HomePage() {
@@ -50,12 +51,7 @@ export function HomePage() {
               subscription — unlimited sessions, flat price.
             </motion.p>
             <motion.div className={`hero-cta`} variants={heroChild}>
-              <a className={`btn btn-primary`} href={LINKS.app.login}>
-                Get started free <IcArrow size={12} />
-              </a>
-              <a className={`btn btn-ghost`} href={LINKS.downloadPage}>
-                Download the app
-              </a>
+              <HeroDownload />
             </motion.div>
             <motion.div variants={heroChild}>
               <AgentIconRow />
@@ -76,12 +72,18 @@ export function HomePage() {
                desktop, steered live (merged Agents + Mobile, EXP-176) ── */}
         <AgentsSection />
 
+        {/* ── Actions: reusable AI tasks on your own agents (EXP-337) ── */}
+        <ActionsSection />
+
         {/* ── Collaboration: widget → Support inbox, realtime with the
                team (merged Teamwork + Helpdesk, EXP-176) ── */}
         <CollabSection />
 
         {/* ── Pricing ──────────────────────────── */}
         <HomePricing />
+
+        {/* Testimonial slot — renders null until TESTIMONIALS has entries. */}
+        <SocialProofSection />
 
         <FooterCTA />
       </main>

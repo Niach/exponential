@@ -10,7 +10,8 @@
    early).
 
    Pre-mount the wrapper reserves the full 16:9 box (CLS-safe) and shows a
-   rendered poster frame; the chapter rail below is real HTML (SEO / no-JS).
+   rendered poster frame; the flow stepper ABOVE the frame is real HTML
+   (SEO / no-JS; EXP-337 — orca-style slim segmented bar at every width).
    Under prefers-reduced-motion nothing autoplays — a Play button mounts and
    starts the movie on click. */
 import {
@@ -23,7 +24,7 @@ import {
   type CSSProperties,
 } from "react"
 import { Play } from "lucide-react"
-import { CHAPTER_INFO } from "./closedloop/chapters"
+import { FLOW_INFO } from "./closedloop/chapters"
 
 /* The imperative surface LoopMoviePlayer hands back once mounted. Defined
    here (not in the player chunk) so this file stays remotion-free. */
@@ -33,13 +34,13 @@ export type LoopMovieController = {
   pause: () => void
 }
 
-/* The composition's own chapter metadata (remotion-free module) — same
-   list CHAPTERS is built from, so the rail and the film can't drift.
+/* The composition's own flow metadata (remotion-free module) — same list
+   CHAPTERS is built from, so the stepper and the film can't drift.
    Labels/phrases render statically for SEO; the frame numbers stay inside
    the lazy chunk (the player seeks by index). */
-const CHAPTER_META = CHAPTER_INFO
+const FLOW_META = FLOW_INFO
 
-const POSTER_ALT = `The Exponential desktop IDE mid-loop: a bug reported from the feedback widget has become an issue, a coding agent session is writing the fix, and a pull request is on its way to merge.`
+const POSTER_ALT = `The Exponential desktop IDE: the issue board on the left, a bug report open as an issue, and a coding agent one click away from starting on a real branch.`
 
 const LoopMoviePlayer = lazy(() => import(`./LoopMoviePlayer`))
 
@@ -129,10 +130,13 @@ export function LoopMovie() {
 
   const handleReady = useCallback(() => setReady(true), [])
 
-  const handleChapterProgress = useCallback((index: number, percent: number) => {
-    setActive(index)
-    setProgress(percent)
-  }, [])
+  const handleChapterProgress = useCallback(
+    (index: number, percent: number) => {
+      setActive(index)
+      setProgress(percent)
+    },
+    []
+  )
 
   const handlePlayingChange = useCallback((playing: boolean) => {
     if (playing) {
@@ -171,6 +175,40 @@ export function LoopMovie() {
 
   return (
     <div className={`movie`} ref={wrapRef}>
+      {/* The flow stepper sits ABOVE the frame (EXP-337, orca-style): five
+          slim glass segments with a per-flow progress fill. On desktop each
+          segment shows its label above the pill; on phones the labels go
+          visually hidden and .movie-rail-now narrates instead. */}
+      <div className={`movie-stepper`}>
+        {FLOW_META.map((flow, index) => (
+          <button
+            key={flow.id}
+            type={`button`}
+            className={`movie-step${index === active ? ` is-active` : ``}`}
+            style={
+              index === active
+                ? ({ "--chip-progress": `${progress}%` } as CSSProperties)
+                : undefined
+            }
+            onClick={() => handleChapter(index)}
+            aria-current={index === active}
+          >
+            <span className={`movie-step-label`}>{flow.label}</span>
+            <span className={`movie-step-phrase`}>{flow.phrase}</span>
+            <span className={`movie-step-track`} aria-hidden />
+          </button>
+        ))}
+      </div>
+      {/* Narrates the active flow at every width; the steps keep their
+          (partly visually-hidden) text, so this stays aria-hidden. */}
+      <p className={`movie-rail-now`} aria-hidden>
+        <span className={`movie-rail-now-label`}>
+          {FLOW_META[active].label}
+        </span>
+        <span className={`movie-rail-now-phrase`}>
+          {FLOW_META[active].phrase}
+        </span>
+      </p>
       <div className={`movie-stage`}>
         <img
           className={`movie-poster${ready ? ` is-hidden` : ``}`}
@@ -205,36 +243,6 @@ export function LoopMovie() {
           </button>
         )}
       </div>
-      <div className={`movie-rail`}>
-        {CHAPTER_META.map((chapter, index) => (
-          <button
-            key={chapter.id}
-            type={`button`}
-            className={`movie-chip${index === active ? ` is-active` : ``}`}
-            style={
-              index === active
-                ? ({ "--chip-progress": `${progress}%` } as CSSProperties)
-                : undefined
-            }
-            onClick={() => handleChapter(index)}
-            aria-current={index === active}
-          >
-            <span className={`movie-chip-label`}>{chapter.label}</span>
-            <span className={`movie-chip-phrase`}>{chapter.phrase}</span>
-          </button>
-        ))}
-      </div>
-      {/* On phones the chips collapse to segment bars (loop.css) and this
-          single line narrates the active chapter instead. The chips keep
-          their visually-hidden text, so this stays aria-hidden. */}
-      <p className={`movie-rail-now`} aria-hidden>
-        <span className={`movie-rail-now-label`}>
-          {CHAPTER_META[active].label}
-        </span>
-        <span className={`movie-rail-now-phrase`}>
-          {CHAPTER_META[active].phrase}
-        </span>
-      </p>
     </div>
   )
 }

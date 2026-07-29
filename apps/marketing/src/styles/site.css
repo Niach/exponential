@@ -1,7 +1,7 @@
-/* ─── Site chrome (dark zinc, no atmospherics) ─── */
+/* ─── Site chrome (dark zinc, glass over the ONE gradient) ─── */
 
 ::selection {
-  background: rgba(59, 130, 246, 0.3);
+  background: color-mix(in oklab, var(--brand) 30%, transparent);
 }
 
 /* ─── Layout ─── */
@@ -34,10 +34,10 @@
 }
 
 .topbar.is-scrolled {
-  background: rgba(10, 10, 10, 0.8);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom-color: var(--border);
+  background: color-mix(in oklab, var(--glass-bg-top) 80%, transparent);
+  backdrop-filter: blur(var(--glass-blur-sm));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  border-bottom-color: var(--glass-stroke-section);
 }
 
 .topbar-inner {
@@ -74,7 +74,7 @@
 
 .nav a:hover {
   color: var(--fg);
-  background: var(--bg-soft);
+  background: var(--glass-fill-row);
 }
 
 .topbar-right {
@@ -115,18 +115,58 @@
 }
 
 .btn-ghost {
-  background: transparent;
+  background: var(--glass-fill-row);
   color: var(--fg-muted);
-  border-color: var(--input);
+  border-color: var(--glass-stroke-strong);
 }
 .btn-ghost:hover {
   color: var(--fg);
-  background: var(--bg-soft);
+  background: var(--glass-fill-active);
+}
+
+/* The ONE colored button per view (orca-style) — reserved for the hero's
+   OS-detected download primary. brandStrong is the only brand surface that
+   clears AA under white text. */
+.btn-accent {
+  background: var(--brand-strong);
+  color: #fff;
+  border-color: var(--brand-strong);
+}
+.btn-accent:hover {
+  background: #4338ca;
+  border-color: #4338ca;
 }
 
 .btn-sm {
   font-size: 12px;
   padding: 5px 10px;
+}
+
+/* ─── Glass surfaces (EXP-337) ───
+   Blur is reserved for chrome floating over scrolling content; static
+   in-flow cards sit on the flat fixed gradient, so they get translucent
+   fills only (blur there is pure GPU cost with no visual effect). */
+.glass-card {
+  background: var(--glass-fill-card);
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-card);
+  /* fill-card composites to ≈#26262a — nudge small text back over AA */
+  --fg-dim: #8f8f8f;
+}
+
+.glass-panel {
+  background: var(--glass-panel-bg);
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-section);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+}
+
+.glass-pill {
+  background: var(--glass-fill-row);
+  border: 1px solid var(--glass-stroke-row);
+  border-radius: var(--radius-pill);
 }
 
 /* ─── Hero ─── */
@@ -200,6 +240,154 @@ h1.hero-title {
   justify-content: center;
   align-items: center;
   margin-bottom: 22px;
+}
+
+/* ── Hero downloads (EXP-337, orca-style): OS-detected accent split-button
+   + platform-switcher popover + GitHub star badge. ── */
+.hero-dl {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hero-dl-split {
+  display: inline-flex;
+}
+
+.hero-dl-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.hero-dl-more {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.25);
+  padding: 8px 8px;
+  cursor: pointer;
+}
+
+/* The platform switcher — the site's first true floating glass panel. */
+.hero-dl-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 40;
+  min-width: 300px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.hero-dl-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-row);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 120ms;
+}
+
+.hero-dl-item:hover {
+  background: var(--glass-fill-active);
+}
+
+.hero-dl-item svg {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.hero-dl-item-name {
+  flex-shrink: 0;
+}
+
+.hero-dl-item-req {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+/* Star-count chip inside the hero GitHub button — fades/expands in without
+   a layout jump once the count arrives. */
+.gh-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fg);
+  transition:
+    max-width 300ms ease,
+    opacity 300ms ease,
+    padding 300ms ease;
+}
+
+.gh-stars.is-on {
+  max-width: 80px;
+  opacity: 1;
+  padding: 2px 8px;
+  background: var(--glass-fill-active);
+  border: 1px solid var(--glass-stroke-row);
+}
+
+/* Topbar GitHub button — its own class, NOT .btn-ghost (responsive.css
+   hides .topbar-right .btn-ghost at ≤420px; the GitHub mark must stay). */
+.topbar-gh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-stroke-strong);
+  background: var(--glass-fill-row);
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition:
+    background 140ms,
+    color 140ms;
+}
+
+.topbar-gh:hover {
+  background: var(--glass-fill-active);
+  color: var(--fg);
+}
+
+.topbar-gh-count {
+  display: none;
+}
+
+.topbar-gh-count.is-on {
+  display: inline;
+}
+
+/* Topbar Download — ghost-styled but its own class (survives the ≤420px
+   .btn-ghost hide; instead it disappears at ≤720px, where the hero's
+   download button takes over). */
+.topbar-dl {
+  border-color: var(--glass-stroke-strong);
+  background: var(--glass-fill-row);
+  color: var(--fg-muted);
+}
+
+.topbar-dl:hover {
+  background: var(--glass-fill-active);
+  color: var(--fg);
 }
 
 /* Agent strip between the CTAs and the movie (EXP-207) — the launcher is

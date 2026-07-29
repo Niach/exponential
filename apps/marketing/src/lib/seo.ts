@@ -100,8 +100,13 @@ export const PAGES: PageSeo[] = [
     htmlFile: `index.html`,
     sources: [
       `src/HomePage.tsx`,
+      `src/components/ActionsSection.tsx`,
+      `src/components/AgentsSection.tsx`,
+      `src/components/CollabSection.tsx`,
+      `src/components/HeroDownload.tsx`,
       `src/components/HomePricing.tsx`,
       `src/components/PlanCards.tsx`,
+      `src/components/SocialProof.tsx`,
       `src/lib/plans.ts`,
     ],
     title: `Exponential — Vibecode together`,

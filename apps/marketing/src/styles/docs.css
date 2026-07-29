@@ -55,9 +55,16 @@
   padding: 4px 0 12px;
 }
 
-.docs-nav::-webkit-scrollbar { width: 6px; }
-.docs-nav::-webkit-scrollbar-thumb { background: var(--input); border-radius: 3px; }
-.docs-nav::-webkit-scrollbar-track { background: transparent; }
+.docs-nav::-webkit-scrollbar {
+  width: 6px;
+}
+.docs-nav::-webkit-scrollbar-thumb {
+  background: var(--input);
+  border-radius: 3px;
+}
+.docs-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
 
 .docs-nav-title {
   font-family: var(--font-mono);
@@ -84,10 +91,15 @@
   padding: 5px 12px 5px 14px;
   border-left: 2px solid transparent;
   border-radius: 0 6px 6px 0;
-  transition: color 120ms, border-color 120ms, background 120ms;
+  transition:
+    color 120ms,
+    border-color 120ms,
+    background 120ms;
 }
 
-.docs-nav-page-link:hover { color: var(--fg); }
+.docs-nav-page-link:hover {
+  color: var(--fg);
+}
 
 .docs-nav-page-link.is-current {
   color: var(--fg);
@@ -111,10 +123,15 @@
   padding: 5px 12px 5px 26px;
   border-left: 2px solid var(--border);
   border-radius: 0 6px 6px 0;
-  transition: color 120ms, border-color 120ms, background 120ms;
+  transition:
+    color 120ms,
+    border-color 120ms,
+    background 120ms;
 }
 
-.docs-nav-sections a:hover { color: var(--fg); }
+.docs-nav-sections a:hover {
+  color: var(--fg);
+}
 
 .docs-nav-sections a.is-active {
   color: var(--fg);
@@ -130,7 +147,9 @@
   min-width: 16px;
 }
 
-.docs-nav-sections a.is-active .docs-nav-num { color: var(--fg-muted); }
+.docs-nav-sections a.is-active .docs-nav-num {
+  color: var(--fg-muted);
+}
 
 /* Content */
 .docs-content {
@@ -211,7 +230,9 @@
   transition: border-color 140ms;
 }
 
-.docs-content a:hover { border-bottom-color: var(--fg-muted); }
+.docs-content a:hover {
+  border-bottom-color: var(--fg-muted);
+}
 
 .docs-content ul,
 .docs-content ol {
@@ -222,8 +243,12 @@
   line-height: 1.7;
 }
 
-.docs-content li { margin-bottom: 6px; }
-.docs-content li::marker { color: var(--fg-dim); }
+.docs-content li {
+  margin-bottom: 6px;
+}
+.docs-content li::marker {
+  color: var(--fg-dim);
+}
 
 .docs-content code:not(pre code) {
   font-family: var(--font-mono);
@@ -272,16 +297,18 @@
   flex-direction: column;
   gap: 6px;
   padding: 16px 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elev);
-  border-bottom: 1px solid var(--border) !important;
-  transition: border-color 140ms, background 140ms;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-section);
+  background: var(--glass-fill-card);
+  border-bottom: 1px solid var(--glass-stroke-card) !important;
+  transition:
+    border-color 140ms,
+    background 140ms;
 }
 
 .docs-card:hover {
-  border-color: var(--input);
-  background: var(--bg-soft);
+  border-color: var(--glass-stroke-active);
+  background: var(--glass-fill-active);
 }
 
 .docs-card-title {
@@ -293,7 +320,9 @@
   color: var(--fg);
 }
 
-.docs-card-title svg { color: var(--fg-dim); }
+.docs-card-title svg {
+  color: var(--fg-dim);
+}
 
 .docs-card-desc {
   font-size: 12.5px;
@@ -304,8 +333,8 @@
 /* Code blocks */
 .docs-code {
   position: relative;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
+  background: var(--glass-fill-section);
+  border: 1px solid var(--glass-stroke-section);
   border-radius: var(--radius-sm);
   margin: 0 0 16px;
   overflow: hidden;
@@ -338,7 +367,10 @@
   cursor: pointer;
   text-transform: none;
   letter-spacing: 0;
-  transition: color 120ms, border-color 120ms, background 120ms;
+  transition:
+    color 120ms,
+    border-color 120ms,
+    background 120ms;
 }
 
 .docs-code-copy:hover {
@@ -403,9 +435,15 @@
   letter-spacing: 0.1em;
 }
 
-.docs-callout--tip .docs-callout-dot { background: var(--st-review); }
-.docs-callout--warn .docs-callout-dot { background: var(--pr-high); }
-.docs-callout--note .docs-callout-dot { background: var(--neutral); }
+.docs-callout--tip .docs-callout-dot {
+  background: var(--st-review);
+}
+.docs-callout--warn .docs-callout-dot {
+  background: var(--pr-high);
+}
+.docs-callout--note .docs-callout-dot {
+  background: var(--neutral);
+}
 
 /* Env-var list */
 .docs-env-list {
@@ -464,7 +502,9 @@
     gap: 20px;
     padding-bottom: 64px;
   }
-  .docs-sidebar { margin-bottom: 8px; }
+  .docs-sidebar {
+    margin-bottom: 8px;
+  }
   .docs-nav {
     position: static;
     flex-direction: row;
@@ -485,7 +525,9 @@
   /* Page-chips row: dissolve the per-page wrappers so every page link is a
      chip; the current page's sections drop to their own chips row below
      (order pushes them last, flex-basis forces the line break). */
-  .docs-nav-page { display: contents; }
+  .docs-nav-page {
+    display: contents;
+  }
   .docs-nav-page-link {
     border-left: none;
     border-radius: 6px;
@@ -517,18 +559,32 @@
     background: var(--bg-soft);
     color: var(--fg);
   }
-  .docs-cards { grid-template-columns: 1fr; }
-  .docs-env-list { grid-template-columns: 1fr; }
+  .docs-cards {
+    grid-template-columns: 1fr;
+  }
+  .docs-env-list {
+    grid-template-columns: 1fr;
+  }
   .docs-env-list dt {
     border-bottom: none;
     padding-bottom: 4px;
   }
-  .docs-content > section { padding: 12px 0 40px; }
-  .docs-content h2 { font-size: 24px; }
+  .docs-content > section {
+    padding: 12px 0 40px;
+  }
+  .docs-content h2 {
+    font-size: 24px;
+  }
 }
 
 @media (max-width: 720px) {
-  .docs-hero { padding: 40px 0 12px; }
-  .docs-hero h1 { font-size: 30px; }
-  .docs-hero p { font-size: 14px; }
+  .docs-hero {
+    padding: 40px 0 12px;
+  }
+  .docs-hero h1 {
+    font-size: 30px;
+  }
+  .docs-hero p {
+    font-size: 14px;
+  }
 }
