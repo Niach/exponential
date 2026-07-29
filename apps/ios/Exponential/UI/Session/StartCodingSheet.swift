@@ -731,6 +731,18 @@ struct StartCodingSheet: View {
         }
         // Values are keyed per-def — a different action's defs must start clean.
         inputValues = [:]
+        seedRepoInputs(for: action)
+    }
+
+    /// Pre-fill `repo` inputs with the action's bound repository (EXP-349) —
+    /// a picker reading "None" while the run targets the bound repo anyway
+    /// looked misconfigured. The already-set guard mirrors `seedPreselectedPr`:
+    /// a manual clear stores "", which is non-nil, so it's never re-stomped.
+    private func seedRepoInputs(for action: ActionDto) {
+        guard let repositoryId = action.repositoryId else { return }
+        for def in action.inputs ?? [] where def.type == "repo" && inputValues[def.key] == nil {
+            inputValues[def.key] = repositoryId
+        }
     }
 
     private func matchesActionSearch(_ action: ActionDto) -> Bool {
@@ -860,6 +872,12 @@ struct StartCodingSheet: View {
             )
         }
         seedPreselectedPr()
+        // A preselected action never goes through `selectAction` (the id is
+        // seeded via State(initialValue:)) — seed its repo inputs here, once
+        // the action rows exist (EXP-349).
+        if let action = selectedAction {
+            seedRepoInputs(for: action)
+        }
     }
 
     /// Pre-pick the target PR once both the action list and the options exist

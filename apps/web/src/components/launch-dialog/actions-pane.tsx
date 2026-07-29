@@ -1,13 +1,13 @@
-import { Check, Github, Search } from "lucide-react"
+import { Check, Search } from "lucide-react"
 import type {
   ActionRepoOption,
   TeamAction,
 } from "@/components/action-editor-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { getActionIcon } from "@/lib/board-icons"
+import { cn } from "@/lib/utils"
 
 // The Actions tab of the unified launch dialog (EXP-257): search + a
 // single-select list (the builtin "Create action" pinned first by its
@@ -46,7 +46,6 @@ export function ActionsPane({
       action.name.toLowerCase().includes(query) ||
       (action.description ?? ``).toLowerCase().includes(query)
   )
-  const repoNameById = new Map(repos.map((repo) => [repo.id, repo.fullName]))
   const selectedAction =
     (actions ?? []).find((action) => action.id === selectedActionId) ?? null
 
@@ -79,9 +78,6 @@ export function ActionsPane({
           rows.map((action) => {
             const selected = action.id === selectedActionId
             const RowIcon = getActionIcon(action)
-            const repoName = action.repositoryId
-              ? repoNameById.get(action.repositoryId)
-              : undefined
             return (
               <div
                 key={action.id}
@@ -94,21 +90,15 @@ export function ActionsPane({
                     onSelect(action.id)
                   }
                 }}
-                className="flex cursor-pointer items-center gap-2 border-b border-border/30 px-3 py-2 last:border-b-0 hover:bg-muted/50"
+                className={cn(
+                  `flex cursor-pointer items-center gap-2 border-b border-border/30 px-3 py-2 last:border-b-0`,
+                  selected ? `bg-muted` : `hover:bg-muted/50`
+                )}
               >
                 <RowIcon className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate text-sm">
                   {action.name}
                 </span>
-                {repoName && (
-                  <Badge
-                    variant="outline"
-                    className="shrink-0 gap-1 font-mono text-[0.625rem]"
-                  >
-                    <Github className="h-3 w-3" />
-                    {repoName}
-                  </Badge>
-                )}
                 {selected && <Check className="size-4 shrink-0" />}
               </div>
             )

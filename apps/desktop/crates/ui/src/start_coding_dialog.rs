@@ -317,6 +317,10 @@ pub struct StartCodingDialogView {
     /// Picked curated icon NAME per `icon` input key (EXP-273). The only
     /// pick that is not an id — the value goes to the server verbatim.
     action_icon_picks: HashMap<String, String>,
+    /// Last action id whose `repo` inputs were seeded from the action's own
+    /// bound repository (EXP-349) — the latch keeps a manual re-pick
+    /// (including clearing to "None") from being re-seeded.
+    seeded_repo_action_id: Option<String>,
     /// `repositories.list` rows for the repo input pickers.
     team_repos: Vec<ActionRepoRow>,
     /// Every team issue, board→number ordered.
@@ -514,6 +518,7 @@ impl StartCodingDialogView {
             action_board_picks: HashMap::new(),
             action_pr_picks: HashMap::new(),
             action_icon_picks: HashMap::new(),
+            seeded_repo_action_id: None,
             team_repos: Vec::new(),
             rows,
             repos: HashMap::new(),
@@ -617,6 +622,9 @@ impl StartCodingDialogView {
             let _ = this.update(cx, |this, cx| match result {
                 Ok(rows) => {
                     this.team_repos = rows;
+                    // An action selected before the fetch landed couldn't
+                    // seed its repo inputs yet (EXP-349) — retry now.
+                    this.seed_action_repo_inputs();
                     cx.notify();
                 }
                 Err(err) => log::warn!("[ui] repositories.list failed: {err}"),
@@ -675,7 +683,47 @@ impl StartCodingDialogView {
             }
         }
         self.selected_action_id = Some(action_id);
+        self.seed_action_repo_inputs();
         cx.notify();
+    }
+
+    /// Pre-fill `repo` inputs with the selected action's bound repository
+    /// (EXP-349) — a picker reading "None" while the run targets the bound
+    /// repo anyway looked misconfigured. Runs from [`Self::select_action`]
+    /// and again when `repositories.list` lands (whichever comes last); the
+    /// id latch keeps a manual re-pick from being stomped.
+    fn seed_action_repo_inputs(&mut self) {
+        if self.selected_action_id == self.seeded_repo_action_id {
+            return;
+        }
+        let Some(action) = self.selected_action() else {
+            return;
+        };
+        let repository_id = action.repository_id.clone();
+        let repo_keys: Vec<String> = action
+            .inputs
+            .iter()
+            .filter(|input| input.input_type == "repo")
+            .map(|input| input.key.clone())
+            .collect();
+        let Some(repository_id) = repository_id else {
+            self.seeded_repo_action_id = self.selected_action_id.clone();
+            return;
+        };
+        // Repos not fetched yet — leave the latch unset so the fetch's
+        // completion arm retries the seed.
+        let Some(repo) = self
+            .team_repos
+            .iter()
+            .find(|repo| repo.id == repository_id)
+            .cloned()
+        else {
+            return;
+        };
+        for key in repo_keys {
+            self.action_repo_picks.insert(key, repo.clone());
+        }
+        self.seeded_repo_action_id = self.selected_action_id.clone();
     }
 
     /// Whether `input` currently holds a usable value.

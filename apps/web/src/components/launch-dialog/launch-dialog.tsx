@@ -92,6 +92,19 @@ const CODEABLE_STATUSES = new Set<string>([
 // Cap the unchecked search results so a huge board can't blow up the list.
 const MAX_UNCHECKED = 50
 
+// EXP-349: an action bound to a repository pre-fills its repo-typed inputs
+// with that repo — the picker showing "None" while the action runs in its
+// bound repo anyway read as a misconfiguration. The user can still re-pick
+// or clear the field.
+const repoInputSeed = (action: TeamAction): Record<string, string> => {
+  if (!action.repositoryId) return {}
+  const seed: Record<string, string> = {}
+  for (const def of action.inputs) {
+    if (def.type === `repo`) seed[def.key] = action.repositoryId
+  }
+  return seed
+}
+
 export function LaunchDialog({
   open,
   onOpenChange,
@@ -156,6 +169,10 @@ export function LaunchDialog({
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [repos, setRepos] = useState<ActionRepoOption[]>([])
+  // Last action id whose repo inputs were seeded (EXP-349) — the latch keeps
+  // a manual re-pick (including clearing to "None") from being re-seeded when
+  // the Electric actions rows update.
+  const seededRepoActionId = useRef<string | null>(null)
 
   // Repos on OPEN (tRPC-only surface); actions ride the Electric shape.
   useEffect(() => {
@@ -324,6 +341,7 @@ export function LaunchDialog({
     setActionSearch(``)
     setSelectedActionId(initialActionId ?? null)
     setInputValues({})
+    seededRepoActionId.current = null
     setDeviceId(initialDeviceId ?? null)
     touchedRef.current = false
     const prefs = readCodingLaunchPrefs()
@@ -343,6 +361,24 @@ export function LaunchDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // Seed repo-typed inputs from the selected action's bound repository, once
+  // per selection (EXP-349). Dialog-level rather than in `selectAction`
+  // because the initially-selected action's Electric row may sync in after
+  // open; the merge is current-wins so the PrInputField seed (fix-conflicts
+  // path) and any already-typed values are never stomped.
+  useEffect(() => {
+    if (!open || !selectedActionId) return
+    if (seededRepoActionId.current === selectedActionId) return
+    const action = (actions ?? []).find((a) => a.id === selectedActionId)
+    // Row not synced yet — leave the latch unset so the arrival retries.
+    if (!action) return
+    seededRepoActionId.current = selectedActionId
+    const seed = repoInputSeed(action)
+    if (Object.keys(seed).length > 0) {
+      setInputValues((current) => ({ ...seed, ...current }))
+    }
+  }, [open, selectedActionId, actions])
 
   // Per-tab device candidates: Issues offers every online desktop; Actions
   // only actions-capable ones, tightened to action-inputs-capable when the
