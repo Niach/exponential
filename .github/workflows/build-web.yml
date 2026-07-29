@@ -99,7 +99,7 @@ jobs:
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=web-${{ env.PLATFORM_PAIR }}
 
