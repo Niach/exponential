@@ -13,13 +13,14 @@ Bring your own agents. Coding agents run locally on your connected desktop, on y
 Native everywhere. The iOS app syncs live with the web and desktop apps over the same real-time engine, so your board is always current — no pull-to-refresh, no stale views.
 
 Built for the way you actually work:
-• Fast issue tracking with statuses, priorities, labels, and due dates.
+• Fast issue tracking with priorities, labels, due dates, and custom statuses.
 • Boards you can back with a GitHub repository to code on.
 • Rich Markdown descriptions and comments with @mentions, task lists, and inline images.
-• Watch coding sessions live in the Agents tab and steer them from anywhere.
+• Watch coding sessions live in the Agents tab, steer them, and answer your agent's questions right from your phone.
+• Saved actions — reusable agent prompts your team runs with one tap, on any connected desktop.
 • A shared Support inbox — helpdesk tickets from your users land next to your issues, and replies go out by email.
 • Push notifications for mentions, assignments, and PR activity.
 
-Free for teams of up to three on the hosted cloud, and free to self-host for companies with fewer than 10 people — larger ones need a commercial license.
+Free for teams of up to three on the hosted cloud. Exponential is open source under Apache-2.0 — self-hosting is free for everyone, at any company size.
 
 Vibecode together.

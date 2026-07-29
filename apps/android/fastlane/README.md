@@ -55,6 +55,14 @@ Capture Play Store screenshots on a booted emulator via screengrab. Needs the se
 
 Promote the current closed-testing build to the production track (no new binary).
 
+### android sync_store
+
+```sh
+[bundle exec] fastlane android sync_store
+```
+
+Upload listing metadata + freshly generated screenshots to Play WITHOUT touching binaries or track states. Run `fastlane screenshots` first — the phoneScreenshots dir is gitignored (EXP-348), so this lane pushes whatever the last screengrab run produced. supply's metadata path must anchor to an EXISTING release, so the lane targets the closed track (the only track with releases so far) and defaults version_code to the newest changelogs/<vc>.txt; override with `fastlane sync_store version_code:NN`.
+
 ----
 
 This README.md is auto-generated and will be re-generated every time [_fastlane_](https://fastlane.tools) is run.

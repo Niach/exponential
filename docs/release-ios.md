@@ -163,10 +163,11 @@ distribution — `ITSAppUsesNonExemptEncryption` is already declared `false` in
 
 ## Store screenshots (automated)
 
-`fastlane screenshots` captures the nine store shots (board, issue detail, comments,
-board switcher, inbox, agents, support inbox, search, create issue) by signing into the
-real app from a UI test (`ExponentialUITests/StoreScreenshots.swift`). Prereqs, from
-the repo root:
+`fastlane screenshots` captures the ten store shots (board, issue detail, comments,
+board switcher, agents, reviews, actions, inbox, support inbox, search — 10 is the
+App Store cap; the create-issue shot gave way to reviews/actions in EXP-348) by
+signing into the real app from a UI test (`ExponentialUITests/StoreScreenshots.swift`).
+Prereqs, from the repo root:
 
 ```bash
 bun run backend:up                                  # Postgres + Electric
@@ -187,7 +188,11 @@ Notes:
 - The Snapfile **erases both simulators** first (a leftover keychain session would
   skip the sign-in flow) and overrides the status bar (9:41, full battery).
 - The instance URL defaults to `http://localhost:5173`; override with the
-  `SNAPSHOT_INSTANCE_URL` launch environment variable if needed.
+  `SNAPSHOT_INSTANCE_URL` env var if needed (the Snapfile bridges it into the
+  test runner as `TEST_RUNNER_SNAPSHOT_INSTANCE_URL` — xcodebuild only forwards
+  `TEST_RUNNER_`-prefixed vars). Prefer `http://127.0.0.1:5173` over localhost
+  when anything else squats on `[::1]:5173` — the simulator resolves
+  `localhost` to `::1` first.
 - Use the Homebrew `fastlane` (`brew install fastlane`), not `bundle exec` — the
   committed `Gemfile.lock` pins a bundler version the system Ruby doesn't ship.
 - Run with a UTF-8 locale (`LC_ALL=en_US.UTF-8`) — snapshot's simctl parsing

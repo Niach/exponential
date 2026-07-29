@@ -5,6 +5,15 @@
 # (apps/web/scripts/seed-screenshots.ts); override the target instance with the
 # SNAPSHOT_INSTANCE_URL env var (read by ExponentialUITests/StoreScreenshots.swift).
 
+# xcodebuild only forwards TEST_RUNNER_-prefixed env vars into the UI-test
+# runner process (prefix stripped) — a bare SNAPSHOT_INSTANCE_URL on the
+# fastlane invocation never reaches ProcessInfo in the test (EXP-348: the
+# test silently fell back to localhost:5173). Bridge it here so the
+# documented variable works.
+if ENV["SNAPSHOT_INSTANCE_URL"] && !ENV["TEST_RUNNER_SNAPSHOT_INSTANCE_URL"]
+  ENV["TEST_RUNNER_SNAPSHOT_INSTANCE_URL"] = ENV["SNAPSHOT_INSTANCE_URL"]
+end
+
 # One 6.9" iPhone + one 13" iPad — the two required App Store screenshot slots.
 # Names must match simulators from `xcrun simctl list devices available`.
 devices([
