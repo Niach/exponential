@@ -16,9 +16,8 @@ import {
   SidebarPane,
 } from "../../ships/surfaces/board"
 import {
-  IconRail,
-  TabsBar,
-  TopBar,
+  ExpandedRail,
+  TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
@@ -41,7 +40,6 @@ import {
   CENTER_X,
   CLAMP_EASE,
   CONTENT_TOP,
-  RAIL_IDS,
   SegmentShell,
   type SegmentProps,
 } from "./common"
@@ -78,14 +76,19 @@ const FEED_SCHEDULE = [8, 16, 28, 40, B.steerLand, ...B.reply]
 // the frame while the steer is typed. Shot C: back onto the dock for the
 // landing + reply (the phone exits frame-right naturally).
 const CAMERA_KEYS: CamKey[] = [
-  { f: 0, s: 1.7, x: 610, y: 718 },
-  { f: 46, s: 1.7, x: 610, y: 718 },
+  { f: 0, s: 1.7, x: 640, y: 730 },
+  { f: 46, s: 1.7, x: 640, y: 730 },
   { f: 66, s: 1.32, x: 1010, y: 640 },
   { f: 138, s: 1.32, x: 1010, y: 640 },
-  { f: 154, s: 1.6, x: 680, y: 700 },
+  { f: 154, s: 1.6, x: 700, y: 710 },
 ]
 
-const TAB_151: ChromeTab = { id: "exp151", label: NEW_ISSUE_ID, mono: true }
+const TAB_151: ChromeTab = {
+  id: "exp151",
+  identifier: NEW_ISSUE_ID,
+  label: CL_ISSUE.title,
+  status: "in_progress",
+}
 const DOCK_TABS: DockTab[] = [
   { id: "zsh", label: "zsh" },
   { id: "cl", label: CL.sessionTab, dot: C.green },
@@ -116,13 +119,14 @@ export const LiveSteerSegment: React.FC<SegmentProps> = ({
       <AbsoluteFill>
         <Camera keys={CAMERA_KEYS} frame={frame}>
           <WindowChassis>
-            <TopBar
+            <TitleBar frame={frame} tabs={[TAB_151]} activeId="exp151" />
+            <ExpandedRail
               frame={frame}
-              projectName={CL.project}
-              runConfig={CL.runConfig}
+              active="board"
+              boardName={CL.project}
+              userName={CL.user}
+              userInitial={CL.initials}
             />
-            <IconRail frame={frame} active="issues" icons={RAIL_IDS} />
-            <TabsBar frame={frame} tabs={[TAB_151]} activeId="exp151" />
 
             <SidebarPane
               title="All Issues"

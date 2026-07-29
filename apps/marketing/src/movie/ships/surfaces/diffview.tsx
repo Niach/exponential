@@ -124,7 +124,7 @@ const GUTTER_W = 34
 const DiffCell: React.FC<{ side: Side | null; bgAlpha: number }> = ({ side, bgAlpha }) => {
   const bg =
     side === null
-      ? "rgba(38,38,38,0.3)" // filler — muted @ 30%
+      ? "rgba(255,255,255,0.03)" // filler — faint glass wash
       : side.kind === "add"
         ? `rgba(34,197,94,${bgAlpha})`
         : side.kind === "del"
@@ -224,7 +224,6 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
         inset: 0,
         display: "flex",
         flexDirection: "column",
-        backgroundColor: C.bg,
         fontFamily: UI_FONT,
         overflow: "hidden",
       }}
@@ -238,7 +237,7 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
           alignItems: "center",
           gap: 8,
           padding: "0 16px",
-          borderBottom: `1px solid ${C.border}`,
+          borderBottom: `1px solid ${C.strokeRow}`,
         }}
       >
         <span style={{ color: C.muted, display: "flex", alignItems: "center" }}>
@@ -285,7 +284,7 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
 
       {/* ── Body: 240px file list + side-by-side diff ── */}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${C.border}`, paddingTop: 4 }}>
+        <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${C.strokeRow}`, paddingTop: 4 }}>
           {files.map((f) => {
             const selected = "selected" in f && f.selected === true
             return (
@@ -297,7 +296,7 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
                   alignItems: "center",
                   gap: 0,
                   padding: "0 10px",
-                  backgroundColor: selected ? `rgba(38,38,38,${0.6 * selTint})` : "transparent",
+                  backgroundColor: selected ? `rgba(255,255,255,${0.15 * selTint})` : "transparent",
                 }}
               >
                 <span
@@ -340,8 +339,8 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
                 alignItems: "center",
                 gap: 8,
                 padding: "0 12px",
-                backgroundColor: "rgba(38,38,38,0.5)",
-                borderBottom: `1px solid ${C.borderSoft}`,
+                backgroundColor: "rgba(255,255,255,0.08)",
+                borderBottom: `1px solid ${C.strokeRow}`,
                 opacity: revealO(paintAt),
               }}
             >
@@ -386,7 +385,7 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
               return (
                 <div key={i} style={{ display: "flex", opacity: revealO(at) }}>
                   <DiffCell side={row.l} bgAlpha={alpha} />
-                  <div style={{ width: 1, flexShrink: 0, backgroundColor: C.borderSoft }} />
+                  <div style={{ width: 1, flexShrink: 0, backgroundColor: C.strokeRow }} />
                   <DiffCell side={row.r} bgAlpha={alpha} />
                 </div>
               )

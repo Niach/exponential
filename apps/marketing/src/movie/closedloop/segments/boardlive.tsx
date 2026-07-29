@@ -24,9 +24,8 @@ import {
 } from "../../ships/surfaces/board"
 import {
   DockCollapsedStrip,
-  IconRail,
-  TabsBar,
-  TopBar,
+  ExpandedRail,
+  TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
@@ -47,7 +46,6 @@ import {
   CENTER_X,
   CLAMP_EASE,
   CONTENT_TOP,
-  RAIL_IDS,
   SegmentShell,
   type SegmentProps,
 } from "./common"
@@ -68,40 +66,45 @@ const B = {
 const CAPTIONS = { bl1: { in: 16, out: 170 } } as const
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-// Framed high enough that the TopBar's presence facepile stays in shot
+// Framed high enough that the titlebar's presence facepile stays in shot
 // (y ≤ 540/s keeps window-local y0 visible).
 const CAMERA_KEYS: CamKey[] = [
-  { f: 0, s: 1.55, x: 560, y: 330 },
-  { f: 44, s: 1.55, x: 560, y: 330 },
-  { f: 58, s: 1.7, x: 549, y: 300 },
-  { f: 92, s: 1.7, x: 549, y: 300 },
-  { f: 108, s: 1.55, x: 560, y: 330 },
+  { f: 0, s: 1.55, x: 600, y: 330 },
+  { f: 44, s: 1.55, x: 600, y: 330 },
+  { f: 58, s: 1.7, x: 440, y: 270 },
+  { f: 92, s: 1.7, x: 440, y: 270 },
+  { f: 108, s: 1.55, x: 600, y: 330 },
 ]
 
-// ── Cursors (window-local sidebar coords; rows y = 108 + layout offset) ──────
-// Before the drag: h:ip 108, EXP-148 136, h:todo 164, EXP-149 192, EXP-150 220.
-// After: EXP-149 lands at 164 (after EXP-148 inside In Progress).
+// ── Cursors (window-local tool-window coords; rows y = 104 + layout offset) ──
+// Before the drag: h:ip 104, EXP-148 132, h:todo 160, EXP-149 188, EXP-150 216.
+// After: EXP-149 lands at 160 (after EXP-148 inside In Progress).
 const REMOTE_KEYS: CursorKey[] = [
-  { f: B.remoteIn, x: 60, y: 150 },
-  { f: 40, x: 180, y: 206 },
-  { f: B.dragFrom, x: 180, y: 206 },
-  { f: B.dragTo, x: 180, y: 178 },
-  { f: 88, x: 180, y: 178 },
-  { f: 104, x: 232, y: 300 },
-  { f: 132, x: 232, y: 300 },
-  { f: B.remoteOut, x: 20, y: 260 },
+  { f: B.remoteIn, x: 220, y: 146 },
+  { f: 40, x: 360, y: 202 },
+  { f: B.dragFrom, x: 360, y: 202 },
+  { f: B.dragTo, x: 360, y: 174 },
+  { f: 88, x: 360, y: 174 },
+  { f: 104, x: 420, y: 300 },
+  { f: 132, x: 420, y: 300 },
+  { f: B.remoteOut, x: 110, y: 260 },
 ]
 
 const LOCAL_KEYS: CursorKey[] = [
   { f: 0, x: 900, y: 420 },
   { f: 50, x: 900, y: 420 },
-  { f: 66, x: 174, y: 234 + 28 }, // EXP-150 (shifted down while EXP-149 is mid-flight… settles)
-  { f: 70, x: 174, y: 234 },
-  { f: 100, x: 174, y: 234 },
-  { f: 118, x: 700, y: 500 },
+  { f: 66, x: 340, y: 230 + 28 }, // EXP-150 (shifted down while EXP-149 is mid-flight… settles)
+  { f: 70, x: 340, y: 230 },
+  { f: 100, x: 340, y: 230 },
+  { f: 118, x: 900, y: 500 },
 ]
 
-const TAB_151: ChromeTab = { id: "exp151", label: NEW_ISSUE_ID, mono: true }
+const TAB_151: ChromeTab = {
+  id: "exp151",
+  identifier: NEW_ISSUE_ID,
+  label: CL_ISSUE.title,
+  status: "done",
+}
 
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const BoardLiveSegment: React.FC<SegmentProps> = ({
@@ -136,14 +139,19 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
       <AbsoluteFill>
         <Camera keys={CAMERA_KEYS} frame={frame}>
           <WindowChassis>
-            <TopBar
+            <TitleBar
               frame={frame}
-              projectName={CL.project}
-              runConfig={CL.runConfig}
+              tabs={[TAB_151]}
+              activeId="exp151"
               presence={{ users: PRESENCE_USERS, at: B.presenceAt }}
             />
-            <IconRail frame={frame} active="issues" icons={RAIL_IDS} />
-            <TabsBar frame={frame} tabs={[TAB_151]} activeId="exp151" />
+            <ExpandedRail
+              frame={frame}
+              active="board"
+              boardName={CL.project}
+              userName={CL.user}
+              userInitial={CL.initials}
+            />
 
             <SidebarPane
               title="All Issues"

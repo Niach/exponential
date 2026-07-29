@@ -1,9 +1,11 @@
 // surfaces/board.tsx — issue-board primitives (status/priority/avatar/label/calendar),
-// the 260px SidebarPane chassis, BoardTool (tinted status groups, 28px rows, cascade
-// entrance, hover/selected, PR dot, FLIP regroup) and ReviewsTool (merge-button morph).
-// Pixel truth: the desktop-hero-board-issue reference screenshot (local-only, untracked) — sidebar chrome (#171717 header +
-// pills) over a #0a0a0a issue list, tinted group bands, lucide-style glyphs, the
-// fuchsia DS avatar, indigo "+ New Issue" button.
+// the 520px SidebarPane tool-window chassis, BoardTool (tinted status groups,
+// 28px rows, cascade entrance, hover/selected, PR dot, FLIP regroup) and
+// ReviewsTool (merge-button morph).
+// Pixel truth (EXP-359 glass): the real-app reference screenshot + desktop
+// crates/ui/src/issue_list.rs — the whole pane is TRANSPARENT over the page
+// gradient; rows hover FILL_ROW / select FILL_ACTIVE; group headers keep a
+// status tint at 10% alpha (between the two white washes); done is BLUE.
 // All frame props are COMPOSITION-GLOBAL frames; every interpolation clamps.
 
 import React from "react"
@@ -59,11 +61,16 @@ const CircleDashedIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
   </svg>
 )
 
-const TimerIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
+// Pie-clock started glyph (icons.json custom progress-2-4 — the builtin
+// In Progress icon since EXP-314): ring + half wedge.
+const PieClockIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
   <svg {...svgProps(size, 2)}>
-    <line x1="10" y1="2" x2="14" y2="2" />
-    <line x1="12" y1="14" x2="15" y2="11" />
-    <circle cx="12" cy="14" r="8" />
+    <circle cx="12" cy="12" r="10" />
+    <path
+      d="M12 12 L12 6 A6 6 0 0 1 12 18 Z"
+      fill="currentColor"
+      stroke="none"
+    />
   </svg>
 )
 
@@ -168,7 +175,7 @@ export const StatusIcon: React.FC<{ status: IssueStatus; size?: number }> = ({
     case `in_progress`:
       return (
         <span style={{ color: C.statusInProgress, display: `flex` }}>
-          <TimerIcon size={size} />
+          <PieClockIcon size={size} />
         </span>
       )
     case `done`:
@@ -280,7 +287,7 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({
       padding: `0 6px`,
       flex: `none`,
       borderRadius: 999,
-      border: `1px solid ${C.borderSoft}`,
+      border: `1px solid ${C.strokeCard}`,
       fontFamily: UI_FONT,
       fontSize: 11,
       color: C.muted,
@@ -302,9 +309,9 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({
   </span>
 )
 
-// ── SidebarPane — the 260px tool-window chassis ──────────────────────────────
-// Ref truth: the sidebar CHROME (title row + pill tabs) sits on #171717 (C.panel)
-// with a right hairline; the issue list itself paints #0a0a0a (BoardTool does that).
+// ── SidebarPane — the 520px tool-window chassis ──────────────────────────────
+// EXP-359 glass: the whole pane is transparent over the page gradient; a
+// STROKE_ROW hairline marks the boundary to the center (surface.rs idiom).
 // `pills` renders the board's filter pill row (true → the default three pills).
 
 export type SidebarPills = { labels: string[]; activeIndex?: number } | boolean
@@ -330,9 +337,9 @@ export const BoardActions: React.FC = () => (
         display: `inline-flex`,
         alignItems: `center`,
         gap: 4,
-        height: 24,
-        padding: `0 8px`,
-        borderRadius: 6,
+        height: 26,
+        padding: `0 9px`,
+        borderRadius: 8,
         backgroundColor: C.indigo,
         color: `#ffffff`,
         fontFamily: UI_FONT,
@@ -365,11 +372,10 @@ export const SidebarPane: React.FC<{
       style={{
         position: `absolute`,
         left: WIN.rail,
-        top: WIN.topBar,
+        top: WIN.titleBar,
         width: WIN.sidebar,
-        height: WIN.h - WIN.topBar - bottomInset,
-        backgroundColor: C.panel,
-        borderRight: `1px solid ${C.border}`,
+        height: WIN.h - WIN.titleBar - bottomInset,
+        borderRight: `1px solid ${C.strokeRow}`,
         display: `flex`,
         flexDirection: `column`,
         fontFamily: UI_FONT,
@@ -411,7 +417,7 @@ export const SidebarPane: React.FC<{
                   display: `inline-flex`,
                   alignItems: `center`,
                   borderRadius: 999,
-                  backgroundColor: active ? C.accentBg : `transparent`,
+                  backgroundColor: active ? C.fillActive : `transparent`,
                   color: active ? C.text : C.muted,
                   fontSize: 12,
                   fontWeight: active ? 500 : 400,
@@ -591,7 +597,6 @@ export const BoardTool: React.FC<{
           gap: 6,
           padding: `0 10px`,
           backgroundColor: g.tint,
-          borderBottom: `1px solid ${C.borderSoft}`,
           ...enter(placedB.index),
         }}
       >
@@ -665,11 +670,10 @@ export const BoardTool: React.FC<{
             alignItems: `center`,
             gap: 6,
             padding: `0 10px`,
-            borderBottom: `1px solid ${C.borderRow}`,
             backgroundColor: selected
-              ? C.accentBg
+              ? C.fillActive
               : inFlight
-                ? C.bg
+                ? C.bgBottom
                 : undefined,
             zIndex: inFlight ? 5 : undefined,
             boxShadow: inFlight
@@ -693,7 +697,7 @@ export const BoardTool: React.FC<{
               style={{
                 position: `absolute`,
                 inset: 0,
-                backgroundColor: `rgba(38,38,38,${0.55 * hoverO})`,
+                backgroundColor: `rgba(255,255,255,${0.05 * hoverO})`,
               }}
             />
           ) : null}
@@ -702,7 +706,7 @@ export const BoardTool: React.FC<{
               style={{
                 position: `absolute`,
                 inset: 0,
-                backgroundColor: `rgba(38,38,38,${flightTint})`,
+                backgroundColor: `rgba(255,255,255,${0.28 * flightTint})`,
               }}
             />
           ) : null}
@@ -797,7 +801,6 @@ export const BoardTool: React.FC<{
       style={{
         position: `absolute`,
         inset: 0,
-        backgroundColor: C.bg,
         overflow: `hidden`,
         fontFamily: UI_FONT,
       }}
@@ -908,10 +911,10 @@ export const ReviewsTool: React.FC<{
           alignItems: `center`,
           justifyContent: `center`,
           gap: 5,
-          borderRadius: 6,
-          border: `1px solid ${danger ? `rgba(255,100,103,${0.35 + 0.35 * dangerO})` : C.input}`,
+          borderRadius: 8,
+          border: `1px solid ${danger ? `rgba(255,100,103,${0.35 + 0.35 * dangerO})` : C.strokeStrong}`,
           backgroundColor:
-            hover && mergeState === `rest` ? C.accentBg : `transparent`,
+            hover && mergeState === `rest` ? C.fillActive : `transparent`,
           color: fg,
           fontFamily: UI_FONT,
           fontSize: 12,

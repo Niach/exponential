@@ -22,9 +22,8 @@ import {
 import {
   CenterEmptyState,
   DockCollapsedStrip,
-  IconRail,
-  TabsBar,
-  TopBar,
+  ExpandedRail,
+  TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
 import { DETAIL_ANCHORS, IssueDetailPane } from "../../ships/surfaces/detail"
@@ -48,7 +47,6 @@ import {
   CENTER_X,
   CLAMP,
   CONTENT_TOP,
-  RAIL_IDS,
   SegmentShell,
   type SegmentProps,
 } from "./common"
@@ -86,20 +84,20 @@ const CAPTIONS = {
 const CAMERA_KEYS: CamKey[] = [
   { f: 0, s: 1.05, x: 784, y: 490 },
   { f: 12, s: 1.05, x: 784, y: 490 },
-  { f: 30, s: 1.9, x: 507, y: 331 },
-  { f: 56, s: 1.9, x: 507, y: 331 },
-  { f: 78, s: 1.75, x: 915, y: 325 },
-  { f: 90, s: 1.75, x: 915, y: 325 },
+  { f: 30, s: 1.9, x: 640, y: 300 },
+  { f: 56, s: 1.9, x: 640, y: 300 },
+  { f: 78, s: 1.75, x: 1230, y: 440 },
+  { f: 90, s: 1.75, x: 1230, y: 440 },
   { f: 102, s: 1.7, x: 784, y: 500 },
   { f: 144, s: 1.7, x: 784, y: 500 },
-  { f: 160, s: 1.7, x: 610, y: 718 },
+  { f: 160, s: 1.7, x: 640, y: 730 },
 ]
 
 // ── Cursor ────────────────────────────────────────────────────────────────────
-const BOARD_ROW_151 = { x: 174, y: 206 } // sidebar: IP header+row, Todo header, EXP-151 first
+const BOARD_ROW_151 = { x: 360, y: 202 } // tool window: IP header+row, Todo header, EXP-151 first
 const startCoding = {
-  x: WIN.rail + WIN.sidebar + DETAIL_ANCHORS.startCoding.x,
-  y: WIN.topBar + WIN.dockTabs + DETAIL_ANCHORS.startCoding.y,
+  x: CENTER_X + DETAIL_ANCHORS.startCoding.x,
+  y: CONTENT_TOP + DETAIL_ANCHORS.startCoding.y,
 }
 const SD = START_DIALOG_ANCHORS
 
@@ -120,7 +118,11 @@ const CURSOR_KEYS: CursorKey[] = [
 ]
 const CURSOR_CLICKS = [B.rowClick, B.startClick, B.starting]
 
-const TAB_151: ChromeTab = { id: "exp151", label: NEW_ISSUE_ID, mono: true }
+const TAB_151: ChromeTab = {
+  id: "exp151",
+  identifier: NEW_ISSUE_ID,
+  label: CL_ISSUE.title,
+}
 const DOCK_TABS: DockTab[] = [
   { id: "zsh", label: "zsh" },
   { id: "cl", label: CL.sessionTab, dot: C.green, popAt: B.sessionTab },
@@ -163,17 +165,26 @@ export const StartCodingSegment: React.FC<SegmentProps> = ({
       <AbsoluteFill>
         <Camera keys={CAMERA_KEYS} frame={frame}>
           <WindowChassis>
-            <TopBar
+            <TitleBar
               frame={frame}
-              projectName={CL.project}
-              runConfig={CL.runConfig}
-            />
-            <IconRail frame={frame} active="issues" icons={RAIL_IDS} />
-            <TabsBar
-              frame={frame}
-              tabs={[TAB_151]}
+              tabs={[
+                {
+                  ...TAB_151,
+                  status:
+                    frame >= B.codingStart
+                      ? ("in_progress" as const)
+                      : ("todo" as const),
+                },
+              ]}
               activeId="exp151"
               popAt={{ exp151: B.tabPop }}
+            />
+            <ExpandedRail
+              frame={frame}
+              active="board"
+              boardName={CL.project}
+              userName={CL.user}
+              userInitial={CL.initials}
             />
 
             {/* sidebar board */}
@@ -209,7 +220,7 @@ export const StartCodingSegment: React.FC<SegmentProps> = ({
                 <CenterEmptyState
                   frame={frame}
                   bottom={WIN.dockStrip}
-                  contentCenter={{ x: 700, y: 380 }}
+                  contentCenter={{ x: 1126, y: 400 }}
                 />
               </div>
             ) : null}

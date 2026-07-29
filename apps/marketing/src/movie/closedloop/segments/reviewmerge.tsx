@@ -22,12 +22,11 @@ import {
 } from "../../ships/surfaces/board"
 import {
   DockCollapsedStrip,
-  IconRail,
-  TabsBar,
-  TopBar,
-  railIconCenter,
+  ExpandedRail,
+  TitleBar,
+  railRowCenter,
   type ChromeTab,
-  type IconRailProps,
+  type ExpandedRailProps,
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
 import { ChangesPane } from "../../ships/surfaces/diffview"
@@ -50,7 +49,6 @@ import {
   CLAMP,
   CLAMP_EASE,
   CONTENT_TOP,
-  RAIL_IDS,
   SegmentShell,
   type SegmentProps,
 } from "./common"
@@ -83,17 +81,17 @@ const CAPTIONS = {
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 const CAMERA_KEYS: CamKey[] = [
-  { f: 0, s: 1.55, x: 928, y: 400 },
-  { f: 14, s: 1.55, x: 928, y: 400 },
-  { f: 80, s: 1.55, x: 928, y: 455, ease: "linear" },
-  { f: 84, s: 1.55, x: 928, y: 455 },
-  { f: 96, s: 1.7, x: 575, y: 385 },
+  { f: 0, s: 1.55, x: 940, y: 400 },
+  { f: 14, s: 1.55, x: 940, y: 400 },
+  { f: 80, s: 1.55, x: 940, y: 455, ease: "linear" },
+  { f: 84, s: 1.55, x: 940, y: 455 },
+  { f: 96, s: 1.7, x: 520, y: 360 },
 ]
 
 // ── Cursor ────────────────────────────────────────────────────────────────────
-const railReviews = railIconCenter("reviews")
-const MERGE_BTN = { x: 263, y: 122 }
-const CONFIRM_BTN = { x: 238, y: 122 }
+const railReviews = railRowCenter("reviews")
+const MERGE_BTN = { x: 641, y: 118 }
+const CONFIRM_BTN = { x: 618, y: 118 }
 
 const CURSOR_KEYS: CursorKey[] = [
   { f: 74, x: 900, y: 400 },
@@ -103,11 +101,15 @@ const CURSOR_KEYS: CursorKey[] = [
   { f: 104, x: MERGE_BTN.x, y: MERGE_BTN.y },
   { f: 110, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
   { f: 118, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
-  { f: 130, x: 500, y: 560 },
+  { f: 130, x: 700, y: 560 },
 ]
 const CURSOR_CLICKS = [B.railClick, B.confirmAt, B.mergingAt]
 
-const TAB_151: ChromeTab = { id: "exp151", label: NEW_ISSUE_ID, mono: true }
+const TAB_151: ChromeTab = {
+  id: "exp151",
+  identifier: NEW_ISSUE_ID,
+  label: CL_ISSUE.title,
+}
 
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const ReviewMergeSegment: React.FC<SegmentProps> = ({
@@ -175,14 +177,13 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
     CLAMP_EASE
   )
 
-  const railProps: IconRailProps =
+  const railProps: ExpandedRailProps =
     frame < B.railTransition
-      ? { frame, active: "issues", icons: RAIL_IDS }
+      ? { frame, active: "board" }
       : {
           frame,
           active: "reviews",
-          activeTransition: { from: "issues", at: B.railTransition },
-          icons: RAIL_IDS,
+          activeTransition: { from: "board", at: B.railTransition },
         }
   const railDots = frame < B.railClick + 4 ? ["reviews"] : []
 
@@ -191,13 +192,20 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
       <AbsoluteFill>
         <Camera keys={CAMERA_KEYS} frame={frame}>
           <WindowChassis>
-            <TopBar
+            <TitleBar
               frame={frame}
-              projectName={CL.project}
-              runConfig={CL.runConfig}
+              tabs={[
+                { ...TAB_151, status: heroStatus },
+              ]}
+              activeId="exp151"
             />
-            <IconRail {...railProps} dots={railDots} />
-            <TabsBar frame={frame} tabs={[TAB_151]} activeId="exp151" />
+            <ExpandedRail
+              {...railProps}
+              dots={railDots}
+              boardName={CL.project}
+              userName={CL.user}
+              userInitial={CL.initials}
+            />
 
             {/* sidebar: board */}
             {frame < B.sidebarSwapOut + 8 || frame >= B.sidebarSwapIn ? (

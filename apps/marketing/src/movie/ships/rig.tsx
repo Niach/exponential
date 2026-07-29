@@ -4,7 +4,7 @@
 
 import React, { useId } from "react"
 import { AbsoluteFill, interpolate } from "remotion"
-import { C, EASE, UI_FONT, WIN } from "./theme"
+import { C, EASE, GLASS, UI_FONT, WIN } from "./theme"
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 // Keyframes reference window-local focus points; the camera keeps focus at comp
@@ -63,7 +63,35 @@ export const Camera: React.FC<{
   )
 }
 
+// ── Canvas wallpaper (the macOS desktop behind the translucent window) ───────
+// ONE blob list, positioned in comp px, painted twice: on the canvas by the
+// composition root, and window-locally inside WindowChassis as the "blurred
+// backdrop". A real backdrop-filter mis-samples inside the camera's scale
+// transform (headless chrome smeared the panes white at zoom), and since the
+// wallpaper is a static smooth gradient, the offset replica is pixel-identical
+// to true translucency.
+const WALLPAPER_BLOBS = [
+  { w: 720, h: 520, x: 960, y: 324, color: "rgba(99,102,241,0.16)" },
+  { w: 640, h: 480, x: 230, y: 1037, color: "rgba(124,58,237,0.55)" },
+  { w: 520, h: 620, x: 1843, y: 670, color: "rgba(139,92,246,0.38)" },
+  { w: 480, h: 360, x: 1690, y: 1037, color: "rgba(129,140,248,0.25)" },
+] as const
+
+export const wallpaperBackground = (dx = 0, dy = 0): string =>
+  WALLPAPER_BLOBS.map(
+    (b) =>
+      `radial-gradient(${b.w}px ${b.h}px at ${b.x + dx}px ${b.y + dy}px, ${b.color}, transparent 70%)`
+  ).join(", ")
+
 // The desktop window chassis at comp coords — put window-local content inside.
+// EXP-359 glass: an NSVisualEffectView recreation — the wallpaper replica
+// below, then the zinc page gradient painted in TWO region layers at the
+// desktop's alphas (rail column 0.72, content 0.96 — theme lib.rs
+// glass_sidebar_alpha/glass_content_alpha) so the wallpaper genuinely bleeds
+// through, glassier on the left.
+const gradientAt = (alpha: number) =>
+  `linear-gradient(to bottom, rgba(18,18,21,${alpha}), rgba(24,24,27,${alpha}))`
+
 export const WindowChassis: React.FC<{
   children: React.ReactNode
   dim?: number
@@ -76,13 +104,42 @@ export const WindowChassis: React.FC<{
       width: WIN.w,
       height: WIN.h,
       borderRadius: WIN.radius,
-      border: `1px solid ${C.border}`,
+      border: `1px solid ${C.strokeCard}`,
       boxShadow: "0 40px 120px rgba(0,0,0,0.6), 0 8px 24px rgba(0,0,0,0.4)",
-      backgroundColor: C.bg,
+      backgroundColor: C.canvas,
       overflow: "hidden",
       filter: dim > 0 ? `brightness(${1 - dim})` : undefined,
     }}
   >
+    {/* the wallpaper "showing through" (window-local replica) */}
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: wallpaperBackground(-WIN.x, -WIN.y),
+      }}
+    />
+    {/* page gradient — rail column glassier than content */}
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: 0,
+        width: WIN.rail,
+        background: gradientAt(GLASS.railAlpha),
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: WIN.rail,
+        right: 0,
+        background: gradientAt(GLASS.contentAlpha),
+      }}
+    />
     {children}
   </div>
 )
@@ -487,8 +544,8 @@ export const WordmarkChip: React.FC<{
         gap: 8,
         padding: "6px 14px 6px 10px",
         borderRadius: 999,
-        backgroundColor: C.panel,
-        border: `1px solid ${C.border}`,
+        backgroundColor: C.panelFloat,
+        border: `1px solid ${C.strokeCard}`,
         opacity: o,
       }}
     >

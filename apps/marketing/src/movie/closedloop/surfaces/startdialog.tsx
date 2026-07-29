@@ -116,8 +116,8 @@ const AgentTabStrip: React.FC = () => (
           gap: 7,
           padding: "0 12px",
           borderRadius: 999,
-          border: `1px solid ${active ? C.border : "transparent"}`,
-          backgroundColor: active ? C.accentBg : "transparent",
+          border: `1px solid ${active ? C.strokeActive : "transparent"}`,
+          backgroundColor: active ? C.fillActive : "transparent",
           color: active ? C.text : C.muted,
         }}
       >
@@ -186,8 +186,8 @@ export const StartCodingDialog: React.FC<StartCodingDialogProps> = ({
           height: 30,
           boxSizing: "border-box",
           borderRadius: 6,
-          border: `1px solid ${C.input}`,
-          backgroundColor: "rgba(255,255,255,0.04)",
+          border: `1px solid ${C.strokeStrong}`,
+          backgroundColor: C.fillSection,
           display: "flex",
           alignItems: "center",
           gap: 8,
@@ -208,8 +208,8 @@ export const StartCodingDialog: React.FC<StartCodingDialogProps> = ({
           width: D.w - 2 * D.pad,
           height: BOX_H,
           boxSizing: "border-box",
-          borderRadius: 6,
-          border: `1px solid ${C.border}`,
+          borderRadius: 10,
+          border: `1px solid ${C.strokeCard}`,
         }}
       />
       {DIALOG_ISSUES.map((issue, i) => {
