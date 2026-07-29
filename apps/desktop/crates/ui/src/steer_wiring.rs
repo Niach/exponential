@@ -876,8 +876,10 @@ pub fn attach_publisher(
     let activity_active = Arc::new(AtomicBool::new(true));
     // EXP-214: forward the emitter's picker-pending flips to the synced
     // `coding_sessions.needs_input` column so every client can badge
-    // "Needs input". Fire-and-forget from the emitter thread (blocking
-    // HTTP is fine there); a swept/ended row reports `updated: false`.
+    // "Needs input". Runs on the emitter thread (blocking HTTP is fine
+    // there); the return value tells the emitter whether the write landed so
+    // a failed one retries instead of sticking the badge (EXP-355) — a
+    // swept/ended row reports `updated: false`, which still counts as landed.
     let needs_input_session = session_id.to_string();
     // REV2-17: the `expu_` personal key from the account's secret store —
     // codex/pi sessions carry it only in the spawn env (never a worktree
@@ -911,12 +913,16 @@ pub fn attach_publisher(
             // a remote answer's keystrokes (EXP-249).
             term: Some(term),
             on_needs_input: Some(Arc::new(move |pending| {
-                if let Err(err) = api::coding_sessions::set_needs_input(
+                match api::coding_sessions::set_needs_input(
                     &needs_input_trpc,
                     &needs_input_session,
                     pending,
                 ) {
-                    log::debug!("steer: setNeedsInput({pending}) failed: {err}");
+                    Ok(_) => true,
+                    Err(err) => {
+                        log::debug!("steer: setNeedsInput({pending}) failed: {err}");
+                        false
+                    }
                 }
             })),
             hooks: hook_events,

@@ -148,6 +148,10 @@ const SIDECHAIN_SCAN_INTERVAL: Duration = Duration::from_secs(3);
 /// How long to wait for the session transcript to appear before giving up and
 /// running diffs-only.
 const TRANSCRIPT_WAIT: Duration = Duration::from_secs(20);
+/// EXP-355: cooldown between re-attempts of a `needs_input` forward whose
+/// write failed — fire-and-forget on flips used to stick the synced badge on
+/// its last value until the NEXT flip (which may never come this session).
+const NEEDS_INPUT_RETRY: Duration = Duration::from_secs(5);
 /// Exact secrets shorter than this are ignored (never mask a common
 /// substring); real tokens/keys are far longer.
 const MIN_SECRET_LEN: usize = 8;
@@ -1285,6 +1289,21 @@ impl SteerState {
         std::mem::take(&mut self.resolution_seen)
     }
 
+    /// EXP-355: evidence a turn is in flight — claude cannot be parked on the
+    /// input box while it dispatches tools or its subagents stream, so a
+    /// stale idle nudge is retired. Without this the badge sat on "needs
+    /// input" through an entire background-agent fan-out: the main transcript
+    /// is silent while delegated work runs, and transcript progress was the
+    /// only thing clearing the flag. A [`Attention::Permission`] block
+    /// deliberately survives — a parallel/background subagent can stream
+    /// while the main agent genuinely waits on an approval (that one still
+    /// clears on main-transcript progress / `Stop`, as ever).
+    fn note_agent_activity(&mut self) {
+        if self.attention == Some(Attention::Idle) {
+            self.attention = None;
+        }
+    }
+
     fn publish_question(&mut self, question: Publishable, sender: &ActivitySender) {
         let plan_mode = (question.kind == QuestionKind::Plan).then_some(true);
         self.live.insert(
@@ -1319,6 +1338,18 @@ impl SteerState {
         redactor: &Redactor,
         transcript: &mut TranscriptState,
     ) {
+        // Tool dispatches and subagent lifecycle edges disprove "parked on
+        // the input box" (EXP-355).
+        if matches!(
+            event.kind,
+            HookEventKind::PlanProposed { .. }
+                | HookEventKind::QuestionsAsked { .. }
+                | HookEventKind::SubagentDispatched { .. }
+                | HookEventKind::SubagentStarted { .. }
+                | HookEventKind::SubagentStopped { .. }
+        ) {
+            self.note_agent_activity();
+        }
         match event.kind {
             HookEventKind::PlanProposed { tool_use_id, plan } => {
                 self.plan_seq += 1;
@@ -1912,8 +1943,11 @@ pub struct EmitterConfig {
     /// prompt is unresolved, or claude is idling on human input; `false` once
     /// it resolves. The wiring layer forwards it to the synced
     /// `coding_sessions.needs_input` column. Blocking work is fine here (the
-    /// emitter thread already shells out for diffs).
-    pub on_needs_input: Option<Arc<dyn Fn(bool) + Send + Sync>>,
+    /// emitter thread already shells out for diffs). Returns whether the
+    /// write LANDED — a `false` return re-attempts on a cooldown, so an
+    /// offline blip can no longer stick the synced badge on its last value
+    /// forever (EXP-355).
+    pub on_needs_input: Option<Arc<dyn Fn(bool) -> bool + Send + Sync>>,
     /// EXP-249: the claude hooks sidecar's event stream ([`crate::hooks`]).
     /// `None` = grid-only detection (a non-claude agent, an old claude, or an
     /// unwritable settings file) — the session still publishes, just without
@@ -1971,8 +2005,12 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         bypass_permissions: config.bypass_permissions,
         ..SteerState::default()
     };
-    // EXP-214: last "needs input" flag forwarded — fire only on flips.
-    let mut needs_input = false;
+    // EXP-214: the synced needs-input flag, tracked as the last CONFIRMED
+    // server value (`None` = the last write failed and wants a retry). The
+    // session row is born with the flag off. Forwarded on flips; an
+    // unconfirmed write re-attempts every [`NEEDS_INPUT_RETRY`] (EXP-355).
+    let mut needs_input_forwarded: Option<bool> = Some(false);
+    let mut needs_input_retry_at: Option<Instant> = None;
     // EXP-334: transiently refused remote answers, retried each tick until
     // [`ANSWER_RETRY_TTL`] — a tap that beats the picker paint must not be
     // dropped on the floor.
@@ -2090,11 +2128,15 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             || question_watcher.is_pending()
             || steer.has_pending_question();
         let pending = picker_pending || steer.attention.is_some();
-        if pending != needs_input {
-            needs_input = pending;
-            if let Some(on_needs_input) = &config.on_needs_input {
-                on_needs_input(pending);
-            }
+        if needs_input_forwarded != Some(pending)
+            && needs_input_retry_at.is_none_or(|at| Instant::now() >= at)
+        {
+            let landed = match &config.on_needs_input {
+                Some(on_needs_input) => on_needs_input(pending),
+                None => true,
+            };
+            needs_input_forwarded = landed.then_some(pending);
+            needs_input_retry_at = (!landed).then(|| Instant::now() + NEEDS_INPUT_RETRY);
         }
         if let Some(steering) = &config.steering {
             // The publisher's Enter-cascade guard keys on an ASK picker only
@@ -2180,6 +2222,12 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     &mut |line| parse_sidechain_line(line, &agent_id, &redactor),
                     &mut |event| sender.send(attribute_to_card(event, &steer.subagents)),
                 );
+                if next != start {
+                    // A subagent transcript moved ⇒ delegated work is live;
+                    // the main transcript stays silent through a background
+                    // fan-out, so the idle nudge must clear HERE (EXP-355).
+                    steer.note_agent_activity();
+                }
                 sidechain_offsets.insert(path.clone(), next);
             }
         }
@@ -2253,7 +2301,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
     // Teardown tidiness: never leave the synced attention flag stuck on a
     // session whose emitter is gone (the terminal-exit `end` supersedes).
-    if needs_input {
+    if needs_input_forwarded != Some(false) {
         if let Some(on_needs_input) = &config.on_needs_input {
             on_needs_input(false);
         }
@@ -3651,6 +3699,71 @@ mod tests {
         assert!(steer.attention.is_some(), "the session is blocked");
         steer.observe_published(&ActivityEvent::tool("Bash", None));
         assert!(steer.attention.is_none(), "progress clears it");
+    }
+
+    #[test]
+    fn subagent_activity_retires_a_stale_idle_nudge() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        // Claude handed work to background subagents, its turn ended, and the
+        // idle nudge fired — the badge would flip to "needs input"…
+        steer.apply_hook(
+            hook(HookEventKind::Idle {
+                message: "Claude is waiting for your input".to_string(),
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        assert!(steer.attention == Some(Attention::Idle), "nudge parked it");
+        // …but a subagent lifecycle edge proves delegated work is running:
+        // the main transcript stays silent through the fan-out, so the edge
+        // itself must clear the flag (EXP-355).
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("agent_01".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        assert!(steer.attention.is_none(), "delegated work is live — not parked");
+        drained(&rx);
+    }
+
+    #[test]
+    fn a_permission_block_survives_subagent_activity() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Claude needs your permission to use Bash".to_string(),
+                tool: Some("Bash".to_string()),
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        assert!(steer.attention == Some(Attention::Permission));
+        // A parallel/background subagent can stream while the main agent
+        // genuinely waits on an approval — the block must NOT clear (EXP-355).
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("agent_01".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        assert!(
+            steer.attention == Some(Attention::Permission),
+            "an approval block outlives subagent chatter"
+        );
+        drained(&rx);
     }
 
     /// A `write_input` that records keystrokes and repaints the grid when the
