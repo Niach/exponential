@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { actionIconSchema, actionInputsSchema } from "@exp/db-schema/domain"
+import { actionInputsSchema } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   and,
@@ -176,7 +176,18 @@ async function getActionContext(id: string) {
 
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
-const boardIconEnumSchema = z.enum(boardIconValues)
+// EXP-353: keep the serialized tool context small — every schema below is part
+// of the MCP client's system prompt. z.uuid()'s 155-char pattern and the
+// 60-name icon enum each repeated across tools were ~10k chars of context, so
+// both validate via refine (runtime-only, invisible to the JSON schema).
+const uuidString = z.string().refine((v) => UUID_RE.test(v), `Expected a UUID`)
+const boardIconEnumSchema = z
+  .string()
+  .refine(
+    (v) => (boardIconValues as ReadonlyArray<string>).includes(v),
+    `Unknown icon — valid names: ${boardIconValues.join(`, `)}`
+  )
+  .transform((v) => v as (typeof boardIconValues)[number])
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, `Expected YYYY-MM-DD`)
 
 export function registerExponentialTools(
@@ -192,7 +203,6 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_list`,
     {
-      title: `List teams`,
       description: `List teams the MCP user is a member of.`,
       inputSchema: {},
     },
@@ -225,9 +235,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_get`,
     {
-      title: `Get team`,
       description: `Get a single team by id.`,
-      inputSchema: { id: z.string().uuid() },
+      inputSchema: { id: uuidString },
     },
     async ({ id }) => {
       try {
@@ -254,10 +263,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_list`,
     {
-      title: `List boards`,
       description: `List boards in a team, or across all teams the user belongs to.`,
       inputSchema: {
-        teamId: z.string().uuid().optional(),
+        teamId: uuidString.optional(),
       },
     },
     async ({ teamId }) => {
@@ -295,9 +303,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_get`,
     {
-      title: `Get board`,
       description: `Get a single board by id.`,
-      inputSchema: { id: z.string().uuid() },
+      inputSchema: { id: uuidString },
     },
     async ({ id }) => {
       try {
@@ -319,10 +326,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_create`,
     {
-      title: `Create board`,
-      description: `Create a board in a team. The repository is always optional (coding features gate on repo presence). icon is a curated display icon name. For the repository pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the team (owner/admin to connect a new repo).`,
+      description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional — coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline. icon is a curated icon name.`,
       inputSchema: {
-        teamId: z.string().uuid(),
+        teamId: uuidString,
         name: z.string().min(1).max(255),
         // Mirrors boards.create's floor (EXP-46): letter-led alphanumeric,
         // so identifiers stay `{PREFIX}-{number}` referenceable.
@@ -340,7 +346,7 @@ export function registerExponentialTools(
         icon: boardIconEnumSchema.optional(),
         repository: z
           .union([
-            z.object({ repositoryId: z.string().uuid() }),
+            z.object({ repositoryId: uuidString }),
             z.object({
               fullName: z
                 .string()
@@ -371,10 +377,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_update`,
     {
-      title: `Update board`,
       description: `Update a board's name, color, or icon.`,
       inputSchema: {
-        id: z.string().uuid(),
+        id: uuidString,
         icon: boardIconEnumSchema.nullable().optional(),
         name: z.string().min(1).max(255).optional(),
         color: z
@@ -404,11 +409,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_list`,
     {
-      title: `List issues`,
       description: `List issues in boards the MCP user can access. Supports filtering by board, status, priority, assignee, due-date range, and a free-text title search. Newest first.`,
       inputSchema: {
-        boardId: z.string().uuid().optional(),
-        teamId: z.string().uuid().optional(),
+        boardId: uuidString.optional(),
+        teamId: uuidString.optional(),
         status: z.array(issueStatusEnumSchema).optional(),
         priority: z.array(issuePriorityEnumSchema).optional(),
         assigneeId: z.string().nullable().optional(),
@@ -501,8 +505,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_get`,
     {
-      title: `Get issue`,
-      description: `Get a single issue by UUID or human identifier (e.g. "MET-12"), including its label ids and the latest comments on the thread (newest first). The recentComments array is capped at ${`50`}; pass commentsLimit to override.`,
+      description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids and latest comments (newest first, capped at 50; commentsLimit overrides).`,
       inputSchema: {
         id: z.string().min(1),
         commentsLimit: z.number().int().min(0).max(200).optional(),
@@ -549,17 +552,16 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      title: `Create issue`,
       description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation).`,
       inputSchema: {
-        boardId: z.string().uuid(),
+        boardId: uuidString,
         title: z.string().min(1).max(500),
         status: issueStatusEnumSchema.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
         descriptionText: z.string().optional(),
         dueDate: dateOnly.nullable().optional(),
-        labelIds: z.array(z.string().uuid()).optional(),
+        labelIds: z.array(uuidString).optional(),
       },
     },
     async ({ descriptionText, ...rest }) => {
@@ -582,10 +584,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_update`,
     {
-      title: `Update issue`,
       description: `Update an issue's fields. Pass only the fields you want to change.`,
       inputSchema: {
-        id: z.string().uuid(),
+        id: uuidString,
         title: z.string().min(1).max(500).optional(),
         status: issueStatusEnumSchema.optional(),
         priority: issuePriorityEnumSchema.optional(),
@@ -620,9 +621,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_delete`,
     {
-      title: `Delete issue`,
       description: `Permanently delete an issue. Cascades to its labels, attachments, comments, and relations. Attachment storage objects are also removed.`,
-      inputSchema: { id: z.string().uuid() },
+      inputSchema: { id: uuidString },
     },
     async (input) => {
       try {
@@ -645,9 +645,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_attachments_get`,
     {
-      title: `Get attachment (image)`,
-      description: `Fetch an issue attachment by id and return it as image content so MCP clients can view it. Issue descriptions and comments embed attachments as markdown image links of the form ![alt](/api/attachments/{id}) — pass that {id} here. Only image attachments are returned inline; other content types are rejected.`,
-      inputSchema: { id: z.string().uuid() },
+      description: `Fetch an issue attachment by id and return it as inline image content. Markdown embeds look like ![alt](/api/attachments/{id}) — pass that {id}. Non-image content types are rejected.`,
+      inputSchema: { id: uuidString },
     },
     async ({ id }) => {
       try {
@@ -687,9 +686,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_list`,
     {
-      title: `List labels`,
       description: `List labels for a team.`,
-      inputSchema: { teamId: z.string().uuid() },
+      inputSchema: { teamId: uuidString },
     },
     async ({ teamId }) => {
       try {
@@ -712,9 +710,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_get`,
     {
-      title: `Get label`,
       description: `Get a label by id (must be in a team the user belongs to).`,
-      inputSchema: { id: z.string().uuid() },
+      inputSchema: { id: uuidString },
     },
     async ({ id }) => {
       try {
@@ -736,10 +733,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_create`,
     {
-      title: `Create label`,
       description: `Create a label in a team.`,
       inputSchema: {
-        teamId: z.string().uuid(),
+        teamId: uuidString,
         name: z.string().min(1).max(255),
         color: z
           .string()
@@ -763,11 +759,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_update`,
     {
-      title: `Update label`,
       description: `Update a label's name or color.`,
       inputSchema: {
-        teamId: z.string().uuid(),
-        labelId: z.string().uuid(),
+        teamId: uuidString,
+        labelId: uuidString,
         name: z.string().min(1).max(255).optional(),
         color: z
           .string()
@@ -789,11 +784,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_delete`,
     {
-      title: `Delete label`,
       description: `Delete a label from a team.`,
       inputSchema: {
-        teamId: z.string().uuid(),
-        labelId: z.string().uuid(),
+        teamId: uuidString,
+        labelId: uuidString,
       },
     },
     async (input) => {
@@ -814,11 +808,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issue_labels_add`,
     {
-      title: `Add label to issue`,
       description: `Attach a label to an issue (teams must match).`,
       inputSchema: {
-        issueId: z.string().uuid(),
-        labelId: z.string().uuid(),
+        issueId: uuidString,
+        labelId: uuidString,
       },
     },
     async (input) => {
@@ -838,11 +831,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issue_labels_remove`,
     {
-      title: `Remove label from issue`,
       description: `Detach a label from an issue.`,
       inputSchema: {
-        issueId: z.string().uuid(),
-        labelId: z.string().uuid(),
+        issueId: uuidString,
+        labelId: uuidString,
       },
     },
     async (input) => {
@@ -866,7 +858,6 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_list`,
     {
-      title: `List comments on an issue`,
       description: `List comments on an issue (oldest first) by UUID or human identifier (e.g. "MET-12"). The MCP user must have access to the issue's team.`,
       inputSchema: {
         issueId: z.string().min(1),
@@ -897,7 +888,6 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_create`,
     {
-      title: `Comment on an issue`,
       description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user. Body is plain text.`,
       inputSchema: {
         issueId: z.string().min(1),
@@ -929,8 +919,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_update_status`,
     {
-      title: `Update issue status (coding flow)`,
-      description: `Set an issue's status during a coding session. Restricted to 'in_progress' (you started working) and 'done' (work is complete and merged). Do NOT set 'in_review' yourself — calling exponential_pr_open automatically moves the issue to the team's configured PR-open status (default 'in_review'), and merging the PR moves it to the team's PR-merge status (default 'done'; a team may have disabled either automation). Accepts a UUID or human identifier (e.g. "MET-12").`,
+      description: `Set an issue's status during a coding session (UUID or identifier). Only 'in_progress' (started working) and 'done' (work merged) are allowed. Never set 'in_review' yourself — exponential_pr_open and PR merges move issues to the team's configured statuses automatically.`,
       inputSchema: {
         issueId: z.string().min(1),
         status: z.enum([`in_progress`, `done`]),
@@ -954,8 +943,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      title: `Open a pull request for one issue or a batch of issues`,
-      description: `Open a GitHub pull request via the linked repository and link it to the issue(s). The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (single issue) or 'issueIds' (a batch coding run's issues — ONE combined PR linked to every listed issue; all issues must resolve to the same repository, and 'head' is REQUIRED: the pushed batch branch, e.g. 'exp/batch-<id>'). For a single issue, 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'. 'base' defaults to the repo's default branch. On success each linked issue records prUrl/prNumber/prState='open'/branch and a pr_opened activity event, and moves to the team's configured PR-open status (default 'in_review'); merging the PR later moves them all to the team's PR-merge status (default 'done'). A team may have disabled either automation ("do nothing") — the PR linkage still applies. Fails with a clear message if a board has no linked repository. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
+      description: `Open a GitHub PR on the linked repository and link it to the issue(s) — the server uses the GitHub App, no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -1140,8 +1128,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      title: `Squash-merge open pull requests`,
-      description: `Squash-merge linked open pull requests via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (one PR) or 'issueIds' (merge MANY at once — one PR per distinct prUrl: issues sharing a batch PR are merged once). Merging flips EVERY issue linked to each PR to prState='merged' and moves it to the team's configured PR-merge status (default 'done'; a team may have disabled the status automation, in which case only the PR state changes). Use this after conflict-resolution work (e.g. the "Fix merge conflicts" run: rebase, resolve, push --force-with-lease, then merge). Merges run sequentially and report a per-PR result — one unmergeable PR (GitHub's own message is returned for it) never blocks the rest. If a merge is rejected because the PR's base branch is stale (e.g. it belonged to an already-merged parent PR), fix it with exponential_pr_retarget first. Idempotent when a PR is already merged. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
+      description: `Squash-merge linked open PRs via the GitHub App — no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (one merge per distinct prUrl — issues sharing a batch PR merge once). Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'). Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. If a merge is rejected because the base branch is stale, fix it with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -1227,8 +1214,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_retarget`,
     {
-      title: `Change a pull request's base branch`,
-      description: `Change the base branch of the issue's open pull request via the GitHub App (EXP-324). Use this when a merge is rejected because the PR's base branch is stale — e.g. the PR was stacked on a parent PR whose branch was already merged or closed. Omit 'base' to retarget onto the repository's default branch (the right choice after the parent was squash-merged). After retargeting, rebase the PR branch onto the new base, push with --force-with-lease, then merge with exponential_pr_merge. Accepts a UUID or human identifier (e.g. "MET-12").`,
+      description: `Change the base branch of an issue's open PR via the GitHub App — use when a merge is rejected because the base is stale (e.g. stacked on an already-merged parent PR). Omit 'base' for the repo's default branch. Then rebase onto the new base, push with --force-with-lease, and call exponential_pr_merge.`,
       inputSchema: {
         issueId: z.string().min(1),
         base: z.string().min(1).max(255).optional(),
@@ -1261,10 +1247,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_update`,
     {
-      title: `Edit a comment`,
       description: `Edit the body of an existing comment (by its UUID). Only the comment's author can edit it. Body is plain text; the edit stamps editedAt.`,
       inputSchema: {
-        id: z.string().uuid(),
+        id: uuidString,
         bodyText: z.string().min(1).max(10_000),
       },
     },
@@ -1288,9 +1273,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_delete`,
     {
-      title: `Delete a comment`,
       description: `Permanently delete a comment (by its UUID). Only the comment's author or an admin can delete it.`,
-      inputSchema: { id: z.string().uuid() },
+      inputSchema: { id: uuidString },
     },
     async ({ id }) => {
       try {
@@ -1313,7 +1297,6 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_subscribe`,
     {
-      title: `Subscribe to an issue`,
       description: `Subscribe the MCP user to an issue (by UUID or human identifier, e.g. "MET-12") so they receive its notifications. Idempotent.`,
       inputSchema: { issueId: z.string().min(1) },
     },
@@ -1335,8 +1318,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_unsubscribe`,
     {
-      title: `Unsubscribe from an issue`,
-      description: `Unsubscribe the MCP user from an issue (by UUID or human identifier, e.g. "MET-12"). Suppresses future auto-resubscribe until they act on the issue again.`,
+      description: `Unsubscribe the MCP user from an issue (UUID or identifier). Suppresses auto-resubscribe until they act on the issue again.`,
       inputSchema: { issueId: z.string().min(1) },
     },
     async ({ issueId: issueIdInput }) => {
@@ -1361,7 +1343,6 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_notifications_list`,
     {
-      title: `List notifications`,
       description: `List the MCP user's own notifications, newest first. Set unreadOnly to show only those not yet read.`,
       inputSchema: {
         unreadOnly: z.boolean().default(false),
@@ -1419,10 +1400,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_notifications_mark_read`,
     {
-      title: `Mark notifications read`,
-      description: `Mark a single notification read by passing its id, or mark every unread notification read by passing all=true. Only the MCP user's own notifications are affected.`,
+      description: `Mark one notification read by id, or all unread ones with all=true. Only the MCP user's own notifications are affected.`,
       inputSchema: {
-        id: z.string().uuid().optional(),
+        id: uuidString.optional(),
         all: z.boolean().default(false),
       },
     },
@@ -1464,10 +1444,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_members_list`,
     {
-      title: `List team members`,
       description: `List the members of a team with their id, name, email, and role — use this to resolve an assigneeId for issues.`,
       inputSchema: {
-        teamId: z.string().uuid(),
+        teamId: uuidString,
       },
     },
     async ({ teamId }) => {
@@ -1500,9 +1479,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_list`,
     {
-      title: `List repositories`,
       description: `List the repositories registered in a team, each with the boards it backs. The MCP user must be a member of the team.`,
-      inputSchema: { teamId: z.string().uuid() },
+      inputSchema: { teamId: uuidString },
     },
     async ({ teamId }) => {
       try {
@@ -1530,10 +1508,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_add`,
     {
-      title: `Register a repository`,
-      description: `Register a GitHub repository ("owner/name") in a team so boards can be backed by it. The repo must belong to a GitHub account (App installation) connected to the team — connect one in team settings → Repositories. Owner/admin only.`,
+      description: `Register a GitHub repository ("owner/name") in a team so boards can be backed by it. The repo must belong to a GitHub App installation connected to the team (team settings → Repositories). Owner/admin only.`,
       inputSchema: {
-        teamId: z.string().uuid(),
+        teamId: uuidString,
         fullName: z
           .string()
           .min(1)
@@ -1558,8 +1535,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_branch_diff`,
     {
-      title: `Diff an issue's branch`,
-      description: `Get the diff of an issue's exp/<IDENTIFIER> branch against its repository's default branch (by issue UUID or human identifier, e.g. "MET-12"). Returns null when the branch was never pushed. The MCP user must be a member of the issue's team.`,
+      description: `Get the diff of an issue's exp/<IDENTIFIER> branch against the repo's default branch (UUID or identifier). Returns null when the branch was never pushed. Team members only.`,
       inputSchema: { issueId: z.string().min(1) },
     },
     async ({ issueId: issueIdInput }) => {
@@ -1586,9 +1562,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_list`,
     {
-      title: `List actions`,
-      description: `List a team's actions — reusable markdown prompts run as interactive Claude sessions on a member's own desktop (code review, backlog grooming, deploys…). The MCP user must be a member of the team.`,
-      inputSchema: { teamId: z.string().uuid() },
+      description: `List a team's actions — reusable markdown prompts run as interactive agent sessions on a member's own desktop. Team members only.`,
+      inputSchema: { teamId: uuidString },
     },
     async ({ teamId }) => {
       try {
@@ -1608,14 +1583,13 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_create`,
     {
-      title: `Create an action`,
-      description: `Create a team action. body is the markdown prompt an interactive agent session runs locally; repositoryId (optional, from the team's registry) makes the run target that repo's trunk clone — omit it for repo-less actions. icon (optional) is the action's display glyph — one of the curated icon names shared with boards.icon (e.g. "zap", "rocket", "bug", "database"). inputs (optional, ≤10) declares typed run-time inputs — { key (snake_case ≤32), label, type: "text"|"repo"|"board"|"pr"|"icon", required?, placeholder? } — which members fill in the run dialog; the resolved values are injected into the prompt at launch. Team owner only.`,
+      description: `Create a team action (owner only). body is the markdown prompt an agent session runs locally; repositoryId (optional) targets that repo's trunk clone; icon is a curated icon name. inputs (max 10) declares typed run-time inputs ({ key, label, type: "text"|"repo"|"board"|"pr"|"icon", required?, placeholder? }) members fill in the run dialog; values are injected into the prompt at launch.`,
       inputSchema: {
-        teamId: z.string().uuid(),
+        teamId: uuidString,
         name: z.string().min(1).max(255),
         description: z.string().nullable().optional(),
-        icon: actionIconSchema.nullable().optional(),
-        repositoryId: z.string().uuid().nullable().optional(),
+        icon: boardIconEnumSchema.nullable().optional(),
+        repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
       },
@@ -1634,14 +1608,13 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_update`,
     {
-      title: `Update an action`,
-      description: `Update an action's name, description, icon (a curated icon name shared with boards.icon; null clears it), repositoryId, body, inputs (typed run-time input declarations — whole-array replace), or sortOrder (by its UUID). Pass only the fields you want to change. Team owner only.`,
+      description: `Update an action by UUID: name, description, icon (null clears), repositoryId, body, inputs (whole-array replace), or sortOrder. Pass only fields to change. Team owner only.`,
       inputSchema: {
-        id: z.string().uuid(),
+        id: uuidString,
         name: z.string().min(1).max(255).optional(),
         description: z.string().nullable().optional(),
-        icon: actionIconSchema.nullable().optional(),
-        repositoryId: z.string().uuid().nullable().optional(),
+        icon: boardIconEnumSchema.nullable().optional(),
+        repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),
         sortOrder: z.number().finite().optional(),
@@ -1664,9 +1637,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_delete`,
     {
-      title: `Delete an action`,
       description: `Delete an action by its UUID. Live runs keep their action_name label and degrade to batch-shaped rows. Team owner only.`,
-      inputSchema: { id: z.string().uuid() },
+      inputSchema: { id: uuidString },
     },
     async ({ id }) => {
       try {
@@ -1689,8 +1661,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_pr_files`,
     {
-      title: `List an issue's PR changed files`,
-      description: `List the changed files (with patches and add/delete counts) of the pull request linked to an issue (by UUID or human identifier, e.g. "MET-12"). Returns an empty file list when the issue has no linked PR. The MCP user must be a member of the issue's team.`,
+      description: `List the changed files (with patches and add/delete counts) of the issue's linked pull request (UUID or identifier). Empty list when no PR is linked. Team members only.`,
       inputSchema: { issueId: z.string().min(1) },
     },
     async ({ issueId: issueIdInput }) => {
@@ -1715,9 +1686,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_delete`,
     {
-      title: `Delete a board`,
-      description: `Move a board to the trash. It is permanently purged (with all issues) after 48 hours; team owners can restore it from web settings before then. Team owner only. Protected boards cannot be deleted.`,
-      inputSchema: { boardId: z.string().uuid() },
+      description: `Move a board to the trash (owner only; protected boards refuse). Purged with all issues after 48 hours; owners can restore from web settings before then.`,
+      inputSchema: { boardId: uuidString },
     },
     async ({ boardId }) => {
       try {
@@ -1736,11 +1706,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_set_repository`,
     {
-      title: `Retarget a board's repository`,
       description: `Point a board at a different registered repository (both must be in the same team). Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo.`,
       inputSchema: {
-        boardId: z.string().uuid(),
-        repositoryId: z.string().uuid(),
+        boardId: uuidString,
+        repositoryId: uuidString,
       },
     },
     async (input) => {
@@ -1769,7 +1738,6 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_create`,
     {
-      title: `Create a team`,
       description: `Create a new team owned by the MCP user (a unique slug is derived from the name).`,
       inputSchema: {
         name: z.string().min(1).max(255),
@@ -1791,10 +1759,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_update`,
     {
-      title: `Update a team`,
       description: `Update a team's name or icon (by its UUID). Team owner only. Teams are always private.`,
       inputSchema: {
-        id: z.string().uuid(),
+        id: uuidString,
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
       },
@@ -1817,10 +1784,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_invites_create`,
     {
-      title: `Create a team invite`,
       description: `Create an invite link for a team, returning the token to share. Owner only.`,
       inputSchema: {
-        teamId: z.string().uuid(),
+        teamId: uuidString,
         role: z.enum([`owner`, `member`]).default(`member`),
       },
     },
@@ -1838,9 +1804,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_invites_list`,
     {
-      title: `List pending invites`,
       description: `List the pending (unaccepted) invites for a team. The MCP user must be a member of the team.`,
-      inputSchema: { teamId: z.string().uuid() },
+      inputSchema: { teamId: uuidString },
     },
     async ({ teamId }) => {
       try {
@@ -1858,9 +1823,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_invites_revoke`,
     {
-      title: `Revoke a team invite`,
       description: `Revoke a pending invite by its UUID. Owner only.`,
-      inputSchema: { id: z.string().uuid() },
+      inputSchema: { id: uuidString },
     },
     async ({ id }) => {
       try {
@@ -1888,8 +1852,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_attachments_upload`,
     {
-      title: `Upload a file attachment`,
-      description: `Upload a base64-encoded file and attach it to an issue (by UUID or human identifier, e.g. "MET-12"). Images (png/jpeg/webp/gif/avif, 10 MB max) additionally return a "markdown" field of the form ![](/api/attachments/{id}) — embed that string in the issue's description or a comment to show the image. Any other content type (pdf, zip, video, …) is allowed up to 50 MB; those attach to the issue's Files list, return NO markdown field, and must NOT be embedded in description or comment markdown. The team storage plan limit applies. Large payloads inflate ~33% as base64 — very large files may exceed your client's request size limit.`,
+      description: `Upload a base64-encoded file and attach it to an issue (UUID or identifier). Images (png/jpeg/webp/gif/avif, max 10 MB) also return a "markdown" field — embed that string to show the image. Other types (max 50 MB) land in the issue's Files list, return no markdown, and must not be embedded. Storage limits apply; base64 inflates ~33%.`,
       inputSchema: {
         issueId: z.string().min(1),
         filename: z.string().min(1).max(255),
@@ -2000,9 +1963,8 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_attachments_delete`,
     {
-      title: `Delete an attachment`,
-      description: `Permanently delete an issue attachment by its id (the {id} in /api/attachments/{id}) and reclaim its stored bytes. Any issue description or comment that embedded the image is rewritten in the same transaction, replacing the image with the plain text *(deleted image: …)*.`,
-      inputSchema: { id: z.string().uuid() },
+      description: `Permanently delete an issue attachment by id (the {id} in /api/attachments/{id}) and reclaim its bytes. Descriptions/comments embedding it are rewritten to *(deleted image: …)* in the same transaction.`,
+      inputSchema: { id: uuidString },
     },
     async ({ id }) => {
       try {
