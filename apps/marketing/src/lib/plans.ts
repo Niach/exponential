@@ -26,6 +26,10 @@ export type Plan = {
   priceDescription?: string
   cadence?: string
   note?: string
+  /* When set, the card renders a monthly/yearly billing toggle (EXP-341) and
+     `amount` above is the YEARLY per-seat price — the default, toggle-on
+     state. Flipping the toggle off swaps in this monthly price. */
+  monthlyAmount?: string
   tagline: string
   highlight?: boolean
   enterprise?: boolean
@@ -71,7 +75,9 @@ export const PLANS: Plan[] = [
     priceNumber: 12,
     priceDescription: `Per seat, per month, billed yearly. €15 billed monthly.`,
     cadence: `/seat/mo`,
-    note: `billed yearly · €15 monthly`,
+    /* The cadence toggle replaces the old `billed yearly · €15 monthly`
+       note — it says the same thing and lets you see the monthly price. */
+    monthlyAmount: `€15`,
     tagline: `Everything, for teams that ship together.`,
     highlight: true,
     features: [

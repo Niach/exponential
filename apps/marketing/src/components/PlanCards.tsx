@@ -1,3 +1,4 @@
+import { useId, useState } from "react"
 import { motion } from "motion/react"
 import { Check, Mail, Server } from "lucide-react"
 import { cardReveal, staggerContainer, viewportOnce } from "../lib/animations"
@@ -22,17 +23,51 @@ function FeatureList({ features }: { features: string[] }) {
   )
 }
 
-function PriceLockup({ plan }: { plan: Plan }) {
+function PriceLockup({ plan, amount }: { plan: Plan; amount: string }) {
   return (
     <div className="plan-price">
-      <span className="plan-amount">{plan.amount}</span>
+      <span className="plan-amount">{amount}</span>
       {plan.cadence && <span className="plan-cadence">{plan.cadence}</span>}
       {plan.note && <span className="plan-note">{plan.note}</span>}
     </div>
   )
 }
 
+/* Monthly/yearly cadence switch — only the Team card has one (EXP-341).
+   Yearly is the default state, so the card still opens on the headline €12
+   price and the prerendered HTML matches what hydration produces. */
+function CadenceToggle({
+  yearly,
+  onChange,
+}: {
+  yearly: boolean
+  onChange: (next: boolean) => void
+}) {
+  const labelId = useId()
+  return (
+    <div className="plan-toggle">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={yearly}
+        aria-labelledby={labelId}
+        className={`plan-switch${yearly ? ` is-on` : ``}`}
+        onClick={() => onChange(!yearly)}
+      >
+        <span className="plan-switch-knob" />
+      </button>
+      <span className="plan-toggle-label" id={labelId}>
+        Billed yearly
+      </span>
+    </div>
+  )
+}
+
 function PlanCard({ plan }: { plan: Plan }) {
+  const [yearly, setYearly] = useState(true)
+  const amount =
+    plan.monthlyAmount && !yearly ? plan.monthlyAmount : plan.amount
+
   return (
     <motion.div
       className={`plan-card${plan.highlight ? ` is-highlight` : ``}${plan.selfHost ? ` is-selfhost` : ``}${plan.enterprise ? ` is-enterprise` : ``}`}
@@ -49,9 +84,12 @@ function PlanCard({ plan }: { plan: Plan }) {
           )}
           {plan.name}
         </h3>
-        <PriceLockup plan={plan} />
+        <PriceLockup plan={plan} amount={amount} />
         <p className="plan-tagline">{plan.tagline}</p>
       </div>
+      {plan.monthlyAmount && (
+        <CadenceToggle yearly={yearly} onChange={setYearly} />
+      )}
       <FeatureList features={plan.features} />
       <a
         className={`btn ${plan.highlight || plan.enterprise ? `btn-primary` : `btn-ghost`}`}
