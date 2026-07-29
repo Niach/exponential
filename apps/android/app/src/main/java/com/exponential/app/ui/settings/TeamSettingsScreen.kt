@@ -82,6 +82,7 @@ private sealed interface SettingsConfirm {
     // isSelf distinguishes "Leave team" from "Remove member".
     data class RemoveMember(val row: MemberRow, val isSelf: Boolean) : SettingsConfirm
     data class ChangeRole(val row: MemberRow, val newRole: String) : SettingsConfirm
+    data class RemoveRepo(val repo: TeamRepo) : SettingsConfirm
 }
 
 private data class ConfirmCopy(
@@ -126,6 +127,11 @@ private fun SettingsConfirmDialog(
                 button = "Remove",
             )
         }
+        is SettingsConfirm.RemoveRepo -> ConfirmCopy(
+            title = "Remove repository",
+            message = "This disconnects ${confirm.repo.fullName} from the team.",
+            button = "Remove",
+        )
         is SettingsConfirm.ChangeRole -> {
             val name = userDisplayName(confirm.row.user, confirm.row.member.userId)
             if (confirm.newRole == DomainContract.teamRoleOwner) {
@@ -156,6 +162,7 @@ private fun SettingsConfirmDialog(
                     is SettingsConfirm.DeleteLabel -> viewModel.deleteLabel(confirm.label.id)
                     is SettingsConfirm.RemoveMember -> viewModel.removeMember(confirm.row.member.id)
                     is SettingsConfirm.ChangeRole -> viewModel.updateRole(confirm.row.member.id, confirm.newRole)
+                    is SettingsConfirm.RemoveRepo -> viewModel.removeRepo(confirm.repo.id)
                 }
                 onDismiss()
             }) {
@@ -225,7 +232,7 @@ fun TeamSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
-            RepositoriesSection(state, viewModel, isOwner)
+            RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             MembersSection(state, isOwner, onConfirm = { confirm = it })
             LabelsSection(state, viewModel, onConfirm = { confirm = it })
             DangerZone(state, viewModel, isOwner)
@@ -373,6 +380,7 @@ private fun RepositoriesSection(
     state: TeamSettingsState,
     viewModel: TeamSettingsViewModel,
     isOwner: Boolean,
+    onConfirm: (SettingsConfirm) -> Unit,
 ) {
     val context = LocalContext.current
     var showAddRepo by remember { mutableStateOf(false) }
@@ -396,8 +404,9 @@ private fun RepositoriesSection(
             )
             Spacer(Modifier.weight(1f))
             // repositories.add is owner-only server-side, and only meaningful
-            // once an account is linked (the picker draws from linked repos).
-            if (isOwner && installations.isNotEmpty()) {
+            // once the server has a GitHub App — the picker itself handles the
+            // not-yet-connected case with its inline connect hop.
+            if (isOwner && configured) {
                 GlassPillButton(
                     label = "Add repository",
                     icon = ExpIcons.uiAdd,
@@ -422,138 +431,94 @@ private fun RepositoriesSection(
                     allRepos = state.repos,
                     isOwner = isOwner,
                     viewModel = viewModel,
+                    onConfirm = onConfirm,
                 )
             }
         }
 
-        // One grouped "GitHub" card (EXP-228, iOS parity): the connected-accounts
-        // caption + connect/reconnect action, the installation chips, the
-        // reconnect notice, and the "Manage on GitHub" link all live inside a
-        // single glassRow instead of a loose vertical stack. Visible to every
-        // member when an account is linked, and always to an owner (so they keep
-        // the connect entry point); hidden for non-owners with no installations.
-        if (installations.isNotEmpty() || isOwner) {
+        // One GitHub status LINE (EXP-329, byte-identical to web/desktop): the
+        // connection state on the left, the single owner action on the right —
+        // the old accounts card (caption + chips + explainer + manage link) is
+        // gone. Rendered once the grant state has loaded; visible to every member
+        // when an account is linked, and always to an owner (who keeps the
+        // connect entry point).
+        if (github != null && (installations.isNotEmpty() || isOwner)) {
             // Grant-model connect (web parity, same hop as the repo picker): the
             // single-consent OAuth connect claims the installation for this team
             // AND captures the repo grants; the server's post-connect page fires
             // exponential://github-connected, which refreshes this section without
             // leaving the screen. A linked installation with no captured grants
             // (linked before grants existed, or OAuth revoked) flags `needsReauth`.
-            val connectUrl = github?.connectUrl ?: github?.installUrl
+            val connectUrl = github.connectUrl ?: github.installUrl
             val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
-                state.team?.slug?.let { slug -> "$base/t/$slug/settings" }
+                state.team?.slug?.let { slug -> "$base/t/$slug/settings/repositories" }
             }
-            Column(
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
                     .glassRow()
                     .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Connected GitHub accounts",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = tertiary,
+                if (configured && needsReauth) {
+                    Icon(
+                        ExpIcons.uiWarning,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = Color(0xFFEAB308),
                     )
-                    Spacer(Modifier.weight(1f))
-                    if (isOwner) {
-                        if (configured) {
-                            GlassPillButton(
-                                label = if (needsReauth) "Reconnect" else "Connect GitHub",
-                                icon = if (needsReauth) ExpIcons.uiRefresh else ExpIcons.uiRepository,
-                                enabled = connectUrl != null,
-                                onClick = {
-                                    connectUrl?.let {
-                                        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(it))
-                                    }
-                                },
-                            )
-                        } else {
-                            // Grant state unavailable (query failed) or the server
-                            // has no GitHub App — fall back to the web team
-                            // settings, which explain/handle both.
-                            TextButton(
-                                onClick = {
-                                    webSettingsUrl?.let { url ->
-                                        runCatching {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(intent)
-                                        }
-                                    }
-                                },
-                                enabled = webSettingsUrl != null,
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            ) {
-                                Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Connect on the web", style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-                    }
+                    Spacer(Modifier.width(8.dp))
+                } else if (configured && installations.isNotEmpty()) {
+                    Box(Modifier.size(8.dp).background(Color(0xFF22C55E), CircleShape))
+                    Spacer(Modifier.width(8.dp))
                 }
-                if (installations.isNotEmpty()) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        installations.forEach { inst ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.glassButton().padding(horizontal = 10.dp, vertical = 6.dp),
-                            ) {
-                                Icon(
-                                    if (inst.accountType == "Organization") ExpIcons.settingsGeneral else ExpIcons.uiAssignee,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                )
-                                Text(
-                                    inst.accountLogin ?: "Installation ${inst.installationId}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1,
-                                )
-                                if (inst.needsReauth) {
-                                    Icon(
-                                        ExpIcons.uiWarning,
-                                        contentDescription = "Needs reconnect",
-                                        modifier = Modifier.size(14.dp),
-                                        tint = Color(0xFFEAB308),
-                                    )
+                Text(
+                    when {
+                        !configured -> "GitHub isn't configured on this server."
+                        needsReauth -> "Reconnect GitHub to refresh which repositories you can access."
+                        installations.isEmpty() -> "No GitHub account connected"
+                        else -> "GitHub: " + installations.joinToString(", ") {
+                            it.accountLogin ?: "Installation ${it.installationId}"
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier.weight(1f),
+                )
+                // Owner-gated action — the connect hop ends in the owner-only team
+                // claim, so a member would dead-end on a forbidden page. Nothing
+                // to offer when the server has no GitHub App at all.
+                if (isOwner && configured) {
+                    Spacer(Modifier.width(8.dp))
+                    if (connectUrl != null) {
+                        GlassPillButton(
+                            label = when {
+                                needsReauth -> "Reconnect"
+                                installations.isEmpty() -> "Connect GitHub"
+                                else -> "Manage"
+                            },
+                            icon = if (needsReauth) ExpIcons.uiRefresh else ExpIcons.uiGithub,
+                            onClick = {
+                                CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(connectUrl))
+                            },
+                        )
+                    } else if (webSettingsUrl != null) {
+                        // The server mints no connect/install URL — fall back to
+                        // the web repositories page, which explains/handles it.
+                        TextButton(
+                            onClick = {
+                                runCatching {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(webSettingsUrl))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
                                 }
-                            }
+                            },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Connect on the web", style = MaterialTheme.typography.labelMedium)
                         }
-                    }
-                } else if (isOwner) {
-                    Text(
-                        "No GitHub account connected yet.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = tertiary,
-                    )
-                }
-                if (isOwner && needsReauth) {
-                    Text(
-                        "GitHub needs to be reconnected to load this team's repositories.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFEAB308),
-                    )
-                }
-                // Repo access itself (which repos the App may see) is granted and
-                // managed on GitHub's install page — mirror the repo picker's
-                // footer (Android-only extra beyond the iOS card).
-                val installUrl = if (configured) github?.installUrl else null
-                if (installUrl != null) {
-                    TextButton(
-                        onClick = {
-                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(installUrl))
-                        },
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    ) {
-                        Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Manage repositories on GitHub", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -584,6 +549,7 @@ private fun RepositoryRow(
     allRepos: List<TeamRepo>,
     isOwner: Boolean,
     viewModel: TeamSettingsViewModel,
+    onConfirm: (SettingsConfirm) -> Unit,
 ) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -613,7 +579,7 @@ private fun RepositoryRow(
                 Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
             }
             if (isOwner && !usedByProtected) {
-                IconButton(onClick = { viewModel.removeRepo(repo.id) }) {
+                IconButton(onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) }) {
                     Icon(ExpIcons.uiDelete, contentDescription = "Remove repository")
                 }
             }
@@ -621,7 +587,7 @@ private fun RepositoryRow(
         // "Used by" chips: the boards backed by this repo (masterplan §6).
         // Each chip carries the board's palette dot; no link/unlink/primary
         // controls — a board is a repository now.
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        if (repo.boards.isNotEmpty()) {
             Text(
                 "Used by",
                 style = MaterialTheme.typography.labelSmall,
@@ -634,7 +600,7 @@ private fun RepositoryRow(
         ) {
             if (repo.boards.isEmpty()) {
                 Text(
-                    "No boards",
+                    "Not used by any board",
                     style = MaterialTheme.typography.labelSmall,
                     color = tertiary,
                     modifier = Modifier.padding(vertical = 4.dp),

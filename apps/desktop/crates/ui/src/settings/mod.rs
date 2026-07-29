@@ -25,6 +25,7 @@
 //! GitHub App *install* is a browser hand-off (§7.9).
 
 mod account;
+mod add_repository_dialog;
 mod agents;
 mod labels;
 mod statuses;
@@ -305,7 +306,7 @@ impl SettingsView {
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
-        let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), cx));
+        let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);

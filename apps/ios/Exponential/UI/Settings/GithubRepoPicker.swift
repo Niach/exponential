@@ -69,7 +69,13 @@ struct GithubRepoPicker: View {
 
     @ViewBuilder private var content: some View {
         if loading && result == nil {
-            HStack { Spacer(); ProgressView().tint(.white); Spacer() }.padding(.vertical, 24)
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small).tint(.white)
+                Text("Loading your GitHub repositories…")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            .padding(.vertical, 24)
         } else if let data = result, data.configured {
             if data.installed {
                 installedList(data)
@@ -77,7 +83,7 @@ struct GithubRepoPicker: View {
                 notInstalled(data)
             }
         } else {
-            Text("GitHub isn't configured for this server.")
+            Text("GitHub isn't configured on this server, so repositories can't be connected.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
@@ -85,7 +91,7 @@ struct GithubRepoPicker: View {
 
     @ViewBuilder private func notInstalled(_ data: GithubReposResult) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Install the Exponential GitHub App to pick a repository. You'll come right back here.")
+            Text("Connect the Exponential GitHub App to pick a repository. You'll come right back here.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Button {
@@ -137,6 +143,13 @@ struct GithubRepoPicker: View {
                 .background(Color.white.opacity(0.05))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
+                if repos.isEmpty {
+                    Text("No repositories found.")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .padding(.vertical, 8)
+                }
+
                 ForEach(repos) { repo in
                     Button {
                         onPick(repo)
@@ -162,24 +175,6 @@ struct GithubRepoPicker: View {
                     .buttonStyle(.plain)
                 }
             }
-
-            // Persistent footer actions (never gated on `hasMore` — the grant
-            // path always reports false). Re-connect re-syncs the repo list;
-            // the install page only changes which repos the App may touch.
-            Button { openConnect(data) } label: {
-                Text("Don't see your repo? Refresh from GitHub.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            .buttonStyle(.plain)
-            if data.installUrl != nil {
-                Button { openManage(data) } label: {
-                    Text("Manage repo access on GitHub.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-                .buttonStyle(.plain)
-            }
         }
     }
 
@@ -189,10 +184,7 @@ struct GithubRepoPicker: View {
     // either way; without this the picker used to dead-end.
     @ViewBuilder private func reconnectEmptyState(_ data: GithubReposResult) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Reconnect GitHub to load your repositories")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-            Text("We only list repositories you can access on GitHub — reconnect to refresh the list.")
+            Text("Reconnect GitHub to load the repositories you can access.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Button {
@@ -236,12 +228,6 @@ struct GithubRepoPicker: View {
     // to the GitHub App install page when it's absent.
     private func openConnect(_ data: GithubReposResult) {
         openInBrowser(data.connectUrl ?? data.installUrl)
-    }
-
-    // Manage action: grant more repos to an existing installation — always the
-    // GitHub App install/configure page.
-    private func openManage(_ data: GithubReposResult) {
-        openInBrowser(data.installUrl)
     }
 
     // Web parity (github-repo-picker.tsx): the old `/account/integrations`

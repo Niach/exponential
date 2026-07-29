@@ -2,21 +2,30 @@ import { useCallback, useEffect, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   TriangleAlert,
-  Building2,
   ExternalLink,
   Github,
   Lock,
   Sparkles,
   Trash2,
-  Unlink,
-  User,
+  X,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -25,7 +34,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -58,6 +66,7 @@ export function TeamRepositoriesSection({
 }) {
   const [repos, setRepos] = useState<RepoList | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
+  const [removeTarget, setRemoveTarget] = useState<RepoRowData | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Set when the last failure was a plan cap (PRECONDITION_FAILED from
@@ -65,8 +74,8 @@ export function TeamRepositoriesSection({
   const [limitError, setLimitError] = useState<string | null>(null)
 
   // The GitHub accounts (App installations) linked to THIS team — drives
-  // the chips above Connect. Linking happens via the OAuth claim flow
-  // (connectUrl) or the install-page round-trip fallback (installUrl).
+  // the status line. Linking happens via the OAuth claim flow (connectUrl)
+  // or the install-page round-trip fallback (installUrl).
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null)
 
   // Billing lives on its own settings page since EXP-146 — the plan-cap
@@ -196,130 +205,22 @@ export function TeamRepositoriesSection({
             Point a board at a repo to make it the clone target for
             &ldquo;Start coding&rdquo;.
           </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {githubStatus?.configured && !githubStatus.installed && (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-              <Github className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 flex-1">
-                No GitHub account is connected to this team yet. Connect
-                one to pick repositories here.
-              </span>
-              {connectHopUrl && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => openGithubPopup(connectHopUrl)}
-                >
-                  Connect GitHub
-                </Button>
-              )}
-            </div>
-          )}
-
-          {githubStatus?.configured && installations.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                <Github className="h-3.5 w-3.5 shrink-0" />
-                <span>Connected GitHub accounts</span>
-                {connectHopUrl && (
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto px-0 text-xs text-muted-foreground"
-                    onClick={() => openGithubPopup(connectHopUrl)}
-                  >
-                    Connect another…
-                  </Button>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {installations.map((inst) => (
-                  <InstallationChip
-                    key={inst.installationId}
-                    installation={inst}
-                    busy={busy}
-                    canUnlink={!isFeedbackTeam}
-                    onUnlink={() => handleUnlink(inst.installationId)}
-                  />
-                ))}
-              </div>
-              {/* GitHub suspended the App for one of the linked accounts
-                  (REV2-29). The claim link survives a suspension, so nothing
-                  needs reconnecting — but until it's unsuspended on GitHub no
-                  token mints, which means no clone, no coding, no PRs. Say so
-                  instead of letting the repos below look healthy. */}
-              {installations.some((inst) => inst.suspended) && (
-                <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    GitHub suspended the Exponential app for{` `}
-                    {installations
-                      .filter((inst) => inst.suspended)
-                      .map(
-                        (inst) =>
-                          inst.accountLogin ??
-                          `installation ${inst.installationId}`
-                      )
-                      .join(`, `)}
-                    . Repositories under it can&rsquo;t be cloned or coded on
-                    until you unsuspend it on GitHub — your connection stays
-                    intact, so nothing needs reconnecting.
-                  </span>
-                  {installations.find((inst) => inst.suspended)?.manageUrl && (
-                    <Button
-                      asChild
-                      size="sm"
-                      variant="outline"
-                      className="h-6 px-2 text-xs"
-                    >
-                      <a
-                        href={
-                          installations.find((inst) => inst.suspended)!
-                            .manageUrl
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Unsuspend on GitHub
-                        <ExternalLink className="ml-1 h-3 w-3" />
-                      </a>
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              {installations.some(
-                (inst) => inst.needsReauth && !inst.suspended
-              ) &&
-                connectHopUrl && (
-                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
-                    <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                    <span className="min-w-0 flex-1">
-                      Reconnect GitHub to refresh which repositories you can
-                      access. We only list repos you can access on GitHub, so
-                      any created or shared with you since your last connect
-                      won&rsquo;t appear until you reconnect.
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openGithubPopup(connectHopUrl)}
-                    >
-                      <Github className="mr-1.5 h-3.5 w-3.5" />
-                      Reconnect
-                    </Button>
-                  </div>
-                )}
-            </div>
-          )}
-
-          <div>
+          <CardAction>
             <Button size="sm" onClick={() => setConnectOpen(true)}>
               <Github className="mr-1.5 h-3.5 w-3.5" />
-              Connect repository
+              Add repository
             </Button>
-          </div>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <GithubStatusLine
+            status={githubStatus}
+            busy={busy}
+            canUnlink={!isFeedbackTeam}
+            connectHopUrl={connectHopUrl}
+            onConnect={() => openGithubPopup(connectHopUrl)}
+            onUnlink={handleUnlink}
+          />
 
           {error && (
             <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -358,14 +259,7 @@ export function TeamRepositoriesSection({
                   busy={busy}
                   manageUrl={manageUrlForRepo(repo)}
                   installationSuspended={suspendedForRepo(repo)}
-                  onRemove={() =>
-                    run(() =>
-                      trpc.repositories.remove.mutate(
-                        { repositoryId: repo.id },
-                        { context: { skipErrorToast: true } }
-                      )
-                    )
-                  }
+                  onRemove={() => setRemoveTarget(repo)}
                 />
               ))}
             </div>
@@ -376,77 +270,178 @@ export function TeamRepositoriesSection({
       <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Connect a repository</DialogTitle>
-            <DialogDescription>
-              Pick a repository from this team&apos;s connected GitHub
-              accounts. It becomes available to point this team&apos;s
-              boards at.
-            </DialogDescription>
+            <DialogTitle>Add repository</DialogTitle>
           </DialogHeader>
-          <GithubRepoPicker teamId={teamId} onSelect={handleConnect} />
+          <GithubRepoPicker
+            teamId={teamId}
+            onSelect={handleConnect}
+            variant="plain"
+          />
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove repository</AlertDialogTitle>
+            <AlertDialogDescription>
+              This disconnects {removeTarget?.fullName} from the team.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={() => {
+                const target = removeTarget
+                setRemoveTarget(null)
+                if (!target) return
+                void run(() =>
+                  trpc.repositories.remove.mutate(
+                    { repositoryId: target.id },
+                    { context: { skipErrorToast: true } }
+                  )
+                )
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
 
-// One linked GitHub account: login + manage link + unlink. Unlink is blocked
-// server-side (CONFLICT) while connected repos still use the account — the
-// error renders in the section's inline error box.
-function InstallationChip({
-  installation,
+const installationLabel = (inst: GithubInstallation) =>
+  inst.accountLogin ?? `installation ${inst.installationId}`
+
+// The ONE GitHub-connection surface of the section: a status line whose single
+// button flips by state (Connect GitHub / Reconnect / Manage — EXP-329). All
+// button actions open the same connect hop; GitHub's side handles adding
+// accounts and changing repo grants. Unlink (web-only) hides behind a
+// hover/focus-revealed ✕ per login; the server CONFLICTs while repos still
+// use the account and the message lands in the section's inline error box.
+function GithubStatusLine({
+  status,
   busy,
   canUnlink,
+  connectHopUrl,
+  onConnect,
   onUnlink,
 }: {
-  installation: GithubInstallation
+  status: GithubStatus | null
   busy: boolean
   canUnlink: boolean
-  onUnlink: () => void
+  connectHopUrl: string | null
+  onConnect: () => void
+  onUnlink: (installationId: number) => void
 }) {
+  if (!status) return null
+
+  if (!status.configured) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Github className="h-3.5 w-3.5 shrink-0" />
+        <span>GitHub isn&rsquo;t configured on this server.</span>
+      </div>
+    )
+  }
+
+  if (!status.installed) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <Github className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1">No GitHub account connected</span>
+        {connectHopUrl && (
+          <Button size="sm" variant="outline" onClick={onConnect}>
+            Connect GitHub
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  const installations = status.installations
+  const suspended = installations.filter((inst) => inst.suspended)
+
+  // GitHub suspended the App for a linked account (REV2-29). The claim link
+  // survives a suspension — but until it's unsuspended no token mints, which
+  // means no clone, no coding, no PRs. Say so instead of looking healthy.
+  if (suspended.length > 0) {
+    const manageUrl = suspended[0]!.manageUrl ?? status.installUrl
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-destructive">
+        <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1">
+          GitHub suspended the Exponential app for{` `}
+          {suspended.map(installationLabel).join(`, `)} — unsuspend it on
+          GitHub.
+        </span>
+        {manageUrl && (
+          <Button asChild size="sm" variant="outline">
+            <a href={manageUrl} target="_blank" rel="noreferrer">
+              Manage
+              <ExternalLink className="ml-1 h-3 w-3" />
+            </a>
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  if (installations.some((inst) => inst.needsReauth)) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        <span className="min-w-0 flex-1">
+          Reconnect GitHub to refresh which repositories you can access.
+        </span>
+        {connectHopUrl && (
+          <Button size="sm" variant="outline" onClick={onConnect}>
+            Reconnect
+          </Button>
+        )}
+      </div>
+    )
+  }
+
   return (
-    <div className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
-      {installation.accountType === `Organization` ? (
-        <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      ) : (
-        <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      )}
-      <span className="font-medium">
-        {installation.accountLogin ?? `Installation ${installation.installationId}`}
-      </span>
-      {installation.suspended ? (
-        <Badge variant="destructive" className="shrink-0 gap-1 text-[10px]">
-          <TriangleAlert className="h-3 w-3" />
-          Suspended
-        </Badge>
-      ) : (
-        installation.needsReauth && (
-          <span title="Reconnect GitHub to load this account's repositories">
-            <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
+      <span className="min-w-0 flex-1 text-muted-foreground">
+        GitHub:{` `}
+        {installations.map((inst, index) => (
+          <span key={inst.installationId}>
+            <span className="group/login inline-flex items-center text-foreground">
+              {installationLabel(inst)}
+              {canUnlink && (
+                // Zero-width until hover/keyboard focus so the resting line
+                // reads as plain "GitHub: a, b" with no gaps.
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-4 w-0 overflow-hidden p-0 opacity-0 group-hover/login:ml-0.5 group-hover/login:w-4 group-hover/login:opacity-100 focus-visible:ml-0.5 focus-visible:w-4 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
+                  disabled={busy}
+                  onClick={() => onUnlink(inst.installationId)}
+                  title="Disconnect this GitHub account from the team"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </span>
+            {index < installations.length - 1 && `, `}
           </span>
-        )
-      )}
-      <Button
-        asChild
-        variant="ghost"
-        size="icon"
-        className="h-5 w-5 text-muted-foreground"
-        title="Manage repository access on GitHub"
-      >
-        <a href={installation.manageUrl} target="_blank" rel="noreferrer">
-          <ExternalLink className="h-3 w-3" />
-        </a>
-      </Button>
-      {canUnlink && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5 text-muted-foreground hover:text-destructive"
-          disabled={busy}
-          onClick={onUnlink}
-          title="Disconnect this GitHub account from the team"
-        >
-          <Unlink className="h-3 w-3" />
+        ))}
+      </span>
+      {connectHopUrl && (
+        <Button size="sm" variant="ghost" onClick={onConnect}>
+          Manage
         </Button>
       )}
     </div>

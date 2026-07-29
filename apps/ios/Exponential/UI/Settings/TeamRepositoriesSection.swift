@@ -42,7 +42,7 @@ struct TeamRepositoriesSection: View {
     @State private var connectSession = InstallWebAuthSession()
     // "Add repository" picker sheet (EXP-225): registers a repo in the
     // server-only registry via repositories.add (web parity —
-    // repositories-section.tsx's "Connect repository" dialog).
+    // repositories-section.tsx's "Add repository" dialog).
     @State private var showAddRepo = false
 
     var body: some View {
@@ -63,9 +63,9 @@ struct TeamRepositoriesSection: View {
                 // "Add repository" moved into the header (Boards' "New board"
                 // pattern, EXP-228). Owner-gated like the connect hop
                 // (repositories.add is assertCanManageRepos server-side) and
-                // only once a GitHub account is linked — before that the picker
-                // has nothing to offer.
-                if isOwner, let github, !github.installations.isEmpty {
+                // only once the server has a GitHub App — the picker itself
+                // handles the not-yet-connected case with its inline connect hop.
+                if isOwner, let github, github.configured {
                     Button {
                         showAddRepo = true
                     } label: {
@@ -95,15 +95,13 @@ struct TeamRepositoriesSection: View {
                 repoRow(repo)
             }
 
-            // One grouped GitHub card (EXP-228): connect/reconnect entry point,
-            // linked-account chips, and the reconnect explainer, in a single
-            // glassRow. Only rendered once `github` is loaded (non-nil) to keep
-            // the flicker-free behavior. Visible when any account is linked
-            // (every member) OR the viewer is an owner (owners always see the
-            // connect entry point); hidden for non-owners with zero
-            // installations, matching today's behavior.
+            // One GitHub status line (EXP-329, byte-identical to web/desktop).
+            // Only rendered once `github` is loaded (non-nil) to keep the
+            // flicker-free behavior. Visible when any account is linked (every
+            // member) OR the viewer is an owner (owners always see the connect
+            // entry point); hidden for non-owners with zero installations.
             if let github, (!github.installations.isEmpty || isOwner) {
-                githubCard(github)
+                githubStatusLine(github)
             }
 
             if let errorText {
@@ -145,7 +143,7 @@ struct TeamRepositoriesSection: View {
                 .presentationBackground(.ultraThinMaterial)
             }
         }
-        .alert("Remove Repository", isPresented: Binding(
+        .alert("Remove repository", isPresented: Binding(
             get: { removeTarget != nil },
             set: { if !$0 { removeTarget = nil } }
         )) {
@@ -193,6 +191,11 @@ struct TeamRepositoriesSection: View {
             }
 
             // "Used by" board chips (v4 — computed from boards.repositoryId).
+            if !repo.boards.isEmpty {
+                Text("Used by")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
             FlowLayout(spacing: 6) {
                 if repo.boards.isEmpty {
                     Text("Not used by any board")
@@ -216,40 +219,54 @@ struct TeamRepositoriesSection: View {
         .glassRow()
     }
 
-    // MARK: - GitHub card (EXP-228)
+    // MARK: - GitHub status line (EXP-329)
 
-    // One grouped card that replaces the old loose stack of connected-accounts
-    // caption/chips + separate reconnect notice + connect button:
-    //   • header row — caption + a compact Connect/Reconnect button (owner-gated;
-    //     the header button doubles as the reconnect action, so there is no
-    //     inner full-width button anymore),
-    //   • the installation chips (visible to every member; a one-line hint for
-    //     an owner with zero installations),
-    //   • the reconnect explainer under the chips when a grant is missing.
+    // One status LINE, byte-identical to web and desktop: the connection state
+    // on the left (green dot when connected, amber glyph when a grant went
+    // stale) and the single owner action on the right. It replaces the old
+    // accounts card — caption, installation chips and reconnect explainer all
+    // collapse into this one row.
     @ViewBuilder
-    private func githubCard(_ github: GithubReposResult) -> some View {
+    private func githubStatusLine(_ github: GithubReposResult) -> some View {
         // A linked installation with no captured grants yields zero repos until
         // the owner re-runs the OAuth connect (grant-model fail-closed state).
         let needsReauth = github.installations.contains(where: { $0.needsReauth })
-        VStack(alignment: .leading, spacing: 10) {
-            // Header: caption + connect/reconnect entry point. Owner-gated: the
-            // connect hop always ends in the owner-only team claim
-            // (assertCanManageRepos), so a member would dead-end on a forbidden
-            // page. The web link survives only as an owner fallback when the
-            // server has no GitHub App configured / mints no URLs.
-            HStack {
-                Text("Connected GitHub accounts")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Spacer()
-                if isOwner, github.configured, (github.connectUrl ?? github.installUrl) != nil {
+        let logins = github.installations
+            .map { $0.accountLogin ?? "Installation \($0.installationId)" }
+            .joined(separator: ", ")
+        let status: String = { () -> String in
+            if !github.configured { return "GitHub isn't configured on this server." }
+            if needsReauth { return "Reconnect GitHub to refresh which repositories you can access." }
+            if github.installations.isEmpty { return "No GitHub account connected" }
+            return "GitHub: \(logins)"
+        }()
+        HStack(spacing: 8) {
+            if github.configured, needsReauth {
+                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                    .foregroundStyle(.yellow.opacity(0.8))
+            } else if github.configured, !github.installations.isEmpty {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 8, height: 8)
+            }
+            Text(status)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(2)
+            Spacer()
+            // Owner-gated action: the connect hop always ends in the owner-only
+            // team claim (assertCanManageRepos), so a member would dead-end on a
+            // forbidden page — non-owners see just the status. Nothing to offer
+            // when the server has no GitHub App at all.
+            if isOwner, github.configured {
+                if (github.connectUrl ?? github.installUrl) != nil {
                     Button {
                         openConnect(github)
                     } label: {
                         HStack(spacing: 4) {
                             AppIcon(needsReauth ? AppIcons.uiRefresh : AppIcons.uiGithub,
                                     size: 11, weight: .semibold)
-                            Text(needsReauth ? "Reconnect" : "Connect GitHub")
+                            Text(needsReauth ? "Reconnect" : (github.installations.isEmpty ? "Connect GitHub" : "Manage"))
                                 .font(.caption.weight(.medium))
                         }
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -258,7 +275,9 @@ struct TeamRepositoriesSection: View {
                         .glassButton()
                     }
                     .buttonStyle(.plain)
-                } else if isOwner, let url = webRepositoriesURL {
+                } else if let url = webRepositoriesURL {
+                    // The server mints no connect/install URL — the web
+                    // repositories page explains and handles it.
                     Link(destination: url) {
                         HStack(spacing: 4) {
                             AppIcon(AppIcons.uiExternalLink, size: 11)
@@ -267,55 +286,6 @@ struct TeamRepositoriesSection: View {
                         }
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
-                }
-            }
-
-            // Linked-account chips (visible to every member). A yellow glyph
-            // marks an installation whose grants were never captured; the
-            // reconnect explainer below spells it out. An owner with zero
-            // installations gets a one-line hint instead.
-            if github.installations.isEmpty {
-                if isOwner {
-                    Text("No GitHub account connected yet.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-            } else {
-                FlowLayout(spacing: 6) {
-                    ForEach(github.installations) { inst in
-                        HStack(spacing: 6) {
-                            AppIcon(inst.accountType == "Organization" ? AppIcons.uiOrganization : AppIcons.uiAssignee, size: 11)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            Text(inst.accountLogin ?? "Installation \(inst.installationId)")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            if inst.needsReauth {
-                                AppIcon(AppIcons.uiWarning, size: 11)
-                                    .foregroundStyle(.yellow.opacity(0.8))
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .glassButton()
-                    }
-                }
-            }
-
-            // Reconnect explainer — owner-gated, under the chips. The header
-            // Reconnect button is the action.
-            if isOwner, needsReauth {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
-                            .foregroundStyle(.yellow.opacity(0.8))
-                        Text("GitHub needs to be reconnected")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                    }
-                    Text("We only list repositories you can access on GitHub, so repos created or shared with you since your last connect won't appear until you reconnect.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
         }

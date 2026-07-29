@@ -101,6 +101,29 @@ pub struct MergePullResult {
     pub merged: bool,
 }
 
+/// `repositories.add` output: `{repository: <full row>}`. Only the fields the
+/// desktop consumes are mirrored — the rest of the row is ignored.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedRepository {
+    pub repository: AddedRepositoryRow,
+}
+
+/// The connected repo row `repositories.add` hands back.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedRepositoryRow {
+    pub id: String,
+    /// `owner/name`.
+    pub full_name: String,
+}
+
+/// Output of `repositories.remove` — `{"ok": true}` on success.
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct RemoveResult {
+    pub ok: bool,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ForIssueInput<'a> {
@@ -128,6 +151,25 @@ struct MergePullInput<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InstallationTokenInput<'a> {
+    repository_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AddInput<'a> {
+    team_id: &'a str,
+    full_name: &'a str,
+    /// Omitted when unknown — the server then asks GitHub for the
+    /// authoritative default instead of blind-seeding `main`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_branch: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    private: Option<bool>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveInput<'a> {
     repository_id: &'a str,
 }
 
@@ -177,6 +219,35 @@ pub fn merge_pull(
             pr_number,
         },
     )
+}
+
+/// `repositories.add` — mutation (owner-gated). Registers a repo reachable
+/// through one of the caller's GitHub-App installations; the installation id
+/// is resolved server-side, never supplied here. An already-registered repo
+/// is un-archived and returned, so this is idempotent.
+pub fn add(
+    trpc: &TrpcClient,
+    team_id: &str,
+    full_name: &str,
+    default_branch: Option<&str>,
+    private: Option<bool>,
+) -> Result<AddedRepository, ApiError> {
+    trpc.mutation(
+        "repositories.add",
+        &AddInput {
+            team_id,
+            full_name,
+            default_branch,
+            private,
+        },
+    )
+}
+
+/// `repositories.remove` — mutation (owner-gated hard delete). A repo still
+/// backing a board is refused with `CONFLICT` (HTTP 409) whose message names
+/// the blocking boards — it is user-presentable and must be surfaced verbatim.
+pub fn remove(trpc: &TrpcClient, repository_id: &str) -> Result<RemoveResult, ApiError> {
+    trpc.mutation("repositories.remove", &RemoveInput { repository_id })
 }
 
 #[cfg(test)]
@@ -309,6 +380,73 @@ mod tests {
                 assert!(message.contains("not mergeable"));
             }
             other => panic!("expected 412 Http error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn add_posts_camel_case_input_and_decodes_the_row() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repository":{"id":"repo-1","teamId":"team-1","fullName":"acme/web","defaultBranch":"main","private":true}}}}"#,
+        );
+        let out = add(&client(&base), "team-1", "acme/web", Some("trunk"), Some(true)).unwrap();
+        assert_eq!(
+            out,
+            AddedRepository {
+                repository: AddedRepositoryRow {
+                    id: "repo-1".to_string(),
+                    full_name: "acme/web".to_string(),
+                },
+            }
+        );
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/repositories.add HTTP/1.1"));
+        assert!(request.ends_with(
+            r#"{"teamId":"team-1","fullName":"acme/web","defaultBranch":"trunk","private":true}"#
+        ));
+    }
+
+    #[test]
+    fn add_omits_the_optional_fields_when_unknown() {
+        // An absent defaultBranch is what makes the server resolve the live
+        // one from GitHub — sending null/"" instead would seed a wrong row.
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repository":{"id":"repo-1","fullName":"acme/web"}}}}"#,
+        );
+        add(&client(&base), "team-1", "acme/web", None, None).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"teamId":"team-1","fullName":"acme/web"}"#));
+    }
+
+    #[test]
+    fn remove_posts_camel_case_input_and_decodes_result() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        let out = remove(&client(&base), "repo-1").unwrap();
+        assert!(out.ok);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/repositories.remove HTTP/1.1"));
+        assert!(request.ends_with(r#"{"repositoryId":"repo-1"}"#));
+    }
+
+    #[test]
+    fn remove_conflict_message_passes_through_verbatim() {
+        // `repoInUseMessage` — the FK-restrict refusal names the blocking
+        // boards, so the pane renders it as-is instead of a generic failure.
+        let (base, _captured) = one_shot_server(
+            409,
+            r#"{"error":{"message":"Cannot remove — this repository backs 2 boards. Retarget or delete those boards first (a board in the trash may still use it).","code":-32009,"data":{"code":"CONFLICT","httpStatus":409}}}"#,
+        );
+        match remove(&client(&base), "repo-1") {
+            Err(ApiError::Http { status, message }) => {
+                assert_eq!(status, 409);
+                assert_eq!(
+                    message,
+                    "Cannot remove — this repository backs 2 boards. Retarget or delete those \
+                     boards first (a board in the trash may still use it)."
+                );
+            }
+            other => panic!("expected 409 Http error, got {other:?}"),
         }
     }
 
