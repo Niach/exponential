@@ -121,7 +121,7 @@ Issues: `status` (builtin ANCHOR enum) + `statusId` (nullable FK `issue_statuses
 
 ### Enums
 
-Canonical values live in `packages/domain-contract/contract.json` (support-thread `status`/`direction`/`visibility` are documented varchars in `domain.ts` only). Behavioral notes: `issue_status` — `pr_open` flips linked issues to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`); `coding_session_status` (running/in_review/ended) — `in_review` = PR open, terminal alive; PR MERGE flips live sessions to `ended` server-side, and the desktop reads its own row's →ended edge as the kill switch.
+Canonical values live in `packages/domain-contract/contract.json` (support-thread `status`/`direction`/`visibility` are documented varchars in `domain.ts` only). Behavioral notes: `issue_status` — `pr_open` flips linked issues to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`); `coding_session_status` (running/in_review/merged/ended) — `in_review` = PR open; PR MERGE flips live sessions to `merged` (still alive/steerable, EXP-358); `ended` ONLY from explicit ends (killSession, `codingSessions.end`, `mergePr({closeSessions:true})` = the "Merge and close" buttons), and the desktop reads its own row's →ended edge as the kill switch.
 
 ### Custom triggers (0001_triggers.sql)
 

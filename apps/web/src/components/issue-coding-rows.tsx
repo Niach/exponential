@@ -90,13 +90,22 @@ function RunningPing() {
  * not the whole story: `in_review` splits on the linked issue's PR outcome
  * (merged → the run is done, green review otherwise, matching the issue-status
  * palette), and a desktop-reported pending picker (plan approval /
- * AskUserQuestion) overrides everything visible as "needs input". */
-export type SessionDisplayState = `needs_input` | `running` | `review` | `done`
+ * AskUserQuestion) overrides everything visible as "needs input". The real
+ * `merged` status (EXP-358 — the server parks sessions there on PR merge
+ * instead of killing them) wins outright; the in_review+prState fallback
+ * stays for rows written by pre-358 servers. */
+export type SessionDisplayState =
+  | `needs_input`
+  | `running`
+  | `review`
+  | `merged`
+  | `done`
 
 export function sessionDisplayState(
   session: Pick<CodingSession, `status` | `needsInput`>,
   prState: string | null | undefined
 ): SessionDisplayState {
+  if (session.status === `merged`) return `merged`
   const merged = prState === `merged`
   if (session.needsInput && !merged) return `needs_input`
   if (session.status === `in_review`) return merged ? `done` : `review`
@@ -123,6 +132,11 @@ const SESSION_STATE_BADGE: Record<
     label: `Ready for review`,
     badge: `border-emerald-500/40 text-emerald-400`,
     dot: `bg-emerald-500`,
+  },
+  merged: {
+    label: `Merged`,
+    badge: `border-sky-500/40 text-sky-400`,
+    dot: `bg-sky-500`,
   },
   done: {
     label: `Done`,
@@ -170,8 +184,9 @@ export type CodingControlVariant = `row` | `sidebar`
 // Sidebar merge affordance (EXP-268): full-width Merge button + confirm
 // dialog for an issue whose linked PR is open. Mirrors the reviews pages'
 // semantics — `issues.mergePr`, spinner held until the Electric echo flips
-// `prState` away from `open` (the server also ends the issue's live coding
-// session on merge, so the desktop terminal tears down on its own).
+// `prState` away from `open`. Merge-only (EXP-358): the live session parks
+// in `merged` and stays open — closing it is the session rows' "Merge and
+// close" affordance.
 function IssueMergeButton({ issue }: { issue: Issue }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [merging, setMerging] = useState(false)
@@ -218,7 +233,7 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
           <DialogHeader>
             <DialogTitle>Merge pull request?</DialogTitle>
             <DialogDescription>
-              {`Merge PR #${issue.prNumber ?? ``} into the default branch? Every issue linked to it completes, and its live coding session ends.`}
+              {`Merge PR #${issue.prNumber ?? ``} into the default branch? Every issue linked to it completes.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -345,7 +360,7 @@ function AgentRow({
         .where(({ s }) =>
           and(
             eq(s.issueId, issue.id),
-            inArray(s.status, [`running`, `in_review`])
+            inArray(s.status, [`running`, `in_review`, `merged`])
           )
         ),
     [issue.id]

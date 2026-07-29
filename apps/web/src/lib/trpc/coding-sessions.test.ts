@@ -295,6 +295,16 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
     expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
   })
 
+  it(`advances updated_at for a merged row without touching status (EXP-358)`, async () => {
+    selectResults.push([{ userId: `actor`, status: `merged` }])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: true })
+    expect(updates).toHaveLength(1)
+    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
+  })
+
   it(`reports an ended row as dead without any write`, async () => {
     selectResults.push([{ userId: `actor`, status: `ended` }])
 
@@ -320,6 +330,25 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
       id: SESSION_ID,
       issueId: ISSUE_ID,
       status: `in_review`,
+    })
+  })
+
+  it(`re-creates a swept issue-scoped row as merged when the issue's PR merged meanwhile (EXP-358)`, async () => {
+    selectResults.push([]) // session row gone (swept)
+    // The issue moved on while the laptop slept: PR merged, status done.
+    selectResults.push([{ status: `done`, prState: `merged` }])
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+      status: `merged`,
     })
   })
 
@@ -530,6 +559,19 @@ describe(`codingSessions — builtin fix-conflicts (EXP-259)`, () => {
 describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
   it(`writes exactly needs_input on a live owned row`, async () => {
     selectResults.push([{ userId: `actor`, status: `running` }])
+
+    const result = await caller.setNeedsInput({
+      id: SESSION_ID,
+      needsInput: true,
+    })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toEqual({ needsInput: true })
+  })
+
+  it(`writes needs_input on a merged row (still live, EXP-358)`, async () => {
+    selectResults.push([{ userId: `actor`, status: `merged` }])
 
     const result = await caller.setNeedsInput({
       id: SESSION_ID,

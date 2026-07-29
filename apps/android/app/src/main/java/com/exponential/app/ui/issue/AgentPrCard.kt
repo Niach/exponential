@@ -144,7 +144,10 @@ private fun SessionRow(
                 CodingSessionDisplayState.Running -> PulsingDot()
                 CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
                 CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
-                CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
+                // EXP-358: merged-but-alive parks on the same blue as Done.
+                CodingSessionDisplayState.Done,
+                CodingSessionDisplayState.Merged,
+                -> StaticDot(DoneBlue)
             }
             Spacer(Modifier.width(8.dp))
             Text(
@@ -153,6 +156,7 @@ private fun SessionRow(
                     CodingSessionDisplayState.NeedsInput -> "Needs input"
                     CodingSessionDisplayState.Review -> "Ready for review"
                     CodingSessionDisplayState.Done -> "Done"
+                    CodingSessionDisplayState.Merged -> "Merged"
                 },
                 style = MaterialTheme.typography.labelLarge,
                 color = when (state) {
@@ -160,6 +164,7 @@ private fun SessionRow(
                     CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
                     CodingSessionDisplayState.Review -> ReviewGreen
                     CodingSessionDisplayState.Done -> DoneBlue
+                    CodingSessionDisplayState.Merged -> DoneBlue
                 },
             )
             Spacer(Modifier.width(8.dp))

@@ -691,7 +691,9 @@ pub fn team_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
 }
 
 /// EXP-153: a `running` (or `in_review` — EXP-194: PR open, terminal still
-/// alive) coding_sessions row renders as live only while its `updated_at`
+/// alive; or `merged` — EXP-358: the PR landed and the session KEEPS running
+/// until someone explicitly closes it) coding_sessions row renders as live
+/// only while its `updated_at`
 /// (heartbeat-advanced) is inside the contract stale window — stale rows are
 /// treated as ABSENT, mirroring the server sweep's DELETE (never as `ended`,
 /// which is the kill-switch signal). Missing/unparseable `updated_at` → live
@@ -708,6 +710,7 @@ pub(crate) fn coding_session_is_live(
         session.status.as_deref(),
         Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
             | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
+            | Some(domain::contract::CODING_SESSION_STATUS_MERGED)
     );
     if !live_status {
         return false;
@@ -763,11 +766,17 @@ pub(crate) fn live_session_device<'a>(
 /// attention flag (agent parked on a plan-approval / AskUserQuestion picker)
 /// overrides everything still actionable as an amber "needs input". Callers
 /// pass only sessions that already passed [`coding_session_is_live`].
+///
+/// EXP-358: the server now flips a merged run's session to its own `merged`
+/// status (the session survives the merge), so that status decides directly —
+/// but the `in_review` + `pr_state = merged` inference stays as the fallback
+/// for rows written by older servers/clients.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CodingSessionDisplay {
     Running,
     NeedsInput,
     Review,
+    Merged,
     Done,
 }
 
@@ -776,6 +785,9 @@ pub(crate) fn coding_session_display(
     pr_state: Option<&str>,
 ) -> CodingSessionDisplay {
     let merged = pr_state == Some(domain::contract::PR_STATE_MERGED);
+    if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_MERGED) {
+        return CodingSessionDisplay::Merged;
+    }
     if session.needs_input.unwrap_or(false) && !merged {
         return CodingSessionDisplay::NeedsInput;
     }
@@ -899,6 +911,38 @@ mod tests {
         assert!(coding_session_is_live(&fresh, now));
         let stale = session(Some("in_review"), Some("2026-07-17T09:00:00Z"));
         assert!(!coding_session_is_live(&stale, now));
+    }
+
+    /// EXP-358: a `merged` row (PR landed, session deliberately still alive)
+    /// is live while fresh and absent when stale — exactly like `in_review`.
+    #[test]
+    fn coding_session_merged_is_live_until_stale() {
+        let now = 1784289600_i64;
+        let fresh = session(Some("merged"), Some("2026-07-17T11:30:00Z"));
+        assert!(coding_session_is_live(&fresh, now));
+        let stale = session(Some("merged"), Some("2026-07-17T09:00:00Z"));
+        assert!(!coding_session_is_live(&stale, now));
+    }
+
+    /// EXP-358: the synced `merged` status decides on its own; the legacy
+    /// `in_review` + merged-PR inference stays for rows older servers wrote.
+    #[test]
+    fn coding_session_display_reads_the_merged_status_and_the_legacy_fallback() {
+        let merged_row = session(Some("merged"), Some("2026-07-17T11:30:00Z"));
+        assert!(coding_session_display(&merged_row, None) == CodingSessionDisplay::Merged);
+        assert!(
+            coding_session_display(&merged_row, Some(domain::contract::PR_STATE_OPEN))
+                == CodingSessionDisplay::Merged
+        );
+        let legacy = session(Some("in_review"), Some("2026-07-17T11:30:00Z"));
+        assert!(
+            coding_session_display(&legacy, Some(domain::contract::PR_STATE_MERGED))
+                == CodingSessionDisplay::Done
+        );
+        assert!(
+            coding_session_display(&legacy, Some(domain::contract::PR_STATE_OPEN))
+                == CodingSessionDisplay::Review
+        );
     }
 
     #[test]

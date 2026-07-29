@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { MonitorPlay } from "lucide-react"
+import { GitMerge, LoaderCircle, MonitorPlay } from "lucide-react"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
 import {
   sessionDisplayState,
@@ -7,7 +8,16 @@ import {
 } from "@/components/issue-coding-rows"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
+import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 // The live coding-session row shared by the team Agents page and the Actions
 // page (EXP-253) — extracted from routes/t/$teamSlug/agents/index.tsx so both
@@ -31,6 +41,7 @@ export function SectionLabel({ label, count }: { label: string; count: number })
 const STATE_DOT: Record<Exclude<SessionDisplayState, `running`>, string> = {
   needs_input: `bg-amber-500`,
   review: `bg-emerald-500`,
+  merged: `bg-sky-500`,
   done: `bg-sky-500`,
 }
 
@@ -40,6 +51,7 @@ const STATE_LABEL: Record<
 > = {
   needs_input: { text: `Needs input`, className: `text-amber-400` },
   review: { text: `Ready for review`, className: `text-emerald-400` },
+  merged: { text: `Merged`, className: `text-sky-400` },
   done: { text: `Done`, className: `text-sky-400` },
 }
 
@@ -56,6 +68,97 @@ export function RunningIndicator({ state }: { state: SessionDisplayState }) {
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
       <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
     </span>
+  )
+}
+
+// "Merge and close" (EXP-358): the ONE merge affordance that also ends the
+// session — merges the PR, completes every linked issue, and flips the
+// session to `ended` server-side (closeSessions: true). All other merge
+// buttons are merge-only and leave the session parked in `merged`. Spinner
+// held until the Electric echo flips the issue's prState away from `open`
+// (mirrors IssueMergeButton).
+function MergeAndCloseButton({
+  prState,
+  prNumber,
+  issueId,
+}: {
+  prState: string | null
+  prNumber: number | null
+  issueId: string
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [merging, setMerging] = useState(false)
+
+  useEffect(() => {
+    if (prState !== `open`) {
+      setMerging(false)
+      setConfirmOpen(false)
+    }
+  }, [prState])
+
+  if (prState !== `open`) return null
+
+  const merge = async () => {
+    setMerging(true)
+    try {
+      // Failures surface via the global mutation-error toast.
+      await trpc.issues.mergePr.mutate({ issueId, closeSessions: true })
+      setConfirmOpen(false) // keep `merging` until the echo flips prState
+    } catch {
+      setMerging(false)
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={merging}
+        onClick={(e) => {
+          e.stopPropagation()
+          setConfirmOpen(true)
+        }}
+      >
+        {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
+        {merging ? `Merging…` : `Merge and close`}
+      </Button>
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(next) => {
+          if (!merging) setConfirmOpen(next)
+        }}
+      >
+        <DialogContent
+          className="sm:max-w-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DialogHeader>
+            <DialogTitle>Merge and close?</DialogTitle>
+            <DialogDescription>
+              {`Merge PR #${prNumber ?? ``} into the default branch? Every issue linked to it completes, and its coding session closes.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmOpen(false)}
+              disabled={merging}
+            >
+              Cancel
+            </Button>
+            <Button onClick={merge} disabled={merging}>
+              {merging ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <GitMerge />
+              )}
+              Merge and close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -146,6 +249,13 @@ export function SessionRow({
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {issue && (
+          <MergeAndCloseButton
+            prState={issue.prState}
+            prNumber={issue.prNumber}
+            issueId={issue.id}
+          />
+        )}
         {canWatch && (
           <Button
             variant="outline"

@@ -622,6 +622,11 @@ impl TerminalDockPanel {
     /// pointer drift). A failed merge (typically conflicts) jumps to the
     /// Reviews tool window, where the shared error caption + Fix-conflicts
     /// button render exactly as a Reviews-originated failure.
+    ///
+    /// This is the "Merge and close" surface (EXP-358): merging elsewhere
+    /// leaves the session alive in `merged`, so the tab's own button is the
+    /// one that asks the server to end it too — the tab then tears down off
+    /// the →`ended` echo through the existing kill watch.
     fn tab_merge_button(
         &self,
         ix: usize,
@@ -641,12 +646,11 @@ impl TerminalDockPanel {
                 .loading(true)
                 .disabled(true);
         } else if armed {
-            button = button.outline().label("Confirm merge").danger();
+            button = button.outline().label("Merge and close").danger();
         } else {
-            button = button
-                .ghost()
-                .icon(ExpIcon::GitMerge)
-                .tooltip("Merge PR — completes every linked issue and ends its coding session");
+            button = button.ghost().icon(ExpIcon::GitMerge).tooltip(
+                "Merge and close — completes every linked issue and closes this coding session",
+            );
         }
         let issue_id = issue.issue_id.clone();
         let button = button.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
@@ -655,6 +659,10 @@ impl TerminalDockPanel {
             crate::pr_merge::two_click(
                 crate::pr_merge::MergeOp::MergeIssuePr {
                     issue_id: issue_id.clone(),
+                    // The one surface that also closes the session (EXP-358):
+                    // teardown arrives as the server's →`ended` kill-watch
+                    // echo, never locally.
+                    close_sessions: true,
                 },
                 Some(Box::new(move |cx: &mut App| {
                     let _ = handle.update(cx, |_, window, cx| {

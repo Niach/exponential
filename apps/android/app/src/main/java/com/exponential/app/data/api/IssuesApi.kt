@@ -59,6 +59,18 @@ data class DeleteIssueInput(val id: String)
 data class ClosePrInput(@SerialName("issueId") val issueId: String)
 
 /**
+ * `issues.mergePr` (EXP-358). Separate from [ClosePrInput] because a merge
+ * additionally decides the fate of the issue's LIVE coding session:
+ * `closeSessions = true` ends it server-side ("Merge and close"), the default
+ * leaves it alive on the new `merged` status.
+ */
+@Serializable
+data class MergePrInput(
+    @SerialName("issueId") val issueId: String,
+    @SerialName("closeSessions") val closeSessions: Boolean = false,
+)
+
+/**
  * `issues.move` (EXP-57): same-team board move. The server renumbers
  * the issue in the target board (EXP-42 → ABC-17) and re-points the
  * denormalized children; the response's extra keys (txId, boardSlug) are
@@ -186,13 +198,18 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
      * For a batch PR (one prUrl linked to several issues) pass the
      * representative issue's id — the server resolves the PR to ALL linked
      * issues and completes them together; the `done` flip arrives via Electric.
+     *
+     * EXP-358: a merge no longer kills the coding session — live rows park on
+     * `merged` and stay steerable. [closeSessions] is the explicit "Merge and
+     * close" opt-in: the server ends them, and the rows drop out of the live
+     * lists via sync.
      */
-    suspend fun mergePr(accountId: String, issueId: String) {
+    suspend fun mergePr(accountId: String, issueId: String, closeSessions: Boolean = false) {
         trpc.mutationUnit(
             accountId,
             path = "issues.mergePr",
-            input = ClosePrInput(issueId),
-            inputSerializer = ClosePrInput.serializer(),
+            input = MergePrInput(issueId, closeSessions),
+            inputSerializer = MergePrInput.serializer(),
         )
     }
 

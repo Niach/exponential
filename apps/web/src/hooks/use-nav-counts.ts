@@ -45,8 +45,9 @@ export function useReviewsOpenPrCount(
 }
 
 // Live count of live coding sessions in the team (team-scoped by the
-// denormalized team_id) — running AND in_review (EXP-194: an agent awaiting
-// review is exactly what the dot should pull attention to). Staleness guard
+// denormalized team_id) — running, in_review AND merged (EXP-194: an agent
+// awaiting review is exactly what the dot should pull attention to;
+// EXP-358: a session surviving its merge is still live). Staleness guard
 // (EXP-153): heartbeat-dead rows don't count. `needsInput` (EXP-214) is true
 // while any live session sits on a plan-approval / AskUserQuestion picker —
 // the badges escalate to amber for it.
@@ -62,7 +63,7 @@ export function useAgentsRunningCount(teamId?: string): {
             .where(({ sessions }) =>
               and(
                 eq(sessions.teamId, teamId),
-                inArray(sessions.status, [`running`, `in_review`])
+                inArray(sessions.status, [`running`, `in_review`, `merged`])
               )
             )
         : undefined,

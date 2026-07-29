@@ -47,10 +47,11 @@ export async function runCodingSessionSweep(
     .delete(codingSessions)
     .where(
       and(
-        // in_review rows heartbeat too (the terminal is still alive during
-        // review) — a crashed desktop must not pin a phantom "ready for
-        // review" badge any more than a "coding now" one.
-        inArray(codingSessions.status, [`running`, `in_review`]),
+        // in_review/merged rows heartbeat too (the terminal is still alive
+        // during review and after a merge, EXP-358) — a crashed desktop must
+        // not pin a phantom "ready for review"/"merged" badge any more than
+        // a "coding now" one.
+        inArray(codingSessions.status, [`running`, `in_review`, `merged`]),
         lte(codingSessions.updatedAt, cutoff)
       )
     )

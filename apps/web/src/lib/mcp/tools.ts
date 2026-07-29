@@ -1128,7 +1128,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge linked open PRs via the GitHub App — no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (one merge per distinct prUrl — issues sharing a batch PR merge once). Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'). Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. If a merge is rejected because the base branch is stale, fix it with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge linked open PRs via the GitHub App — no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (one merge per distinct prUrl — issues sharing a batch PR merge once). Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions move to 'merged' and stay open. Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. If a merge is rejected because the base branch is stale, fix it with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
