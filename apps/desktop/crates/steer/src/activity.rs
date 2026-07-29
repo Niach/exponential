@@ -69,7 +69,9 @@ use crate::frames::{ActivityEvent, QuestionOption, SubagentStatus};
 use crate::hooks::{HookEvent, HookEventKind, HookQuestion};
 use crate::plan_picker::{self, PlanPickerWatcher, Transition};
 use crate::publisher::{ActivitySender, InputHook};
-use crate::question_picker::{self, normalize_question_text, QuestionPickerWatcher, QuestionSnapshot};
+use crate::question_picker::{
+    self, normalize_question_text, QuestionPickerWatcher, QuestionSnapshot,
+};
 
 /// The mask token substituted for every redacted secret.
 const REDACTED: &str = "[redacted]";
@@ -384,6 +386,10 @@ pub struct TranscriptState {
     /// transcript entry can flush before the hook's HTTP delivery drains, so
     /// id matching would race the wrong way.
     pub suppress_task_headlines: bool,
+    /// EXP-356: texts already published from `queued_command` attachment
+    /// entries — a queued message delivered at a turn BOUNDARY can land as a
+    /// regular human `user` entry too, which must not double the bubble.
+    pub published_queued: Vec<String>,
 }
 
 /// Grid-question memory cap — a session never has this many live pickers.
@@ -394,7 +400,8 @@ const PENDING_ASKS_CAP: usize = 8;
 impl TranscriptState {
     /// Remember a grid-published question so its transcript twin is swallowed.
     pub fn remember_grid_question(&mut self, text: &str) {
-        self.recent_grid_questions.push(normalize_question_text(text));
+        self.recent_grid_questions
+            .push(normalize_question_text(text));
         if self.recent_grid_questions.len() > RECENT_GRID_QUESTIONS_CAP {
             let excess = self.recent_grid_questions.len() - RECENT_GRID_QUESTIONS_CAP;
             self.recent_grid_questions.drain(..excess);
@@ -483,19 +490,63 @@ pub fn process_transcript_line(
                         name,
                         subagent_id: None,
                         ..
-                    } if name == "Task" => !state.suppress_task_headlines,
+                    } if name == "Task" || name == "Agent" => !state.suppress_task_headlines,
                     _ => true,
                 })
                 .collect()
         }
         Some("user") => {
             let mut events = take_ask_answers(&entry, redactor, state);
-            events.extend(parse_user_entry(&entry, redactor));
+            events.extend(parse_user_entry(&entry, redactor, state));
             events
         }
+        // EXP-356: a MID-TURN steered/typed message never becomes a `user`
+        // entry — claude queues it and records only a `queued_command`
+        // attachment (the injection reaches the model inside a tool result),
+        // so this is the one place the feed can learn it.
+        Some("attachment") => parse_queued_command(&entry, redactor, state)
+            .into_iter()
+            .collect(),
         // system/summary/etc. → never published.
         _ => Vec::new(),
     }
+}
+
+/// Published-queued-text memory cap (see `TranscriptState::published_queued`).
+const PUBLISHED_QUEUED_CAP: usize = 8;
+
+/// A `queued_command` attachment entry → one `user_message` event (EXP-356).
+/// Same fail-closed stance as [`parse_user_entry`]: the nested
+/// `origin.kind == "human"` marker is REQUIRED, so injected content can never
+/// ride this path.
+fn parse_queued_command(
+    entry: &Value,
+    redactor: &Redactor,
+    state: &mut TranscriptState,
+) -> Option<ActivityEvent> {
+    let attachment = entry.get("attachment")?;
+    if attachment.get("type").and_then(Value::as_str) != Some("queued_command") {
+        return None;
+    }
+    if attachment
+        .get("origin")
+        .and_then(|o| o.get("kind"))
+        .and_then(Value::as_str)
+        != Some("human")
+    {
+        return None;
+    }
+    let prompt = attachment.get("prompt").and_then(Value::as_str)?;
+    let redacted = truncate(&redactor.redact(prompt), NARRATION_MAX);
+    if redacted.trim().is_empty() {
+        return None;
+    }
+    state.published_queued.push(redacted.clone());
+    if state.published_queued.len() > PUBLISHED_QUEUED_CAP {
+        let excess = state.published_queued.len() - PUBLISHED_QUEUED_CAP;
+        state.published_queued.drain(..excess);
+    }
+    Some(ActivityEvent::user_message(redacted))
 }
 
 /// Stateless wrapper over [`process_transcript_line`] (kept for callers/tests
@@ -645,15 +696,11 @@ fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEven
                 }
             }
             Some("tool_use") => {
-                let name = block
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool");
+                let name = block.get("name").and_then(Value::as_str).unwrap_or("tool");
                 // Interactive prompts become answerable question events; a
                 // malformed input falls through to the generic tool headline.
                 if name == "AskUserQuestion" {
-                    if let Some(questions) = parse_ask_user_question(block.get("input"), redactor)
-                    {
+                    if let Some(questions) = parse_ask_user_question(block.get("input"), redactor) {
                         events.extend(questions);
                         continue;
                     }
@@ -679,7 +726,11 @@ fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEven
 /// `<system-reminder>` blocks — fails the gate or the block filter. Fails
 /// CLOSED: if a future claude version drops `origin`, user messages silently
 /// stop appearing rather than risking a leak of injected content.
-fn parse_user_entry(entry: &Value, redactor: &Redactor) -> Option<ActivityEvent> {
+fn parse_user_entry(
+    entry: &Value,
+    redactor: &Redactor,
+    state: &mut TranscriptState,
+) -> Option<ActivityEvent> {
     let origin_kind = entry
         .get("origin")
         .and_then(|o| o.get("kind"))
@@ -709,6 +760,12 @@ fn parse_user_entry(entry: &Value, redactor: &Redactor) -> Option<ActivityEvent>
     };
     let redacted = truncate(&redactor.redact(&text), NARRATION_MAX);
     if redacted.trim().is_empty() {
+        return None;
+    }
+    // Already published from its `queued_command` attachment (EXP-356) —
+    // consume the memory instead of doubling the bubble.
+    if let Some(pos) = state.published_queued.iter().position(|t| t == &redacted) {
+        state.published_queued.remove(pos);
         return None;
     }
     Some(ActivityEvent::user_message(redacted))
@@ -800,7 +857,7 @@ fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityE
 /// nothing safe is present the headline shows the tool name alone.
 fn tool_detail(name: &str, input: Option<&Value>) -> Option<String> {
     let input = input?;
-    if name.eq_ignore_ascii_case("bash") || name == "Task" {
+    if name.eq_ignore_ascii_case("bash") || name == "Task" || name == "Agent" {
         // The command string / delegation prompt is NEVER published — only
         // the model's own human-readable description of what it's doing.
         return input
@@ -901,7 +958,9 @@ fn sidechain_transcripts(dir: &Path, after: SystemTime) -> Vec<PathBuf> {
             if !name.starts_with("agent-") || !name.ends_with(".jsonl") {
                 continue;
             }
-            let Ok(modified) = meta.modified() else { continue };
+            let Ok(modified) = meta.modified() else {
+                continue;
+            };
             if modified >= after {
                 found.push((modified, path));
             }
@@ -919,6 +978,40 @@ fn sidechain_agent_id(path: &Path) -> Option<String> {
     let name = path.file_name().and_then(|n| n.to_str())?;
     let id = name.strip_prefix("agent-")?.strip_suffix(".jsonl")?;
     (!id.is_empty()).then(|| id.to_string())
+}
+
+/// What claude ≥2.1.220 writes next to each sidechain as
+/// `agent-<id>.meta.json` — the DETERMINISTIC identity correlation the
+/// SubagentStart binding dance only approximates (EXP-356): the dispatch's
+/// `tool_use_id` (= the published card id), the real agent type, and the
+/// delegation description.
+#[derive(Default)]
+struct SidechainMeta {
+    agent_type: Option<String>,
+    description: Option<String>,
+    tool_use_id: Option<String>,
+}
+
+/// Read the sidechain's `.meta.json` twin, if present (older claude wrote
+/// none — identity then stays on the hook/alias path).
+fn sidechain_meta(path: &Path) -> Option<SidechainMeta> {
+    let meta_path = path.to_str()?.strip_suffix(".jsonl")?.to_string() + ".meta.json";
+    let raw = std::fs::read_to_string(meta_path).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    Some(SidechainMeta {
+        agent_type: value
+            .get("agentType")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        description: value
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        tool_use_id: value
+            .get("toolUseId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    })
 }
 
 /// One sidechain line → the subagent's tool headlines only (EXP-249). A
@@ -1184,7 +1277,9 @@ impl Subagents {
     fn remember(&mut self, card_id: String, agent_type: String, detail: Option<String>) {
         self.meta.insert(card_id, CardMeta { agent_type, detail });
         while self.meta.len() > SUBAGENTS_CAP {
-            let Some(stale) = self.meta.keys().next().cloned() else { break };
+            let Some(stale) = self.meta.keys().next().cloned() else {
+                break;
+            };
             self.meta.remove(&stale);
         }
     }
@@ -1195,15 +1290,27 @@ impl Subagents {
     /// same-type concurrent dispatches can still swap children; both cards
     /// carry the right type and detail, which is acceptable — `SubagentStart`
     /// offers nothing better to correlate on. The published id wins so the
-    /// card stays the one the dispatch created.
+    /// card stays the one the dispatch created. A start whose type MATCHES no
+    /// unbound dispatch may still bind an untyped one, but never steals a
+    /// dispatch of a DIFFERENT type — claude's internal helper agents also
+    /// fire SubagentStart, and blind position-0 binding let them claim a real
+    /// delegation's card (EXP-356).
     fn started(&mut self, agent_id: &str, agent_type: Option<&str>) -> Option<String> {
-        let pos = agent_type
-            .and_then(|t| {
-                self.unbound
-                    .iter()
-                    .position(|id| self.meta.get(id).is_some_and(|m| m.agent_type == t))
-            })
-            .unwrap_or(0);
+        let typed = |unbound_type: &str| match agent_type {
+            Some(t) => unbound_type == t,
+            None => false,
+        };
+        let pos = self
+            .unbound
+            .iter()
+            .position(|id| self.meta.get(id).is_some_and(|m| typed(&m.agent_type)))
+            .or_else(|| {
+                self.unbound.iter().position(|id| {
+                    self.meta
+                        .get(id)
+                        .is_none_or(|m| m.agent_type == SUBAGENT_TYPE_FALLBACK)
+                })
+            })?;
         let dispatched = self.unbound.remove(pos)?;
         // A dispatch without a `subagent_type` stored the fallback — the
         // start's real type upgrades it for the completion edge.
@@ -1216,7 +1323,9 @@ impl Subagents {
         }
         self.alias.insert(agent_id.to_string(), dispatched.clone());
         while self.alias.len() > SUBAGENTS_CAP {
-            let Some(stale) = self.alias.keys().next().cloned() else { break };
+            let Some(stale) = self.alias.keys().next().cloned() else {
+                break;
+            };
             self.alias.remove(&stale);
         }
         Some(dispatched)
@@ -1229,6 +1338,68 @@ impl Subagents {
             .get(agent_id)
             .cloned()
             .unwrap_or_else(|| agent_id.to_string())
+    }
+
+    /// Whether an `agent_id` resolves to a card that was actually published —
+    /// bound to a dispatch, remembered from an unbound start, or absorbed
+    /// from a sidechain meta. Lifecycle events for anything else are claude's
+    /// INTERNAL helper agents (summarizers etc.), which fire SubagentStart/
+    /// Stop too and used to mint an endless stream of fallback-labelled cards
+    /// (EXP-356).
+    fn knows_agent(&self, agent_id: &str) -> bool {
+        self.alias.contains_key(agent_id) || self.meta.contains_key(agent_id)
+    }
+
+    /// EXP-356: absorb a sidechain's `.meta.json` — the deterministic
+    /// `agent_id → tool_use_id` correlation plus the real type/description.
+    /// Repairs whatever the hook path missed (a raced SubagentStart, a
+    /// fallback-typed dispatch, a sidecar that never came up). An existing
+    /// binding or already-published card keeps its id (a redirect would split
+    /// the group on every client); otherwise the meta's `tool_use_id` becomes
+    /// the card id, exactly as a dispatch would have minted. Returns the
+    /// `(card_id, agent_type, detail)` Started marker to publish when the
+    /// card was UNKNOWN — no dispatch ever carded it.
+    fn absorb_meta(
+        &mut self,
+        agent_id: &str,
+        meta_tool_use_id: Option<String>,
+        agent_type: String,
+        detail: Option<String>,
+    ) -> Option<(String, String, Option<String>)> {
+        let card_id = self.alias.get(agent_id).cloned().unwrap_or_else(|| {
+            if self.meta.contains_key(agent_id) {
+                // An unbound start already published under the raw id.
+                agent_id.to_string()
+            } else {
+                meta_tool_use_id.unwrap_or_else(|| agent_id.to_string())
+            }
+        });
+        // The dispatch this card came from can no longer be claimed by a
+        // late (or foreign) SubagentStart.
+        self.unbound.retain(|id| id != &card_id);
+        let known = match self.meta.get_mut(&card_id) {
+            Some(meta) => {
+                if meta.agent_type == SUBAGENT_TYPE_FALLBACK {
+                    meta.agent_type = agent_type.clone();
+                }
+                if meta.detail.is_none() {
+                    meta.detail = detail.clone();
+                }
+                true
+            }
+            None => false,
+        };
+        if !known {
+            self.remember(card_id.clone(), agent_type.clone(), detail.clone());
+        }
+        self.alias.insert(agent_id.to_string(), card_id.clone());
+        while self.alias.len() > SUBAGENTS_CAP {
+            let Some(stale) = self.alias.keys().next().cloned() else {
+                break;
+            };
+            self.alias.remove(&stale);
+        }
+        (!known).then_some((card_id, agent_type, detail))
     }
 
     /// The published metadata for a card id.
@@ -1398,10 +1569,7 @@ impl SteerState {
                                 .header
                                 .as_ref()
                                 .map(|h| truncate(&redactor.redact(h), QUESTION_HEADER_MAX)),
-                            text: truncate(
-                                &redactor.redact(&question.question),
-                                QUESTION_TEXT_MAX,
-                            ),
+                            text: truncate(&redactor.redact(&question.question), QUESTION_TEXT_MAX),
                             options,
                             multi_select: question.multi_select,
                         },
@@ -1429,8 +1597,8 @@ impl SteerState {
                     subagent_type.as_deref().unwrap_or(SUBAGENT_TYPE_FALLBACK),
                     AGENT_TYPE_MAX,
                 );
-                let detail = description
-                    .map(|detail| truncate(&redactor.redact(&detail), TOOL_DETAIL_MAX));
+                let detail =
+                    description.map(|detail| truncate(&redactor.redact(&detail), TOOL_DETAIL_MAX));
                 self.subagents
                     .dispatch(id.clone(), agent_type.clone(), detail.clone());
                 sender.send(ActivityEvent::Subagent {
@@ -1447,18 +1615,26 @@ impl SteerState {
             } => {
                 let Some(agent_id) = agent_id else { return };
                 let agent_id = truncate(&agent_id, ID_MAX);
-                let agent_type = truncate(
-                    agent_type.as_deref().unwrap_or(SUBAGENT_TYPE_FALLBACK),
-                    AGENT_TYPE_MAX,
-                );
+                let agent_type = agent_type.as_deref().map(|t| truncate(t, AGENT_TYPE_MAX));
+                // Already absorbed from the sidechain meta ⇒ carded, and no
+                // leftover dispatch may be (re)claimed for it.
+                if self.subagents.knows_agent(&agent_id) {
+                    return;
+                }
                 // Bound to a dispatch we already carded ⇒ nothing new to show.
                 if self
                     .subagents
-                    .started(&agent_id, Some(&agent_type))
+                    .started(&agent_id, agent_type.as_deref())
                     .is_some()
                 {
                     return;
                 }
+                // An unbound, TYPE-LESS start is claude's internal machinery
+                // (summarizers etc. fire SubagentStart too): a real delegation
+                // dispatches first (Task/Agent PreToolUse) or leaves a
+                // sidechain meta to absorb. Publishing minted one fallback
+                // card per internal agent (EXP-356).
+                let Some(agent_type) = agent_type else { return };
                 // Hookless-dispatch card — remember the type so the stop edge
                 // can re-state it (its payload never carries one).
                 self.subagents
@@ -1477,6 +1653,12 @@ impl SteerState {
             } => {
                 let Some(agent_id) = agent_id else { return };
                 let agent_id = truncate(&agent_id, ID_MAX);
+                // A stop for an agent no card was ever published for is
+                // claude's internal machinery — completing a card nobody saw
+                // minted an endless "agent subagent ✓" stream (EXP-356).
+                if !self.subagents.knows_agent(&agent_id) {
+                    return;
+                }
                 let id = self.subagents.card_id(&agent_id);
                 // claude's SubagentStop payload carries no agent_type — restate
                 // what the card was published with, or last-marker-wins clients
@@ -1992,6 +2174,8 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut sidechains: Vec<PathBuf> = Vec::new();
     let mut sidechain_offsets: HashMap<PathBuf, u64> = HashMap::new();
     let mut sidechain_scan_at: Option<Instant> = None;
+    // EXP-356: agent ids whose `.meta.json` was already absorbed — read once.
+    let mut absorbed_sidechains: HashSet<String> = HashSet::new();
     let mut last_diff = String::new();
     let mut last_diff_at: Option<Instant> = None;
     let mut transcript_deadline = Some(Instant::now() + TRANSCRIPT_WAIT);
@@ -2212,9 +2396,47 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 sidechain_scan_at = Some(Instant::now());
                 sidechains = sidechain_transcripts(dir, spawn_time);
                 sidechain_offsets.retain(|path, _| sidechains.contains(path));
+                // EXP-356: absorb each sidechain's `.meta.json` identity once
+                // — deterministic agent→card correlation and the real
+                // type/description, whatever the hook path managed.
+                for path in &sidechains {
+                    let Some(agent_id) = sidechain_agent_id(path) else {
+                        continue;
+                    };
+                    if !absorbed_sidechains.insert(agent_id.clone()) {
+                        continue;
+                    }
+                    let Some(meta) = sidechain_meta(path) else {
+                        continue;
+                    };
+                    let agent_type = truncate(
+                        meta.agent_type.as_deref().unwrap_or(SUBAGENT_TYPE_FALLBACK),
+                        AGENT_TYPE_MAX,
+                    );
+                    let detail = meta
+                        .description
+                        .as_ref()
+                        .map(|d| truncate(&redactor.redact(d), TOOL_DETAIL_MAX));
+                    let tool_use_id = meta.tool_use_id.as_deref().map(|id| truncate(id, ID_MAX));
+                    if let Some((card_id, agent_type, detail)) =
+                        steer
+                            .subagents
+                            .absorb_meta(&agent_id, tool_use_id, agent_type, detail)
+                    {
+                        sender.send(ActivityEvent::Subagent {
+                            id: card_id,
+                            agent_type,
+                            status: SubagentStatus::Started,
+                            detail,
+                            at: None,
+                        });
+                    }
+                }
             }
             for path in &sidechains {
-                let Some(agent_id) = sidechain_agent_id(path) else { continue };
+                let Some(agent_id) = sidechain_agent_id(path) else {
+                    continue;
+                };
                 let start = sidechain_offsets.get(path).copied().unwrap_or(0);
                 let next = tail_transcript(
                     path,
@@ -2261,12 +2483,8 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 loop {
                     match &config.term {
                         Some(term) => parked_answers.retain_mut(|(answer, since)| {
-                            match steer.handle_answer(
-                                answer,
-                                term,
-                                &steering.write_input,
-                                &sender,
-                            ) {
+                            match steer.handle_answer(answer, term, &steering.write_input, &sender)
+                            {
                                 AnswerAttempt::Settled => false,
                                 AnswerAttempt::Retry => since.elapsed() < ANSWER_RETRY_TTL,
                             }
@@ -2478,10 +2696,7 @@ mod tests {
 
     #[test]
     fn secrets_from_worktree_outside_a_repo_is_empty() {
-        let dir = std::env::temp_dir().join(format!(
-            "exp-activity-norepo-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("exp-activity-norepo-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(secrets_from_worktree(&dir).is_empty());
         std::fs::remove_dir_all(&dir).ok();
@@ -2509,7 +2724,8 @@ mod tests {
             );
         }
         // A PEM private key block (multi-line, lazy match) is masked whole.
-        let pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA...\nabc\n-----END RSA PRIVATE KEY-----";
+        let pem =
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA...\nabc\n-----END RSA PRIVATE KEY-----";
         let out = redactor.redact(&format!("key:\n{pem}\ndone"));
         assert!(!out.contains("MIIEowIBAA"), "PEM body leaked: {out}");
     }
@@ -2560,7 +2776,10 @@ mod tests {
         );
         // The command string (with its secret) is nowhere in the output.
         let joined = format!("{events:?}");
-        assert!(!joined.contains("secrettoken"), "bash command leaked: {joined}");
+        assert!(
+            !joined.contains("secrettoken"),
+            "bash command leaked: {joined}"
+        );
         assert!(!joined.contains("curl"), "bash command leaked: {joined}");
     }
 
@@ -2615,7 +2834,102 @@ mod tests {
         .to_string();
         assert_eq!(
             parse_transcript_line(&line, &redactor),
-            vec![ActivityEvent::user_message("please add tests\n\nand update the docs")]
+            vec![ActivityEvent::user_message(
+                "please add tests\n\nand update the docs"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_queued_command_attachment_becomes_a_user_message() {
+        // A MID-TURN steered/typed message never lands as a `user` entry —
+        // claude records only the queued_command attachment (EXP-356). The
+        // real shape, from claude v2.1.220.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let line = serde_json::json!({
+            "type": "attachment",
+            "attachment": {
+                "type": "queued_command",
+                "prompt": "see also EXP-356, maybe we can fix both",
+                "commandMode": "prompt",
+                "origin": { "kind": "human" }
+            }
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&line, &redactor, &mut state),
+            vec![ActivityEvent::user_message(
+                "see also EXP-356, maybe we can fix both"
+            )]
+        );
+        // A turn-boundary delivery can ALSO flush a regular human user entry
+        // with the same text — one bubble, not two.
+        let twin = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "human" },
+            "message": { "role": "user", "content": "see also EXP-356, maybe we can fix both" }
+        })
+        .to_string();
+        assert!(process_transcript_line(&twin, &redactor, &mut state).is_empty());
+        // A LATER, distinct human turn still publishes.
+        let fresh = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "human" },
+            "message": { "role": "user", "content": "and one more thing" }
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&fresh, &redactor, &mut state),
+            vec![ActivityEvent::user_message("and one more thing")]
+        );
+    }
+
+    #[test]
+    fn a_non_human_queued_command_is_dropped() {
+        // Fail closed like parse_user_entry: no nested origin marker → no
+        // bubble, whatever the attachment claims to be.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let unmarked = serde_json::json!({
+            "type": "attachment",
+            "attachment": { "type": "queued_command", "prompt": "injected" }
+        })
+        .to_string();
+        assert!(process_transcript_line(&unmarked, &redactor, &mut state).is_empty());
+        let other = serde_json::json!({
+            "type": "attachment",
+            "attachment": { "type": "todo_list", "origin": { "kind": "human" } }
+        })
+        .to_string();
+        assert!(process_transcript_line(&other, &redactor, &mut state).is_empty());
+    }
+
+    #[test]
+    fn an_agent_tool_headline_is_suppressed_when_hooks_card_it() {
+        // claude ≥2.1.220 dispatches subagents via `Agent` (EXP-356) — with
+        // the sidecar up the hook publishes the card, so the bare headline
+        // must be swallowed exactly like `Task` (EXP-350).
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState {
+            suppress_task_headlines: true,
+            ..TranscriptState::default()
+        };
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "Agent", "id": "toolu_03",
+                  "input": { "description": "Find the flow", "subagent_type": "Explore" } }
+            ]}
+        })
+        .to_string();
+        assert!(process_transcript_line(&line, &redactor, &mut state).is_empty());
+        // Hookless sessions keep the headline — with the description, never
+        // the prompt.
+        let mut hookless = TranscriptState::default();
+        assert_eq!(
+            process_transcript_line(&line, &redactor, &mut hookless),
+            vec![ActivityEvent::tool("Agent", Some("Find the flow".into()))]
         );
     }
 
@@ -2744,7 +3058,13 @@ mod tests {
         })
         .to_string();
         match &parse_transcript_line(&line, &redactor)[..] {
-            [ActivityEvent::Question { text, options, multi_select, plan_mode, .. }] => {
+            [ActivityEvent::Question {
+                text,
+                options,
+                multi_select,
+                plan_mode,
+                ..
+            }] => {
                 assert_eq!(text, "## Plan\n1. Do the thing");
                 // Degraded-path fallback: approve keys only — "3" is no
                 // longer "keep planning" on current claude pickers.
@@ -2767,7 +3087,12 @@ mod tests {
         })
         .to_string();
         match &parse_transcript_line(&bare, &redactor)[..] {
-            [ActivityEvent::Question { text, options, plan_mode, .. }] => {
+            [ActivityEvent::Question {
+                text,
+                options,
+                plan_mode,
+                ..
+            }] => {
                 assert_eq!(text, "Plan ready for approval.");
                 assert_eq!(options.len(), 2);
                 assert_eq!(*plan_mode, Some(true));
@@ -2878,7 +3203,11 @@ mod tests {
         let events = parse_transcript_line(&line, &redactor);
         match &events[0] {
             ActivityEvent::Narration { text, .. } => {
-                assert!(text.len() <= NARRATION_MAX, "byte cap exceeded: {}", text.len());
+                assert!(
+                    text.len() <= NARRATION_MAX,
+                    "byte cap exceeded: {}",
+                    text.len()
+                );
                 assert!(!text.is_empty());
             }
             other => panic!("expected narration, got {other:?}"),
@@ -2904,7 +3233,11 @@ mod tests {
             "message": { "content": [ { "type": "text", "text": "On it." } ] }
         })
         .to_string();
-        std::fs::write(&path, format!("{plan_line}\n{narration_line}\n{plan_line}\n")).unwrap();
+        std::fs::write(
+            &path,
+            format!("{plan_line}\n{narration_line}\n{plan_line}\n"),
+        )
+        .unwrap();
 
         // One grid-emitted plan question is owed a transcript twin: the FIRST
         // transcript plan question is swallowed, later ones pass through
@@ -2924,7 +3257,10 @@ mod tests {
         // EXP-347: a suppressed twin only flushes once the plan picker is
         // ANSWERED — the emitter reads this flag to drop the publisher's
         // grid-picker reroute signal even while the viewport is scrolled.
-        assert!(state.plan_twin_flushed, "the consumed twin flags a resolution");
+        assert!(
+            state.plan_twin_flushed,
+            "the consumed twin flags a resolution"
+        );
         match &events[..] {
             [ActivityEvent::Narration { text, .. }, ActivityEvent::Question { plan_mode, .. }] => {
                 assert_eq!(text, "On it.");
@@ -3015,7 +3351,10 @@ mod tests {
         let (tool_use, tool_result) = answered_ask_lines();
         let events = process_transcript_line(&tool_use, &redactor, &mut state);
         assert_eq!(events, vec![], "post-answer twins must be swallowed");
-        assert!(state.recent_grid_questions.is_empty(), "matches are consumed");
+        assert!(
+            state.recent_grid_questions.is_empty(),
+            "matches are consumed"
+        );
 
         // The answers still flow (2 narrations + the semantic resolution).
         let events = process_transcript_line(&tool_result, &redactor, &mut state);
@@ -3030,10 +3369,15 @@ mod tests {
         let mut state = TranscriptState::default();
         state.hook_published_asks.insert("toolu_ask1".to_string());
         let (tool_use, tool_result) = answered_ask_lines();
-        assert_eq!(process_transcript_line(&tool_use, &redactor, &mut state), vec![]);
+        assert_eq!(
+            process_transcript_line(&tool_use, &redactor, &mut state),
+            vec![]
+        );
         // …and the resolution retires the hook-published cards by askId.
         match &process_transcript_line(&tool_result, &redactor, &mut state)[..] {
-            [_, _, ActivityEvent::QuestionResolved { ask_id, answers, .. }] => {
+            [_, _, ActivityEvent::QuestionResolved {
+                ask_id, answers, ..
+            }] => {
                 assert_eq!(ask_id.as_deref(), Some("toolu_ask1"));
                 assert_eq!(answers.as_ref().unwrap().len(), 2);
             }
@@ -3114,7 +3458,10 @@ mod tests {
             "toolUseResult": { "answers": { "q": "leak" } }
         })
         .to_string();
-        assert_eq!(process_transcript_line(&generic, &redactor, &mut state), vec![]);
+        assert_eq!(
+            process_transcript_line(&generic, &redactor, &mut state),
+            vec![]
+        );
     }
 
     #[test]
@@ -3141,12 +3488,13 @@ mod tests {
         })
         .to_string();
         match &process_transcript_line(&result, &redactor, &mut state)[..] {
-            [ActivityEvent::Narration { text, .. }, ActivityEvent::QuestionResolved {
-                answers,
-                ..
-            }] => {
+            [ActivityEvent::Narration { text, .. }, ActivityEvent::QuestionResolved { answers, .. }] =>
+            {
                 assert!(text.starts_with(QUESTION_ANSWERED_PREFIX));
-                assert!(!text.contains("expu_abcdef"), "typed answer leaked a key: {text}");
+                assert!(
+                    !text.contains("expu_abcdef"),
+                    "typed answer leaked a key: {text}"
+                );
                 let answers = answers.as_ref().expect("answers");
                 assert!(
                     !answers[0].contains("expu_abcdef"),
@@ -3353,10 +3701,21 @@ mod tests {
         let review = question_picker::detect(&review_rows()).expect("review picker");
         assert!(steer.confirm_question_from_grid(&review, &sender, &redactor));
         match &drained(&rx)[..] {
-            [ActivityEvent::Question { id, ask_id, index, total, options, .. }] => {
+            [ActivityEvent::Question {
+                id,
+                ask_id,
+                index,
+                total,
+                options,
+                ..
+            }] => {
                 assert_eq!(id.as_deref(), Some("toolu_01#submit"));
                 assert_eq!(ask_id.as_deref(), Some("toolu_01"));
-                assert_eq!((*index, *total), (None, None), "the submit step has no index");
+                assert_eq!(
+                    (*index, *total),
+                    (None, None),
+                    "the submit step has no index"
+                );
                 assert_eq!(options[0].label, "Submit answers");
             }
             other => panic!("expected the submit step, got {other:?}"),
@@ -3380,7 +3739,10 @@ mod tests {
         );
         // Nothing is published until the picker confirms on screen.
         assert!(drained(&rx).is_empty());
-        assert_eq!(transcript.suppress_plan_questions, 1, "the twin is pre-paid");
+        assert_eq!(
+            transcript.suppress_plan_questions, 1,
+            "the twin is pre-paid"
+        );
 
         let published = steer.confirm_plan_from_grid(
             vec![
@@ -3391,7 +3753,13 @@ mod tests {
         );
         assert!(published);
         match &drained(&rx)[..] {
-            [ActivityEvent::Question { text, id, plan_mode, options, .. }] => {
+            [ActivityEvent::Question {
+                text,
+                id,
+                plan_mode,
+                options,
+                ..
+            }] => {
                 assert_eq!(text, "## Plan\n1. Do the thing");
                 assert_eq!(id.as_deref(), Some("toolu_plan"));
                 assert_eq!(*plan_mode, Some(true));
@@ -3432,7 +3800,10 @@ mod tests {
 
         steer.plan.as_mut().unwrap().seen = Instant::now() - PLAN_GRID_CONFIRM;
         steer.plan_timeout(&sender);
-        assert_eq!(drained(&rx), vec![ActivityEvent::narration("## Plan\nship it")]);
+        assert_eq!(
+            drained(&rx),
+            vec![ActivityEvent::narration("## Plan\nship it")]
+        );
         // …and only once.
         steer.plan_timeout(&sender);
         assert!(drained(&rx).is_empty());
@@ -3477,7 +3848,13 @@ mod tests {
             &mut transcript,
         );
         match &drained(&rx)[..] {
-            [ActivityEvent::Subagent { id, agent_type, status, detail, .. }, ActivityEvent::Subagent {
+            [ActivityEvent::Subagent {
+                id,
+                agent_type,
+                status,
+                detail,
+                ..
+            }, ActivityEvent::Subagent {
                 id: done_id,
                 agent_type: done_type,
                 status: done,
@@ -3562,14 +3939,169 @@ mod tests {
             &mut transcript,
         );
         match &drained(&rx)[..] {
-            [ActivityEvent::Subagent { .. }, ActivityEvent::Subagent { id, agent_type, status, .. }] =>
-            {
+            [ActivityEvent::Subagent { .. }, ActivityEvent::Subagent {
+                id,
+                agent_type,
+                status,
+                ..
+            }] => {
                 assert_eq!(id, "agent_01");
                 assert_eq!(agent_type, "review");
                 assert_eq!(*status, SubagentStatus::Completed);
             }
             other => panic!("expected started + completed, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn internal_agent_lifecycle_noise_is_dropped() {
+        // claude's internal helper agents (summarizers etc.) fire
+        // SubagentStart/Stop too — type-less, never dispatched, no sidechain.
+        // They used to mint one fallback "agent" card each (EXP-356).
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStarted {
+                agent_id: Some("internal_01".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("internal_01".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        // A stop for an id nothing ever carded is equally silent.
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("internal_02".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(drained(&rx).is_empty(), "internal agents publish nothing");
+    }
+
+    #[test]
+    fn a_typeless_start_never_steals_a_typed_dispatch() {
+        let mut subagents = Subagents::default();
+        subagents.dispatch("toolu_explore".to_string(), "Explore".to_string(), None);
+        // An internal agent's type-less start must not claim the card…
+        assert_eq!(subagents.started("internal_01", None), None);
+        // …so the real start still binds it.
+        assert_eq!(
+            subagents.started("agent_e", Some("Explore")).as_deref(),
+            Some("toolu_explore")
+        );
+    }
+
+    #[test]
+    fn sidechain_meta_absorbs_identity_and_cards_once() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        // No dispatch fired (e.g. the sidecar missed it) — the meta.json is
+        // the identity source: card under the dispatch's tool_use_id.
+        let published = steer.subagents.absorb_meta(
+            "ac66d",
+            Some("toolu_meta".to_string()),
+            "Explore".to_string(),
+            Some("Find the flow".to_string()),
+        );
+        assert_eq!(
+            published,
+            Some((
+                "toolu_meta".to_string(),
+                "Explore".to_string(),
+                Some("Find the flow".to_string())
+            ))
+        );
+        // Sidechain tools group under the card…
+        let tool = ActivityEvent::Tool {
+            name: "Grep".to_string(),
+            detail: None,
+            subagent_id: Some("ac66d".to_string()),
+            at: None,
+        };
+        match attribute_to_card(tool, &steer.subagents) {
+            ActivityEvent::Tool { subagent_id, .. } => {
+                assert_eq!(subagent_id.as_deref(), Some("toolu_meta"));
+            }
+            other => panic!("expected a tool, got {other:?}"),
+        }
+        // …a late SubagentStart for the absorbed agent publishes nothing…
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStarted {
+                agent_id: Some("ac66d".to_string()),
+                agent_type: Some("Explore".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(drained(&rx).is_empty(), "already carded by the meta");
+        // …and the stop edge completes the SAME card with the real label.
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStopped {
+                agent_id: Some("ac66d".to_string()),
+                agent_type: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        match &drained(&rx)[..] {
+            [ActivityEvent::Subagent {
+                id,
+                agent_type,
+                status,
+                detail,
+                ..
+            }] => {
+                assert_eq!(id, "toolu_meta");
+                assert_eq!(agent_type, "Explore");
+                assert_eq!(*status, SubagentStatus::Completed);
+                assert_eq!(detail.as_deref(), Some("Find the flow"));
+            }
+            other => panic!("expected one completed card, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sidechain_meta_repairs_a_dispatch_card_without_republishing() {
+        let mut subagents = Subagents::default();
+        // A dispatch whose payload carried no subagent_type stored the
+        // fallback label.
+        subagents.dispatch(
+            "toolu_x".to_string(),
+            SUBAGENT_TYPE_FALLBACK.to_string(),
+            None,
+        );
+        let published = subagents.absorb_meta(
+            "ac66d",
+            Some("toolu_x".to_string()),
+            "Explore".to_string(),
+            Some("Find the flow".to_string()),
+        );
+        assert_eq!(published, None, "the dispatch already published the card");
+        assert_eq!(subagents.card_id("ac66d"), "toolu_x");
+        let meta = subagents.card_meta("toolu_x").expect("meta");
+        assert_eq!(meta.agent_type, "Explore");
+        assert_eq!(meta.detail.as_deref(), Some("Find the flow"));
+        // The consumed dispatch can no longer be claimed by a foreign start.
+        assert_eq!(subagents.started("internal_01", None), None);
     }
 
     #[test]
@@ -3669,10 +4201,16 @@ mod tests {
         let events = parse_transcript_line(&line, &redactor);
         assert_eq!(
             events,
-            vec![ActivityEvent::tool("Task", Some("Map the steer crate".into()))]
+            vec![ActivityEvent::tool(
+                "Task",
+                Some("Map the steer crate".into())
+            )]
         );
         let joined = format!("{events:?}");
-        assert!(!joined.contains("Read every file"), "task prompt leaked: {joined}");
+        assert!(
+            !joined.contains("Read every file"),
+            "task prompt leaked: {joined}"
+        );
     }
 
     #[test]
@@ -3729,7 +4267,10 @@ mod tests {
             &Redactor::new(vec![]),
             &mut transcript,
         );
-        assert!(steer.attention.is_none(), "delegated work is live — not parked");
+        assert!(
+            steer.attention.is_none(),
+            "delegated work is live — not parked"
+        );
         drained(&rx);
     }
 
@@ -3931,7 +4472,10 @@ mod tests {
         );
         assert_eq!(outcome, AnswerAttempt::Settled);
         assert_eq!(*keys.lock().unwrap(), vec!["2"]);
-        assert!(matches!(drained(&rx)[..], [ActivityEvent::AnswerAck { .. }]));
+        assert!(matches!(
+            drained(&rx)[..],
+            [ActivityEvent::AnswerAck { .. }]
+        ));
     }
 
     #[test]
@@ -3961,7 +4505,13 @@ mod tests {
         };
         assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
         match &drained(&rx)[..] {
-            [ActivityEvent::Question { id, ask_id, text, options, .. }] => {
+            [ActivityEvent::Question {
+                id,
+                ask_id,
+                text,
+                options,
+                ..
+            }] => {
                 assert_eq!(id.as_deref(), Some("toolu_01#submit"));
                 assert_eq!(ask_id.as_deref(), Some("toolu_01"));
                 assert_eq!(text, "All set — send these answers?");
@@ -4136,7 +4686,10 @@ mod tests {
         );
         assert_eq!(outcome, AnswerAttempt::Settled);
         assert_eq!(*keys.lock().unwrap(), vec!["1"]);
-        assert!(matches!(drained(&rx)[..], [ActivityEvent::AnswerAck { .. }]));
+        assert!(matches!(
+            drained(&rx)[..],
+            [ActivityEvent::AnswerAck { .. }]
+        ));
     }
 
     #[test]
@@ -4172,7 +4725,10 @@ mod tests {
         let outcome = steer.handle_answer(&answer, &term, &write_input, &sender);
         assert_eq!(outcome, AnswerAttempt::Settled);
         assert_eq!(*keys.lock().unwrap(), vec!["3", "\t"]);
-        assert!(matches!(drained(&rx)[..], [ActivityEvent::AnswerAck { .. }]));
+        assert!(matches!(
+            drained(&rx)[..],
+            [ActivityEvent::AnswerAck { .. }]
+        ));
     }
 
     #[test]
@@ -4191,9 +4747,20 @@ mod tests {
         // The turn ended with the ask still marked pending (the transcript
         // flush was missed): the safety net retires the cards and unpins
         // "needs input" instead of sticking forever (EXP-275).
-        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        steer.apply_hook(
+            hook(HookEventKind::Stop),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
         match &drained(&rx)[..] {
-            [ActivityEvent::QuestionResolved { id, ask_id, answers, dismissed, .. }] => {
+            [ActivityEvent::QuestionResolved {
+                id,
+                ask_id,
+                answers,
+                dismissed,
+                ..
+            }] => {
                 assert_eq!(*id, None);
                 assert_eq!(ask_id.as_deref(), Some("toolu_01"));
                 assert_eq!((answers, dismissed), (&None, &None), "neutral retire");
@@ -4241,7 +4808,12 @@ mod tests {
         steer.confirm_plan_from_grid(vec![QuestionOption::new("Yes", "1")], &sender);
         drained(&rx);
 
-        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        steer.apply_hook(
+            hook(HookEventKind::Stop),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
         match &drained(&rx)[..] {
             [ActivityEvent::QuestionResolved { id, ask_id, .. }] => {
                 assert_eq!(id.as_deref(), Some("toolu_plan"));
@@ -4262,7 +4834,12 @@ mod tests {
             &mut transcript,
         );
         drained(&rx);
-        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        steer.apply_hook(
+            hook(HookEventKind::Stop),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
         assert!(drained(&rx).is_empty(), "nothing was on the wire to retire");
         assert!(!steer.has_pending_question());
     }
@@ -4317,7 +4894,10 @@ mod tests {
             &mut transcript,
         );
         assert!(drained(&rx).is_empty(), "no permission card");
-        assert!(steer.attention.is_none(), "the picker already carries needs-input");
+        assert!(
+            steer.attention.is_none(),
+            "the picker already carries needs-input"
+        );
     }
 
     #[test]
@@ -4340,7 +4920,10 @@ mod tests {
             &mut transcript,
         );
         assert!(drained(&rx).is_empty(), "no permission card in bypass mode");
-        assert!(steer.attention == Some(Attention::Idle), "parked on input, not blocked");
+        assert!(
+            steer.attention == Some(Attention::Idle),
+            "parked on input, not blocked"
+        );
     }
 
     #[test]
@@ -4408,7 +4991,10 @@ mod tests {
             names,
             HashSet::from(["flat".to_string(), "nested".to_string()])
         );
-        assert_eq!(newest_transcript(&dir, after), Some(dir.join("sess-1.jsonl")));
+        assert_eq!(
+            newest_transcript(&dir, after),
+            Some(dir.join("sess-1.jsonl"))
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

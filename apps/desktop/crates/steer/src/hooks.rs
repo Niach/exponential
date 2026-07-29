@@ -44,8 +44,9 @@ pub const HOOK_TOKEN_ENV: &str = "EXP_HOOK_TOKEN";
 
 /// Which `PreToolUse` calls the settings file forwards. Anything else stays
 /// on the grid/transcript path — the sidecar is for the blocking, structured
-/// moments only.
-pub const PRE_TOOL_USE_MATCHER: &str = "ExitPlanMode|AskUserQuestion|Task";
+/// moments only. `Agent` is claude ≥2.1.220's name for the subagent tool
+/// (`Task` before it) — both dispatch shapes are identical (EXP-356).
+pub const PRE_TOOL_USE_MATCHER: &str = "ExitPlanMode|AskUserQuestion|Task|Agent";
 
 /// Largest hook body accepted (a plan is the big one; claude caps its own
 /// payloads far below this).
@@ -208,9 +209,8 @@ fn parse_pre_tool_use(value: &Value) -> Option<HookEventKind> {
         "ExitPlanMode" => {
             // The plan is `tool_input.plan`; a shape change must still yield
             // SOMETHING readable rather than an empty approval card.
-            let plan = string_field(input, "plan").unwrap_or_else(|| {
-                serde_json::to_string_pretty(input).unwrap_or_default()
-            });
+            let plan = string_field(input, "plan")
+                .unwrap_or_else(|| serde_json::to_string_pretty(input).unwrap_or_default());
             Some(HookEventKind::PlanProposed { tool_use_id, plan })
         }
         "AskUserQuestion" => {
@@ -228,7 +228,9 @@ fn parse_pre_tool_use(value: &Value) -> Option<HookEventKind> {
                 questions,
             })
         }
-        "Task" => Some(HookEventKind::SubagentDispatched {
+        // `Task` through claude v2.1.21x, renamed `Agent` since — same input
+        // shape (EXP-356).
+        "Task" | "Agent" => Some(HookEventKind::SubagentDispatched {
             tool_use_id,
             description: string_field(input, "description"),
             subagent_type: string_field(input, "subagent_type"),
@@ -484,7 +486,12 @@ fn handle_connection(
     // for the `read_exact` below.
     let mut budget = MAX_HEADER_BYTES;
     let mut request_line = String::new();
-    if reader.by_ref().take(budget as u64).read_line(&mut request_line)? == 0 {
+    if reader
+        .by_ref()
+        .take(budget as u64)
+        .read_line(&mut request_line)?
+        == 0
+    {
         return Ok(()); // the shutdown poke
     }
     budget = budget.saturating_sub(request_line.len());
@@ -508,7 +515,9 @@ fn handle_connection(
         if line.is_empty() {
             break;
         }
-        let Some((name, value)) = line.split_once(':') else { continue };
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
         let value = value.trim();
         match name.trim().to_ascii_lowercase().as_str() {
             "content-length" => content_length = value.parse().unwrap_or(0),
@@ -600,9 +609,7 @@ mod tests {
             event.context,
             HookContext {
                 session_id: Some("sess-abc".into()),
-                transcript_path: Some(
-                    "/home/u/.claude/projects/p/sess-abc.jsonl".into()
-                ),
+                transcript_path: Some("/home/u/.claude/projects/p/sess-abc.jsonl".into()),
                 cwd: Some("/home/u/repo".into()),
             }
         );
@@ -612,6 +619,28 @@ mod tests {
                 tool_use_id: Some("toolu_01ABC".into()),
                 plan: "## Plan\n1. Do the thing".into(),
             }
+        );
+    }
+
+    #[test]
+    fn parses_the_renamed_agent_tool_as_a_dispatch() {
+        // claude ≥2.1.220 renamed the subagent tool `Task` → `Agent`
+        // (EXP-356); the input shape is unchanged.
+        let event = parse(
+            r#"{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_use_id":"toolu_03",
+                "tool_input":{"description":"Find the flow","subagent_type":"Explore","prompt":"..."}}"#,
+        );
+        assert_eq!(
+            event.kind,
+            HookEventKind::SubagentDispatched {
+                tool_use_id: Some("toolu_03".into()),
+                description: Some("Find the flow".into()),
+                subagent_type: Some("Explore".into()),
+            }
+        );
+        assert!(
+            PRE_TOOL_USE_MATCHER.split('|').any(|t| t == "Agent"),
+            "the settings matcher must forward Agent dispatches"
         );
     }
 
@@ -797,7 +826,10 @@ mod tests {
             ),
             None
         );
-        assert_eq!(parse_hook_event(br#"{"hook_event_name":"PreCompact"}"#), None);
+        assert_eq!(
+            parse_hook_event(br#"{"hook_event_name":"PreCompact"}"#),
+            None
+        );
     }
 
     #[test]
@@ -922,7 +954,9 @@ mod tests {
         // The listener is gone with the accept thread; a connect either fails
         // or finds nothing serving.
         if let Ok(mut stream) = TcpStream::connect((Ipv4Addr::LOCALHOST, port)) {
-            stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(200)))
+                .unwrap();
             let mut response = String::new();
             let _ = stream.read_to_string(&mut response);
             assert!(response.is_empty(), "{response}");

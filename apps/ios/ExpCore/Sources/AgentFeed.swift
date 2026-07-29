@@ -554,6 +554,16 @@ public enum AgentFeed {
         group.questions.firstIndex { !$0.resolved && !done.contains($0.lockKey) }
     }
 
+    /// Every subagent seen in the feed, in first-appearance order (EXP-356) —
+    /// the session view renders one conversation tab per run, labeled and
+    /// summarized exactly like its group row.
+    public static func subagents(_ feed: [AgentFeedItem]) -> [AgentSubagentRun] {
+        rows(feed).compactMap { row in
+            if case let .subagentRun(run) = row { return run }
+            return nil
+        }
+    }
+
     /// Mutable accumulator behind `rows` — the row cases carry immutable
     /// payloads, but a group keeps collecting items as the feed is walked.
     private struct RowBuilder {

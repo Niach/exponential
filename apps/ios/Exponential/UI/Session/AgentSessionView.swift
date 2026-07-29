@@ -59,6 +59,10 @@ struct AgentSessionView: View {
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
     @State private var atBottom = true
+    /// EXP-356: the selected conversation tab — nil is the main agent; a
+    /// subagent id focuses that agent's stream. Falls back to Main whenever
+    /// the id vanishes from the feed (an `activity_reset` replay).
+    @State private var agentTab: String?
     @FocusState private var inputFocused: Bool
 
     private static let bottomAnchor = "feed-bottom"
@@ -197,8 +201,66 @@ struct AgentSessionView: View {
                     .multilineTextAlignment(.center)
             }
         } else {
-            feedList(model)
+            VStack(spacing: 0) {
+                agentTabStrip(model)
+                feedList(model)
+            }
         }
+    }
+
+    /// EXP-356: conversation tabs — Main plus one per subagent. Rendered only
+    /// once a subagent exists; the strip scrolls horizontally on a fan-out.
+    @ViewBuilder
+    private func agentTabStrip(_ model: AgentSessionModel) -> some View {
+        let agents = AgentFeed.subagents(model.feed)
+        if !agents.isEmpty {
+            let active = agents.contains { $0.subagentId == agentTab } ? agentTab : nil
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    agentTabChip(label: "Main", running: false, selected: active == nil) {
+                        agentTab = nil
+                    }
+                    ForEach(agents) { run in
+                        agentTabChip(
+                            label: run.agentType,
+                            running: !run.done,
+                            selected: active == run.subagentId
+                        ) {
+                            agentTab = run.subagentId
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func agentTabChip(
+        label: String,
+        running: Bool,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(label)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(
+                        selected ? TextOpacity.primary : TextOpacity.secondary
+                    ))
+                    .lineLimit(1)
+                if running {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+        }
+        .glassButton(isActive: selected)
+        .buttonStyle(.plain)
     }
 
     private func centeredState(@ViewBuilder content: () -> some View) -> some View {
@@ -228,12 +290,37 @@ struct AgentSessionView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        // Consecutive tool calls collapse into "N tool calls"
-                        // rows (EXP-97) — a render projection; the flat feed
-                        // (and the trailing-question rule) stays the state.
-                        let rows = model.rows
-                        ForEach(rows) { row in
-                            feedRow(row, isLast: row.id == rows.last?.id)
+                        // EXP-356: a selected agent tab focuses that subagent's
+                        // conversation; Main keeps the grouped feed.
+                        if let focused = agentTab.flatMap({ id in
+                            AgentFeed.subagents(model.feed).first { $0.subagentId == id }
+                        }) {
+                            SubagentRow(
+                                agentType: focused.agentType,
+                                status: focused.done ? .completed : .started,
+                                detail: focused.detail
+                            )
+                            if focused.items.isEmpty {
+                                Text("No tool calls yet.")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                    .padding(.vertical, 4)
+                            } else {
+                                ForEach(focused.items) { item in
+                                    if case let .tool(_, name, detail, _) = item {
+                                        ToolRow(name: name, detail: detail)
+                                    }
+                                }
+                            }
+                        } else {
+                            // Consecutive tool calls collapse into "N tool
+                            // calls" rows (EXP-97) — a render projection; the
+                            // flat feed (and the trailing-question rule) stays
+                            // the state.
+                            let rows = model.rows
+                            ForEach(rows) { row in
+                                feedRow(row, isLast: row.id == rows.last?.id)
+                            }
                         }
                         Color.clear
                             .frame(height: 1)
@@ -274,6 +361,12 @@ struct AgentSessionView: View {
                     if atBottom {
                         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                     }
+                }
+                // Switching conversation tabs re-pins to the newest event
+                // (EXP-356).
+                .onChange(of: agentTab) { _, _ in
+                    atBottom = true
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
                 .overlay(alignment: .bottom) {
                     if !atBottom {
