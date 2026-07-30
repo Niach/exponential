@@ -457,7 +457,15 @@ pub fn parse_oauth_callback(url: &str) -> Option<OAuthCallback> {
     // Non-scheme URLs (the legacy 127.0.0.1 loopback wire shape above) stay
     // host-agnostic.
     if let Some(rest) = url.strip_prefix(&format!("{OAUTH_CALLBACK_SCHEME}://")) {
-        if !rest.starts_with("oauth-return") {
+        // EXACT host match (same shape as `parse_github_connected_deep_link`):
+        // only the bare host, `/`, `?query` or `#fragment` may follow, so a
+        // different host sharing the prefix (`oauth-returnish?code=…`) is not
+        // an OAuth callback.
+        let Some(rest) = rest.strip_prefix("oauth-return") else {
+            return None;
+        };
+        let rest = rest.strip_prefix('/').unwrap_or(rest);
+        if !(rest.is_empty() || rest.starts_with('?') || rest.starts_with('#')) {
             return None;
         }
     }
@@ -659,6 +667,26 @@ mod tests {
         assert_eq!(
             parse_oauth_callback("exponential://invite/tok?code=x"),
             None
+        );
+        // The host match is EXACT — a host merely PREFIXED by `oauth-return`
+        // is a different host, not a callback.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-returnish?code=c#code=c"),
+            None
+        );
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return.evil.example?token=t"),
+            None
+        );
+        // …while the legitimate shapes (bare host, trailing slash, query,
+        // fragment) all still parse.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return/?code=c"),
+            Some(OAuthCallback::Code("c".to_string()))
+        );
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return#code=c"),
+            Some(OAuthCallback::Code("c".to_string()))
         );
     }
 

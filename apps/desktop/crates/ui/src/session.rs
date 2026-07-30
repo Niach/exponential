@@ -6,7 +6,7 @@
 //! `AuthStore`, one blocking `AuthClient`, the data dir). It is installed by
 //! the app shell at bootstrap, before any window opens.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::{App, Global};
@@ -237,14 +237,14 @@ pub fn reset_ide_data(cx: &mut App) {
         }
     }
     // EXP-369: the clones go too. The path is user-editable (Settings →
-    // Tools), so refuse the two settings that would turn this into an
-    // `rm -rf ~` — a filesystem root and the home directory itself.
+    // Tools), so it only qualifies when it is strictly INSIDE the user's home
+    // directory (see [`repos_root_is_deletable`]) — never `/`, `/Users`,
+    // `/home`, `/tmp` or `~` itself.
     let repos_root = CodingHub::global(cx)
         .read(cx)
         .settings
         .repos_root_path();
-    let sane = repos_root.parent().is_some()
-        && dirs::home_dir().is_none_or(|home| home != repos_root);
+    let sane = repos_root_is_deletable(&repos_root, dirs::home_dir().as_deref());
     if sane && !roots.contains(&repos_root) {
         roots.push(repos_root);
     }
@@ -268,6 +268,25 @@ pub fn reset_ide_data(cx: &mut App) {
         let _ = cx.update(|cx| cx.restart());
     })
     .detach();
+}
+
+/// Whether [`reset_ide_data`] may recursively delete `repos_root`. The path is
+/// user-editable (Settings → Tools), so the bar is deliberately high: the
+/// user's home directory must be a PROPER ancestor of it. That refuses the
+/// filesystem root, `~` itself, and every shared parent a stray setting could
+/// name (`/Users`, `/home`, `/tmp`, `/`), while allowing the default
+/// `~/.exponential/repos` and any other in-home location. An unknown home dir
+/// (`home == None`) refuses outright — nothing to prove containment against.
+fn repos_root_is_deletable(repos_root: &Path, home: Option<&Path>) -> bool {
+    // `..` would satisfy the prefix test while resolving anywhere (`~/../..`).
+    if repos_root
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return false;
+    }
+    repos_root.parent().is_some()
+        && home.is_some_and(|home| repos_root != home && repos_root.starts_with(home))
 }
 
 /// The startup session bootstrap (app-shell wiring):
@@ -340,4 +359,38 @@ fn dev_inject_session(server: String, token: String, cx: &mut App) {
         });
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EXP-367: "Reset IDE data" only recurses into a repos root the home
+    /// directory PROPERLY contains — every shared parent is refused.
+    #[test]
+    fn repos_root_must_live_under_the_home_directory() {
+        let home = PathBuf::from("/Users/dev");
+        let deletable = |path: &str| repos_root_is_deletable(Path::new(path), Some(&home));
+
+        assert!(deletable("/Users/dev/.exponential/repos"));
+        assert!(deletable("/Users/dev/code"));
+
+        assert!(!deletable("/Users/dev")); // home itself
+        assert!(!deletable("/Users")); // the shared parent of every home
+        assert!(!deletable("/home"));
+        assert!(!deletable("/tmp"));
+        assert!(!deletable("/"));
+        assert!(!deletable("/Users/other/code")); // a sibling user's tree
+        assert!(!deletable("/Users/dev/../other")); // escapes via `..`
+        assert!(!deletable("/Users/dev/..")); // ditto, straight to /Users
+    }
+
+    /// No resolvable home directory ⇒ nothing to prove containment against.
+    #[test]
+    fn repos_root_without_a_home_directory_is_refused() {
+        assert!(!repos_root_is_deletable(
+            Path::new("/Users/dev/.exponential/repos"),
+            None
+        ));
+    }
 }

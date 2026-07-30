@@ -164,31 +164,6 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
     } else {
         None
     };
-    // A session may still hold the PR branch's worktree (EXP-358 keeps
-    // sessions alive through in_review/merged, so the session that opened
-    // the PR commonly outlives a failed merge). The fix run supersedes it:
-    // close its tab now — `close_tab` kills and joins the PTY, and the
-    // `TabClosed` watcher fires the idempotent `codingSessions.end` — so
-    // the rebase never runs under a live PTY's cwd. A fix run already
-    // working the branch refuses the duplicate instead.
-    if let Some(fix) = &fix_target {
-        if let Some(sessions) = crate::coding_flow::LocalSessions::global_ref(cx) {
-            let stale = sessions.read(cx).session_on_branch(&fix.branch).map(|session| {
-                (session.action_id.clone(), session.manager.clone(), session.tab)
-            });
-            if let Some((stale_action, manager, tab)) = stale {
-                if stale_action.as_deref() == Some(BUILTIN_FIX_CONFLICTS_ID) {
-                    let message = "A fix-conflicts run is already working this pull request.";
-                    log::warn!("actions: fix-conflicts start refused — {message}");
-                    notify_target_error(target, message, cx);
-                    return;
-                }
-                if let Some(manager) = manager.upgrade() {
-                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-                }
-            }
-        }
-    }
     // The kind fields the post-fetch request needs (the background closure
     // owns `fix_target` for its repo resolution).
     let fix_kind = fix_target
@@ -298,6 +273,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                 cx.activate(true);
             }
 
+            let fix_branch = fix_kind.as_ref().map(|(branch, ..)| branch.clone());
             let kind = match fix_kind {
                 Some((branch, identifier, issue_id)) => {
                     let default_branch = repo_group
@@ -329,6 +305,16 @@ team settings → Repositories.";
                 None if builtin => ActionRunKind::CreateAction,
                 None => ActionRunKind::Team,
             };
+            // LAST gate before the launch: take the PR branch over from the
+            // sessions still holding its worktree. Deliberately after the
+            // fetch/repo/default-branch validation above — this KILLS live
+            // sessions, and a run that then fails validation would have torn
+            // them down for nothing.
+            if let Some(branch) = fix_branch {
+                if !take_over_branch(&branch, window, cx) {
+                    return;
+                }
+            }
             let request = ActionLaunchRequest {
                 action_id: action.id.clone(),
                 action_name: action.name.clone(),
@@ -345,6 +331,52 @@ team settings → Repositories.";
         });
     })
     .detach();
+}
+
+/// Take a fix-conflicts run's branch over from the local sessions still
+/// holding its worktree. Sessions outlive their PR (EXP-358 keeps them alive
+/// through in_review/merged, so the session that opened the PR commonly
+/// survives a failed merge) and the fix run supersedes them: close their tabs
+/// now — `close_tab` kills and joins the PTY, and the `TabClosed` watcher
+/// fires the idempotent `codingSessions.end` — so the rebase never runs under
+/// a live PTY's cwd.
+///
+/// Returns `false` when the launch must be REFUSED: another fix run is
+/// already working the branch, and two agents rebasing + force-pushing one
+/// worktree is the failure this guard exists for. ALL holders are considered
+/// (and closed) — a branch is routinely co-held by an issue session and an
+/// action session, and inspecting only one of them both missed the live fix
+/// run and left the other holder's PTY sitting on the tree.
+fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -> bool {
+    let Some(sessions) = coding_flow::LocalSessions::global_ref(cx) else {
+        return true;
+    };
+    let claims: Vec<_> = sessions
+        .read(cx)
+        .sessions_on_branch(branch)
+        .map(|session| coding_flow::BranchClaim {
+            is_fix_run: coding_flow::is_fix_conflicts_run(session.action_id.as_deref()),
+            handle: (session.manager.clone(), session.tab),
+        })
+        .collect();
+    match coding_flow::plan_branch_takeover(claims) {
+        coding_flow::BranchTakeover::Refuse => {
+            let message = "A fix-conflicts run is already working this pull request.";
+            log::warn!("actions: fix-conflicts start refused — {message}");
+            let _ = window.update(cx, |_, window, cx| {
+                window.push_notification(Notification::error(SharedString::from(message)), cx);
+            });
+            false
+        }
+        coding_flow::BranchTakeover::Close(holders) => {
+            for (manager, tab) in holders {
+                if let Some(manager) = manager.upgrade() {
+                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+                }
+            }
+            true
+        }
+    }
 }
 
 /// Surface a runner failure on the target window (best-effort). A RELAY start

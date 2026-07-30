@@ -11,7 +11,10 @@
 //! - **Worktrees** (EXP-369): the scan carries each clone's linked worktrees,
 //!   and the row expands into them. Per worktree: a confirmed force-remove
 //!   and a terminal button whose dropdown mirrors the terminal dock's "+"
-//!   (installed agents + "New shell"), launched at THAT worktree's path.
+//!   (installed agents + "New shell"), launched at THAT worktree's path. The
+//!   force-remove is **blocked while a coding session holds that worktree's
+//!   branch** — the same guard as "Remove local copy", one level down (a
+//!   `--force` remove would otherwise yank a running agent's cwd).
 //! - **Prune merged worktrees**: for each of a clone's linked worktrees whose
 //!   issue has `prState = 'merged'`, `git worktree remove` + `git branch -D`.
 //!   A worktree with uncommitted changes is **skipped** (never force-removed)
@@ -45,7 +48,7 @@ use coding::branch_name;
 use coding::git_worktree::{sanitize_branch_for_path, worktrees_dir};
 use coding::CodingAgent;
 
-use crate::coding_flow::CodingHub;
+use crate::coding_flow::{CodingHub, LocalSessions};
 use crate::file_tree::{self, OpenAgentShellHere, OpenTerminalHere};
 use crate::native_dialog::{self, AlertSpec};
 use crate::repo_resolver::{repo_resolver_for_window, RepoResolver};
@@ -322,7 +325,8 @@ impl LocalReposPane {
     }
 
     /// The confirm dialog for a worktree trash click — `--force` discards
-    /// uncommitted work, so the warning has to say so.
+    /// uncommitted work, so the warning has to say so. Only reached when the
+    /// trash button is enabled (no live session on the worktree's branch).
     fn confirm_remove_worktree(
         &self,
         full_name: String,
@@ -398,11 +402,15 @@ impl LocalReposPane {
 
     /// One clone row: name, disk usage + the worktree expander, and the two
     /// actions — followed by the worktree sub-rows while expanded.
+    /// `worktrees_used` is the per-worktree live-session gate, parallel to
+    /// `repo.worktrees`.
+    #[allow(clippy::too_many_arguments)]
     fn render_repo_row(
         &self,
         ix: usize,
         repo: &RepoEntry,
         in_use: bool,
+        worktrees_used: &[bool],
         repository_id: Option<&String>,
         installed: &[CodingAgent],
         cx: &mut gpui::Context<Self>,
@@ -555,6 +563,7 @@ impl LocalReposPane {
                     repository_id,
                     installed,
                     busy,
+                    worktrees_used.get(wt_ix).copied().unwrap_or(false),
                     cx,
                 ));
             }
@@ -575,6 +584,7 @@ impl LocalReposPane {
         repository_id: Option<&String>,
         installed: &[CodingAgent],
         busy: bool,
+        in_use: bool,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let path = worktree.path.to_string_lossy().into_owned();
@@ -624,21 +634,34 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let clone = repo.clone_path.clone();
             let worktree = worktree.clone();
-            Button::new((remove_id, wt_ix))
+            let mut button = Button::new((remove_id, wt_ix))
                 .ghost()
                 .xsmall()
-                .icon(Icon::new(registry::UI_DELETE).text_color(cx.theme().danger))
-                .tooltip("Remove this worktree from disk (confirmed)")
-                .disabled(busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.confirm_remove_worktree(
-                        full_name.clone(),
-                        clone.clone(),
-                        worktree.clone(),
-                        window,
-                        cx,
-                    );
+                .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
+                    cx.theme().muted_foreground
+                } else {
+                    cx.theme().danger
                 }))
+                .disabled(busy || in_use);
+            // A `--force` remove would yank a running agent's cwd — same gate
+            // as "Remove local copy", one level down.
+            if in_use {
+                button = button
+                    .tooltip("A coding session is running on this worktree — stop it first.");
+            } else {
+                button = button
+                    .tooltip("Remove this worktree from disk (confirmed)")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.confirm_remove_worktree(
+                            full_name.clone(),
+                            clone.clone(),
+                            worktree.clone(),
+                            window,
+                            cx,
+                        );
+                    }));
+            }
+            button
         };
 
         h_flex()
@@ -734,19 +757,38 @@ impl Render for LocalReposPane {
                 );
             }
             Scan::Ready(repos) => {
-                // Snapshot (clone + in-use gate) so the manager/collection
-                // borrows end before the row listeners borrow `cx`.
-                let rows: Vec<(RepoEntry, bool)> = repos
+                // Snapshot (clone + in-use gates, repo AND per worktree) so
+                // the manager/collection borrows end before the row listeners
+                // borrow `cx`.
+                let live = live_session_branches(&prefix, cx);
+                let rows: Vec<(RepoEntry, bool, Vec<bool>)> = repos
                     .iter()
-                    .map(|repo| (repo.clone(), clone_in_use(&repo.clone_path, &prefix, cx)))
+                    .map(|repo| {
+                        let worktrees_used: Vec<bool> = repo
+                            .worktrees
+                            .iter()
+                            .map(|worktree| {
+                                worktree_in_use(&repo.clone_path, worktree, &live)
+                                    || worktree.branch.as_deref().is_some_and(|branch| {
+                                        local_session_on_branch(branch, cx)
+                                    })
+                            })
+                            .collect();
+                        // A held worktree holds its clone too, even when the
+                        // branch→dir mapping didn't resolve (batch/action runs).
+                        let in_use = clone_in_use(&repo.clone_path, &live)
+                            || worktrees_used.iter().any(|used| *used);
+                        (repo.clone(), in_use, worktrees_used)
+                    })
                     .collect();
                 let repository_ids = self.repository_ids(cx);
                 let mut list = v_flex().gap_2();
-                for (ix, (repo, in_use)) in rows.iter().enumerate() {
+                for (ix, (repo, in_use, worktrees_used)) in rows.iter().enumerate() {
                     list = list.child(self.render_repo_row(
                         ix,
                         repo,
                         *in_use,
+                        worktrees_used,
                         repository_ids.get(&repo.full_name),
                         &installed,
                         cx,
@@ -793,15 +835,15 @@ fn collect_merged_branches(prefix: &str, cx: &App) -> HashSet<String> {
     set
 }
 
-/// Whether a live coding session is bound to one of this clone's worktrees:
-/// a synced `running`/`in_review`/`merged` session whose issue's worktree dir
-/// exists under `<clone>.worktrees` (EXP-358: a merged run's session keeps
-/// running, so it keeps occupying the clone). Errs toward "in use" — never
-/// delete a clone out from under a live session (§4.7).
-fn clone_in_use(clone: &Path, prefix: &str, cx: &App) -> bool {
+/// The branches held by a live coding session ANYWHERE: a synced
+/// `running`/`in_review`/`merged` session mapped through its issue to
+/// `<prefix><IDENTIFIER>` (EXP-358: a merged run's session keeps running, so
+/// it keeps occupying its worktree). Includes other devices' sessions; batch
+/// and action runs have no issue row to map through and are covered by
+/// [`local_session_on_branch`] instead.
+fn live_session_branches(prefix: &str, cx: &App) -> HashSet<String> {
     let collections = Store::global(cx).collections();
     let issues = collections.issues.read(cx);
-    let worktrees = worktrees_dir(clone);
     collections
         .coding_sessions
         .read(cx)
@@ -816,10 +858,40 @@ fn clone_in_use(clone: &Path, prefix: &str, cx: &App) -> bool {
         })
         .filter_map(|session| session.issue_id.as_deref())
         .filter_map(|issue_id| issues.get(issue_id))
-        .any(|issue| {
-            let branch = branch_name(prefix, &issue.identifier);
-            worktrees.join(sanitize_branch_for_path(&branch)).exists()
-        })
+        .map(|issue| branch_name(prefix, &issue.identifier))
+        .collect()
+}
+
+/// Whether THIS process is running a session on `branch` — the same
+/// [`LocalSessions::session_on_branch`] source of truth the fix-conflicts
+/// launch uses, which (unlike the synced rows) also covers batch and action
+/// runs.
+fn local_session_on_branch(branch: &str, cx: &App) -> bool {
+    LocalSessions::global_ref(cx)
+        .is_some_and(|sessions| sessions.read(cx).session_on_branch(branch).is_some())
+}
+
+/// Whether a live coding session is bound to one of this clone's worktrees:
+/// a live branch whose worktree dir exists under `<clone>.worktrees`. Errs
+/// toward "in use" — never delete a clone out from under a live session
+/// (§4.7).
+fn clone_in_use(clone: &Path, live: &HashSet<String>) -> bool {
+    let worktrees = worktrees_dir(clone);
+    live.iter()
+        .any(|branch| worktrees.join(sanitize_branch_for_path(branch)).exists())
+}
+
+/// Whether a live session holds THIS worktree — the per-row mirror of
+/// [`clone_in_use`], gating the `--force` remove. A row that knows its branch
+/// matches by branch name; a branch-less row (detached, or the git-less
+/// directory fallback) matches by the directory a live branch would occupy.
+fn worktree_in_use(clone: &Path, worktree: &WorktreeRow, live: &HashSet<String>) -> bool {
+    match &worktree.branch {
+        Some(branch) => live.contains(branch),
+        None => live.iter().any(|branch| {
+            worktrees_dir(clone).join(sanitize_branch_for_path(branch)) == worktree.path
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,6 +1314,42 @@ mod tests {
         assert_eq!(list_repo_worktrees(&clone).len(), 1);
         // The branch survives its worktree.
         assert!(git_ok(&clone, &["rev-parse", "--verify", "--quiet", "refs/heads/exp/EXP-2"]).is_ok());
+    }
+
+    /// The live-session gate: a held branch blocks BOTH its own worktree's
+    /// force-remove and the clone's "Remove local copy"; an unheld sibling
+    /// stays removable.
+    #[test]
+    fn live_branches_gate_the_matching_worktree_and_its_clone() {
+        let dir = temp_dir("in-use");
+        let (_root, clone) = seed_clone(&dir.0);
+        let worktrees = list_repo_worktrees(&clone);
+        let live: HashSet<String> = ["exp/EXP-1".to_string()].into_iter().collect();
+
+        assert!(clone_in_use(&clone, &live));
+        assert!(worktree_in_use(&clone, &worktrees[0], &live));
+        assert!(!worktree_in_use(&clone, &worktrees[1], &live));
+
+        // No live branch → nothing gated.
+        assert!(!clone_in_use(&clone, &HashSet::new()));
+        assert!(worktrees
+            .iter()
+            .all(|worktree| !worktree_in_use(&clone, worktree, &HashSet::new())));
+    }
+
+    /// A branch-less row (detached worktree / git-less fallback) is matched by
+    /// the directory a live branch would occupy.
+    #[test]
+    fn branchless_worktree_matches_a_live_branch_by_directory() {
+        let clone = PathBuf::from("/repos/acme/web");
+        let row = WorktreeRow {
+            path: worktrees_dir(&clone).join(sanitize_branch_for_path("exp/EXP-9")),
+            branch: None,
+        };
+        let live: HashSet<String> = ["exp/EXP-9".to_string()].into_iter().collect();
+        assert!(worktree_in_use(&clone, &row, &live));
+        let other: HashSet<String> = ["exp/EXP-8".to_string()].into_iter().collect();
+        assert!(!worktree_in_use(&clone, &row, &other));
     }
 
     #[test]

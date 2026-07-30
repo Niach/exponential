@@ -254,41 +254,60 @@ impl LocalSessions {
         self.by_issue.get(issue_id)
     }
 
-    /// The live local session (issue, batch, or action) whose worktree is on
-    /// `branch`, if any. Trunk/scratch action runs carry an empty branch and
-    /// never match. The fix-conflicts launch uses this to END a stale
-    /// session still holding the PR branch (EXP-358 keeps sessions alive
-    /// through in_review/merged) before the run rebases that worktree.
-    pub fn session_on_branch(&self, branch: &str) -> Option<&LocalCodingSession> {
-        if branch.is_empty() {
-            return None;
-        }
+    /// EVERY live local session (issue, batch, or action) whose worktree is
+    /// on `branch`. Trunk/scratch action runs carry an empty branch and never
+    /// match. The fix-conflicts launch uses this to END the stale sessions
+    /// still holding the PR branch (EXP-358 keeps sessions alive through
+    /// in_review/merged) before the run rebases that worktree.
+    ///
+    /// All of them, never "the first found": one branch is routinely held by
+    /// TWO sessions at once — a live fix-conflicts run sits in `by_action`
+    /// while the issue's own session (whose play/resume affordance keys off
+    /// `by_issue`) can be resumed onto the very same branch/worktree. A
+    /// single arbitrary match made the "Fixing…" park flicker off and let the
+    /// launcher close one holder while a second agent kept rebasing and
+    /// force-pushing the same tree.
+    pub fn sessions_on_branch<'a>(
+        &'a self,
+        branch: &'a str,
+    ) -> impl Iterator<Item = &'a LocalCodingSession> + 'a {
+        self.all().filter(move |session| holds_branch(&session.branch, branch))
+    }
+
+    /// Every live local session, whatever its subject.
+    fn all(&self) -> impl Iterator<Item = &LocalCodingSession> {
         self.by_issue
             .values()
             .chain(self.by_batch.values())
             .chain(self.by_action.values())
-            .find(|session| session.branch == branch)
+    }
+
+    /// ONE live local session holding `branch`, arbitrarily chosen when
+    /// several do. Only for callers that ask "is this branch held at all"
+    /// (the EXP-102 clone sweep/delete guard) — anything that ACTS on the
+    /// holder (ending it, or classifying it) must use
+    /// [`Self::sessions_on_branch`] and handle all of them.
+    pub fn session_on_branch(&self, branch: &str) -> Option<&LocalCodingSession> {
+        self.all().find(|session| holds_branch(&session.branch, branch))
     }
 
     /// Whether a live fix-conflicts run (EXP-259) is already working
     /// `branch` — the ONLY case the "Fix conflicts" buttons park as
     /// "Fixing…". Any other session holding the branch (its own coding
     /// session, still alive after a plain Merge failed) is ended by the
-    /// fix-run launch itself, so those buttons stay clickable.
+    /// fix-run launch itself, so those buttons stay clickable. ANY holder
+    /// being a fix run parks the button: a co-held branch must not unpark it
+    /// just because the issue session happened to be iterated first.
     pub fn is_branch_fixing(&self, branch: &str) -> bool {
-        self.session_on_branch(branch).is_some_and(|session| {
-            session.action_id.as_deref() == Some(api::actions::BUILTIN_FIX_CONFLICTS_ID)
-        })
+        self.sessions_on_branch(branch)
+            .any(|session| is_fix_conflicts_run(session.action_id.as_deref()))
     }
 
     /// The coding session id whose terminal tab is `tab`, if this process is
     /// coding it (reverse of the subject-keyed maps — the §8.5 banner resolves
     /// a dock tab back to its steer session).
     pub fn session_id_for_tab(&self, tab: TabId) -> Option<&str> {
-        self.by_issue
-            .values()
-            .chain(self.by_batch.values())
-            .chain(self.by_action.values())
+        self.all()
             .find(|session| session.tab == tab)
             .map(|session| session.session_id.as_str())
     }
@@ -297,10 +316,7 @@ impl LocalSessions {
     /// an issue-session tab back to its issue for the EXP-325 issue-styled
     /// chip (status glyph + identifier + synced title + hover merge).
     pub fn subject_for_tab(&self, tab: TabId) -> Option<&SessionSubject> {
-        self.by_issue
-            .values()
-            .chain(self.by_batch.values())
-            .chain(self.by_action.values())
+        self.all()
             .find(|session| session.tab == tab)
             .map(|session| &session.subject)
     }
@@ -309,10 +325,7 @@ impl LocalSessions {
     /// quit-time sweep input, the EXP-229 reconcile skip-set, and the
     /// sign-out sweep input.
     pub(crate) fn session_ids(&self) -> Vec<String> {
-        self.by_issue
-            .values()
-            .chain(self.by_batch.values())
-            .chain(self.by_action.values())
+        self.all()
             .map(|session| session.session_id.clone())
             .collect()
     }
@@ -455,6 +468,51 @@ impl LocalSessions {
             cx.notify();
         });
     }
+}
+
+/// Does a session's worktree sit on `branch`? An EMPTY branch never matches
+/// anything: trunk/scratch action runs record no branch, and neither does a
+/// branch-less query — matching those to each other would make every scratch
+/// run look like a holder of every other scratch run's tree.
+fn holds_branch(session_branch: &str, branch: &str) -> bool {
+    !session_branch.is_empty() && session_branch == branch
+}
+
+/// Is this session a fix-conflicts run (EXP-259)? `action_id` is the
+/// session's action id — `None` for issue/batch sessions.
+pub(crate) fn is_fix_conflicts_run(action_id: Option<&str>) -> bool {
+    action_id == Some(api::actions::BUILTIN_FIX_CONFLICTS_ID)
+}
+
+/// One live session's claim on a branch, reduced to what a fix-conflicts
+/// launch decides on. Generic over the close handle so the multiplicity rules
+/// ([`plan_branch_takeover`]) stay unit-testable without gpui entities.
+pub(crate) struct BranchClaim<H> {
+    pub is_fix_run: bool,
+    pub handle: H,
+}
+
+/// What a fix-conflicts launch must do with the sessions holding its branch.
+pub(crate) enum BranchTakeover<H> {
+    /// A fix run is ALREADY working the branch — refuse the duplicate rather
+    /// than put two agents on one worktree rebasing + force-pushing.
+    Refuse,
+    /// Close EVERY holder (never just the first — an issue session and a
+    /// batch session can both sit on one branch), then launch.
+    Close(Vec<H>),
+}
+
+/// The takeover plan for the sessions currently holding a fix run's branch:
+/// refuse if ANY of them is itself a fix run, otherwise hand back ALL of them
+/// to close.
+pub(crate) fn plan_branch_takeover<H>(
+    claims: impl IntoIterator<Item = BranchClaim<H>>,
+) -> BranchTakeover<H> {
+    let claims: Vec<BranchClaim<H>> = claims.into_iter().collect();
+    if claims.iter().any(|claim| claim.is_fix_run) {
+        return BranchTakeover::Refuse;
+    }
+    BranchTakeover::Close(claims.into_iter().map(|claim| claim.handle).collect())
 }
 
 /// The local session for `issue_id`, if this process is coding it right now.
@@ -1342,5 +1400,88 @@ impl Render for StartCodingControl {
             }
         }
         row.into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build the claim list a branch's holders reduce to (`true` = that
+    /// holder IS a fix-conflicts run), labelled so a failure names the holder.
+    fn claims(holders: &[(&'static str, bool)]) -> Vec<BranchClaim<&'static str>> {
+        holders
+            .iter()
+            .map(|(label, is_fix_run)| BranchClaim {
+                is_fix_run: *is_fix_run,
+                handle: *label,
+            })
+            .collect()
+    }
+
+    fn closed(takeover: BranchTakeover<&'static str>) -> Vec<&'static str> {
+        match takeover {
+            BranchTakeover::Close(handles) => handles,
+            BranchTakeover::Refuse => panic!("expected a takeover, got a refusal"),
+        }
+    }
+
+    /// Trunk/scratch action runs record no branch — they must never read as
+    /// holders (of each other, or of a branch-less query).
+    #[test]
+    fn a_branchless_session_holds_nothing() {
+        assert!(holds_branch("exp/EXP-1", "exp/EXP-1"));
+        assert!(!holds_branch("exp/EXP-1", "exp/EXP-2"));
+        assert!(!holds_branch("", ""), "two scratch runs share no branch");
+        assert!(!holds_branch("", "exp/EXP-1"));
+        assert!(!holds_branch("exp/EXP-1", ""));
+    }
+
+    #[test]
+    fn only_the_fix_conflicts_builtin_counts_as_a_fix_run() {
+        assert!(is_fix_conflicts_run(Some(
+            api::actions::BUILTIN_FIX_CONFLICTS_ID
+        )));
+        assert!(!is_fix_conflicts_run(None), "issue/batch session");
+        assert!(!is_fix_conflicts_run(Some("some-team-action")));
+    }
+
+    /// The launch proceeds (and closes nothing) when nobody holds the branch.
+    #[test]
+    fn an_unheld_branch_launches_with_nothing_to_close() {
+        assert!(closed(plan_branch_takeover(claims(&[]))).is_empty());
+    }
+
+    /// The regression: a branch is co-held by the issue's own session AND a
+    /// live fix run, and the fix run is NOT the first holder found (map
+    /// iteration order is arbitrary, and `by_issue` is chained first). The
+    /// duplicate must be refused whatever the order.
+    #[test]
+    fn any_live_fix_run_refuses_the_duplicate_whatever_the_order() {
+        for holders in [
+            vec![("issue-session", false), ("fix-run", true)],
+            vec![("fix-run", true), ("issue-session", false)],
+            vec![("fix-run", true)],
+        ] {
+            assert!(
+                matches!(
+                    plan_branch_takeover(claims(&holders)),
+                    BranchTakeover::Refuse
+                ),
+                "a live fix run must refuse the duplicate: {holders:?}"
+            );
+        }
+    }
+
+    /// The other half: EVERY non-fix holder is closed before the launch —
+    /// closing only the first left a second PTY sitting on the worktree the
+    /// run is about to rebase and force-push.
+    #[test]
+    fn every_non_fix_holder_is_closed_before_the_launch() {
+        let holders = [("issue-session", false), ("batch-session", false)];
+        assert_eq!(
+            closed(plan_branch_takeover(claims(&holders))),
+            vec!["issue-session", "batch-session"],
+        );
     }
 }
