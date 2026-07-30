@@ -43,6 +43,7 @@ import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
+import { captureLanding } from "@/lib/conversion/capture"
 
 // Fire-and-forget: seed the bootstrap feedback team and promote initial admins.
 // Idempotent; errors are logged inside bootstrapCloud(). Calling from
@@ -199,8 +200,9 @@ function ensureNativeResponse(res: Response): Response {
   return new Response(res.body, res)
 }
 
-let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
-  withNoindexHeader(
+let _fetch: (req: Request) => Response | Promise<Response> = async (req) => {
+  captureLanding(req)
+  return withNoindexHeader(
     withSecurityHeaders(
       withSupportPageHeaders(
         req,
@@ -211,6 +213,7 @@ let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
       )
     )
   )
+}
 const ws = hasWebSocket
   ? wsAdapter({ resolve: resolveWebsocketHooks })
   : undefined
@@ -227,6 +230,7 @@ if (hasWebSocket && ws) {
       // the guard above ensures we only get here on websocket requests.
       return upgraded as Response | Promise<Response>
     }
+    captureLanding(req)
     return withNoindexHeader(
       withSecurityHeaders(
         withSupportPageHeaders(

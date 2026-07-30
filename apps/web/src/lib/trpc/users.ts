@@ -16,7 +16,9 @@ import {
   cancelCreemSubscriptionsBestEffort,
   type CancellableSubscription,
 } from "@/lib/billing/creem-subscriptions"
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm"
+import { truncateAttributionInput } from "@/lib/conversion/attribution"
+import { isCloudInstance } from "@/lib/bootstrap-cloud"
 
 export const usersRouter = router({
   listByTeamIds: authedProcedure.query(async ({ ctx }) => {
@@ -83,6 +85,58 @@ export const usersRouter = router({
       .orderBy(desc(apikeys.createdAt))
     return { keys: rows }
   }),
+
+  // Stamp signup attribution (EXP-362) onto the caller's OWN fresh account.
+  // Cookieless: ref/utm params ride URLs from the marketing site through the
+  // auth flow (incl. the OAuth callbackURL), and the client claims them right
+  // after its first authenticated load. Self-reported, but the guards keep it
+  // honest: write-once (every column still null) and only within 24h of
+  // account creation — an established account can never rewrite its origin.
+  claimSignupAttribution: authedProcedure
+    .input(
+      z.object({
+        ref: z.string().max(512).optional(),
+        utmSource: z.string().max(512).optional(),
+        utmMedium: z.string().max(512).optional(),
+        utmCampaign: z.string().max(512).optional(),
+        referrer: z.string().max(2048).optional(),
+        landingPath: z.string().max(2048).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Cloud-only (EXP-362): self-hosted instances collect no attribution.
+      if (!isCloudInstance()) return { claimed: false }
+      const clean = truncateAttributionInput(input)
+      const hasAny = Object.values(clean).some((value) => value !== null)
+      if (!hasAny) return { claimed: false }
+
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      const claimed = await ctx.db
+        .update(users)
+        .set({
+          signupRef: clean.ref,
+          signupUtmSource: clean.utmSource,
+          signupUtmMedium: clean.utmMedium,
+          signupUtmCampaign: clean.utmCampaign,
+          signupReferrer: clean.referrer,
+          signupLandingPath: clean.landingPath,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(users.id, ctx.session.user.id),
+            gt(users.createdAt, dayAgo),
+            isNull(users.signupRef),
+            isNull(users.signupUtmSource),
+            isNull(users.signupUtmMedium),
+            isNull(users.signupUtmCampaign),
+            isNull(users.signupReferrer),
+            isNull(users.signupLandingPath)
+          )
+        )
+        .returning({ id: users.id })
+      return { claimed: claimed.length > 0 }
+    }),
 
   // Dismiss the "Get the desktop app" card (Agents view). Sets a per-user
   // timestamp flag (like onboardingCompletedAt) surfaced read-only on the

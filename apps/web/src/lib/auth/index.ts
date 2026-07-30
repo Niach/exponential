@@ -8,11 +8,17 @@ import { tanstackStartCookies } from "better-auth/tanstack-start"
 import { eq, and } from "drizzle-orm"
 import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
-import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
+import {
+  parseOidcProviders,
+  type OidcProviderConfig,
+} from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
 import { isPasswordSignupDisabled } from "@/lib/auth/config"
 import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email"
 import { emailEnabled } from "@/lib/email-enabled"
+import { dailyAnonymousIdFromHeaders } from "@/lib/conversion/anonymous"
+import { recordConversionEvent } from "@/lib/conversion/events"
+import { recordSubscriptionLifecycleEvent } from "@/lib/conversion/subscription-events"
 import { isAdminUser } from "./app-user"
 import { mintAppleClientSecret } from "./apple"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
@@ -230,8 +236,7 @@ export const auth = betterAuth({
             // flow doesn't use it.
             ...(process.env.APPLE_APP_BUNDLE_IDENTIFIER
               ? {
-                  appBundleIdentifier:
-                    process.env.APPLE_APP_BUNDLE_IDENTIFIER,
+                  appBundleIdentifier: process.env.APPLE_APP_BUNDLE_IDENTIFIER,
                 }
               : {}),
           },
@@ -269,7 +274,7 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        after: async (user) => {
+        after: async (user, ctx) => {
           try {
             await maybePromoteNewUser(user.id, user.email, user.emailVerified)
           } catch (err) {
@@ -280,6 +285,36 @@ export const auth = betterAuth({
           }
           // No team auto-creation (EXP-188): new accounts start team-less
           // and the first-run onboarding offers "create a team or join one".
+
+          // Conversion funnel (EXP-362, CLOUD-ONLY — self-hosted instances
+          // record nothing): every account creation is one signup event (the
+          // once-per-user index absorbs any re-fire). The daily anonymous
+          // hash of the creating request links the account to its same-day
+          // `landing` row; ref/utm attribution arrives separately via
+          // users.claimSignupAttribution (cookieless — params ride URLs).
+          try {
+            if (!isCloudInstance()) return
+            const headers = ctx?.headers ?? ctx?.request?.headers ?? null
+            const anonymousId = headers
+              ? dailyAnonymousIdFromHeaders(headers)
+              : null
+            if (anonymousId) {
+              await db
+                .update(schema.users)
+                .set({ signupAnonymousId: anonymousId })
+                .where(eq(schema.users.id, user.id))
+            }
+            await recordConversionEvent(db, {
+              name: `signup`,
+              userId: user.id,
+              anonymousId,
+            })
+          } catch (err) {
+            console.error(
+              `[conversion] signup event failed for ${user.email}:`,
+              err
+            )
+          }
         },
       },
     },
@@ -413,7 +448,8 @@ export const auth = betterAuth({
           creem({
             apiKey: process.env.CREEM_API_KEY,
             webhookSecret: process.env.CREEM_WEBHOOK_SECRET!,
-            testMode: process.env.CREEM_API_KEY?.startsWith(`creem_test_`) ?? false,
+            testMode:
+              process.env.CREEM_API_KEY?.startsWith(`creem_test_`) ?? false,
             defaultSuccessUrl: `/settings/billing`,
             persistSubscriptions: true,
             // Bind the persisted subscription row to its team + seat count
@@ -438,17 +474,44 @@ export const auth = betterAuth({
               // Idempotent re-bind: heals the team/seats binding on the
               // subscription lifecycle events (active/trialing/paid), covering
               // the rare case where subscription.* lands before checkout.completed.
-              await bindSubscriptionToTeam(
-                bindingInputFromSubscription(event)
-              )
+              await bindSubscriptionToTeam(bindingInputFromSubscription(event))
+              // AFTER the bind so the row carries teamId/seats. Grant events
+              // re-fire on every renewal — the once-per-sub index keeps only
+              // the first trial_started / subscription_first_active.
+              await recordSubscriptionLifecycleEvent({
+                creemSubscriptionId: event.id,
+                status: event.status,
+                metadata: event.metadata,
+              })
             },
             // Seat-count changes (billing.updateSeats, or a manual edit in the
             // Creem dashboard) arrive as subscription.update with the new
             // item units — re-bind so our `seats` column tracks them.
             onSubscriptionUpdate: async (event) => {
-              await bindSubscriptionToTeam(
-                bindingInputFromSubscription(event)
-              )
+              await bindSubscriptionToTeam(bindingInputFromSubscription(event))
+              await recordSubscriptionLifecycleEvent({
+                creemSubscriptionId: event.id,
+                status: event.status,
+                metadata: event.metadata,
+              })
+            },
+            // Terminal states → one subscription_canceled conversion event
+            // (deduped per subscription; properties.status says which one).
+            onSubscriptionCanceled: async (event) => {
+              await recordSubscriptionLifecycleEvent({
+                creemSubscriptionId: event.id,
+                status: event.status,
+                metadata: event.metadata,
+                terminal: true,
+              })
+            },
+            onSubscriptionExpired: async (event) => {
+              await recordSubscriptionLifecycleEvent({
+                creemSubscriptionId: event.id,
+                status: event.status,
+                metadata: event.metadata,
+                terminal: true,
+              })
             },
             onRevokeAccess: async ({ reason, customer }) => {
               process.stderr.write(

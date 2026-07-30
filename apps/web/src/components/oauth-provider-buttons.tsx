@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
+import { withFirstTouchParams } from "@/lib/conversion/first-touch"
 import { Button } from "@/components/ui/button"
 
 export const GOOGLE_PROVIDER_KEY = `__google__`
@@ -80,16 +81,22 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
     }
   }
 
+  // withFirstTouchParams threads any ref/utm params the login page arrived
+  // with through the provider round-trip (cookieless attribution, EXP-362) —
+  // the post-OAuth load re-captures them and claims them for fresh accounts.
   const signInWithOidc = (providerId: string) =>
     startOAuth(providerId, () =>
-      authClient.signIn.oauth2({ providerId, callbackURL: redirectTo || `/` })
+      authClient.signIn.oauth2({
+        providerId,
+        callbackURL: withFirstTouchParams(redirectTo || `/`),
+      })
     )
 
   const signInWithGoogle = () =>
     startOAuth(GOOGLE_PROVIDER_KEY, () =>
       authClient.signIn.social({
         provider: `google`,
-        callbackURL: redirectTo || `/`,
+        callbackURL: withFirstTouchParams(redirectTo || `/`),
       })
     )
 
@@ -97,7 +104,7 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
     startOAuth(APPLE_PROVIDER_KEY, () =>
       authClient.signIn.social({
         provider: `apple`,
-        callbackURL: redirectTo || `/`,
+        callbackURL: withFirstTouchParams(redirectTo || `/`),
       })
     )
 

@@ -12,6 +12,7 @@ import { teamColumns } from "@/lib/team-columns"
 import { emailEnabled } from "@/lib/email-enabled"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
+import { recordConversionEvent } from "@/lib/conversion/events"
 import { randomBytes } from "crypto"
 import {
   assertTeamOwner,
@@ -116,6 +117,12 @@ export const teamsRouter = router({
           teamId: team.id,
           userId,
           role: `owner`,
+        })
+
+        await recordConversionEvent(tx, {
+          name: `team_created`,
+          userId,
+          properties: { teamId: team.id },
         })
 
         return { team, txId }
@@ -231,9 +238,7 @@ export const teamsRouter = router({
       }
 
       const userId = ctx.session?.user?.id
-      const member = userId
-        ? await getTeamMember(userId, team.id)
-        : undefined
+      const member = userId ? await getTeamMember(userId, team.id) : undefined
 
       if (!member) {
         throw new TRPCError({ code: `NOT_FOUND` })

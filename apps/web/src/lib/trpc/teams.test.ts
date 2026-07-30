@@ -59,8 +59,10 @@ const fakeDb: FakeDb = {
       inserts.push({ table, values })
       const p = Promise.resolve() as Promise<void> & {
         returning: () => Promise<unknown[]>
+        onConflictDoNothing: () => Promise<void>
       }
       p.returning = () => Promise.resolve(insertReturningQueue.shift() ?? [])
+      p.onConflictDoNothing = () => Promise.resolve()
       return p
     },
   }),
@@ -132,7 +134,7 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
 }))
 
 import { teamsRouter } from "@/lib/trpc/teams"
-import { teams, teamMembers } from "@/db/schema"
+import { conversionEvents, teams, teamMembers } from "@/db/schema"
 
 const WS = `11111111-1111-4111-8111-111111111111`
 
@@ -172,7 +174,8 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
     expect(result).toEqual({ team: teamRow, txId: 42 })
     // The only gate is the free-tier owned-team cap — no admin check.
     expect(assertCanCreateTeam).toHaveBeenCalledWith(`user-a`)
-    expect(inserts).toHaveLength(2)
+    // teams + teamMembers + the team_created conversion event (EXP-362).
+    expect(inserts).toHaveLength(3)
     expect(inserts[0]!.table).toBe(teams)
     expect(inserts[1]!.table).toBe(teamMembers)
     expect(inserts[1]!.values).toMatchObject({
@@ -180,6 +183,8 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
       userId: `user-a`,
       role: `owner`,
     })
+    expect(inserts[2]!.table).toBe(conversionEvents)
+    expect(inserts[2]!.values).toMatchObject({ name: `team_created` })
   })
 
   it(`propagates the free-tier owned-team cap`, async () => {

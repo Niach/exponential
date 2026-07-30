@@ -5,6 +5,7 @@ import { createCheckout } from "@creem_io/better-auth/server"
 import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { creem_subscriptions } from "@/db/schema"
+import { recordConversionEvent } from "@/lib/conversion/events"
 import {
   countOwnedTeams,
   getUserPlan,
@@ -173,6 +174,16 @@ export const billingRouter = router({
         }
       )
 
+      await recordConversionEvent(ctx.db, {
+        name: `checkout_started`,
+        userId: ctx.session.user.id,
+        properties: {
+          teamId: input.teamId,
+          productId: input.productId,
+          seats: input.seats,
+        },
+      })
+
       return { url }
     }),
 
@@ -238,9 +249,7 @@ export const billingRouter = router({
         { roles: [`owner`] }
       )
 
-      const subscription = await getActiveTeamSubscription(
-        input.teamId
-      )
+      const subscription = await getActiveTeamSubscription(input.teamId)
       assertSubscriptionMutable(subscription)
       if (subscription.seats === input.seats) {
         return { seats: subscription.seats }
@@ -257,6 +266,17 @@ export const billingRouter = router({
         .update(creem_subscriptions)
         .set({ seats })
         .where(eq(creem_subscriptions.id, subscription.id))
+
+      await recordConversionEvent(ctx.db, {
+        name: `seats_updated`,
+        userId: ctx.session.user.id,
+        properties: {
+          teamId: input.teamId,
+          creemSubscriptionId: subscription.creemSubscriptionId,
+          from: subscription.seats,
+          to: seats,
+        },
+      })
 
       return { seats }
     }),
@@ -287,9 +307,7 @@ export const billingRouter = router({
         { roles: [`owner`] }
       )
 
-      const subscription = await getActiveTeamSubscription(
-        input.teamId
-      )
+      const subscription = await getActiveTeamSubscription(input.teamId)
       assertSubscriptionMutable(subscription)
       if (subscription.productId === input.productId) {
         throw new TRPCError({
@@ -308,6 +326,17 @@ export const billingRouter = router({
         .update(creem_subscriptions)
         .set({ productId: input.productId })
         .where(eq(creem_subscriptions.id, subscription.id))
+
+      await recordConversionEvent(ctx.db, {
+        name: `plan_changed`,
+        userId: ctx.session.user.id,
+        properties: {
+          teamId: input.teamId,
+          creemSubscriptionId: subscription.creemSubscriptionId,
+          from: subscription.productId,
+          to: input.productId,
+        },
+      })
 
       return { productId: input.productId }
     }),
@@ -367,6 +396,15 @@ export const billingRouter = router({
         .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
         .where(eq(creem_subscriptions.id, subscription.id))
 
+      await recordConversionEvent(ctx.db, {
+        name: `cancel_scheduled`,
+        userId: ctx.session.user.id,
+        properties: {
+          teamId: input.teamId,
+          creemSubscriptionId: subscription.creemSubscriptionId,
+        },
+      })
+
       return {
         cancelAtPeriodEnd: true,
         periodEnd: subscription.periodEnd?.toISOString() ?? null,
@@ -422,6 +460,15 @@ export const billingRouter = router({
           updatedAt: new Date(),
         })
         .where(eq(creem_subscriptions.id, subscription.id))
+
+      await recordConversionEvent(ctx.db, {
+        name: `subscription_resumed`,
+        userId: ctx.session.user.id,
+        properties: {
+          teamId: input.teamId,
+          creemSubscriptionId: subscription.creemSubscriptionId,
+        },
+      })
 
       return { cancelAtPeriodEnd: false }
     }),

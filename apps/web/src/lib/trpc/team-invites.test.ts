@@ -68,8 +68,10 @@ const fakeDb: FakeDb = {
       inserts.push({ table, values })
       const p = Promise.resolve() as Promise<void> & {
         returning: () => Promise<unknown[]>
+        onConflictDoNothing: () => Promise<void>
       }
       p.returning = () => Promise.resolve(insertReturningQueue.shift() ?? [])
+      p.onConflictDoNothing = () => Promise.resolve()
       return p
     },
   }),
@@ -138,7 +140,13 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
 }))
 
 import { inviteListSelection, teamInvitesRouter } from "@/lib/trpc/team-invites"
-import { emailDeliveries, teamInvites, teamMembers, users } from "@/db/schema"
+import {
+  conversionEvents,
+  emailDeliveries,
+  teamInvites,
+  teamMembers,
+  users,
+} from "@/db/schema"
 
 const WS = `11111111-1111-4111-8111-111111111111`
 const INVITE_ID = `33333333-3333-4333-8333-333333333333`
@@ -199,9 +207,10 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
       email: `new@example.com`,
     })
 
-    // Two inserts: the invite row + the email_deliveries ledger row (every
-    // invite-email attempt is ledgered so bounces trace per-message).
-    expect(inserts).toHaveLength(2)
+    // Three inserts: the invite row, the email_deliveries ledger row (every
+    // invite-email attempt is ledgered so bounces trace per-message), and
+    // the invite_sent conversion event (EXP-362).
+    expect(inserts).toHaveLength(3)
     expect(inserts[0]!.table).toBe(teamInvites)
     expect(inserts[0]!.values.email).toBe(`new@example.com`)
     expect(sendTeamInviteEmail).toHaveBeenCalledWith({
@@ -217,6 +226,8 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
       status: `sent`,
       toEmail: `new@example.com`,
     })
+    expect(inserts[2]!.table).toBe(conversionEvents)
+    expect(inserts[2]!.values).toMatchObject({ name: `invite_sent` })
   })
 
   it(`skips the email past the per-address weekly cap but still creates the invite`, async () => {
@@ -234,12 +245,14 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
     expect(sendTeamInviteEmail).not.toHaveBeenCalled()
     expect(result.emailDelivered).toBe(false)
     expect(result.invite).toMatchObject({ id: INVITE_ID })
-    expect(inserts).toHaveLength(2)
+    // invite + suppressed ledger row + invite_sent conversion event.
+    expect(inserts).toHaveLength(3)
     expect(inserts[1]!.table).toBe(emailDeliveries)
     expect(inserts[1]!.values).toMatchObject({
       kind: `team_invite`,
       status: `suppressed`,
     })
+    expect(inserts[2]!.table).toBe(conversionEvents)
   })
 
   it(`returns emailDelivered null and sends nothing without an email`, async () => {
@@ -325,8 +338,11 @@ describe(`teamInvites.accept — onboarding stamp (EXP-188)`, () => {
     expect(updates).toHaveLength(2)
     expectOnboardingStamp(updates[0]!)
     expect(updates[1]!.table).toBe(teamInvites)
-    expect(inserts).toHaveLength(1)
+    // Membership + the invite_accepted conversion event (EXP-362).
+    expect(inserts).toHaveLength(2)
     expect(inserts[0]!.table).toBe(teamMembers)
+    expect(inserts[1]!.table).toBe(conversionEvents)
+    expect(inserts[1]!.values).toMatchObject({ name: `invite_accepted` })
   })
 
   it(`stamps onboardingCompletedAt on the alreadyMember path too`, async () => {

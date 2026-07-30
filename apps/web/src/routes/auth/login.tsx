@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth/client"
 import { getAuthConfig } from "@/lib/auth/config"
 import { captureOAuthResumeUrl } from "@/lib/auth/oauth-resume"
+import { withFirstTouchParams } from "@/lib/conversion/first-touch"
 import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { oauthErrorMessage } from "@/lib/deep-link"
@@ -88,10 +89,16 @@ function LoginPage() {
     try {
       const onSuccess = async () => {
         await authClient.getSession()
-        window.location.href = destination || `/`
+        // Full-page navigation wipes the in-memory first-touch capture —
+        // forward any ref/utm params so the next load can claim them
+        // (cookieless attribution, EXP-362; no-op without params).
+        window.location.href = withFirstTouchParams(destination || `/`)
       }
       const { error } = isSignup
-        ? await authClient.signUp.email({ name, email, password }, { onSuccess })
+        ? await authClient.signUp.email(
+            { name, email, password },
+            { onSuccess }
+          )
         : await authClient.signIn.email({ email, password }, { onSuccess })
 
       if (error) {
