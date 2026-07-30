@@ -237,8 +237,11 @@ const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 pub struct Shell {
     dock_area: Entity<DockArea>,
-    /// The in-app titlebar (EXP-269) — the first row of every window; hidden
-    /// only under the Linux server-decoration fallback (`client_chrome`).
+    /// The in-app titlebar (EXP-269) — the first row of the DOCK shell;
+    /// hidden under the Linux server-decoration fallback (`client_chrome`).
+    /// EXP-364: the full-window surfaces (login, wizard, update gate) mount
+    /// `app_title_bar::chrome_only_title_bar()` instead — same strip, no tab
+    /// row, since there is no dock behind them.
     title_bar: Entity<crate::app_title_bar::AppTitleBar>,
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
     /// (so the bottom terminal dock spans everything right of it and lines
@@ -661,7 +664,10 @@ impl Render for Shell {
             let dialog_layer = Root::render_dialog_layer(window, cx);
             let notification_layer = Root::render_notification_layer(window, cx);
             // The titlebar renders here too — without it this window would be
-            // undraggable/unclosable on Windows/Linux (no native chrome).
+            // undraggable/unclosable on Windows/Linux (no native chrome) —
+            // but as the CHROME-ONLY strip (EXP-364): the tab row belongs to
+            // the dock, which this surface replaces, so tabs over it pointed
+            // at screens nothing here can reach.
             return crate::window_frame::window_frame()
                 .child(
                     // EXP-269 corners: see `window_frame::frame_radii` — the
@@ -675,7 +681,9 @@ impl Render for Shell {
                         .child(
                             v_flex()
                                 .size_full()
-                                .when(client_chrome, |body| body.child(self.title_bar.clone()))
+                                .when(client_chrome, |body| {
+                                    body.child(crate::app_title_bar::chrome_only_title_bar())
+                                })
                                 .child(
                                     div()
                                         .flex_1()
@@ -710,7 +718,12 @@ impl Render for Shell {
                 crate::window_frame::round_to_frame(v_flex(), window)
                     .size_full()
                     .bg(theme::background_gradient())
-                    .when(client_chrome, |body| body.child(self.title_bar.clone()))
+                    // EXP-364: chrome only — the wizard replaces the dock, so
+                    // the tab row has nothing to point at (same rule as the
+                    // login and update-gate surfaces).
+                    .when(client_chrome, |body| {
+                        body.child(crate::app_title_bar::chrome_only_title_bar())
+                    })
                     .children(self.render_update_banner(cx))
                     .child(div().flex_1().min_h_0().child(self.onboarding.clone()))
                     .into_any_element()
@@ -806,7 +819,11 @@ impl Render for Shell {
             _ => crate::window_frame::round_to_frame(v_flex(), window)
                 .size_full()
                 .bg(theme::background_gradient())
-                .when(client_chrome, |body| body.child(self.title_bar.clone()))
+                // EXP-364: chrome only here too — a signed-out window kept
+                // rendering the previous session's tabs above the login card.
+                .when(client_chrome, |body| {
+                    body.child(crate::app_title_bar::chrome_only_title_bar())
+                })
                 .children(self.render_update_banner(cx))
                 .child(div().flex_1().min_h_0().child(self.login.clone()))
                 .into_any_element(),
