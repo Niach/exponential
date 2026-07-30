@@ -27,6 +27,7 @@
 mod account;
 mod add_repository_dialog;
 mod agents;
+pub(crate) mod doctor_section;
 mod labels;
 mod statuses;
 mod local_repos;

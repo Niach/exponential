@@ -263,6 +263,22 @@ impl AuthStore {
         Ok(account)
     }
 
+    /// One-way LOCAL stamp mirroring the server's `onboarding.complete`
+    /// (EXP-367): warm starts never re-fetch the session, so accounts.json is
+    /// the only local source of the onboarding gate between logins — without
+    /// this, finishing the wizard would re-show it on the next launch. Only
+    /// ever sets a missing value (`sign_in` preserves a known `Some` the same
+    /// way); no event — the wizard advances on its own state.
+    pub fn set_onboarding_completed(&self, account_id: &str, completed_at: &str) {
+        let mut state = self.state.write().unwrap();
+        if let Some(account) = state.accounts.iter_mut().find(|a| a.id == account_id) {
+            if account.onboarding_completed_at.is_none() {
+                account.onboarding_completed_at = Some(completed_at.to_string());
+                self.persist_locked(&state);
+            }
+        }
+    }
+
     /// User-initiated sign-out (§5.10): drop the session token (memory +
     /// secret store), keep the account metadata AND its on-disk sync DB for
     /// offline resume, emit [`AuthEvent::SignedOut`]. Server-side revocation

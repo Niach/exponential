@@ -248,6 +248,10 @@ pub struct Shell {
     /// whenever the session machine is not `Synced` (§5: a dead token routes
     /// to login, never an empty board).
     login: Entity<LoginView>,
+    /// The EXP-367 first-run wizard — rendered INSTEAD of the dock while a
+    /// step applies (team → board → tools). Long-lived like `login`; inert
+    /// whenever `is_active` says no.
+    onboarding: Entity<crate::onboarding::OnboardingView>,
     /// Which per-window layout slot this window persists to (window 0 = the
     /// main window; further windows get the next ordinal at open time).
     ordinal: usize,
@@ -278,6 +282,11 @@ impl Shell {
         let dock_area =
             cx.new(|cx| DockArea::new(DOCK_AREA_ID, Some(LAYOUT_VERSION), window, cx));
         let login = cx.new(|cx| LoginView::new(window, cx));
+        // EXP-367: the first-run wizard drives the Synced-arm switch below;
+        // its own observers (collections, coding hub) notify it, we just
+        // re-render when it does.
+        let onboarding = cx.new(|cx| crate::onboarding::OnboardingView::new(window, cx));
+        cx.observe(&onboarding, |_, _, cx| cx.notify()).detach();
 
         // Per-window navigation state (§4.2): create it before any panel so
         // every `nav_for_window` lookup (sidebar, screens, cold-restored
@@ -446,6 +455,7 @@ impl Shell {
             title_bar,
             rail,
             login,
+            onboarding,
             ordinal,
             last_saved: None,
             _save_task: None,
@@ -692,6 +702,19 @@ impl Render for Shell {
         // in the column to its right. The login/update surfaces keep the
         // titlebar-first layout (no rail there).
         let body: gpui::AnyElement = match session {
+            // EXP-367: signed in but a first-run wizard step applies — the
+            // wizard takes the whole window (login-surface layout, NO rail:
+            // the rail drives trunk-sync, so no clone is attempted until the
+            // toolchain step is past).
+            SessionPhase::Synced { .. } if self.onboarding.read(cx).is_active(cx) => {
+                crate::window_frame::round_to_frame(v_flex(), window)
+                    .size_full()
+                    .bg(theme::background_gradient())
+                    .when(client_chrome, |body| body.child(self.title_bar.clone()))
+                    .children(self.render_update_banner(cx))
+                    .child(div().flex_1().min_h_0().child(self.onboarding.clone()))
+                    .into_any_element()
+            }
             // `.h_full()` on the dock wrapper is load-bearing: without a
             // definite height the dock area collapses (same flex-child rule
             // as the source-control diff pane).

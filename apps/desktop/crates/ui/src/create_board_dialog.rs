@@ -146,7 +146,7 @@ pub fn open(window: &mut Window, cx: &mut App, team_id: String) {
     let height = (window.viewport_size().height * 0.85).min(px(560.));
     let spec = DialogSpec::new("Create board", size(px(416.), height));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| CreateBoardDialogView::new(team_id, window, cx));
+        let view = cx.new(|cx| CreateBoardDialogView::new(team_id, false, window, cx));
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
@@ -156,6 +156,11 @@ pub fn open(window: &mut Window, cx: &mut App, team_id: String) {
             })
     });
 }
+
+/// Emitted (embedded host only, EXP-367) once the created board is VISIBLE
+/// in the synced collection — the onboarding wizard advances on it.
+pub(crate) struct BoardCreated;
+impl gpui::EventEmitter<BoardCreated> for CreateBoardDialogView {}
 
 pub struct CreateBoardDialogView {
     team_id: String,
@@ -179,12 +184,21 @@ pub struct CreateBoardDialogView {
     /// GitHub grant for the picked repo) — pair the error with a "Reconnect
     /// GitHub" hand-off.
     grant_reconnect: bool,
+    /// EXP-367: hosted inside the onboarding wizard instead of a native
+    /// dialog window — success EMITS [`BoardCreated`] instead of closing a
+    /// dialog, and the plan-limit hand-off renders inline.
+    embedded: bool,
     focused_once: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl CreateBoardDialogView {
-    fn new(team_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub(crate) fn new(
+        team_id: String,
+        embedded: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. Backend API"));
         let prefix = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. API"));
 
@@ -236,6 +250,7 @@ impl CreateBoardDialogView {
             submitting: false,
             error: None,
             grant_reconnect: false,
+            embedded,
             focused_once: false,
             _subscriptions: subscriptions,
         };
@@ -326,9 +341,7 @@ impl CreateBoardDialogView {
                     // an already-onboarded user just no-ops, and a failure here
                     // must never block the create.
                     if created.is_ok() {
-                        let _ = trpc.mutation_no_input::<serde_json::Value>(
-                            "onboarding.complete",
-                        );
+                        let _ = api::onboarding::complete(&trpc);
                     }
                     created
                 })
@@ -346,17 +359,31 @@ impl CreateBoardDialogView {
                     if let Some(boards) = boards {
                         queries::await_row_visible(&boards, &board_id, window).await;
                     }
-                    let _ = this.update_in(window, |_, window, cx| {
-                        native_dialog::close_then(window, cx, move |window, cx| {
-                            // Scope the opener to the new board and surface
-                            // its (empty) issue list in the sidebar.
-                            crate::navigation::set_active_board(window, cx, board_id);
-                            crate::sidebar::activate_tool(
-                                window,
-                                cx,
-                                crate::sidebar::ToolWindow::BoardIssues,
-                            );
-                        });
+                    let _ = this.update_in(window, |view, window, cx| {
+                        // The server just completed onboarding — mirror the
+                        // stamp locally (EXP-367; warm starts never re-fetch
+                        // the session).
+                        crate::onboarding::stamp_local_onboarding(cx);
+                        if view.embedded {
+                            // The wizard host advances on the event; scope
+                            // this window to the new board so the app lands
+                            // on it once the wizard finishes.
+                            view.submitting = false;
+                            crate::navigation::set_active_board(window, cx, board_id.clone());
+                            cx.emit(BoardCreated);
+                            cx.notify();
+                        } else {
+                            native_dialog::close_then(window, cx, move |window, cx| {
+                                // Scope the opener to the new board and surface
+                                // its (empty) issue list in the sidebar.
+                                crate::navigation::set_active_board(window, cx, board_id);
+                                crate::sidebar::activate_tool(
+                                    window,
+                                    cx,
+                                    crate::sidebar::ToolWindow::BoardIssues,
+                                );
+                            });
+                        }
                     });
                 }
                 Err(err) => {
@@ -375,6 +402,18 @@ impl CreateBoardDialogView {
                             return;
                         }
                         if is_plan_limit(&err) {
+                            if this.embedded {
+                                // Wizard host: no dialog to close — the same
+                                // §4.9 neutral hand-off renders inline.
+                                this.error = Some(
+                                    "Board limit reached — upgrade on the web to create \
+                                     more."
+                                        .into(),
+                                );
+                                this.submitting = false;
+                                cx.notify();
+                                return;
+                            }
                             // §4.9: neutral hand-off, never an upgrade dialog.
                             // The notification lands on the OPENER — this
                             // window is about to be gone.

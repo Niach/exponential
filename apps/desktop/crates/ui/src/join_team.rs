@@ -16,6 +16,7 @@
 //! `teamInvites.accept`, gate on the joined team appearing in the
 //! synced collection (§4.1), and switch the window to it.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, size, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, Window,
@@ -55,7 +56,7 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
     }
     let spec = DialogSpec::new("Join a team", size(px(416.), px(300.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| JoinTeamView::new(token, window, cx));
+        let view = cx.new(|cx| JoinTeamView::new(token, false, window, cx));
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
@@ -65,6 +66,13 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
             })
     });
 }
+
+/// Emitted (embedded host only, EXP-367) once the invite is accepted and the
+/// joined team — when the server named one — is VISIBLE in the synced
+/// collection. The onboarding wizard advances on it (the server stamps
+/// `onboardingCompletedAt` on accept).
+pub(crate) struct InviteAccepted;
+impl gpui::EventEmitter<InviteAccepted> for JoinTeamView {}
 
 /// `exponential://invite/<token>` → `Some(token)` (the §4.2 deep-link form;
 /// scheme from `api::login::OAUTH_CALLBACK_SCHEME`).
@@ -113,6 +121,11 @@ pub struct JoinTeamView {
     /// The token of the current `preview` (deep link or extracted).
     token: Option<String>,
     preview: Preview,
+    /// EXP-367: hosted inside the onboarding wizard instead of a native
+    /// dialog window — no Cancel button, no auto-focus (the create-team form
+    /// above it owns first focus), success EMITS [`InviteAccepted`] instead
+    /// of closing a dialog.
+    embedded: bool,
     accepting: bool,
     error: Option<SharedString>,
     focused_once: bool,
@@ -120,7 +133,12 @@ pub struct JoinTeamView {
 }
 
 impl JoinTeamView {
-    fn new(token: Option<String>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub(crate) fn new(
+        token: Option<String>,
+        embedded: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
         let token_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Paste an invite link or token…")
         });
@@ -138,6 +156,7 @@ impl JoinTeamView {
             token_input,
             token: None,
             preview: Preview::Idle,
+            embedded,
             accepting: false,
             error: None,
             focused_once: false,
@@ -235,14 +254,32 @@ impl JoinTeamView {
                         if let Some(teams) = teams {
                             queries::await_row_visible(&teams, &team_id, window).await;
                         }
-                        let _ = this.update_in(window, |_, window, cx| {
-                            native_dialog::close_then(window, cx, move |window, cx| {
-                                switch_team(window, cx, team_id);
-                            });
+                        let _ = this.update_in(window, |view, window, cx| {
+                            // The server stamped onboardingCompletedAt on
+                            // accept — mirror it locally (EXP-367; warm
+                            // starts never re-fetch the session).
+                            crate::onboarding::stamp_local_onboarding(cx);
+                            if view.embedded {
+                                view.accepting = false;
+                                switch_team(window, cx, team_id.clone());
+                                cx.emit(InviteAccepted);
+                                cx.notify();
+                            } else {
+                                native_dialog::close_then(window, cx, move |window, cx| {
+                                    switch_team(window, cx, team_id);
+                                });
+                            }
                         });
                     } else {
-                        let _ = this.update_in(window, |_, window, cx| {
-                            native_dialog::close_dialog_window(window, cx);
+                        let _ = this.update_in(window, |view, window, cx| {
+                            crate::onboarding::stamp_local_onboarding(cx);
+                            if view.embedded {
+                                view.accepting = false;
+                                cx.emit(InviteAccepted);
+                                cx.notify();
+                            } else {
+                                native_dialog::close_dialog_window(window, cx);
+                            }
                         });
                     }
                 }
@@ -305,7 +342,9 @@ impl JoinTeamView {
 
 impl Render for JoinTeamView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        if !self.focused_once {
+        // Embedded (wizard) hosting: the create-team form above owns first
+        // focus — stealing it here would fight it every render pass.
+        if !self.focused_once && !self.embedded {
             self.focused_once = true;
             self.token_input
                 .update(cx, |state, cx| state.focus(window, cx));
@@ -373,19 +412,21 @@ impl Render for JoinTeamView {
             h_flex()
                 .justify_end()
                 .gap_2()
-                .child(
-                    Button::new("join-team-cancel")
-                        .outline()
-                        .small()
-                        .label("Cancel")
-                        .disabled(self.accepting)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if this.accepting {
-                                return;
-                            }
-                            native_dialog::close_dialog_window(window, cx);
-                        })),
-                )
+                .when(!self.embedded, |row| {
+                    row.child(
+                        Button::new("join-team-cancel")
+                            .outline()
+                            .small()
+                            .label("Cancel")
+                            .disabled(self.accepting)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if this.accepting {
+                                    return;
+                                }
+                                native_dialog::close_dialog_window(window, cx);
+                            })),
+                    )
+                })
                 .child(
                     Button::new("join-team-primary")
                         .primary()

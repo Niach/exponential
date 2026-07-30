@@ -860,12 +860,15 @@ impl IssueListView {
         let start_coding = {
             let ids = ids.clone();
             let team_id = team_id.clone();
+            // EXP-367: no agent CLI installed → disabled with the reason,
+            // never hidden (same copy as every Start-coding affordance).
+            let no_agent = crate::coding_flow::no_agent_reason(cx);
             Button::new("bulk-start-coding")
                 .ghost()
                 .small()
                 .icon(Icon::new(registry::ACTION_RUN))
-                .tooltip("Start coding")
-                .disabled(busy)
+                .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
+                .disabled(busy || no_agent.is_some())
                 .on_click(move |_, window, cx| {
                     crate::start_coding_dialog::open_for_selection(
                         window,

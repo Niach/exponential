@@ -278,6 +278,11 @@ pub fn hook_setup(cx: &App) -> Option<coding::HookSetup> {
 #[derive(Default)]
 struct ControlChannels {
     by_account: HashMap<String, ControlChannelHandle>,
+    /// The installed-agent set the account's presence currently advertises —
+    /// including the DELIBERATE absence (`[]` = no agent CLI → offline,
+    /// EXP-367). [`restart_control_channel_if_needed`] compares against it
+    /// so a doctor refresh only re-dials when the set actually changed.
+    advertised: HashMap<String, Vec<String>>,
 }
 struct ControlChannelsGlobal(Entity<ControlChannels>);
 impl Global for ControlChannelsGlobal {}
@@ -312,9 +317,10 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     // EXP-201: advertise which agent CLIs this machine can actually run —
     // remote Start-coding pickers only offer these. Probed via the coding
     // doctor (blocking `--version` spawns) on the BACKGROUND executor, then
-    // the channel starts on the foreground with the result. A settings
-    // change re-advertises on the next channel restart (sign-in / account
-    // switch / relay reconnect cycles re-run this whole function).
+    // the channel starts on the foreground with the result. A settings /
+    // toolchain change re-advertises via `restart_control_channel_if_needed`
+    // (every doctor refresh), besides the sign-in / account switch / relay
+    // reconnect cycles that re-run this whole function.
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
     let device_id = steer::persistent_device_id(&auth.data_dir);
     let device_label = api::users::hostname();
@@ -356,10 +362,27 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             {
                 return;
             }
+            // EXP-367: NO agent CLI installed → this device cannot run
+            // anything remotely, so it goes fully OFFLINE for remote start:
+            // don't dial at all (the relay treats an absent `agents` list as
+            // ["claude"], so an empty advertisement must never reach it) and
+            // hang up any live socket from before the last agent vanished.
+            // A later doctor refresh that finds an agent re-dials via
+            // `restart_control_channel_if_needed`.
+            if agents.is_empty() {
+                let channels = ControlChannels::global(cx);
+                channels.update(cx, |channels, _| {
+                    if let Some(previous) = channels.by_account.remove(&account_id) {
+                        previous.stop();
+                    }
+                    channels.advertised.insert(account_id, Vec::new());
+                });
+                return;
+            }
             let device = DeviceIdentity {
                 device_id,
                 device_label,
-                agents,
+                agents: agents.clone(),
                 caps,
             };
             let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
@@ -370,6 +393,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
 
             let channels = ControlChannels::global(cx);
             channels.update(cx, |channels, _| {
+                channels.advertised.insert(account_id.clone(), agents);
                 if let Some(previous) = channels.by_account.insert(account_id, handle) {
                     previous.stop(); // never accumulate two sockets for one account
                 }
@@ -387,7 +411,40 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
             if let Some(handle) = channels.by_account.remove(account_id) {
                 handle.stop();
             }
+            // Sign-out forgets the device advertisement — the next sign-in
+            // starts from a clean probe.
+            channels.advertised.remove(account_id);
         });
+    }
+}
+
+/// Re-dial (or hang up) the active account's control socket when the
+/// doctor's installed-agent set changed since the last advertisement
+/// (EXP-367: installing the first agent CLI brings the device ONLINE for
+/// remote start without a restart; removing the last takes it offline).
+/// Called from `CodingHub::refresh_doctor` completion — the one choke point
+/// every "Check tools" / settings save / onboarding recheck funnels through.
+/// `start_control_channel` re-probes on the background executor itself, so a
+/// disagreeing race converges on the set it actually advertises.
+pub fn restart_control_channel_if_needed(cx: &mut App) {
+    let Some(account) = queries::active_account(cx) else {
+        return;
+    };
+    let Some(hub) = coding_flow::CodingHub::global_ref(cx) else {
+        return;
+    };
+    let Some(report) = hub.read(cx).doctor.report.clone() else {
+        return;
+    };
+    let desired: Vec<String> = report
+        .installed_agents()
+        .into_iter()
+        .map(|agent| agent.id().to_string())
+        .collect();
+    let current = ControlChannels::global_ref(cx)
+        .and_then(|channels| channels.read(cx).advertised.get(&account.id).cloned());
+    if current.as_deref() != Some(desired.as_slice()) {
+        start_control_channel(&account, cx);
     }
 }
 

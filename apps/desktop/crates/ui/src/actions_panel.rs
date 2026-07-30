@@ -28,7 +28,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     menu::{DropdownMenu as _, PopupMenuItem},
-    ActiveTheme as _, Icon, Sizable as _,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
 use crate::icons::{registry, ExpIcon};
@@ -75,6 +75,10 @@ impl ActionsPanel {
         let Some(team_id) = self.team_id(cx) else {
             return;
         };
+        // EXP-367: belt to the disabled button — no agent CLI, nothing to run.
+        if crate::coding_flow::no_agent_reason(cx).is_some() {
+            return;
+        }
         crate::start_coding_dialog::open_for_action(window, cx, team_id, action_id);
     }
 
@@ -234,17 +238,25 @@ impl ActionsPanel {
                         )
                     })
                     .child(
-                        div().flex_shrink_0().child(
+                        div().flex_shrink_0().child({
+                            // EXP-367: no agent CLI → disabled with the
+                            // reason, never hidden.
+                            let no_agent = crate::coding_flow::no_agent_reason(cx);
                             Button::new(("action-run", index))
                                 .primary()
                                 .xsmall()
                                 .icon(Icon::from(ExpIcon::Play))
-                                .tooltip("Run on this device")
+                                .tooltip(
+                                    no_agent
+                                        .clone()
+                                        .unwrap_or_else(|| "Run on this device".into()),
+                                )
+                                .disabled(no_agent.is_some())
                                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                     cx.stop_propagation();
                                     this.run(run_id.clone(), window, cx);
-                                })),
-                        ),
+                                }))
+                        }),
                     ),
             )
             .when_some(action.description.clone(), |this, description| {

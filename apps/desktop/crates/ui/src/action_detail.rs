@@ -59,7 +59,7 @@ use gpui_component::{
     popover::Popover,
     skeleton::Skeleton,
     text::TextView,
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -1352,6 +1352,8 @@ impl Render for ActionDetailView {
 
         let run_id = action.id.clone();
         let run_team = action.team_id.clone();
+        // EXP-367: no agent CLI → disabled with the reason, never hidden.
+        let no_agent = crate::coding_flow::no_agent_reason(cx);
         sidebar = sidebar.child(
             Button::new("action-detail-run")
                 .primary()
@@ -1359,6 +1361,8 @@ impl Render for ActionDetailView {
                 .w_full()
                 .icon(Icon::from(ExpIcon::Play))
                 .label("Run on this device")
+                .when_some(no_agent.clone(), |button, reason| button.tooltip(reason))
+                .disabled(no_agent.is_some())
                 .on_click(move |_: &ClickEvent, window, cx| {
                     crate::start_coding_dialog::open_for_action(
                         window,

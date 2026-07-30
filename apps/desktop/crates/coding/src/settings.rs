@@ -135,6 +135,11 @@ pub struct Settings {
     /// merge-preserving per-install store. `None`/blank = auto (the
     /// platform's `default_shell()` resolution in the terminal crate).
     pub terminal_shell: Option<String>,
+    /// EXP-367: whether this install has shown the first-run "Set up your
+    /// tools" onboarding step. Per-DEVICE (the toolchain is local), so it
+    /// lives here and not on the account; shown once on every fresh install
+    /// and never again after Continue/"Set up later".
+    pub tools_setup_seen: bool,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -171,6 +176,7 @@ impl Default for Settings {
             codex_skip_permissions: false,
             rail_expanded: None,
             terminal_shell: None,
+            tools_setup_seen: false,
         }
     }
 }
@@ -388,11 +394,29 @@ pub fn resolve_program(
 /// `~` / `~/…` → `home`-rooted path; anything else passes through. (Only the
 /// current user's home is expanded — `~other` is left verbatim, matching
 /// common CLI behavior.)
+///
+/// The tail is pushed segment-by-segment: a single `home.join(rest)` keeps
+/// the embedded `/` of `DEFAULT_REPOS_ROOT` verbatim, which renders mixed
+/// separators on Windows (`C:\Users\x\Exponential/repos` — EXP-366). On
+/// Windows a hand-typed `~\…` tail with backslashes is accepted too;
+/// elsewhere `\` stays an ordinary filename character.
 pub fn expand_tilde(raw: &str, home: PathBuf) -> PathBuf {
+    let tail = raw.strip_prefix("~/").or_else(|| {
+        if cfg!(windows) {
+            raw.strip_prefix("~\\")
+        } else {
+            None
+        }
+    });
     if raw == "~" {
         home
-    } else if let Some(rest) = raw.strip_prefix("~/") {
-        home.join(rest)
+    } else if let Some(rest) = tail {
+        let separators: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+        let mut path = home;
+        for segment in rest.split(separators).filter(|s| !s.is_empty()) {
+            path.push(segment);
+        }
+        path
     } else {
         PathBuf::from(raw)
     }
@@ -475,6 +499,8 @@ mod tests {
         assert!(!settings.codex_skip_permissions);
         // EXP-288: no shell override by default (auto-detect).
         assert_eq!(settings.terminal_shell, None);
+        // EXP-367: a fresh install has not seen the tools onboarding step.
+        assert!(!settings.tools_setup_seen);
     }
 
     /// EXP-288: a blank/whitespace `terminalShell` degrades to None (auto)
@@ -679,10 +705,12 @@ mod tests {
             codex_skip_permissions: true,
             rail_expanded: Some(true),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
+            tools_setup_seen: true,
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         assert!(raw.contains("\"claudePath\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"toolsSetupSeen\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"terminalShell\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeModel\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeEffort\""), "camelCase keys: {raw}");
@@ -724,5 +752,36 @@ mod tests {
             PathBuf::from("/abs/path")
         );
         assert_eq!(expand_tilde("~other/x", home), PathBuf::from("~other/x"));
+    }
+
+    /// EXP-366: the tilde tail must be pushed segment-by-segment — a single
+    /// `join` keeps the embedded `/`, which renders mixed separators on
+    /// Windows (`C:\Users\x\Exponential/repos`). Locked platform-neutrally:
+    /// every tail segment becomes its own path component with no separator
+    /// characters left inside.
+    #[test]
+    fn tilde_expansion_splits_tail_into_components() {
+        let home = PathBuf::from("/home/tester");
+        let expanded = expand_tilde("~/Exponential/repos", home.clone());
+        assert_eq!(
+            expanded.components().count(),
+            home.components().count() + 2,
+            "each tail segment is one component: {expanded:?}"
+        );
+        for component in expanded.components() {
+            if let std::path::Component::Normal(part) = component {
+                let part = part.to_string_lossy();
+                assert!(
+                    !part.contains('/') && !part.contains('\\'),
+                    "no separator may survive inside a component: {part:?}"
+                );
+            }
+        }
+        // Doubled/trailing separators collapse instead of producing empty
+        // components.
+        assert_eq!(
+            expand_tilde("~//Exponential//repos/", home.clone()),
+            expand_tilde("~/Exponential/repos", home)
+        );
     }
 }

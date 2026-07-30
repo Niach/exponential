@@ -10,7 +10,6 @@
 //! |        | effort, plus the agent's own toggles — Claude: plan mode,    |
 //! |        | ultracode, skip permissions; Codex: skip permissions; pi:    |
 //! |        | nothing (no permission system)                               |
-//! | Doctor | "Check tools" report                                         |
 //!
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
 //! text — the closed alias sets the CLI accepts). The per-agent toggles are
@@ -21,8 +20,9 @@
 //! per-install `settings.json` — never synced. Saving re-runs the doctor
 //! against the new agent paths, and the doctor's report is exactly what
 //! gates the Start-coding button (§7.1 step 1 ANDs `agent.ok && git.ok`).
-//! The doctor lives HERE (not in Tools) because it probes the agent CLIs;
-//! its git row is along for the ride.
+//! The "Tooling doctor" report itself renders in Settings → Tools
+//! ([`super::doctor_section`], EXP-367 — one panel shared with the
+//! onboarding tools step).
 //!
 //! This pane and the Tools pane share ONE settings struct but own DISJOINT
 //! fields — see the [`super::tools`] module doc for the drafted/save/resync
@@ -41,13 +41,12 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     select::Select,
-    skeleton::Skeleton,
     switch::Switch,
     tab::{Tab, TabBar, TabVariant},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size,
 };
 
-use coding::{CodingAgent, DoctorReport, Settings, ToolCheck};
+use coding::{CodingAgent, Settings};
 
 use crate::coding_flow::CodingHub;
 use crate::coding_selects::{
@@ -56,7 +55,6 @@ use crate::coding_selects::{
 };
 
 use super::{card_header, error_notice, section};
-use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
 // Pane
@@ -396,118 +394,6 @@ impl AgentsPane {
             )
     }
 
-    /// One doctor row: green check + version, or the actionable error — red
-    /// for launch-blocking rows (git + the default agent), muted for the
-    /// OPTIONAL agents (EXP-201: only the agent you launch with must be
-    /// installed, so a missing codex is information, not an alarm).
-    fn doctor_row(check: &ToolCheck, muted_when_failing: bool, cx: &App) -> impl IntoElement {
-        let (icon, color, detail): (crate::icons::ExpIcon, gpui::Hsla, SharedString) = if check.ok {
-            (
-                registry::UI_SUCCESS,
-                theme::tokens::GREEN.to_hsla(),
-                check.version.clone().unwrap_or_default().into(),
-            )
-        } else if muted_when_failing {
-            (
-                registry::UI_ERROR,
-                cx.theme().muted_foreground,
-                check
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| format!("{} is not installed", check.tool))
-                    .into(),
-            )
-        } else {
-            (
-                registry::UI_ERROR,
-                cx.theme().danger,
-                check
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| format!("{} is not available", check.tool))
-                    .into(),
-            )
-        };
-        let detail_color = if check.ok || muted_when_failing {
-            cx.theme().muted_foreground
-        } else {
-            cx.theme().danger
-        };
-        h_flex()
-            .gap_2()
-            .items_center()
-            .child(Icon::new(icon).small().text_color(color))
-            .child(
-                div()
-                    .w_16()
-                    .flex_shrink_0()
-                    .text_sm()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(check.tool.label())),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .text_color(detail_color)
-                    .child(detail),
-            )
-    }
-
-    fn render_doctor_section(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let hub = CodingHub::global(cx);
-        let (report, running, default_agent): (Option<DoctorReport>, bool, CodingAgent) = {
-            let hub = hub.read(cx);
-            (
-                hub.doctor.report.clone(),
-                hub.doctor.running,
-                hub.settings.default_agent,
-            )
-        };
-
-        let mut body = section(cx).child(card_header(
-            "Tooling doctor",
-            "git is required; of the agent CLIs, only the one you launch with must be \
-             installed. A red row blocks that launch until it's fixed.",
-            cx,
-        ));
-        match &report {
-            None => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(Skeleton::new().h_4().w_64())
-                        .child(Skeleton::new().h_4().w_56()),
-                );
-            }
-            Some(report) => {
-                for agent in CodingAgent::ALL {
-                    body = body.child(Self::doctor_row(
-                        report.check_for(agent),
-                        agent != default_agent,
-                        cx,
-                    ));
-                }
-                body = body.child(Self::doctor_row(&report.git, false, cx));
-            }
-        }
-        body.child(
-            h_flex().child(
-                Button::new("doctor-check")
-                    .outline()
-                    .xsmall()
-                    .label("Check tools")
-                    .loading(running)
-                    .disabled(running)
-                    .on_click(cx.listener(|_, _, _, cx| {
-                        let hub = CodingHub::global(cx);
-                        CodingHub::refresh_doctor(&hub, cx);
-                    })),
-            ),
-        )
-    }
-
     /// The Agents card (EXP-206): one TAB per agent, each holding that
     /// agent's CLI path + model/effort selects and its OWN toggles — plan
     /// mode and ultracode exist only on the Claude tab, skip permissions on
@@ -670,11 +556,6 @@ impl Render for AgentsPane {
         // EXP-282: the sections are flat now — whitespace is the only
         // separator, so they sit further apart (the detail column's own
         // section rhythm).
-        v_flex()
-            .w_full()
-            .gap_6()
-            .child(agents_card)
-            .child(save_area)
-            .child(self.render_doctor_section(cx))
+        v_flex().w_full().gap_6().child(agents_card).child(save_area)
     }
 }

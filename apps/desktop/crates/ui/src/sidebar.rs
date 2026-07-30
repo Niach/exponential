@@ -963,6 +963,10 @@ impl Render for RailView {
         };
         let sc_tooltip: SharedString = if let Some(reason) = sc_attention {
             format!("Source Control — {reason}").into()
+        } else if let Some(error) = git_bar.read(cx).sync_error() {
+            // EXP-366: the red dot's WHY — a failed clone ("git not found on
+            // PATH") used to color the dot and say nothing anywhere.
+            format!("Source Control — sync failed: {error}").into()
         } else if let Some(percent) = git_bar.read(cx).clone_progress() {
             format!("Source Control — cloning… {percent}%").into()
         } else {
@@ -2188,6 +2192,9 @@ impl SidebarPanel {
                         .outline();
                 if fixing {
                     button = button.label("Fixing…").disabled(true);
+                } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
+                    // EXP-367: no agent CLI → disabled with the reason.
+                    button = button.label("Fix conflicts").tooltip(reason).disabled(true);
                 } else {
                     button = button.label("Fix conflicts");
                 }

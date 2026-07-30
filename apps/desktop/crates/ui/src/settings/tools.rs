@@ -1,12 +1,15 @@
 //! Settings → Tools (EXP-288 — renamed from "Coding" and slimmed to the
-//! non-agent, this-device knobs; the per-agent settings + doctor moved to
+//! non-agent, this-device knobs; the per-agent settings live in
 //! [`super::agents`]).
 //!
-//! | Row            | Meaning                                              |
+//! | Section        | Meaning                                              |
 //! |----------------|------------------------------------------------------|
 //! | Repos root     | Where repositories/worktrees live (`~` works)        |
 //! | Branch prefix  | Prepended to the issue identifier (`exp/EXP-42`)     |
 //! | Terminal shell | Program new `+` terminal tabs spawn (blank = auto)   |
+//! | Tooling doctor | The shared [`super::doctor_section::DoctorPanel`]    |
+//! |                | (EXP-367 — moved here from Agents; also the wizard's |
+//! |                | tools step)                                          |
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. This pane and the Agents pane
@@ -21,7 +24,7 @@ use gpui::{
     Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
     v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
@@ -30,7 +33,9 @@ use gpui_component::{
 use coding::Settings;
 
 use crate::coding_flow::CodingHub;
+use crate::native_dialog::{self, AlertSpec};
 
+use super::doctor_section::DoctorPanel;
 use super::{card_header, error_notice, section};
 
 pub struct ToolsPane {
@@ -39,6 +44,8 @@ pub struct ToolsPane {
     /// EXP-288: the shell new `+` terminal tabs spawn; blank = auto
     /// (the placeholder shows the detected platform default).
     shell_input: Entity<InputState>,
+    /// The shared tooling doctor (EXP-367 — also the onboarding tools step).
+    doctor: Entity<DoctorPanel>,
     /// The hub settings the controls were last synced from (dirty baseline).
     synced: Option<Settings>,
     save_error: Option<SharedString>,
@@ -54,6 +61,7 @@ impl ToolsPane {
         });
         let shell_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(terminal::manager::default_shell()));
+        let doctor = cx.new(|cx| DoctorPanel::new(window, cx));
 
         let hub = CodingHub::global(cx);
         let mut subscriptions = vec![cx.observe_in(&hub, window, |this, _, window, cx| {
@@ -72,6 +80,7 @@ impl ToolsPane {
             repos_input,
             prefix_input,
             shell_input,
+            doctor,
             synced: None,
             save_error: None,
             _subscriptions: subscriptions,
@@ -161,6 +170,28 @@ impl ToolsPane {
         cx.notify();
     }
 
+    /// The "Reset IDE data" confirm (EXP-367, built for testing fresh-install
+    /// flows): destructive-local-only, so a plain danger confirm suffices —
+    /// everything server-side survives and re-syncs on the next sign-in.
+    fn confirm_reset(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let repos_root = CodingHub::global(cx).read(cx).settings.repos_root.clone();
+        let spec = AlertSpec::new(
+            "Reset IDE data",
+            format!(
+                "This signs you out on this device and deletes ALL local IDE data — \
+                 settings, accounts, and synced caches. Cloned repositories under \
+                 {repos_root} are kept. The app restarts onto the sign-in screen."
+            ),
+            "Reset and restart",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            crate::session::reset_ide_data(cx);
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
     fn labeled_input(
         label: &'static str,
         hint: &'static str,
@@ -225,6 +256,47 @@ impl Render for ToolsPane {
             ),
         );
 
-        v_flex().w_full().gap_6().child(card).child(save_area)
+        // EXP-367: local-only destructive hatch for testing fresh-install
+        // flows (login, onboarding wizard, tools setup).
+        let danger = section(cx)
+            .child(card_header(
+                "Danger zone",
+                "Local to this device — nothing on the server is touched.",
+                cx,
+            ))
+            .child(
+                h_flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(
+                                "Reset IDE data — sign out and delete all local settings, \
+                                 accounts, and synced caches. Cloned repositories are kept.",
+                            ),
+                    )
+                    .child(
+                        Button::new("tools-reset-ide")
+                            .danger()
+                            .small()
+                            .label("Reset IDE data")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_reset(window, cx);
+                            })),
+                    ),
+            );
+
+        v_flex()
+            .w_full()
+            .gap_6()
+            .child(card)
+            .child(save_area)
+            .child(self.doctor.clone())
+            .child(danger)
     }
 }

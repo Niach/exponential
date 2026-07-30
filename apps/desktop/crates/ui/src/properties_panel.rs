@@ -613,13 +613,19 @@ impl PropertiesPanel {
         });
         let issue_id = issue.id.clone();
         let board_id = issue.board_id.clone();
+        // EXP-367: no agent CLI → disabled with the reason, never hidden.
+        let no_agent = crate::coding_flow::no_agent_reason(cx);
         let mut button = Button::new("sidebar-fix-conflicts")
             .outline()
             .small()
             .w_full()
             .icon(Icon::from(ExpIcon::GitBranch).text_color(cx.theme().muted_foreground))
             .label(if fixing { "Fixing…" } else { "Fix conflicts" })
-            .tooltip("Run the fix-conflicts action on this pull request")
+            .tooltip(
+                no_agent
+                    .clone()
+                    .unwrap_or_else(|| "Run the fix-conflicts action on this pull request".into()),
+            )
             .on_click(cx.listener(move |_, _, window, cx| {
                 let Some(team_id) = Store::global(cx)
                     .collections()
@@ -637,7 +643,7 @@ impl PropertiesPanel {
                     issue_id.clone(),
                 );
             }));
-        if fixing {
+        if fixing || no_agent.is_some() {
             button = button.disabled(true);
         }
         button
