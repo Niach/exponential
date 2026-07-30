@@ -12,6 +12,7 @@
 //! Opened from the team picker's "Create team…" item
 //! via the [`CreateTeam`] action; [`init`] owns the handler.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
@@ -43,7 +44,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
     // Web sm:max-w-[26rem] width; the height hugs the one-field form.
     let spec = DialogSpec::new("Create team", size(px(416.), px(224.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| CreateTeamDialogView::new(window, cx));
+        let view = cx.new(|cx| CreateTeamDialogView::new(false, window, cx));
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
@@ -54,8 +55,17 @@ pub fn open(window: &mut Window, cx: &mut App) {
     });
 }
 
+/// Emitted (embedded host only, EXP-367) once the created team is VISIBLE in
+/// the synced collection — the onboarding wizard advances on it.
+pub(crate) struct TeamCreated;
+impl gpui::EventEmitter<TeamCreated> for CreateTeamDialogView {}
+
 pub struct CreateTeamDialogView {
     name: Entity<InputState>,
+    /// EXP-367: hosted inside the onboarding wizard instead of a native
+    /// dialog window — no Cancel button, success EMITS [`TeamCreated`]
+    /// instead of closing a dialog + switching the team.
+    embedded: bool,
     submitting: bool,
     error: Option<SharedString>,
     focused_once: bool,
@@ -63,7 +73,7 @@ pub struct CreateTeamDialogView {
 }
 
 impl CreateTeamDialogView {
-    fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub(crate) fn new(embedded: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. Side Boards"));
 
         let subscriptions = vec![cx.subscribe_in(
@@ -78,6 +88,7 @@ impl CreateTeamDialogView {
 
         Self {
             name,
+            embedded,
             submitting: false,
             error: None,
             focused_once: false,
@@ -117,10 +128,19 @@ impl CreateTeamDialogView {
                     if let Some(teams) = teams {
                         queries::await_row_visible(&teams, &team_id, window).await;
                     }
-                    let _ = this.update_in(window, |_, window, cx| {
-                        native_dialog::close_then(window, cx, move |window, cx| {
-                            switch_team(window, cx, team_id);
-                        });
+                    let _ = this.update_in(window, |view, window, cx| {
+                        if view.embedded {
+                            // The wizard host advances on the event; the
+                            // window stays put (there is no dialog to close).
+                            view.submitting = false;
+                            switch_team(window, cx, team_id.clone());
+                            cx.emit(TeamCreated);
+                            cx.notify();
+                        } else {
+                            native_dialog::close_then(window, cx, move |window, cx| {
+                                switch_team(window, cx, team_id);
+                            });
+                        }
                     });
                 }
                 Err(err) => {
@@ -174,19 +194,21 @@ impl Render for CreateTeamDialogView {
             h_flex()
                 .justify_end()
                 .gap_2()
-                .child(
-                    Button::new("create-team-cancel")
-                        .outline()
-                        .small()
-                        .label("Cancel")
-                        .disabled(!closable)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if this.submitting {
-                                return;
-                            }
-                            native_dialog::close_dialog_window(window, cx);
-                        })),
-                )
+                .when(!self.embedded, |row| {
+                    row.child(
+                        Button::new("create-team-cancel")
+                            .outline()
+                            .small()
+                            .label("Cancel")
+                            .disabled(!closable)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if this.submitting {
+                                    return;
+                                }
+                                native_dialog::close_dialog_window(window, cx);
+                            })),
+                    )
+                })
                 .child(
                     Button::new("create-team-submit")
                         .primary()

@@ -69,6 +69,7 @@ pub mod issues;
 pub mod labels;
 pub mod login;
 pub mod notifications;
+pub mod onboarding;
 pub mod opener;
 pub mod patch;
 pub mod boards;

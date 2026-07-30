@@ -58,6 +58,7 @@ mod wysiwyg;
 mod native_dialog;
 mod navigation;
 mod oauth;
+mod onboarding;
 mod pickers;
 mod pr_diff;
 mod pr_merge;
