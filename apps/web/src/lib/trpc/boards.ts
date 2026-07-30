@@ -218,20 +218,6 @@ export const boardsRouter = router({
         boardRecord.teamId
       )
 
-      // Protected boards (the dogfood board) keep their repo — mirrors the
-      // delete guard.
-      const [current] = await ctx.db
-        .select({ isProtected: boards.isProtected })
-        .from(boards)
-        .where(eq(boards.id, input.boardId))
-        .limit(1)
-      if (current?.isProtected) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `This board is protected — its repository cannot be changed`,
-        })
-      }
-
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const repositoryId =
@@ -301,7 +287,6 @@ export const boardsRouter = router({
         .select({
           teamId: boards.teamId,
           deletedAt: boards.deletedAt,
-          isProtected: boards.isProtected,
         })
         .from(boards)
         .where(eq(boards.id, input.boardId))
@@ -312,13 +297,6 @@ export const boardsRouter = router({
       }
 
       await assertTeamOwner(ctx.session.user.id, board.teamId)
-
-      if (board.isProtected) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `This board is protected and cannot be deleted`,
-        })
-      }
 
       // Already trashed → nothing changed, so no sync barrier needed.
       if (board.deletedAt) {

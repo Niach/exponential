@@ -4,15 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // a structural fake `tx` is enough: `select()` shifts pre-seeded row batches
 // off a FIFO queue, `delete()`/`update()` record what they were handed.
 const mocks = vi.hoisted(() => ({
-  feedbackTeamId: { value: null as string | null },
   teamSubscriptions: [] as Array<{
     id: string
     creemSubscriptionId: string | null
   }>,
-}))
-
-vi.mock(`@/lib/bootstrap-cloud`, () => ({
-  getFeedbackTeamId: async () => mocks.feedbackTeamId.value,
 }))
 
 vi.mock(`@/lib/billing/creem-subscriptions`, () => ({
@@ -200,7 +195,6 @@ beforeEach(() => {
   deletes.length = 0
   updates.length = 0
   returningQueue.length = 0
-  mocks.feedbackTeamId.value = null
   mocks.teamSubscriptions = []
 })
 

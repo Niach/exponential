@@ -6,14 +6,15 @@ import {
 } from "@/lib/runtime-config"
 import type { ExponentialWidgetStub, QueuedCall } from "@exp/widget/types"
 
-// Dogfood mount of the embeddable feedback widget: the same loader script a
-// customer would paste, pointed at the dogfood feedback board. Cloud-only
-// (runtime config carries no widget on self-hosted instances — there the
-// sidebar FeedbackButton renders nothing). Installed once per page load.
+// In-app mount of the embeddable feedback widget: the same loader script a
+// customer would paste, pointed at the cloud's own feedback config (key
+// hardcoded in lib/runtime-config.ts). Cloud-only (runtime config carries no
+// widget on self-hosted instances — there the sidebar FeedbackButton renders
+// nothing). Installed once per page load.
 type LoadStatus = `idle` | `loading` | `ready` | `failed`
 let status: LoadStatus = `idle`
 
-// Same stub the public paste-in snippet creates — the dogfood path exercises
+// Same stub the public paste-in snippet creates — the in-app path exercises
 // the real loader handshake instead of a privileged shortcut.
 function installSnippetStub(): void {
   if (window.ExponentialWidget) return

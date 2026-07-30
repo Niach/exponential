@@ -281,9 +281,10 @@ describe(`shape column + trash contracts`, () => {
     })
 
     const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
-    expect(columns).toContain(`is_protected`)
     expect(columns).toContain(`deleted_at`)
-    // The public-board columns are gone (EXP-180) and must never resync.
+    // The public-board columns are gone (EXP-180), and is_protected died with
+    // the dogfood bootstrap (EXP-364) — none may ever resync.
+    expect(columns).not.toContain(`is_protected`)
     expect(columns).not.toContain(`is_public`)
     expect(columns).not.toContain(`public_show_comments`)
     expect(columns).not.toContain(`public_show_activity`)

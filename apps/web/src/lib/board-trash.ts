@@ -68,13 +68,7 @@ export async function runBoardPurgeSweep(
     .select({ id: boards.id })
     .from(boards)
     .where(
-      and(
-        isNotNull(boards.deletedAt),
-        lte(boards.deletedAt, cutoff),
-        // Protected boards (the dogfood board) are never purged, defensively —
-        // the delete guard already refuses to trash them.
-        eq(boards.isProtected, false)
-      )
+      and(isNotNull(boards.deletedAt), lte(boards.deletedAt, cutoff))
     )
 
   let boardsPurged = 0

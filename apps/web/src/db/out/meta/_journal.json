@@ -393,6 +393,13 @@
       "when": 1785650000001,
       "tag": "0055_grey_magneto",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1785650000002,
+      "tag": "0056_magenta_masked_marvel",
+      "breakpoints": true
     }
   ]
 }

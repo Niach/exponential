@@ -81,9 +81,11 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertFalse(team.helpdeskEnabled)
     }
 
-    // MARK: - Board (locks the t/f Postgres text forms too)
+    // MARK: - Board (sort_order arrives as Postgres text off the wire)
 
-    func testBoardDecodesWireBoolsAndSortOrder() throws {
+    func testBoardDecodesWireSortOrderAndIgnoresDeadColumns() throws {
+        // `is_protected` was dropped server-side (EXP-364) — a stale snapshot
+        // that still carries it must decode fine (Codable drops unknown keys).
         let board = try decode(BoardEntity.self, #"""
         {
           "id": "p1", "team_id": "w1", "name": "P", "slug": "p", "prefix": "P",
@@ -92,7 +94,6 @@ final class WireDecodingTests: XCTestCase {
         }
         """#)
         XCTAssertEqual(board.sortOrder, 2)
-        XCTAssertTrue(board.isProtected)
     }
 
     // MARK: - Attachment

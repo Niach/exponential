@@ -8,7 +8,7 @@ import {
   creem_subscriptions,
   widgetConfigs,
 } from "@/db/schema"
-import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
+import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "@/lib/plan-limit-error"
 
 export type PlanTier = `free` | `team` | `unlimited`
@@ -241,16 +241,13 @@ export async function getUserPlan(
   return { plan: bestPlan, limits: PLAN_LIMITS[bestPlan] }
 }
 
-// Number of teams the user OWNS. The bootstrap feedback team is
-// excluded (it's shared infra that admins "own" but shouldn't be billed for).
+// Number of teams the user OWNS.
 export async function countOwnedTeams(userId: string): Promise<number> {
-  const feedbackTeamId = await getFeedbackTeamId()
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(teamMembers)
-    .innerJoin(teams, eq(teams.id, teamMembers.teamId))
     .where(
-      sql`${teamMembers.userId} = ${userId} AND ${teamMembers.role} = 'owner'${feedbackTeamId ? sql` AND ${teams.id} <> ${feedbackTeamId}` : sql``}`
+      sql`${teamMembers.userId} = ${userId} AND ${teamMembers.role} = 'owner'`
     )
   return row?.count ?? 0
 }
@@ -372,8 +369,7 @@ export async function assertCanUseHelpdesk(teamId: string): Promise<void> {
   assertHelpdeskUsable(plan)
 }
 
-// Widget-create gate (widgets.create). Self-hosted is unlimited; the bootstrap
-// dogfood path inserts directly and is intentionally exempt.
+// Widget-create gate (widgets.create). Self-hosted is unlimited.
 export async function assertCanCreateWidget(
   teamId: string
 ): Promise<void> {

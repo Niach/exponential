@@ -1,34 +1,22 @@
-import { and, eq, isNull, ne } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { boards, users, teamMembers, teams } from "@/db/schema"
-import { getFeedbackTeamId } from "@/lib/bootstrap-cloud"
 
 // The single definition of "needs onboarding". Web, iOS and Android all gate
 // the first-run wizard purely on `onboardingCompletedAt` from the session, so
 // this is the one place the rule lives: a user who already has a board in a
 // team they're an explicit member of doesn't need the wizard — the flag
 // is backfilled on session read (covers accounts that predate the wizard).
-// Membership in the bootstrap feedback team deliberately does NOT count:
-// its boards are shared infra, not evidence the user set up their own space.
 export async function resolveOnboardingCompletedAt(user: {
   id: string
   onboardingCompletedAt?: Date | string | null
 }): Promise<Date | string | null> {
   if (user.onboardingCompletedAt != null) return user.onboardingCompletedAt
 
-  const feedbackTeamId = await getFeedbackTeamId()
   const [evidence] = await db
     .select({ boardId: boards.id })
     .from(teamMembers)
-    .innerJoin(
-      teams,
-      and(
-        eq(teams.id, teamMembers.teamId),
-        feedbackTeamId
-          ? ne(teams.id, feedbackTeamId)
-          : undefined
-      )
-    )
+    .innerJoin(teams, eq(teams.id, teamMembers.teamId))
     .innerJoin(boards, eq(boards.teamId, teams.id))
     .where(eq(teamMembers.userId, user.id))
     .limit(1)

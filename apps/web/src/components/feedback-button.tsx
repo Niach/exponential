@@ -44,7 +44,7 @@ export function useFeedbackWidgetAvailable(): boolean {
 
 // Sidebar entry point into the embedded feedback widget (the same widget the
 // FeedbackWidgetProvider mounts as a floating launcher). Renders nothing when
-// the runtime config exposes no dogfood widget — EXP-180 removed the legacy
+// the runtime config exposes no widget — EXP-180 removed the legacy
 // public-feedback-board redirect fallback.
 export function FeedbackButton() {
   const available = useFeedbackWidgetAvailable()

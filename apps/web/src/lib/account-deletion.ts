@@ -13,7 +13,6 @@ import {
   verifications,
 } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
-import { getFeedbackTeamId } from "@/lib/bootstrap-cloud"
 import {
   findActiveSubscriptionsForTeams,
   type CancellableSubscription,
@@ -89,9 +88,7 @@ export function classifyTeamsForUserDeletion(
  * 2. Delete the GitHub repo grants this user proved (the FK would only null
  *    them out, leaving permanently unreachable rows that keep entitling the
  *    team to browse/connect the departed user's private repos).
- * 3. Delete teams whose entire membership is just this user (the
- *    getFeedbackTeamId() guard keeps the bootstrap feedback team
- *    untouchable).
+ * 3. Delete teams whose entire membership is just this user.
  *
  * 4. Anonymize `@<email>` mentions of the departing user in surviving issue
  *    descriptions and comment bodies (REV2-37), and delete the email residue
@@ -164,12 +161,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
     .delete(githubInstallationRepoGrants)
     .where(eq(githubInstallationRepoGrants.grantedByUserId, userId))
 
-  // Never cascade-delete the bootstrap feedback team (a sole-admin
-  // account deletion would otherwise take every public feedback issue with it).
-  const feedbackTeamId = await getFeedbackTeamId()
-  const soloToDelete = feedbackTeamId
-    ? solo.filter((id) => id !== feedbackTeamId)
-    : solo
+  const soloToDelete = solo
 
   // The address is needed AFTER the users row is gone (mention scrub + email
   // residue), so capture it while it still exists.

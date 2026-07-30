@@ -271,11 +271,6 @@ export const boards = pgTable(
     // time is computed, never stored (constant retention). Trashed boards drop
     // out of every membership/public scope but keep their rows for restore.
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
-    // Non-deletable marker (the dogfood board). Set by bootstrap; guards
-    // in boards.delete/update and the purge sweep refuse to touch it. A synced
-    // column (not a server-only id comparison) so clients can grey out the
-    // affordance and it survives restore-from-backup id changes.
-    isProtected: boolean(`is_protected`).notNull().default(false),
     ...timestamps,
   },
   (table) => [

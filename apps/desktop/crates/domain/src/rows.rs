@@ -83,11 +83,6 @@ pub struct Board {
     /// Coding affordances gate purely on this presence.
     #[serde(default)]
     pub repository_id: Option<String>,
-    /// Trash contract: protected boards (the bootstrap dogfood board) are
-    /// non-deletable — the server refuses, and clients disable the
-    /// affordance from this flag. `None` on legacy rows.
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub is_protected: Option<bool>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
@@ -583,9 +578,10 @@ mod tests {
     #[test]
     fn board_icon_hydrates_and_stray_public_columns_are_ignored() {
         // The glyph comes from `icon`; the dropped public-board columns
-        // (`is_public`/`public_show_*`, like the older `type`) no longer
-        // arrive — a stray one from an older server or a pre-drop local table
-        // is simply ignored (row structs carry no deny_unknown_fields).
+        // (`is_public`/`public_show_*`, like the older `type`) and the dropped
+        // `is_protected` (EXP-364) no longer arrive — a stray one from an
+        // older server or a pre-drop local table is simply ignored (row
+        // structs carry no deny_unknown_fields).
         let board: Board = serde_json::from_value(json!({
             "id": "p-1",
             "team_id": "w-1",
@@ -593,7 +589,8 @@ mod tests {
             "icon": "megaphone",
             "is_public": "t",
             "public_show_comments": "t",
-            "public_show_activity": null
+            "public_show_activity": null,
+            "is_protected": "t"
         }))
         .unwrap();
         assert_eq!(board.icon.as_deref(), Some("megaphone"));
@@ -608,8 +605,7 @@ mod tests {
 
     #[test]
     fn team_helpdesk_enabled_hydrates_tolerantly() {
-        // SQLite TEXT store form ("t"/"f") — the same tolerant path as
-        // Board::is_protected.
+        // SQLite TEXT store form ("t"/"f") — the tolerant opt-bool path.
         let team: Team = serde_json::from_value(json!({
             "id": "w-1",
             "name": "Acme",

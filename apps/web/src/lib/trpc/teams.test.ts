@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // EXP-188 contract: teams.create is open to EVERY authed user (the old
 // instance-admin gate is gone — only the invisible free-tier owned-team cap
 // remains, mocked here), teams.getDefault is the NON-CREATING default-team
-// resolver (oldest non-feedback membership or null), and teams.delete no
+// resolver (oldest membership or null), and teams.delete no
 // longer refuses the user's last team (nothing self-heals a replacement
 // anymore — a team-less user routes back into onboarding). The router runs
 // against ctx.db, so a fake db object is enough — `select()` shifts
@@ -117,11 +117,6 @@ vi.mock(`@/lib/email-enabled`, () => ({
   },
 }))
 
-const FEEDBACK_WS = `99999999-9999-4999-8999-999999999999`
-vi.mock(`@/lib/bootstrap-cloud`, () => ({
-  getFeedbackTeamId: vi.fn(async () => FEEDBACK_WS),
-}))
-
 // REV2-55: deleting a paying team is GATED on its subscription being
 // cancelled first (the router no longer cancels anything itself).
 const assertTeamDeletableBilling = vi.fn(async () => {})
@@ -199,8 +194,8 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
 })
 
 describe(`teams.getDefault — non-creating resolver (EXP-188)`, () => {
-  it(`returns null when the user has no non-feedback membership`, async () => {
-    // findNonFeedbackMembership: no rows — and crucially, NO insert happens
+  it(`returns null when the user has no membership`, async () => {
+    // findOldestMembership: no rows — and crucially, NO insert happens
     // (the old ensureDefault would have self-healed a personal team here).
     selectQueue.push([])
 
@@ -210,7 +205,7 @@ describe(`teams.getDefault — non-creating resolver (EXP-188)`, () => {
     expect(inserts).toHaveLength(0)
   })
 
-  it(`returns the oldest non-feedback membership's team`, async () => {
+  it(`returns the oldest membership's team`, async () => {
     selectQueue.push([{ teamId: WS }])
     const teamRow = { id: WS, name: `Ship It`, slug: `ship-it` }
     selectQueue.push([teamRow])
@@ -285,15 +280,6 @@ describe(`teams.delete (EXP-188: no last-team guard)`, () => {
     expect(deletes).toHaveLength(1)
     expect(deletes[0]!.table).toBe(teams)
     expect(deleteStorageObjects).toHaveBeenCalledWith([`attachments/a.png`])
-  })
-
-  it(`still refuses to delete the bootstrap feedback team`, async () => {
-    await expect(
-      caller().delete({ teamId: FEEDBACK_WS })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    expect(deletes).toHaveLength(0)
-    expect(assertTeamDeletableBilling).not.toHaveBeenCalled()
-    expect(deleteStorageObjects).not.toHaveBeenCalled()
   })
 
   // REV2-55: a team with a live subscription must be un-subscribed first —

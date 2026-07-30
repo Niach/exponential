@@ -291,9 +291,9 @@ private fun BoardsSection(
                 Box(Modifier.size(10.dp).background(parseColor(board.color), CircleShape))
                 Spacer(Modifier.width(10.dp))
                 Text(board.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // Protected boards (the dogfood board) show no delete
-                // affordance to anyone; the server rejects it regardless.
-                if (isOwner && !board.isProtected) {
+                // Deleting a board is owner-only (the server enforces it too);
+                // the tap opens the destructive confirm dialog.
+                if (isOwner) {
                     Icon(
                         ExpIcons.uiDelete,
                         contentDescription = "Delete board",
@@ -553,10 +553,6 @@ private fun RepositoryRow(
 ) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    // A repo backing a protected board can't be removed (removal is blocked
-    // server-side while any board uses it, and a protected board can't be
-    // deleted to free it) — hide the affordance entirely.
-    val usedByProtected = boards.any { it.isProtected && it.repositoryId == repo.id }
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -578,7 +574,7 @@ private fun RepositoryRow(
                 Spacer(Modifier.width(6.dp))
                 Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
             }
-            if (isOwner && !usedByProtected) {
+            if (isOwner) {
                 IconButton(onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) }) {
                     Icon(ExpIcons.uiDelete, contentDescription = "Remove repository")
                 }

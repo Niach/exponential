@@ -26,7 +26,7 @@ import {
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
-import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
+import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import {
   captureOAuthTokens,
@@ -803,14 +803,6 @@ export const adminRouter = router({
   deleteTeam: adminProcedure
     .input(z.object({ teamId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      // The cloud boot would recreate the feedback team EMPTY — block.
-      if (input.teamId === (await getFeedbackTeamId())) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `The feedback team cannot be deleted`,
-        })
-      }
-
       // A paying team must have its subscription cancelled FIRST (REV2-55) —
       // same gate as teams.delete, because `creem_subscriptions.team_id` goes
       // `set null` on delete and the remote subscription would keep charging

@@ -49,8 +49,7 @@ struct TeamSettingsView: View {
                         isOwner: isOwner,
                         repositoriesApi: deps.repositoriesApi,
                         integrationsApi: deps.integrationsApi,
-                        instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                        protectedRepositoryIds: protectedRepositoryIds
+                        instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
                     )
 
                     // Members section (view/manage only — inviting is web-only,
@@ -144,12 +143,6 @@ struct TeamSettingsView: View {
     private var isOwner: Bool {
         guard let me = deps.auth.userId else { return false }
         return members.contains { $0.userId == me && $0.role == DomainContract.teamRoleOwner }
-    }
-
-    /// Repos backing a protected board — their remove affordance is hidden.
-    /// Derived from the already-observed team boards (no extra query).
-    private var protectedRepositoryIds: Set<String> {
-        Set(boards.filter { $0.isProtected }.compactMap { $0.repositoryId })
     }
 
     private func deleteTeam() async {

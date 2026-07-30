@@ -22,8 +22,10 @@ import XCTest
 // v10_action_icon (EXP-273) the ninth, v11_drop_archived_at (REV2-103:
 // archiving deleted from the product) the tenth, and v12_drop_issue_times
 // (REV2-103/REV2-49: issue time-of-day deleted from the product — due DATE
-// stays) the eleventh, and v13_issue_statuses (EXP-314: the synced
-// issue_statuses table, 16th shape, + issues.status_id) the twelfth.
+// stays) the eleventh, v13_issue_statuses (EXP-314: the synced
+// issue_statuses table, 16th shape, + issues.status_id) the twelfth, and
+// v14_drop_board_is_protected (EXP-364: protected boards deleted from the
+// product) the thirteenth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -66,7 +68,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
-             "v13_issue_statuses"]
+             "v13_issue_statuses", "v14_drop_board_is_protected"]
         )
     }
 
@@ -83,7 +85,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
-             "v13_issue_statuses"]
+             "v13_issue_statuses", "v14_drop_board_is_protected"]
         )
     }
 
@@ -128,7 +130,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
-             "v13_issue_statuses"]
+             "v13_issue_statuses", "v14_drop_board_is_protected"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -193,7 +195,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
-             "v13_issue_statuses"]
+             "v13_issue_statuses", "v14_drop_board_is_protected"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -260,6 +262,27 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(issueCols.contains("due_time"))
         XCTAssertFalse(issueCols.contains("end_time"))
         XCTAssertTrue(issueCols.contains("due_date"))
+    }
+
+    // v14 (EXP-364): a `-v5` store created while `boards.is_protected` still
+    // existed must lose it via the guarded drop (today's v1 create no longer
+    // declares it — hand-add it to model the old state). The other board
+    // columns must survive.
+    func testBoardIsProtectedDroppedFromExistingV5Store() throws {
+        let pool = try makePool("board-is-protected")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v13_issue_statuses")
+        try pool.write { db in
+            try db.alter(table: "boards") { t in
+                t.add(column: "is_protected", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let boardCols = try columnNames(pool, "boards")
+        XCTAssertFalse(boardCols.contains("is_protected"))
+        XCTAssertTrue(boardCols.contains("icon"))
+        XCTAssertTrue(boardCols.contains("repository_id"))
     }
 
     // v8 (EXP-253 actions): a `-v5` store created before the action columns
@@ -427,7 +450,9 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(boardCols.contains("public_show_activity"))
         XCTAssertFalse(boardCols.contains("is_public"))
         XCTAssertFalse(boardCols.contains("public_show_coding"))
-        XCTAssertTrue(boardCols.contains("is_protected"))
+        // Protected boards are gone from the product (EXP-364) — the boards
+        // shape no longer carries the flag, so the cache must not either.
+        XCTAssertFalse(boardCols.contains("is_protected"))
         XCTAssertTrue(boardCols.contains("icon"))
         // The JSONB-era board columns are gone (REV2-91): repos live in the
         // server-only registry and the releases-era preview feature is deleted.

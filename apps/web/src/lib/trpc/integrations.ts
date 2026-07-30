@@ -25,7 +25,6 @@ import {
   mintGithubSetupState,
   readGithubClaimTicket,
 } from "@/lib/integrations/github-setup-state"
-import { getFeedbackTeamId } from "@/lib/bootstrap-cloud"
 
 // Repo management (connect/remove/claim/unlink) is owner-or-instance-admin,
 // mirroring member management. Lives here (not repositories.ts) because both
@@ -727,14 +726,6 @@ export const integrationsRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         await assertCanManageRepos(ctx.session.user.id, input.teamId)
-        // The dogfood board's GitHub connection is protected — bootstrap
-        // re-heals the link on boot anyway; refuse explicitly and immediately.
-        if (input.teamId === (await getFeedbackTeamId())) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `The dogfood GitHub connection is protected`,
-          })
-        }
         const inUse = await db
           .select({ id: repositories.id })
           .from(repositories)

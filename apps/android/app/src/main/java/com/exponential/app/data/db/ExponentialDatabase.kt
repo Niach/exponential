@@ -135,9 +135,15 @@ import androidx.room.RoomDatabase
     //      builtin anchor). No Migration object: the destructive fallback wipes
     //      the local cache and re-syncs ALL 16 shapes on first launch after the
     //      update — expected, but user-visible as one full re-snapshot.
-    // No Migration object — DatabaseHolder uses destructive fallback + resync,
+    // v33 (EXP-364): protected boards deleted from the product —
+    //      boards.is_protected dropped from the entity (and the column/shape
+    //      server-side). Nothing stamped it anymore after EXP-363, so the
+    //      delete affordance is now plain owner-only. Removing a column is
+    //      decode-safe (ignoreUnknownKeys) and the destructive fallback wipes +
+    //      resyncs.
+    // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 32,
+    version = 33,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

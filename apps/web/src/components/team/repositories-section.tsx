@@ -55,15 +55,7 @@ type GithubStatus = Awaited<
 >
 type GithubInstallation = GithubStatus[`installations`][number]
 
-export function TeamRepositoriesSection({
-  teamId,
-  isFeedbackTeam = false,
-}: {
-  teamId: string
-  // The bootstrap feedback team's GitHub connection is protected (server
-  // refuses integrations.unlink for it) — hide the unlink affordance entirely.
-  isFeedbackTeam?: boolean
-}) {
+export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
   const [repos, setRepos] = useState<RepoList | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<RepoRowData | null>(null)
@@ -216,7 +208,7 @@ export function TeamRepositoriesSection({
           <GithubStatusLine
             status={githubStatus}
             busy={busy}
-            canUnlink={!isFeedbackTeam}
+            canUnlink
             connectHopUrl={connectHopUrl}
             onConnect={() => openGithubPopup(connectHopUrl)}
             onUnlink={handleUnlink}

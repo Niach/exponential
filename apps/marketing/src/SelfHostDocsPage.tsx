@@ -90,9 +90,9 @@ export function SelfHostDocsPage() {
               automatic HTTPS) — plus the optional <a href="#steer">steer
               relay</a> behind a compose profile. You bring an{` `}
               <a href="#storage">S3-compatible bucket</a> for attachments. The
-              stack runs with <code>SELF_HOSTED=true</code>, so every plan
-              limit disappears — seats, storage, widgets — and billing is
-              disabled entirely. It&apos;s free for any team size — open
+              stack runs in self-hosted mode by default (nothing to set), so
+              every plan limit disappears — seats, storage, widgets — and
+              billing is disabled entirely. It&apos;s free for any team size — open
               source under Apache-2.0, see <a href="#licensing">Licensing</a>.
             </p>
 
@@ -547,8 +547,8 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
             <h2>Environment variables</h2>
             <p>
               With the shipped compose file, the in-network plumbing (
-              <code>DATABASE_URL</code>, <code>ELECTRIC_URL</code>,{` `}
-              <code>SELF_HOSTED</code>) is wired for you — what&apos;s left in
+              <code>DATABASE_URL</code>, <code>ELECTRIC_URL</code>) is wired
+              for you — what&apos;s left in
               {` `}
               <code>.env</code> is two secrets, the S3 block, your domain, and
               whichever optional subsystems above you turn on. Everything in

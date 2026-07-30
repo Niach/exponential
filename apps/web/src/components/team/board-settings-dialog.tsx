@@ -19,8 +19,6 @@ import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { Board, Team } from "@/db/schema"
 
-const PROTECTED_REPO_HINT = `This board is protected — its repository can't be changed.`
-
 // Consolidated per-board settings (EXP-159): everything the create dialog
 // offers, editable after creation — name, icon, color, repository. Receives
 // the LIVE Electric row so every write reflects via sync; a concurrently-
@@ -159,25 +157,17 @@ export function BoardSettingsDialog({
             {canManageRepos && (
               <div className="space-y-2">
                 <Label>Repository</Label>
-                {board.isProtected ? (
-                  <p className="rounded-md border px-3 py-2 text-xs text-muted-foreground">
-                    {PROTECTED_REPO_HINT}
-                  </p>
-                ) : (
-                  <>
-                    <ConnectedRepoPicker
-                      teamId={team.id}
-                      value={board.repositoryId}
-                      disabled={busyRepo}
-                      onSelectRegistry={(repo) => void applyRepo(repo.id)}
-                      onConnectNew={(picked) => void handleConnect(picked)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      New &ldquo;Start coding&rdquo; launches use the selected
-                      repo; existing worktrees keep working locally.
-                    </p>
-                  </>
-                )}
+                <ConnectedRepoPicker
+                  teamId={team.id}
+                  value={board.repositoryId}
+                  disabled={busyRepo}
+                  onSelectRegistry={(repo) => void applyRepo(repo.id)}
+                  onConnectNew={(picked) => void handleConnect(picked)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  New &ldquo;Start coding&rdquo; launches use the selected
+                  repo; existing worktrees keep working locally.
+                </p>
                 {repoError && (
                   <p className="text-xs text-destructive">{repoError}</p>
                 )}

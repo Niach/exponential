@@ -212,8 +212,7 @@ export const widgetsRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Owner-only: creating a public write path is privacy-significant.
       await assertTeamOwner(ctx.session.user.id, input.teamId)
-      // Widget count is capped per tier (1 on Free). The bootstrap dogfood
-      // config is inserted directly and is exempt.
+      // Widget count is capped per tier (1 on Free).
       await assertCanCreateWidget(input.teamId)
 
       const modes = modesOf(input.formConfig)

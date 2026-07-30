@@ -20,14 +20,7 @@ function SettingsRepositories() {
       resolved={resolved}
       allowed={permissions.canManageRepos}
     >
-      {team && (
-        <TeamRepositoriesSection
-          teamId={team.id}
-          // The bootstrap feedback team (slug `feedback`) holds the
-          // protected dogfood GitHub connection — its unlink is server-refused.
-          isFeedbackTeam={team.slug === `feedback`}
-        />
-      )}
+      {team && <TeamRepositoriesSection teamId={team.id} />}
     </SettingsSectionGuard>
   )
 }

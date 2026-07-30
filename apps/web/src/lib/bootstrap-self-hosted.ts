@@ -136,7 +136,7 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
 }
 
 // Start the outbound PR-merge poller, gated on GITHUB_POLLING (decoupled from
-// SELF_HOSTED — reachability ≠ deployment type). Set it on instances GitHub
+// CLOUD_INSTANCE — reachability ≠ deployment type). Set it on instances GitHub
 // can't reach by webhook (LAN / NAT); reachable instances use the App webhook
 // instead and leave it unset. Never enable on cloud (per-user polling doesn't
 // scale). Fire-and-forget; safe to call once at boot.

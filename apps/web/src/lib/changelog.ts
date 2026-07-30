@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-selfhost-default-no-dogfood`,
+    date: `2026-07-30`,
+    title: `Self-hosted by default, no more special boards`,
+    summary: `Fresh instances start truly empty — no seeded teams, boards, or widgets — and self-hosted mode no longer needs a flag.`,
+    body: `- **Self-hosted is the default** — the \`SELF_HOSTED\` flag is gone; every plan limit is off unless the deployment explicitly opts into cloud mode. Existing self-host setups keep working without changes.
+- **No seeded content** — the boot-time feedback team, board, and widget bootstrap has been removed entirely. What you create is all there is.
+- **Protected boards are gone** — every board now behaves the same: owners can delete any board, and its repository can always be changed.`,
+  },
+  {
     id: `2026-07-github-claim-ownership`,
     date: `2026-07-30`,
     title: `GitHub connections locked to owners`,

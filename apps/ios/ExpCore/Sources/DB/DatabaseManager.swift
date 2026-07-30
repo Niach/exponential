@@ -210,9 +210,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("repository_id", .text)
                 // Curated glyph name (nullable — nil falls back to a derived icon).
                 t.column("icon", .text)
-                // Server-managed protection flag: a protected board (the
-                // bootstrap dogfood board) can't be deleted/repointed.
-                t.column("is_protected", .boolean).notNull().defaults(to: false)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -743,6 +740,23 @@ public final class DatabaseManager: @unchecked Sendable {
             guard !existing.contains("status_id") else { return }
             try db.alter(table: "issues") { t in
                 t.add(column: "status_id", .text)
+            }
+        }
+
+        // v14 (EXP-364): protected boards are gone from the product —
+        // `boards.is_protected` no longer exists server-side and the boards
+        // shape no longer carries it. Drop the dead column from the cache (the
+        // v7_drop_board_dead_columns / v11_drop_archived_at precedent); guarded
+        // on presence so fresh installs (which never create it above) and
+        // re-runs are no-ops. No offset reset — a column going AWAY needs no
+        // re-snapshot, and the decoder ignores the key if a stale live stream
+        // still emits it.
+        migrator.registerMigration("v14_drop_board_is_protected") { db in
+            guard try db.tableExists("boards") else { return }
+            let existing = Set(try db.columns(in: "boards").map(\.name))
+            guard existing.contains("is_protected") else { return }
+            try db.alter(table: "boards") { t in
+                t.drop(column: "is_protected")
             }
         }
 

@@ -6,11 +6,10 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Server-pinned column allowlist (clients cannot widen it). `is_protected` is
-// the client grey-out signal and MUST sync; `deleted_at` is always NULL inside
-// the shape (the where excludes non-null) but keeping it satisfies the web
-// selectBoardSchema. Pinning prevents any future server-only board column
-// from leaking to native clients.
+// Server-pinned column allowlist (clients cannot widen it). `deleted_at` is
+// always NULL inside the shape (the where excludes non-null) but keeping it
+// satisfies the web selectBoardSchema. Pinning prevents any future
+// server-only board column from leaking to native clients.
 const BOARD_COLUMNS = [
   `id`,
   `team_id`,
@@ -22,7 +21,6 @@ const BOARD_COLUMNS = [
   `repository_id`,
   `sort_order`,
   `deleted_at`,
-  `is_protected`,
   `created_at`,
   `updated_at`,
 ]

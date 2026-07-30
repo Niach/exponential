@@ -7,13 +7,12 @@ import {
   generateTxId,
 } from "@/lib/trpc"
 import { attachments, teams, teamMembers } from "@/db/schema"
-import { and, asc, eq, ne } from "drizzle-orm"
+import { asc, eq } from "drizzle-orm"
 import { teamColumns } from "@/lib/team-columns"
 import { emailEnabled } from "@/lib/email-enabled"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { randomBytes } from "crypto"
-import { getFeedbackTeamId } from "@/lib/bootstrap-cloud"
 import {
   assertTeamOwner,
   getTeamMember,
@@ -39,22 +38,12 @@ type DbOrTx = {
   select: typeof import("@/db/connection").db.select
 }
 
-// Oldest non-feedback membership — the user's "default" team. The
-// bootstrap feedback team never counts: INITIAL_ADMIN accounts get owner
-// membership there on promotion, which must not read as "has a team".
-async function findNonFeedbackMembership(db: DbOrTx, userId: string) {
-  const feedbackTeamId = await getFeedbackTeamId()
+// Oldest membership — the user's "default" team.
+async function findOldestMembership(db: DbOrTx, userId: string) {
   const [membership] = await db
     .select({ teamId: teamMembers.teamId })
     .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.userId, userId),
-        feedbackTeamId
-          ? ne(teamMembers.teamId, feedbackTeamId)
-          : undefined
-      )
-    )
+    .where(eq(teamMembers.userId, userId))
     .orderBy(asc(teamMembers.createdAt))
     .limit(1)
   return membership
@@ -78,12 +67,12 @@ async function uniqueSlug(tx: DbOrTx, base: string): Promise<string> {
 }
 
 export const teamsRouter = router({
-  // The user's default landing team (EXP-188): oldest non-feedback
-  // membership, or null when the user has none — signup no longer
-  // auto-creates a team, so clients route null to the onboarding
-  // create-or-join choice. Never creates anything.
+  // The user's default landing team (EXP-188): oldest membership, or null
+  // when the user has none — signup no longer auto-creates a team, so
+  // clients route null to the onboarding create-or-join choice. Never
+  // creates anything.
   getDefault: authedProcedure.query(async ({ ctx }) => {
-    const membership = await findNonFeedbackMembership(
+    const membership = await findOldestMembership(
       ctx.db,
       ctx.session.user.id
     )
@@ -183,15 +172,6 @@ export const teamsRouter = router({
     .input(z.object({ teamId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       await assertTeamOwner(ctx.session.user.id, input.teamId)
-
-      // Block deletion of the bootstrap feedback team — the cloud boot
-      // would recreate it EMPTY, silently losing every feedback issue.
-      if (input.teamId === (await getFeedbackTeamId())) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `Cannot delete the feedback team`,
-        })
-      }
 
       // A paying team must be un-subscribed BEFORE it can be deleted
       // (REV2-55): `creem_subscriptions.team_id` goes `set null` on delete,

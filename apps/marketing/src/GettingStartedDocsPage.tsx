@@ -204,8 +204,8 @@ export function GettingStartedDocsPage() {
               </li>
               <li>
                 <strong>Self-hosting is free for everyone</strong> — open
-                source under Apache-2.0. Set <code>SELF_HOSTED=true</code> and
-                every plan limit disappears, billing included. Optional{` `}
+                source under Apache-2.0. Self-hosted is the default mode:
+                every plan limit is off, billing included. Optional{` `}
                 <a href="/docs/self-host/#licensing">Enterprise Support</a>
                 {` `}
                 is available if you want an SLA.

@@ -125,13 +125,14 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(teamId, "ws1")
     }
 
-    func testBoardInsertPopulatesIsProtected() async throws {
-        // The boards shape now carries is_protected; an inserted row must
-        // persist it into the v5 column (not silently drop it).
+    func testBoardInsertPersistsRepositoryAndIcon() async throws {
+        // The boards shape carries the repo ride-along + the curated icon; an
+        // inserted row must persist both (EXP-364 removed `is_protected` —
+        // protected boards are gone from the product and the shape).
         let board = BoardEntity(
             id: "p1", teamId: "ws1", name: "Dogfood", slug: "exponential",
             prefix: "EXP", color: "#6366f1", sortOrder: 0,
-            repositoryId: "repo1", isProtected: true,
+            repositoryId: "repo1", icon: "rocket",
             createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
         )
         let message = ShapeMessage<BoardEntity>.insert(
@@ -139,7 +140,8 @@ final class SyncApplyTests: XCTestCase {
         )
         try await applyBatch(messages: [message], name: "boards", table: "boards", pool: pool)
         let stored = try await pool.read { try BoardEntity.fetchOne($0, key: "p1") }
-        XCTAssertEqual(stored?.isProtected, true)
+        XCTAssertEqual(stored?.repositoryId, "repo1")
+        XCTAssertEqual(stored?.icon, "rocket")
     }
 
     func testSupportReplyNotificationInsertPersistsTeamId() async throws {

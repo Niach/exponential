@@ -24,11 +24,6 @@ struct TeamRepositoriesSection: View {
     let repositoriesApi: RepositoriesApi
     let integrationsApi: IntegrationsApi
     let instanceBaseURL: URL?
-    // Repository ids backing a protected board (the dogfood board). Removal is
-    // refused server-side while any board points at a repo, and doubly so for
-    // a protected one — hide the affordance. Computed by the parent from the
-    // already-observed team boards.
-    var protectedRepositoryIds: Set<String> = []
 
     @State private var repos: [TeamRepo] = []
     @State private var loading = true
@@ -179,7 +174,9 @@ struct TeamRepositoriesSection: View {
                     AppIcon(AppIcons.uiPrivate, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
-                if isOwner && !protectedRepositoryIds.contains(repo.id) {
+                // Owner-only removal (the server refuses it while any board
+                // still points at the repo); the tap opens a confirmation.
+                if isOwner {
                     Button {
                         removeTarget = repo
                     } label: {

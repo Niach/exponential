@@ -42,9 +42,6 @@ data class BoardEntity(
     // Curated display icon (one of contract boardIconValues) or null for
     // pre-collapse rows — the client falls back to a shape-derived glyph then.
     val icon: String? = null,
-    // Server-owned protection flag (the dogfood board). A protected
-    // board can't be deleted, so clients hide the delete affordance.
-    @ColumnInfo(name = "is_protected") @SerialName("is_protected") @JsonNames("isProtected") val isProtected: PgBool = false,
     // Nullable — a repository is optional on every board (EXP-121). Coding/PR
     // affordances gate on its PRESENCE, never on `type`. repository_id rides on
     // the existing boards shape; the repo name is resolved via the

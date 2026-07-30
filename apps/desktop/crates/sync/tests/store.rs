@@ -243,31 +243,25 @@ fn bind_scalars_not_json_blobs() {
     assert_eq!(row.get("number"), Some(&Value::String("1".into())));
     assert_eq!(row.get("sort_order"), Some(&Value::String("1.5".into())));
 
-    // Bools → canonical "t"/"f" (boards.is_protected is a bool column).
-    let boards = shape_by_name("boards").unwrap();
+    // Bools → canonical "t"/"f" (teams.helpdesk_enabled is a bool column).
+    let teams = shape_by_name("teams").unwrap();
     store
         .apply_batch(
-            boards,
+            teams,
             &[
-                insert(
-                    "p-1",
-                    json!({"id": "p-1", "team_id": "w-1", "name": "A", "is_protected": true}),
-                ),
-                insert(
-                    "p-2",
-                    json!({"id": "p-2", "team_id": "w-1", "name": "B", "is_protected": false}),
-                ),
+                insert("w-1", json!({"id": "w-1", "name": "A", "helpdesk_enabled": true})),
+                insert("w-2", json!({"id": "w-2", "name": "B", "helpdesk_enabled": false})),
             ],
             None,
         )
         .unwrap();
-    let rows = store.read_all(boards).unwrap();
+    let rows = store.read_all(teams).unwrap();
     assert_eq!(
-        row_by_id(&rows, "p-1").get("is_protected"),
+        row_by_id(&rows, "w-1").get("helpdesk_enabled"),
         Some(&Value::String("t".into()))
     );
     assert_eq!(
-        row_by_id(&rows, "p-2").get("is_protected"),
+        row_by_id(&rows, "w-2").get("helpdesk_enabled"),
         Some(&Value::String("f".into()))
     );
 }

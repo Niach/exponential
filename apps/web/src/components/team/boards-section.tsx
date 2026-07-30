@@ -156,23 +156,21 @@ export function TeamBoardsSection({
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    {!board.isProtected && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                        title="Move to trash"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDeleteTarget({
-                            id: board.id,
-                            name: board.name,
-                          })
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                      title="Move to trash"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeleteTarget({
+                          id: board.id,
+                          name: board.name,
+                        })
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 )
               })}

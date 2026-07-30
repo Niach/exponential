@@ -27,7 +27,8 @@ services:
       BETTER_AUTH_URL: ${APP_URL:-http://localhost}
       BETTER_AUTH_TRUSTED_ORIGINS: ${APP_URL:-http://localhost}
       ELECTRIC_URL: http://electric:3000
-      SELF_HOSTED: "true"
+      # Self-hosted is the DEFAULT since EXP-364 (CLOUD_INSTANCE is the
+      # cloud's opt-in flag) — nothing to set here anymore.
       # NODE_ENV=production disables password sign-up by default; flip to
       # false in .env once your accounts exist.
       AUTH_SIGNUP_ENABLED: ${AUTH_SIGNUP_ENABLED:-true}

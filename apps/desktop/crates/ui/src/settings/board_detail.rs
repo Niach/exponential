@@ -432,7 +432,6 @@ impl Render for BoardDetailPane {
         };
         self.sync_selected_board(&board, window, cx);
 
-        let protected = board.is_protected.unwrap_or(false);
         let prefix: SharedString = board.prefix.clone().unwrap_or_default().into();
 
         let name_field = v_flex()
@@ -502,16 +501,7 @@ impl Render for BoardDetailPane {
         let repo_field = v_flex()
             .gap_1()
             .child(Self::field_label("Repository", cx))
-            .child(if protected {
-                // Server-guarded: a protected board keeps its repo.
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("This board is protected — its repository can't be changed.")
-                    .into_any_element()
-            } else {
-                self.repo_picker(&board, cx)
-            })
+            .child(self.repo_picker(&board, cx))
             .child(Self::field_hint(
                 "New \u{201c}Start coding\u{201d} launches use the selected repository.",
                 cx,
@@ -533,28 +523,21 @@ impl Render for BoardDetailPane {
             body = body.child(error_notice(error.clone(), cx));
         }
 
-        // Trash (owner-only pane already; hidden for the protected board).
-        if !protected {
-            let board_id = board.id.clone();
-            let board_name = board.name.clone();
-            body = body.child(
-                h_flex().pt_2().child(
-                    Button::new(row_id("board-detail-trash", &board.id))
-                        .danger()
-                        .small()
-                        .icon(registry::UI_DELETE)
-                        .label("Move to trash")
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            Self::open_trash_dialog(
-                                board_id.clone(),
-                                board_name.clone(),
-                                window,
-                                cx,
-                            );
-                        })),
-                ),
-            );
-        }
+        // Trash (owner-only pane already; the dialog confirms before it fires).
+        let board_id = board.id.clone();
+        let board_name = board.name.clone();
+        body = body.child(
+            h_flex().pt_2().child(
+                Button::new(row_id("board-detail-trash", &board.id))
+                    .danger()
+                    .small()
+                    .icon(registry::UI_DELETE)
+                    .label("Move to trash")
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        Self::open_trash_dialog(board_id.clone(), board_name.clone(), window, cx);
+                    })),
+            ),
+        );
 
         v_flex().child(body).into_any_element()
     }

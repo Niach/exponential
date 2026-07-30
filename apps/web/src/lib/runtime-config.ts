@@ -8,6 +8,15 @@ export type FeedbackWidgetConfig = {
   widgetKey: string
 }
 
+// The cloud feedback widget (EXP-364): the `Exponential App` widget config is
+// an ordinary hand-managed row in the cloud DB now — nothing seeds or heals
+// it, and the key is no longer looked up at runtime. It's a PUBLIC key by
+// design (the same one ships in marketing page snippets), so hardcoding it is
+// fine; FEEDBACK_WIDGET_KEY overrides it for instances whose config row has a
+// different key (staging). Deleting the config row in team settings leaves a
+// dead key — the loader's config fetch 404s and the launcher never mounts.
+const CLOUD_FEEDBACK_WIDGET_KEY = `expw_ATLHZ5hFiV5CqApwbCawPh72bPkpbHUp`
+
 export type RuntimeConfig = {
   isCloud: boolean
   // Team plan product ids: monthly (€15/seat/mo) and yearly (€12/seat/mo,
@@ -19,7 +28,9 @@ export type RuntimeConfig = {
 }
 
 export function buildRuntimeConfig(): RuntimeConfig {
-  const isCloud = process.env.SELF_HOSTED !== `true`
+  // Mirrors isCloudInstance() (lib/bootstrap-cloud.ts) — not imported, so this
+  // client-reachable module never pulls the server-only db graph.
+  const isCloud = (process.env.CLOUD_INSTANCE ?? ``).toLowerCase() === `true`
 
   return {
     isCloud,
@@ -29,47 +40,16 @@ export function buildRuntimeConfig(): RuntimeConfig {
     creemTeamYearlyProductId: isCloud
       ? (process.env.CREEM_TEAM_YEARLY_PRODUCT_ID ?? null)
       : null,
-    // Cloud-only — filled in from the DB by getRuntimeConfig.
-    feedbackWidget: null,
+    feedbackWidget: isCloud
+      ? {
+          scriptUrl: `/widget/v1/loader.js`,
+          widgetKey:
+            process.env.FEEDBACK_WIDGET_KEY ?? CLOUD_FEEDBACK_WIDGET_KEY,
+        }
+      : null,
   }
-}
-
-// Cloud-only: the dogfood widget key lives in the DB (created idempotently
-// by bootstrap-cloud's ensureFeedbackWidgetConfig). Cached for the process
-// lifetime — it never changes after bootstrap.
-let cloudWidgetPromise: Promise<FeedbackWidgetConfig | null> | null = null
-
-function resolveCloudFeedbackWidget(): Promise<FeedbackWidgetConfig | null> {
-  cloudWidgetPromise ??= (async () => {
-    try {
-      // The dynamic import keeps drizzle/pg out of the client graph: this
-      // file is imported by client components for the serverFn + types. It
-      // must target the small server-only leaf module — see the warning in
-      // lib/widget/dogfood.ts before changing this.
-      const { findDogfoodWidgetKey } = await import(`@/lib/widget/dogfood`)
-      const widgetKey = await findDogfoodWidgetKey()
-      if (!widgetKey) {
-        // No key yet (bootstrap still running, or the config is toggled off)
-        // — don't memoize the null, or the embedded widget stays disabled for
-        // the process lifetime even after the key appears.
-        cloudWidgetPromise = null
-        return null
-      }
-      return { scriptUrl: `/widget/v1/loader.js`, widgetKey }
-    } catch {
-      cloudWidgetPromise = null
-      return null
-    }
-  })()
-  return cloudWidgetPromise
 }
 
 export const getRuntimeConfig = createServerFn({ method: `GET` }).handler(
-  async () => {
-    const config = buildRuntimeConfig()
-    if (config.isCloud && !config.feedbackWidget) {
-      config.feedbackWidget = await resolveCloudFeedbackWidget()
-    }
-    return config
-  }
+  async () => buildRuntimeConfig()
 )

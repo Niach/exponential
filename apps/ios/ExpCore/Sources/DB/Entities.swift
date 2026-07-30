@@ -82,7 +82,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
 // Custom decode: `helpdesk_enabled` arrives as Postgres text off the Electric
 // wire ("t"/"true"/…) but as a native scalar from tRPC/fixtures, and a
 // pre-rotation snapshot may omit it — decode permissively with the schema
-// default (the BoardEntity `is_protected` precedent).
+// default (the BoardEntity wire-bool precedent).
 extension TeamEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -117,10 +117,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     // Curated glyph name (DomainContract.boardIconValues) — nil means fall
     // back to a derived icon. Rendered to an SF Symbol client-side.
     public let icon: String?
-    // Server-managed protection flag: a protected board (the bootstrap
-    // dogfood board) can't be deleted/retyped/repointed. Rides along on
-    // the boards shape; clients hide the destructive affordances for it.
-    public let isProtected: Bool
     public let createdAt: String
     public let updatedAt: String
 
@@ -134,7 +130,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         sortOrder: Double?,
         repositoryId: String?,
         icon: String? = nil,
-        isProtected: Bool = false,
         createdAt: String,
         updatedAt: String
     ) {
@@ -147,7 +142,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.sortOrder = sortOrder
         self.repositoryId = repositoryId
         self.icon = icon
-        self.isProtected = isProtected
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -157,19 +151,18 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case teamId = "team_id"
         case sortOrder = "sort_order"
         case repositoryId = "repository_id"
-        case isProtected = "is_protected"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
 }
 
-// Custom Codable: the icon / is_protected columns land in a shape rotation; a
-// pre-rotation snapshot (or a partial update touching other columns) may omit
-// them, so decode each permissively with the schema default instead of
-// throwing. Booleans and sort_order come off the Electric wire as
-// JSON strings (Postgres text — "true"/"false"/"t"/"f"/"1"/"0" for bools,
-// "2"/"3.5" for sort_order) but as native scalars from tRPC/fixtures, so they go
-// through the type-aware wire decoders.
+// Custom Codable: the icon column landed in a shape rotation; a pre-rotation
+// snapshot (or a partial update touching other columns) may omit it, so decode
+// permissively with the schema default instead of throwing. `is_protected` was
+// dropped server-side (EXP-364 — protected boards are gone); an unknown key on
+// the wire is simply ignored by Codable. sort_order comes off the Electric wire
+// as a JSON string (Postgres text — "2"/"3.5") but as a native scalar from
+// tRPC/fixtures, so it goes through the type-aware wire decoder.
 extension BoardEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -182,7 +175,6 @@ extension BoardEntity: Codable {
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        isProtected = c.decodeWireBool(forKey: .isProtected, default: false)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

@@ -123,16 +123,15 @@ pub const SHAPES: [ShapeSpec; 16] = [
             "color",
             // Nullable repo + icon. `heal_missing_columns` ALTERs these onto
             // existing tables on the next open (all TEXT). The dropped
-            // public-board columns (`is_public`/`public_show_*`) and the
-            // dropped `archived_at` (REV2-103: archiving is gone; board trash
-            // is the unrelated `deleted_at` feature, server-side scoped)
-            // linger as orphaned local TEXT columns on pre-drop installs; the
+            // public-board columns (`is_public`/`public_show_*`), the dropped
+            // `archived_at` (REV2-103: archiving is gone; board trash is the
+            // unrelated `deleted_at` feature, server-side scoped) and the
+            // dropped `is_protected` (EXP-364: protected boards are gone —
+            // nothing stamped the flag, so the column left the server) linger
+            // as orphaned local TEXT columns on pre-drop installs; the
             // allowlist drops the keys on upsert.
             "icon",
             "repository_id",
-            // Trash contract: the bootstrap dogfood board is protected —
-            // clients disable delete from this synced flag.
-            "is_protected",
             "sort_order",
             "created_at",
             "updated_at",

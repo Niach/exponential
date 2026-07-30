@@ -76,10 +76,8 @@ struct TeamBoardsSection: View {
                             repositoryId: board.repositoryId
                         )
 
-                        // Owner-only retarget → boards.setRepository. Hidden
-                        // for protected boards (the server refuses to repoint
-                        // them).
-                        if isOwner && !board.isProtected {
+                        // Owner-only retarget → boards.setRepository.
+                        if isOwner {
                             Button {
                                 repoTarget = board
                             } label: {
@@ -89,11 +87,11 @@ struct TeamBoardsSection: View {
                             .buttonStyle(.plain)
                         }
 
-                        // Delete (→ trash) — owner-only, and never for a
-                        // protected board (the dogfood board: the server
-                        // refuses, and this is the one-tap path that once wiped
-                        // it). Hidden for non-owners too (full web parity).
-                        if isOwner && !board.isProtected {
+                        // Delete (→ trash) — owner-only (the server refuses for
+                        // everyone else). Hidden for non-owners entirely (full
+                        // web parity); the tap still routes through the parent's
+                        // destructive confirmation alert.
+                        if isOwner {
                             Button {
                                 onDelete(board)
                             } label: {

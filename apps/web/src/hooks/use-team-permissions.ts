@@ -16,8 +16,7 @@ export interface TeamPermissions {
   canMutateIssue: (issue: Pick<Issue, `creatorId`>) => boolean
   // Capability contract mirrored by the native clients. Server mapping:
   //   canManageTeam = owner        (teams.update/delete)
-  //   canDeleteBoard   = owner        (boards.delete; call sites also
-  //                                      require !board.isProtected)
+  //   canDeleteBoard   = owner        (boards.delete)
   //   canManageMembers   = owner||admin (assertCanManageMembers)
   //   canManageRepos     = owner||admin (assertCanManageRepos)
   //   canManageWidgets   = owner        (widgets.create/update/delete/list)
