@@ -24,6 +24,8 @@ import { githubConnectedDeepLink } from "@/lib/deep-link"
 interface ClaimSearch {
   ticket?: string
   error?: string
+  login?: string
+  install?: string
 }
 
 const MOBILE_DEEP_LINK = githubConnectedDeepLink()
@@ -38,14 +40,26 @@ const ERROR_COPY: Record<string, { title: string; body: string }> = {
     body: `GitHub didn't complete the authorization. Restart the connect flow from team settings → Repositories.`,
   },
   none: {
-    title: `No installations found`,
-    body: `That GitHub account has no Exponential App installations to connect. Use "Install on GitHub" from team settings → Repositories to install the App first.`,
+    title: `No installation found`,
+    body: `That GitHub account has no installation of the Exponential App yet. Install it on your account or organization — you'll pick exactly which repositories it can see.`,
+  },
+  notowner: {
+    title: `Not your installation`,
+    body: `The GitHub account you authorized doesn't own an installation of the Exponential App — it only has collaborator access to someone else's. Install the App on your own account or organization, then connect again.`,
+  },
+  orgperm: {
+    title: `Organization approval needed`,
+    body: `Your organization hasn't approved the App's latest permissions yet (read-only organization members, used to verify your membership). Ask an org admin to approve the pending permission request on GitHub, then connect again.`,
   },
   forbidden: {
     title: `Not allowed`,
     body: `Only team owners can connect GitHub accounts to this team.`,
   },
 }
+
+// Errors where the way out is GitHub's install page (account + repo
+// selection) — these render the signed `install` link as the primary action.
+const INSTALLABLE_ERRORS = new Set([`none`, `notowner`, `orgperm`])
 
 interface PreviewInstallation {
   installationId: number
@@ -55,7 +69,7 @@ interface PreviewInstallation {
 }
 
 function GithubClaim() {
-  const { ticket, error } = Route.useSearch()
+  const { ticket, error, login, install } = Route.useSearch()
   const [preview, setPreview] = useState<{
     teamId: string
     mobile: boolean
@@ -167,11 +181,35 @@ function GithubClaim() {
               </div>
               <CardTitle className="text-xl">{errorCopy.title}</CardTitle>
               <CardDescription>{errorCopy.body}</CardDescription>
+              {login ? (
+                <p className="text-xs text-muted-foreground">
+                  You authorized GitHub as <span className="font-medium">{login}</span>.
+                </p>
+              ) : null}
             </CardHeader>
-            <CardContent>
-              <Button asChild size="lg" className="w-full">
-                <Link to="/">Back to Exponential</Link>
-              </Button>
+            <CardContent className="flex flex-col gap-2">
+              {/* The install param is forgeable — only ever link to the App's
+                  own install page on github.com. */}
+              {install &&
+              error &&
+              INSTALLABLE_ERRORS.has(error) &&
+              install.startsWith(`https://github.com/apps/`) ? (
+                <>
+                  <Button asChild size="lg" className="w-full">
+                    <a href={install}>
+                      <Github className="h-4 w-4" />
+                      Install on GitHub
+                    </a>
+                  </Button>
+                  <Button asChild size="lg" variant="ghost" className="w-full">
+                    <Link to="/">Back to Exponential</Link>
+                  </Button>
+                </>
+              ) : (
+                <Button asChild size="lg" className="w-full">
+                  <Link to="/">Back to Exponential</Link>
+                </Button>
+              )}
             </CardContent>
           </>
         ) : done || allLinked ? (
@@ -294,6 +332,8 @@ export const Route = createFileRoute(`/_authenticated/integrations/github/claim`
     validateSearch: (search: Record<string, unknown>): ClaimSearch => ({
       ticket: typeof search.ticket === `string` ? search.ticket : undefined,
       error: typeof search.error === `string` ? search.error : undefined,
+      login: typeof search.login === `string` ? search.login : undefined,
+      install: typeof search.install === `string` ? search.install : undefined,
     }),
     component: GithubClaim,
   }

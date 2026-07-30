@@ -6,10 +6,15 @@ import {
   BRANCH_DIFF_CACHE_MAX,
   evictStaleEntries,
   fetchBranchDiff,
+  getAuthenticatedGithubLogin,
+  getUserOrgMembershipState,
   listUserInstallationRepos,
+  partitionControlledInstallations,
   peekBranchDiff,
   resolveInstallationTokenWith,
+  type AppInstallation,
   type CompareFetch,
+  type OrgMembershipState,
 } from "@/lib/integrations/github-app"
 
 // resolveInstallationTokenWith is the pure resolution policy behind
@@ -275,6 +280,199 @@ describe(`listUserInstallationRepos`, () => {
     await expect(listUserInstallationRepos(`bad-tok`, 7)).rejects.toThrow(
       /GitHub user installation repos failed \(401\)/
     )
+  })
+})
+
+// EXP-363: the claim flow's control verification. GitHub's /user/installations
+// lists any installation the user can reach ONE repo of, so a collaborator on
+// a stranger's repo enumerated the stranger's installation and could brand it
+// as their team's GitHub connection. These pin the helpers' fail-closed value
+// semantics (they must NEVER throw — the callback's catch-all renders a fake
+// mobile "connected" page) and the ownership/membership policy itself.
+describe(`getAuthenticatedGithubLogin`, () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it(`returns the login from GET /user with the user token`, async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ login: `octocat` }),
+    })
+    vi.stubGlobal(`fetch`, fetchMock)
+
+    await expect(getAuthenticatedGithubLogin(`user-tok`)).resolves.toBe(
+      `octocat`
+    )
+    const [url, init] = fetchMock.mock.calls[0] as [
+      string,
+      { headers: Record<string, string> },
+    ]
+    expect(url).toBe(`https://api.github.com/user`)
+    expect(init.headers.authorization).toBe(`Bearer user-tok`)
+  })
+
+  it(`returns null (not a throw) on an error status`, async () => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) })
+    )
+    await expect(getAuthenticatedGithubLogin(`bad-tok`)).resolves.toBeNull()
+  })
+
+  it(`returns null (not a throw) when fetch itself rejects`, async () => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn().mockRejectedValue(new Error(`network down`))
+    )
+    await expect(getAuthenticatedGithubLogin(`user-tok`)).resolves.toBeNull()
+  })
+})
+
+describe(`getUserOrgMembershipState`, () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function stubStatus(status: number, body: unknown = {}) {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn().mockResolvedValue({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+      })
+    )
+  }
+
+  it(`active membership → active`, async () => {
+    stubStatus(200, { state: `active` })
+    await expect(getUserOrgMembershipState(`tok`, `acme`)).resolves.toBe(
+      `active`
+    )
+  })
+
+  it(`pending membership → not-member (an invite is not control)`, async () => {
+    stubStatus(200, { state: `pending` })
+    await expect(getUserOrgMembershipState(`tok`, `acme`)).resolves.toBe(
+      `not-member`
+    )
+  })
+
+  it(`403 → permission-missing (App lacks members-read or approval pending)`, async () => {
+    stubStatus(403)
+    await expect(getUserOrgMembershipState(`tok`, `acme`)).resolves.toBe(
+      `permission-missing`
+    )
+  })
+
+  it(`404 → not-member (outside collaborators land here)`, async () => {
+    stubStatus(404)
+    await expect(getUserOrgMembershipState(`tok`, `acme`)).resolves.toBe(
+      `not-member`
+    )
+  })
+
+  it(`5xx fails CLOSED to not-member, never throws`, async () => {
+    stubStatus(500)
+    await expect(getUserOrgMembershipState(`tok`, `acme`)).resolves.toBe(
+      `not-member`
+    )
+  })
+
+  it(`encodes the org into the membership URL`, async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ state: `active` }),
+    })
+    vi.stubGlobal(`fetch`, fetchMock)
+    await getUserOrgMembershipState(`tok`, `acme`)
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `https://api.github.com/user/memberships/orgs/acme`
+    )
+  })
+})
+
+describe(`partitionControlledInstallations`, () => {
+  const inst = (
+    id: number,
+    account: string,
+    accountType: string
+  ): AppInstallation => ({ id, account, accountType })
+  const neverMembership = vi.fn(async (): Promise<OrgMembershipState> => {
+    throw new Error(`membership must not be consulted for User installations`)
+  })
+
+  it(`keeps a User installation whose login matches case-insensitively`, async () => {
+    const result = await partitionControlledInstallations(
+      [inst(1, `NiAcH`, `User`)],
+      { viewerLogin: `niach`, orgMembership: neverMembership }
+    )
+    expect(result.controlled.map((i) => i.id)).toEqual([1])
+    expect(result.orgPermissionBlocked).toBe(false)
+  })
+
+  it(`filters a User installation on someone else's account (the EXP-363 leak)`, async () => {
+    const result = await partitionControlledInstallations(
+      [inst(1, `Niach`, `User`)],
+      { viewerLogin: `LukeTechMech`, orgMembership: neverMembership }
+    )
+    expect(result.controlled).toEqual([])
+  })
+
+  it(`keeps an Organization installation only on active membership`, async () => {
+    const membership = vi.fn(
+      async (org: string): Promise<OrgMembershipState> =>
+        org === `goodorg` ? `active` : `not-member`
+    )
+    const result = await partitionControlledInstallations(
+      [inst(1, `goodorg`, `Organization`), inst(2, `otherorg`, `Organization`)],
+      { viewerLogin: `octocat`, orgMembership: membership }
+    )
+    expect(result.controlled.map((i) => i.id)).toEqual([1])
+    expect(result.orgPermissionBlocked).toBe(false)
+    expect(membership).toHaveBeenCalledWith(`goodorg`)
+    expect(membership).toHaveBeenCalledWith(`otherorg`)
+  })
+
+  it(`flags orgPermissionBlocked when the membership check lacks the App permission`, async () => {
+    const result = await partitionControlledInstallations(
+      [inst(1, `acme`, `Organization`)],
+      {
+        viewerLogin: `octocat`,
+        orgMembership: async () => `permission-missing`,
+      }
+    )
+    expect(result.controlled).toEqual([])
+    expect(result.orgPermissionBlocked).toBe(true)
+  })
+
+  it(`filters empty logins, empty viewer, and unknown account types (fail closed)`, async () => {
+    const membership = vi.fn(async (): Promise<OrgMembershipState> => `active`)
+    const noLogin = await partitionControlledInstallations(
+      [inst(1, ``, `User`), inst(2, `ent`, `Enterprise`)],
+      { viewerLogin: `octocat`, orgMembership: membership }
+    )
+    expect(noLogin.controlled).toEqual([])
+    const noViewer = await partitionControlledInstallations(
+      [inst(3, `octocat`, `User`)],
+      { viewerLogin: ``, orgMembership: membership }
+    )
+    expect(noViewer.controlled).toEqual([])
+  })
+
+  it(`preserves order across a mixed set and keeps only controlled entries`, async () => {
+    const result = await partitionControlledInstallations(
+      [
+        inst(1, `stranger`, `User`),
+        inst(2, `octocat`, `User`),
+        inst(3, `acme`, `Organization`),
+      ],
+      { viewerLogin: `octocat`, orgMembership: async () => `active` }
+    )
+    expect(result.controlled.map((i) => i.id)).toEqual([2, 3])
   })
 })
 

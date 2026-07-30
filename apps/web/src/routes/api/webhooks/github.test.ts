@@ -19,7 +19,11 @@ const h = vi.hoisted(() => {
     values?: unknown
     conflictSet?: unknown
   }> = []
-  const updates: Array<{ table: unknown; set: Record<string, unknown> }> = []
+  const updates: Array<{
+    table: unknown
+    set: Record<string, unknown>
+    where?: unknown
+  }> = []
   const deletes: Array<{ table: unknown }> = []
 
   function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
@@ -52,8 +56,8 @@ const h = vi.hoisted(() => {
   })
   const update = vi.fn((table: unknown) => ({
     set: (set: Record<string, unknown>) => ({
-      where: () => {
-        updates.push({ table, set })
+      where: (where?: unknown) => {
+        updates.push({ table, set, where })
         return Promise.resolve()
       },
     }),
@@ -402,5 +406,71 @@ describe(`github webhook — installation lifecycle (suspend/unsuspend/deleted)`
     expect(res.status).toBe(200)
     expect(h.updates).toHaveLength(0)
     expect(h.deletes).toHaveLength(0)
+  })
+})
+
+// EXP-363 hardening: the `repositories_added` heal used to match rows by
+// full_name ALONE, so any installation of the App could rebind another team's
+// registry row (clear its no-access flag + repoint installation_id) just by
+// adding a same-named repo — reachable from outside via a renamed-then-
+// squatted account. The heal's where clause must now also scope by tenant:
+// same installation, still-unbound, or a team that actually CLAIMED this
+// installation (resolved via the claiming-teams subquery).
+describe(`github webhook — installation_repositories heal scoping`, () => {
+  const INSTALLATION_ID = 515151
+
+  function repoSelectionPayload(overrides: {
+    added?: string[]
+    removed?: string[]
+  }): unknown {
+    return {
+      action: `added`,
+      installation: {
+        id: INSTALLATION_ID,
+        account: { login: `acme`, type: `Organization` },
+      },
+      repositories_added: (overrides.added ?? []).map((full_name) => ({
+        full_name,
+      })),
+      repositories_removed: (overrides.removed ?? []).map((full_name) => ({
+        full_name,
+      })),
+    }
+  }
+
+  const repositoryUpdates = () =>
+    h.updates.filter((u) => u.table === repositories)
+
+  it(`removed flags rows scoped to THIS installation`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(
+        `installation_repositories`,
+        repoSelectionPayload({ removed: [`acme/app`] })
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(repositoryUpdates()).toHaveLength(1)
+    expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
+  })
+
+  it(`added heals with the claim-scoped where clause, not by full_name alone`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(
+        `installation_repositories`,
+        repoSelectionPayload({ added: [`acme/app`] })
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(repositoryUpdates()).toHaveLength(1)
+    expect(repositoryUpdates()[0].set).toMatchObject({
+      inaccessibleAt: null,
+      installationId: INSTALLATION_ID,
+    })
+    // The tenant scoping resolves the claiming teams through a subquery — the
+    // old full_name-only heal never touched db.select at all.
+    expect(h.select).toHaveBeenCalled()
+    expect(repositoryUpdates()[0].where).toBeDefined()
   })
 })

@@ -9,8 +9,12 @@ import {
 import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import {
   exchangeGithubOAuthCode,
+  getAuthenticatedGithubLogin,
+  getUserOrgMembershipState,
+  githubAppInstallUrl,
   listUserInstallationRepos,
   listUserInstallations,
+  partitionControlledInstallations,
 } from "@/lib/integrations/github-app"
 import { mobileConnectedResponse } from "@/lib/integrations/github-return-page"
 import {
@@ -18,6 +22,7 @@ import {
   githubSetupStateWantsDialog,
   githubSetupStateWantsMobile,
   mintGithubClaimTicket,
+  mintGithubSetupState,
 } from "@/lib/integrations/github-setup-state"
 import {
   assertCanManageRepos,
@@ -29,23 +34,40 @@ import {
 // forced settings change — the thing that made the install round-trip so
 // tedious, especially on mobile). We exchange the code for a TRANSIENT
 // user-to-server token, ask GitHub which installations that user can access
-// (`GET /user/installations` — GitHub's own proof of account control), mirror
-// them into github_installations, and link them to the state's target
-// team: directly when there's exactly one, via the /integrations/github/
-// claim picker page when there are several. The token is used for that single
-// enumeration and discarded — never persisted, so expiry/refresh never exist.
-async function handleCallback(request: Request): Promise<Response> {
+// (`GET /user/installations`), and — since EXP-363 — keep only the ones the
+// user CONTROLS (owns the User-type installation, or is an active member of
+// the Organization-type one): GitHub's enumeration includes any installation
+// the user can reach ONE repo of, so a collaborator on a stranger's repo
+// would otherwise claim the stranger's whole account as the team's GitHub
+// connection. Controlled installations are mirrored into github_installations
+// and linked to the state's target team: directly when there's exactly one,
+// via the /integrations/github/claim picker page when there are several. The
+// token is used for this one round of lookups and discarded — never
+// persisted, so expiry/refresh never exist.
+export async function handleCallback(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const code = url.searchParams.get(`code`)
   const state = url.searchParams.get(`state`)
   const fromMobile = githubSetupStateWantsMobile(state)
   const fromDialog = githubSetupStateWantsDialog(state)
 
-  const errorRedirect = (error: string) =>
-    new Response(null, {
+  // `login`/`install` feed the claim page's no-linkable-installation error
+  // cards: which GitHub account was actually authorized, and a signed install
+  // link so the dead end always offers the way out (GitHub's authorize screen
+  // itself has no install step — the exact trap of EXP-363).
+  const errorRedirect = (
+    error: string,
+    extra?: { login?: string; install?: string }
+  ) => {
+    let location = `/integrations/github/claim?error=${error}`
+    if (extra?.login) location += `&login=${encodeURIComponent(extra.login)}`
+    if (extra?.install)
+      location += `&install=${encodeURIComponent(extra.install)}`
+    return new Response(null, {
       status: 302,
-      headers: { location: `/integrations/github/claim?error=${error}` },
+      headers: { location },
     })
+  }
 
   try {
     // Validate the state BEFORE spending the one-shot authorization code: a
@@ -66,11 +88,25 @@ async function handleCallback(request: Request): Promise<Response> {
 
     const installations = await listUserInstallations(userToken)
 
-    // Mirror every enumerated installation (account fields only). The rows
+    // EXP-363: keep only installations the OAuth user controls. A null login
+    // means /user itself failed — nothing is verifiable, so fail closed as a
+    // transient exchange error (retry-able), not as "not the owner".
+    const viewerLogin = await getAuthenticatedGithubLogin(userToken)
+    if (!viewerLogin) return errorRedirect(`exchange`)
+    const { controlled, orgPermissionBlocked } =
+      await partitionControlledInstallations(installations, {
+        viewerLogin,
+        orgMembership: (org) => getUserOrgMembershipState(userToken, org),
+      })
+    const controlledIds = new Set(controlled.map((inst) => inst.id))
+
+    // Mirror every CONTROLLED installation (account fields only). The rows
     // must exist before the claim page can render account names, and the
-    // upsert also heals stale logins after renames.
+    // upsert also heals stale logins after renames. Uncontrolled enumerations
+    // are never mirrored from here — the installation webhook is their
+    // authoritative writer.
     const rowIds = new Map<number, string>()
-    for (const inst of installations) {
+    for (const inst of controlled) {
       const [row] = await db
         .insert(githubInstallations)
         .values({
@@ -99,12 +135,16 @@ async function handleCallback(request: Request): Promise<Response> {
     // so a re-auth cleanly refreshes this user's set. Best-effort per
     // installation: one failed listing must not abort the linking below (that
     // installation just contributes no grants until the next re-auth).
-    // Captured for ALL enumerated installations regardless of which the user
-    // ultimately links — the pickers only ever read grants for LINKED
-    // installations, so grants for un-linked ones are inert.
+    // The loop walks ALL enumerated installations, but only CONTROLLED ones
+    // capture repos — an uncontrolled enumeration runs the DELETE alone, so a
+    // re-auth actively scrubs any pre-EXP-363 collaborator grants that would
+    // otherwise resurrect if the real owner later linked the installation to
+    // a team both users share.
     for (const inst of installations) {
       try {
-        const { repos } = await listUserInstallationRepos(userToken, inst.id)
+        const repos = controlledIds.has(inst.id)
+          ? (await listUserInstallationRepos(userToken, inst.id)).repos
+          : []
         await db.transaction(async (tx) => {
           await tx
             .delete(githubInstallationRepoGrants)
@@ -140,12 +180,32 @@ async function handleCallback(request: Request): Promise<Response> {
     // stale even when no new link lands below.
     invalidateRepoCache(teamId)
 
-    if (installations.length === 0) {
-      return errorRedirect(`none`)
+    // Every no-linkable-installation dead end carries a signed install link:
+    // the connect flow is OAuth-FIRST and GitHub's authorize screen has no
+    // install step, so without this a user who never installed the App (or
+    // only has collaborator access to someone else's) had no path to GitHub's
+    // account/repo selection page at all.
+    if (installations.length === 0 || controlled.length === 0) {
+      const installState = mintGithubSetupState(sessionUserId, {
+        dialog: fromDialog,
+        mobile: fromMobile,
+        teamId,
+      })
+      const installUrl = githubAppInstallUrl(installState) ?? undefined
+      if (installations.length === 0) {
+        return errorRedirect(`none`, { install: installUrl })
+      }
+      // Enumerated but nothing controlled: a collaborator-only authorize
+      // (notowner), or org installations stuck behind an unapproved
+      // members-read permission update (orgperm).
+      return errorRedirect(orgPermissionBlocked ? `orgperm` : `notowner`, {
+        login: viewerLogin,
+        install: installUrl,
+      })
     }
 
-    if (installations.length === 1) {
-      const rowId = rowIds.get(installations[0].id)
+    if (controlled.length === 1) {
+      const rowId = rowIds.get(controlled[0].id)
       try {
         await assertCanManageRepos(sessionUserId, teamId)
       } catch {
@@ -171,13 +231,13 @@ async function handleCallback(request: Request): Promise<Response> {
       })
     }
 
-    // Several installations — hand off to the in-app account picker. The
-    // ticket binds user + team + the exact verified id set; linking is
-    // idempotent, so it needs no nonce.
+    // Several controlled installations — hand off to the in-app account
+    // picker. The ticket binds user + team + the exact verified id set;
+    // linking is idempotent, so it needs no nonce.
     const ticket = mintGithubClaimTicket({
       u: sessionUserId,
       w: teamId,
-      ids: installations.map((i) => i.id),
+      ids: controlled.map((i) => i.id),
       ...(fromMobile ? { m: true } : {}),
       ...(fromDialog ? { d: true } : {}),
     })

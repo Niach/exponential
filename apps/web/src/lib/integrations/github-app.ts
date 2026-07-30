@@ -591,11 +591,12 @@ export async function listAllInstallationRepos(
   return { repos: all, hasMore: true }
 }
 
-// The installations the OAuth'd GitHub user can access — the claim flow's
-// authoritative enumeration (`GET /user/installations` with the transient
-// user-to-server token). GitHub returns exactly the installs this GitHub user
-// controls or was granted, so no configure-page round-trip is needed to prove
-// control.
+// The installations the OAuth'd GitHub user can ACCESS — the claim flow's
+// enumeration (`GET /user/installations` with the transient user-to-server
+// token). Access is NOT control (EXP-363): GitHub lists an installation here
+// for anyone who can reach even one of its repos, collaborators included, so
+// every linking decision must additionally pass
+// partitionControlledInstallations.
 export async function listUserInstallations(
   userToken: string,
   opts?: { maxPages?: number }
@@ -627,6 +628,88 @@ export async function listUserInstallations(
     if (page * 100 >= data.total_count) break
   }
   return all
+}
+
+// The GitHub login behind the transient user token (`GET /user` — always
+// readable with a user-to-server token, no permission needed). Null on any
+// failure rather than throwing: the claim callback's catch-all renders a fake
+// "connected" landing on mobile, so verification helpers must fail as VALUES
+// the callback can turn into an explicit error redirect.
+export async function getAuthenticatedGithubLogin(
+  userToken: string
+): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.github.com/user`, {
+      headers: githubApiHeaders(userToken),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { login?: string }
+    return data.login ?? null
+  } catch {
+    return null
+  }
+}
+
+// The OAuth user's own membership in an org (`GET /user/memberships/orgs/{org}`
+// with the user token). Requires the App's Organization → Members (read-only)
+// permission — 403 means it's missing or the installation hasn't approved the
+// permission update yet, surfaced separately so the claim page can say so.
+// Everything else that isn't an active membership (404 outside collaborator,
+// pending invite, transient 5xx) fails CLOSED to "not-member" — a hiccup must
+// never link, and must never throw (see getAuthenticatedGithubLogin).
+export type OrgMembershipState = `active` | `not-member` | `permission-missing`
+
+export async function getUserOrgMembershipState(
+  userToken: string,
+  org: string
+): Promise<OrgMembershipState> {
+  try {
+    const res = await fetch(
+      `https://api.github.com/user/memberships/orgs/${encodeURIComponent(org)}`,
+      { headers: githubApiHeaders(userToken) }
+    )
+    if (res.status === 403) return `permission-missing`
+    if (!res.ok) return `not-member`
+    const data = (await res.json()) as { state?: string }
+    return data.state === `active` ? `active` : `not-member`
+  } catch {
+    return `not-member`
+  }
+}
+
+// EXP-363: the claim flow's CONTROL verdict. `GET /user/installations`
+// attributes an installation to anyone who can access even ONE of its repos —
+// a mere collaborator on a stranger's repo enumerates the stranger's whole
+// installation, and linking it would brand the stranger's account as the
+// team's GitHub connection. So enumeration alone is NOT proof of control:
+// a User-type installation must belong to the OAuth login itself
+// (case-insensitive — GitHub logins are), an Organization-type installation
+// requires an active org membership. Anything else — unknown account type,
+// missing login, membership lookup failure — is not controlled. Ops are
+// injected for tests (style of resolveInstallationTokenWith).
+export async function partitionControlledInstallations(
+  installations: AppInstallation[],
+  ops: {
+    viewerLogin: string
+    orgMembership: (org: string) => Promise<OrgMembershipState>
+  }
+): Promise<{ controlled: AppInstallation[]; orgPermissionBlocked: boolean }> {
+  const controlled: AppInstallation[] = []
+  let orgPermissionBlocked = false
+  const viewer = ops.viewerLogin.toLowerCase()
+  for (const inst of installations) {
+    if (!inst.account || !viewer) continue
+    if (inst.accountType === `User`) {
+      if (inst.account.toLowerCase() === viewer) controlled.push(inst)
+      continue
+    }
+    if (inst.accountType === `Organization`) {
+      const state = await ops.orgMembership(inst.account)
+      if (state === `active`) controlled.push(inst)
+      else if (state === `permission-missing`) orgPermissionBlocked = true
+    }
+  }
+  return { controlled, orgPermissionBlocked }
 }
 
 // The repos of ONE installation as the OAuth'd GitHub USER can access them —
