@@ -400,6 +400,13 @@
       "when": 1785650000002,
       "tag": "0056_magenta_masked_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1785650000003,
+      "tag": "0057_hot_meteorite",
+      "breakpoints": true
     }
   ]
 }

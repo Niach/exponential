@@ -13,6 +13,7 @@ import { TRPCError } from "@trpc/server"
 import { db } from "@/db/connection"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
+import { recordConversionEvent } from "@/lib/conversion/events"
 import { assertCanInviteMember } from "@/lib/billing"
 import { isUserAdmin } from "@/lib/admin"
 import { deliveryStatus, sendTeamInviteEmail } from "@/lib/email"
@@ -36,10 +37,7 @@ async function countRecentInviteEmails(email: string): Promise<number> {
       and(
         eq(emailDeliveries.kind, `team_invite`),
         eq(emailDeliveries.status, `sent`),
-        eq(
-          sql`lower(${emailDeliveries.toEmail})`,
-          email.trim().toLowerCase()
-        ),
+        eq(sql`lower(${emailDeliveries.toEmail})`, email.trim().toLowerCase()),
         gt(emailDeliveries.createdAt, weekAgo)
       )
     )
@@ -163,6 +161,12 @@ export const teamInvitesRouter = router({
         }
       }
 
+      await recordConversionEvent(ctx.db, {
+        name: `invite_sent`,
+        userId: ctx.session.user.id,
+        properties: { teamId: input.teamId },
+      })
+
       return { invite, token, emailDelivered }
     }),
 
@@ -241,10 +245,7 @@ export const teamInvitesRouter = router({
           .update(teamInvites)
           .set({ acceptedAt: new Date() })
           .where(
-            and(
-              eq(teamInvites.id, invite.id),
-              isNull(teamInvites.acceptedAt)
-            )
+            and(eq(teamInvites.id, invite.id), isNull(teamInvites.acceptedAt))
           )
           .returning({ id: teamInvites.id })
 
@@ -269,6 +270,12 @@ export const teamInvitesRouter = router({
           teamId: invite.teamId,
           userId: ctx.session.user.id,
           role: invite.role,
+        })
+
+        await recordConversionEvent(tx, {
+          name: `invite_accepted`,
+          userId: ctx.session.user.id,
+          properties: { teamId: invite.teamId, inviteId: invite.id },
         })
 
         return { team, alreadyMember: false, txId }

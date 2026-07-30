@@ -1109,6 +1109,54 @@ export const emailBounces = pgTable(`email_bounces`, {
   ...timestamps,
 })
 
+// First-party conversion-funnel event log (SERVER-ONLY, admin console;
+// EXP-362). Append-only — no updated_at on purpose. Cookieless: anonymous_id
+// is a daily-rotating salted hash of ip+ua computed server-side (nothing is
+// ever stored on the visitor's device), so it links events within one UTC day
+// and nothing across days.
+export const conversionEvents = pgTable(
+  `conversion_events`,
+  {
+    id: uuidPk(),
+    // set null (not cascade): the funnel history survives account deletion.
+    userId: text(`user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    anonymousId: varchar(`anonymous_id`, { length: 64 }),
+    // landing|signup|onboarding_completed|team_created|invite_sent|
+    // invite_accepted|first_issue_created|checkout_started|
+    // subscription_first_active|seats_updated|plan_changed|cancel_scheduled|
+    // subscription_resumed|subscription_canceled — documented varchar (typed
+    // union in lib/conversion/events.ts), not a pg enum, so new names never
+    // need an ALTER TYPE migration.
+    name: varchar({ length: 64 }).notNull(),
+    properties: jsonb().$type<Record<string, unknown>>(),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index(`idx_conversion_events_name_created`).on(table.name, table.createdAt),
+    index(`idx_conversion_events_user`).on(table.userId),
+    index(`idx_conversion_events_anon`).on(table.anonymousId),
+    // The idempotency mechanism: writers always insert with ON CONFLICT DO
+    // NOTHING, and these partial uniques decide what "once" means. Landing
+    // dedupes to once per visitor per day because the anonymous id itself
+    // rotates daily.
+    uniqueIndex(`uniq_conversion_events_once_per_user`)
+      .on(table.userId, table.name)
+      .where(sql`name in ('signup', 'first_issue_created')`),
+    uniqueIndex(`uniq_conversion_events_once_per_sub`)
+      .on(table.name, sql`(properties->>'creemSubscriptionId')`)
+      .where(
+        sql`name in ('subscription_first_active', 'subscription_canceled')`
+      ),
+    uniqueIndex(`uniq_conversion_events_landing_daily`)
+      .on(table.name, table.anonymousId)
+      .where(sql`name = 'landing'`),
+  ]
+)
+
 // Embeddable feedback-widget configs (server-only, NOT Electric-synced; read
 // via the `widgets` tRPC router). One row = one paste-in snippet: a public
 // key scoped to a destination team+board, plus the domain allowlist
@@ -1452,6 +1500,7 @@ export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs
 >
 export type EmailDelivery = InferSelectModel<typeof emailDeliveries>
+export type ConversionEvent = InferSelectModel<typeof conversionEvents>
 export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
 export type SupportThread = InferSelectModel<typeof supportThreads>

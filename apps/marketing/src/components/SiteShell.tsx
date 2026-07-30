@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react"
+import { initAttributionForwarding } from "../lib/attribution"
 import { LINKS } from "../lib/links"
 import { DownloadIconRow } from "./DownloadSection"
 import { GitHubStarsButton } from "./GitHubStarsButton"
@@ -9,6 +10,9 @@ export function SiteHeader() {
   /* Transparent at rest, glass once scrolled (site.css .is-scrolled). */
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
+    /* Cookieless ref/utm forwarding onto app + internal links (EXP-362);
+       every page renders SiteHeader once, and the module self-guards. */
+    initAttributionForwarding()
     const onScroll = () => setScrolled(window.scrollY > 8)
     onScroll()
     window.addEventListener(`scroll`, onScroll, { passive: true })

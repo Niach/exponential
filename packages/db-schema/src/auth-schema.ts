@@ -7,39 +7,57 @@ import {
   index,
 } from "drizzle-orm/pg-core"
 
-export const users = pgTable(`users`, {
-  id: text(`id`).primaryKey(),
-  name: text(`name`).notNull(),
-  email: text(`email`).notNull().unique(),
-  emailVerified: boolean(`email_verified`)
-    .$defaultFn(() => false)
-    .notNull(),
-  image: text(`image`),
-  isAdmin: boolean(`is_admin`)
-    .$defaultFn(() => false)
-    .notNull(),
-  creemCustomerId: text(`creem_customer_id`),
-  hadTrial: boolean(`had_trial`).notNull().default(false),
-  onboardingCompletedAt: timestamp(`onboarding_completed_at`, {
-    withTimezone: true,
-  }),
-  // One-shot dismissal of the "Get the desktop app" card on the web Agents
-  // view. SERVER-ONLY (users shape allowlist pins 6 columns; this never syncs).
-  desktopAppCardDismissedAt: timestamp(`desktop_app_card_dismissed_at`, {
-    withTimezone: true,
-  }),
-  // One-shot dismissal of the "Getting started" cards on the empty project
-  // board (EXP-88). SERVER-ONLY like desktopAppCardDismissedAt; never syncs.
-  gettingStartedDismissedAt: timestamp(`getting_started_dismissed_at`, {
-    withTimezone: true,
-  }),
-  createdAt: timestamp(`created_at`)
-    .$defaultFn(() => /* @__PURE__ */ new Date())
-    .notNull(),
-  updatedAt: timestamp(`updated_at`)
-    .$defaultFn(() => /* @__PURE__ */ new Date())
-    .notNull(),
-})
+export const users = pgTable(
+  `users`,
+  {
+    id: text(`id`).primaryKey(),
+    name: text(`name`).notNull(),
+    email: text(`email`).notNull().unique(),
+    emailVerified: boolean(`email_verified`)
+      .$defaultFn(() => false)
+      .notNull(),
+    image: text(`image`),
+    isAdmin: boolean(`is_admin`)
+      .$defaultFn(() => false)
+      .notNull(),
+    creemCustomerId: text(`creem_customer_id`),
+    hadTrial: boolean(`had_trial`).notNull().default(false),
+    onboardingCompletedAt: timestamp(`onboarding_completed_at`, {
+      withTimezone: true,
+    }),
+    // One-shot dismissal of the "Get the desktop app" card on the web Agents
+    // view. SERVER-ONLY (users shape allowlist pins 6 columns; this never syncs).
+    desktopAppCardDismissedAt: timestamp(`desktop_app_card_dismissed_at`, {
+      withTimezone: true,
+    }),
+    // One-shot dismissal of the "Getting started" cards on the empty project
+    // board (EXP-88). SERVER-ONLY like desktopAppCardDismissedAt; never syncs.
+    gettingStartedDismissedAt: timestamp(`getting_started_dismissed_at`, {
+      withTimezone: true,
+    }),
+    // Signup attribution (EXP-362) — SERVER-ONLY like the dismissal stamps;
+    // never syncs. Stamped once, right after account creation: the ref/utm/
+    // referrer values ride URLs (cookieless — see conversion_events), and the
+    // anonymous id is the daily hash computed from the signup request, linking
+    // the account to its same-day `landing` event.
+    signupRef: text(`signup_ref`),
+    signupUtmSource: text(`signup_utm_source`),
+    signupUtmMedium: text(`signup_utm_medium`),
+    signupUtmCampaign: text(`signup_utm_campaign`),
+    signupReferrer: text(`signup_referrer`),
+    signupLandingPath: text(`signup_landing_path`),
+    signupAnonymousId: text(`signup_anonymous_id`),
+    createdAt: timestamp(`created_at`)
+      .$defaultFn(() => /* @__PURE__ */ new Date())
+      .notNull(),
+    updatedAt: timestamp(`updated_at`)
+      .$defaultFn(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index(`idx_users_signup_anonymous_id`).on(table.signupAnonymousId),
+  ]
+)
 
 export const sessions = pgTable(`sessions`, {
   id: text(`id`).primaryKey(),

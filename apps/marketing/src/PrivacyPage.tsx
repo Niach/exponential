@@ -23,7 +23,7 @@ export function PrivacyPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · exponential.at · last updated 2026-07-21
+            Exponential · exponential.at · last updated 2026-07-30
           </p>
 
           <p style={prose}>
@@ -95,6 +95,18 @@ export function PrivacyPage() {
               request path, timestamps) are kept short-term for security and
               operations. We run no third-party analytics, no ad networks, and
               no tracking pixels.
+            </li>
+            <li style={listItem}>
+              <strong>First-party usage statistics.</strong> To understand how
+              people find and start using Exponential, our own servers count
+              aggregate events (page visit, sign-up, first issue, subscription)
+              together with any campaign parameters (ref/UTM) in the arriving
+              link. Visits are counted under a pseudonymous identifier derived
+              from the IP address and browser via a salted hash whose salt
+              rotates daily — the raw values are never stored and visits cannot
+              be linked across days (legitimate interest, Art. 6(1)(f) GDPR).
+              This happens entirely server-side: no analytics cookies, no
+              scripts from third parties, nothing stored on your device.
             </li>
           </ul>
 
@@ -224,8 +236,10 @@ export function PrivacyPage() {
           <p style={prose}>
             We use only strictly necessary cookies and local storage: a session
             cookie to keep you signed in, and device-local preferences such as
-            the team you last opened. There are no advertising cookies and no
-            cross-site tracking.
+            the team you last opened. There are no advertising cookies, no
+            analytics cookies, and no cross-site tracking — our usage statistics
+            (section 1) work entirely without storing anything on your device,
+            which is why you see no cookie banner.
           </p>
 
           <h2 style={h2Style}>9. Your rights</h2>

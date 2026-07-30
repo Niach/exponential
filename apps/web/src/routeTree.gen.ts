@@ -66,6 +66,7 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authenticated/admin/teams'
 import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
+import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
 import { Route as TTeamSlugSupportIndexRouteImport } from './routes/t/$teamSlug/support/index'
@@ -384,6 +385,12 @@ const AuthenticatedAdminEmailRoute = AuthenticatedAdminEmailRouteImport.update({
   path: '/email',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
+const AuthenticatedAdminConversionsRoute =
+  AuthenticatedAdminConversionsRouteImport.update({
+    id: '/conversions',
+    path: '/conversions',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
 const AuthenticatedAccountNotificationsRoute =
   AuthenticatedAccountNotificationsRouteImport.update({
     id: '/account/notifications',
@@ -563,6 +570,7 @@ export interface FileRoutesByFullPath {
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/admin/email': typeof AuthenticatedAdminEmailRoute
   '/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -645,6 +653,7 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/admin/email': typeof AuthenticatedAdminEmailRoute
   '/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -732,6 +741,7 @@ export interface FileRoutesById {
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
   '/_authenticated/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/_authenticated/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/_authenticated/admin/email': typeof AuthenticatedAdminEmailRoute
   '/_authenticated/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -819,6 +829,7 @@ export interface FileRouteTypes {
     | '/support/$token'
     | '/t/$teamSlug/settings'
     | '/account/notifications'
+    | '/admin/conversions'
     | '/admin/email'
     | '/admin/teams'
     | '/admin/users'
@@ -901,6 +912,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/support/$token'
     | '/account/notifications'
+    | '/admin/conversions'
     | '/admin/email'
     | '/admin/teams'
     | '/admin/users'
@@ -987,6 +999,7 @@ export interface FileRouteTypes {
     | '/support/$token'
     | '/t/$teamSlug/settings'
     | '/_authenticated/account/notifications'
+    | '/_authenticated/admin/conversions'
     | '/_authenticated/admin/email'
     | '/_authenticated/admin/teams'
     | '/_authenticated/admin/users'
@@ -1504,6 +1517,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminEmailRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/_authenticated/admin/conversions': {
+      id: '/_authenticated/admin/conversions'
+      path: '/conversions'
+      fullPath: '/admin/conversions'
+      preLoaderRoute: typeof AuthenticatedAdminConversionsRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
     '/_authenticated/account/notifications': {
       id: '/_authenticated/account/notifications'
       path: '/account/notifications'
@@ -1697,6 +1717,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedAdminRouteRouteChildren {
+  AuthenticatedAdminConversionsRoute: typeof AuthenticatedAdminConversionsRoute
   AuthenticatedAdminEmailRoute: typeof AuthenticatedAdminEmailRoute
   AuthenticatedAdminTeamsRoute: typeof AuthenticatedAdminTeamsRoute
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
@@ -1707,6 +1728,7 @@ interface AuthenticatedAdminRouteRouteChildren {
 
 const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren =
   {
+    AuthenticatedAdminConversionsRoute: AuthenticatedAdminConversionsRoute,
     AuthenticatedAdminEmailRoute: AuthenticatedAdminEmailRoute,
     AuthenticatedAdminTeamsRoute: AuthenticatedAdminTeamsRoute,
     AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,

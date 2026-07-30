@@ -112,9 +112,13 @@ const fakeDb = {
   select: vi.fn(() => selectChain()),
   insert: (_table: unknown) => ({
     values: (values: Record<string, unknown>) => {
-      inserted.push(values)
+      // The first_issue_created conversion event (EXP-362) rides the same
+      // tx — keep it out of `inserted`, which these tests read as "issue
+      // rows written".
+      if (typeof values.name !== `string`) inserted.push(values)
       return {
         returning: async () => [{ id: ISSUE_ID, assigneeId: null, ...values }],
+        onConflictDoNothing: async () => {},
       }
     },
   }),
