@@ -93,7 +93,7 @@ export async function handleCallback(request: Request): Promise<Response> {
     // transient exchange error (retry-able), not as "not the owner".
     const viewerLogin = await getAuthenticatedGithubLogin(userToken)
     if (!viewerLogin) return errorRedirect(`exchange`)
-    const { controlled, orgPermissionBlocked } =
+    const { controlled, orgPermissionBlocked, undeterminedIds } =
       await partitionControlledInstallations(installations, {
         viewerLogin,
         orgMembership: (org) => getUserOrgMembershipState(userToken, org),
@@ -139,8 +139,13 @@ export async function handleCallback(request: Request): Promise<Response> {
     // capture repos — an uncontrolled enumeration runs the DELETE alone, so a
     // re-auth actively scrubs any pre-EXP-363 collaborator grants that would
     // otherwise resurrect if the real owner later linked the installation to
-    // a team both users share.
+    // a team both users share. UNDETERMINED installations (org membership
+    // unverifiable because the App's members-read permission isn't approved
+    // yet) are skipped entirely: ambiguity blocks linking above, but must not
+    // destroy a possibly-legitimate member's existing grants — they'd only
+    // come back via a post-approval re-auth.
     for (const inst of installations) {
+      if (undeterminedIds.has(inst.id)) continue
       try {
         const repos = controlledIds.has(inst.id)
           ? (await listUserInstallationRepos(userToken, inst.id)).repos

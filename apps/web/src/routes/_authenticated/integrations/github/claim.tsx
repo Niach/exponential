@@ -61,6 +61,21 @@ const ERROR_COPY: Record<string, { title: string; body: string }> = {
 // selection) — these render the signed `install` link as the primary action.
 const INSTALLABLE_ERRORS = new Set([`none`, `notowner`, `orgperm`])
 
+// The install param is forgeable — only ever link to the App's own install
+// page on github.com. Parse instead of prefix-matching the raw string:
+// dot-segments ("https://github.com/apps/../…") normalize past a startsWith
+// check, so validate origin + normalized pathname and link the normalized URL.
+function safeGithubInstallUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw)
+    if (url.origin !== `https://github.com`) return null
+    if (!url.pathname.startsWith(`/apps/`)) return null
+    return url.href
+  } catch {
+    return null
+  }
+}
+
 interface PreviewInstallation {
   installationId: number
   accountLogin: string | null
@@ -70,6 +85,7 @@ interface PreviewInstallation {
 
 function GithubClaim() {
   const { ticket, error, login, install } = Route.useSearch()
+  const installUrl = install ? safeGithubInstallUrl(install) : null
   const [preview, setPreview] = useState<{
     teamId: string
     mobile: boolean
@@ -188,15 +204,10 @@ function GithubClaim() {
               ) : null}
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
-              {/* The install param is forgeable — only ever link to the App's
-                  own install page on github.com. */}
-              {install &&
-              error &&
-              INSTALLABLE_ERRORS.has(error) &&
-              install.startsWith(`https://github.com/apps/`) ? (
+              {installUrl && error && INSTALLABLE_ERRORS.has(error) ? (
                 <>
                   <Button asChild size="lg" className="w-full">
-                    <a href={install}>
+                    <a href={installUrl}>
                       <Github className="h-4 w-4" />
                       Install on GitHub
                     </a>

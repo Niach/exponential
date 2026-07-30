@@ -447,6 +447,23 @@ describe(`partitionControlledInstallations`, () => {
     )
     expect(result.controlled).toEqual([])
     expect(result.orgPermissionBlocked).toBe(true)
+    // Reported as undetermined, not silently uncontrolled — callers must not
+    // treat the ambiguity as proof of non-control (grant scrub).
+    expect([...result.undeterminedIds]).toEqual([1])
+  })
+
+  it(`reports no undetermined ids for affirmative verdicts`, async () => {
+    const result = await partitionControlledInstallations(
+      [
+        inst(1, `octocat`, `User`),
+        inst(2, `stranger`, `User`),
+        inst(3, `acme`, `Organization`),
+      ],
+      { viewerLogin: `octocat`, orgMembership: async () => `not-member` }
+    )
+    expect(result.controlled.map((i) => i.id)).toEqual([1])
+    expect(result.orgPermissionBlocked).toBe(false)
+    expect(result.undeterminedIds.size).toBe(0)
   })
 
   it(`filters empty logins, empty viewer, and unknown account types (fail closed)`, async () => {

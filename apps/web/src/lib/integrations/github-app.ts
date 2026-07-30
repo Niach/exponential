@@ -685,17 +685,25 @@ export async function getUserOrgMembershipState(
 // a User-type installation must belong to the OAuth login itself
 // (case-insensitive — GitHub logins are), an Organization-type installation
 // requires an active org membership. Anything else — unknown account type,
-// missing login, membership lookup failure — is not controlled. Ops are
-// injected for tests (style of resolveInstallationTokenWith).
+// missing login, membership lookup failure — is not controlled. Org
+// installations whose membership check came back `permission-missing` are
+// additionally reported as UNDETERMINED: they must not link (fail closed),
+// but the caller must also not treat the ambiguity as proof of non-control
+// (e.g. by scrubbing that user's existing repo grants). Ops are injected for
+// tests (style of resolveInstallationTokenWith).
 export async function partitionControlledInstallations(
   installations: AppInstallation[],
   ops: {
     viewerLogin: string
     orgMembership: (org: string) => Promise<OrgMembershipState>
   }
-): Promise<{ controlled: AppInstallation[]; orgPermissionBlocked: boolean }> {
+): Promise<{
+  controlled: AppInstallation[]
+  orgPermissionBlocked: boolean
+  undeterminedIds: Set<number>
+}> {
   const controlled: AppInstallation[] = []
-  let orgPermissionBlocked = false
+  const undeterminedIds = new Set<number>()
   const viewer = ops.viewerLogin.toLowerCase()
   for (const inst of installations) {
     if (!inst.account || !viewer) continue
@@ -706,10 +714,14 @@ export async function partitionControlledInstallations(
     if (inst.accountType === `Organization`) {
       const state = await ops.orgMembership(inst.account)
       if (state === `active`) controlled.push(inst)
-      else if (state === `permission-missing`) orgPermissionBlocked = true
+      else if (state === `permission-missing`) undeterminedIds.add(inst.id)
     }
   }
-  return { controlled, orgPermissionBlocked }
+  return {
+    controlled,
+    orgPermissionBlocked: undeterminedIds.size > 0,
+    undeterminedIds,
+  }
 }
 
 // The repos of ONE installation as the OAuth'd GitHub USER can access them —

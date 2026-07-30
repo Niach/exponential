@@ -216,6 +216,9 @@ describe(`github OAuth callback — control-verified claiming (EXP-363)`, () => 
 
     expect(linkInserts()).toHaveLength(0)
     expect(res.headers.get(`location`)).toContain(`error=orgperm`)
+    // Undetermined ≠ uncontrolled: an unverifiable membership must not scrub
+    // the user's existing grants for that installation.
+    expect(deletedTables).not.toContain(`github_installation_repo_grants`)
   })
 
   it(`notowner (not orgperm) when the org lookup is a clean not-member`, async () => {
@@ -226,6 +229,8 @@ describe(`github OAuth callback — control-verified claiming (EXP-363)`, () => 
 
     expect(linkInserts()).toHaveLength(0)
     expect(res.headers.get(`location`)).toContain(`error=notowner`)
+    // An affirmative not-member IS uncontrolled — the stale-grant scrub runs.
+    expect(deletedTables).toContain(`github_installation_repo_grants`)
   })
 
   it(`multi-installation ticket carries ONLY the controlled ids`, async () => {
