@@ -336,6 +336,21 @@ impl MergeState {
     }
 }
 
+/// What a [`two_click`] call did. The terminal tab's "Merge and close" acts
+/// on [`TwoClick::Fired`]: it closes its session tab the moment the merge
+/// call actually fires, ending the session BEFORE the merge settles — a
+/// conflict failure must never leave a live session holding the branch and
+/// parking the "Fix conflicts" recovery button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwoClick {
+    /// A guarded call was already in flight (or no account) — nothing fired.
+    Ignored,
+    /// First click — armed the ~5s confirm.
+    Armed,
+    /// Second click — the server-side call fired.
+    Fired,
+}
+
 /// The shared two-click flow: first call arms (auto-disarm ~5s), second call
 /// fires the op on the background executor. Failures land in the shared
 /// error slot (and run `on_failure` — the terminal dock jumps to the Reviews
@@ -346,7 +361,7 @@ pub fn two_click(
     on_failure: Option<Box<dyn FnOnce(&mut App)>>,
     on_success: Option<Box<dyn FnOnce(&mut App)>>,
     cx: &mut App,
-) {
+) -> TwoClick {
     let state = MergeState::global(cx);
     let key = op.key();
     // Ignore while any guarded call on this row is already in flight.
@@ -355,17 +370,17 @@ pub fn two_click(
         .iter()
         .any(|guard| state.read(cx).merging.contains(guard))
     {
-        return;
+        return TwoClick::Ignored;
     }
     if state.read(cx).arm.as_deref() != Some(key.as_str()) {
         state.update(cx, |this, cx| this.arm_key(key, cx));
-        return;
+        return TwoClick::Armed;
     }
 
     // Confirmed — fire the server-side call.
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] {} skipped: no active account", op.describe());
-        return;
+        return TwoClick::Ignored;
     };
     state.update(cx, |this, cx| {
         this.arm = None;
@@ -412,6 +427,7 @@ pub fn two_click(
         })
         .detach();
     });
+    TwoClick::Fired
 }
 
 #[cfg(test)]

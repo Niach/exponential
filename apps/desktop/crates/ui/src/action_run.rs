@@ -164,6 +164,31 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
     } else {
         None
     };
+    // A session may still hold the PR branch's worktree (EXP-358 keeps
+    // sessions alive through in_review/merged, so the session that opened
+    // the PR commonly outlives a failed merge). The fix run supersedes it:
+    // close its tab now — `close_tab` kills and joins the PTY, and the
+    // `TabClosed` watcher fires the idempotent `codingSessions.end` — so
+    // the rebase never runs under a live PTY's cwd. A fix run already
+    // working the branch refuses the duplicate instead.
+    if let Some(fix) = &fix_target {
+        if let Some(sessions) = crate::coding_flow::LocalSessions::global_ref(cx) {
+            let stale = sessions.read(cx).session_on_branch(&fix.branch).map(|session| {
+                (session.action_id.clone(), session.manager.clone(), session.tab)
+            });
+            if let Some((stale_action, manager, tab)) = stale {
+                if stale_action.as_deref() == Some(BUILTIN_FIX_CONFLICTS_ID) {
+                    let message = "A fix-conflicts run is already working this pull request.";
+                    log::warn!("actions: fix-conflicts start refused — {message}");
+                    notify_target_error(target, message, cx);
+                    return;
+                }
+                if let Some(manager) = manager.upgrade() {
+                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+                }
+            }
+        }
+    }
     // The kind fields the post-fetch request needs (the background closure
     // owns `fix_target` for its repo resolution).
     let fix_kind = fix_target

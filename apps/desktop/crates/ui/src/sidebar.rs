@@ -2175,11 +2175,12 @@ impl SidebarPanel {
         // row. MERGE failures only — the run ends in a merge, the opposite of
         // what a failed close was asked to do (merge and close share this
         // row's caption). Needs the PR's recorded branch (the run rebases
-        // it); while a local run is already working that branch the button
-        // parks.
+        // it); "Fixing…" parks the button only while an ACTUAL fix run works
+        // the branch — any other session still holding it is ended by the
+        // fix-run launch itself.
         let fixing = issue.branch.as_deref().is_some_and(|branch| {
             crate::coding_flow::LocalSessions::global_ref(cx)
-                .is_some_and(|sessions| sessions.read(cx).is_branch_live(branch))
+                .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
         });
         let fix_button = error
             .as_ref()

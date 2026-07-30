@@ -254,21 +254,31 @@ impl LocalSessions {
         self.by_issue.get(issue_id)
     }
 
-    /// Whether a LIVE local session (issue or batch) is working on `branch`
-    /// — the EXP-102 guard: sweeping/deleting that lane's worktree would
-    /// pull the running claude PTY's cwd out from under it.
-    pub fn is_branch_live(&self, branch: &str) -> bool {
-        // Trunk/scratch action runs carry an empty branch — never match one.
-        // Fix-conflicts action runs (EXP-259) deliberately carry their PR
-        // branch so this guard keeps their worktree alive too.
+    /// The live local session (issue, batch, or action) whose worktree is on
+    /// `branch`, if any. Trunk/scratch action runs carry an empty branch and
+    /// never match. The fix-conflicts launch uses this to END a stale
+    /// session still holding the PR branch (EXP-358 keeps sessions alive
+    /// through in_review/merged) before the run rebases that worktree.
+    pub fn session_on_branch(&self, branch: &str) -> Option<&LocalCodingSession> {
         if branch.is_empty() {
-            return false;
+            return None;
         }
         self.by_issue
             .values()
             .chain(self.by_batch.values())
             .chain(self.by_action.values())
-            .any(|session| session.branch == branch)
+            .find(|session| session.branch == branch)
+    }
+
+    /// Whether a live fix-conflicts run (EXP-259) is already working
+    /// `branch` — the ONLY case the "Fix conflicts" buttons park as
+    /// "Fixing…". Any other session holding the branch (its own coding
+    /// session, still alive after a plain Merge failed) is ended by the
+    /// fix-run launch itself, so those buttons stay clickable.
+    pub fn is_branch_fixing(&self, branch: &str) -> bool {
+        self.session_on_branch(branch).is_some_and(|session| {
+            session.action_id.as_deref() == Some(api::actions::BUILTIN_FIX_CONFLICTS_ID)
+        })
     }
 
     /// The coding session id whose terminal tab is `tab`, if this process is

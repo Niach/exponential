@@ -594,7 +594,7 @@ impl PropertiesPanel {
                 // preselected. MERGE failures only: the run ends in a merge,
                 // so a failed CLOSE (captioned on this same row from the
                 // Reviews rail) must never offer it. Needs the PR's recorded
-                // branch (the run rebases it); parks while a local run
+                // branch (the run rebases it); parks only while a fix run
                 // already works it.
                 if failed_op == Some(crate::pr_merge::FailedOp::Merge) && issue.branch.is_some() {
                     column = column.child(self.fix_conflicts_button(issue, cx));
@@ -607,9 +607,11 @@ impl PropertiesPanel {
     /// The sidebar "Fix conflicts" button (EXP-313): opens the Start-coding
     /// dialog with the fix-conflicts builtin and this issue's PR preselected.
     fn fix_conflicts_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // "Fixing…" only while an ACTUAL fix run works the branch — any other
+        // session still holding it is ended by the fix-run launch itself.
         let fixing = issue.branch.as_deref().is_some_and(|branch| {
             LocalSessions::global_ref(cx)
-                .is_some_and(|sessions| sessions.read(cx).is_branch_live(branch))
+                .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
         });
         let issue_id = issue.id.clone();
         let board_id = issue.board_id.clone();

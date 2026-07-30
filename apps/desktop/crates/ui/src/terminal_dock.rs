@@ -483,7 +483,7 @@ impl TerminalDockPanel {
                 .issue
                 .as_ref()
                 .filter(|issue| issue.pr_open)
-                .map(|issue| self.tab_merge_button(ix, issue, &merge_state, cx));
+                .map(|issue| self.tab_merge_button(ix, id, issue, &merge_state, cx));
             let chip = crate::surface::tab_chip(ix == selected_ix, cx)
                 .id(("terminal-tab", ix))
                 .group(TAB_GROUP)
@@ -624,12 +624,18 @@ impl TerminalDockPanel {
     /// button render exactly as a Reviews-originated failure.
     ///
     /// This is the "Merge and close" surface (EXP-358): merging elsewhere
-    /// leaves the session alive in `merged`, so the tab's own button is the
-    /// one that asks the server to end it too — the tab then tears down off
-    /// the →`ended` echo through the existing kill watch.
+    /// leaves the session alive in `merged`, but this tab's own button ends
+    /// the session too — LOCALLY, the moment the merge call fires: the tab
+    /// closes right away (the `TabClosed` watcher fires the idempotent
+    /// `codingSessions.end`), so a merge that fails on conflicts never
+    /// leaves a live session holding the branch — the Reviews rail's "Fix
+    /// conflicts" recovery starts immediately instead of parking behind a
+    /// busy worktree. `close_sessions` still rides the server call as the
+    /// backstop for the user's sessions on OTHER devices.
     fn tab_merge_button(
         &self,
         ix: usize,
+        tab: TabId,
         issue: &IssueTabMeta,
         merge_state: &Entity<crate::pr_merge::MergeState>,
         cx: &gpui::Context<Self>,
@@ -653,15 +659,14 @@ impl TerminalDockPanel {
             );
         }
         let issue_id = issue.issue_id.clone();
-        let button = button.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+        let button = button.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             cx.stop_propagation();
             let handle = window.window_handle();
-            crate::pr_merge::two_click(
+            let outcome = crate::pr_merge::two_click(
                 crate::pr_merge::MergeOp::MergeIssuePr {
                     issue_id: issue_id.clone(),
-                    // The one surface that also closes the session (EXP-358):
-                    // teardown arrives as the server's →`ended` kill-watch
-                    // echo, never locally.
+                    // Our own session closes locally below; the flag ends the
+                    // user's live sessions on OTHER devices after the merge.
                     close_sessions: true,
                 },
                 Some(Box::new(move |cx: &mut App| {
@@ -676,6 +681,13 @@ impl TerminalDockPanel {
                 None,
                 cx,
             );
+            if outcome == crate::pr_merge::TwoClick::Fired {
+                // Confirmed: close the session tab NOW, not off the server's
+                // →`ended` echo — a conflict failure must find the branch
+                // free so the "Fix conflicts" recovery can start right away.
+                this.manager
+                    .update(cx, |manager, cx| manager.close_tab(tab, cx));
+            }
         }));
         if armed || merging {
             button.into_any_element()
