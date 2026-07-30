@@ -1,2 +1,4 @@
-- Every board behaves the same now: owners can delete any board and change its repository
-- Cleaner first-run: fresh instances start truly empty, with no seeded teams or boards
+- GitHub connections heal themselves: stale links are cleaned up on reconnect, and the warning names the affected account
+- Connecting GitHub no longer needs a separate web login in the in-app browser
+- Connect and repository errors stay visible instead of being wiped on reload; settings refresh when you return to the app
+- Suspended GitHub installations are labeled as such instead of asking for a pointless reconnect

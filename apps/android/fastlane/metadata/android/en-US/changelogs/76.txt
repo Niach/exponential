@@ -1,0 +1,1 @@
+GitHub connections now heal themselves after a stale link, fresh installs keep their repositories, and connect errors are shown instead of silently disappearing.

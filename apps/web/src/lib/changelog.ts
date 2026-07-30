@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-desktop-onboarding`,
+    date: `2026-07-30`,
+    title: `A guided start in the desktop IDE`,
+    summary: `The desktop app now walks first-run users from team to board to a working toolchain, with a setup doctor that says exactly what's missing.`,
+    body: `- **First-run wizard** — a fresh desktop install now guides you through creating or joining a team, setting up your first board (with optional GitHub repository connect), and getting your coding tools ready — no more landing in an empty window.
+- **Setup doctor** — Settings → Tools gained a doctor panel that probes git and every coding agent (Claude, Codex, Pi), with per-tool install hints and inline path overrides. The onboarding tools step uses the same panel, and existing installs see it once after updating.
+- **Honest start-coding buttons** — with no agent installed, Start-coding affordances are disabled with an explanation instead of failing later, and the device stays out of remote-start pickers until an agent is available.
+- **Clone failures surface** — a failed repository clone now shows its error and a Retry button in Source Control, and retries automatically once git is installed.`,
+  },
+  {
     id: `2026-07-github-connect-selfheal`,
     date: `2026-07-30`,
     title: `GitHub connections that fix themselves`,
