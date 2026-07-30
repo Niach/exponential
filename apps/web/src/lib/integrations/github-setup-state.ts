@@ -23,7 +23,7 @@ interface SetupStatePayload {
   w?: string // team the claim links the installation to
   o?: boolean // OAuth-claim purpose (consumed only by the OAuth callback)
   d?: boolean // launched from an in-app dialog → self-closing landing page
-  m?: boolean // launched from a native mobile client → exponential:// deep-link page
+  m?: boolean // launched from a native deep-link-capable client (mobile; desktop IDE since EXP-368) → exponential:// deep-link page
   n: string // single-use nonce
   exp: number // unix ms expiry
 }

@@ -100,10 +100,37 @@ impl AddRepositoryDialogView {
                 }
             }),
             // The connect/install hand-off completes in the browser — coming
-            // back to this window is the only signal it happened.
+            // back to this window refetches as a heuristic fallback; since
+            // EXP-368 the definitive signal is the github-connected deep
+            // link below.
             cx.observe_window_activation(window, |this, window, cx| {
                 if window.is_window_active() {
                     this.refetch_after_connect(cx);
+                }
+            }),
+            // EXP-368: the `exponential://github-connected` hand-back —
+            // unconditional refresh on success (unlike the heuristic above,
+            // the deep link is definitive), failure copy otherwise.
+            cx.observe_global::<crate::github_connect::GithubConnectSignal>(|this, cx| {
+                let Some(outcome) = cx
+                    .try_global::<crate::github_connect::GithubConnectSignal>()
+                    .and_then(|signal| signal.outcome.clone())
+                else {
+                    return;
+                };
+                match outcome {
+                    crate::github_connect::GithubConnectOutcome::Connected => {
+                        this.error = None;
+                        // Spinner only when there's no usable list on screen
+                        // (the `show_loading` convention below).
+                        let show_loading = !matches!(this.load, Load::Ready(_));
+                        this.fetch(true, show_loading, cx);
+                    }
+                    crate::github_connect::GithubConnectOutcome::Failed(code) => {
+                        this.error =
+                            Some(crate::github_connect::connect_error_message(&code).into());
+                        cx.notify();
+                    }
                 }
             }),
         ];

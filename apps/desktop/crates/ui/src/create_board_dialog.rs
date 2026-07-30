@@ -180,6 +180,9 @@ pub struct CreateBoardDialogView {
     fetch_generation: u64,
     submitting: bool,
     error: Option<SharedString>,
+    /// Failure copy from the `exponential://github-connected?error=…` deep
+    /// link (EXP-368) — the browser connect hand-off ended in an error.
+    connect_error: Option<SharedString>,
     /// The last submit failed with the grant-model FORBIDDEN (stale/missing
     /// GitHub grant for the picked repo) — pair the error with a "Reconnect
     /// GitHub" hand-off.
@@ -236,6 +239,34 @@ impl CreateBoardDialogView {
                 _ => {}
             },
         ));
+        // EXP-368: the browser GitHub-connect hand-off ends in an
+        // `exponential://github-connected` deep link that lands on the App —
+        // adopt it here so the picker refreshes itself (success) or explains
+        // the failure without the user pressing "I've connected — refresh".
+        subscriptions.push(
+            cx.observe_global::<crate::github_connect::GithubConnectSignal>(|this, cx| {
+                let Some(outcome) = cx
+                    .try_global::<crate::github_connect::GithubConnectSignal>()
+                    .and_then(|signal| signal.outcome.clone())
+                else {
+                    return;
+                };
+                match outcome {
+                    crate::github_connect::GithubConnectOutcome::Connected => {
+                        // Same as the manual refresh: bypass the server's
+                        // per-team repo cache (spawn_fetches clears the
+                        // notice).
+                        this.spawn_fetches(true, cx);
+                    }
+                    crate::github_connect::GithubConnectOutcome::Failed(code) => {
+                        // Nothing changed server-side — no refetch.
+                        this.connect_error =
+                            Some(crate::github_connect::connect_error_message(&code).into());
+                        cx.notify();
+                    }
+                }
+            }),
+        );
 
         let mut this = Self {
             team_id,
@@ -249,6 +280,7 @@ impl CreateBoardDialogView {
             fetch_generation: 0,
             submitting: false,
             error: None,
+            connect_error: None,
             grant_reconnect: false,
             embedded,
             focused_once: false,
@@ -272,6 +304,9 @@ impl CreateBoardDialogView {
         let generation = self.fetch_generation;
         self.repos = RepoLoad::Loading;
         self.github = GithubLoad::Loading;
+        // A fresh fetch (manual refresh or a successful reconnect) retires
+        // any earlier connect-failure notice.
+        self.connect_error = None;
         let team_id = self.team_id.clone();
         cx.spawn(async move |this, cx| {
             let (registry, github) = cx
@@ -613,6 +648,29 @@ impl CreateBoardDialogView {
                         ),
                 )
                 .child(row);
+        }
+
+        // EXP-368: the browser connect hand-off deep-linked back with an
+        // error — same dashed-danger notice shape as the suspension one
+        // below. Cleared by any refetch (deep-link success or manual
+        // refresh).
+        if let Some(message) = self.connect_error.clone() {
+            column = column.child(
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .items_center()
+                    .px_3()
+                    .py_2()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_dashed()
+                    .border_color(cx.theme().border)
+                    .text_sm()
+                    .text_color(cx.theme().danger)
+                    .child(Icon::new(registry::UI_WARNING).xsmall())
+                    .child(div().flex_1().min_w_0().child(message)),
+            );
         }
 
         // Suspension outranks reconnect (REV2-29, EXP-365): a suspended

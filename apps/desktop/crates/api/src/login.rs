@@ -451,6 +451,16 @@ pub enum OAuthCallback {
 /// Values are percent-decoded (the server `encodeURIComponent`s them; a PKCE
 /// code is base64url and decode-inert).
 pub fn parse_oauth_callback(url: &str) -> Option<OAuthCallback> {
+    // EXP-368: on our own scheme only the `oauth-return` host is an OAuth
+    // callback — other exponential:// deep links (github-connected, invite,
+    // issue) carry query params this scanner would otherwise mis-adopt.
+    // Non-scheme URLs (the legacy 127.0.0.1 loopback wire shape above) stay
+    // host-agnostic.
+    if let Some(rest) = url.strip_prefix(&format!("{OAUTH_CALLBACK_SCHEME}://")) {
+        if !rest.starts_with("oauth-return") {
+            return None;
+        }
+    }
     let fragment = url.split_once('#').map(|(_, fragment)| fragment);
     // Everything between '?' and '#'.
     let query = url
@@ -634,6 +644,22 @@ mod tests {
         assert_eq!(parse_oauth_callback("exponential://oauth-return?code="), None);
         assert_eq!(parse_oauth_callback("exponential://oauth-return?error="), None);
         assert_eq!(parse_oauth_callback("/favicon.ico"), None);
+    }
+
+    #[test]
+    fn other_scheme_hosts_are_not_oauth_callbacks() {
+        // EXP-368: github-connected (and any other exponential:// deep link)
+        // must never scan as an OAuth callback, even when it carries an
+        // `error=` the host-agnostic param scan would otherwise adopt.
+        assert_eq!(
+            parse_oauth_callback("exponential://github-connected?error=session"),
+            None
+        );
+        assert_eq!(parse_oauth_callback("exponential://github-connected"), None);
+        assert_eq!(
+            parse_oauth_callback("exponential://invite/tok?code=x"),
+            None
+        );
     }
 
     #[test]

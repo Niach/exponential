@@ -260,6 +260,30 @@ describe(`integrations.github.repos install URL platform marker`, () => {
   })
 })
 
+describe(`integrations.github.status install URL platform marker (EXP-368)`, () => {
+  it(`marks the minted state mobile only when platform is "mobile"`, async () => {
+    const caller = callerFor(`user-status-platform`)
+    const teamId = freshTeamId()
+
+    await caller.github.status({ teamId, platform: `mobile` })
+    const mobileInstall = installUrlStates.at(-1) ?? null
+    const mobileConnect = connectUrlStates.at(-1) ?? null
+    expect(githubSetupStateWantsMobile(mobileInstall)).toBe(true)
+    expect(githubSetupStateWantsMobile(mobileConnect)).toBe(true)
+    expect(githubSetupStateWantsDialog(mobileInstall)).toBe(true)
+
+    await caller.github.status({ teamId })
+    expect(githubSetupStateWantsMobile(installUrlStates.at(-1) ?? null)).toBe(
+      false
+    )
+
+    await caller.github.status({ teamId, platform: `web` })
+    expect(githubSetupStateWantsMobile(installUrlStates.at(-1) ?? null)).toBe(
+      false
+    )
+  })
+})
+
 describe(`assertRepoInstallationAccess grant gate`, () => {
   // Select order on the live-resolution path: #1 the team's linked
   // installations, #2 the grant lookup for (team, installation, repo).
