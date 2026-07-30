@@ -33,12 +33,6 @@ class DeepLinkBus @Inject constructor() {
             val identifier: String,
         ) : Target
 
-        // exponential://github-connected — the GitHub App install finished in the Custom
-        // Tab and the server's post-install page deep-linked back into the app.
-        // Not a navigation target: the open repo-picker sheet consumes it and
-        // re-fetches (refresh=true) so the new installation shows up.
-        data object GithubConnected : Target
-
         // Content shared into the app from another app (ACTION_SEND). Image URIs
         // are stable file:// cache URIs (see ShareIntentParser). Same-process, so
         // holding Uri in a singleton-held data class is fine.
@@ -51,6 +45,16 @@ class DeepLinkBus @Inject constructor() {
 
     private val _target = MutableStateFlow<Target?>(null)
     val target: StateFlow<Target?> = _target.asStateFlow()
+
+    // exponential://github-connected — the GitHub App install/reconnect finished
+    // in the Custom Tab and the server's page deep-linked back into the app.
+    // Delivered as a monotonic counter, NOT via `target` (EXP-365): the repo
+    // picker AND team settings can both be alive, and the consume()-based
+    // one-shot let whichever collector won the race null the value before the
+    // other saw it — the loser stayed stale. Every collector observes every
+    // increment; collectors `drop(1)` to skip the StateFlow replay.
+    private val _githubConnected = MutableStateFlow(0)
+    val githubConnected: StateFlow<Int> = _githubConnected.asStateFlow()
 
     fun openIssue(id: String) {
         _target.value = Target.Issue(id)
@@ -74,7 +78,7 @@ class DeepLinkBus @Inject constructor() {
     }
 
     fun openGithubConnected() {
-        _target.value = Target.GithubConnected
+        _githubConnected.value += 1
     }
 
     fun openShare(text: String?, subject: String?, imageUris: List<android.net.Uri>) {

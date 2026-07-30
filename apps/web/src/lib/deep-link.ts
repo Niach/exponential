@@ -30,10 +30,15 @@ export function oauthReturnDeepLink(token: string): string {
   return `${DEEP_LINK_SCHEME}://oauth-return?token=${enc}#token=${enc}`
 }
 
-// `exponential://github-connected` (no payload) — fired after the GitHub App
-// install / OAuth-claim flow to hand the user back to the native app.
-export function githubConnectedDeepLink(): string {
-  return `${DEEP_LINK_SCHEME}://github-connected`
+// `exponential://github-connected` — fired after the GitHub App install /
+// OAuth-claim flow to hand the user back to the native app. An optional
+// `?error=<code>` marks a flow that ended on an error card (EXP-365) so newer
+// clients can explain instead of silently refreshing; older clients treat the
+// URL as an opaque trigger and ignore the query.
+export function githubConnectedDeepLink(error?: string): string {
+  return error
+    ? `${DEEP_LINK_SCHEME}://github-connected?error=${encodeURIComponent(error)}`
+    : `${DEEP_LINK_SCHEME}://github-connected`
 }
 
 // The reason slug used when nothing more specific is known.

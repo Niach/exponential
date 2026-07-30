@@ -728,7 +728,10 @@ export const githubInstallationLinks = pgTable(
     githubInstallationId: uuid(`github_installation_id`)
       .notNull()
       .references(() => githubInstallations.id, { onDelete: `cascade` }),
-    // Audit only — who completed the claim; never used for authorization.
+    // Who completed the claim. Never used for AUTHORIZATION — but the OAuth
+    // callback's self-heal (EXP-365) uses it as a cleanup SCOPE: a re-auth may
+    // reap only stale zero-dependency links this same user created, never a
+    // teammate's connection.
     createdByUserId: text(`created_by_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),

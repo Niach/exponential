@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { Github, LoaderCircle, Lock, RefreshCw } from "lucide-react"
+import { Check, Github, LoaderCircle, Lock, RefreshCw } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,11 +60,19 @@ export function GithubRepoPicker({
   onSelect,
   installEmptyState,
   variant = `card`,
+  selectedFullName,
+  listClassName,
 }: {
   teamId: string
   onSelect: (repo: PickerRepo) => void
   installEmptyState?: ReactNode
   variant?: `card` | `plain`
+  // Optional selection marker for hosts that treat `onSelect` as a two-step
+  // pick-then-confirm (the Add-repository dialog) — renders a check on the
+  // matching row. Hosts that connect immediately just omit it.
+  selectedFullName?: string | null
+  // Optional override for the list's max-height (the ONE scroll container).
+  listClassName?: string
 }) {
   const [data, setData] = useState<ReposResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -169,6 +178,10 @@ export function GithubRepoPicker({
   const suspendedAccounts = (data.installations ?? [])
     .filter((i) => i.suspended)
     .map((i) => i.accountLogin || `a connected account`)
+  const reauthAccounts = (data.installations ?? [])
+    .filter((i) => i.needsReauth && !i.suspended)
+    .map((i) => i.accountLogin)
+    .filter((login): login is string => Boolean(login))
   const needsReauth = (data.installations ?? []).some(
     (i) => i.needsReauth && !i.suspended
   )
@@ -193,8 +206,8 @@ export function GithubRepoPicker({
           <Github className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1">
             {empty
-              ? `Reconnect GitHub to load the repositories you can access.`
-              : `Reconnect GitHub to refresh — repos created or shared with you since your last connect won’t appear until you do.`}
+              ? `Reconnect GitHub to load the repositories you can access${reauthAccounts.length > 0 ? ` from ${reauthAccounts.join(`, `)}` : ``}.`
+              : `Reconnect GitHub${reauthAccounts.length > 0 ? ` (${reauthAccounts.join(`, `)})` : ``} to refresh — repos created or shared with you since your last connect won’t appear until you do.`}
           </span>
           <Button type="button" size="sm" variant="outline" onClick={openConnect}>
             <RefreshCw className="mr-2 h-4 w-4" />
@@ -210,7 +223,7 @@ export function GithubRepoPicker({
           }
         >
           <CommandInput placeholder="Search repositories…" />
-          <CommandList className="max-h-[min(20rem,50dvh)]">
+          <CommandList className={cn(`max-h-[min(20rem,50dvh)]`, listClassName)}>
             <CommandEmpty>No repositories found.</CommandEmpty>
             <CommandGroup>
               {data.repos.map((repo) => (
@@ -221,9 +234,14 @@ export function GithubRepoPicker({
                 >
                   <Github className="mr-2 h-4 w-4 shrink-0" />
                   <span className="truncate">{repo.fullName}</span>
-                  {repo.private && (
-                    <Lock className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-                  )}
+                  <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                    {repo.private && (
+                      <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                    {selectedFullName === repo.fullName && (
+                      <Check className="h-4 w-4 text-primary" />
+                    )}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>

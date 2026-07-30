@@ -29,6 +29,11 @@ data class GithubInstallation(
     val accountType: String? = null,
     val manageUrl: String,
     val needsReauth: Boolean = false,
+    // GitHub-side App suspension (REV2-29): the installation lists no repos and
+    // mints no tokens until it's UNSUSPENDED on GitHub — a reconnect cannot fix
+    // it, so the UI must never nudge one. Default false for servers predating
+    // the field.
+    val suspended: Boolean = false,
     val hasMore: Boolean = false,
 )
 

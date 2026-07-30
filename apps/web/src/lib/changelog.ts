@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-github-connect-selfheal`,
+    date: `2026-07-30`,
+    title: `GitHub connections that fix themselves`,
+    summary: `Stale GitHub links now heal on reconnect, fresh installs stop losing their repos, and adding a repository got an explicit Add button with visible errors.`,
+    body: `- **Stale links heal themselves** — a leftover connection to a GitHub account you don't control (and the eternal "Reconnect GitHub" warning it caused) is now cleaned up automatically the next time you reconnect, and the warning names the affected account. The account list — with its disconnect button — stays visible while the warning shows.
+- **Fresh installs keep their repos** — connecting a brand-new GitHub installation could race GitHub's own bookkeeping and come back with zero repositories until a manual reconnect. The connect flow now rides that out.
+- **A real Add button** — the Add-repository dialog selects on click and connects via an explicit **Add repository** button; failures show inside the dialog instead of vanishing with it, and the double-scrolling is gone.
+- **Suspended installations say so** — all four apps now distinguish a GitHub-side App suspension (fix it on GitHub) from a stale connection (reconnect), instead of nudging the wrong fix or, on desktop, showing a bogus "repository limit reached" upsell.
+- **Mobile connect works signed-in-natively** — connecting GitHub from iOS/Android no longer requires a separate web login in the in-app browser, and every connect outcome hands you back to the app.`,
+  },
+  {
     id: `2026-07-selfhost-default-no-dogfood`,
     date: `2026-07-30`,
     title: `Self-hosted by default, no more special boards`,

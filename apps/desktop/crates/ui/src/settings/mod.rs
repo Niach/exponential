@@ -973,10 +973,13 @@ pub(crate) fn open_url(cx: &mut App, url: String) {
         .detach();
 }
 
-/// A plan-cap rejection (`assertWithinPlanLimits` → PRECONDITION_FAILED /
-/// HTTP 412). Drives the §4.9 "Upgrade on the web" notice.
+/// A plan-cap rejection (`planLimitError` → PRECONDITION_FAILED / HTTP 412
+/// with the "Your plan allows" prefix). Drives the §4.9 "Upgrade on the web"
+/// notice. Delegates to the ONE prefix-checking classifier — a bare-412 match
+/// here once rendered "GitHub suspended…"/"No GitHub account connected" as a
+/// plan-limit upsell (EXP-365).
 pub(crate) fn is_plan_limit(err: &api::ApiError) -> bool {
-    matches!(err, api::ApiError::Http { status: 412, .. })
+    crate::create_board_dialog::is_plan_limit(err)
 }
 
 /// Leading clause of the server's team-delete billing gate (REV2-55):

@@ -361,10 +361,8 @@ impl CreateBoardDialogView {
                 }
                 Err(err) => {
                     let _ = this.update_in(window, |this, window, cx| {
-                        // Grant-model FORBIDDEN must be checked BEFORE the
-                        // plan-limit fallback — `is_plan_limit` matches any
-                        // 403, which would misread a stale GitHub grant as a
-                        // plan cap and tell the user to upgrade.
+                        // Grant-model FORBIDDEN checked first: its copy pairs
+                        // with the reconnect hand-off, never the generic box.
                         if is_grant_forbidden(&err) {
                             this.error = Some(
                                 "GitHub says you don't have access to this repository, or \
@@ -578,22 +576,86 @@ impl CreateBoardDialogView {
                 .child(row);
         }
 
+        // Suspension outranks reconnect (REV2-29, EXP-365): a suspended
+        // installation lists no repos and mints no tokens, and a reconnect
+        // CANNOT fix it — only unsuspending on GitHub can. The pre-fix
+        // `installed && repos empty ⇒ reconnect` heuristic nudged exactly the
+        // wrong action here.
+        let suspended_installs: Vec<&crate::github_connect::GithubInstallation> = github_result
+            .map(|result| {
+                result
+                    .installations
+                    .iter()
+                    .filter(|inst| inst.suspended)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !suspended_installs.is_empty() {
+            let names = suspended_installs
+                .iter()
+                .map(|inst| inst.label())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let manage_url = suspended_installs
+                .first()
+                .map(|inst| inst.manage_url.clone())
+                .filter(|url| !url.is_empty());
+            let mut notice = h_flex()
+                .flex_wrap()
+                .gap_2()
+                .items_center()
+                .px_3()
+                .py_2()
+                .rounded(cx.theme().radius)
+                .border_1()
+                .border_dashed()
+                .border_color(cx.theme().border)
+                .text_sm()
+                .text_color(cx.theme().danger)
+                .child(Icon::new(registry::UI_WARNING).xsmall())
+                .child(div().flex_1().min_w_0().child(SharedString::from(format!(
+                    "GitHub suspended the Exponential app for {names} — its repositories \
+                     can't be connected until you unsuspend it on GitHub."
+                ))));
+            if let Some(url) = manage_url {
+                notice = notice.child(
+                    Button::new("board-repo-unsuspend-gh")
+                        .outline()
+                        .xsmall()
+                        .label("Manage")
+                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                );
+            }
+            column = column.child(notice);
+        }
+
         // Grant-model reconnect: installed but the per-user grant snapshot is
         // missing/stale — a pre-grant link comes back `installed: true` with
         // an empty `repos[]` and `needs_reauth` on the linked installation(s).
         // Reconnect must run the OAuth connect (it re-captures grants); the
         // App install page does NOT (web parity: `github-repo-picker.tsx`).
+        // A suspended-only empty list is NOT a reconnect case (above).
         let github_repos_empty = github_result
             .map(|result| result.repos.is_empty())
             .unwrap_or(true);
         let needs_reconnect = github_result
             .map(|result| {
                 result.installed
-                    && (result.repos.is_empty()
-                        || result.installations.iter().any(|inst| inst.needs_reauth))
+                    && result
+                        .installations
+                        .iter()
+                        .any(|inst| inst.needs_reauth && !inst.suspended)
             })
             .unwrap_or(false);
         if needs_reconnect {
+            let suffix = github_result
+                .map(|result| {
+                    crate::github_connect::reauth_account_suffix(
+                        &result.installations,
+                        if github_repos_empty { "from" } else { "for" },
+                    )
+                })
+                .unwrap_or_default();
             let mut notice = h_flex()
                 .flex_wrap()
                 .gap_2()
@@ -611,12 +673,18 @@ impl CreateBoardDialogView {
                         .xsmall()
                         .text_color(theme::tokens::YELLOW.to_hsla()),
                 )
-                .child(div().flex_1().min_w_0().child(if github_repos_empty {
-                    "Reconnect GitHub to load the repositories you can access."
-                } else {
-                    "Reconnect GitHub to refresh — repos created or shared with you since \
-                     your last connect won't appear until you do."
-                }));
+                .child(div().flex_1().min_w_0().child(SharedString::from(
+                    if github_repos_empty {
+                        format!(
+                            "Reconnect GitHub to load the repositories you can access{suffix}."
+                        )
+                    } else {
+                        format!(
+                            "Reconnect GitHub{suffix} to refresh — repos created or shared \
+                             with you since your last connect won't appear until you do."
+                        )
+                    },
+                )));
             let reconnect_url = github_result.and_then(|result| {
                 result
                     .connect_url
@@ -637,8 +705,13 @@ impl CreateBoardDialogView {
         }
 
         // Empty/failure messaging when there is nothing to pick (the
-        // installed-but-grantless empty case is the reconnect notice above).
-        if !has_options && !configured_not_installed && !needs_reconnect {
+        // installed-but-grantless empty case is the reconnect notice above,
+        // and a suspended account already explains itself).
+        if !has_options
+            && !configured_not_installed
+            && !needs_reconnect
+            && suspended_installs.is_empty()
+        {
             let message: SharedString = match (&self.repos, &self.github) {
                 (RepoLoad::Failed(message), _) => message.clone(),
                 (_, GithubLoad::Failed(message)) => message.clone(),
@@ -839,10 +912,21 @@ pub(crate) fn derive_prefix(name: &str) -> String {
         .collect()
 }
 
-/// The web `isPlanLimitError` analog: plan caps surface as tRPC FORBIDDEN
-/// (HTTP 403).
+/// Every plan-cap throw in the server's lib/billing.ts is PRECONDITION_FAILED
+/// (HTTP 412) with a message starting with this prefix — the client contract
+/// of `apps/web/src/lib/plan-limit-error.ts`. Keep byte-identical.
+pub(crate) const PLAN_LIMIT_MESSAGE_PREFIX: &str = "Your plan allows";
+
+/// The web `isPlanLimitError` analog: HTTP 412 AND the plan-limit message
+/// prefix. Matching the prefix — never the bare status — keeps the
+/// GitHub-connect 412s ("No GitHub account is connected…", "GitHub suspended
+/// the Exponential app…") out of the upsell path: they used to render as
+/// "Repository limit reached — upgrade" (EXP-365).
 pub(crate) fn is_plan_limit(err: &api::ApiError) -> bool {
-    matches!(err, api::ApiError::Http { status: 403, .. })
+    matches!(
+        err,
+        api::ApiError::Http { status: 412, message } if message.starts_with(PLAN_LIMIT_MESSAGE_PREFIX)
+    )
 }
 
 /// The grant-model FORBIDDEN from `boards.create`'s inline `{fullName}`
@@ -862,7 +946,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn grant_forbidden_detected_before_plan_limit() {
+    fn grant_forbidden_detected_and_plan_limit_needs_prefix() {
         let grant = api::ApiError::Http {
             status: 403,
             message: "You don't have access to acme/repo on GitHub, or your connection is \
@@ -870,17 +954,31 @@ mod tests {
                       refresh which repositories you can access."
                 .into(),
         };
-        // A grant FORBIDDEN also satisfies `is_plan_limit` (any 403) — the
-        // submit handler's ordering is what keeps it out of the upsell path.
         assert!(is_grant_forbidden(&grant));
-        assert!(is_plan_limit(&grant));
+        assert!(!is_plan_limit(&grant));
 
+        // The real plan-cap shape: 412 + the lib/plan-limit-error.ts prefix.
         let plan_cap = api::ApiError::Http {
-            status: 403,
-            message: "Plan limit reached".into(),
+            status: 412,
+            message: "Your plan allows 3 seats — upgrade to invite more members.".into(),
         };
         assert!(!is_grant_forbidden(&plan_cap));
         assert!(is_plan_limit(&plan_cap));
+
+        // GitHub-connect 412s must NEVER read as an upsell (EXP-365): these
+        // used to render "Repository limit reached — upgrade on the web".
+        for message in [
+            "No GitHub account is connected to this team. Connect one in team settings \
+             → Repositories, then try again.",
+            "GitHub suspended the Exponential app for acme. Unsuspend it on GitHub \
+             (team settings → Repositories → Manage), then try again.",
+        ] {
+            let err = api::ApiError::Http {
+                status: 412,
+                message: message.into(),
+            };
+            assert!(!is_plan_limit(&err), "misclassified as plan cap: {message}");
+        }
     }
 
     #[test]

@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 // Backs [GithubRepoPickerSheet]: loads the user's installable repos over the
@@ -44,16 +45,15 @@ class GithubRepoPickerViewModel @Inject constructor(
         // The install Custom Tab ends on the server's "connected" page, which
         // fires exponential://github-connected — that lands here (viewModelScope stays
         // active while the activity is stopped behind the tab), so the sheet
-        // the user returns to already shows the fresh repo list.
+        // the user returns to already shows the fresh repo list. Event counter,
+        // not a consumed one-shot (EXP-365): team settings may be collecting
+        // too, and both must refresh. drop(1) skips the StateFlow replay.
         viewModelScope.launch {
-            deepLinkBus.target.collect { target ->
-                if (target is DeepLinkBus.Target.GithubConnected) {
-                    deepLinkBus.consume()
-                    val account = lastAccountId
-                    val team = lastTeamId
-                    if (account != null && team != null) {
-                        load(account, team, refresh = true)
-                    }
+            deepLinkBus.githubConnected.drop(1).collect {
+                val account = lastAccountId
+                val team = lastTeamId
+                if (account != null && team != null) {
+                    load(account, team, refresh = true)
                 }
             }
         }

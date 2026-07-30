@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -118,35 +119,42 @@ class TeamSettingsViewModel @Inject constructor(
                     _repos.value = emptyList()
                     _github.value = null
                     if (accountId != null && teamId != null) {
+                        // Failures surface as a transient instead of silently
+                        // rendering "No repositories connected." / hiding the
+                        // whole GitHub row (EXP-365).
                         runCatching { repositoriesApi.list(accountId, teamId) }
                             .onSuccess { _repos.value = it }
+                            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't load repositories") }
                         runCatching { integrationsApi.githubRepos(accountId, teamId) }
                             .onSuccess { _github.value = it }
+                            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't load the GitHub connection state") }
                     }
                 }
         }
         // The reconnect Custom Tab ends on the server's "connected" page, which
         // fires exponential://github-connected — re-fetch so the needsReauth row clears
-        // without leaving the screen (mirrors GithubRepoPickerViewModel).
+        // without leaving the screen. Event counter, not a consumed one-shot
+        // (EXP-365): the repo picker may be collecting too, and both must
+        // refresh. drop(1) skips the StateFlow replay.
         viewModelScope.launch {
-            deepLinkBus.target.collect { target ->
-                if (target is DeepLinkBus.Target.GithubConnected) {
-                    deepLinkBus.consume()
-                    refreshGithub()
-                }
-            }
+            deepLinkBus.githubConnected.drop(1).collect { refreshGithub() }
         }
     }
 
     // Re-fetch the registry + grant state (bypassing the server's repo cache)
-    // after a GitHub reconnect lands.
-    private fun refreshGithub() = viewModelScope.launch {
-        val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
-        runCatching { repositoriesApi.list(accountId, teamId) }
-            .onSuccess { _repos.value = it }
-        runCatching { integrationsApi.githubRepos(accountId, teamId, refresh = true) }
-            .onSuccess { _github.value = it }
+    // after a GitHub reconnect lands, or on screen resume as the deep-link
+    // fallback (EXP-365 — a swallowed deep link left the row stale forever).
+    // Failures keep the last good value; a transient explains the refresh miss.
+    fun refreshGithub() {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            val teamId = selection.selectedId.value ?: return@launch
+            runCatching { repositoriesApi.list(accountId, teamId) }
+                .onSuccess { _repos.value = it }
+            runCatching { integrationsApi.githubRepos(accountId, teamId, refresh = true) }
+                .onSuccess { _github.value = it }
+                .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't refresh the GitHub connection state") }
+        }
     }
 
     val state: StateFlow<TeamSettingsState> = combine(
