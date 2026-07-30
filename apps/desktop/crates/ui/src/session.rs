@@ -191,7 +191,7 @@ pub fn reset_ide_data(cx: &mut App) {
             cx.background_executor()
                 .spawn(async move {
                     if let Err(err) = client.sign_out(&instance, &token) {
-                        eprintln!("[exp-desktop] reset: server-side sign-out failed: {err}");
+                        log::warn!("[exp-desktop] reset: server-side sign-out failed: {err}");
                     }
                 })
                 .detach();

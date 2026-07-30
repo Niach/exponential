@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
@@ -290,8 +291,13 @@ export async function handleCallback(request: Request): Promise<Response> {
           )
         }
       }
-    } catch {
+    } catch (err) {
       // Not a repo manager (demoted since linking) — leave the links alone.
+      // Anything else (a DB failure mid-heal) is unexpected; log it while
+      // staying fail-safe toward leaving links untouched.
+      if (!(err instanceof TRPCError)) {
+        console.warn(`[github-callback] self-heal aborted unexpectedly:`, err)
+      }
     }
 
     // Token's job is done — it never leaves this scope. The grant set just
