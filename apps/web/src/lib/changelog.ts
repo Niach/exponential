@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-claim-flow-digest-hour`,
+    date: `2026-07-31`,
+    title: `Pick exactly what GitHub connects — and when email arrives`,
+    summary: `The GitHub claim page now links and unlinks installations in one save, email digests arrive at your preferred hour in your timezone, and the desktop IDE got sturdier session and repo management.`,
+    body: `- **GitHub claims, refined** — connecting GitHub now shows every installation you control and saves links and unlinks together in one step; the desktop app hands you straight back when you finish in the browser.
+- **Digest hour** — the unread-notification email digest now sends at your preferred hour in your own timezone. The desktop app picks up your system timezone automatically; adjust both in notification settings.
+- **Desktop IDE** — "Merge and close" ends the session before merging, so Fix conflicts is available immediately if the merge fails; local repositories and worktrees are manageable from Settings, with live coding sessions protected from accidental removal.
+- **First-party analytics on the cloud** — app.exponential.at now measures its signup funnel with cookieless first-party counters; self-hosted instances record nothing. Details on the privacy page.`,
+  },
+  {
     id: `2026-07-desktop-onboarding`,
     date: `2026-07-30`,
     title: `A guided start in the desktop IDE`,
