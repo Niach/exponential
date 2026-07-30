@@ -1,12 +1,15 @@
 //! Settings → Tools (EXP-288 — renamed from "Coding" and slimmed to the
-//! non-agent, this-device knobs; the per-agent settings + doctor moved to
+//! non-agent, this-device knobs; the per-agent settings live in
 //! [`super::agents`]).
 //!
-//! | Row            | Meaning                                              |
+//! | Section        | Meaning                                              |
 //! |----------------|------------------------------------------------------|
 //! | Repos root     | Where repositories/worktrees live (`~` works)        |
 //! | Branch prefix  | Prepended to the issue identifier (`exp/EXP-42`)     |
 //! | Terminal shell | Program new `+` terminal tabs spawn (blank = auto)   |
+//! | Tooling doctor | The shared [`super::doctor_section::DoctorPanel`]    |
+//! |                | (EXP-367 — moved here from Agents; also the wizard's |
+//! |                | tools step)                                          |
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. This pane and the Agents pane
@@ -31,6 +34,7 @@ use coding::Settings;
 
 use crate::coding_flow::CodingHub;
 
+use super::doctor_section::DoctorPanel;
 use super::{card_header, error_notice, section};
 
 pub struct ToolsPane {
@@ -39,6 +43,8 @@ pub struct ToolsPane {
     /// EXP-288: the shell new `+` terminal tabs spawn; blank = auto
     /// (the placeholder shows the detected platform default).
     shell_input: Entity<InputState>,
+    /// The shared tooling doctor (EXP-367 — also the onboarding tools step).
+    doctor: Entity<DoctorPanel>,
     /// The hub settings the controls were last synced from (dirty baseline).
     synced: Option<Settings>,
     save_error: Option<SharedString>,
@@ -54,6 +60,7 @@ impl ToolsPane {
         });
         let shell_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(terminal::manager::default_shell()));
+        let doctor = cx.new(|cx| DoctorPanel::new(window, cx));
 
         let hub = CodingHub::global(cx);
         let mut subscriptions = vec![cx.observe_in(&hub, window, |this, _, window, cx| {
@@ -72,6 +79,7 @@ impl ToolsPane {
             repos_input,
             prefix_input,
             shell_input,
+            doctor,
             synced: None,
             save_error: None,
             _subscriptions: subscriptions,
@@ -225,6 +233,11 @@ impl Render for ToolsPane {
             ),
         );
 
-        v_flex().w_full().gap_6().child(card).child(save_area)
+        v_flex()
+            .w_full()
+            .gap_6()
+            .child(card)
+            .child(save_area)
+            .child(self.doctor.clone())
     }
 }

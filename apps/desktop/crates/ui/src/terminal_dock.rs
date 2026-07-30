@@ -715,6 +715,15 @@ impl TerminalDockPanel {
                 let resolver = repo_resolver_for_window(window, cx);
                 resolver.update(cx, |resolver, cx| resolver.ensure_loaded(cx));
                 let repos = resolver.read(cx).board_backed_repos();
+                // EXP-367: a REPORTED empty agent set gets a disabled hint
+                // item (a bare "New shell" menu otherwise reads like the
+                // agent launches vanished for no reason); a missing report
+                // stays silent — the probe is still running.
+                if installed.is_empty() && hub.read(cx).doctor.report.is_some() {
+                    menu = menu.item(
+                        PopupMenuItem::new(crate::coding_flow::NO_AGENT_COPY).disabled(true),
+                    );
+                }
                 for agent in installed {
                     let icon = Icon::from(crate::coding_selects::agent_icon(agent));
                     let label = agent.label();

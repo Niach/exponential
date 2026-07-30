@@ -2192,6 +2192,9 @@ impl SidebarPanel {
                         .outline();
                 if fixing {
                     button = button.label("Fixing…").disabled(true);
+                } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
+                    // EXP-367: no agent CLI → disabled with the reason.
+                    button = button.label("Fix conflicts").tooltip(reason).disabled(true);
                 } else {
                     button = button.label("Fix conflicts");
                 }

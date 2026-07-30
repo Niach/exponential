@@ -129,14 +129,23 @@ impl CodingHub {
                 .background_executor()
                 .spawn(async move { run_doctor(&settings) })
                 .await;
-            hub.update(cx, |this, cx| {
+            let landed = hub.update(cx, |this, cx| {
                 if this.doctor.generation != generation {
-                    return; // superseded
+                    return false; // superseded
                 }
                 this.doctor.running = false;
                 this.doctor.report = Some(report);
                 cx.notify();
+                true
             });
+            if landed {
+                // EXP-367: a changed installed-agent set re-advertises (or
+                // hangs up) the steer presence — installing the first agent
+                // CLI brings remote start online without an app restart.
+                let _ = cx.update(|cx| {
+                    crate::steer_wiring::restart_control_channel_if_needed(cx);
+                });
+            }
         })
         .detach();
     }
