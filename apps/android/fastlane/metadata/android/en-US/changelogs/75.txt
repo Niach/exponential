@@ -1,0 +1,1 @@
+Boards no longer have protection flags — every board can be managed the same way, and self-hosted setups start clean.
