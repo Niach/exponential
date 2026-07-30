@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
@@ -33,6 +33,34 @@ import {
 export async function assertCanManageRepos(userId: string, teamId: string) {
   if (await isUserAdmin(userId)) return
   await assertTeamMember(userId, teamId, [`owner`])
+}
+
+// CONFLICT while the team still has connected (non-archived) repos under the
+// installation — mirroring repositories.remove's boards-restrict — so no repo
+// row silently loses its token path. Shared by `unlink` and the claim page's
+// unlink path.
+async function assertInstallationNotInUse(
+  teamId: string,
+  installationId: number
+) {
+  const inUse = await db
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.teamId, teamId),
+        eq(repositories.installationId, installationId),
+        isNull(repositories.archivedAt)
+      )
+    )
+  if (inUse.length > 0) {
+    throw new TRPCError({
+      code: `CONFLICT`,
+      message: `Cannot disconnect — ${inUse.length} connected ${
+        inUse.length === 1 ? `repository uses` : `repositories use`
+      } this GitHub account. Remove them first.`,
+    })
+  }
 }
 
 // The GitHub App INSTALL page URL (new install / grant more repos). Also the
@@ -659,6 +687,26 @@ export const integrationsRouter = router({
           .from(githubInstallationLinks)
           .where(eq(githubInstallationLinks.teamId, claim.w))
         const linkedIds = new Set(linked.map((l) => l.githubInstallationId))
+        // Active repo counts drive the picker's unlink affordance: an account
+        // whose repos are still connected can't be unchecked (mirrors the
+        // `unlink` CONFLICT guard), so the page disables the row with a note.
+        const repoCounts = await db
+          .select({
+            installationId: repositories.installationId,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(repositories)
+          .where(
+            and(
+              eq(repositories.teamId, claim.w),
+              inArray(repositories.installationId, claim.ids),
+              isNull(repositories.archivedAt)
+            )
+          )
+          .groupBy(repositories.installationId)
+        const countByInstallation = new Map(
+          repoCounts.map((r) => [r.installationId, r.count])
+        )
         return {
           teamId: claim.w,
           mobile: claim.m === true,
@@ -668,19 +716,29 @@ export const integrationsRouter = router({
             accountLogin: row.accountLogin,
             accountType: row.accountType,
             alreadyLinked: linkedIds.has(row.id),
+            activeRepoCount:
+              countByInstallation.get(row.installationId) ?? 0,
           })),
         }
       }),
 
-    // Create the team ↔ installation links the user picked on the claim
-    // page. The ticket bounds the choosable set to exactly what the OAuth
-    // enumeration proved control of.
+    // Apply the claim page's link/unlink selection. The ticket bounds the
+    // changeable set to exactly what the OAuth enumeration proved control
+    // of; unlinking is refused while the account still has connected repos
+    // (same guard as `unlink`). All guards run before any write, so a
+    // CONFLICT leaves the links untouched — and the ticket is deliberately
+    // not single-use, so the user can fix the selection and save again.
     claimLinks: authedProcedure
       .input(
-        z.object({
-          ticket: z.string().min(1),
-          installationIds: z.array(z.number().int().positive()).min(1),
-        })
+        z
+          .object({
+            ticket: z.string().min(1),
+            linkIds: z.array(z.number().int().positive()).default([]),
+            unlinkIds: z.array(z.number().int().positive()).default([]),
+          })
+          .refine((v) => v.linkIds.length > 0 || v.unlinkIds.length > 0, {
+            message: `Nothing to change.`,
+          })
       )
       .mutation(async ({ ctx, input }) => {
         const userId = ctx.session.user.id
@@ -692,33 +750,67 @@ export const integrationsRouter = router({
           })
         }
         const allowed = new Set(claim.ids)
-        if (input.installationIds.some((id) => !allowed.has(id))) {
+        if (
+          [...input.linkIds, ...input.unlinkIds].some(
+            (id) => !allowed.has(id)
+          )
+        ) {
           throw new TRPCError({
             code: `FORBIDDEN`,
             message: `Selection includes an installation this claim didn't verify.`,
           })
         }
         await assertCanManageRepos(userId, claim.w)
-        const rows = await db
-          .select({ id: githubInstallations.id })
-          .from(githubInstallations)
-          .where(
-            inArray(githubInstallations.installationId, input.installationIds)
-          )
-        if (rows.length > 0) {
-          await db
-            .insert(githubInstallationLinks)
-            .values(
-              rows.map((row) => ({
-                teamId: claim.w,
-                githubInstallationId: row.id,
-                createdByUserId: userId,
-              }))
+        for (const installationId of input.unlinkIds) {
+          await assertInstallationNotInUse(claim.w, installationId)
+        }
+        let linked = 0
+        if (input.linkIds.length > 0) {
+          const rows = await db
+            .select({ id: githubInstallations.id })
+            .from(githubInstallations)
+            .where(
+              inArray(githubInstallations.installationId, input.linkIds)
             )
-            .onConflictDoNothing()
+          if (rows.length > 0) {
+            await db
+              .insert(githubInstallationLinks)
+              .values(
+                rows.map((row) => ({
+                  teamId: claim.w,
+                  githubInstallationId: row.id,
+                  createdByUserId: userId,
+                }))
+              )
+              .onConflictDoNothing()
+          }
+          linked = rows.length
+        }
+        let unlinked = 0
+        if (input.unlinkIds.length > 0) {
+          const rows = await db
+            .select({ id: githubInstallations.id })
+            .from(githubInstallations)
+            .where(
+              inArray(githubInstallations.installationId, input.unlinkIds)
+            )
+          if (rows.length > 0) {
+            await db
+              .delete(githubInstallationLinks)
+              .where(
+                and(
+                  eq(githubInstallationLinks.teamId, claim.w),
+                  inArray(
+                    githubInstallationLinks.githubInstallationId,
+                    rows.map((row) => row.id)
+                  )
+                )
+              )
+          }
+          unlinked = rows.length
         }
         invalidateRepoCache(claim.w)
-        return { linked: rows.length, teamId: claim.w }
+        return { linked, unlinked, teamId: claim.w }
       }),
 
     // Remove a team ↔ installation link. Blocked (CONFLICT) while the
@@ -734,24 +826,7 @@ export const integrationsRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         await assertCanManageRepos(ctx.session.user.id, input.teamId)
-        const inUse = await db
-          .select({ id: repositories.id })
-          .from(repositories)
-          .where(
-            and(
-              eq(repositories.teamId, input.teamId),
-              eq(repositories.installationId, input.installationId),
-              isNull(repositories.archivedAt)
-            )
-          )
-        if (inUse.length > 0) {
-          throw new TRPCError({
-            code: `CONFLICT`,
-            message: `Cannot disconnect — ${inUse.length} connected ${
-              inUse.length === 1 ? `repository uses` : `repositories use`
-            } this GitHub account. Remove them first.`,
-          })
-        }
+        await assertInstallationNotInUse(input.teamId, input.installationId)
         const [inst] = await db
           .select({ id: githubInstallations.id })
           .from(githubInstallations)

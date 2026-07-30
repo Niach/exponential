@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { CircleAlert, Building2, Check, Github, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,13 +14,16 @@ import { Label } from "@/components/ui/label"
 import { trpc } from "@/lib/trpc-client"
 import { githubConnectedDeepLink } from "@/lib/deep-link"
 
-// The OAuth claim flow's account picker: the callback verified (via GitHub's
+// The OAuth claim flow's account manager: the callback verified (via GitHub's
 // /user/installations) which App installations the user controls; when there
 // are several, it lands here with a signed ticket and the user picks which
-// GitHub accounts to connect to the team. Also the shared landing page
-// for the claim flow's error states (?error=…). Mirrors installed.tsx's
-// arrival modes: desktop popup (self-closes into the opener), mobile browser
-// tab (exponential:// return card), plain tab (Continue link).
+// GitHub accounts stay connected to the team — checking links, unchecking
+// disconnects (blocked while the account still has connected repos). The
+// page never auto-redirects (EXP-370): the primary button is always enabled —
+// "Save" when the selection changed, otherwise a plain hand-back matching the
+// arrival mode (native tab → exponential:// return, desktop popup → close
+// into the opener, plain tab → Continue link). Also the shared landing page
+// for the claim flow's error states (?error=…).
 interface ClaimSearch {
   ticket?: string
   error?: string
@@ -81,6 +84,7 @@ interface PreviewInstallation {
   accountLogin: string | null
   accountType: string | null
   alreadyLinked: boolean
+  activeRepoCount: number
 }
 
 function GithubClaim() {
@@ -93,6 +97,10 @@ function GithubClaim() {
     installations: PreviewInstallation[]
   } | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  // The DESIRED linked set — checked rows. Initialized to every verified
+  // installation (linked stay checked, new ones preselected — the common
+  // case is "connect what I just authorized").
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
@@ -104,48 +112,32 @@ function GithubClaim() {
       window.opener !== window
   )
 
-  useEffect(() => {
+  const loadPreview = useCallback(async () => {
     if (!ticket) return
-    let cancelled = false
-    trpc.integrations.github.claimPreview
-      .query({ ticket })
-      .then((data) => {
-        if (cancelled) return
-        setPreview(data)
-        // Preselect everything not yet linked — the common case is "connect
-        // what I just authorized".
-        setSelected(
-          new Set(
-            data.installations
-              .filter((i) => !i.alreadyLinked)
-              .map((i) => i.installationId)
-          )
-        )
+    try {
+      const data = await trpc.integrations.github.claimPreview.query({
+        ticket,
       })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        setLoadError(
-          err instanceof Error ? err.message : `This claim link is invalid.`
-        )
-      })
-    return () => {
-      cancelled = true
+      setPreview(data)
+      setSelected(
+        new Set(data.installations.map((i) => i.installationId))
+      )
+    } catch (err: unknown) {
+      setLoadError(
+        err instanceof Error ? err.message : `This claim link is invalid.`
+      )
     }
   }, [ticket])
 
-  // Everything the user authorized is already linked to this team (a retry
-  // after a successful connect — EXP-225): the picker would render only
-  // disabled rows and a dead "Connect 0 accounts" button. Treat it as done —
-  // the OAuth callback already re-captured repo grants before landing here,
-  // so there is nothing left to do but hand the user back.
-  const allLinked =
-    !!preview &&
-    preview.installations.length > 0 &&
-    preview.installations.every((i) => i.alreadyLinked)
-
-  // Success: hand the user back the same way installed.tsx does.
   useEffect(() => {
-    if (!done && !allLinked) return
+    void loadPreview()
+  }, [loadPreview])
+
+  // Hand the user back after an explicit save, matching the arrival mode.
+  // Never fires on load — arriving with everything already linked shows the
+  // picker with a plain "Continue"/"Back to app" button instead (EXP-370).
+  useEffect(() => {
+    if (!done) return
     if (preview?.mobile) {
       window.location.href = MOBILE_DEEP_LINK
       return
@@ -160,7 +152,7 @@ function GithubClaim() {
       }
     }, 600)
     return () => clearTimeout(timer)
-  }, [done, allLinked, isPopup, preview?.mobile])
+  }, [done, isPopup, preview?.mobile])
 
   const errorCopy = error
     ? (ERROR_COPY[error] ?? ERROR_COPY.exchange)
@@ -168,21 +160,45 @@ function GithubClaim() {
       ? { title: `Claim link invalid`, body: loadError }
       : null
 
-  async function linkSelected() {
-    if (!ticket || selected.size === 0) return
+  const linkedIds = new Set(
+    preview?.installations
+      .filter((i) => i.alreadyLinked)
+      .map((i) => i.installationId) ?? []
+  )
+  const toLink = [...selected].filter((id) => !linkedIds.has(id))
+  const toUnlink = [...linkedIds].filter((id) => !selected.has(id))
+  const hasChanges = toLink.length > 0 || toUnlink.length > 0
+
+  async function save() {
+    if (!ticket) return
     setSaving(true)
+    setSaveError(null)
     try {
       await trpc.integrations.github.claimLinks.mutate({
         ticket,
-        installationIds: [...selected],
+        linkIds: toLink,
+        unlinkIds: toUnlink,
       })
       setDone(true)
     } catch (err) {
-      setLoadError(
-        err instanceof Error ? err.message : `Linking failed — try again.`
+      setSaveError(
+        err instanceof Error ? err.message : `Saving failed — try again.`
       )
+      // Repos may have been connected meanwhile (CONFLICT) — refresh so the
+      // affected row re-disables with its in-use note. A stale ticket fails
+      // the refresh into the full error card, which is the right dead end.
+      void loadPreview()
     } finally {
       setSaving(false)
+    }
+  }
+
+  function closePopup() {
+    try {
+      window.opener?.focus()
+      window.close()
+    } catch {
+      // Blocked — nothing else to do, the tab stays open.
     }
   }
 
@@ -223,26 +239,19 @@ function GithubClaim() {
               )}
             </CardContent>
           </>
-        ) : done || allLinked ? (
+        ) : done ? (
           <>
             <CardHeader className="flex flex-col items-center gap-3 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
                 <Check className="h-6 w-6" strokeWidth={2.5} />
               </div>
-              <CardTitle className="text-xl">
-                {done ? `GitHub connected` : `Already connected`}
-              </CardTitle>
+              <CardTitle className="text-xl">GitHub connections saved</CardTitle>
               <CardDescription>
-                {!done
-                  ? `These GitHub accounts are already connected to this team. `
-                  : ``}
                 {preview?.mobile
                   ? `Exponential is opening. You can close this tab and return to the app.`
                   : isPopup
                     ? `Returning you to Exponential — you can close this tab if it stays open.`
-                    : done
-                      ? `The selected GitHub accounts are now connected. Continue to pick a repository.`
-                      : `Continue to pick a repository.`}
+                    : `Your GitHub connections are updated. Continue to pick a repository.`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -277,23 +286,23 @@ function GithubClaim() {
               </div>
               <CardTitle className="text-xl">Choose GitHub accounts</CardTitle>
               <CardDescription>
-                You have access to several installations of the Exponential
-                App. Pick which to connect to this team.
+                Checked accounts are connected to this team. Uncheck a
+                connected account to disconnect it.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <div className="flex flex-col gap-1">
                 {preview.installations.map((inst) => {
-                  const checked =
-                    inst.alreadyLinked || selected.has(inst.installationId)
+                  const inUse =
+                    inst.alreadyLinked && inst.activeRepoCount > 0
                   return (
                     <Label
                       key={inst.installationId}
                       className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 hover:bg-accent"
                     >
                       <Checkbox
-                        checked={checked}
-                        disabled={inst.alreadyLinked}
+                        checked={selected.has(inst.installationId)}
+                        disabled={inUse || saving}
                         onCheckedChange={(value) => {
                           setSelected((prev) => {
                             const next = new Set(prev)
@@ -311,25 +320,41 @@ function GithubClaim() {
                       <span className="flex-1 truncate text-sm font-medium">
                         {inst.accountLogin ?? `Installation ${inst.installationId}`}
                       </span>
-                      {inst.alreadyLinked ? (
+                      {inUse ? (
                         <span className="text-xs text-muted-foreground">
-                          Already connected
+                          In use by {inst.activeRepoCount}{` `}
+                          {inst.activeRepoCount === 1 ? `repo` : `repos`}
                         </span>
                       ) : null}
                     </Label>
                   )
                 })}
               </div>
-              <Button
-                size="lg"
-                className="w-full"
-                disabled={saving || selected.size === 0}
-                onClick={linkSelected}
-              >
-                {saving
-                  ? `Connecting…`
-                  : `Connect ${selected.size} ${selected.size === 1 ? `account` : `accounts`}`}
-              </Button>
+              {saveError ? (
+                <p className="text-sm text-red-500">{saveError}</p>
+              ) : null}
+              {hasChanges || saving ? (
+                <Button
+                  size="lg"
+                  className="w-full"
+                  disabled={saving}
+                  onClick={save}
+                >
+                  {saving ? `Saving…` : `Save`}
+                </Button>
+              ) : preview.mobile ? (
+                <Button asChild size="lg" className="w-full">
+                  <a href={MOBILE_DEEP_LINK}>Back to app</a>
+                </Button>
+              ) : isPopup ? (
+                <Button size="lg" className="w-full" onClick={closePopup}>
+                  Continue
+                </Button>
+              ) : (
+                <Button asChild size="lg" className="w-full">
+                  <Link to="/">Continue</Link>
+                </Button>
+              )}
             </CardContent>
           </>
         )}
