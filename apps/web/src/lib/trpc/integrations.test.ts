@@ -27,6 +27,7 @@ vi.mock(`@/db/connection`, () => ({
         from: () => typeof chain
         innerJoin: () => typeof chain
         where: () => typeof chain
+        groupBy: () => typeof chain
         limit: () => Promise<unknown[]>
         then: (
           onFulfilled: (rows: unknown[]) => unknown,
@@ -36,6 +37,7 @@ vi.mock(`@/db/connection`, () => ({
         from: () => chain,
         innerJoin: () => chain,
         where: () => chain,
+        groupBy: () => chain,
         limit: () => Promise.resolve(rows),
         then: (onFulfilled, onRejected) =>
           Promise.resolve(rows).then(onFulfilled, onRejected),
@@ -388,7 +390,7 @@ describe(`integrations.github.repos grant scoping (OAuth configured)`, () => {
 })
 
 describe(`integrations.github.claimLinks guards`, () => {
-  it(`refuses installation ids outside the ticket's verified set`, async () => {
+  it(`refuses link ids outside the ticket's verified set`, async () => {
     const teamId = freshTeamId()
     const ticket = mintGithubClaimTicket({
       u: `user-claim`,
@@ -398,7 +400,22 @@ describe(`integrations.github.claimLinks guards`, () => {
     await expect(
       callerFor(`user-claim`).github.claimLinks({
         ticket,
-        installationIds: [999],
+        linkIds: [999],
+      })
+    ).rejects.toThrow(/didn't verify/)
+  })
+
+  it(`refuses unlink ids outside the ticket's verified set`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-claim`,
+      w: teamId,
+      ids: [1, 2],
+    })!
+    await expect(
+      callerFor(`user-claim`).github.claimLinks({
+        ticket,
+        unlinkIds: [999],
       })
     ).rejects.toThrow(/didn't verify/)
   })
@@ -410,8 +427,136 @@ describe(`integrations.github.claimLinks guards`, () => {
       ids: [1],
     })!
     await expect(
-      callerFor(`attacker`).github.claimLinks({ ticket, installationIds: [1] })
+      callerFor(`attacker`).github.claimLinks({ ticket, linkIds: [1] })
     ).rejects.toThrow(/expired or belongs to another session/)
+  })
+
+  it(`refuses an empty selection`, async () => {
+    const ticket = mintGithubClaimTicket({
+      u: `user-claim`,
+      w: freshTeamId(),
+      ids: [1],
+    })!
+    await expect(
+      callerFor(`user-claim`).github.claimLinks({ ticket })
+    ).rejects.toThrow(/Nothing to change/)
+  })
+})
+
+describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
+  it(`links and unlinks in one save`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-apply`,
+      w: teamId,
+      ids: [1, 2],
+    })!
+    selectQueue.push([]) // in-use check for unlinkId 1 → none
+    selectQueue.push([{ id: `gi-2` }]) // installation rows for linkIds
+    selectQueue.push([{ id: `gi-1` }]) // installation rows for unlinkIds
+    const result = await callerFor(`user-apply`).github.claimLinks({
+      ticket,
+      linkIds: [2],
+      unlinkIds: [1],
+    })
+    expect(result).toEqual({ linked: 1, unlinked: 1, teamId })
+    expect(inserted).toEqual([
+      { teamId, githubInstallationId: `gi-2`, createdByUserId: `user-apply` },
+    ])
+    expect(deletes).toHaveLength(1)
+  })
+
+  it(`link-only save still works`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-apply`,
+      w: teamId,
+      ids: [1],
+    })!
+    selectQueue.push([{ id: `gi-1` }]) // installation rows for linkIds
+    const result = await callerFor(`user-apply`).github.claimLinks({
+      ticket,
+      linkIds: [1],
+    })
+    expect(result).toEqual({ linked: 1, unlinked: 0, teamId })
+    expect(inserted).toHaveLength(1)
+    expect(deletes).toHaveLength(0)
+  })
+
+  it(`unlink-only save deletes the link`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-apply`,
+      w: teamId,
+      ids: [1],
+    })!
+    selectQueue.push([]) // in-use check → none
+    selectQueue.push([{ id: `gi-1` }]) // installation rows for unlinkIds
+    const result = await callerFor(`user-apply`).github.claimLinks({
+      ticket,
+      unlinkIds: [1],
+    })
+    expect(result).toEqual({ linked: 0, unlinked: 1, teamId })
+    expect(inserted).toHaveLength(0)
+    expect(deletes).toHaveLength(1)
+  })
+
+  it(`CONFLICTs the whole save while connected repos use an unlinked account — nothing written`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-apply`,
+      w: teamId,
+      ids: [1, 2],
+    })!
+    // In-use check for unlinkId 1 → repos still connected. The guard runs
+    // BEFORE any write, so the linkIds insert must not happen either.
+    selectQueue.push([{ id: `repo-1` }, { id: `repo-2` }])
+    await expect(
+      callerFor(`user-apply`).github.claimLinks({
+        ticket,
+        linkIds: [2],
+        unlinkIds: [1],
+      })
+    ).rejects.toThrow(/2 connected repositories use this GitHub account/)
+    expect(inserted).toHaveLength(0)
+    expect(deletes).toHaveLength(0)
+  })
+})
+
+describe(`integrations.github.claimPreview (EXP-370)`, () => {
+  it(`returns per-installation linked state and active repo counts`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-preview`,
+      w: teamId,
+      ids: [1, 2],
+    })!
+    selectQueue.push([
+      { id: `gi-1`, installationId: 1, accountLogin: `acme`, accountType: `User` },
+      { id: `gi-2`, installationId: 2, accountLogin: `megacorp`, accountType: `Organization` },
+    ]) // installation rows
+    selectQueue.push([{ githubInstallationId: `gi-1` }]) // team links
+    selectQueue.push([{ installationId: 1, count: 2 }]) // active repo counts
+    const result = await callerFor(`user-preview`).github.claimPreview({
+      ticket,
+    })
+    expect(result.teamId).toBe(teamId)
+    expect(result.installations).toEqual([
+      {
+        installationId: 1,
+        accountLogin: `acme`,
+        accountType: `User`,
+        alreadyLinked: true,
+        activeRepoCount: 2,
+      },
+      {
+        installationId: 2,
+        accountLogin: `megacorp`,
+        accountType: `Organization`,
+        alreadyLinked: false,
+        activeRepoCount: 0,
+      },
+    ])
   })
 })
 
