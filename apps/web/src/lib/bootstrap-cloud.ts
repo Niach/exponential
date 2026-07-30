@@ -1,12 +1,6 @@
-import { and, eq, inArray, notExists, sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import {
-  issues,
-  boards,
-  widgetConfigs,
-  teamMembers,
-  teams,
-} from "@/db/schema"
+import { boards, widgetConfigs, teamMembers, teams } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
@@ -18,20 +12,11 @@ import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
 
 const FEEDBACK_TEAM_SLUG = `feedback`
 const FEEDBACK_TEAM_NAME = `Exponential Feedback`
-// The feedback team's canonical dogfood board: "Exponential". Private
-// like every board since EXP-180 (public boards are gone) — the widget is
-// the only inbound feedback path. Feedback and dogfood coding share it.
+// The feedback team's historical dogfood board slug. EXP-363 removed board
+// seeding entirely — the bootstrap no longer creates, protects, or repo-backs
+// any board. The slug remains only so ensureFeedbackWidgetConfig can target
+// an existing board when first creating the widget config.
 const DOGFOOD_BOARD_SLUG = `exponential`
-const DOGFOOD_BOARD_NAME = `Exponential`
-const DOGFOOD_BOARD_PREFIX = `EXP`
-// Pre-collapse deployments seeded this second board next to the dogfood one;
-// collapseLegacyFeedbackBoard folds it away.
-const LEGACY_FEEDBACK_BOARD_SLUG = `feedback`
-// The former dogfood helpdesk board (EXP-162, retired by EXP-180): tickets
-// are standalone team-level threads now, so the Support board is just
-// a normal board holding its historical ticket-issues.
-// releaseLegacySupportBoard un-protects it so admins can trash it.
-const LEGACY_SUPPORT_BOARD_SLUG = `support`
 
 function parseAdminEmails(): string[] {
   const raw = process.env.INITIAL_ADMIN_EMAILS
@@ -42,7 +27,7 @@ function parseAdminEmails(): string[] {
     .filter(Boolean)
 }
 
-// The (now private, v7) team hosting the public dogfood feedback board.
+// The shared dogfood/feedback team (widget submissions + support land here).
 // Membership is bootstrap-managed owners (admins) plus regular invites — the
 // migration purged the old self-joined members once; no recurring purge here,
 // because invited triagers are legitimate members now.
@@ -96,50 +81,17 @@ export function getFeedbackTeamId(): Promise<string | null> {
   return feedbackTeamIdPromise
 }
 
-// The feedback team's single canonical `exponential` board — the
-// private, protected, repo-backed dogfood board. Runs on every boot: the
-// widget config targets it and collapseLegacyFeedbackBoard folds the legacy
-// board into it — all of which must work on already-bootstrapped DBs where
-// the board was never seeded. Idempotent; returns the board id.
-async function ensureDogfoodBoard(publicTeamId: string): Promise<string> {
-  const [existing] = await db
-    .select({
-      id: boards.id,
-      isProtected: boards.isProtected,
-    })
-    .from(boards)
+// EXP-363: nothing stamps `is_protected` anymore — the dogfood board behaves
+// like any other board. Clear the flag wherever a previous deployment's
+// bootstrap left it (only ever the feedback team). One-shot in effect: once
+// cleared, nothing re-protects.
+async function releaseProtectedBoards(publicTeamId: string) {
+  await db
+    .update(boards)
+    .set({ isProtected: false })
     .where(
-      and(eq(boards.teamId, publicTeamId), eq(boards.slug, DOGFOOD_BOARD_SLUG))
+      and(eq(boards.teamId, publicTeamId), eq(boards.isProtected, true))
     )
-    .limit(1)
-  if (existing) {
-    // Idempotently stamp the non-deletable marker — this is what marks the
-    // ops-restored prod row protected on first boot.
-    if (!existing.isProtected) {
-      await db
-        .update(boards)
-        .set({ isProtected: true })
-        .where(eq(boards.id, existing.id))
-    }
-    return existing.id
-  }
-
-  // No repo backing on fresh instances (EXP-363): the old bootstrap seeded a
-  // hardcoded `Niach/exponential` repositories row and auto-linked its GitHub
-  // installation to the feedback team on every boot. Existing deployments keep
-  // whatever wiring they already have (nothing here deletes it); connecting a
-  // repo to a fresh dogfood board is a normal owner action in the UI.
-  const [board] = await db
-    .insert(boards)
-    .values({
-      teamId: publicTeamId,
-      name: DOGFOOD_BOARD_NAME,
-      slug: DOGFOOD_BOARD_SLUG,
-      prefix: DOGFOOD_BOARD_PREFIX,
-      isProtected: true,
-    })
-    .returning({ id: boards.id })
-  return board.id
 }
 
 // The dogfood helpdesk gate rides the normal plan machinery
@@ -164,24 +116,6 @@ async function ensureTeamHelpdesk(publicTeamId: string) {
     .update(teams)
     .set({ helpdeskEnabled: true })
     .where(and(eq(teams.id, publicTeamId), eq(teams.helpdeskEnabled, false)))
-}
-
-// EXP-180 retired the dedicated Support board (tickets are standalone
-// team-level threads; the migration converted the old issue-anchored
-// ones). Its historical ticket-issues stay as normal issues — just clear the
-// bootstrap protection so admins can trash the board at their own
-// pace. One-shot in effect: once cleared, nothing re-protects it.
-async function releaseLegacySupportBoard(publicTeamId: string) {
-  await db
-    .update(boards)
-    .set({ isProtected: false })
-    .where(
-      and(
-        eq(boards.teamId, publicTeamId),
-        eq(boards.slug, LEGACY_SUPPORT_BOARD_SLUG),
-        eq(boards.isProtected, true)
-      )
-    )
 }
 
 const FEEDBACK_WIDGET_NAME = `Exponential App`
@@ -262,49 +196,6 @@ async function ensureFeedbackWidgetConfig(publicTeamId: string) {
   })
 }
 
-// Pre-collapse cloud deployments carried TWO boards in the public team:
-// the seeded `feedback` board (the widget's target) and the DOGFOOD_REPO-
-// gated `exponential` board. Fold the legacy one away on already-bootstrapped
-// DBs. Order matters: repoint widget configs FIRST (widget_configs.board_id
-// cascades on board delete, and the live widget may still be filing into the
-// legacy board), then drop the legacy board only while it holds zero
-// issues (issues cascade — never delete user data; the NOT EXISTS guard keeps
-// the emptiness check and the delete in one atomic statement). A non-empty
-// legacy board just stays until it's triaged empty — next boot retries.
-async function collapseLegacyFeedbackBoard(publicTeamId: string) {
-  const rows = await db
-    .select({ id: boards.id, slug: boards.slug })
-    .from(boards)
-    .where(
-      and(
-        eq(boards.teamId, publicTeamId),
-        inArray(boards.slug, [LEGACY_FEEDBACK_BOARD_SLUG, DOGFOOD_BOARD_SLUG])
-      )
-    )
-  const legacy = rows.find((r) => r.slug === LEGACY_FEEDBACK_BOARD_SLUG)
-  const canonical = rows.find((r) => r.slug === DOGFOOD_BOARD_SLUG)
-  if (!legacy || !canonical) return
-
-  await db
-    .update(widgetConfigs)
-    .set({ boardId: canonical.id })
-    .where(eq(widgetConfigs.boardId, legacy.id))
-
-  await db
-    .delete(boards)
-    .where(
-      and(
-        eq(boards.id, legacy.id),
-        notExists(
-          db
-            .select({ id: issues.id })
-            .from(issues)
-            .where(eq(issues.boardId, legacy.id))
-        )
-      )
-    )
-}
-
 async function addAdminsAsPublicTeamOwners(publicTeamId: string) {
   const adminRows = await db
     .select({ id: users.id })
@@ -375,14 +266,10 @@ export function bootstrapCloud(): Promise<void> {
         const publicTeamId = await ensureFeedbackTeam()
         await ensureFeedbackTeamComp(publicTeamId)
         await addAdminsAsPublicTeamOwners(publicTeamId)
-        // Canonical board first, then fold the legacy feedback board into
-        // it, flip the team helpdesk on, release the retired Support board,
-        // and seed the widget config (feedback target = the Exponential
-        // board).
-        await ensureDogfoodBoard(publicTeamId)
-        await collapseLegacyFeedbackBoard(publicTeamId)
+        // No board seeding since EXP-363 — just clear leftover protection,
+        // flip the team helpdesk on, and seed/heal the widget config.
+        await releaseProtectedBoards(publicTeamId)
         await ensureTeamHelpdesk(publicTeamId)
-        await releaseLegacySupportBoard(publicTeamId)
         await ensureFeedbackWidgetConfig(publicTeamId)
       }
     } catch (err) {
