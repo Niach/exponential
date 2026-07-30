@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -44,9 +45,7 @@ export function DeleteAccountSection() {
       await authClient.signOut().catch(() => {})
       window.location.href = `/auth/login`
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : `Account deletion failed`
-      )
+      setError(err instanceof Error ? err.message : `Account deletion failed`)
       setDeleting(false)
     }
   }
@@ -93,37 +92,39 @@ export function DeleteAccountSection() {
               destroyed WITH its paid plan, while a shared team — and the
               subscription funding it — survives, because a subscription
               belongs to the team and not to whoever paid for it. */}
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            <li>
-              Teams where you are the only member are deleted with all their
-              boards, issues and files. If one of them has a paid plan, that
-              subscription is cancelled immediately — no refund for the rest
-              of the period.
-            </li>
-            <li>
-              Teams you share with others stay exactly as they are, including
-              their paid plan — a subscription belongs to the team, so it
-              keeps running and the remaining owners keep managing it.
-            </li>
-            <li>
-              In shared teams, the issues you created and the images you
-              uploaded stay (they are part of the team&apos;s work); your
-              comments are deleted and mentions of your email address are
-              anonymized.
-            </li>
-          </ul>
-          <div className="space-y-2 py-2">
-            <Label htmlFor="delete-account-confirm">
-              Type <span className="font-semibold">{email}</span> to confirm
-            </Label>
-            <Input
-              id="delete-account-confirm"
-              value={confirmation}
-              onChange={(e) => setConfirmation(e.target.value)}
-              placeholder={email}
-            />
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </div>
+          <DialogBody className="space-y-4">
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              <li>
+                Teams where you are the only member are deleted with all their
+                boards, issues and files. If one of them has a paid plan, that
+                subscription is cancelled immediately — no refund for the rest
+                of the period.
+              </li>
+              <li>
+                Teams you share with others stay exactly as they are, including
+                their paid plan — a subscription belongs to the team, so it
+                keeps running and the remaining owners keep managing it.
+              </li>
+              <li>
+                In shared teams, the issues you created and the images you
+                uploaded stay (they are part of the team&apos;s work); your
+                comments are deleted and mentions of your email address are
+                anonymized.
+              </li>
+            </ul>
+            <div className="space-y-2">
+              <Label htmlFor="delete-account-confirm">
+                Type <span className="font-semibold">{email}</span> to confirm
+              </Label>
+              <Input
+                id="delete-account-confirm"
+                value={confirmation}
+                onChange={(e) => setConfirmation(e.target.value)}
+                placeholder={email}
+              />
+              {error && <p className="text-sm text-destructive">{error}</p>}
+            </div>
+          </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={closeDialog} disabled={deleting}>
               Cancel

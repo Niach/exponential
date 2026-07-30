@@ -100,11 +100,14 @@ async function recordEmailBounceEvents(
         .where(eq(emailDeliveries.providerMessageId, event.providerMessageId))
     }
     // A spam complaint is a stronger signal than any preference: immediately
-    // disable ALL notification email for the complaining account, without
-    // waiting for an operator. Idempotent; the user can re-enable in account
-    // settings. (Address-level suppression in sendEmail additionally blocks
-    // every stream, so re-enabling only matters after the bounce row is
-    // cleared by an admin.)
+    // flip the complaining account's master email switch off, without waiting
+    // for an operator. Since EXP-369 that switch silences the DIGEST (the
+    // per-type toggles gate push and in-app grouping independently) — which
+    // is exactly the stream being complained about, so the behaviour is
+    // unchanged. Idempotent; the user can re-enable in account settings.
+    // (Address-level suppression in sendEmail additionally blocks every
+    // stream, so re-enabling only matters after the bounce row is cleared by
+    // an admin.)
     if (event.kind === `complaint`) {
       const matched = await db
         .select({ id: users.id })

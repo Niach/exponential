@@ -30,11 +30,40 @@ import {
 
 export const Route = createFileRoute(`/_authenticated/account/notifications`)({
   loader: async () => {
-    const emailPrefs = await trpc.notifications.emailPrefs.query()
-    return { emailPrefs }
+    const [emailPrefs, timezone] = await Promise.all([
+      trpc.notifications.emailPrefs.query(),
+      trpc.users.timezone.query(),
+    ])
+    return { emailPrefs, timezone: timezone.timezone }
   },
   component: AccountNotifications,
 })
+
+// `Intl.supportedValuesOf` is ES2023 — the app targets ES2022, so it is read
+// through a widened type and treated as optional at runtime too (older
+// engines simply get the short fallback list).
+const intlWithSupportedValues = Intl as typeof Intl & {
+  supportedValuesOf?: (key: string) => string[]
+}
+
+function timezoneOptions(current: string | null): string[] {
+  let zones: string[] = []
+  try {
+    zones = intlWithSupportedValues.supportedValuesOf?.(`timeZone`) ?? []
+  } catch {
+    zones = []
+  }
+  if (zones.length === 0) {
+    const local = Intl.DateTimeFormat().resolvedOptions().timeZone
+    zones = [...new Set([`UTC`, local].filter(Boolean))]
+  }
+  // A stored zone the runtime doesn't list (older/newer tzdata, or a value set
+  // by another client) must still render as the selected option.
+  if (current && !zones.includes(current)) zones = [current, ...zones]
+  return zones
+}
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => hour)
 
 const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> =
   [
@@ -84,7 +113,7 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
   ]
 
 function AccountNotifications() {
-  const { emailPrefs } = Route.useLoaderData()
+  const { emailPrefs, timezone: loadedTimezone } = Route.useLoaderData()
   const { data: session } = useSession()
   // Name-less accounts (Apple sign-in stores an empty name) fall back to the
   // email for initials instead of a bare "?".
@@ -95,6 +124,10 @@ function AccountNotifications() {
     Partial<Record<NotificationType, boolean>>
   >(emailPrefs.typePrefs ?? {})
   const [digest, setDigest] = useState(emailPrefs.digest)
+  const [digestHour, setDigestHour] = useState(emailPrefs.digestHour)
+  // Never captured (pre-EXP-369 account that hasn't loaded the app since) →
+  // the server reads UTC, so that is what the picker shows.
+  const [timezone, setTimezone] = useState(loadedTimezone ?? `UTC`)
   // REV2-52: the digest sweep never mails an unverified address. Signup fires
   // exactly ONE verification email and nothing else stamps emailVerified, so
   // a user who missed it configures a channel that silently does nothing —
@@ -142,6 +175,20 @@ function AccountNotifications() {
       .catch((err) => console.error(`[prefs] update failed:`, err))
   }
 
+  const handleDigestHour = (next: number) => {
+    setDigestHour(next)
+    void trpc.notifications.updateEmailPrefs
+      .mutate({ digestHour: next })
+      .catch((err) => console.error(`[prefs] update failed:`, err))
+  }
+
+  const handleTimezone = (next: string) => {
+    setTimezone(next)
+    void trpc.users.setTimezone
+      .mutate({ timezone: next })
+      .catch((err) => console.error(`[prefs] update failed:`, err))
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <div>
@@ -152,10 +199,6 @@ function AccountNotifications() {
           </Link>
         </Button>
         <h1 className="text-2xl font-bold">Account</h1>
-        <p className="text-sm text-muted-foreground">
-          Email notification preferences and account management. In-app and
-          push notifications are always on.
-        </p>
       </div>
 
       {/* EXP-311: the chrome shows only the first name — the full identity
@@ -177,6 +220,29 @@ function AccountNotifications() {
         </div>
       </div>
 
+      {/* EXP-369: the account's clock — the daily digest's send hour is read
+          in it. Captured from the browser on first load; explicit here. */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <Label htmlFor="timezone">Timezone</Label>
+          <p className="text-xs text-muted-foreground">
+            Used to schedule your daily digest email.
+          </p>
+        </div>
+        <Select value={timezone} onValueChange={handleTimezone}>
+          <SelectTrigger id="timezone" className="w-60">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {timezoneOptions(timezone).map((zone) => (
+              <SelectItem key={zone} value={zone}>
+                {zone}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <Card>
         <CardHeader>
           <div className="flex items-start gap-3">
@@ -186,9 +252,7 @@ function AccountNotifications() {
             <div className="flex-1">
               <CardTitle>Email notifications</CardTitle>
               <CardDescription>
-                Email is the catch-up channel: notifications still unread an
-                hour after the push are bundled into one digest email, with
-                deep links straight to each issue.
+                Notifications still unread are bundled into one digest email.
               </CardDescription>
             </div>
             <Switch
@@ -256,7 +320,7 @@ function AccountNotifications() {
                   id={`type-${row.type}`}
                   checked={typePrefs[row.type] !== false}
                   onCheckedChange={(next) => handleTypeToggle(row.type, next)}
-                  disabled={!transportConfigured || !emailEnabled}
+                  disabled={!transportConfigured}
                 />
               </div>
             ))}
@@ -268,7 +332,7 @@ function AccountNotifications() {
             <div className="flex-1">
               <Label>Delivery</Label>
               <p className="text-xs text-muted-foreground">
-                How often unread notifications are bundled into one email.
+                How often the digest goes out.
               </p>
             </div>
             <Select
@@ -285,6 +349,33 @@ function AccountNotifications() {
               </SelectContent>
             </Select>
           </div>
+
+          {digest === `daily` && (
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <Label>Send time</Label>
+                <p className="text-xs text-muted-foreground">
+                  Full hours only, in your timezone.
+                </p>
+              </div>
+              <Select
+                value={String(digestHour)}
+                onValueChange={(next) => handleDigestHour(Number(next))}
+                disabled={!transportConfigured || !emailEnabled}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {HOUR_OPTIONS.map((hour) => (
+                    <SelectItem key={hour} value={String(hour)}>
+                      {`${hour}:00`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </CardContent>
       </Card>
 

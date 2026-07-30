@@ -16,11 +16,13 @@
 //!    [`crate::settings::doctor_section::DoctorPanel`] confirms git + agent
 //!    CLIs (per-device `tools_setup_seen` in the coding settings).
 //!
-//! Every step is skippable — skipping the account steps marks onboarding
-//! complete (server + the local mirror in accounts.json) so the wizard never
-//! nags; the zero-team empty state in [`crate::screens`] stays as the
-//! fallback surface behind a skipped team step. `EXP_SKIP_ONBOARDING=1`
-//! bypasses the whole wizard (dev/CI machines without agent CLIs).
+//! The account steps are skippable — skipping them marks onboarding complete
+//! (server + the local mirror in accounts.json) so the wizard never nags; the
+//! zero-team empty state in [`crate::screens`] stays as the fallback surface
+//! behind a skipped team step. The tools step is the ONE hard gate (EXP-369):
+//! without git its button is disabled and the wizard cannot be left; a
+//! missing agent CLI still skips. `EXP_SKIP_ONBOARDING=1` bypasses the whole
+//! wizard (dev/CI machines without agent CLIs).
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -30,7 +32,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 use sync::Store;
 
@@ -421,30 +423,47 @@ impl Render for OnboardingView {
                     .into_any_element(),
             ),
             WizardStep::Tools => {
-                let all_green = CodingHub::global_ref(cx)
-                    .and_then(|hub| hub.read(cx).doctor.report.clone())
-                    .is_some_and(|report| report.git.ok && report.any_agent_ok());
+                let report = CodingHub::global_ref(cx)
+                    .and_then(|hub| hub.read(cx).doctor.report.clone());
+                // EXP-369: git is a HARD gate — nothing the IDE does with a
+                // repository works without it, so there is no forward path
+                // out of this step (a still-running probe reads as not-ok and
+                // re-renders when it lands; `EXP_SKIP_ONBOARDING=1` is the
+                // dev/CI bypass for the whole wizard). A missing agent CLI
+                // only blocks coding, so it keeps the "Set up later" escape.
+                let git_ok = report.as_ref().is_some_and(|report| report.git.ok);
+                let all_green = report.is_some_and(|report| report.git.ok && report.any_agent_ok());
+                let mut row = h_flex().items_center().justify_end().gap_3();
+                if !git_ok {
+                    row = row.child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("git is required. You cannot start coding without an agent CLI."),
+                    );
+                }
                 Some(
-                    h_flex()
-                        .justify_end()
-                        .child(if all_green {
-                            Button::new("onboarding-tools-continue")
-                                .primary()
-                                .small()
-                                .label("Continue")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.complete_tools_step(cx);
-                                }))
-                        } else {
-                            Button::new("onboarding-tools-continue")
-                                .outline()
-                                .small()
-                                .label("Set up later")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.complete_tools_step(cx);
-                                }))
-                        })
-                        .into_any_element(),
+                    row.child(if all_green {
+                        Button::new("onboarding-tools-continue")
+                            .primary()
+                            .small()
+                            .label("Continue")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.complete_tools_step(cx);
+                            }))
+                    } else {
+                        Button::new("onboarding-tools-continue")
+                            .outline()
+                            .small()
+                            .label("Set up later")
+                            .disabled(!git_ok)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.complete_tools_step(cx);
+                            }))
+                    })
+                    .into_any_element(),
                 )
             }
         };

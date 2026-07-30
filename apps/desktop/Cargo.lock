@@ -7764,6 +7764,7 @@ dependencies = [
  "gpui-component",
  "gpui-component-macros",
  "gpui-markdown-editor",
+ "iana-time-zone",
  "imagesize",
  "libc",
  "log",

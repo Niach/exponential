@@ -23,10 +23,7 @@ import {
 } from "@/lib/domain"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
-import {
-  resolveIssueStatus,
-  type StatusRowOption,
-} from "@/lib/team-statuses"
+import { resolveIssueStatus, type StatusRowOption } from "@/lib/team-statuses"
 import {
   StatusIcon,
   toStatusMenuOptions,
@@ -39,6 +36,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -375,7 +373,9 @@ function ReassignDialog({
       const pinned =
         event === `pr_opened` ? team.prOpenedStatusId : team.prMergedStatusId
       const automation =
-        event === `pr_opened` ? team.prOpenedAutomation : team.prMergedAutomation
+        event === `pr_opened`
+          ? team.prOpenedAutomation
+          : team.prMergedAutomation
       return automation !== false && pinned === targetStatusId
     })
     if (hits.length === 0) return null
@@ -435,27 +435,31 @@ function ReassignDialog({
                 : `${serverCount} issue${serverCount === 1 ? `` : `s`}${serverCount > (target?.count ?? 0) ? ` (some on trashed boards)` : ``} will move to the status you pick.`}
           </DialogDescription>
         </DialogHeader>
-        {prPinNotice && (
-          <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
-            {prPinNotice}
-          </p>
-        )}
-        <div className="max-h-64 space-y-1 overflow-y-auto">
-          {candidates.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setReassignToId(option.id)}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent ${
-                selectedId === option.id ? `bg-accent` : ``
-              }`}
-            >
-              <StatusIcon option={option} />
-              <span className="truncate">{option.name}</span>
-            </button>
-          ))}
-        </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {/* The reassign list is the only growing part — it scrolls inside the
+            DialogBody so the confirm buttons stay pinned (EXP-369). */}
+        <DialogBody className="space-y-3">
+          {prPinNotice && (
+            <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+              {prPinNotice}
+            </p>
+          )}
+          <div className="space-y-1">
+            {candidates.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setReassignToId(option.id)}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent ${
+                  selectedId === option.id ? `bg-accent` : ``
+                }`}
+              >
+                <StatusIcon option={option} />
+                <span className="truncate">{option.name}</span>
+              </button>
+            ))}
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </DialogBody>
         <DialogFooter>
           <Button
             type="button"
@@ -727,7 +731,8 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
 
   const byCategory = useMemo(() => {
     const map = new Map<IssueStatusCategory, StatusRowOption[]>()
-    for (const category of issueStatusCategorySettingsOrder) map.set(category, [])
+    for (const category of issueStatusCategorySettingsOrder)
+      map.set(category, [])
     for (const option of options) map.get(option.category)?.push(option)
     return map
   }, [options])

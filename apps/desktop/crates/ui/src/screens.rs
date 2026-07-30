@@ -300,6 +300,10 @@ pub struct ScreensPanel {
     tabs: Vec<TabEntry>,
     /// The team the tabs belong to — a switch drops them.
     tabs_team: Option<String>,
+    /// The screen shown at the last nav notify (EXP-369): the panes are
+    /// long-lived, so a transition INTO one is the only "opened" signal a
+    /// pane that fetches server-only data gets.
+    active_screen: Option<Screen>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -324,6 +328,7 @@ impl ScreensPanel {
         // (needs `window` for the detail's input resets, hence `observe_in`).
         subscriptions.push(cx.observe_in(&nav, window, |this, _, window, cx| {
             this.sync_tabs(window, cx);
+            this.sync_active_screen(cx);
             cx.notify();
         }));
         // EXP-288: the rail drives the tab-less center — tool switches swap
@@ -375,11 +380,29 @@ impl ScreensPanel {
             rail,
             tabs: Vec::new(),
             tabs_team: None,
+            active_screen: None,
             _subscriptions: subscriptions,
         };
         this.sync_tabs(window, cx);
+        this.sync_active_screen(cx);
         this.sync_file_viewer(cx);
         this
+    }
+
+    /// EXP-369: the Account pane is created once per window and outlives every
+    /// visit, so its server-only reads (email prefs, timezone) would show the
+    /// first visit's snapshot forever. Every transition INTO the screen marks
+    /// them stale; the pane refetches on its next render.
+    fn sync_active_screen(&mut self, cx: &mut gpui::Context<Self>) {
+        let screen = resolved_screen(&self.nav, cx);
+        if screen == self.active_screen {
+            return;
+        }
+        let entered_account = matches!(screen, Some(Screen::Account));
+        self.active_screen = screen;
+        if entered_account {
+            self.account.update(cx, |account, cx| account.mark_stale(cx));
+        }
     }
 
     /// Re-point the file viewer at the rail's file selection (EXP-288 —

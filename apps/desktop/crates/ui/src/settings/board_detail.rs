@@ -34,7 +34,7 @@ use crate::repo_resolver::links_snapshot;
 use crate::sidebar::RailShared;
 
 use super::repositories::{fetch_repositories, RepoRow};
-use super::{card_header, error_notice, row_stroke, section, spawn_trpc, SettingsSection};
+use super::{card_title, error_notice, row_stroke, section, spawn_trpc, SettingsSection};
 use crate::icons::registry;
 
 /// Server fetch state for the per-board repository picker.
@@ -508,11 +508,7 @@ impl Render for BoardDetailPane {
             ));
 
         let mut body = section(cx)
-            .child(card_header(
-                format!("Board settings — {}", board.name),
-                "Changes apply immediately; the name saves when you leave the field.",
-                cx,
-            ))
+            .child(card_title("Board settings"))
             .child(name_field)
             .child(prefix_field)
             .child(icon_field)

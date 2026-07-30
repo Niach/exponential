@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -78,24 +79,29 @@ export function CreateTeamDialog({
         <DialogHeader>
           <DialogTitle>Create team</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="team-name">Name</Label>
-            <Input
-              id="team-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Side Boards"
-              autoFocus
-            />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {limitError && (
-            <div className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
-              <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-              <span className="min-w-0 flex-1">{limitError}</span>
+        <form
+          onSubmit={handleSubmit}
+          className="flex min-h-0 flex-1 flex-col gap-4"
+        >
+          <DialogBody className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="team-name">Name</Label>
+              <Input
+                id="team-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Side Boards"
+                autoFocus
+              />
             </div>
-          )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            {limitError && (
+              <div className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">{limitError}</span>
+              </div>
+            )}
+          </DialogBody>
           <DialogFooter>
             <Button
               type="button"

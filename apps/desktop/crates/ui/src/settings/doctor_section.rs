@@ -295,8 +295,7 @@ impl Render for DoctorPanel {
 
         let mut body = section(cx).child(card_header(
             "Tooling doctor",
-            "git is required for everything; ONE agent CLI (Claude Code, Codex, or pi) is \
-             enough to start coding. A red row blocks coding until it's fixed.",
+            "git is required. You cannot start coding without an agent CLI.",
             cx,
         ));
         match &report {

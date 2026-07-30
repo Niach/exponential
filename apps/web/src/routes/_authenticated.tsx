@@ -32,6 +32,7 @@ export const Route = createFileRoute(`/_authenticated`)({
 })
 
 let attributionClaimed = false
+let timezoneClaimed = false
 
 function AuthenticatedLayout() {
   // Cookieless signup attribution (EXP-362): ref/utm params ride URLs from
@@ -55,6 +56,21 @@ function AuthenticatedLayout() {
       .catch(() => {
         // best-effort — never surface attribution failures to the user
       })
+  }, [])
+
+  // Timezone capture (EXP-369): the daily digest fires at a LOCAL hour, so the
+  // server needs the account's zone. The browser is the only place that knows
+  // it, so the first authenticated load claims it — `onlyIfUnset` keeps this a
+  // one-time default that a later explicit pick in account settings (or
+  // another client's claim) always wins over. Fire-and-forget, once per load.
+  useEffect(() => {
+    if (timezoneClaimed) return
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (!timezone) return
+    timezoneClaimed = true
+    trpc.users.setTimezone.mutate({ timezone, onlyIfUnset: true }).catch(() => {
+      // best-effort — a missing timezone just means the digest uses UTC
+    })
   }, [])
 
   return <Outlet />

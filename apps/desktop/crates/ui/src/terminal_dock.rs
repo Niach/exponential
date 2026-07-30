@@ -17,8 +17,10 @@
 //!   `TerminalManager::open_tab`.
 //! - close buttons per tab (and cmd-w / ctrl-shift-w), ctrl-tab /
 //!   ctrl-shift-tab to switch;
-//! - no empty state: expanding an empty dock spawns a shell right away
-//!   (`render` defers into `new_shell_tab`);
+//! - **empty state** (EXP-369): an expanded, tab-less dock NEVER spawns
+//!   anything by itself — it renders the tab bar over a row of launch cards
+//!   (`render_empty_dock_options`), one per doctor-installed agent plus "New
+//!   shell", carrying exactly the `+` menu's options and gating;
 //! - the dock **expands when a tab is created** (`TabOpened` →
 //!   `Dock::set_open`, §4's dock open/close) and the new tab's terminal is
 //!   focused; the grid element resizes with the dock (§6.10);
@@ -29,7 +31,8 @@
 //!   never opens a terminal in the user's face — no tab is respawned, and the
 //!   bottom dock always comes up collapsed (see `Shell::install_fixed_chrome`).
 //!   Terminals only ever appear from an explicit user action: the "+" / cmd-t,
-//!   expanding the dock, a Start-coding run, or an action run.
+//!   an empty-state card, a Start-coding run, or an action run — expanding
+//!   the dock itself spawns nothing (EXP-369).
 //!
 //! **Phase-5 deferral (§6.7):** "child exit ends the `coding_sessions` row"
 //! is the launcher's wiring — it passes an `ExitHook` into `open_tab`; the
@@ -120,9 +123,6 @@ pub struct TerminalDockPanel {
     focus_handle: FocusHandle,
     manager: Entity<TerminalManager>,
     dock_area: WeakEntity<DockArea>,
-    /// Debounces the expanded-and-empty auto-shell (one deferred spawn per
-    /// render burst).
-    spawn_queued: bool,
     /// EXP-325: the promptless agent-shell tabs' P9 token-refresher holds
     /// (tab id → the retained trunk clone), released on `TabClosed`. (A
     /// window closed with live holds leaks its refresh loops until quit —
@@ -219,11 +219,22 @@ impl TerminalDockPanel {
         let merge_state = crate::pr_merge::MergeState::global(cx);
         cx.observe(&merge_state, |_, _, cx| cx.notify()).detach();
 
+        // EXP-369: the empty state's cards mirror the `+` menu's availability
+        // (installed agents from the doctor, board-backed repos from the
+        // window resolver) — both land asynchronously, so repaint when they
+        // do. Guarded like the collections above: the rehydrate test builds a
+        // panel in a bare app with neither store nor nav registry.
+        if sync::Store::try_global(cx).is_some() {
+            let hub = CodingHub::global(cx);
+            cx.observe(&hub, |_, _, cx| cx.notify()).detach();
+            let resolver = repo_resolver_for_window(window, cx);
+            cx.observe(&resolver, |_, _, cx| cx.notify()).detach();
+        }
+
         Self {
             focus_handle: cx.focus_handle(),
             manager,
             dock_area,
-            spawn_queued: false,
             agent_shell_holds: HashMap::new(),
             _subscription: subscription,
         }
@@ -757,6 +768,7 @@ impl TerminalDockPanel {
                                             agent,
                                             repository_id,
                                             full_name,
+                                            None,
                                             window,
                                             cx,
                                         );
@@ -797,6 +809,7 @@ impl TerminalDockPanel {
                                                             agent,
                                                             repository_id,
                                                             full_name,
+                                                            None,
                                                             window,
                                                             cx,
                                                         );
@@ -840,11 +853,16 @@ impl TerminalDockPanel {
     /// `coding_sessions` row / heartbeat / exit hook — the session has no
     /// issue/batch/action subject; the P9 token-refresher hold keeps `git
     /// push` working past the token TTL, released on tab close.
-    fn launch_agent_shell(
+    ///
+    /// `cwd_override` pins the run to one of the clone's worktrees (EXP-369 —
+    /// the settings pane's per-worktree terminal button); `None` runs on the
+    /// trunk clone root.
+    pub(crate) fn launch_agent_shell(
         &mut self,
         agent: coding::CodingAgent,
         repository_id: String,
         full_name: String,
+        cwd_override: Option<PathBuf>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -857,6 +875,7 @@ impl TerminalDockPanel {
             options,
             repository_id,
             full_name,
+            cwd_override,
         };
         cx.spawn_in(window, async move |this, cx| {
             let prepared = cx
@@ -939,8 +958,9 @@ impl TerminalDockPanel {
             .cursor_pointer()
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.expand_dock(window, cx);
-                // Zero sessions: the expanded render auto-spawns a shell —
-                // there is deliberately no empty state.
+                // EXP-369: expanding NEVER starts anything — with zero
+                // sessions the dock opens on its launch cards; with sessions
+                // the active terminal takes focus back.
                 if !this.manager.read(cx).is_empty() {
                     this.focus_active_terminal(window, cx);
                 }
@@ -953,8 +973,9 @@ impl TerminalDockPanel {
 
     /// EXP-65: every visible tab popped out into its own window — the dock
     /// stays usable (the bar keeps the `+`), with a hint instead of a
-    /// terminal. Deliberately NOT the auto-spawn path: the manager isn't
-    /// empty, the tabs just live elsewhere.
+    /// terminal. Deliberately NOT the empty state: the manager isn't empty,
+    /// the tabs just live elsewhere — offering launch cards here would read
+    /// as "your sessions are gone".
     fn render_undocked_hint(&self, cx: &gpui::Context<Self>) -> impl IntoElement {
         v_flex()
             .flex_1()
@@ -967,6 +988,168 @@ impl TerminalDockPanel {
             .child(Icon::new(registry::NAV_TERMINAL).small())
             .child("All terminal tabs are open in separate windows.")
     }
+
+    /// EXP-369: the expanded-and-empty dock. Same options as the `+` menu —
+    /// one card per doctor-INSTALLED agent plus "New shell" — as icon-over-
+    /// label cards with no explanatory text. An agent card launches straight
+    /// away on the single board-backed repo, opens a repo picker when the team
+    /// has several, and stays inert while the resolver is loading or no board
+    /// is backed by a repo (the menu's exact gating). No doctor report yet
+    /// (the probe is still running) → the shell card alone.
+    fn render_empty_dock_options(
+        &self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let installed = CodingHub::global(cx)
+            .read(cx)
+            .doctor
+            .report
+            .as_ref()
+            .map(|report| report.installed_agents())
+            .unwrap_or_default();
+        let resolver = repo_resolver_for_window(window, cx);
+        resolver.update(cx, |resolver, cx| resolver.ensure_loaded(cx));
+        let repos = resolver.read(cx).board_backed_repos();
+        let panel = cx.entity().downgrade();
+
+        let cards = installed.into_iter().enumerate().map(|(ix, agent)| {
+            let card = empty_dock_card(
+                ("terminal-empty-agent", ix),
+                Icon::from(crate::coding_selects::agent_icon(agent)),
+                agent.label(),
+                cx,
+            );
+            match repos.as_deref() {
+                Some([repo]) => {
+                    let panel = panel.clone();
+                    let repository_id = repo.repository_id.clone();
+                    let full_name = repo.full_name.clone();
+                    card.on_click(move |_, window, cx| {
+                        let Some(panel) = panel.upgrade() else {
+                            return;
+                        };
+                        let repository_id = repository_id.clone();
+                        let full_name = full_name.clone();
+                        panel.update(cx, |panel, cx| {
+                            panel.launch_agent_shell(
+                                agent,
+                                repository_id,
+                                full_name,
+                                None,
+                                window,
+                                cx,
+                            );
+                        });
+                    })
+                    .into_any_element()
+                }
+                // Several distinct repos — the card opens the same picker the
+                // `+` menu offers as a submenu (repos re-resolve at open time).
+                Some([_, _, ..]) => {
+                    let panel = panel.clone();
+                    card.dropdown_menu(move |mut menu, window, cx| {
+                        let resolver = repo_resolver_for_window(window, cx);
+                        let repos = resolver.read(cx).board_backed_repos().unwrap_or_default();
+                        for repo in repos {
+                            let panel = panel.clone();
+                            let repository_id = repo.repository_id.clone();
+                            let full_name = repo.full_name.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(SharedString::from(full_name.clone())).on_click(
+                                    move |_, window, cx| {
+                                        let Some(panel) = panel.upgrade() else {
+                                            return;
+                                        };
+                                        let repository_id = repository_id.clone();
+                                        let full_name = full_name.clone();
+                                        panel.update(cx, |panel, cx| {
+                                            panel.launch_agent_shell(
+                                                agent,
+                                                repository_id,
+                                                full_name,
+                                                None,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    },
+                                ),
+                            );
+                        }
+                        menu
+                    })
+                    .into_any_element()
+                }
+                // No board-backed repo — the agent has no trunk to land on.
+                Some([]) => card
+                    .disabled(true)
+                    .tooltip("No repository is linked to a board in this team yet.")
+                    .into_any_element(),
+                // Resolver still loading (or its fetch failed).
+                None => card
+                    .disabled(true)
+                    .tooltip("Looking up this team's repositories…")
+                    .into_any_element(),
+            }
+        });
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .items_center()
+            .justify_center()
+            .child(
+                h_flex()
+                    .gap_3()
+                    .items_center()
+                    .justify_center()
+                    .flex_wrap()
+                    .children(cards)
+                    .child(
+                        empty_dock_card(
+                            "terminal-empty-shell",
+                            Icon::new(registry::NAV_TERMINAL),
+                            "New shell",
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.new_shell_tab(window, cx);
+                        })),
+                    ),
+            )
+    }
+}
+
+/// One empty-dock launch card (EXP-369): icon over label, nothing else. A
+/// `Button` rather than a plain surface so the multi-repo agent case can hang
+/// the very same `.dropdown_menu` the `+` menu uses on it.
+fn empty_dock_card(
+    id: impl Into<gpui::ElementId>,
+    icon: Icon,
+    label: &'static str,
+    cx: &App,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .w(px(104.))
+        .h(px(88.))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .child(
+            v_flex()
+                .gap_2()
+                .items_center()
+                .justify_center()
+                .child(icon.large())
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(label),
+                ),
+        )
 }
 
 /// The JetBrains "process finished" strip under a dead tab's final
@@ -1092,7 +1275,7 @@ impl Focusable for TerminalDockPanel {
 }
 
 impl Render for TerminalDockPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Snapshot the strip so the manager borrow ends before listeners.
         // EXP-65: undocked tabs render in their own windows — the strip
         // skips them, and the active view is only painted here when the
@@ -1155,19 +1338,12 @@ impl Render for TerminalDockPanel {
                     .child(self.render_tab_bar(&metas, 0, cx))
                     .child(self.render_undocked_hint(cx));
             }
-            // An expanded, empty dock never shows an empty state — it spawns
-            // a shell immediately (deferred out of render). Every expand path
-            // funnels here, so a stray `set_open(true)` still gets a shell.
-            if !self.spawn_queued {
-                self.spawn_queued = true;
-                cx.defer_in(_window, |this, window, cx| {
-                    this.spawn_queued = false;
-                    if this.manager.read(cx).is_empty() && !this.dock_collapsed(cx) {
-                        this.new_shell_tab(window, cx);
-                    }
-                });
-            }
-            return root;
+            // EXP-369: an expanded, empty dock offers its launch cards — the
+            // bar stays (the `+` / collapse chevron keep working) and nothing
+            // spawns until the user picks something.
+            return root
+                .child(self.render_tab_bar(&metas, 0, cx))
+                .child(self.render_empty_dock_options(window, cx));
         };
 
         let selected_ix = active_id

@@ -208,6 +208,17 @@ impl RepoResolver {
         }
     }
 
+    /// Every repo of the active team, board-backed or not (EXP-369: the
+    /// settings pane matches LOCAL clones by `owner/name`, and a clone can
+    /// outlive the board that pointed at it). `None` until
+    /// `repositories.list` resolves.
+    pub fn all_repos(&self) -> Option<&[ResolvedRepo]> {
+        match &self.state {
+            State::Ready(repos) => Some(repos),
+            _ => None,
+        }
+    }
+
     /// The team's DISTINCT board-backed repos, fetch order preserved
     /// (EXP-325 — the "+" agent menu: one repo launches directly, several
     /// open a picker submenu). `None` until `repositories.list` resolves;

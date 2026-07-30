@@ -9,6 +9,7 @@ import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -79,9 +80,7 @@ export function ActionEditorDialog({
     setName(action.name)
     setDescription(action.description ?? ``)
     setRepoValue(action.repositoryId ?? NO_REPO)
-    setIcon(
-      (action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name
-    )
+    setIcon((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name)
     setBody(``)
     setBodyLoading(true)
     setSubmitting(false)
@@ -155,86 +154,90 @@ export function ActionEditorDialog({
 
         <form
           onSubmit={handleSubmit}
-          className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-x-6"
+          className="flex min-h-0 flex-1 flex-col gap-4"
         >
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="action-name">Name</Label>
-              <Input
-                id="action-name"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value)
-                  setNameError(null)
-                }}
-                placeholder="Code review sweep"
-                autoFocus
+          <DialogBody className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-x-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="action-name">Name</Label>
+                <Input
+                  id="action-name"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value)
+                    setNameError(null)
+                  }}
+                  placeholder="Code review sweep"
+                  autoFocus
+                />
+                {nameError && (
+                  <p className="text-xs text-destructive">{nameError}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="action-description">
+                  Description (optional)
+                </Label>
+                <Input
+                  id="action-description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="What this action does, for the list"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Icon</Label>
+                <IconSwatchGrid value={icon} onChange={setIcon} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="action-repository">Repository (optional)</Label>
+                <Select value={repoValue} onValueChange={setRepoValue}>
+                  <SelectTrigger id="action-repository" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_REPO}>None</SelectItem>
+                    {repos.map((repo) => (
+                      <SelectItem key={repo.id} value={repo.id}>
+                        {repo.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  With a repository the run clones it first; without one the
+                  agent works in a scratch directory.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="action-body">Prompt</Label>
+              <Textarea
+                id="action-body"
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder={
+                  bodyLoading
+                    ? `Loading prompt…`
+                    : `The markdown prompt the agent runs with…`
+                }
+                disabled={bodyLoading}
+                rows={12}
+                className="min-h-48 flex-1 font-mono text-xs"
               />
-              {nameError && (
-                <p className="text-xs text-destructive">{nameError}</p>
-              )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="action-description">Description (optional)</Label>
-              <Input
-                id="action-description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="What this action does, for the list"
-              />
-            </div>
+            {error && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:col-span-2">
+                {error}
+              </div>
+            )}
+          </DialogBody>
 
-            <div className="space-y-2">
-              <Label>Icon</Label>
-              <IconSwatchGrid value={icon} onChange={setIcon} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="action-repository">Repository (optional)</Label>
-              <Select value={repoValue} onValueChange={setRepoValue}>
-                <SelectTrigger id="action-repository" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_REPO}>None</SelectItem>
-                  {repos.map((repo) => (
-                    <SelectItem key={repo.id} value={repo.id}>
-                      {repo.fullName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                With a repository the run clones it first; without one the agent
-                works in a scratch directory.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="action-body">Prompt</Label>
-            <Textarea
-              id="action-body"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder={
-                bodyLoading
-                  ? `Loading prompt…`
-                  : `The markdown prompt the agent runs with…`
-              }
-              disabled={bodyLoading}
-              rows={12}
-              className="min-h-48 flex-1 font-mono text-xs"
-            />
-          </div>
-
-          {error && (
-            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:col-span-2">
-              {error}
-            </div>
-          )}
-
-          <DialogFooter className="sm:col-span-2">
+          <DialogFooter>
             <Button
               type="button"
               variant="ghost"

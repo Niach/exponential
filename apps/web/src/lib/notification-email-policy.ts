@@ -11,59 +11,97 @@ import type { IssueStatus, NotificationType } from "@/lib/domain"
 export const digestValues = [`off`, `daily`] as const
 export type DigestCadence = (typeof digestValues)[number]
 
+// Local hour the daily digest goes out at when the user never picked one.
+export const DEFAULT_DIGEST_HOUR = 8
+
 // The prefs shape the policy functions consume. A missing row (`null` /
-// `undefined`) means ALL defaults: email on, every type on, daily digest.
+// `undefined`) means ALL defaults: email on, every type on, daily digest at
+// DEFAULT_DIGEST_HOUR.
 export interface EmailPrefsLike {
   emailEnabled: boolean
   // Per-type opt-outs; a type absent from the map defaults to ON.
   typePrefs: Partial<Record<NotificationType, boolean>>
   digest: string
+  // Local send hour for the `daily` cadence (0–23). Ignored by `off`.
+  digestHour: number
 }
+
+export type TypePrefsLike = Partial<Record<NotificationType, boolean>>
 
 export function defaultEmailPrefs(): EmailPrefsLike {
-  return { emailEnabled: true, typePrefs: {}, digest: `daily` }
+  return {
+    emailEnabled: true,
+    typePrefs: {},
+    digest: `daily`,
+    digestHour: DEFAULT_DIGEST_HOUR,
+  }
 }
 
-// Is email allowed at all for this notification type (ignoring digest)?
-// Missing row → defaults → allowed.
-export function emailTypeAllowed(
-  prefs: EmailPrefsLike | null | undefined,
+// Is this notification type allowed to leave the app at all? CHANNEL-AGNOSTIC
+// (EXP-369): the per-type toggles gate push AND email; the master
+// `emailEnabled` switch is NOT consulted here — it only silences the digest.
+// The in-app inbox row is always written regardless.
+export function notificationTypeAllowed(
+  typePrefs: TypePrefsLike | null | undefined,
   type: NotificationType
 ): boolean {
-  if (!prefs) return true
-  if (!prefs.emailEnabled) return false
-  return prefs.typePrefs[type] !== false
+  return typePrefs?.[type] !== false
+}
+
+// Clamp a stored/incoming digest hour to a full hour in 0–23; anything else
+// (null, NaN, 24, 7.5) resolves to the default rather than throwing — the
+// sweep must never die on one bad row.
+export function normalizeDigestHour(hour: number | null | undefined): number {
+  if (typeof hour !== `number` || !Number.isInteger(hour)) {
+    return DEFAULT_DIGEST_HOUR
+  }
+  if (hour < 0 || hour > 23) return DEFAULT_DIGEST_HOUR
+  return hour
 }
 
 // ---------------------------------------------------------------------------
 // Push-first email digest (item q)
 // ---------------------------------------------------------------------------
 //
-// Push fires immediately on notification create; email never does. An hourly
-// sweep bundles every notification that is still UNREAD ~1h after creation
-// into ONE digest email per user — reading the notification in time (the push
-// did its job) means no email at all, which keeps transactional volume low.
+// Push fires immediately on notification create; email never does. A sweep
+// bundles notifications that are still UNREAD into ONE digest email per user
+// — reading them in time (the push did its job) means no email at all, which
+// keeps transactional volume low. `daily` (the default) fires at the user's
+// chosen local hour and bundles everything still unread at that moment;
+// `off` is the legacy hourly cadence, which keeps the old "unread an hour
+// after the push" floor.
 
-// A notification only qualifies for email once it has stayed unread this long.
-export const DIGEST_MIN_UNREAD_AGE_MS = 60 * 60 * 1000
-// Backstop floor: rows older than this are never digested. Protects the first
-// deploy from emailing months of pre-existing unread backlog, and bounds the
-// sweep's scan window.
-export const DIGEST_MAX_AGE_MS = 24 * 60 * 60 * 1000
-// Per-user minimum gap between digest emails, by cadence. `off` (hourly) sits
-// a bit under an hour so a sweep firing slightly early never skips a user for
-// a whole extra cycle; `daily` sits under 24h for the same reason.
-const DIGEST_MIN_GAP_MS: Record<DigestCadence, number> = {
-  off: 50 * 60 * 1000,
-  daily: 22 * 60 * 60 * 1000,
+// How long a notification must have stayed unread before it qualifies, BY
+// CADENCE. Daily has no floor (EXP-369): the send hour itself is the delay,
+// so a row created five minutes before it belongs in today's digest.
+export const DIGEST_MIN_UNREAD_AGE_MS: Record<DigestCadence, number> = {
+  off: 60 * 60 * 1000,
+  daily: 0,
 }
+// Backstop floor: rows older than this are never digested. Protects the first
+// deploy from emailing months of pre-existing unread backlog. Daily needs
+// 48h, not 24h: a row created just after today's send point waits ~24h for
+// the next one, and the 22h failure-retry backoff can push that further —
+// a 24h backstop would silently drop exactly those rows.
+export const DIGEST_MAX_AGE_MS: Record<DigestCadence, number> = {
+  off: 24 * 60 * 60 * 1000,
+  daily: 48 * 60 * 60 * 1000,
+}
+// The SQL scan floor — the widest of the per-cadence backstops (cadence is
+// only known once prefs are joined in, so the scan takes the superset).
+export const DIGEST_SCAN_MAX_AGE_MS = 48 * 60 * 60 * 1000
+// Per-user minimum gap between HOURLY (`off`) digest emails. Sits a bit under
+// an hour so a sweep firing slightly early never skips a user for a whole
+// extra cycle. `daily` has no gap rule — its send point is absolute (see
+// lastDailySendPoint).
+export const DIGEST_HOURLY_MIN_GAP_MS = 50 * 60 * 1000
 // Minimum gap after a FAILED send attempt. The success-based cadence gate
 // above never sees failed sends (no sent_at), so without this a failing
 // transport — e.g. SES still sandboxed (EXP-114) — would retry at every
 // sweep tick (~10min) forever (EXP-227). Failures back off to at most ONE
 // retry per day regardless of the user's cadence: a broken transport is an
 // ops problem, and hammering it burns send reputation for nothing.
-export const DIGEST_FAILED_RETRY_GAP_MS = DIGEST_MIN_GAP_MS.daily
+export const DIGEST_FAILED_RETRY_GAP_MS = 22 * 60 * 60 * 1000
 
 // Only an explicit `off` opts into the hourly cadence — a missing row or an
 // unrecognised value resolves to the `daily` default.
@@ -73,17 +111,175 @@ export function digestCadence(
   return prefs?.digest === `off` ? `off` : `daily`
 }
 
+// ---------------------------------------------------------------------------
+// Timezone math (no dependency — plain Intl)
+// ---------------------------------------------------------------------------
+//
+// The daily digest fires at a LOCAL hour, so the sweep has to invert
+// "local wall clock → UTC instant" for every user's zone. Intl is the only
+// tz database in the runtime; everything below is built on formatToParts.
+// Every entry point tolerates a null/unknown/garbage zone by falling back to
+// UTC — a bad `users.timezone` value must never take the sweep down.
+
+const MAX_CACHED_FORMATTERS = 512
+// `null` memoizes a zone Intl rejected, so a garbage value costs one throw.
+const formatterCache = new Map<string, Intl.DateTimeFormat | null>()
+
+function formatterFor(timezone: string): Intl.DateTimeFormat | null {
+  const cached = formatterCache.get(timezone)
+  if (cached !== undefined) return cached
+  let formatter: Intl.DateTimeFormat | null = null
+  try {
+    formatter = new Intl.DateTimeFormat(`en-US`, {
+      timeZone: timezone,
+      hourCycle: `h23`,
+      year: `numeric`,
+      month: `2-digit`,
+      day: `2-digit`,
+      hour: `2-digit`,
+      minute: `2-digit`,
+      second: `2-digit`,
+    })
+  } catch {
+    // RangeError: unknown IANA name.
+    formatter = null
+  }
+  if (formatterCache.size >= MAX_CACHED_FORMATTERS) formatterCache.clear()
+  formatterCache.set(timezone, formatter)
+  return formatter
+}
+
+interface ZonedParts {
+  year: number
+  month: number // 1-12
+  day: number
+  hour: number
+  minute: number
+  second: number
+}
+
+// The wall clock in `timezone` at `date`. Unknown zone → UTC.
+function zonedParts(
+  timezone: string | null | undefined,
+  date: Date
+): ZonedParts {
+  const formatter = timezone ? formatterFor(timezone) : null
+  if (!formatter) {
+    return {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth() + 1,
+      day: date.getUTCDate(),
+      hour: date.getUTCHours(),
+      minute: date.getUTCMinutes(),
+      second: date.getUTCSeconds(),
+    }
+  }
+  const parts: Record<string, string> = {}
+  for (const part of formatter.formatToParts(date)) {
+    if (part.type !== `literal`) parts[part.type] = part.value
+  }
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    // h23 still emits "24" for midnight in some ICU versions.
+    hour: Number(parts.hour) % 24,
+    minute: Number(parts.minute),
+    second: Number(parts.second),
+  }
+}
+
+// Offset of `timezone` from UTC at the instant `date`, in ms (east positive:
+// Europe/Berlin in summer → +7200000). Unknown/null zone → 0 (UTC).
+export function tzOffsetMs(
+  timezone: string | null | undefined,
+  date: Date
+): number {
+  if (!timezone) return 0
+  if (!formatterFor(timezone)) return 0
+  const p = zonedParts(timezone, date)
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second)
+  // formatToParts truncates to whole seconds — compare against the same.
+  return asUtc - Math.floor(date.getTime() / 1000) * 1000
+}
+
+// The UTC instant of `hour:00:00` local time on the given local calendar date.
+// Two-pass offset inversion (the offset depends on the answer), then a
+// validity check for the two DST anomalies:
+//   spring-forward gap — the requested local hour never happens; we return the
+//     first instant AFTER the gap, so a 02:00 digest still goes out that day.
+//   fall-back overlap — the hour happens twice; we deterministically return
+//     the FIRST occurrence (the later one would delay the digest an hour).
+export function zonedHourToUtc(
+  timezone: string | null | undefined,
+  year: number,
+  month: number,
+  day: number,
+  hour: number
+): Date {
+  const naive = Date.UTC(year, month - 1, day, hour, 0, 0)
+  if (!timezone || !formatterFor(timezone)) return new Date(naive)
+  const first = naive - tzOffsetMs(timezone, new Date(naive))
+  const second = naive - tzOffsetMs(timezone, new Date(first))
+  if (zonedParts(timezone, new Date(second)).hour === hour) {
+    return new Date(second)
+  }
+  // DST gap: neither pass lands on the requested wall clock. The later
+  // candidate is the instant the clock jumped TO.
+  return new Date(Math.max(first, second))
+}
+
+// The most recent daily send point at or before `now` — the boundary the
+// daily cadence gate compares the last successful send against.
+export function lastDailySendPoint(
+  timezone: string | null | undefined,
+  digestHour: number | null | undefined,
+  now: Date
+): Date {
+  const hour = normalizeDigestHour(digestHour)
+  const today = zonedParts(timezone, now)
+  const point = zonedHourToUtc(
+    timezone,
+    today.year,
+    today.month,
+    today.day,
+    hour
+  )
+  if (point.getTime() <= now.getTime()) return point
+  // Today's send point is still ahead — the last one was yesterday's. Plain
+  // UTC date arithmetic on the LOCAL calendar date (no zone involved yet).
+  const prev = new Date(
+    Date.UTC(today.year, today.month - 1, today.day) - 24 * 60 * 60 * 1000
+  )
+  return zonedHourToUtc(
+    timezone,
+    prev.getUTCFullYear(),
+    prev.getUTCMonth() + 1,
+    prev.getUTCDate(),
+    hour
+  )
+}
+
 // Is this user due a digest email now, given when their last one was sent?
+// Accepted quirks of the send-hour model (deliberate, not bugs): a
+// notification created a minute before the send hour gets push and email
+// near-simultaneously; moving digestHour later in the same day can produce a
+// second digest that day; and a failed-send retry lands at whatever hour the
+// backoff expires rather than the chosen one.
 export function isDigestDue(
   prefs: EmailPrefsLike | null | undefined,
+  timezone: string | null | undefined,
   lastDigestSentAt: Date | null | undefined,
   now: Date
 ): boolean {
   if (!lastDigestSentAt) return true
-  return (
-    now.getTime() - lastDigestSentAt.getTime() >=
-    DIGEST_MIN_GAP_MS[digestCadence(prefs)]
-  )
+  if (digestCadence(prefs) === `off`) {
+    return (
+      now.getTime() - lastDigestSentAt.getTime() >= DIGEST_HOURLY_MIN_GAP_MS
+    )
+  }
+  const sendPoint = lastDailySendPoint(timezone, prefs?.digestHour, now)
+  return lastDigestSentAt.getTime() < sendPoint.getTime()
 }
 
 // Failure-backoff gate: is a digest attempt allowed now, given the user's
@@ -201,9 +397,9 @@ export interface DigestCandidate {
 export interface DigestPlan<T extends DigestCandidate> {
   // One digest email per entry; items oldest-first, batches ordered by userId.
   batches: { userId: string; items: T[] }[]
-  // Stamp emailed_at WITHOUT sending: rows whose user opted out of email
-  // entirely or of that row's type — parity with the old immediate-send
-  // world, where such rows simply never produced an email.
+  // Stamp emailed_at WITHOUT sending: rows whose user turned the digest off
+  // entirely (master switch) or opted out of that row's type — parity with
+  // the old immediate-send world, where such rows never produced an email.
   claimOnly: T[]
 }
 
@@ -219,18 +415,25 @@ export function planEmailDigest<T extends DigestCandidate>(args: {
   // Last FAILED digest attempt per user — drives the daily failure backoff
   // so a broken transport can't retry at every sweep (EXP-227).
   lastFailedByUser: ReadonlyMap<string, Date | null>
+  // Each user's IANA zone (users.timezone) — the clock their daily send hour
+  // is read in. A missing/null entry means UTC.
+  timezoneByUser: ReadonlyMap<string, string | null>
   now: Date
 }): DigestPlan<T> {
-  const { candidates, prefsByUser, lastDigestByUser, lastFailedByUser, now } =
-    args
+  const {
+    candidates,
+    prefsByUser,
+    lastDigestByUser,
+    lastFailedByUser,
+    timezoneByUser,
+    now,
+  } = args
 
   const byUser = new Map<string, T[]>()
   for (const candidate of candidates) {
-    // Read in time → the push worked, no email. Too fresh → wait for the next
-    // sweep. Past the backstop → never emailed.
+    // Read in time → the push worked, no email. The age window depends on the
+    // recipient's cadence, so it is applied per-user below.
     if (candidate.readAt) continue
-    const age = now.getTime() - candidate.createdAt.getTime()
-    if (age < DIGEST_MIN_UNREAD_AGE_MS || age > DIGEST_MAX_AGE_MS) continue
     const list = byUser.get(candidate.userId)
     if (list) list.push(candidate)
     else byUser.set(candidate.userId, [candidate])
@@ -241,14 +444,38 @@ export function planEmailDigest<T extends DigestCandidate>(args: {
   const userIds = [...byUser.keys()].sort()
   for (const userId of userIds) {
     const prefs = prefsByUser.get(userId) ?? null
+    const cadence = digestCadence(prefs)
+    const minAge = DIGEST_MIN_UNREAD_AGE_MS[cadence]
+    const maxAge = DIGEST_MAX_AGE_MS[cadence]
     const allowed: T[] = []
     for (const row of byUser.get(userId)!) {
-      if (emailTypeAllowed(prefs, row.type)) allowed.push(row)
-      else claimOnly.push(row)
+      // Too fresh → wait for the next sweep. Past the backstop → never
+      // emailed. Both stay UNCLAIMED (deferred), like before.
+      const age = now.getTime() - row.createdAt.getTime()
+      if (age < minAge || age > maxAge) continue
+      // The master switch no longer gates the per-type toggles (EXP-369) —
+      // it silences the digest, so its rows are claimed here rather than
+      // rescanned until they age out.
+      if (
+        prefs?.emailEnabled === false ||
+        !notificationTypeAllowed(prefs?.typePrefs, row.type)
+      ) {
+        claimOnly.push(row)
+        continue
+      }
+      allowed.push(row)
     }
     if (allowed.length === 0) continue
     // Cadence gate: not due yet → leave the rows unclaimed for a later sweep.
-    if (!isDigestDue(prefs, lastDigestByUser.get(userId), now)) continue
+    if (
+      !isDigestDue(
+        prefs,
+        timezoneByUser.get(userId) ?? null,
+        lastDigestByUser.get(userId),
+        now
+      )
+    )
+      continue
     // Failure backoff: an unrecovered failed attempt defers this user a full
     // day — at most one retry per day, never one per sweep tick.
     if (

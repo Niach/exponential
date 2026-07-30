@@ -54,7 +54,7 @@ use crate::coding_selects::{
     AGENT_CHOICES,
 };
 
-use super::{card_header, error_notice, section};
+use super::{card_title, error_notice, section};
 
 // ---------------------------------------------------------------------------
 // Pane
@@ -351,22 +351,27 @@ impl AgentsPane {
     }
 
     /// A labeled [`ChoiceSelect`] row (the select analog of `labeled_input`).
+    /// A blank `hint` drops the paragraph entirely — an empty text node still
+    /// occupies a line box.
     fn labeled_select(
         label: &'static str,
         hint: &'static str,
         select: &ChoiceSelect,
         cx: &App,
     ) -> impl IntoElement {
-        v_flex()
+        let mut column = v_flex()
             .gap_1()
             .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
-            .child(Select::new(select).small())
-            .child(
+            .child(Select::new(select).small());
+        if !hint.is_empty() {
+            column = column.child(
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground.opacity(0.7))
                     .child(hint),
-            )
+            );
+        }
+        column
     }
 
     /// One toggle row: a single-line label with the `Switch` on the right —
@@ -429,15 +434,10 @@ impl AgentsPane {
         );
 
         let mut body = section(cx)
-            .child(card_header(
-                "Agents",
-                "Each agent's CLI, model, and run defaults — the Start-coding dialog \
-                 prefills the toggles, and every launch can still override them.",
-                cx,
-            ))
+            .child(card_title("Agents"))
             .child(Self::labeled_select(
                 "Default agent",
-                "Preselected in the Start-coding dialog — every launch can still pick another.",
+                "",
                 &self.agent_select,
                 cx,
             ))
@@ -446,7 +446,7 @@ impl AgentsPane {
             CodingAgent::Claude => body
                 .child(Self::labeled_input(
                     "CLI path",
-                    "Command name or absolute path — used verbatim to launch coding sessions.",
+                    "Command name or absolute path.",
                     &self.claude_input,
                     cx,
                 ))
@@ -458,7 +458,7 @@ impl AgentsPane {
                 ))
                 .child(Self::labeled_select(
                     "Effort",
-                    "CLI default leaves --effort unset.",
+                    "Passed as --effort on every claude session. CLI default leaves it unset.",
                     &self.effort_select,
                     cx,
                 ))
@@ -486,19 +486,20 @@ impl AgentsPane {
             CodingAgent::Codex => body
                 .child(Self::labeled_input(
                     "CLI path",
-                    "Command name or absolute path of OpenAI's codex CLI.",
+                    "Command name or absolute path.",
                     &self.codex_input,
                     cx,
                 ))
                 .child(Self::labeled_select(
                     "Model",
-                    "Passed as -m; CLI default uses codex's own configured model.",
+                    "Passed as -m on every codex session. Default: CLI default.",
                     &self.codex_model_select,
                     cx,
                 ))
                 .child(Self::labeled_select(
                     "Reasoning effort",
-                    "Sets model_reasoning_effort; CLI default leaves it unset.",
+                    "Passed as -c model_reasoning_effort on every codex session. CLI default \
+                     leaves it unset.",
                     &self.codex_effort_select,
                     cx,
                 ))
@@ -512,19 +513,19 @@ impl AgentsPane {
             CodingAgent::Pi => body
                 .child(Self::labeled_input(
                     "CLI path",
-                    "Command name or absolute path of the pi coding agent (pi.dev).",
+                    "Command name or absolute path.",
                     &self.pi_input,
                     cx,
                 ))
                 .child(Self::labeled_select(
                     "Model",
-                    "Passed as --model (pi resolves fuzzy patterns); CLI default uses pi's own.",
+                    "Passed as --model on every pi session. Default: CLI default.",
                     &self.pi_model_select,
                     cx,
                 ))
                 .child(Self::labeled_select(
                     "Thinking level",
-                    "Passed as --thinking; CLI default leaves it unset.",
+                    "Passed as --thinking on every pi session. CLI default leaves it unset.",
                     &self.pi_thinking_select,
                     cx,
                 )),

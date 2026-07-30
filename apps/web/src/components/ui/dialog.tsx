@@ -58,17 +58,24 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          // Below `sm` every dialog is a full-screen page (EXP-255): inset-0,
-          // no rounding/border, scrolling itself when the content is taller
-          // than the viewport (content-start keeps auto rows from stretching
-          // across the full height). From `sm` up it is the centered panel,
-          // capped to the viewport and scrolling on overflow. Callers that
-          // reposition or re-cap the panel must sm:-prefix those classes so
-          // they compose with (and tailwind-merge away) the sm: base here.
-          // grid-cols-[minmax(0,1fr)]: cap the single track at the container
-          // width — otherwise one long nowrap line (e.g. an issue title in a
-          // picker row) inflates the track's min-content and every child
-          // renders wider than the panel (EXP-178).
+          // The panel is a flex COLUMN that never scrolls itself (EXP-369):
+          // header and footer stay pinned and the scrolling happens inside
+          // `DialogBody` (`flex-1 min-h-0 overflow-y-auto`). Any dialog whose
+          // content can outgrow the viewport MUST wrap that content in a
+          // DialogBody — without one, tall content is clipped rather than
+          // scrolled (short confirm dialogs only hit that below ~200px of
+          // viewport height).
+          // Below `sm` every dialog is still a full-screen page (EXP-255):
+          // inset-0, no rounding/border — the same flex column, just against
+          // a definite 100dvh height, so the body scrolls and the action
+          // buttons stay reachable at the bottom of the phone screen. From
+          // `sm` up it is the centered panel, capped to the viewport. Callers
+          // that reposition or re-cap the panel must sm:-prefix those classes
+          // so they compose with (and tailwind-merge away) the sm: base here.
+          // A column flex container also fixes EXP-178 for free: items take
+          // the container's definite width and long nowrap lines (e.g. an
+          // issue title in a picker row) overflow their item instead of
+          // inflating the panel the way a grid track's min-content did.
           // sm:w-[calc(100%-2rem)] keeps the 1rem side gutter the old
           // unprefixed max-w-[calc(100%-2rem)] used to give, without sitting in
           // the max-w-* tailwind-merge group — so a caller's sm:max-w-* still
@@ -77,7 +84,7 @@ function DialogContent({
           // card surface + backdrop blur + hairline. Below `sm` it stays the
           // opaque full-screen page — no phone-sized blur cost, and flat
           // #0a0a0a is indistinguishable from the gradient top.
-          `fixed inset-0 z-50 grid w-full content-start grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
+          `fixed inset-0 z-50 flex w-full flex-col gap-4 overflow-hidden bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
           className
         )}
         {...props}
@@ -102,6 +109,21 @@ function DialogHeader({ className, ...props }: React.ComponentProps<`div`>) {
     <div
       data-slot="dialog-header"
       className={cn(`flex flex-col gap-2 text-center sm:text-left`, className)}
+      {...props}
+    />
+  )
+}
+
+// The one scrolling region of a dialog. Everything that can grow — a form's
+// fields, a long list, a wall of explanatory copy — goes in here so the header
+// above it and the footer below it stay pinned to the panel edges. Short
+// content just doesn't scroll: flex-1 only claims free space when the panel is
+// actually height-capped.
+function DialogBody({ className, ...props }: React.ComponentProps<`div`>) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn(`min-h-0 flex-1 overflow-y-auto`, className)}
       {...props}
     />
   )
@@ -148,6 +170,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

@@ -2,12 +2,16 @@
 //!
 //! A **desktop-local** section (like the §7.7 Coding pane — per install, never
 //! synced, not owner-gated): every trunk clone under the coding `repos_root`
-//! with its on-disk size, worktree count, and two maintenance actions.
+//! with its on-disk size, its worktrees, and two maintenance actions.
 //!
 //! - **Disk usage** is a `du`-style recursive scan run on the background
 //!   executor (never the gpui foreground) and cached in [`Scan::Ready`] until a
 //!   refresh — a clone tree can be large, so the pane paints immediately and
 //!   fills the sizes in when the walk finishes.
+//! - **Worktrees** (EXP-369): the scan carries each clone's linked worktrees,
+//!   and the row expands into them. Per worktree: a confirmed force-remove
+//!   and a terminal button whose dropdown mirrors the terminal dock's "+"
+//!   (installed agents + "New shell"), launched at THAT worktree's path.
 //! - **Prune merged worktrees**: for each of a clone's linked worktrees whose
 //!   issue has `prState = 'merged'`, `git worktree remove` + `git branch -D`.
 //!   A worktree with uncommitted changes is **skipped** (never force-removed)
@@ -24,12 +28,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use gpui::{
-    div, App, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window,
+    div, prelude::FluentBuilder as _, App, Entity, FontWeight, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
+    menu::DropdownMenu as _,
     skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -38,11 +43,14 @@ use sync::Store;
 
 use coding::branch_name;
 use coding::git_worktree::{sanitize_branch_for_path, worktrees_dir};
+use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
+use crate::file_tree::{self, OpenAgentShellHere, OpenTerminalHere};
 use crate::native_dialog::{self, AlertSpec};
+use crate::repo_resolver::{repo_resolver_for_window, RepoResolver};
 
-use super::{section, card_header};
+use super::{card_title, section};
 use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
@@ -50,13 +58,37 @@ use crate::icons::registry;
 // ---------------------------------------------------------------------------
 
 /// One trunk clone found under `repos_root` (`<owner>/<name>`), with its cached
-/// disk usage (clone + `.worktrees`) and linked-worktree count.
+/// disk usage (clone + `.worktrees`) and its linked worktrees.
 #[derive(Clone)]
 struct RepoEntry {
     full_name: String,
     clone_path: PathBuf,
     size_bytes: u64,
-    worktree_count: usize,
+    worktrees: Vec<WorktreeRow>,
+}
+
+/// One LINKED worktree of a clone (the main working tree is never listed).
+#[derive(Clone)]
+struct WorktreeRow {
+    path: PathBuf,
+    /// The checked-out branch — `None` for a detached worktree, and for every
+    /// entry of the git-less directory fallback.
+    branch: Option<String>,
+}
+
+impl WorktreeRow {
+    /// The row's headline: the branch it holds, else its directory name.
+    fn label(&self) -> SharedString {
+        match &self.branch {
+            Some(branch) => SharedString::from(branch.clone()),
+            None => SharedString::from(
+                self.path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| self.path.to_string_lossy().into_owned()),
+            ),
+        }
+    }
 }
 
 enum Scan {
@@ -88,11 +120,21 @@ pub struct LocalReposPane {
     /// Monotonic guard: a stale in-flight scan must not clobber a newer one.
     generation: u64,
     actions: HashMap<String, ActionState>,
+    /// Clones (by `full_name`) whose worktree list is unfolded (EXP-369).
+    expanded: HashSet<String>,
+    /// The window's shared repo resolver, bound on first render (the pane is
+    /// constructed without a window): it maps a scanned `owner/name` back to
+    /// the team's `repositories` row id, which the agent launches need.
+    resolver: Option<Entity<RepoResolver>>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl LocalReposPane {
     pub fn new(cx: &mut gpui::Context<Self>) -> Self {
+        // EXP-369: the worktree rows dispatch the file-tree terminal actions;
+        // registration is a process-wide `Once`, so claiming it here keeps the
+        // pane working even in a window whose file tree was never built.
+        file_tree::ensure_actions_registered(cx);
         // The repos root lives in the coding hub (Coding pane edits it); the
         // running-session gate reads the synced coding_sessions collection.
         let hub = CodingHub::global(cx);
@@ -106,8 +148,40 @@ impl LocalReposPane {
             scanned_root: None,
             generation: 0,
             actions: HashMap::new(),
+            expanded: HashSet::new(),
+            resolver: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// Bind (once) the window's shared repo resolver and keep it warm — the
+    /// worktree rows need `repositories.list` to turn a local clone's
+    /// `owner/name` into the `repository_id` an agent launch mints against.
+    fn ensure_resolver(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.resolver.is_none() {
+            let resolver = repo_resolver_for_window(window, cx);
+            self._subscriptions
+                .push(cx.observe(&resolver, |_, _, cx| cx.notify()));
+            self.resolver = Some(resolver);
+        }
+        if let Some(resolver) = self.resolver.clone() {
+            resolver.update(cx, |resolver, cx| resolver.ensure_loaded(cx));
+        }
+    }
+
+    /// `owner/name` → the team's `repositories` row id, for the clones the
+    /// resolver knows. Empty while `repositories.list` is still loading.
+    fn repository_ids(&self, cx: &App) -> HashMap<String, String> {
+        self.resolver
+            .as_ref()
+            .and_then(|resolver| resolver.read(cx).all_repos())
+            .map(|repos| {
+                repos
+                    .iter()
+                    .map(|repo| (repo.full_name.clone(), repo.repository_id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Kick the background walk when the root changed or the scan was
@@ -212,6 +286,84 @@ impl LocalReposPane {
         .detach();
     }
 
+    /// Force-remove ONE worktree off the foreground, then re-scan. `--force`
+    /// is deliberate here (the confirm warned about uncommitted work) —
+    /// unlike the prune path, which never forces.
+    fn run_remove_worktree(
+        &mut self,
+        full_name: String,
+        clone: PathBuf,
+        worktree: PathBuf,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.action_mut(&full_name).busy {
+            return;
+        }
+        self.action_mut(&full_name).busy = true;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { remove_worktree(&clone, &worktree) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let entry = this.action_mut(&full_name);
+                entry.busy = false;
+                entry.message = match result {
+                    Ok(()) => Some((false, "Removed 1 worktree.".into())),
+                    Err(detail) => Some((true, detail.into())),
+                };
+                this.scan = Scan::Idle;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The confirm dialog for a worktree trash click — `--force` discards
+    /// uncommitted work, so the warning has to say so.
+    fn confirm_remove_worktree(
+        &self,
+        full_name: String,
+        clone: PathBuf,
+        worktree: WorktreeRow,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let pane = cx.entity();
+        let path = worktree.path.clone();
+        let spec = AlertSpec::new(
+            "Remove worktree",
+            format!(
+                "This deletes the {} worktree at {} from disk, including any \
+                 uncommitted or untracked changes in it. The branch itself is \
+                 kept.",
+                worktree.label(),
+                path.display()
+            ),
+            "Remove worktree",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            let full_name = full_name.clone();
+            let clone = clone.clone();
+            let path = path.clone();
+            pane.update(cx, |this, cx| {
+                this.run_remove_worktree(full_name, clone, path, cx);
+            });
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
+    fn toggle_expanded(&mut self, full_name: &str, cx: &mut gpui::Context<Self>) {
+        if !self.expanded.remove(full_name) {
+            self.expanded.insert(full_name.to_string());
+        }
+        cx.notify();
+    }
+
     /// The confirm dialog for "Remove local copy" (web `boards.delete`
     /// pattern). Only reached when the Remove button is enabled (no running
     /// session); the pane entity handle carries the action into `on_ok`.
@@ -244,20 +396,25 @@ impl LocalReposPane {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    /// One clone row: name, disk usage + worktree count, and the two actions.
+    /// One clone row: name, disk usage + the worktree expander, and the two
+    /// actions — followed by the worktree sub-rows while expanded.
     fn render_repo_row(
         &self,
         ix: usize,
         repo: &RepoEntry,
         in_use: bool,
+        repository_id: Option<&String>,
+        installed: &[CodingAgent],
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let action = self.actions.get(&repo.full_name);
         let busy = action.map(|a| a.busy).unwrap_or(false);
-        let worktrees = if repo.worktree_count == 1 {
+        let count = repo.worktrees.len();
+        let expanded = self.expanded.contains(&repo.full_name);
+        let worktrees_label = if count == 1 {
             "1 worktree".to_string()
         } else {
-            format!("{} worktrees", repo.worktree_count)
+            format!("{count} worktrees")
         };
 
         let meta = h_flex()
@@ -273,7 +430,27 @@ impl LocalReposPane {
                     .child(SharedString::from(format_size(repo.size_bytes))),
             )
             .child(div().child("·"))
-            .child(SharedString::from(worktrees));
+            .map(|meta| {
+                // Nothing to unfold at zero — the count stays plain text.
+                if count == 0 {
+                    return meta.child(SharedString::from(worktrees_label));
+                }
+                let full_name = repo.full_name.clone();
+                meta.child(
+                    Button::new(("repo-worktrees", ix))
+                        .ghost()
+                        .xsmall()
+                        .icon(if expanded {
+                            registry::UI_CHEVRON_DOWN
+                        } else {
+                            registry::UI_CHEVRON_RIGHT
+                        })
+                        .label(SharedString::from(worktrees_label))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_expanded(&full_name, cx);
+                        })),
+                )
+            });
 
         let name_col = v_flex()
             .flex_1()
@@ -366,31 +543,162 @@ impl LocalReposPane {
                     .child(text),
             );
         }
+
+        if expanded {
+            let mut list = v_flex().gap_0p5().pl_7();
+            for (wt_ix, worktree) in repo.worktrees.iter().enumerate() {
+                list = list.child(self.render_worktree_row(
+                    ix,
+                    wt_ix,
+                    repo,
+                    worktree,
+                    repository_id,
+                    installed,
+                    busy,
+                    cx,
+                ));
+            }
+            row = row.child(list);
+        }
         row
+    }
+
+    /// One worktree sub-row (EXP-369): branch (or directory) over its path,
+    /// with the terminal dropdown and the confirmed force-remove on the right.
+    #[allow(clippy::too_many_arguments)]
+    fn render_worktree_row(
+        &self,
+        repo_ix: usize,
+        wt_ix: usize,
+        repo: &RepoEntry,
+        worktree: &WorktreeRow,
+        repository_id: Option<&String>,
+        installed: &[CodingAgent],
+        busy: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let path = worktree.path.to_string_lossy().into_owned();
+        // Element ids are (repo, worktree)-unique — gpui has no 3-tuple id.
+        let terminal_id = SharedString::from(format!("worktree-terminal-{repo_ix}"));
+        let remove_id = SharedString::from(format!("worktree-remove-{repo_ix}"));
+
+        let terminal = {
+            // Everything the menu dispatches is resolved here: the closure is
+            // an `Fn` that rebuilds its action boxes on every open.
+            let agents: Vec<CodingAgent> = installed.to_vec();
+            let repository_id = repository_id.cloned();
+            let full_name = repo.full_name.clone();
+            let path = path.clone();
+            Button::new((terminal_id, wt_ix))
+                .ghost()
+                .xsmall()
+                .icon(registry::NAV_TERMINAL)
+                .tooltip("Open a terminal in this worktree")
+                .dropdown_menu(move |mut menu, _window, _cx| {
+                    for agent in &agents {
+                        // No matching team repository ⇒ no repository_id ⇒ no
+                        // installation token to mint: the agent items stay
+                        // inert (a plain shell always works).
+                        let action = OpenAgentShellHere {
+                            agent: agent.id().to_string(),
+                            repository_id: repository_id.clone().unwrap_or_default(),
+                            full_name: full_name.clone(),
+                            path: path.clone(),
+                        };
+                        menu = menu.menu_with_icon_and_disabled(
+                            agent.label(),
+                            Icon::from(crate::coding_selects::agent_icon(*agent)),
+                            Box::new(action),
+                            repository_id.is_none(),
+                        );
+                    }
+                    menu.separator().menu_with_icon(
+                        "New shell",
+                        Icon::new(registry::NAV_TERMINAL),
+                        Box::new(OpenTerminalHere { path: path.clone() }),
+                    )
+                })
+        };
+
+        let remove = {
+            let full_name = repo.full_name.clone();
+            let clone = repo.clone_path.clone();
+            let worktree = worktree.clone();
+            Button::new((remove_id, wt_ix))
+                .ghost()
+                .xsmall()
+                .icon(Icon::new(registry::UI_DELETE).text_color(cx.theme().danger))
+                .tooltip("Remove this worktree from disk (confirmed)")
+                .disabled(busy)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.confirm_remove_worktree(
+                        full_name.clone(),
+                        clone.clone(),
+                        worktree.clone(),
+                        window,
+                        cx,
+                    );
+                }))
+        };
+
+        h_flex()
+            .gap_2()
+            .items_center()
+            .py_1()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .text_xs()
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(worktree.label()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(cx.theme().muted_foreground.opacity(0.7))
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(SharedString::from(path)),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_1()
+                    .flex_shrink_0()
+                    .child(terminal)
+                    .child(remove),
+            )
     }
 }
 
 impl Render for LocalReposPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let root = CodingHub::global(cx).read(cx).settings.repos_root_path();
         self.ensure_scanned(root.clone(), cx);
-        let prefix = CodingHub::global(cx)
+        self.ensure_resolver(window, cx);
+        let hub = CodingHub::global(cx);
+        let prefix = hub.read(cx).settings.branch_prefix.clone();
+        let installed: Vec<CodingAgent> = hub
             .read(cx)
-            .settings
-            .branch_prefix
-            .clone();
+            .doctor
+            .report
+            .as_ref()
+            .map(|report| report.installed_agents())
+            .unwrap_or_default();
 
         let count = match &self.scan {
             Scan::Ready(repos) => repos.len(),
             _ => 0,
         };
 
-        let mut body = section(cx).child(card_header(
-            format!("Local repositories · {count}"),
-            "Trunk clones under your repos root. Disk usage is scanned in the background; \
-             actions are per machine and never synced.",
-            cx,
-        ));
+        let mut body = section(cx).child(card_title(format!("Local repositories · {count}")));
 
         body = body.child(
             div()
@@ -432,9 +740,17 @@ impl Render for LocalReposPane {
                     .iter()
                     .map(|repo| (repo.clone(), clone_in_use(&repo.clone_path, &prefix, cx)))
                     .collect();
+                let repository_ids = self.repository_ids(cx);
                 let mut list = v_flex().gap_2();
                 for (ix, (repo, in_use)) in rows.iter().enumerate() {
-                    list = list.child(self.render_repo_row(ix, repo, *in_use, cx));
+                    list = list.child(self.render_repo_row(
+                        ix,
+                        repo,
+                        *in_use,
+                        repository_ids.get(&repo.full_name),
+                        &installed,
+                        cx,
+                    ));
                 }
                 body = body.child(list);
             }
@@ -541,7 +857,7 @@ fn scan_repos(root: &Path) -> Vec<RepoEntry> {
             let worktrees = worktrees_dir(&path);
             let size = dir_size(&path) + dir_size(&worktrees);
             out.push(RepoEntry {
-                worktree_count: count_worktrees(&path),
+                worktrees: list_repo_worktrees(&path),
                 size_bytes: size,
                 full_name: format!("{owner_name}/{dir_name}"),
                 clone_path: path,
@@ -578,22 +894,27 @@ fn dir_size(path: &Path) -> u64 {
     total
 }
 
-/// Linked-worktree count via `git worktree list --porcelain` (total entries
-/// minus the main clone). Falls back to counting `.worktrees` subdirectories
-/// when git is unavailable.
-fn count_worktrees(clone: &Path) -> usize {
+/// A clone's linked worktrees via `git worktree list --porcelain`. Falls back
+/// to the `.worktrees` subdirectories (branch-less) when git is unavailable,
+/// so the row still lists — and can still remove — what is on disk.
+fn list_repo_worktrees(clone: &Path) -> Vec<WorktreeRow> {
     if let Some(entries) = worktree_list(clone) {
-        return entries.len();
+        return entries
+            .into_iter()
+            .map(|(path, branch)| WorktreeRow { path, branch })
+            .collect();
     }
     let worktrees = worktrees_dir(clone);
     std::fs::read_dir(&worktrees)
         .map(|entries| {
             entries
                 .flatten()
-                .filter(|entry| entry.path().join(".git").exists())
-                .count()
+                .map(|entry| entry.path())
+                .filter(|path| path.join(".git").exists())
+                .map(|path| WorktreeRow { path, branch: None })
+                .collect()
         })
-        .unwrap_or(0)
+        .unwrap_or_default()
 }
 
 /// The clone's LINKED worktrees as `(path, branch)` — the main working tree
@@ -669,6 +990,18 @@ fn prune_merged(clone: &Path, merged_branches: &HashSet<String>) -> PruneResult 
         result.removed += 1;
     }
     result
+}
+
+/// Remove ONE worktree of `clone` (EXP-369, the sub-row's trash action).
+/// `--force` because the confirm dialog already warned that uncommitted work
+/// goes with it — the prune path stays non-forcing on purpose. The branch is
+/// deliberately left behind (an unpushed commit survives on it). Blocking;
+/// runs on the background executor.
+fn remove_worktree(clone: &Path, worktree: &Path) -> Result<(), String> {
+    git_ok(
+        clone,
+        &["worktree", "remove", "--force", &worktree.to_string_lossy()],
+    )
 }
 
 /// Whether a worktree has staged/unstaged/untracked changes
@@ -858,14 +1191,57 @@ mod tests {
     }
 
     #[test]
-    fn scan_finds_the_clone_and_counts_its_worktrees() {
+    fn scan_finds_the_clone_and_lists_its_worktrees() {
         let dir = temp_dir("scan");
         let (root, _clone) = seed_clone(&dir.0);
         let entries = scan_repos(&root);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].full_name, "acme/web");
-        assert_eq!(entries[0].worktree_count, 2);
         assert!(entries[0].size_bytes > 0);
+        // EXP-369: the scan carries the worktrees themselves (branch + path),
+        // not just how many there are — the row expands into them.
+        let branches: Vec<Option<String>> = entries[0]
+            .worktrees
+            .iter()
+            .map(|worktree| worktree.branch.clone())
+            .collect();
+        assert_eq!(
+            branches,
+            vec![
+                Some("exp/EXP-1".to_string()),
+                Some("exp/EXP-2".to_string())
+            ]
+        );
+        assert!(entries[0].worktrees.iter().all(|w| w.path.exists()));
+        assert_eq!(entries[0].worktrees[0].label(), "exp/EXP-1");
+    }
+
+    /// A branch-less (detached / git-missing fallback) row falls back to its
+    /// directory name so the sub-row is never blank.
+    #[test]
+    fn worktree_label_falls_back_to_the_directory_name() {
+        let row = WorktreeRow {
+            path: PathBuf::from("/repos/acme/web.worktrees/exp-EXP-9"),
+            branch: None,
+        };
+        assert_eq!(row.label(), "exp-EXP-9");
+    }
+
+    /// The sub-row's trash action force-removes — including a worktree the
+    /// non-forcing prune would (rightly) refuse — and keeps the branch.
+    #[test]
+    fn remove_worktree_forces_past_uncommitted_changes() {
+        let dir = temp_dir("remove-worktree");
+        let (_root, clone) = seed_clone(&dir.0);
+        let dirty = worktrees_dir(&clone).join(sanitize_branch_for_path("exp/EXP-2"));
+        std::fs::write(dirty.join("README.md"), "changed\n").unwrap();
+
+        remove_worktree(&clone, &dirty).unwrap();
+
+        assert!(!dirty.exists());
+        assert_eq!(list_repo_worktrees(&clone).len(), 1);
+        // The branch survives its worktree.
+        assert!(git_ok(&clone, &["rev-parse", "--verify", "--quiet", "refs/heads/exp/EXP-2"]).is_ok());
     }
 
     #[test]
@@ -900,7 +1276,7 @@ mod tests {
         // Empty merged set → nothing pruned.
         let result = prune_merged(&clone, &HashSet::new());
         assert_eq!(result, PruneResult::default());
-        assert_eq!(count_worktrees(&clone), 2);
+        assert_eq!(list_repo_worktrees(&clone).len(), 2);
     }
 
     #[test]

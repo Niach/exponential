@@ -12,6 +12,8 @@ use std::sync::Arc;
 use gpui::{App, Global};
 use sync::{SessionPhase, Store};
 
+use crate::coding_flow::CodingHub;
+
 /// Process-wide auth handles. Cheap to clone (Arcs + a path).
 #[derive(Clone)]
 pub struct AuthContext {
@@ -80,6 +82,8 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             // through, so orphans heal on the next connect instead of
             // blocking "coding now" for the server sweep's 2h window.
             crate::session_registry::reconcile_stale_sessions(account, cx);
+            // EXP-369: give the account a clock for its daily digest.
+            claim_timezone(account, cx);
             true
         }
         Err(err) => {
@@ -91,6 +95,34 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             false
         }
     }
+}
+
+/// EXP-369 best-effort timezone claim: stamp the OS zone on the account the
+/// first time one is seen (`onlyIfUnset` — an explicit pick in settings, or
+/// on the web, always wins). The daily digest's send hour is read in it, so
+/// an account that never sets one would fall back to UTC. Fire-and-forget on
+/// the background executor: failures (offline, an older server without the
+/// route) only mean the next sign-in tries again.
+fn claim_timezone(account: &api::Account, cx: &mut App) {
+    let timezone = match iana_time_zone::get_timezone() {
+        Ok(timezone) => timezone,
+        Err(err) => {
+            log::warn!("[exp-desktop] session: no system timezone: {err}");
+            return;
+        }
+    };
+    let Some(auth) = cx.try_global::<AuthContext>() else {
+        return;
+    };
+    let provider = auth.auth.token_provider(&account.id);
+    let trpc = api::TrpcClient::new(&account.instance_url, provider);
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::users::users_set_timezone(&trpc, &timezone, true) {
+                log::warn!("[exp-desktop] session: timezone claim failed: {err}");
+            }
+        })
+        .detach();
 }
 
 /// Sign the active (or auth-expired) account out: best-effort server-side
@@ -161,12 +193,12 @@ pub fn sign_out_active(cx: &mut App) {
 /// testing fresh-install flows): sign everything out, delete ALL local IDE
 /// state, and relaunch onto the login screen.
 ///
-/// Deletes BOTH local roots — the data dir (`accounts.json`, tokens,
+/// Deletes ALL THREE local roots — the data dir (`accounts.json`, tokens,
 /// per-account sync DBs, `settings.json`, session registry, hook/action
-/// scratch) and the window-state dir (`window-size.json`, `layouts/`,
-/// `updates/`; a DIFFERENT directory on macOS). Cloned repositories under
-/// the repos root are OUTSIDE both and are deliberately kept (removing them
-/// is the per-repo affordance in Settings → Local repositories). Deletion is
+/// scratch), the window-state dir (`window-size.json`, `layouts/`,
+/// `updates/`; a DIFFERENT directory on macOS), and — since EXP-369 — the
+/// repos root with every clone and worktree under it (the confirm dialog
+/// names the path and warns about uncommitted work). Deletion is
 /// best-effort: a straggling handle (Windows file locks, a detached sqlite
 /// reader) logs and moves on — the restart lands on whatever is left, which
 /// a fresh boot recreates or re-deletes.
@@ -203,6 +235,18 @@ pub fn reset_ide_data(cx: &mut App) {
         if !roots.contains(&local) {
             roots.push(local);
         }
+    }
+    // EXP-369: the clones go too. The path is user-editable (Settings →
+    // Tools), so refuse the two settings that would turn this into an
+    // `rm -rf ~` — a filesystem root and the home directory itself.
+    let repos_root = CodingHub::global(cx)
+        .read(cx)
+        .settings
+        .repos_root_path();
+    let sane = repos_root.parent().is_some()
+        && dirs::home_dir().is_none_or(|home| home != repos_root);
+    if sane && !roots.contains(&repos_root) {
+        roots.push(repos_root);
     }
     cx.spawn(async move |cx| {
         cx.background_executor()

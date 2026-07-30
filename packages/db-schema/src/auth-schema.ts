@@ -47,6 +47,12 @@ export const users = pgTable(
     signupReferrer: text(`signup_referrer`),
     signupLandingPath: text(`signup_landing_path`),
     signupAnonymousId: text(`signup_anonymous_id`),
+    // IANA timezone name (e.g. `Europe/Berlin`) — the clock the daily digest's
+    // send hour is interpreted in. Claimed once from the client at first
+    // authenticated load; NULL means "never captured" and resolves to UTC.
+    // SERVER-ONLY like the stamps above (the users shape allowlist pins 6
+    // columns; this never syncs).
+    timezone: text(`timezone`),
     createdAt: timestamp(`created_at`)
       .$defaultFn(() => /* @__PURE__ */ new Date())
       .notNull(),

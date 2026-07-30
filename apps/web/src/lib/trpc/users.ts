@@ -138,6 +138,50 @@ export const usersRouter = router({
       return { claimed: claimed.length > 0 }
     }),
 
+  // The caller's stored IANA timezone (EXP-369) — the clock their daily
+  // digest send hour is read in. SERVER-ONLY column (never synced), so the
+  // account panel reads it here. `null` = never captured → the sweep uses UTC.
+  timezone: authedProcedure.query(async ({ ctx }) => {
+    const [row] = await ctx.db
+      .select({ timezone: users.timezone })
+      .from(users)
+      .where(eq(users.id, ctx.session.user.id))
+    return { timezone: row?.timezone ?? null }
+  }),
+
+  // Claim/replace the caller's timezone. Clients fire this with
+  // `onlyIfUnset: true` right after login (best-effort, from the device's own
+  // Intl/OS zone); the account panel sends an explicit pick without the flag.
+  setTimezone: authedProcedure
+    .input(
+      z.object({
+        timezone: z.string().min(1).max(64),
+        onlyIfUnset: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Intl is the tz database the digest math runs on — anything it rejects
+      // would silently degrade every send point to UTC.
+      try {
+        new Intl.DateTimeFormat(`en-US`, { timeZone: input.timezone })
+      } catch {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Unknown timezone: ${input.timezone}`,
+        })
+      }
+      const updated = await ctx.db
+        .update(users)
+        .set({ timezone: input.timezone, updatedAt: new Date() })
+        .where(
+          input.onlyIfUnset
+            ? and(eq(users.id, ctx.session.user.id), isNull(users.timezone))
+            : eq(users.id, ctx.session.user.id)
+        )
+        .returning({ id: users.id })
+      return { saved: updated.length > 0 }
+    }),
+
   // Dismiss the "Get the desktop app" card (Agents view). Sets a per-user
   // timestamp flag (like onboardingCompletedAt) surfaced read-only on the
   // session so the card stays hidden across reloads. The client also hides it

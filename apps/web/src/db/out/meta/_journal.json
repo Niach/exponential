@@ -407,6 +407,13 @@
       "when": 1785650000003,
       "tag": "0057_hot_meteorite",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1785650000004,
+      "tag": "0058_clever_killer_shrike",
+      "breakpoints": true
     }
   ]
 }

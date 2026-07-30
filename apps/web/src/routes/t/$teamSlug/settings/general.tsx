@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -67,9 +68,7 @@ function SettingsGeneral() {
       allowed={permissions.canManageTeam}
     >
       <div className="space-y-6">
-        {team && (
-          <TeamGeneralSection team={team} solo={solo} />
-        )}
+        {team && <TeamGeneralSection team={team} solo={solo} />}
 
         {team && (
           <>
@@ -111,11 +110,10 @@ function SettingsGeneral() {
                       {team.name}
                     </span>
                     {` `}
-                    and all its boards, issues, and data. This cannot be
-                    undone.
+                    and all its boards, issues, and data. This cannot be undone.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-2 py-2">
+                <DialogBody className="space-y-2">
                   <Label htmlFor="delete-confirm">
                     Type{` `}
                     <span className="font-semibold">{team.name}</span>
@@ -130,7 +128,7 @@ function SettingsGeneral() {
                   {deleteError && (
                     <p className="text-sm text-destructive">{deleteError}</p>
                   )}
-                </div>
+                </DialogBody>
                 <DialogFooter>
                   <Button
                     variant="outline"
@@ -146,10 +144,7 @@ function SettingsGeneral() {
                   <Button
                     variant="destructive"
                     onClick={handleDeleteTeam}
-                    disabled={
-                      deleteConfirmation !== team.name ||
-                      deletingTeam
-                    }
+                    disabled={deleteConfirmation !== team.name || deletingTeam}
                   >
                     {deletingTeam ? `Deleting...` : `Delete team`}
                   </Button>

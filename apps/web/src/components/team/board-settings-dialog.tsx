@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -124,7 +125,7 @@ export function BoardSettingsDialog({
         </DialogHeader>
 
         {board && (
-          <div className="space-y-4">
+          <DialogBody className="space-y-4">
             <BoardNameField
               value={name}
               onChange={setName}
@@ -165,15 +166,15 @@ export function BoardSettingsDialog({
                   onConnectNew={(picked) => void handleConnect(picked)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  New &ldquo;Start coding&rdquo; launches use the selected
-                  repo; existing worktrees keep working locally.
+                  New &ldquo;Start coding&rdquo; launches use the selected repo;
+                  existing worktrees keep working locally.
                 </p>
                 {repoError && (
                   <p className="text-xs text-destructive">{repoError}</p>
                 )}
               </div>
             )}
-          </div>
+          </DialogBody>
         )}
       </DialogContent>
     </Dialog>

@@ -51,8 +51,8 @@ const h = vi.hoisted(() => {
   }
 
   const db = {
-    select: () => {
-      ops.push({ kind: `select` })
+    select: (columns?: Record<string, unknown>) => {
+      ops.push({ kind: `select`, values: columns })
       return chain(async () => selectResults.shift() ?? [])
     },
     update: (table: unknown) => ({
@@ -102,6 +102,7 @@ const getEmailPrefsMap = vi.fn(async (userIds: string[]) => {
       emailEnabled: true,
       typePrefs: {},
       digest: `daily`,
+      digestHour: 8,
       unsubscribeToken: `tok-${id}`,
     })
   }
@@ -127,6 +128,7 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
   readAt: null,
   email: `user-1@example.com`,
   emailVerified: true,
+  timezone: null,
   issueIdentifier: `EXP-1`,
   teamSlug: `acme`,
   boardSlug: `board`,
@@ -156,6 +158,59 @@ beforeEach(() => {
     provider: `ses`,
     messageId: `m-1`,
     suppressed: false,
+  })
+})
+
+// EXP-369: the daily digest fires at the user's LOCAL send hour, so the scan
+// has to carry users.timezone into the plan.
+describe(`daily send point (EXP-369)`, () => {
+  it(`selects the recipient's timezone in the scan`, async () => {
+    seed([row()])
+    await runEmailDigestSweep(NOW)
+    const scan = ops.find((op) => op.kind === `select`)
+    expect(scan?.values).toHaveProperty(`timezone`)
+  })
+
+  it(`holds a daily user until their local send point has passed`, async () => {
+    // 10:00Z: 08:00 New York local is 12:00Z, still ahead — the last send
+    // point was yesterday 12:00Z, and a digest already went out after it.
+    selectResults.push(
+      [row({ timezone: `America/New_York` })],
+      [
+        {
+          userId: `user-1`,
+          lastSentAt: new Date(`2026-07-19T20:00:00Z`),
+          lastFailedAt: null,
+        },
+      ]
+    )
+    updateReturning.push([])
+
+    const result = await runEmailDigestSweep(new Date(`2026-07-20T10:00:00Z`))
+
+    expect(sendNotificationDigestEmail).not.toHaveBeenCalled()
+    expect(result.emailsSent).toBe(0)
+  })
+
+  it(`sends for the same instant when the account has no timezone (UTC)`, async () => {
+    // Same clock, same last send — but 08:00 UTC has already passed today.
+    selectResults.push(
+      [row({ timezone: null })],
+      [
+        {
+          userId: `user-1`,
+          lastSentAt: new Date(`2026-07-19T20:00:00Z`),
+          lastFailedAt: null,
+        },
+      ]
+    )
+    updateReturning.push([{ id: `n-1` }])
+    insertReturning.push([{ id: `ledger-0` }])
+
+    const result = await runEmailDigestSweep(new Date(`2026-07-20T10:00:00Z`))
+
+    expect(sendNotificationDigestEmail).toHaveBeenCalledTimes(1)
+    expect(result.emailsSent).toBe(1)
   })
 })
 

@@ -115,13 +115,29 @@ pub struct OpenTerminalHere {
     pub path: String,
 }
 
+/// [`OpenTerminalHere`]'s agent sibling (EXP-369): open a promptless agent
+/// session at `path` instead of a plain shell — the settings pane's
+/// per-worktree terminal dropdown dispatches it. The repo ids ride the action
+/// because the agent's JIT installation token mints off `repository_id`;
+/// `agent` is a [`coding::CodingAgent`] id (`claude`/`codex`/`pi`).
+#[derive(Clone, Action, PartialEq, Eq, Deserialize)]
+#[action(namespace = exp, no_json)]
+pub struct OpenAgentShellHere {
+    pub agent: String,
+    pub repository_id: String,
+    pub full_name: String,
+    pub path: String,
+}
+
 static REGISTER_ACTIONS: Once = Once::new();
 
-/// Register the two context-menu action handlers exactly once. Menus render in
+/// Register the context-menu action handlers exactly once. Menus render in
 /// the `Root` overlay, so their dispatched actions reach only App-global
 /// handlers (§3.6 / the navigation.rs global-listener rule) — never an
-/// element-tree `.on_action`. Idempotent across windows via [`Once`].
-fn ensure_actions_registered(cx: &mut App) {
+/// element-tree `.on_action`. Idempotent across windows via [`Once`], so any
+/// surface that dispatches one of these (the tree, the viewer, the settings
+/// Local-repositories pane) may call it.
+pub(crate) fn ensure_actions_registered(cx: &mut App) {
     REGISTER_ACTIONS.call_once(|| {
         cx.on_action(|action: &RevealInFileManager, cx| {
             let path = action.path.clone();
@@ -140,6 +156,30 @@ fn ensure_actions_registered(cx: &mut App) {
                     if let Err(err) = manager.open_shell(Some(dir), shell_override, cx) {
                         log::error!("[ui] file tree: open terminal here failed: {err:#}");
                     }
+                });
+            });
+        });
+        cx.on_action(|action: &OpenAgentShellHere, cx| {
+            let Some(agent) = coding::CodingAgent::parse(&action.agent) else {
+                log::warn!("[ui] open agent shell: unknown agent {:?}", action.agent);
+                return;
+            };
+            let cwd = PathBuf::from(&action.path);
+            let repository_id = action.repository_id.clone();
+            let full_name = action.full_name.clone();
+            navigation::on_active_window(cx, move |window, cx| {
+                let Some(panel) = crate::coding_flow::window_terminal_dock(window, cx) else {
+                    return;
+                };
+                panel.update(cx, |panel, cx| {
+                    panel.launch_agent_shell(
+                        agent,
+                        repository_id,
+                        full_name,
+                        Some(cwd),
+                        window,
+                        cx,
+                    );
                 });
             });
         });

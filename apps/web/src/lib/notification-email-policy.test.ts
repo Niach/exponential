@@ -5,23 +5,27 @@ import {
   buildSupportDeepLinkPath,
   defaultEmailPrefs,
   digestSendability,
-  emailTypeAllowed,
   isDigestDue,
   isDigestRetryDue,
   isDigestSendable,
   isTransientSendError,
   isResolutionStatus,
+  lastDailySendPoint,
+  normalizeDigestHour,
+  notificationTypeAllowed,
   planEmailDigest,
   shouldSendReporterResolution,
+  tzOffsetMs,
+  zonedHourToUtc,
   type DigestCandidate,
   type EmailPrefsLike,
 } from "@/lib/notification-email-policy"
 import type { NotificationType } from "@/lib/domain"
 
-describe(`emailTypeAllowed`, () => {
+describe(`notificationTypeAllowed`, () => {
   it(`defaults to allowed when no prefs row exists (missing row = defaults)`, () => {
-    expect(emailTypeAllowed(null, `issue_comment`)).toBe(true)
-    expect(emailTypeAllowed(undefined, `pr_merged`)).toBe(true)
+    expect(notificationTypeAllowed(null, `issue_comment`)).toBe(true)
+    expect(notificationTypeAllowed(undefined, `pr_merged`)).toBe(true)
   })
 
   it(`defaults every type to on with a fresh prefs row`, () => {
@@ -33,33 +37,53 @@ describe(`emailTypeAllowed`, () => {
       `issue_mention`,
       `pr_opened`,
       `pr_merged`,
+      `support_reply`,
     ] as const) {
-      expect(emailTypeAllowed(prefs, type)).toBe(true)
+      expect(notificationTypeAllowed(prefs.typePrefs, type)).toBe(true)
     }
   })
 
-  it(`the master emailEnabled switch blocks all types`, () => {
+  // EXP-369: the toggles are channel-agnostic now (they gate push too), so the
+  // email master switch must NOT reach into them — it only silences the digest.
+  it(`ignores the master emailEnabled switch`, () => {
     const prefs = { ...defaultEmailPrefs(), emailEnabled: false }
-    expect(emailTypeAllowed(prefs, `issue_assigned`)).toBe(false)
-    expect(emailTypeAllowed(prefs, `pr_merged`)).toBe(false)
+    expect(notificationTypeAllowed(prefs.typePrefs, `issue_assigned`)).toBe(
+      true
+    )
+    expect(notificationTypeAllowed(prefs.typePrefs, `pr_merged`)).toBe(true)
   })
 
   it(`per-type opt-out blocks only that type`, () => {
-    const prefs = {
-      ...defaultEmailPrefs(),
-      typePrefs: { issue_comment: false as const },
-    }
-    expect(emailTypeAllowed(prefs, `issue_comment`)).toBe(false)
-    expect(emailTypeAllowed(prefs, `issue_mention`)).toBe(true)
-    expect(emailTypeAllowed(prefs, `pr_opened`)).toBe(true)
+    const typePrefs = { issue_comment: false as const }
+    expect(notificationTypeAllowed(typePrefs, `issue_comment`)).toBe(false)
+    expect(notificationTypeAllowed(typePrefs, `issue_mention`)).toBe(true)
+    expect(notificationTypeAllowed(typePrefs, `pr_opened`)).toBe(true)
   })
 
   it(`an explicit true in typePrefs stays on`, () => {
-    const prefs = {
-      ...defaultEmailPrefs(),
-      typePrefs: { issue_assigned: true as const },
+    expect(
+      notificationTypeAllowed(
+        { issue_assigned: true as const },
+        `issue_assigned`
+      )
+    ).toBe(true)
+  })
+})
+
+describe(`normalizeDigestHour`, () => {
+  it(`passes through every full hour`, () => {
+    for (const hour of [0, 8, 13, 23]) {
+      expect(normalizeDigestHour(hour)).toBe(hour)
     }
-    expect(emailTypeAllowed(prefs, `issue_assigned`)).toBe(true)
+  })
+
+  it(`falls back to 8 for out-of-range, fractional and missing values`, () => {
+    expect(normalizeDigestHour(24)).toBe(8)
+    expect(normalizeDigestHour(-1)).toBe(8)
+    expect(normalizeDigestHour(7.5)).toBe(8)
+    expect(normalizeDigestHour(Number.NaN)).toBe(8)
+    expect(normalizeDigestHour(null)).toBe(8)
+    expect(normalizeDigestHour(undefined)).toBe(8)
   })
 })
 
@@ -95,6 +119,8 @@ function plan(
     prefsByUser?: Map<string, EmailPrefsLike | null>
     lastDigestByUser?: Map<string, Date | null>
     lastFailedByUser?: Map<string, Date | null>
+    timezoneByUser?: Map<string, string | null>
+    now?: Date
   }
 ) {
   return planEmailDigest({
@@ -102,7 +128,8 @@ function plan(
     prefsByUser: opts?.prefsByUser ?? new Map(),
     lastDigestByUser: opts?.lastDigestByUser ?? new Map(),
     lastFailedByUser: opts?.lastFailedByUser ?? new Map(),
-    now: NOW,
+    timezoneByUser: opts?.timezoneByUser ?? new Map(),
+    now: opts?.now ?? NOW,
   })
 }
 
@@ -219,30 +246,198 @@ describe(`buildSupportDeepLinkPath`, () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Timezone math for the daily send point (EXP-369)
+// ---------------------------------------------------------------------------
+
+describe(`tzOffsetMs`, () => {
+  it(`reads the live offset, DST included`, () => {
+    const summer = new Date(`2026-07-07T12:00:00Z`)
+    const winter = new Date(`2026-01-15T12:00:00Z`)
+    expect(tzOffsetMs(`Europe/Berlin`, summer)).toBe(2 * 60 * 60 * 1000) // CEST
+    expect(tzOffsetMs(`Europe/Berlin`, winter)).toBe(60 * 60 * 1000) // CET
+    expect(tzOffsetMs(`America/New_York`, summer)).toBe(-4 * 60 * 60 * 1000)
+    expect(tzOffsetMs(`America/New_York`, winter)).toBe(-5 * 60 * 60 * 1000)
+    expect(tzOffsetMs(`UTC`, summer)).toBe(0)
+  })
+
+  it(`falls back to UTC for a missing or unknown zone — never throws`, () => {
+    const at = new Date(`2026-07-07T12:00:00Z`)
+    expect(tzOffsetMs(null, at)).toBe(0)
+    expect(tzOffsetMs(undefined, at)).toBe(0)
+    expect(tzOffsetMs(``, at)).toBe(0)
+    expect(tzOffsetMs(`Mars/Olympus_Mons`, at)).toBe(0)
+  })
+})
+
+describe(`zonedHourToUtc`, () => {
+  it(`inverts a local wall clock to the UTC instant`, () => {
+    expect(zonedHourToUtc(`Europe/Berlin`, 2026, 7, 7, 8).toISOString()).toBe(
+      `2026-07-07T06:00:00.000Z`
+    )
+    expect(zonedHourToUtc(`Europe/Berlin`, 2026, 1, 15, 8).toISOString()).toBe(
+      `2026-01-15T07:00:00.000Z`
+    )
+    expect(zonedHourToUtc(`UTC`, 2026, 7, 7, 0).toISOString()).toBe(
+      `2026-07-07T00:00:00.000Z`
+    )
+    expect(zonedHourToUtc(null, 2026, 7, 7, 23).toISOString()).toBe(
+      `2026-07-07T23:00:00.000Z`
+    )
+  })
+
+  // 2026-03-08, America/New_York: 02:00 local never happens (the clock jumps
+  // 02:00 EST → 03:00 EDT at 07:00Z). The digest still goes out that day, at
+  // the first instant after the gap.
+  it(`resolves a DST spring-forward gap to the instant after the gap`, () => {
+    expect(
+      zonedHourToUtc(`America/New_York`, 2026, 3, 8, 2).toISOString()
+    ).toBe(`2026-03-08T07:00:00.000Z`)
+    // The hours around the gap are unaffected.
+    expect(
+      zonedHourToUtc(`America/New_York`, 2026, 3, 8, 1).toISOString()
+    ).toBe(`2026-03-08T06:00:00.000Z`)
+    expect(
+      zonedHourToUtc(`America/New_York`, 2026, 3, 8, 3).toISOString()
+    ).toBe(`2026-03-08T07:00:00.000Z`)
+  })
+
+  // 2026-11-01, America/New_York: 01:00 local happens twice (05:00Z EDT and
+  // 06:00Z EST). Pick the FIRST deterministically — a digest must not drift.
+  it(`resolves a DST fall-back overlap to the first occurrence`, () => {
+    expect(
+      zonedHourToUtc(`America/New_York`, 2026, 11, 1, 1).toISOString()
+    ).toBe(`2026-11-01T05:00:00.000Z`)
+  })
+})
+
+describe(`lastDailySendPoint`, () => {
+  it(`returns today's send point once it has passed`, () => {
+    expect(lastDailySendPoint(`UTC`, 8, NOW).toISOString()).toBe(
+      `2026-07-07T08:00:00.000Z`
+    )
+    expect(lastDailySendPoint(`Europe/Berlin`, 8, NOW).toISOString()).toBe(
+      `2026-07-07T06:00:00.000Z`
+    )
+  })
+
+  it(`falls back to yesterday's when today's is still ahead`, () => {
+    expect(lastDailySendPoint(`UTC`, 23, NOW).toISOString()).toBe(
+      `2026-07-06T23:00:00.000Z`
+    )
+  })
+
+  it(`uses the LOCAL calendar date, not the UTC one`, () => {
+    // 23:30Z is already 2026-07-08 01:30 in Berlin, so "today" locally is the
+    // 8th — whose 08:00 send point is still ahead → the 7th's.
+    const lateUtc = new Date(`2026-07-07T23:30:00Z`)
+    expect(lastDailySendPoint(`Europe/Berlin`, 8, lateUtc).toISOString()).toBe(
+      `2026-07-07T06:00:00.000Z`
+    )
+  })
+
+  it(`handles midnight, and month/year rollover`, () => {
+    expect(
+      lastDailySendPoint(
+        `UTC`,
+        0,
+        new Date(`2026-07-07T00:00:00Z`)
+      ).toISOString()
+    ).toBe(`2026-07-07T00:00:00.000Z`)
+    expect(
+      lastDailySendPoint(
+        `UTC`,
+        8,
+        new Date(`2026-08-01T02:00:00Z`)
+      ).toISOString()
+    ).toBe(`2026-07-31T08:00:00.000Z`)
+    expect(
+      lastDailySendPoint(
+        `UTC`,
+        8,
+        new Date(`2026-01-01T02:00:00Z`)
+      ).toISOString()
+    ).toBe(`2025-12-31T08:00:00.000Z`)
+  })
+
+  it(`still lands on a send point across both DST transitions`, () => {
+    expect(
+      lastDailySendPoint(
+        `America/New_York`,
+        2,
+        new Date(`2026-03-08T12:00:00Z`)
+      ).toISOString()
+    ).toBe(`2026-03-08T07:00:00.000Z`)
+    expect(
+      lastDailySendPoint(
+        `America/New_York`,
+        1,
+        new Date(`2026-11-01T12:00:00Z`)
+      ).toISOString()
+    ).toBe(`2026-11-01T05:00:00.000Z`)
+  })
+
+  it(`treats a null/garbage zone as UTC and an out-of-range hour as 8`, () => {
+    expect(lastDailySendPoint(null, 8, NOW).toISOString()).toBe(
+      `2026-07-07T08:00:00.000Z`
+    )
+    expect(lastDailySendPoint(`Mars/Olympus_Mons`, 8, NOW).toISOString()).toBe(
+      `2026-07-07T08:00:00.000Z`
+    )
+    expect(lastDailySendPoint(`UTC`, 24, NOW).toISOString()).toBe(
+      `2026-07-07T08:00:00.000Z`
+    )
+    expect(lastDailySendPoint(`UTC`, null, NOW).toISOString()).toBe(
+      `2026-07-07T08:00:00.000Z`
+    )
+  })
+})
+
 describe(`isDigestDue`, () => {
   it(`is due with no prior digest, whatever the cadence`, () => {
-    expect(isDigestDue(null, null, NOW)).toBe(true)
+    expect(isDigestDue(null, `UTC`, null, NOW)).toBe(true)
     expect(
-      isDigestDue({ ...defaultEmailPrefs(), digest: `daily` }, undefined, NOW)
+      isDigestDue(
+        { ...defaultEmailPrefs(), digest: `daily` },
+        `UTC`,
+        undefined,
+        NOW
+      )
     ).toBe(true)
   })
 
   it(`hourly (off) cadence: not due right after a digest, due ~an hour later`, () => {
     const prefs = { ...defaultEmailPrefs(), digest: `off` }
-    expect(isDigestDue(prefs, minutesAgo(10), NOW)).toBe(false)
-    expect(isDigestDue(prefs, minutesAgo(55), NOW)).toBe(true)
+    expect(isDigestDue(prefs, `UTC`, minutesAgo(10), NOW)).toBe(false)
+    expect(isDigestDue(prefs, `UTC`, minutesAgo(55), NOW)).toBe(true)
   })
 
-  it(`daily cadence: at most one digest per ~day`, () => {
-    const prefs = { ...defaultEmailPrefs(), digest: `daily` }
-    expect(isDigestDue(prefs, minutesAgo(60 * 5), NOW)).toBe(false)
-    expect(isDigestDue(prefs, minutesAgo(60 * 23), NOW)).toBe(true)
+  it(`daily cadence: due once per local send point, not per elapsed gap`, () => {
+    // NOW is 12:00Z; the send point is today 08:00Z.
+    const prefs = { ...defaultEmailPrefs(), digest: `daily`, digestHour: 8 }
+    // Sent AFTER today's send point → already had today's digest.
+    expect(isDigestDue(prefs, `UTC`, minutesAgo(60 * 3), NOW)).toBe(false)
+    // Sent BEFORE it (only 5h ago — the old 22h gap would have deferred this).
+    expect(isDigestDue(prefs, `UTC`, minutesAgo(60 * 5), NOW)).toBe(true)
   })
 
-  it(`defaults to daily: a missing row is not due 5h after a digest`, () => {
-    expect(isDigestDue(defaultEmailPrefs(), minutesAgo(60 * 5), NOW)).toBe(false)
-    expect(isDigestDue(null, minutesAgo(60 * 5), NOW)).toBe(false)
-    expect(isDigestDue(null, minutesAgo(60 * 23), NOW)).toBe(true)
+  it(`daily cadence reads the send hour in the user's OWN timezone`, () => {
+    const prefs = { ...defaultEmailPrefs(), digest: `daily`, digestHour: 8 }
+    const now = new Date(`2026-07-20T10:00:00Z`)
+    const lastSent = new Date(`2026-07-19T20:00:00Z`)
+    // UTC: today's 08:00Z point has passed and predates the last send → due.
+    expect(isDigestDue(prefs, `UTC`, lastSent, now)).toBe(true)
+    // New York: 08:00 local is 12:00Z, still ahead — the last point was
+    // yesterday 12:00Z, before which nothing was sent → not due.
+    expect(isDigestDue(prefs, `America/New_York`, lastSent, now)).toBe(false)
+  })
+
+  it(`defaults to daily at hour 8 for a missing row`, () => {
+    expect(isDigestDue(null, `UTC`, minutesAgo(60 * 3), NOW)).toBe(false)
+    expect(isDigestDue(null, `UTC`, minutesAgo(60 * 5), NOW)).toBe(true)
+    expect(
+      isDigestDue(defaultEmailPrefs(), null, minutesAgo(60 * 3), NOW)
+    ).toBe(false)
   })
 })
 
@@ -271,26 +466,58 @@ describe(`isDigestRetryDue`, () => {
 })
 
 describe(`planEmailDigest`, () => {
-  it(`emails only notifications that stayed unread past the 1h window`, () => {
+  // EXP-369: the daily cadence has NO minimum unread age — the send hour is
+  // the delay, so everything still unread at that moment is bundled.
+  it(`daily bundles every still-unread row, however fresh`, () => {
     const result = plan([
       candidate({ id: `n-old`, userId: `u1`, ageMinutes: 90 }),
-      candidate({ id: `n-fresh`, userId: `u1`, ageMinutes: 30 }),
+      candidate({ id: `n-fresh`, userId: `u1`, ageMinutes: 2 }),
       candidate({ id: `n-read`, userId: `u1`, ageMinutes: 90, readAt: NOW }),
     ])
     expect(result.batches).toHaveLength(1)
     expect(result.batches[0].items.map((i) => i.notificationId)).toEqual([
       `n-old`,
+      `n-fresh`,
     ])
-    // Fresh + read rows are deferred/dropped, never claimed:
+    // Read rows are dropped, never claimed:
     expect(result.claimOnly).toHaveLength(0)
   })
 
-  it(`never emails rows past the 24h backstop floor`, () => {
-    const result = plan([
-      candidate({ id: `n-ancient`, userId: `u1`, ageMinutes: 60 * 25 }),
+  it(`the legacy hourly cadence keeps the 1h unread floor`, () => {
+    const prefsByUser = new Map<string, EmailPrefsLike | null>([
+      [`u1`, { ...defaultEmailPrefs(), digest: `off` }],
     ])
-    expect(result.batches).toHaveLength(0)
+    const result = plan(
+      [
+        candidate({ id: `n-old`, userId: `u1`, ageMinutes: 90 }),
+        candidate({ id: `n-fresh`, userId: `u1`, ageMinutes: 30 }),
+      ],
+      { prefsByUser }
+    )
+    expect(result.batches[0].items.map((i) => i.notificationId)).toEqual([
+      `n-old`,
+    ])
     expect(result.claimOnly).toHaveLength(0)
+  })
+
+  // The backstop is cadence-split: daily needs 48h because a row created just
+  // after today's send point waits ~24h for the next one (and a failed-send
+  // retry can push it further).
+  it(`backstops daily at 48h and the hourly cadence at 24h`, () => {
+    const hourly = new Map<string, EmailPrefsLike | null>([
+      [`u1`, { ...defaultEmailPrefs(), digest: `off` }],
+    ])
+    const row = () => [
+      candidate({ id: `n-30h`, userId: `u1`, ageMinutes: 60 * 30 }),
+    ]
+    expect(plan(row()).batches).toHaveLength(1)
+    expect(plan(row(), { prefsByUser: hourly }).batches).toHaveLength(0)
+
+    const ancient = [
+      candidate({ id: `n-ancient`, userId: `u1`, ageMinutes: 60 * 49 }),
+    ]
+    expect(plan(ancient).batches).toHaveLength(0)
+    expect(plan(ancient).claimOnly).toHaveLength(0)
   })
 
   it(`groups into ONE batch per user, items oldest-first, batches by userId`, () => {

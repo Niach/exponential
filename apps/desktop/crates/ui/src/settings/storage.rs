@@ -45,7 +45,7 @@ use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{card_header, error_notice, section};
+use super::{card_title, error_notice, section};
 
 struct Loaded {
     list: Result<AttachmentsListForTeamOutput, String>,
@@ -472,13 +472,7 @@ impl Render for StoragePane {
         };
         self.ensure_loaded(&team_id, cx);
 
-        let mut body = section(cx).child(card_header(
-            "Storage",
-            "Every file and image attached to this team's issues. Deleting an \
-             attachment is permanent — any image reference left in a \
-             description or comment is replaced with a plain-text note.",
-            cx,
-        ));
+        let mut body = section(cx).child(card_title("Storage"));
 
         // Refresh lives at the TOP of the pane (EXP-316) — inside the
         // summary/sweep header row once the list is up, on its own row while

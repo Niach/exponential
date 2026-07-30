@@ -11,6 +11,7 @@ import type { NotificationType } from "@/lib/domain"
 import type {
   DigestCadence,
   EmailPrefsLike,
+  TypePrefsLike,
 } from "@/lib/notification-email-policy"
 
 export interface EmailPrefs extends EmailPrefsLike {
@@ -42,6 +43,7 @@ export async function getOrCreateEmailPrefs(userId: string): Promise<EmailPrefs>
     emailEnabled: row.emailEnabled,
     typePrefs: row.typePrefs,
     digest: row.digest,
+    digestHour: row.digestHour,
     unsubscribeToken: row.unsubscribeToken,
   }
 }
@@ -52,6 +54,7 @@ export async function updateEmailPrefs(
     emailEnabled?: boolean
     typePrefs?: Partial<Record<NotificationType, boolean>>
     digest?: DigestCadence
+    digestHour?: number
   }
 ): Promise<EmailPrefs> {
   await ensurePrefsRows([userId])
@@ -98,8 +101,27 @@ export async function getEmailPrefsMap(
         emailEnabled: row.emailEnabled,
         typePrefs: row.typePrefs,
         digest: row.digest,
+        digestHour: row.digestHour,
         unsubscribeToken: row.unsubscribeToken,
       },
     ])
   )
+}
+
+// Per-type prefs only, keyed by userId — the push fan-out's gate (EXP-369).
+// READ-ONLY on purpose: getEmailPrefsMap MINTS missing rows (plus an
+// unsubscribe token) and must never run on every notification fan-out. A user
+// with no row is simply absent from the map, which reads as all-defaults.
+export async function getTypePrefsMap(
+  userIds: string[]
+): Promise<Map<string, TypePrefsLike>> {
+  if (userIds.length === 0) return new Map()
+  const rows = await db
+    .select({
+      userId: userNotificationPrefs.userId,
+      typePrefs: userNotificationPrefs.typePrefs,
+    })
+    .from(userNotificationPrefs)
+    .where(inArray(userNotificationPrefs.userId, userIds))
+  return new Map(rows.map((row) => [row.userId, row.typePrefs]))
 }

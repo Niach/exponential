@@ -1325,6 +1325,12 @@ pub struct AgentShellRequest {
     pub repository_id: String,
     /// `owner/name` — the clone-root key.
     pub full_name: String,
+    /// EXP-369: run in THIS directory instead of the trunk clone root (the
+    /// settings pane's per-worktree terminal). Must be a path of the same
+    /// clone — the ambient git auth, the shared cargo cache and the
+    /// `.git/info/exclude` entries are all clone-scoped, and a linked
+    /// worktree shares every one of them.
+    pub cwd_override: Option<PathBuf>,
 }
 
 /// [`prepare_agent_shell`] done: everything the foreground needs to open the
@@ -1401,24 +1407,24 @@ pub fn prepare_agent_shell(
         &[crate::mcp_json::MCP_JSON_FILE, crate::pi_bridge::PI_BRIDGE_FILE],
     );
 
+    // EXP-369: the agent runs in the pinned worktree when the caller gave
+    // one — the MCP config file has to land in the SAME dir (claude/pi read
+    // it relative to their cwd).
+    let cwd = agent_shell_cwd(req, &clone);
+
     // The per-agent MCP wiring (the agent authenticates as the real user).
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    let agent_mcp = wire_agent_mcp(agent, &clone, deps.trpc.base_url(), &personal_key)?;
+    let agent_mcp = wire_agent_mcp(agent, &cwd, deps.trpc.base_url(), &personal_key)?;
 
     // The spawn spec: no prompt, no hooks sidecar (hooks are per-session —
     // there is no session row to scope one to).
     let args = session_args(options, &agent_mcp, None, SessionTail::None);
-    let repo_dir = req
-        .full_name
-        .rsplit('/')
-        .next()
-        .unwrap_or(req.full_name.as_str());
-    let tab_title = format!("{} · {repo_dir}", agent.id());
+    let tab_title = agent_shell_tab_title(agent, req, &cwd);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
-        .cwd(&clone);
+        .cwd(&cwd);
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
     // Same EXP-76 shared-cache posture as a session (keyed off the clone).
     spawn = spawn
@@ -1435,6 +1441,36 @@ pub fn prepare_agent_shell(
         tab_title,
         tab_title_prefix: agent.id().to_string(),
     }))
+}
+
+/// Where an agent shell runs: the caller's pinned worktree (EXP-369) or the
+/// trunk clone root. The clone stays the ambient-auth / cargo-cache anchor
+/// either way — only the cwd (and with it the MCP config file's home) moves.
+fn agent_shell_cwd(req: &AgentShellRequest, clone: &Path) -> PathBuf {
+    req.cwd_override
+        .clone()
+        .unwrap_or_else(|| clone.to_path_buf())
+}
+
+/// The agent-shell tab title: `claude · <repo>` on the trunk clone, and
+/// `claude · <worktree dir>` for an EXP-369 pinned worktree (the repo name is
+/// the same for every one of them — the worktree dir is what distinguishes
+/// the tabs). Pure, so the cwd/title pairing is unit-testable without a
+/// network round-trip.
+fn agent_shell_tab_title(agent: CodingAgent, req: &AgentShellRequest, cwd: &Path) -> String {
+    let label = req
+        .cwd_override
+        .as_ref()
+        .and_then(|_| cwd.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| {
+            req.full_name
+                .rsplit('/')
+                .next()
+                .unwrap_or(req.full_name.as_str())
+                .to_string()
+        });
+    format!("{} · {label}", agent.id())
 }
 
 /// Foreground follow-up to the child-exit edge (§7.5): the ui layer passes
@@ -3380,5 +3416,55 @@ mod tests {
         let positional = prepared.spawn.args.last().unwrap();
         assert!(positional.contains("**EXP-7: EXP-7**"));
         assert!(positional.contains("(no description)"));
+    }
+
+    fn agent_shell_request(cwd_override: Option<PathBuf>) -> AgentShellRequest {
+        AgentShellRequest {
+            options: LaunchOptions {
+                agent: CodingAgent::Claude,
+                model: "fable".to_string(),
+                effort: String::new(),
+                ultracode: false,
+                plan_mode: false,
+                skip_permissions: false,
+            },
+            repository_id: "repo-1".to_string(),
+            full_name: "acme/web".to_string(),
+            cwd_override,
+        }
+    }
+
+    /// EXP-369: a pinned worktree becomes the agent's cwd (and with it the
+    /// `.exp-mcp.json` / pi-bridge target); without one the trunk clone is.
+    #[test]
+    fn agent_shell_runs_in_the_pinned_worktree_when_given_one() {
+        let clone = PathBuf::from("/repos/acme/web");
+        let worktree = PathBuf::from("/repos/acme/web.worktrees/exp-EXP-42");
+
+        assert_eq!(agent_shell_cwd(&agent_shell_request(None), &clone), clone);
+        assert_eq!(
+            agent_shell_cwd(&agent_shell_request(Some(worktree.clone())), &clone),
+            worktree
+        );
+    }
+
+    /// The tab title names the worktree for a pinned run (every worktree of a
+    /// repo would otherwise render the same chip) and the repo otherwise.
+    #[test]
+    fn agent_shell_tab_title_names_the_worktree_then_the_repo() {
+        let clone = PathBuf::from("/repos/acme/web");
+        let worktree = PathBuf::from("/repos/acme/web.worktrees/exp-EXP-42");
+        assert_eq!(
+            agent_shell_tab_title(CodingAgent::Claude, &agent_shell_request(None), &clone),
+            "claude · web"
+        );
+        assert_eq!(
+            agent_shell_tab_title(
+                CodingAgent::Codex,
+                &agent_shell_request(Some(worktree.clone())),
+                &worktree
+            ),
+            "codex · exp-EXP-42"
+        );
     }
 }

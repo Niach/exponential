@@ -542,14 +542,15 @@ export function LaunchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* The header/tabs/footer rows stay anchored while only the BODY row
-          works with the height budget. On mobile the dialog is a full-screen
-          page (EXP-255 — the ui/dialog base) and the body stacks vertically,
+      {/* The header/tabs/footer stay anchored (the ui/dialog base is a flex
+          column) while only the BODY takes the height budget — it is the
+          flex-1 min-h-0 row. On mobile the dialog is a full-screen page
+          (EXP-255 — the ui/dialog base) and the body stacks vertically,
           scrolling as one region; from `sm` up the body splits into two
           columns — issue/action picker left, launch options right — where
           ONLY the picker list scrolls, so the dialog never shows nested
           scrollbars. */}
-      <DialogContent className="grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-3 sm:max-h-[85dvh] sm:max-w-3xl">
+      <DialogContent className="gap-3 sm:max-h-[85dvh] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {tab === `actions` ? `Run action` : `Start coding`}
@@ -566,7 +567,7 @@ export function LaunchDialog({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
           {tab === `issues` ? (
             <IssuesPane
               search={search}
@@ -651,7 +652,11 @@ export function LaunchDialog({
             onClick={submit}
             disabled={starting || !device || submitBlocked}
           >
-            {starting ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
+            {starting ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <MonitorUp />
+            )}
             {tab === `actions`
               ? `Run action`
               : isBatch

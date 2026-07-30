@@ -18,13 +18,15 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, size, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window,
+    div, px, size, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
+    scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -54,12 +56,16 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
     if native_dialog::raise_existing_dialog(window, cx) {
         return;
     }
-    let spec = DialogSpec::new("Join a team", size(px(416.), px(300.)));
+    // EXP-369: 300 → 340 so the preview card fits under the paste field; the
+    // pinned footer keeps "Join team" reachable when it doesn't.
+    let spec = DialogSpec::new("Join a team", size(px(416.), px(340.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| JoinTeamView::new(token, false, window, cx));
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
+            // EXP-369: the view pins its own footer and scrolls only the form.
+            .self_scrolling()
             .can_close(move |cx| !busy.read(cx).accepting)
             .on_enter(move |window, cx| {
                 submit.update(cx, |view, cx| view.primary_action(window, cx));
@@ -129,6 +135,9 @@ pub struct JoinTeamView {
     accepting: bool,
     error: Option<SharedString>,
     focused_once: bool,
+    /// EXP-369: the scrolling form pane, so the footer can stay pinned.
+    /// Unused in `embedded` mode (the wizard column scrolls instead).
+    body_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -160,6 +169,7 @@ impl JoinTeamView {
             accepting: false,
             error: None,
             focused_once: false,
+            body_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
         if let Some(token) = token {
@@ -408,37 +418,75 @@ impl Render for JoinTeamView {
             );
         }
 
-        form.child(
-            h_flex()
-                .justify_end()
-                .gap_2()
-                .when(!self.embedded, |row| {
-                    row.child(
-                        Button::new("join-team-cancel")
-                            .outline()
-                            .small()
-                            .label("Cancel")
-                            .disabled(self.accepting)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                if this.accepting {
-                                    return;
-                                }
-                                native_dialog::close_dialog_window(window, cx);
-                            })),
-                    )
-                })
-                .child(
-                    Button::new("join-team-primary")
-                        .primary()
+        // Cancel exists only in the dialog host — the embedded wizard step has
+        // nothing to close.
+        let footer = h_flex()
+            .flex_shrink_0()
+            .justify_end()
+            .gap_2()
+            .when(!self.embedded, |row| {
+                row.child(
+                    Button::new("join-team-cancel")
+                        .outline()
                         .small()
-                        .label(primary_label)
-                        .disabled(primary_disabled)
-                        .loading(self.accepting)
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.primary_action(window, cx)),
-                        ),
-                ),
-        )
+                        .label("Cancel")
+                        .disabled(self.accepting)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if this.accepting {
+                                return;
+                            }
+                            native_dialog::close_dialog_window(window, cx);
+                        })),
+                )
+            })
+            .child(
+                Button::new("join-team-primary")
+                    .primary()
+                    .small()
+                    .label(primary_label)
+                    .disabled(primary_disabled)
+                    .loading(self.accepting)
+                    .on_click(cx.listener(|this, _, window, cx| this.primary_action(window, cx))),
+            );
+
+        // Embedded (onboarding wizard): the host column owns the scrolling and
+        // has no definite height for `size_full` to resolve against — keep the
+        // buttons in flow there.
+        if self.embedded {
+            return form.child(footer).into_any_element();
+        }
+
+        // EXP-369: the form scrolls, the buttons stay pinned at the bottom
+        // edge (see [`DialogContent::self_scrolling`] in [`open`]).
+        let body_scroll = self.body_scroll.clone();
+        v_flex()
+            .size_full()
+            .gap_3()
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        v_flex()
+                            .id("join-team-scroll")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&body_scroll)
+                            .child(form),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .child(Scrollbar::new(&body_scroll).axis(ScrollbarAxis::Vertical)),
+                    ),
+            )
+            .child(footer.pt_3().border_t_1().border_color(cx.theme().border))
+            .into_any_element()
     }
 }
 
