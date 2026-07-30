@@ -173,6 +173,13 @@ export const teamInvitesRouter = router({
   accept: authedProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      // Filled on the fresh-join path only; consumed AFTER the transaction
+      // commits (see the conversion event below). A box rather than a plain
+      // `let` so the analytics payload stays out of the tRPC response shape.
+      const captured: {
+        joined: { teamId: string; inviteId: string } | null
+      } = { joined: null }
+
       const result = await ctx.db.transaction(async (tx) => {
         const [invite] = await tx
           .select()
@@ -272,11 +279,7 @@ export const teamInvitesRouter = router({
           role: invite.role,
         })
 
-        await recordConversionEvent(tx, {
-          name: `invite_accepted`,
-          userId: ctx.session.user.id,
-          properties: { teamId: invite.teamId, inviteId: invite.id },
-        })
+        captured.joined = { teamId: invite.teamId, inviteId: invite.id }
 
         return { team, alreadyMember: false, txId }
       })
@@ -284,6 +287,18 @@ export const teamInvitesRouter = router({
       // repopulate the cache with pre-commit membership).
       if (!result.alreadyMember) {
         invalidateMembershipCaches()
+      }
+      // Funnel event (EXP-362), post-commit on the global handle for the same
+      // reason: recordConversionEvent swallows errors, so a non-conflict
+      // insert failure inside the tx would poison it and turn the COMMIT into
+      // a silent ROLLBACK. Idempotent via ON CONFLICT DO NOTHING.
+      const joined = captured.joined
+      if (joined) {
+        await recordConversionEvent(ctx.db, {
+          name: `invite_accepted`,
+          userId: ctx.session.user.id,
+          properties: { teamId: joined.teamId, inviteId: joined.inviteId },
+        })
       }
       return result
     }),

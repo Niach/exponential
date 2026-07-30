@@ -760,6 +760,16 @@ export const integrationsRouter = router({
             message: `Selection includes an installation this claim didn't verify.`,
           })
         }
+        // Link and unlink are applied in a fixed order, so an id in BOTH lists
+        // would resolve to "unlinked" by accident of ordering rather than by
+        // what the caller asked for — refuse the ambiguous save outright.
+        const unlinkSet = new Set(input.unlinkIds)
+        if (input.linkIds.some((id) => unlinkSet.has(id))) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Selection links and unlinks the same installation.`,
+          })
+        }
         await assertCanManageRepos(userId, claim.w)
         for (const installationId of input.unlinkIds) {
           await assertInstallationNotInUse(claim.w, installationId)

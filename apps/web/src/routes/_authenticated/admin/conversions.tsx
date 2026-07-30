@@ -22,10 +22,9 @@ export const Route = createFileRoute(`/_authenticated/admin/conversions`)({
   validateSearch: (
     search: Record<string, unknown>
   ): { days?: WindowDays } => ({
-    days:
-      search.days === 7 || search.days === 90
-        ? (search.days as WindowDays)
-        : undefined,
+    days: WINDOWS.includes(search.days as WindowDays)
+      ? (search.days as WindowDays)
+      : undefined,
   }),
   loaderDeps: ({ search }) => ({ days: search.days ?? (30 as const) }),
   // Cloud-only (EXP-362): self-hosted instances record nothing and hide the

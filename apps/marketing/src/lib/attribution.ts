@@ -34,7 +34,9 @@ export function withAttributionParams(href: string): string {
   if (params.length === 0) return href
   try {
     const url = new URL(href, window.location.origin)
-    if (!url.href.startsWith(APP_ORIGIN) && !isInternalPage(url)) return href
+    // Exact ORIGIN match — a startsWith on the href would also accept
+    // lookalike hosts like app.exponential.at.evil.com.
+    if (url.origin !== APP_ORIGIN && !isInternalPage(url)) return href
     for (const [key, value] of params) {
       if (!url.searchParams.has(key)) url.searchParams.set(key, value)
     }

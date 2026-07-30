@@ -4,9 +4,6 @@
 import type { db } from "@/db/connection"
 import { conversionEvents } from "@/db/schema"
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
-type Dbx = typeof db | Tx
-
 // The full first-party funnel vocabulary (EXP-362). Stored as a documented
 // varchar (see conversion_events in @exp/db-schema), typed here so writers
 // can't invent names.
@@ -42,9 +39,19 @@ export function conversionTrackingEnabled(): boolean {
 // read-before-write on hot paths, race-proof against webhook redelivery.
 //
 // NEVER throws: analytics must not be able to break signup, checkout, or
-// issue creation. Callers outside a transaction pass the global `db`.
+// issue creation.
+//
+// MUST NOT be called with a transaction handle — the swallowed error is only
+// safe on the global `db`. Inside a tx, a non-conflict insert failure
+// (deadlock, dropped connection) aborts the surrounding Postgres transaction;
+// swallowing it lets the caller reach COMMIT, which Postgres executes as
+// ROLLBACK — the mutation would report success (with a txId that never syncs)
+// while its real write was discarded. Callers inside a transaction record the
+// event AFTER it commits; the ON CONFLICT DO NOTHING insert is idempotent, so
+// at-most-once-after-commit is the intended contract (a crash in between just
+// loses one analytics row).
 export async function recordConversionEvent(
-  dbx: Dbx,
+  dbx: typeof db,
   args: {
     name: ConversionEventName
     userId?: string | null

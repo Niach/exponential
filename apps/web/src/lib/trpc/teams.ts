@@ -119,17 +119,20 @@ export const teamsRouter = router({
           role: `owner`,
         })
 
-        await recordConversionEvent(tx, {
-          name: `team_created`,
-          userId,
-          properties: { teamId: team.id },
-        })
-
         return { team, txId }
       })
       // Post-commit (never inside the tx — a concurrent shape renewal would
       // repopulate the cache with pre-commit membership).
       invalidateMembershipCaches()
+      // Funnel event (EXP-362), also post-commit on the global handle:
+      // recordConversionEvent swallows errors, so a non-conflict insert
+      // failure inside the tx would poison it and turn the COMMIT into a
+      // silent ROLLBACK. Idempotent via ON CONFLICT DO NOTHING.
+      await recordConversionEvent(ctx.db, {
+        name: `team_created`,
+        userId,
+        properties: { teamId: result.team.id },
+      })
       return result
     }),
 

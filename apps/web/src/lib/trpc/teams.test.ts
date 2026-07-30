@@ -25,7 +25,14 @@ function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
 }
 
 const deletes: { table: unknown }[] = []
-const inserts: { table: unknown; values: Record<string, unknown> }[] = []
+// `inTx` records whether the write ran through the transaction handle —
+// conversion events MUST NOT (see the post-commit note in teams.create).
+let inTransaction = false
+const inserts: {
+  table: unknown
+  values: Record<string, unknown>
+  inTx: boolean
+}[] = []
 const insertReturningQueue: unknown[][] = []
 
 const updates: {
@@ -56,7 +63,7 @@ const fakeDb: FakeDb = {
   select: () => selectChain(),
   insert: (table: unknown) => ({
     values: (values: Record<string, unknown>) => {
-      inserts.push({ table, values })
+      inserts.push({ table, values, inTx: inTransaction })
       const p = Promise.resolve() as Promise<void> & {
         returning: () => Promise<unknown[]>
         onConflictDoNothing: () => Promise<void>
@@ -88,7 +95,14 @@ const fakeDb: FakeDb = {
     },
   }),
   execute: vi.fn(async () => ({ rows: [{ txid: `42` }] })),
-  transaction: async (fn) => fn(fakeDb),
+  transaction: async (fn) => {
+    inTransaction = true
+    try {
+      return await fn(fakeDb)
+    } finally {
+      inTransaction = false
+    }
+  },
 }
 
 // `@/lib/trpc` (imported by the router) pulls in the real connection module;
@@ -146,6 +160,11 @@ function caller() {
 }
 
 beforeEach(() => {
+  // Conversion tracking is cloud-only — the funnel assertions below would
+  // silently pass on a self-hosted-shaped env otherwise (CI sets no
+  // CLOUD_INSTANCE), so pin it here instead of inheriting the shell.
+  vi.stubEnv(`CLOUD_INSTANCE`, `true`)
+  inTransaction = false
   selectQueue.length = 0
   deletes.length = 0
   inserts.length = 0
@@ -185,6 +204,12 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
     })
     expect(inserts[2]!.table).toBe(conversionEvents)
     expect(inserts[2]!.values).toMatchObject({ name: `team_created` })
+    // Recorded AFTER the transaction commits: recordConversionEvent swallows
+    // errors, and a swallowed failure inside the tx would poison it — the
+    // COMMIT would silently become a ROLLBACK while create reported success.
+    expect(inserts[0]!.inTx).toBe(true)
+    expect(inserts[1]!.inTx).toBe(true)
+    expect(inserts[2]!.inTx).toBe(false)
   })
 
   it(`propagates the free-tier owned-team cap`, async () => {

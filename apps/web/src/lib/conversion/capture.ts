@@ -9,6 +9,28 @@ import {
   conversionTrackingEnabled,
   recordConversionEvent,
 } from "@/lib/conversion/events"
+import {
+  TokenBucketLimiter,
+  clientIpFromRequest,
+} from "@/lib/widget/rate-limit"
+
+// The landing row is deduped by the daily anonymous id — a hash of ip+ua — so
+// one IP rotating user-agent strings mints a fresh identity per request and
+// inserts unbounded rows. This bucket bounds that: 60 landing captures per IP
+// per hour (burst 60), hardcoded — analytics is not worth an env knob. Only
+// analytics rows are dropped, never the request; a busy shared NAT may
+// under-count visitors, which is the accepted trade for a bounded table.
+const LANDING_PER_IP_HOURLY = 60
+
+let landingLimiter: TokenBucketLimiter | null = null
+
+function getLandingLimiter(): TokenBucketLimiter {
+  landingLimiter ??= new TokenBucketLimiter({
+    capacity: LANDING_PER_IP_HOURLY,
+    refillPerHour: LANDING_PER_IP_HOURLY,
+  })
+  return landingLimiter
+}
 
 // Server-bun landing tap (EXP-362): pure side effect, no response mutation,
 // never blocks the request. One row per anonymous visitor per UTC day — the
@@ -25,6 +47,7 @@ export function captureLanding(req: Request): void {
     // visitor identity — recording NULL-id rows would bypass the dedupe
     // index entirely, so skip.
     if (!anonymousId) return
+    if (!getLandingLimiter().tryTake(clientIpFromRequest(req)).ok) return
     const url = new URL(req.url)
     const params = extractAttributionParams(url)
     const referrer = externalReferrer(req)

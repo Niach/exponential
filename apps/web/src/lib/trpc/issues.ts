@@ -428,16 +428,20 @@ export const issuesRouter = router({
           })
         }
 
-        // Activation signal (EXP-362): the once-per-user partial unique index
-        // turns every issue after the first into a free conflict-skip, so
-        // this hot path never reads before writing.
-        await recordConversionEvent(tx, {
-          name: `first_issue_created`,
-          userId: ctx.session.user.id,
-          properties: { teamId: board.teamId },
-        })
-
         return { issue, txId, mentionedUserIds }
+      })
+
+      // Activation signal (EXP-362), POST-COMMIT on the global handle — never
+      // inside the transaction above: recordConversionEvent swallows errors,
+      // so a non-conflict insert failure (deadlock, dropped connection) would
+      // poison the tx and turn the following COMMIT into a silent ROLLBACK.
+      // The once-per-user partial unique index turns every issue after the
+      // first into a free conflict-skip, so this hot path never reads before
+      // writing; a crash between commit and record just drops one row.
+      await recordConversionEvent(ctx.db, {
+        name: `first_issue_created`,
+        userId: ctx.session.user.id,
+        properties: { teamId: board.teamId },
       })
 
       fireAndForgetAssignmentNotify({

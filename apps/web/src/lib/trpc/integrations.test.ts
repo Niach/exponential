@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { TRPCError } from "@trpc/server"
 
 // One linked installation resolves for every team; the repos query then
 // aggregates + caches per team. A queue lets individual tests override
@@ -143,6 +144,19 @@ function callerFor(userId: string) {
   return integrationsRouter.createCaller({
     session: { user: { id: userId } },
   } as never)
+}
+
+// The default mock passes every membership check as owner (which keeps the
+// unrelated tests free of membership plumbing) — so the owner gate itself is
+// only observable by flipping it for exactly ONE call, the way the real
+// assertTeamMember rejects a plain member.
+function denyOwnerOnce() {
+  assertTeamMember.mockImplementationOnce(async () => {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `You do not have permission to perform this action`,
+    })
+  })
 }
 
 let wsCounter = 0
@@ -441,6 +455,51 @@ describe(`integrations.github.claimLinks guards`, () => {
       callerFor(`user-claim`).github.claimLinks({ ticket })
     ).rejects.toThrow(/Nothing to change/)
   })
+
+  it(`refuses an id that is both linked and unlinked in one save`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-claim`,
+      w: teamId,
+      ids: [1, 2],
+    })!
+    await expect(
+      callerFor(`user-claim`).github.claimLinks({
+        ticket,
+        linkIds: [1, 2],
+        unlinkIds: [2],
+      })
+    ).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: expect.stringContaining(
+        `links and unlinks the same installation`
+      ),
+    })
+    // Refused before the owner gate and before any write — the two branches
+    // apply in a fixed order, so the overlap must never be silently resolved.
+    expect(inserted).toHaveLength(0)
+    expect(deletes).toHaveLength(0)
+  })
+
+  it(`refuses a member who isn't a team owner`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-member`,
+      w: teamId,
+      ids: [1],
+    })!
+    denyOwnerOnce()
+    await expect(
+      callerFor(`user-member`).github.claimLinks({ ticket, linkIds: [1] })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // The ticket proves GitHub control, never team authority — the owner gate
+    // is what decides who may rewrite a team's installation links.
+    expect(assertTeamMember).toHaveBeenCalledWith(`user-member`, teamId, [
+      `owner`,
+    ])
+    expect(inserted).toHaveLength(0)
+    expect(deletes).toHaveLength(0)
+  })
 })
 
 describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
@@ -556,6 +615,22 @@ describe(`integrations.github.claimPreview (EXP-370)`, () => {
         alreadyLinked: false,
         activeRepoCount: 0,
       },
+    ])
+  })
+
+  it(`refuses a member who isn't a team owner`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-member`,
+      w: teamId,
+      ids: [1],
+    })!
+    denyOwnerOnce()
+    await expect(
+      callerFor(`user-member`).github.claimPreview({ ticket })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    expect(assertTeamMember).toHaveBeenCalledWith(`user-member`, teamId, [
+      `owner`,
     ])
   })
 })

@@ -164,9 +164,14 @@ export function consumeGithubSetupState(
 // Claim ticket — the OAuth callback's hand-off to the /integrations/github/
 // claim page when the user's GitHub account has SEVERAL installations to pick
 // from. Same HMAC scheme as the setup state, but deliberately NOT single-use:
-// linking is idempotent and the ticket is bound to user + team + the
-// exact installation-id set the callback enumerated, so replaying it can only
-// re-create the same links. Short TTL keeps the window tight.
+// the claim page saves a SELECTION, so a save that CONFLICTs (or a user who
+// changes their mind) must be retryable. Since EXP-370 the ticket therefore
+// authorizes link AND unlink operations — the replay bound is not "same links
+// only" but the enclosing box: the exact installation-id set the callback
+// enumerated (`ids`), the single user the HMAC binds it to, the owner gate
+// re-checked per call, the in-use guard that refuses an unlink while repos are
+// still connected through it, and the 15-minute TTL. A replay can re-apply
+// link/unlink within that set (both are idempotent) and nothing else.
 // ---------------------------------------------------------------------------
 
 const CLAIM_TICKET_TTL_MS = 15 * 60 * 1000
