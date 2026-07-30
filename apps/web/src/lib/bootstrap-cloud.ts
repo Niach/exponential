@@ -1,11 +1,8 @@
 import { and, eq, inArray, notExists, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
-  githubInstallationLinks,
-  githubInstallations,
   issues,
   boards,
-  repositories,
   widgetConfigs,
   teamMembers,
   teams,
@@ -27,13 +24,6 @@ const FEEDBACK_TEAM_NAME = `Exponential Feedback`
 const DOGFOOD_BOARD_SLUG = `exponential`
 const DOGFOOD_BOARD_NAME = `Exponential`
 const DOGFOOD_BOARD_PREFIX = `EXP`
-// The canonical dogfood board is always backed by this repo (repos are
-// OPTIONAL on boards). On this internal bootstrap path we upsert the
-// registry row DIRECTLY, with no GitHub App validation — `installation_id`
-// starts null; ensurePublicRepositoryInstallation backfills it (and the
-// feedback team's installation link) from a live GitHub lookup on every
-// boot, best-effort.
-const PUBLIC_REPO_FULL_NAME = `Niach/exponential`
 // Pre-collapse deployments seeded this second board next to the dogfood one;
 // collapseLegacyFeedbackBoard folds it away.
 const LEGACY_FEEDBACK_BOARD_SLUG = `feedback`
@@ -134,10 +124,11 @@ async function ensureDogfoodBoard(publicTeamId: string): Promise<string> {
     return existing.id
   }
 
-  // The dogfood board is repo-backed — upsert the dogfood repo first
-  // (idempotent) and pass its id into board creation.
-  const repositoryId = await ensurePublicRepository(publicTeamId)
-
+  // No repo backing on fresh instances (EXP-363): the old bootstrap seeded a
+  // hardcoded `Niach/exponential` repositories row and auto-linked its GitHub
+  // installation to the feedback team on every boot. Existing deployments keep
+  // whatever wiring they already have (nothing here deletes it); connecting a
+  // repo to a fresh dogfood board is a normal owner action in the UI.
   const [board] = await db
     .insert(boards)
     .values({
@@ -146,110 +137,9 @@ async function ensureDogfoodBoard(publicTeamId: string): Promise<string> {
       slug: DOGFOOD_BOARD_SLUG,
       prefix: DOGFOOD_BOARD_PREFIX,
       isProtected: true,
-      repositoryId,
     })
     .returning({ id: boards.id })
   return board.id
-}
-
-// Upsert the dogfood repositories row and return its id. Runs on the internal
-// bootstrap path only — no GitHub App validation, `installation_id` left null
-// (self-heal fills it). Idempotent via the (team_id, full_name) unique.
-async function ensurePublicRepository(publicTeamId: string): Promise<string> {
-  const [inserted] = await db
-    .insert(repositories)
-    .values({
-      teamId: publicTeamId,
-      fullName: PUBLIC_REPO_FULL_NAME,
-      installationId: null,
-    })
-    .onConflictDoNothing({
-      target: [repositories.teamId, repositories.fullName],
-    })
-    .returning({ id: repositories.id })
-  if (inserted) return inserted.id
-
-  const [row] = await db
-    .select({ id: repositories.id })
-    .from(repositories)
-    .where(
-      and(
-        eq(repositories.teamId, publicTeamId),
-        eq(repositories.fullName, PUBLIC_REPO_FULL_NAME)
-      )
-    )
-    .limit(1)
-  // A concurrent delete between the onConflictDoNothing INSERT and this SELECT
-  // leaves no row to read — throw rather than dereferencing undefined; the next
-  // boot re-runs bootstrap idempotently.
-  if (!row) {
-    throw new Error(
-      `Dogfood repository row vanished concurrently during bootstrap — retry.`
-    )
-  }
-  return row.id
-}
-
-// Best-effort self-heal for the dogfood repo's GitHub wiring: resolve the
-// repo's installation live (App JWT), mirror the installation row, backfill
-// the bootstrap repo row's null `installation_id`, and link the installation
-// to the feedback team so its pickers/token mints pass the team
-// link-gate. Idempotent; a GitHub outage or unconfigured App just logs and
-// retries next boot.
-async function ensurePublicRepositoryInstallation(publicTeamId: string) {
-  const { githubAppConfigured, getInstallation, installationIdForRepo } =
-    await import(`@/lib/integrations/github-app`)
-  if (!githubAppConfigured()) return
-  try {
-    const installationId = await installationIdForRepo(PUBLIC_REPO_FULL_NAME)
-    if (installationId == null) {
-      console.warn(
-        `[bootstrap-cloud] GitHub App not installed on ${PUBLIC_REPO_FULL_NAME} — dogfood repo left unlinked`
-      )
-      return
-    }
-    const info = await getInstallation(installationId)
-    const [installationRow] = await db
-      .insert(githubInstallations)
-      .values({
-        installationId,
-        accountLogin: info?.account ?? null,
-        accountType: info?.accountType ?? null,
-      })
-      .onConflictDoUpdate({
-        target: githubInstallations.installationId,
-        set: {
-          accountLogin: info?.account ?? null,
-          accountType: info?.accountType ?? null,
-          updatedAt: new Date(),
-        },
-      })
-      .returning({ id: githubInstallations.id })
-    if (!installationRow) return
-
-    await db
-      .update(repositories)
-      .set({ installationId })
-      .where(
-        and(
-          eq(repositories.teamId, publicTeamId),
-          eq(repositories.fullName, PUBLIC_REPO_FULL_NAME),
-          sql`${repositories.installationId} IS DISTINCT FROM ${installationId}`
-        )
-      )
-    await db
-      .insert(githubInstallationLinks)
-      .values({
-        teamId: publicTeamId,
-        githubInstallationId: installationRow.id,
-      })
-      .onConflictDoNothing()
-  } catch (err) {
-    console.warn(
-      `[bootstrap-cloud] dogfood repo installation self-heal failed:`,
-      err
-    )
-  }
 }
 
 // The dogfood helpdesk gate rides the normal plan machinery
@@ -485,13 +375,11 @@ export function bootstrapCloud(): Promise<void> {
         const publicTeamId = await ensureFeedbackTeam()
         await ensureFeedbackTeamComp(publicTeamId)
         await addAdminsAsPublicTeamOwners(publicTeamId)
-        // Canonical board first — it upserts its backing repository row
-        // inline (the dogfood board is repo-backed). Then fold the legacy
-        // feedback board into the canonical one, flip the team
-        // helpdesk on, release the retired Support board, and seed the
-        // widget config (feedback target = the Exponential board).
+        // Canonical board first, then fold the legacy feedback board into
+        // it, flip the team helpdesk on, release the retired Support board,
+        // and seed the widget config (feedback target = the Exponential
+        // board).
         await ensureDogfoodBoard(publicTeamId)
-        await ensurePublicRepositoryInstallation(publicTeamId)
         await collapseLegacyFeedbackBoard(publicTeamId)
         await ensureTeamHelpdesk(publicTeamId)
         await releaseLegacySupportBoard(publicTeamId)
