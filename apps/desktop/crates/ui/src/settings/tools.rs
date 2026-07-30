@@ -24,7 +24,7 @@ use gpui::{
     Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
     v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
@@ -33,6 +33,7 @@ use gpui_component::{
 use coding::Settings;
 
 use crate::coding_flow::CodingHub;
+use crate::native_dialog::{self, AlertSpec};
 
 use super::doctor_section::DoctorPanel;
 use super::{card_header, error_notice, section};
@@ -169,6 +170,28 @@ impl ToolsPane {
         cx.notify();
     }
 
+    /// The "Reset IDE data" confirm (EXP-367, built for testing fresh-install
+    /// flows): destructive-local-only, so a plain danger confirm suffices —
+    /// everything server-side survives and re-syncs on the next sign-in.
+    fn confirm_reset(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let repos_root = CodingHub::global(cx).read(cx).settings.repos_root.clone();
+        let spec = AlertSpec::new(
+            "Reset IDE data",
+            format!(
+                "This signs you out on this device and deletes ALL local IDE data — \
+                 settings, accounts, and synced caches. Cloned repositories under \
+                 {repos_root} are kept. The app restarts onto the sign-in screen."
+            ),
+            "Reset and restart",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            crate::session::reset_ide_data(cx);
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
     fn labeled_input(
         label: &'static str,
         hint: &'static str,
@@ -233,11 +256,47 @@ impl Render for ToolsPane {
             ),
         );
 
+        // EXP-367: local-only destructive hatch for testing fresh-install
+        // flows (login, onboarding wizard, tools setup).
+        let danger = section(cx)
+            .child(card_header(
+                "Danger zone",
+                "Local to this device — nothing on the server is touched.",
+                cx,
+            ))
+            .child(
+                h_flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(
+                                "Reset IDE data — sign out and delete all local settings, \
+                                 accounts, and synced caches. Cloned repositories are kept.",
+                            ),
+                    )
+                    .child(
+                        Button::new("tools-reset-ide")
+                            .danger()
+                            .small()
+                            .label("Reset IDE data")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_reset(window, cx);
+                            })),
+                    ),
+            );
+
         v_flex()
             .w_full()
             .gap_6()
             .child(card)
             .child(save_area)
             .child(self.doctor.clone())
+            .child(danger)
     }
 }

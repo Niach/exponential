@@ -157,6 +157,75 @@ pub fn sign_out_active(cx: &mut App) {
     store.sign_out(&account_id, cx);
 }
 
+/// EXP-367 "Reset IDE data" (Settings → Tools → Danger zone; built for
+/// testing fresh-install flows): sign everything out, delete ALL local IDE
+/// state, and relaunch onto the login screen.
+///
+/// Deletes BOTH local roots — the data dir (`accounts.json`, tokens,
+/// per-account sync DBs, `settings.json`, session registry, hook/action
+/// scratch) and the window-state dir (`window-size.json`, `layouts/`,
+/// `updates/`; a DIFFERENT directory on macOS). Cloned repositories under
+/// the repos root are OUTSIDE both and are deliberately kept (removing them
+/// is the per-repo affordance in Settings → Local repositories). Deletion is
+/// best-effort: a straggling handle (Windows file locks, a detached sqlite
+/// reader) logs and moves on — the restart lands on whatever is left, which
+/// a fresh boot recreates or re-deletes.
+pub fn reset_ide_data(cx: &mut App) {
+    let auth = AuthContext::global(cx).clone();
+    let store = Store::global(cx).clone();
+
+    // The active account goes through the full sign-out path (steer stop,
+    // best-effort session ends + server revocation, pipeline stop with
+    // grace); other signed-in accounts get their sockets stopped and their
+    // sessions revoked best-effort.
+    let active = store.session(cx).account_id().map(String::from);
+    sign_out_active(cx);
+    for account in auth.auth.signed_in_accounts() {
+        if Some(&account.id) == active.as_ref() {
+            continue;
+        }
+        crate::steer_wiring::stop_control_channel(&account.id, cx);
+        if let Some(token) = auth.auth.token(&account.id) {
+            let client = Arc::clone(&auth.client);
+            let instance = account.instance_url.clone();
+            cx.background_executor()
+                .spawn(async move {
+                    if let Err(err) = client.sign_out(&instance, &token) {
+                        eprintln!("[exp-desktop] reset: server-side sign-out failed: {err}");
+                    }
+                })
+                .detach();
+        }
+    }
+
+    let mut roots = vec![auth.data_dir.clone()];
+    if let Some(local) = crate::window_size::app_data_dir() {
+        if !roots.contains(&local) {
+            roots.push(local);
+        }
+    }
+    cx.spawn(async move |cx| {
+        cx.background_executor()
+            .spawn(async move {
+                for root in roots {
+                    match std::fs::remove_dir_all(&root) {
+                        Ok(()) => {}
+                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(err) => {
+                            log::warn!(
+                                "[ui] reset: could not fully delete {}: {err}",
+                                root.display()
+                            );
+                        }
+                    }
+                }
+            })
+            .await;
+        let _ = cx.update(|cx| cx.restart());
+    })
+    .detach();
+}
+
 /// The startup session bootstrap (app-shell wiring):
 ///
 /// 1. **Dev override** — `EXP_DEV_SERVER` + `EXP_DEV_TOKEN` inject a session
