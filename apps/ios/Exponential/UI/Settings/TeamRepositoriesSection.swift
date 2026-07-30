@@ -27,13 +27,23 @@ struct TeamRepositoriesSection: View {
 
     @State private var repos: [TeamRepo] = []
     @State private var loading = true
+    // Mutation failures (add/remove/CONFLICT). Kept SEPARATE from load
+    // failures: the post-mutation reload used to blank this on success, so a
+    // failed `repositories.add` flashed for one round-trip and vanished
+    // (EXP-365).
     @State private var errorText: String?
+    // repositories.list failures — rendered from the same inline slot.
+    @State private var loadErrorText: String?
     @State private var removeTarget: TeamRepo?
     // GitHub grant state — drives the connect button + reconnect notice.
     // Fetched via the `repos` endpoint (not `status`) because only it accepts
     // `platform: "mobile"`, so the minted connect URL deep-links back via
     // `exponential://github-connected` and auto-dismisses the in-app session.
     @State private var github: GithubReposResult?
+    // A failed grant query must not silently hide the whole GitHub surface
+    // (connect button included) — keep the last good value and offer a retry.
+    @State private var githubLoadFailed = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var connectSession = InstallWebAuthSession()
     // "Add repository" picker sheet (EXP-225): registers a repo in the
     // server-only registry via repositories.add (web parity —
@@ -78,6 +88,14 @@ struct TeamRepositoriesSection: View {
                 }
             }
 
+            // Above the list so a failure is on-screen even for teams with
+            // many repos (EXP-365 — failed adds used to be invisible).
+            if let message = errorText ?? loadErrorText {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.8))
+            }
+
             if !loading && repos.isEmpty {
                 Text("No repositories connected.")
                     .font(.caption)
@@ -97,12 +115,31 @@ struct TeamRepositoriesSection: View {
             // entry point); hidden for non-owners with zero installations.
             if let github, (!github.installations.isEmpty || isOwner) {
                 githubStatusLine(github)
-            }
-
-            if let errorText {
-                Text(errorText)
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
+            } else if github == nil, githubLoadFailed, isOwner {
+                // The grant query failed and nothing was ever loaded — say so
+                // instead of silently hiding the connect entry point.
+                HStack(spacing: 8) {
+                    AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                        .foregroundStyle(.yellow.opacity(0.8))
+                    Text("Couldn't load the GitHub connection state.")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Spacer()
+                    Button {
+                        Task { await reload(refreshGithub: true) }
+                    } label: {
+                        Text("Retry")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .glassButton()
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .glassRow()
             }
         }
         .task(id: team?.id) { await reload() }
@@ -112,6 +149,14 @@ struct TeamRepositoriesSection: View {
         // (GithubRepoPicker parity).
         .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { _ in
             Task { await reload(refreshGithub: true) }
+        }
+        // Fallback when the deep link never arrives (external-browser install,
+        // swallowed handoff): returning to the foreground re-detects, same as
+        // GithubRepoPicker (EXP-365).
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await reload(refreshGithub: true) }
+            }
         }
         // Same picker + presentation as RepositorySelector's add-by-name path;
         // here the pick lands in the registry directly (repositories.add). The
@@ -225,20 +270,32 @@ struct TeamRepositoriesSection: View {
     // collapse into this one row.
     @ViewBuilder
     private func githubStatusLine(_ github: GithubReposResult) -> some View {
+        // Suspension outranks everything (REV2-29): a suspended installation
+        // mints no tokens and lists no repos, and a reconnect CANNOT fix it —
+        // only unsuspending on GitHub can. Never nudge the wrong fix.
+        let suspended = github.installations.filter { $0.isSuspended }
         // A linked installation with no captured grants yields zero repos until
         // the owner re-runs the OAuth connect (grant-model fail-closed state).
-        let needsReauth = github.installations.contains(where: { $0.needsReauth })
-        let logins = github.installations
-            .map { $0.accountLogin ?? "Installation \($0.installationId)" }
-            .joined(separator: ", ")
+        let reauthInstalls = github.installations.filter { $0.needsReauth && !$0.isSuspended }
+        let needsReauth = suspended.isEmpty && !reauthInstalls.isEmpty
+        let label: (GithubInstallation) -> String = { $0.accountLogin ?? "Installation \($0.installationId)" }
+        let logins = github.installations.map(label).joined(separator: ", ")
         let status: String = { () -> String in
             if !github.configured { return "GitHub isn't configured on this server." }
-            if needsReauth { return "Reconnect GitHub to refresh which repositories you can access." }
+            if !suspended.isEmpty {
+                return "GitHub suspended the Exponential app for \(suspended.map(label).joined(separator: ", ")) — unsuspend it on GitHub."
+            }
+            if needsReauth {
+                return "Reconnect GitHub to refresh which repositories you can access from \(reauthInstalls.map(label).joined(separator: ", "))."
+            }
             if github.installations.isEmpty { return "No GitHub account connected" }
             return "GitHub: \(logins)"
         }()
         HStack(spacing: 8) {
-            if github.configured, needsReauth {
+            if github.configured, !suspended.isEmpty {
+                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                    .foregroundStyle(.red.opacity(0.8))
+            } else if github.configured, needsReauth {
                 AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                     .foregroundStyle(.yellow.opacity(0.8))
             } else if github.configured, !github.installations.isEmpty {
@@ -249,14 +306,29 @@ struct TeamRepositoriesSection: View {
             Text(status)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .lineLimit(2)
+                .lineLimit(3)
             Spacer()
             // Owner-gated action: the connect hop always ends in the owner-only
             // team claim (assertCanManageRepos), so a member would dead-end on a
             // forbidden page — non-owners see just the status. Nothing to offer
             // when the server has no GitHub App at all.
             if isOwner, github.configured {
-                if (github.connectUrl ?? github.installUrl) != nil {
+                if !suspended.isEmpty {
+                    // Unsuspend happens on GitHub's installation settings page.
+                    if let url = URL(string: suspended[0].manageUrl) {
+                        Link(destination: url) {
+                            HStack(spacing: 4) {
+                                AppIcon(AppIcons.uiExternalLink, size: 11)
+                                Text("Manage")
+                                    .font(.caption.weight(.medium))
+                            }
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .glassButton()
+                        }
+                    }
+                } else if (github.connectUrl ?? github.installUrl) != nil {
                     Button {
                         openConnect(github)
                     } label: {
@@ -326,29 +398,41 @@ struct TeamRepositoriesSection: View {
         defer { loading = false }
         do {
             repos = try await repositoriesApi.list(accountId: accountId, teamId: teamId)
-            errorText = nil
+            // Only the LOAD error clears here — a mutation failure set by
+            // `mutate` must survive its own post-mutation reload (EXP-365:
+            // failed adds were wiped after one round-trip).
+            loadErrorText = nil
         } catch {
-            errorText = error.trpcUserMessage
+            loadErrorText = error.trpcUserMessage
         }
-        // Non-fatal: the grant state only powers the reconnect notice. Bypass
-        // the server's repo cache right after a reconnect hop.
-        github = try? await integrationsApi.githubRepos(
-            accountId: accountId,
-            teamId: teamId,
-            refresh: refreshGithub
-        )
+        // Non-fatal: the grant state only powers the reconnect notice + connect
+        // button. Keep the previous value on failure — nilling it hid the
+        // whole GitHub surface with no message. Bypass the server's repo cache
+        // right after a reconnect hop.
+        do {
+            github = try await integrationsApi.githubRepos(
+                accountId: accountId,
+                teamId: teamId,
+                refresh: refreshGithub
+            )
+            githubLoadFailed = false
+        } catch {
+            githubLoadFailed = true
+        }
     }
 
     private func mutate(_ operation: () async throws -> Void) async {
+        errorText = nil
         do {
             try await operation()
-            errorText = nil
             // Registry changed — drop the per-team name cache used by chips.
             if let teamId = team?.id {
                 RepositoryDirectory.invalidate(accountId: accountId, teamId: teamId)
             }
         } catch {
-            // Surfaces the server CONFLICT ("repository backs N boards") message.
+            // Surfaces the server message (add FORBIDDEN/PRECONDITION_FAILED,
+            // remove CONFLICT "repository backs N boards"). Stays visible
+            // through the reload below.
             errorText = error.trpcUserMessage
         }
         removeTarget = nil

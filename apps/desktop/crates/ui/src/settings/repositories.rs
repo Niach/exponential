@@ -468,16 +468,62 @@ fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl Int
             }));
     }
 
+    // Suspension outranks reconnect (REV2-29): a suspended installation mints
+    // no tokens and lists no repos, and a reconnect CANNOT fix it — only
+    // unsuspending on GitHub can. Never nudge the wrong fix (EXP-365).
+    let suspended: Vec<&crate::github_connect::GithubInstallation> = status
+        .installations
+        .iter()
+        .filter(|inst| inst.suspended)
+        .collect();
+    if !suspended.is_empty() {
+        let names = suspended
+            .iter()
+            .map(|inst| inst.label())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let manage_url = suspended
+            .first()
+            .map(|inst| inst.manage_url.clone())
+            .filter(|url| !url.is_empty())
+            .or_else(|| status.install_url.clone());
+        return row
+            .child(
+                Icon::new(registry::UI_WARNING)
+                    .xsmall()
+                    .text_color(cx.theme().danger),
+            )
+            .child(format!(
+                "GitHub suspended the Exponential app for {names} — unsuspend it on GitHub."
+            ))
+            .children(manage_url.map(|url| {
+                Button::new("gh-unsuspend")
+                    .outline()
+                    .xsmall()
+                    .label("Manage")
+                    .on_click(move |_, _, cx| open_url(cx, url.clone()))
+            }));
+    }
+
     // A linked installation whose per-user repo grants were never captured
-    // lists no repos until the user re-runs the OAuth connect.
-    if status.installations.iter().any(|inst| inst.needs_reauth) {
+    // lists no repos until the user re-runs the OAuth connect. Name the
+    // stale accounts so the fix is actionable with several linked (EXP-365).
+    if status
+        .installations
+        .iter()
+        .any(|inst| inst.needs_reauth && !inst.suspended)
+    {
+        let suffix =
+            crate::github_connect::reauth_account_suffix(&status.installations, "from");
         return row
             .child(
                 Icon::new(registry::UI_WARNING)
                     .xsmall()
                     .text_color(theme::tokens::YELLOW.to_hsla()),
             )
-            .child("Reconnect GitHub to refresh which repositories you can access.")
+            .child(format!(
+                "Reconnect GitHub to refresh which repositories you can access{suffix}."
+            ))
             .children(connect_url.map(|url| {
                 Button::new("gh-reconnect")
                     .ghost()

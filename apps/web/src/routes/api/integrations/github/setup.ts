@@ -99,14 +99,18 @@ export async function handleSetup(request: Request): Promise<Response> {
       // to prove control. The direct link survives ONLY as the self-hosted
       // fallback for instances with no OAuth client secret (single-tenant,
       // trusted), which have no other link path.
-      if (claim?.teamId && sessionUserId && row) {
+      // `claim.userId` is the acting user: the session user when a session
+      // exists, or the state-proven initiator for cookie-less mobile flows
+      // (native clients are bearer-only — consumeGithubSetupState's mobile
+      // exception, EXP-365).
+      if (claim?.teamId && row) {
         if (githubOAuthConfigured()) {
           // Refresh caches for any team already legitimately linked to
           // this installation (setup_action=update grants/revokes repos), then
           // bounce into the proof-of-control OAuth flow instead of linking.
           await invalidateRepoCacheForInstallation(installationId)
           const oauthUrl = githubOAuthAuthorizeUrl(
-            mintGithubSetupState(sessionUserId, {
+            mintGithubSetupState(claim.userId, {
               dialog: fromDialog,
               mobile: fromMobile,
               teamId: claim.teamId,
@@ -125,13 +129,13 @@ export async function handleSetup(request: Request): Promise<Response> {
           // Self-hosted fallback (no OAuth client secret ⇒ no proof-of-control
           // path exists). Single-tenant/trusted only.
           try {
-            await assertCanManageRepos(sessionUserId, claim.teamId)
+            await assertCanManageRepos(claim.userId, claim.teamId)
             await db
               .insert(githubInstallationLinks)
               .values({
                 teamId: claim.teamId,
                 githubInstallationId: row.id,
-                createdByUserId: sessionUserId,
+                createdByUserId: claim.userId,
               })
               .onConflictDoNothing()
             invalidateRepoCache(claim.teamId)

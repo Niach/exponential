@@ -118,13 +118,23 @@ export function githubSetupStateWantsMobile(state: string | null): boolean {
 // `expectOauth` pins the token's purpose: an install-flow state can't be
 // replayed against the OAuth callback (or vice versa) — the two callbacks
 // create team links under different proofs of control.
+//
+// MOBILE exception (EXP-365): a state minted with `m: true` is accepted with
+// NO browser session, acting as its embedded user. Native clients are
+// bearer-only (no cookie jar the system browser shares), so requiring a
+// cookie session stranded every natively-authenticated user on a login wall
+// inside the in-app browser tab. The state itself is the capability there:
+// it is minted only over an authenticated tRPC call, HMAC-signed,
+// single-use, and short-TTL — equivalent to the OAuth-standard signed state
+// pattern. A PRESENT session that mismatches the state still rejects (someone
+// else's browser), and web-minted states keep requiring state ∧ session.
 export function consumeGithubSetupState(
   state: string | null,
   sessionUserId: string | null,
   opts?: { expectOauth?: boolean },
   now: number = Date.now()
 ): { userId: string; teamId: string | null } | null {
-  if (!state || !sessionUserId) return null
+  if (!state) return null
   const key = secret()
   if (!key) return null
   const dot = state.lastIndexOf(`.`)
@@ -138,7 +148,11 @@ export function consumeGithubSetupState(
   const payload = decodePayload(state)
   if (!payload) return null
   if (payload.exp <= now) return null
-  if (payload.u !== sessionUserId) return null
+  if (sessionUserId) {
+    if (payload.u !== sessionUserId) return null
+  } else if (payload.m !== true) {
+    return null
+  }
   if ((payload.o === true) !== (opts?.expectOauth === true)) return null
   pruneConsumedNonces(now)
   if (consumedNonces.has(payload.n)) return null

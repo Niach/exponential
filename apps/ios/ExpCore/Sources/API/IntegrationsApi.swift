@@ -47,6 +47,10 @@ public struct GithubStatusResult: Decodable, Sendable {
 /// whose per-user repo grants were never captured (linked before the grant
 /// model existed) — it yields zero repos until a member re-runs the OAuth
 /// connect hop (`connectUrl`; the install page does NOT re-capture grants).
+/// `suspended` marks a GitHub-side App suspension (REV2-29): the installation
+/// lists no repos and mints no tokens until it's UNSUSPENDED on GitHub — a
+/// reconnect cannot fix it, so the UI must never nudge one. Optional so
+/// servers predating the field decode as "not suspended".
 /// `hasMore` exists only on the `repos` endpoint (nil on `status`).
 public struct GithubInstallation: Decodable, Sendable, Identifiable {
     public var id: Int { installationId }
@@ -55,7 +59,11 @@ public struct GithubInstallation: Decodable, Sendable, Identifiable {
     public let accountType: String?
     public let manageUrl: String
     public let needsReauth: Bool
+    public let suspended: Bool?
     public let hasMore: Bool?
+
+    /// Suspension with the servers-predating-the-field default applied.
+    public var isSuspended: Bool { suspended ?? false }
 }
 
 /// One repo the user's GitHub App can connect (mirrors web `InstallationRepo`).

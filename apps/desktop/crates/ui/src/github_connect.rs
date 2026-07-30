@@ -35,8 +35,9 @@ use serde::{Deserialize, Serialize};
 
 /// One linked GitHub-App installation — `installations[]` on both the status
 /// and repos results. `needs_reauth` is the grant-model signal (see the
-/// module doc); the other fields are modeled for contract completeness but
-/// not consumed yet.
+/// module doc); `suspended` is a GitHub-side App suspension (REV2-29): the
+/// installation lists no repos and mints no tokens until it's UNSUSPENDED on
+/// GitHub — a reconnect cannot fix it, so the UI must never nudge one.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -51,10 +52,40 @@ pub(crate) struct GithubInstallation {
     pub manage_url: String,
     #[serde(default)]
     pub needs_reauth: bool,
+    #[serde(default)]
+    pub suspended: bool,
     /// Only present on the `repos` endpoint's installations (whether that
     /// installation's repo listing was truncated).
     #[serde(default)]
     pub has_more: Option<bool>,
+}
+
+impl GithubInstallation {
+    /// The account's display label ("@login" without the @) for banners.
+    pub(crate) fn label(&self) -> String {
+        self.account_login
+            .clone()
+            .unwrap_or_else(|| format!("installation {}", self.installation_id))
+    }
+}
+
+/// " from a, b" naming the stale (needs-reauth, non-suspended) accounts —
+/// names make the reconnect actionable when several accounts are linked
+/// (EXP-365). Empty when none are known.
+pub(crate) fn reauth_account_suffix(
+    installations: &[GithubInstallation],
+    preposition: &str,
+) -> String {
+    let names: Vec<String> = installations
+        .iter()
+        .filter(|inst| inst.needs_reauth && !inst.suspended)
+        .filter_map(|inst| inst.account_login.clone())
+        .collect();
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!(" {preposition} {}", names.join(", "))
+    }
 }
 
 /// `integrations.github.status` (per-team App install state). Unknown

@@ -124,9 +124,12 @@ struct GithubRepoPicker: View {
         }
         VStack(alignment: .leading, spacing: 8) {
             if data.repos.isEmpty {
-                reconnectEmptyState(data)
+                emptyState(data)
             } else {
-                if data.installations.contains(where: { $0.needsReauth }) {
+                if data.installations.contains(where: { $0.isSuspended }) {
+                    suspendedNotice(data)
+                }
+                if data.installations.contains(where: { $0.needsReauth && !$0.isSuspended }) {
                     reconnectNotice(data)
                 }
 
@@ -178,33 +181,68 @@ struct GithubRepoPicker: View {
         }
     }
 
-    // Fail-closed grant state: installed but zero repos — either the team
-    // was linked before per-user grants existed (`needsReauth`) or the last
-    // connect captured nothing. Reconnecting re-captures the user's grants
-    // either way; without this the picker used to dead-end.
-    @ViewBuilder private func reconnectEmptyState(_ data: GithubReposResult) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Reconnect GitHub to load the repositories you can access.")
+    // Installed but zero repos — three DISTINCT states (EXP-365, web parity):
+    // a suspended installation needs an UNSUSPEND on GitHub (a reconnect
+    // cannot fix it — never nudge the wrong fix), a needs-reauth one needs the
+    // OAuth reconnect, and an account that genuinely has no reachable repos
+    // needs neither.
+    @ViewBuilder private func emptyState(_ data: GithubReposResult) -> some View {
+        let suspended = data.installations.filter { $0.isSuspended }
+        let needsReauth = data.installations.contains { $0.needsReauth && !$0.isSuspended }
+        if !suspended.isEmpty {
+            suspendedNotice(data)
+        } else if needsReauth {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Reconnect GitHub to load the repositories you can access\(reauthAccountSuffix(data)).")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Button {
+                    openConnect(data)
+                } label: {
+                    HStack(spacing: 6) {
+                        AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.medium)
+                        Text("Reconnect GitHub")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } else {
+            Text("No repositories found for your connected GitHub accounts.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Button {
-                openConnect(data)
-            } label: {
-                HStack(spacing: 6) {
-                    AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.medium)
-                    Text("Reconnect GitHub")
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
         }
+    }
+
+    // GitHub-side App suspension (REV2-29): the installation lists no repos
+    // and mints no tokens until it's unsuspended on GitHub.
+    @ViewBuilder private func suspendedNotice(_ data: GithubReposResult) -> some View {
+        let names = data.installations
+            .filter { $0.isSuspended }
+            .map { $0.accountLogin ?? "a connected account" }
+            .joined(separator: ", ")
+        Text("GitHub suspended the Exponential app for \(names) — its repositories can't be connected until you unsuspend it on GitHub.")
+            .font(.caption)
+            .foregroundStyle(.red.opacity(0.8))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+    }
+
+    // " from a, b" when the stale accounts are known — names make the fix
+    // actionable when several accounts are linked.
+    private func reauthAccountSuffix(_ data: GithubReposResult, preposition: String = "from") -> String {
+        let names = data.installations
+            .filter { $0.needsReauth && !$0.isSuspended }
+            .compactMap { $0.accountLogin }
+        return names.isEmpty ? "" : " \(preposition) \(names.joined(separator: ", "))"
     }
 
     // A linked account whose grants were never captured — its repos are missing
     // from the (non-empty) list until the user reconnects.
     @ViewBuilder private func reconnectNotice(_ data: GithubReposResult) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Reconnect GitHub to refresh — repos created or shared with you since your last connect won't appear until you do.")
+            Text("Reconnect GitHub\(reauthAccountSuffix(data, preposition: "for")) to refresh — repos created or shared with you since your last connect won't appear until you do.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Button {

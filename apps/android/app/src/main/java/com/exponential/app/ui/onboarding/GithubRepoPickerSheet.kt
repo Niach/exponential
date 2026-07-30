@@ -123,6 +123,12 @@ fun GithubRepoPickerSheet(
                         onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
                     )
                 }
+                // A suspended installation lists no repos AND cannot be fixed by
+                // a reconnect (REV2-29) — only unsuspending on GitHub can. Say
+                // so instead of nudging the wrong fix (EXP-365).
+                data.repos.isEmpty() && data.installations.any { it.suspended } -> item(key = "suspended") {
+                    SuspendedNotice(data)
+                }
                 // Grant-scoped repos (see GithubInstallation): a pre-grant link —
                 // or one whose grants were revoked — is `installed` but returns no
                 // repos until the user re-runs the OAuth connect, so an empty list
@@ -130,15 +136,25 @@ fun GithubRepoPickerSheet(
                 // dead-end. (A stale single account always lands here.) When SOME
                 // repos are granted but another account is stale, the list stays
                 // usable and the reconnect notice rides above it as a banner.
-                data.repos.isEmpty() -> item(key = "reconnect") {
+                data.repos.isEmpty() && data.installations.any { it.needsReauth && !it.suspended } -> item(key = "reconnect") {
                     ConnectPrompt(
                         data = data,
-                        message = "Reconnect GitHub to load the repositories you can access.",
+                        message = "Reconnect GitHub to load the repositories you can access" +
+                            reauthAccountSuffix(data) + ".",
                         buttonLabel = "Reconnect GitHub",
                         buttonIcon = ExpIcons.uiRefresh,
                         // The reconnect hop returns here and re-queries by itself;
                         // only the not-installed state keeps a manual escape hatch.
                         onRefresh = null,
+                    )
+                }
+                // Honestly empty: connected, granted, but no reachable repos.
+                data.repos.isEmpty() -> item(key = "empty") {
+                    Text(
+                        "No repositories found for your connected GitHub accounts.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
                 else -> installedRepoItems(
@@ -148,10 +164,13 @@ fun GithubRepoPickerSheet(
                     onPick = { onPick(it); onDismiss() },
                 )
             }
-            if (error != null && data == null) {
+            // Surfaced even with stale data on screen (EXP-365): the re-query
+            // that runs on every return from the GitHub hop used to fail
+            // silently, leaving an unexplained stale/short list.
+            if (error != null) {
                 item(key = "error") {
                     Text(
-                        error ?: "",
+                        if (result == null) error ?: "" else "Couldn't refresh: ${error ?: ""}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -183,6 +202,30 @@ private fun NotConfigured() {
         "GitHub isn't configured on this server, so repositories can't be connected.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        modifier = Modifier.padding(vertical = 8.dp),
+    )
+}
+
+// " from a, b" when the stale accounts are known — names make the fix
+// actionable when several accounts are linked (EXP-365).
+private fun reauthAccountSuffix(data: GithubReposResult, preposition: String = "from"): String {
+    val names = data.installations
+        .filter { it.needsReauth && !it.suspended }
+        .mapNotNull { it.accountLogin }
+    return if (names.isEmpty()) "" else " $preposition ${names.joinToString(", ")}"
+}
+
+// GitHub-side App suspension (REV2-29): unsuspend on GitHub is the only fix.
+@Composable
+private fun SuspendedNotice(data: GithubReposResult) {
+    val names = data.installations
+        .filter { it.suspended }
+        .joinToString(", ") { it.accountLogin ?: "a connected account" }
+    Text(
+        "GitHub suspended the Exponential app for $names — its repositories " +
+            "can't be connected until you unsuspend it on GitHub.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.error,
         modifier = Modifier.padding(vertical = 8.dp),
     )
 }
@@ -247,10 +290,15 @@ private fun LazyListScope.installedRepoItems(
     val filtered = data.repos.filter {
         query.isBlank() || it.fullName.contains(query.trim(), ignoreCase = true)
     }
+    // A suspended account contributes zero repos while the rest of the list
+    // stays usable — explain why those repos are missing (EXP-365).
+    if (data.installations.any { it.suspended }) {
+        item(key = "suspended-banner") { SuspendedNotice(data) }
+    }
     // Mixed-grant 2+-account case: some repos are granted (so the list stays
     // usable) but another linked account is stale — a small banner nudges a
     // reconnect without hiding the selectable repos.
-    if (data.installations.any { it.needsReauth }) {
+    if (data.installations.any { it.needsReauth && !it.suspended }) {
         item(key = "reconnect-banner") {
             val context = LocalContext.current
             val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -263,7 +311,8 @@ private fun LazyListScope.installedRepoItems(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 Text(
-                    "Reconnect GitHub to refresh — repos created or shared with you since " +
+                    "Reconnect GitHub" + reauthAccountSuffix(data, preposition = "for") +
+                        " to refresh — repos created or shared with you since " +
                         "your last connect won't appear until you do.",
                     style = MaterialTheme.typography.bodySmall,
                     color = secondary,

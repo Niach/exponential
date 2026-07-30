@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -386,9 +387,25 @@ private fun RepositoriesSection(
     var showAddRepo by remember { mutableStateOf(false) }
     val github = state.github
     val installations = github?.installations.orEmpty()
-    val needsReauth = installations.any { it.needsReauth }
+    // Suspension outranks reconnect (REV2-29): a suspended installation mints
+    // no tokens and lists no repos, and a reconnect CANNOT fix it — only
+    // unsuspending on GitHub can. Never nudge the wrong fix (EXP-365).
+    val suspended = installations.filter { it.suspended }
+    val reauthInstalls = installations.filter { it.needsReauth && !it.suspended }
+    val needsReauth = suspended.isEmpty() && reauthInstalls.isNotEmpty()
     val configured = github != null && github.configured
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+
+    // Resume-refresh fallback (EXP-365): if the exponential://github-connected
+    // deep link never arrives (older server, swallowed handoff, user closed the
+    // Custom Tab), returning to this screen still re-detects. First composition
+    // is covered by the ViewModel's initial load — skip it.
+    var hasResumed by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        if (hasResumed) viewModel.refreshGithub()
+        hasResumed = true
+        onPauseOrDispose {}
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Header row: title + repo count + a compact "Add repository" button
@@ -460,7 +477,15 @@ private fun RepositoriesSection(
                     .glassRow()
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
-                if (configured && needsReauth) {
+                if (configured && suspended.isNotEmpty()) {
+                    Icon(
+                        ExpIcons.uiWarning,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = Color(0xFFEF4444),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                } else if (configured && needsReauth) {
                     Icon(
                         ExpIcons.uiWarning,
                         contentDescription = null,
@@ -472,14 +497,20 @@ private fun RepositoriesSection(
                     Box(Modifier.size(8.dp).background(Color(0xFF22C55E), CircleShape))
                     Spacer(Modifier.width(8.dp))
                 }
+                val label: (com.exponential.app.data.api.GithubInstallation) -> String =
+                    { it.accountLogin ?: "Installation ${it.installationId}" }
                 Text(
                     when {
                         !configured -> "GitHub isn't configured on this server."
-                        needsReauth -> "Reconnect GitHub to refresh which repositories you can access."
+                        suspended.isNotEmpty() ->
+                            "GitHub suspended the Exponential app for " +
+                                suspended.joinToString(", ", transform = label) +
+                                " — unsuspend it on GitHub."
+                        needsReauth ->
+                            "Reconnect GitHub to refresh which repositories you can access from " +
+                                reauthInstalls.joinToString(", ", transform = label) + "."
                         installations.isEmpty() -> "No GitHub account connected"
-                        else -> "GitHub: " + installations.joinToString(", ") {
-                            it.accountLogin ?: "Installation ${it.installationId}"
-                        }
+                        else -> "GitHub: " + installations.joinToString(", ", transform = label)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -490,7 +521,18 @@ private fun RepositoriesSection(
                 // to offer when the server has no GitHub App at all.
                 if (isOwner && configured) {
                     Spacer(Modifier.width(8.dp))
-                    if (connectUrl != null) {
+                    if (suspended.isNotEmpty()) {
+                        // Unsuspend happens on GitHub's installation settings
+                        // page — never offer the (useless) reconnect here.
+                        GlassPillButton(
+                            label = "Manage",
+                            icon = ExpIcons.uiExternalLink,
+                            onClick = {
+                                CustomTabsIntent.Builder().build()
+                                    .launchUrl(context, Uri.parse(suspended.first().manageUrl))
+                            },
+                        )
+                    } else if (connectUrl != null) {
                         GlassPillButton(
                             label = when {
                                 needsReauth -> "Reconnect"

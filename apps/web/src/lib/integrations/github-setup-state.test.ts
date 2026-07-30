@@ -32,6 +32,33 @@ describe(`github setup state token`, () => {
     expect(consumeGithubSetupState(state!, null)).toBeNull()
   })
 
+  it(`MOBILE exception: a mobile-minted state consumes with no session as its embedded user`, () => {
+    // Native clients are bearer-only — the browser hop carries no cookie
+    // session, and the signed single-use state is the capability (EXP-365).
+    const state = mintGithubSetupState(`user-1`, { mobile: true })!
+    expect(consumeGithubSetupState(state, null)).toEqual({
+      userId: `user-1`,
+      teamId: null,
+    })
+    // Still single-use on the sessionless path.
+    expect(consumeGithubSetupState(state, null)).toBeNull()
+  })
+
+  it(`the mobile exception never overrides a PRESENT mismatching session`, () => {
+    const state = mintGithubSetupState(`victim`, { mobile: true })!
+    expect(consumeGithubSetupState(state, `attacker`)).toBeNull()
+  })
+
+  it(`a web-minted state still requires a session`, () => {
+    const state = mintGithubSetupState(`user-1`, { teamId: `ws-9` })!
+    expect(consumeGithubSetupState(state, null)).toBeNull()
+    // Refusal did not burn the nonce — a signed-in retry still works.
+    expect(consumeGithubSetupState(state, `user-1`)).toEqual({
+      userId: `user-1`,
+      teamId: `ws-9`,
+    })
+  })
+
   it(`refuses a missing or unsigned state`, () => {
     expect(consumeGithubSetupState(null, `user-1`)).toBeNull()
     expect(consumeGithubSetupState(`dialog`, `user-1`)).toBeNull()

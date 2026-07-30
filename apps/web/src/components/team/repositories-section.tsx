@@ -4,6 +4,7 @@ import {
   TriangleAlert,
   ExternalLink,
   Github,
+  LoaderCircle,
   Lock,
   Sparkles,
   Trash2,
@@ -34,6 +35,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -64,6 +66,14 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
   // Set when the last failure was a plan cap (PRECONDITION_FAILED from
   // lib/billing.ts) — renders the inline upgrade nudge instead of a bare error.
   const [limitError, setLimitError] = useState<string | null>(null)
+  // The Add-repository dialog's own state (EXP-365): picking a row only
+  // SELECTS it; the footer button connects, and failures render inside the
+  // still-open dialog instead of a card-level box behind it.
+  const [pendingRepo, setPendingRepo] = useState<PickerRepo | null>(null)
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const [connectLimitError, setConnectLimitError] = useState<string | null>(
+    null
+  )
 
   // The GitHub accounts (App installations) linked to THIS team — drives
   // the status line. Linking happens via the OAuth claim flow (connectUrl)
@@ -140,25 +150,48 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
     }
   }
 
-  const handleConnect = (picked: PickerRepo) =>
-    run(async () => {
-      try {
-        await trpc.repositories.add.mutate(
-          {
-            teamId,
-            fullName: picked.fullName,
-            defaultBranch: picked.defaultBranch,
-            private: picked.private,
-          },
-          // Failures render inline below (plan-limit nudge or error box);
-          // the global mutation-error toast would be redundant noise.
-          { context: { skipErrorToast: true } }
-        )
-      } finally {
-        // Close the picker either way so the inline nudge/error is visible.
-        setConnectOpen(false)
+  const handleConnectOpenChange = (open: boolean) => {
+    setConnectOpen(open)
+    if (!open) {
+      setPendingRepo(null)
+      setConnectError(null)
+      setConnectLimitError(null)
+    }
+  }
+
+  const handleAdd = async () => {
+    if (!pendingRepo || busy) return
+    setBusy(true)
+    setConnectError(null)
+    setConnectLimitError(null)
+    try {
+      await trpc.repositories.add.mutate(
+        {
+          teamId,
+          fullName: pendingRepo.fullName,
+          defaultBranch: pendingRepo.defaultBranch,
+          private: pendingRepo.private,
+        },
+        // Failures render inline in the dialog; the global mutation-error
+        // toast would be redundant noise.
+        { context: { skipErrorToast: true } }
+      )
+      // Close ONLY on success — a failure keeps the dialog (and its error)
+      // in front of the user instead of silently vanishing (EXP-365).
+      handleConnectOpenChange(false)
+      await refresh()
+      await refreshGithubStatus()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (isPlanLimitError(err)) {
+        setConnectLimitError(message)
+      } else {
+        setConnectError(message)
       }
-    })
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const handleUnlink = (installationId: number) =>
     run(() =>
@@ -259,16 +292,53 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
         </CardContent>
       </Card>
 
-      <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
-        <DialogContent>
+      <Dialog open={connectOpen} onOpenChange={handleConnectOpenChange}>
+        {/* overflow-hidden overrides the base DialogContent's own scroller so
+            the repo list is the ONE scroll container — the nested-scroller
+            combo let cmdk's autofocus shove the header off-screen (EXP-365). */}
+        <DialogContent className="overflow-hidden">
           <DialogHeader>
             <DialogTitle>Add repository</DialogTitle>
           </DialogHeader>
           <GithubRepoPicker
             teamId={teamId}
-            onSelect={handleConnect}
+            onSelect={setPendingRepo}
+            selectedFullName={pendingRepo?.fullName ?? null}
+            listClassName="max-h-[min(20rem,40dvh)]"
             variant="plain"
           />
+          {connectError && (
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {connectError}
+            </div>
+          )}
+          {connectLimitError && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">{connectLimitError}</span>
+              {teamSlug && (
+                <Button asChild size="sm" variant="outline">
+                  <Link
+                    to="/t/$teamSlug/settings/billing"
+                    params={{ teamSlug }}
+                    hash="plans"
+                  >
+                    Upgrade
+                  </Link>
+                </Button>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button disabled={!pendingRepo || busy} onClick={handleAdd}>
+              {busy ? (
+                <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Github className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Add repository
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -387,54 +457,64 @@ function GithubStatusLine({
     )
   }
 
-  if (installations.some((inst) => inst.needsReauth)) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-        <span className="min-w-0 flex-1">
-          Reconnect GitHub to refresh which repositories you can access.
+  // The account line ALWAYS renders when installed (EXP-365): it carries the
+  // per-account unlink ✕ — the only affordance that can remove a stale link,
+  // which is exactly what a permanent reconnect warning needs. The warning is
+  // an ADDITIONAL line naming the offending accounts, never a replacement.
+  const needingReauth = installations.filter((inst) => inst.needsReauth)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        {needingReauth.length > 0 ? (
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        ) : (
+          <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
+        )}
+        <span className="min-w-0 flex-1 text-muted-foreground">
+          GitHub:{` `}
+          {installations.map((inst, index) => (
+            <span key={inst.installationId}>
+              <span className="group/login inline-flex items-center text-foreground">
+                {installationLabel(inst)}
+                {canUnlink && (
+                  // Zero-width until hover/keyboard focus so the resting line
+                  // reads as plain "GitHub: a, b" with no gaps.
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-4 w-0 overflow-hidden p-0 opacity-0 group-hover/login:ml-0.5 group-hover/login:w-4 group-hover/login:opacity-100 focus-visible:ml-0.5 focus-visible:w-4 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
+                    disabled={busy}
+                    onClick={() => onUnlink(inst.installationId)}
+                    title="Disconnect this GitHub account from the team"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </span>
+              {index < installations.length - 1 && `, `}
+            </span>
+          ))}
         </span>
         {connectHopUrl && (
-          <Button size="sm" variant="outline" onClick={onConnect}>
-            Reconnect
+          <Button size="sm" variant="ghost" onClick={onConnect}>
+            Manage
           </Button>
         )}
       </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
-      <span className="min-w-0 flex-1 text-muted-foreground">
-        GitHub:{` `}
-        {installations.map((inst, index) => (
-          <span key={inst.installationId}>
-            <span className="group/login inline-flex items-center text-foreground">
-              {installationLabel(inst)}
-              {canUnlink && (
-                // Zero-width until hover/keyboard focus so the resting line
-                // reads as plain "GitHub: a, b" with no gaps.
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-4 w-0 overflow-hidden p-0 opacity-0 group-hover/login:ml-0.5 group-hover/login:w-4 group-hover/login:opacity-100 focus-visible:ml-0.5 focus-visible:w-4 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
-                  disabled={busy}
-                  onClick={() => onUnlink(inst.installationId)}
-                  title="Disconnect this GitHub account from the team"
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              )}
-            </span>
-            {index < installations.length - 1 && `, `}
+      {needingReauth.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span className="w-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">
+            Reconnect GitHub to refresh which repositories you can access
+            {` `}from {needingReauth.map(installationLabel).join(`, `)}.
           </span>
-        ))}
-      </span>
-      {connectHopUrl && (
-        <Button size="sm" variant="ghost" onClick={onConnect}>
-          Manage
-        </Button>
+          {connectHopUrl && (
+            <Button size="sm" variant="outline" onClick={onConnect}>
+              Reconnect
+            </Button>
+          )}
+        </div>
       )}
     </div>
   )

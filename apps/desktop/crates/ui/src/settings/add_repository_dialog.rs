@@ -274,9 +274,23 @@ impl AddRepositoryDialogView {
             .child(message)
     }
 
+    fn message_owned(&self, message: String, cx: &gpui::App) -> impl IntoElement {
+        div()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child(SharedString::from(message))
+    }
+
     /// The amber "your grant snapshot is stale" banner above a list that still
     /// has rows — the repos are pickable, they're just possibly incomplete.
+    /// Names the stale accounts when known (EXP-365).
     fn reconnect_banner(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let suffix = match &self.load {
+            Load::Ready(result) => {
+                crate::github_connect::reauth_account_suffix(&result.installations, "for")
+            }
+            _ => String::new(),
+        };
         h_flex()
             .flex_wrap()
             .gap_2()
@@ -293,10 +307,10 @@ impl AddRepositoryDialogView {
                     .xsmall()
                     .text_color(theme::tokens::YELLOW.to_hsla()),
             )
-            .child(div().flex_1().min_w_0().child(
-                "Reconnect GitHub to refresh — repos created or shared with you since your \
-                 last connect won't appear until you do.",
-            ))
+            .child(div().flex_1().min_w_0().child(SharedString::from(format!(
+                "Reconnect GitHub{suffix} to refresh — repos created or shared with you \
+                 since your last connect won't appear until you do."
+            ))))
             .children(self.connect_button("add-repo-reconnect", "Reconnect GitHub"))
     }
 
@@ -348,6 +362,49 @@ impl AddRepositoryDialogView {
                 this.add(&repo_for_click, window, cx);
             }))
     }
+}
+
+/// GitHub-side App suspension (REV2-29): the installation lists no repos and
+/// mints no tokens until it's unsuspended ON GITHUB — pair the explanation
+/// with the manage hand-off, never a reconnect.
+fn suspended_notice(
+    installations: &[crate::github_connect::GithubInstallation],
+    cx: &gpui::App,
+) -> impl IntoElement {
+    let suspended: Vec<&crate::github_connect::GithubInstallation> =
+        installations.iter().filter(|inst| inst.suspended).collect();
+    let names = suspended
+        .iter()
+        .map(|inst| inst.label())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let manage_url = suspended
+        .first()
+        .map(|inst| inst.manage_url.clone())
+        .filter(|url| !url.is_empty());
+    h_flex()
+        .flex_wrap()
+        .gap_2()
+        .items_center()
+        .px_3()
+        .py_2()
+        .rounded(cx.theme().radius)
+        .border_1()
+        .border_color(row_stroke(cx))
+        .text_xs()
+        .text_color(cx.theme().danger)
+        .child(Icon::new(registry::UI_WARNING).xsmall())
+        .child(div().flex_1().min_w_0().child(SharedString::from(format!(
+            "GitHub suspended the Exponential app for {names} — its repositories can't \
+             be connected until you unsuspend it on GitHub."
+        ))))
+        .children(manage_url.map(|url| {
+            Button::new("add-repo-unsuspend")
+                .outline()
+                .xsmall()
+                .label("Manage")
+                .on_click(move |_, _, cx| open_url(cx, url.clone()))
+        }))
 }
 
 impl Render for AddRepositoryDialogView {
@@ -405,18 +462,48 @@ impl Render for AddRepositoryDialogView {
                     );
             }
             Load::Ready(result) if result.repos.is_empty() => {
-                // Installed but the per-user grant snapshot is missing/stale —
-                // the OAuth connect is what re-captures it.
-                body = body
-                    .child(
-                        self.message("Reconnect GitHub to load the repositories you can access.", cx),
-                    )
-                    .child(h_flex().children(
-                        self.connect_button("add-repo-reconnect-empty", "Reconnect GitHub"),
+                // Installed but zero repos — three DISTINCT states (EXP-365):
+                // a suspended installation needs an UNSUSPEND on GitHub (a
+                // reconnect cannot fix it — never nudge the wrong fix), a
+                // stale grant snapshot needs the OAuth reconnect, and an
+                // account with no reachable repos needs neither.
+                if result.installations.iter().any(|inst| inst.suspended) {
+                    body = body.child(suspended_notice(&result.installations, cx));
+                } else if result
+                    .installations
+                    .iter()
+                    .any(|inst| inst.needs_reauth && !inst.suspended)
+                {
+                    let suffix = crate::github_connect::reauth_account_suffix(
+                        &result.installations,
+                        "from",
+                    );
+                    body = body
+                        .child(self.message_owned(
+                            format!(
+                                "Reconnect GitHub to load the repositories you can access{suffix}."
+                            ),
+                            cx,
+                        ))
+                        .child(h_flex().children(
+                            self.connect_button("add-repo-reconnect-empty", "Reconnect GitHub"),
+                        ));
+                } else {
+                    body = body.child(self.message(
+                        "No repositories found for your connected GitHub accounts.",
+                        cx,
                     ));
+                }
             }
             Load::Ready(result) => {
-                if result.installations.iter().any(|inst| inst.needs_reauth) {
+                if result.installations.iter().any(|inst| inst.suspended) {
+                    body = body.child(suspended_notice(&result.installations, cx));
+                }
+                if result
+                    .installations
+                    .iter()
+                    .any(|inst| inst.needs_reauth && !inst.suspended)
+                {
                     body = body.child(self.reconnect_banner(cx));
                 }
                 let filter = self.query.read(cx).value().trim().to_lowercase();
