@@ -3,6 +3,7 @@ import { Sparkles, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -54,32 +55,34 @@ export function UpgradeDialog({
           </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        {canAdjustSeats && subscription && (
-          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
-            <p className="text-sm text-muted-foreground">
-              Your plan has {subscription.seats} seat
-              {subscription.seats === 1 ? `` : `s`} — add more without switching
-              plans.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="shrink-0"
-              onClick={() => setSeatDialogOpen(true)}
-            >
-              <Users className="mr-1.5 size-3.5" />
-              Adjust seats
-            </Button>
-          </div>
-        )}
+        <DialogBody className="space-y-4">
+          {canAdjustSeats && subscription && (
+            <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+              <p className="text-sm text-muted-foreground">
+                Your plan has {subscription.seats} seat
+                {subscription.seats === 1 ? `` : `s`} — add more without
+                switching plans.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => setSeatDialogOpen(true)}
+              >
+                <Users className="mr-1.5 size-3.5" />
+                Adjust seats
+              </Button>
+            </div>
+          )}
 
-        <PlanComparison
-          currentPlan={billingPlan?.plan ?? `free`}
-          teamProductId={teamProductId}
-          teamYearlyProductId={teamYearlyProductId}
-          teamId={teamId}
-          subscription={subscription}
-        />
+          <PlanComparison
+            currentPlan={billingPlan?.plan ?? `free`}
+            teamProductId={teamProductId}
+            teamYearlyProductId={teamYearlyProductId}
+            teamId={teamId}
+            subscription={subscription}
+          />
+        </DialogBody>
 
         {subscription && (
           <AdjustSeatsDialog

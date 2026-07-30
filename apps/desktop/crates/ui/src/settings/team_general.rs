@@ -26,7 +26,7 @@ use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::Navigation;
 
 use super::{
-    active_team, card_header, error_notice, is_owner, open_url, row_stroke, section,
+    active_team, card_title, error_notice, is_owner, open_url, row_stroke, section,
     show_team_chrome, team_delete_error_message,
 };
 use crate::icons::registry;
@@ -299,11 +299,7 @@ impl GeneralPane {
                 h_flex()
                     .items_center()
                     .gap_2()
-                    .child(card_header(
-                        "Plan & Billing",
-                        "Plan, seats, and usage — managed on the web.",
-                        cx,
-                    ))
+                    .child(card_title("Plan & Billing"))
                     .child(plan_chip),
             )
             .child(
@@ -446,7 +442,7 @@ impl Render for GeneralPane {
         let saving = self.saving;
 
         let mut general = section(cx)
-            .child(card_header("General", "Team name", cx))
+            .child(card_title("General"))
             .child(
                 v_flex()
                     .gap_1()

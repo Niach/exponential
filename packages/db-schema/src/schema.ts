@@ -1037,6 +1037,9 @@ export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
   // off (hourly) | daily — documented varchar (server-only logic, no native
   // picker). Defaults to the quieter daily digest.
   digest: varchar({ length: 16 }).notNull().default(`daily`),
+  // Local hour (0–23, full hours only) the DAILY digest goes out at, read in
+  // the user's `users.timezone`. Ignored by the legacy hourly (`off`) cadence.
+  digestHour: integer(`digest_hour`).notNull().default(8),
   // Stable per-user secret embedded in one-click List-Unsubscribe links.
   unsubscribeToken: varchar(`unsubscribe_token`, { length: 64 })
     .notNull()

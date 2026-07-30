@@ -573,10 +573,9 @@ impl Shell {
                         dock.set_panel(DockItem::panel(restored), window, cx);
                         // EXP-301: the OPEN state is deliberately NOT restored —
                         // a launch always comes up with the terminal collapsed
-                        // to its 29px strip. The panel restores with zero tabs,
-                        // so an open dock would immediately auto-spawn a shell
-                        // (`TerminalDockPanel::render`) — exactly the "terminals
-                        // in my face on startup" this issue removes.
+                        // to its 29px strip, so nothing terminal-shaped greets
+                        // the user (the restored panel has zero tabs; an open
+                        // dock would come up on EXP-369's empty-state cards).
                         dock.set_open(false, window, cx);
                     });
                 }

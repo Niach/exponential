@@ -121,6 +121,7 @@ export const notificationsRouter = router({
       emailEnabled: prefs.emailEnabled,
       typePrefs: prefs.typePrefs,
       digest: prefs.digest,
+      digestHour: prefs.digestHour,
       transportConfigured: emailEnabled,
       emailVerified: ctx.session.user.emailVerified === true,
       email: ctx.session.user.email,
@@ -133,6 +134,9 @@ export const notificationsRouter = router({
         emailEnabled: z.boolean().optional(),
         typePrefs: typePrefsSchema.optional(),
         digest: z.enum(digestValues).optional(),
+        // Local hour the daily digest goes out at — FULL HOURS only, so the
+        // 10-minute sweep can resolve every user's send point.
+        digestHour: z.number().int().min(0).max(23).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -141,6 +145,7 @@ export const notificationsRouter = router({
         emailEnabled: prefs.emailEnabled,
         typePrefs: prefs.typePrefs,
         digest: prefs.digest,
+        digestHour: prefs.digestHour,
         transportConfigured: emailEnabled,
       }
     }),

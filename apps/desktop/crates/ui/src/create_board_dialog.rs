@@ -23,9 +23,9 @@
 //! action; [`init`] owns the handler.
 
 use gpui::{
-    div, px, size, App, AppContext as _, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription,
-    Window,
+    div, px, size, App, AppContext as _, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -33,6 +33,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
+    scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use serde::{Deserialize, Serialize};
@@ -141,15 +142,19 @@ pub fn init(cx: &mut App) {
 /// Open the dialog for a team (a native window since EXP-284).
 pub fn open(window: &mut Window, cx: &mut App, team_id: String) {
     // Web sm:max-w-[26rem] width; the form is tall (icon grid + swatches +
-    // repo picker) — cap against the opener and let the shell scroll the
-    // rest. EXP-285: trimmed 680 → 560 (content-sized, scroll past the cap).
-    let height = (window.viewport_size().height * 0.85).min(px(560.));
+    // repo picker) — cap against the opener and scroll the body past the cap.
+    // EXP-369: 560 → 640 so the whole form fits on a typical screen; the
+    // pinned footer is what actually guarantees a reachable submit.
+    let height = (window.viewport_size().height * 0.85).min(px(640.));
     let spec = DialogSpec::new("Create board", size(px(416.), height));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| CreateBoardDialogView::new(team_id, false, window, cx));
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
+            // EXP-369: the view pins its own footer and scrolls only the form
+            // — the shell's wrapper would scroll "Create board" out of reach.
+            .self_scrolling()
             .can_close(move |cx| !busy.read(cx).submitting)
             .on_enter(move |window, cx| {
                 submit.update(cx, |view, cx| view.submit(window, cx));
@@ -192,6 +197,9 @@ pub struct CreateBoardDialogView {
     /// dialog, and the plan-limit hand-off renders inline.
     embedded: bool,
     focused_once: bool,
+    /// EXP-369: the scrolling form pane, so the footer can stay pinned.
+    /// Unused in `embedded` mode (the wizard column scrolls instead).
+    body_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -284,6 +292,7 @@ impl CreateBoardDialogView {
             grant_reconnect: false,
             embedded,
             focused_once: false,
+            body_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
         // Load the team's connected repos AND the installable GitHub-App
@@ -953,21 +962,66 @@ impl Render for CreateBoardDialogView {
             form = form.child(error_block);
         }
 
-        form.child(
-            h_flex().justify_end().child(
-                Button::new("create-board-submit")
-                    .primary()
-                    .small()
-                    .label(if self.submitting {
-                        "Creating..."
-                    } else {
-                        "Create board"
-                    })
-                    .disabled(disabled)
-                    .loading(self.submitting)
-                    .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
-            ),
-        )
+        let footer = h_flex().flex_shrink_0().justify_end().child(
+            Button::new("create-board-submit")
+                .primary()
+                .small()
+                .label(if self.submitting {
+                    "Creating..."
+                } else {
+                    "Create board"
+                })
+                .disabled(disabled)
+                .loading(self.submitting)
+                .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+        );
+
+        // Embedded (onboarding wizard): the host column owns the scrolling and
+        // has no definite height for `size_full` to resolve against — keep the
+        // button in flow there.
+        if self.embedded {
+            return form.child(footer.pt_1()).into_any_element();
+        }
+
+        // EXP-369: full-height column — the FORM scrolls, "Create board" is
+        // pinned to the dialog's bottom edge. Requires
+        // [`DialogContent::self_scrolling`] (set in [`open`]), which hands
+        // this root a definite-height box; without it the root collapses to
+        // its content height and the footer scrolls away again.
+        let body_scroll = self.body_scroll.clone();
+        v_flex()
+            .size_full()
+            .gap_3()
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        v_flex()
+                            .id("create-board-scroll")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&body_scroll)
+                            .child(form),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .child(Scrollbar::new(&body_scroll).axis(ScrollbarAxis::Vertical)),
+                    ),
+            )
+            .child(
+                footer
+                    .pt_3()
+                    .border_t_1()
+                    .border_color(cx.theme().border),
+            )
+            .into_any_element()
     }
 }
 

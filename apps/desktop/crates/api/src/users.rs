@@ -8,6 +8,10 @@
 //! - `users.listPersonalApiKeys()` → `{keys: [{id, name, start, prefix,
 //!   createdAt, lastRequest}]}`.
 //! - `users.revokePersonalApiKey({id})` → `{ok: true}`.
+//! - `users.timezone()` → `{timezone: string | null}` and
+//!   `users.setTimezone({timezone, onlyIfUnset?})` → `{saved}` (EXP-369) — the
+//!   IANA zone the daily digest's send hour is read in. SERVER-ONLY column
+//!   (never synced), so both go through tRPC.
 //!
 //! (Account deletion is deliberately web/mobile-only — EXP-69 removed the
 //! desktop flow, so there is no `users.deleteAccount` helper here.)
@@ -103,6 +107,49 @@ pub fn revoke_personal_api_key(trpc: &TrpcClient, id: &str) -> Result<(), ApiErr
         ok: bool,
     }
     let _: RevokeAck = trpc.mutation("users.revokePersonalApiKey", &RevokeInput { id })?;
+    Ok(())
+}
+
+/// `users.timezone` — query (GET). `None` = never captured; the digest sweep
+/// falls back to UTC for those accounts.
+pub fn users_timezone(trpc: &TrpcClient) -> Result<Option<String>, ApiError> {
+    #[derive(Deserialize)]
+    struct TimezoneResponse {
+        #[serde(default)]
+        timezone: Option<String>,
+    }
+    let response: TimezoneResponse = trpc.query("users.timezone")?;
+    Ok(response.timezone)
+}
+
+/// `users.setTimezone` — mutation. `only_if_unset` is the post-login claim
+/// (the server keeps an existing value); an explicit pick in settings sends
+/// `false`, which omits the flag entirely.
+pub fn users_set_timezone(
+    trpc: &TrpcClient,
+    timezone: &str,
+    only_if_unset: bool,
+) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        timezone: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        only_if_unset: Option<bool>,
+    }
+    #[derive(Deserialize)]
+    struct SetAck {
+        #[allow(dead_code)]
+        #[serde(default)]
+        saved: bool,
+    }
+    let _: SetAck = trpc.mutation(
+        "users.setTimezone",
+        &Input {
+            timezone,
+            only_if_unset: only_if_unset.then_some(true),
+        },
+    )?;
     Ok(())
 }
 
@@ -323,6 +370,34 @@ mod tests {
         assert_eq!(
             store.get("acct", SecretKind::PersonalApiKeyId).as_deref(),
             Some("key-1")
+        );
+    }
+
+    #[test]
+    fn timezone_query_uses_get_and_decodes_null() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"timezone":null}}}"#);
+        assert_eq!(users_timezone(&client(&base)).unwrap(), None);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/users.timezone HTTP/1.1"));
+    }
+
+    #[test]
+    fn set_timezone_omits_the_flag_unless_claiming() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"saved":true}}}"#);
+        users_set_timezone(&client(&base), "Europe/Berlin", false).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/users.setTimezone HTTP/1.1"));
+        assert!(request.ends_with(r#"{"timezone":"Europe/Berlin"}"#));
+    }
+
+    #[test]
+    fn set_timezone_claim_sends_camel_case_flag() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"saved":false}}}"#);
+        users_set_timezone(&client(&base), "America/New_York", true).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"timezone":"America/New_York","onlyIfUnset":true}"#)
         );
     }
 

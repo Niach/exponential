@@ -1,13 +1,15 @@
-// Push-first hourly email digest (item q). Push fires immediately when a
+// Push-first email digest (item q). Push fires immediately when a
 // notification is created (deliver() in integrations/notifications.ts); email
-// is the catch-up channel: this sweep finds notifications still UNREAD ~1h
-// after creation that were never emailed, bundles them into ONE digest email
-// per user, and stamps notifications.emailed_at. The pure gating/grouping
-// core lives in notification-email-policy.ts (planEmailDigest — unit-tested);
-// this module is the DB + transport shell plus the in-process scheduler
-// started from server-bun.ts.
+// is the catch-up channel: this sweep finds notifications still UNREAD that
+// were never emailed, bundles them into ONE digest email per user, and stamps
+// notifications.emailed_at. WHEN a user's bundle goes out is the plan's job:
+// `daily` fires at the user's local send hour (users.timezone +
+// user_notification_prefs.digest_hour), the legacy `off` cadence hourly. The
+// pure gating/grouping core lives in notification-email-policy.ts
+// (planEmailDigest — unit-tested); this module is the DB + transport shell
+// plus the in-process scheduler started from server-bun.ts.
 
-import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import {
@@ -27,8 +29,7 @@ import {
 import { emailEnabled } from "@/lib/email-enabled"
 import { getEmailPrefsMap } from "@/lib/notification-prefs"
 import {
-  DIGEST_MAX_AGE_MS,
-  DIGEST_MIN_UNREAD_AGE_MS,
+  DIGEST_SCAN_MAX_AGE_MS,
   appBaseUrl,
   buildIssueDeepLinkPath,
   buildSupportDeepLinkPath,
@@ -45,8 +46,9 @@ const notificationTeams = alias(teams, `notification_teams`)
 
 // Sweep cadence. Every sweep re-evaluates the pending set; the per-user
 // cadence gate inside planEmailDigest keeps actual emails at most ~hourly
-// (or ~daily), so a tighter sweep interval only reduces how far past the 1h
-// unread window delivery lands.
+// (or one per local send hour), so a tighter sweep interval only reduces how
+// far past a user's send point delivery lands. Send times are restricted to
+// FULL HOURS precisely so a 10-minute sweep resolves them.
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000
 const INITIAL_DELAY_MS = 60 * 1000
 // Per-sweep scan cap — a safety valve against pathological backlogs. Rows
@@ -69,12 +71,14 @@ export async function runEmailDigestSweep(
   now: Date = new Date()
 ): Promise<{ emailsSent: number; notificationsClaimed: number }> {
   // No transport → leave rows unclaimed, exactly like the reporter-resolution
-  // guard: configuring email later still digests anything inside the 24h
+  // guard: configuring email later still digests anything inside the
   // backstop window, and older rows age out naturally.
   if (!emailEnabled) return { emailsSent: 0, notificationsClaimed: 0 }
 
-  const minAgeCutoff = new Date(now.getTime() - DIGEST_MIN_UNREAD_AGE_MS)
-  const maxAgeFloor = new Date(now.getTime() - DIGEST_MAX_AGE_MS)
+  // The SQL floor is the WIDEST per-cadence backstop — the per-user age window
+  // (and the daily cadence's zero minimum age) is applied inside
+  // planEmailDigest, where the recipient's prefs are known.
+  const maxAgeFloor = new Date(now.getTime() - DIGEST_SCAN_MAX_AGE_MS)
 
   const rows = await db
     .select({
@@ -87,6 +91,8 @@ export async function runEmailDigestSweep(
       readAt: notifications.readAt,
       email: users.email,
       emailVerified: users.emailVerified,
+      // The clock the daily send hour is read in; NULL → UTC.
+      timezone: users.timezone,
       issueIdentifier: issues.identifier,
       teamSlug: teams.slug,
       boardSlug: boards.slug,
@@ -114,14 +120,13 @@ export async function runEmailDigestSweep(
       and(
         isNull(notifications.readAt),
         isNull(notifications.emailedAt),
-        lte(notifications.createdAt, minAgeCutoff),
         gt(notifications.createdAt, maxAgeFloor),
         // Trashed-board rows are hidden in-app for the 48h trash window
         // (REV-109) — guaranteed still-unread — and their deep links dead-end;
         // digesting them would email exactly what the trash window hides.
         // Leave them UNCLAIMED (filtered from the scan, not claim-only): a
-        // restore inside the 24h backstop lets them digest late, and a purge
-        // cascade-deletes them.
+        // restore inside the backstop window lets them digest late, and a
+        // purge cascade-deletes them.
         or(isNull(notifications.boardId), isNull(boards.deletedAt))
       )
     )
@@ -136,7 +141,7 @@ export async function runEmailDigestSweep(
   // can never be marked read in-app). Claim those outright so they don't
   // rescan forever. An UNVERIFIED address is different (REV2-52): it is a
   // one-click-fixable user state, so those rows are left untouched to digest
-  // late if the user verifies inside the 24h backstop.
+  // late if the user verifies inside the backstop window.
   const unmailable = rows.filter((row) => digestSendability(row) === `claim`)
   const candidates = rows.filter((row) => digestSendability(row) === `send`)
 
@@ -144,6 +149,10 @@ export async function runEmailDigestSweep(
   const prefs = await getEmailPrefsMap(userIds)
   const prefsByUser = new Map<string, EmailPrefsLike | null>(
     [...prefs.entries()].map(([userId, p]) => [userId, p])
+  )
+  // users.timezone rides the scan rows (the users join already exists).
+  const timezoneByUser = new Map<string, string | null>(
+    candidates.map((row) => [row.userId, row.timezone])
   )
 
   // Cadence gate input: when did each user last get a digest (sent_at, stamped
@@ -188,6 +197,7 @@ export async function runEmailDigestSweep(
     prefsByUser,
     lastDigestByUser,
     lastFailedByUser,
+    timezoneByUser,
     now,
   })
 
@@ -291,7 +301,7 @@ export async function runEmailDigestSweep(
           // the lastFailedAt aggregate, so this user stays eligible for the
           // next 10-minute sweep instead of losing a full day — which for
           // rows already ≥2h old meant never being emailed at all (their
-          // retry window would land past the 24h backstop). Nothing was
+          // retry window would land past the age backstop). Nothing was
           // sent, so no delivery record is lost.
           await db
             .delete(emailDeliveries)

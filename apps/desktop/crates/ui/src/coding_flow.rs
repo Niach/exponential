@@ -702,6 +702,14 @@ pub(crate) fn terminal_shell_override(cx: &mut App) -> Option<String> {
 /// → `DockArea` → bottom `Dock` → the registered [`TerminalDockPanel`].
 /// `None` on non-shell windows (login) — the caller surfaces an error.
 pub fn window_terminal_manager(window: &Window, cx: &App) -> Option<Entity<TerminalManager>> {
+    let panel = window_terminal_dock(window, cx)?;
+    Some(panel.read(cx).manager().clone())
+}
+
+/// THIS window's terminal dock PANEL — the manager's owner, for callers that
+/// need the panel's own launch paths (EXP-369: the settings pane's
+/// per-worktree agent shell) rather than just its tab store.
+pub fn window_terminal_dock(window: &Window, cx: &App) -> Option<Entity<TerminalDockPanel>> {
     let root = window.root::<gpui_component::Root>().flatten()?;
     let team = root
         .read(cx)
@@ -711,8 +719,7 @@ pub fn window_terminal_manager(window: &Window, cx: &App) -> Option<Entity<Termi
         .ok()?;
     let dock_area = team.read(cx).dock_area().clone();
     let bottom = dock_area.read(cx).bottom_dock()?.clone();
-    let panel = find_terminal_dock(bottom.read(cx).panel())?;
-    Some(panel.read(cx).manager().clone())
+    find_terminal_dock(bottom.read(cx).panel())
 }
 
 /// Walk a `DockItem` tree for the terminal dock panel (the bottom dock is a

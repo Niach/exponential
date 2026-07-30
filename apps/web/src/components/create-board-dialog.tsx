@@ -4,6 +4,7 @@ import type { BoardIcon } from "@exp/db-schema/domain"
 import type { Team } from "@/db/schema"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -135,72 +136,80 @@ export function CreateBoardDialog({
           onOpenChange(next)
         }}
       >
-        <DialogContent className="sm:max-w-[26rem]">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create board</DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <BoardNameField
-              value={name}
-              onChange={handleNameChange}
-              autoFocus
-            />
-            <BoardPrefixField value={prefix} onChange={setPrefix} />
-            <BoardIconColorFields
-              icon={icon}
-              onIconChange={setIcon}
-              color={color}
-              onColorChange={setColor}
-            />
+          {/* The form is the flex middle of the panel: its fields scroll in
+              the DialogBody while the submit button rides the pinned footer —
+              still inside the form, so Enter and the click both submit. */}
+          <form
+            onSubmit={handleSubmit}
+            className="flex min-h-0 flex-1 flex-col gap-4"
+          >
+            <DialogBody className="space-y-4">
+              <BoardNameField
+                value={name}
+                onChange={handleNameChange}
+                autoFocus
+              />
+              <BoardPrefixField value={prefix} onChange={setPrefix} />
+              <BoardIconColorFields
+                icon={icon}
+                onIconChange={setIcon}
+                color={color}
+                onColorChange={setColor}
+              />
 
-            <div className="space-y-2">
-              <Label>Repository (optional)</Label>
-              {showRepo ? (
-                <ConnectedRepoPicker
-                  teamId={teamId}
-                  value={
-                    selection?.kind === `registry`
-                      ? selection.repositoryId
-                      : null
-                  }
-                  onSelectRegistry={(repo) =>
-                    setSelection({
-                      kind: `registry`,
-                      repositoryId: repo.id,
-                      fullName: repo.fullName,
-                    })
-                  }
-                  onConnectNew={handlePickerSelect}
-                  appendedRow={
-                    selectedInlineName ? (
-                      <div className="flex w-full items-center gap-2 px-3 py-2 text-sm">
-                        <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{selectedInlineName}</span>
-                        <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />
-                      </div>
-                    ) : undefined
-                  }
-                />
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-start text-muted-foreground"
-                  onClick={() => setShowRepo(true)}
-                >
-                  <Github className="mr-2 h-4 w-4" />
-                  Connect a GitHub repository
-                </Button>
-              )}
-            </div>
-
-            {error && (
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
+              <div className="space-y-2">
+                <Label>Repository (optional)</Label>
+                {showRepo ? (
+                  <ConnectedRepoPicker
+                    teamId={teamId}
+                    value={
+                      selection?.kind === `registry`
+                        ? selection.repositoryId
+                        : null
+                    }
+                    onSelectRegistry={(repo) =>
+                      setSelection({
+                        kind: `registry`,
+                        repositoryId: repo.id,
+                        fullName: repo.fullName,
+                      })
+                    }
+                    onConnectNew={handlePickerSelect}
+                    appendedRow={
+                      selectedInlineName ? (
+                        <div className="flex w-full items-center gap-2 px-3 py-2 text-sm">
+                          <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{selectedInlineName}</span>
+                          <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />
+                        </div>
+                      ) : undefined
+                    }
+                  />
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start text-muted-foreground"
+                    onClick={() => setShowRepo(true)}
+                  >
+                    <Github className="mr-2 h-4 w-4" />
+                    Connect a GitHub repository
+                  </Button>
+                )}
               </div>
-            )}
+
+              {error && (
+                <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </div>
+              )}
+            </DialogBody>
 
             <DialogFooter>
               <Button type="submit" disabled={!canSubmit || submitting}>

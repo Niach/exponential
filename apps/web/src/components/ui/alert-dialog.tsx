@@ -51,10 +51,14 @@ function AlertDialogContent({
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
-        // Mirrors DialogContent: full-screen page below `sm`, frosted centered
-        // panel from `sm` up.
+        // Mirrors DialogContent (EXP-369): full-screen page below `sm`, frosted
+        // centered panel from `sm` up, and a flex column that never scrolls
+        // itself so the confirm/cancel footer is always pinned. Alert dialogs
+        // are short by construction (title + description + footer), so none of
+        // them needs a scrolling body — anything longer belongs in a Dialog
+        // with a DialogBody.
         className={cn(
-          `fixed inset-0 z-50 grid w-full content-start grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
+          `fixed inset-0 z-50 flex w-full flex-col gap-4 overflow-hidden bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
           className
         )}
         {...props}

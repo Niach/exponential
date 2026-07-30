@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -90,55 +91,57 @@ export function AdjustSeatsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center justify-between gap-2">
-          <Label className="text-sm text-muted-foreground">Seats</Label>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-8 shrink-0"
-              onClick={() => setSeats(Math.max(1, seats - 1))}
-              disabled={seats <= 1 || saving}
-              aria-label="Remove seat"
-            >
-              <Minus className="size-3.5" />
-            </Button>
-            <Input
-              type="text"
-              inputMode="numeric"
-              value={seats}
-              onChange={(e) => {
-                const n = Number.parseInt(
-                  e.target.value.replace(/\D/g, ``),
-                  10
-                )
-                setSeats(Number.isFinite(n) && n >= 1 ? n : 1)
-              }}
-              className="h-8 w-14 px-1 text-center"
-              aria-label="Seat count"
-              disabled={saving}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-8 shrink-0"
-              onClick={() => setSeats(seats + 1)}
-              disabled={saving}
-              aria-label="Add seat"
-            >
-              <Plus className="size-3.5" />
-            </Button>
+        <DialogBody className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-sm text-muted-foreground">Seats</Label>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={() => setSeats(Math.max(1, seats - 1))}
+                disabled={seats <= 1 || saving}
+                aria-label="Remove seat"
+              >
+                <Minus className="size-3.5" />
+              </Button>
+              <Input
+                type="text"
+                inputMode="numeric"
+                value={seats}
+                onChange={(e) => {
+                  const n = Number.parseInt(
+                    e.target.value.replace(/\D/g, ``),
+                    10
+                  )
+                  setSeats(Number.isFinite(n) && n >= 1 ? n : 1)
+                }}
+                className="h-8 w-14 px-1 text-center"
+                aria-label="Seat count"
+                disabled={saving}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={() => setSeats(seats + 1)}
+                disabled={saving}
+                aria-label="Add seat"
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            </div>
           </div>
-        </div>
 
-        {belowMembers && (
-          <p className="text-xs text-amber-500">
-            This team has {memberCount} members. Reducing below that
-            blocks new invites — existing members keep working.
-          </p>
-        )}
+          {belowMembers && (
+            <p className="text-xs text-amber-500">
+              This team has {memberCount} members. Reducing below that blocks
+              new invites — existing members keep working.
+            </p>
+          )}
+        </DialogBody>
 
         <DialogFooter>
           <Button
@@ -149,7 +152,9 @@ export function AdjustSeatsDialog({
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={!changed || saving}>
-            {saving && <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />}
+            {saving && (
+              <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
+            )}
             {saving
               ? `Saving...`
               : changed

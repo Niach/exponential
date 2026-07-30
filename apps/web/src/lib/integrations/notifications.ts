@@ -17,8 +17,10 @@ import { deliveryStatus, sendReporterResolutionEmail } from "@/lib/email"
 import { emailEnabled } from "@/lib/email-enabled"
 import {
   isResolutionStatus,
+  notificationTypeAllowed,
   shouldSendReporterResolution,
 } from "@/lib/notification-email-policy"
+import { getTypePrefsMap } from "@/lib/notification-prefs"
 import type { NotificationType } from "@/lib/domain"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
@@ -135,6 +137,22 @@ async function subscriberRecipients(
 // but this removes the practical double-writes at lowest risk.
 const NOTIFICATION_DEDUPE_WINDOW = `30 seconds`
 
+// Per-type prefs gate PUSH too (EXP-369) — the toggles used to be email-only,
+// so a user who muted "Comments" still got every comment on their phone. The
+// inbox ROW is always written (the toggles suppress delivery, not the record),
+// and the lookup FAILS OPEN: a prefs query error must not silence push.
+async function pushRecipients<T extends { userId: string }>(
+  delivered: T[],
+  type: NotificationType
+): Promise<T[]> {
+  const typePrefs = await getTypePrefsMap(
+    delivered.map((row) => row.userId)
+  ).catch(() => new Map())
+  return delivered.filter((row) =>
+    notificationTypeAllowed(typePrefs.get(row.userId), type)
+  )
+}
+
 async function deliver(args: {
   issue: IssueMeta
   recipientIds: string[]
@@ -186,8 +204,10 @@ async function deliver(args: {
   // Electric shapes to catch up — teamSlug/boardSlug complete the issue's deep
   // link, and each recipient's own notificationId lets the tapped client mark
   // exactly that inbox row read.
+  const pushable = await pushRecipients(delivered, args.type)
+  if (pushable.length === 0) return
   await sendToUsers(
-    delivered.map((d) => ({
+    pushable.map((d) => ({
       userId: d.userId,
       data: { notificationId: d.notificationId },
     })),
@@ -531,8 +551,10 @@ async function deliverToTeam(args: {
 
   // Same EXP-264 contract as deliver(): each recipient's push carries the id
   // of the row that was actually written for them.
+  const pushable = await pushRecipients(delivered, args.type)
+  if (pushable.length === 0) return
   await sendToUsers(
-    delivered.map((d) => ({
+    pushable.map((d) => ({
       userId: d.userId,
       data: { notificationId: d.notificationId },
     })),

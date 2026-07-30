@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/card"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -165,9 +166,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   const [formCollectEmail, setFormCollectEmail] = useState(true)
   const [formCollectName, setFormCollectName] = useState(false)
   const [formNameRequired, setFormNameRequired] = useState(false)
-  const [formCustomFields, setFormCustomFields] = useState<CustomFieldRow[]>(
-    []
-  )
+  const [formCustomFields, setFormCustomFields] = useState<CustomFieldRow[]>([])
   const [formMode, setFormMode] = useState<WidgetModeChoice>(`feedback`)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -529,7 +528,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                 in the snippet is public; restrict it to your domains.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 sm:grid-cols-2 sm:gap-x-6">
+            <DialogBody className="grid gap-4 sm:grid-cols-2 sm:gap-x-6">
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="widget-name">Name</Label>
@@ -763,7 +762,10 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                                 setFormCustomFields((rows) =>
                                   rows.map((current, i) =>
                                     i === index
-                                      ? { ...current, label: event.target.value }
+                                      ? {
+                                          ...current,
+                                          label: event.target.value,
+                                        }
                                       : current
                                   )
                                 )
@@ -801,9 +803,9 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       </div>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      Extra text inputs on the feedback form (up to 8). Responses
-                      show under “Custom data” on the issue and override matching
-                      setCustomData keys.
+                      Extra text inputs on the feedback form (up to 8).
+                      Responses show under “Custom data” on the issue and
+                      override matching setCustomData keys.
                     </p>
                   </div>
                 )}
@@ -822,7 +824,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                   {formError}
                 </p>
               )}
-            </div>
+            </DialogBody>
             <DialogFooter>
               <Button
                 variant="ghost"
@@ -851,9 +853,11 @@ export function TeamWidgetSection({ team }: { team: Team }) {
             </DialogHeader>
             {snippetTarget && (
               <>
-                <pre className="max-h-72 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
-                  {buildSnippet(snippetTarget.publicKey)}
-                </pre>
+                <DialogBody>
+                  <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-xs">
+                    {buildSnippet(snippetTarget.publicKey)}
+                  </pre>
+                </DialogBody>
                 <DialogFooter>
                   <Button onClick={() => copySnippet(snippetTarget)}>
                     {copiedId === snippetTarget.id ? (

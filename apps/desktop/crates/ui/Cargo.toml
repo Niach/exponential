@@ -56,6 +56,9 @@ libc = { workspace = true }
 # and banner on top of it.
 updater = { path = "../updater" }
 comrak = { version = "0.53.0", default-features = false }
+# EXP-369: the device's IANA zone for the account timezone claim (the daily
+# digest's send hour is read in it) — already in the tree transitively.
+iana-time-zone = "0.1"
 reqwest.workspace = true
 # EXP-261: the vendored Velotype WYSIWYG editor core (see its NOTICE for
 # provenance) — the issue-description editing surface; the block editor above

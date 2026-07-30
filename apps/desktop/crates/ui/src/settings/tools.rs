@@ -36,7 +36,7 @@ use crate::coding_flow::CodingHub;
 use crate::native_dialog::{self, AlertSpec};
 
 use super::doctor_section::DoctorPanel;
-use super::{card_header, error_notice, section};
+use super::{card_header, card_title, error_notice, section};
 
 pub struct ToolsPane {
     repos_input: Entity<InputState>,
@@ -173,14 +173,17 @@ impl ToolsPane {
     /// The "Reset IDE data" confirm (EXP-367, built for testing fresh-install
     /// flows): destructive-local-only, so a plain danger confirm suffices —
     /// everything server-side survives and re-syncs on the next sign-in.
+    /// EXP-369: the reset now also wipes the clones, so the confirm names the
+    /// repos root — the only IDE data that is expensive to recreate.
     fn confirm_reset(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let repos_root = CodingHub::global(cx).read(cx).settings.repos_root.clone();
         let spec = AlertSpec::new(
             "Reset IDE data",
             format!(
                 "This signs you out on this device and deletes ALL local IDE data — \
-                 settings, accounts, and synced caches. Cloned repositories under \
-                 {repos_root} are kept. The app restarts onto the sign-in screen."
+                 settings, accounts, and synced caches. Cloned repositories and \
+                 worktrees under {repos_root} are deleted too, including any \
+                 uncommitted work in them. The app restarts onto the sign-in screen."
             ),
             "Reset and restart",
         )
@@ -223,7 +226,7 @@ impl Render for ToolsPane {
             ))
             .child(Self::labeled_input(
                 "Repos & worktrees root",
-                "Where repositories are cloned and per-issue worktrees are created (~ works).",
+                "Where repositories are cloned and per-issue worktrees are created.",
                 &self.repos_input,
                 cx,
             ))
@@ -235,8 +238,7 @@ impl Render for ToolsPane {
             ))
             .child(Self::labeled_input(
                 "Terminal shell",
-                "Program for new terminal tabs (launched as a login shell). Leave empty to \
-                 use your system default.",
+                "Program for new terminal tabs. Leave empty to use your system default.",
                 &self.shell_input,
                 cx,
             ));
@@ -259,11 +261,7 @@ impl Render for ToolsPane {
         // EXP-367: local-only destructive hatch for testing fresh-install
         // flows (login, onboarding wizard, tools setup).
         let danger = section(cx)
-            .child(card_header(
-                "Danger zone",
-                "Local to this device — nothing on the server is touched.",
-                cx,
-            ))
+            .child(card_title("Danger zone"))
             .child(
                 h_flex()
                     .items_center()
@@ -276,8 +274,8 @@ impl Render for ToolsPane {
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child(
-                                "Reset IDE data — sign out and delete all local settings, \
-                                 accounts, and synced caches. Cloned repositories are kept.",
+                                "Sign out and delete all local settings, accounts, caches, \
+                                 and cloned repositories.",
                             ),
                     )
                     .child(
