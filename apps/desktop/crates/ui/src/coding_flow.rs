@@ -1143,11 +1143,7 @@ impl StartCodingControl {
                     );
                 }
                 if !report.any_agent_ok() {
-                    return Some(
-                        "No coding agent CLI found (claude, codex, or pi) — install one \
-                         or set its path in Settings → Coding."
-                            .into(),
-                    );
+                    return Some(NO_AGENT_COPY.into());
                 }
             }
         }
@@ -1167,9 +1163,25 @@ impl StartCodingControl {
 
 impl CodingHub {
     /// Read-only global lookup (render paths that must not create the hub).
-    fn global_ref(cx: &App) -> Option<Entity<CodingHub>> {
+    pub(crate) fn global_ref(cx: &App) -> Option<Entity<CodingHub>> {
         cx.try_global::<CodingHubGlobal>().map(|g| g.0.clone())
     }
+}
+
+/// EXP-367: the ONE disabled-reason copy for every Start-coding affordance
+/// when no agent CLI is installed (git may still be fine — coding just has
+/// nothing to launch).
+pub(crate) const NO_AGENT_COPY: &str =
+    "No coding agent CLI found (claude, codex, or pi) — install one in Settings → Tools.";
+
+/// `Some(reason)` when the doctor has REPORTED and no agent CLI is usable —
+/// the shared gate for every Start-coding entry point (EXP-367: buttons
+/// disable with this tooltip, never hide). `None` while the probe is still
+/// running (never falsely block on a race) or before anything coding exists.
+pub(crate) fn no_agent_reason(cx: &App) -> Option<SharedString> {
+    let hub = CodingHub::global_ref(cx)?;
+    let report = hub.read(cx).doctor.report.clone()?;
+    (!report.any_agent_ok()).then(|| NO_AGENT_COPY.into())
 }
 
 impl Render for StartCodingControl {

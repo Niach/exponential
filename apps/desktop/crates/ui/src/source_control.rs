@@ -53,6 +53,7 @@ use coding::scm::{self, CommitInfo, ConflictKind, ConflictState};
 
 use crate::coding_flow::{self, CodingHub};
 use crate::diff::{build_scm_diff, DiffView};
+use crate::icons::registry;
 use crate::navigation::{self, Navigation};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
@@ -606,6 +607,86 @@ impl SourceControlView {
         }
     }
 
+    /// EXP-366: the not-cloned state is where a FAILED auto-clone lands — it
+    /// must say why (the sticky sync error; "git not found on PATH" used to
+    /// color the rail dot red and say nothing anywhere), guide a missing-git
+    /// install, and offer the retry that used to hide behind the sidebar
+    /// refresh button.
+    fn render_not_cloned(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        let (syncing, progress, error) = {
+            let engine = trunk_sync.read(cx);
+            (
+                engine.is_syncing(),
+                engine.clone_progress(),
+                engine.sync_error(),
+            )
+        };
+        let git_missing = CodingHub::global_ref(cx)
+            .and_then(|hub| hub.read(cx).doctor.report.clone())
+            .is_some_and(|report| !report.git.ok);
+        // Copied out (Hsla is Copy) so the theme borrow doesn't overlap the
+        // listener borrows below.
+        let muted = cx.theme().muted_foreground;
+        let danger = cx.theme().danger;
+
+        let column = gpui_component::v_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .gap_2()
+            .p_4()
+            .text_xs()
+            .text_color(muted);
+        if syncing {
+            let label = match progress {
+                Some(percent) => format!("Cloning repository… {percent}%"),
+                None => "Syncing repository…".to_string(),
+            };
+            return column.child(SharedString::from(label)).into_any_element();
+        }
+        let failed = error.is_some();
+        column
+            .child(match error {
+                Some(error) => div()
+                    .max_w_full()
+                    .text_color(danger)
+                    .child(SharedString::from(format!("Repository clone failed: {error}")))
+                    .into_any_element(),
+                None => div()
+                    .child("Repository not cloned yet.")
+                    .into_any_element(),
+            })
+            .when(git_missing, |this| {
+                this.child(
+                    "Git is required to clone repositories — install it, then run \
+                     \u{201c}Check tools\u{201d} in Settings → Tools.",
+                )
+                .child(
+                    Button::new("scm-install-git")
+                        .xsmall()
+                        .label("Install git")
+                        .icon(registry::UI_EXTERNAL_LINK)
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            crate::settings::open_url(
+                                cx,
+                                "https://git-scm.com/downloads".to_string(),
+                            );
+                        })),
+                )
+            })
+            .child(
+                Button::new("scm-retry-clone")
+                    .xsmall()
+                    .label(if failed { "Retry" } else { "Clone now" })
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        let trunk_sync = this.rail.read(cx).trunk_sync().clone();
+                        trunk_sync.update(cx, |engine, cx| engine.refresh(window, cx));
+                    })),
+            )
+            .into_any_element()
+    }
+
     fn render_body(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let theme = cx.theme();
 
@@ -636,16 +717,7 @@ impl SourceControlView {
                 .into_any_element();
         }
         if !self.clone_ready() {
-            return div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .p_4()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child("Repository not cloned yet — open a board to clone it.")
-                .into_any_element();
+            return self.render_not_cloned(cx);
         }
 
         // A dirty tree OR local commits are ANOMALIES (view-only editor, PRs

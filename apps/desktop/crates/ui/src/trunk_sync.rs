@@ -178,6 +178,12 @@ pub struct TrunkSync {
     /// the auto-sync timer); consumed — and the [`clone_manager::FETCH_DEBOUNCE`]
     /// bypassed — by the next [`Self::maybe_auto_sync`] that actually runs.
     pending_merge_sync: bool,
+    /// The doctor's last-seen git verdict — the EXP-366 recovery edge: when
+    /// git flips missing→present ("Check tools" after installing it), the
+    /// failed/never-attempted clone retries WITHOUT the user finding the
+    /// Source Control refresh button. Machine state, not scope state — never
+    /// reset on scope change.
+    git_ok_seen: Option<bool>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -186,7 +192,29 @@ impl TrunkSync {
         let nav = navigation::nav_for_window(window, cx);
         let repo_resolver = repo_resolver_for_window(window, cx);
         let collections = Store::global(cx).collections().clone();
+        let hub = crate::coding_flow::CodingHub::global(cx);
         let subscriptions = vec![
+            // EXP-366: retry the trunk clone on the doctor's git
+            // missing→present edge — every recovery path ("Check tools", a
+            // settings save, the onboarding tools step) funnels through
+            // `refresh_doctor`, which notifies the hub.
+            cx.observe_in(&hub, window, |this: &mut Self, hub, window, cx| {
+                let Some(report) = hub.read(cx).doctor.report.as_ref() else {
+                    return;
+                };
+                let git_ok = report.git.ok;
+                let was = this.git_ok_seen.replace(git_ok);
+                let retry = git_recovery_retry(
+                    was,
+                    git_ok,
+                    this.syncing,
+                    this.repo.as_ref().is_some_and(|repo| repo.clone_exists),
+                    this.sync_error().is_some(),
+                );
+                if retry {
+                    this.refresh(window, cx);
+                }
+            }),
             // Scope follows navigation (board / issue-detail → board).
             cx.observe(&nav, |_, _, cx| cx.notify()),
             // The issue→board join reads synced rows.
@@ -220,6 +248,7 @@ impl TrunkSync {
             merge_stamp: None,
             merge_stamp_seeded: false,
             pending_merge_sync: false,
+            git_ok_seen: None,
             _subscriptions: subscriptions,
         }
     }
@@ -763,12 +792,17 @@ impl TrunkSync {
                 }
             }
             SyncMsg::Clone(CloneEvent::Failed(detail)) => {
+                // EXP-366: this is often the FIRST git the app ever runs
+                // (missing git lands here) — without the log line a Windows
+                // build (no console) leaves zero trace of why nothing cloned.
+                log::warn!("[ui] trunk sync: clone failed: {detail}");
                 self.syncing = false;
                 self.clone_progress = None;
                 self.job_failed = true;
                 self.op_error = Some(detail.into());
             }
             SyncMsg::Failed(detail) => {
+                log::warn!("[ui] trunk sync: op failed: {detail}");
                 self.job_failed = true;
                 self.op_error = Some(detail.into());
             }
@@ -776,6 +810,7 @@ impl TrunkSync {
                 self.auto_sync_error = None;
             }
             SyncMsg::AutoSyncDone(Err(detail)) => {
+                log::warn!("[ui] trunk sync: auto-sync failed: {detail}");
                 // ONE sticky badge — never op_error, never a strip.
                 self.job_failed = true;
                 self.auto_sync_error = Some(detail.into());
@@ -812,6 +847,21 @@ impl TrunkSync {
 /// decimal-correct by accident of that trimming. Unparseable text falls back
 /// to the string order — never worse than the compare it replaced. A first
 /// stamp (`None → Some`) counts as newer; a stamp never disappears.
+/// Whether a doctor report should trigger the EXP-366 clone retry: only on
+/// the git missing→present EDGE (`was == Some(false)`, never on the first
+/// report or a steady green), never while an op is in flight, and only when
+/// there is actually something to redo (no clone yet, or a sticky error).
+/// Pure for the truth-table test below.
+fn git_recovery_retry(
+    was: Option<bool>,
+    now_ok: bool,
+    syncing: bool,
+    clone_exists: bool,
+    has_error: bool,
+) -> bool {
+    was == Some(false) && now_ok && !syncing && (!clone_exists || has_error)
+}
+
 fn stamp_is_newer(stamp: Option<&str>, baseline: Option<&str>) -> bool {
     match (stamp, baseline) {
         (Some(stamp), Some(baseline)) => {
@@ -1058,6 +1108,26 @@ mod tests {
             .as_deref(),
             Some("a rebase/merge is paused with conflicts")
         );
+    }
+
+    /// EXP-366: the clone retry fires ONLY on the git missing→present edge
+    /// with something to redo — never on first sight, steady states, mid-op,
+    /// or a healthy clone.
+    #[test]
+    fn git_recovery_retry_truth_table() {
+        // The recovery edge: was-broken → now ok, clone missing.
+        assert!(git_recovery_retry(Some(false), true, false, false, false));
+        // …or clone present but a sticky error to clear (failed fetch).
+        assert!(git_recovery_retry(Some(false), true, false, true, true));
+        // First report ever — even a green one — is not an edge.
+        assert!(!git_recovery_retry(None, true, false, false, false));
+        // Steady green / steady red: no edge.
+        assert!(!git_recovery_retry(Some(true), true, false, false, false));
+        assert!(!git_recovery_retry(Some(false), false, false, false, false));
+        // An op in flight is never preempted.
+        assert!(!git_recovery_retry(Some(false), true, true, false, false));
+        // Healthy clone, no error → nothing to redo.
+        assert!(!git_recovery_retry(Some(false), true, false, true, false));
     }
 
     #[test]
