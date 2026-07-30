@@ -31,7 +31,7 @@ export type ConversionEventName =
 // read (same semantics as isCloudInstance in lib/bootstrap-cloud) so this
 // module keeps zero runtime imports — it is pulled in by hot tRPC routers.
 export function conversionTrackingEnabled(): boolean {
-  return process.env.SELF_HOSTED !== `true`
+  return (process.env.CLOUD_INSTANCE ?? ``).toLowerCase() === `true`
 }
 
 // Append one funnel event. Idempotency lives in the DATABASE: the partial
