@@ -389,12 +389,19 @@ export const integrationsRouter = router({
     // GitHub connection state for a team (drives the settings section and
     // the pickers' empty state). Member-gated. Token resolution is
     // storage-free (the App JWT looks up a repo's installation on demand);
-    // this only reflects what's linked.
+    // this only reflects what's linked. `platform: "mobile"` marks the minted
+    // URLs' state like `repos` does (EXP-368: the desktop IDE sends it too).
     status: authedProcedure
-      .input(z.object({ teamId: z.string().uuid() }))
+      .input(
+        z.object({
+          teamId: z.string().uuid(),
+          platform: z.enum([`web`, `mobile`]).optional(),
+        })
+      )
       .query(async ({ ctx, input }) => {
         const userId = ctx.session.user.id
         const { teamId } = input
+        const mobile = input.platform === `mobile`
         await assertTeamMember(userId, teamId)
         if (!githubAppConfigured()) {
           return {
@@ -431,8 +438,8 @@ export const integrationsRouter = router({
         return {
           configured: true as const,
           installed: installs.length > 0,
-          installUrl: installUrlFor(userId, teamId),
-          connectUrl: connectUrlFor(userId, teamId),
+          installUrl: installUrlFor(userId, teamId, { mobile }),
+          connectUrl: connectUrlFor(userId, teamId, { mobile }),
           // Login-only convenience mirror of `installations`.
           accounts: installs
             .map((r) => r.accountLogin)
@@ -451,8 +458,9 @@ export const integrationsRouter = router({
     // per-installation page cap truncated the set so the UI can point at
     // "manage repos on GitHub". `refresh` bypasses the cache so returning from
     // a GitHub hop (new repos granted) reflects immediately. `platform:
-    // "mobile"` (native clients only) marks the minted URLs' state so the
-    // callbacks deep-link back into the app; web callers omit it.
+    // "mobile"` (any native deep-link-capable client — iOS/Android/desktop
+    // IDE) marks the minted URLs' state so the callbacks deep-link
+    // `exponential://github-connected` back into the app; web callers omit it.
     repos: authedProcedure
       .input(
         z.object({

@@ -118,6 +118,9 @@ pub struct RepositoriesPane {
     generation: u64,
     /// A remove is in flight — disables every row's trash button.
     busy: bool,
+    /// Failure copy from the `exponential://github-connected?error=…` deep
+    /// link (EXP-368) — the browser connect hand-off ended in an error.
+    connect_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -138,10 +141,40 @@ impl RepositoriesPane {
                 this.refresh_if_links_changed(cx);
             }),
             // The GitHub connect/install hand-off completes in the browser —
-            // regaining focus is the only signal it happened (EXP-329).
+            // regaining focus refetches as a fallback (EXP-329); since
+            // EXP-368 the definitive signal is the github-connected deep
+            // link below.
             cx.observe_window_activation(window, |this, window, cx| {
                 if window.is_window_active() {
                     this.refetch_stale(cx);
+                }
+            }),
+            // EXP-368: the `exponential://github-connected` hand-back —
+            // refetch on success, surface the failure copy otherwise.
+            cx.observe_global::<crate::github_connect::GithubConnectSignal>(|this, cx| {
+                let Some(outcome) = cx
+                    .try_global::<crate::github_connect::GithubConnectSignal>()
+                    .and_then(|signal| signal.outcome.clone())
+                else {
+                    return;
+                };
+                match outcome {
+                    crate::github_connect::GithubConnectOutcome::Connected => {
+                        this.connect_error = None;
+                        if matches!(this.load, Load::Ready(_)) {
+                            this.refetch_stale(cx);
+                        } else {
+                            // Render-time ensure_loaded picks the fetch up
+                            // when the pane is (next) visible.
+                            this.load = Load::Idle;
+                            cx.notify();
+                        }
+                    }
+                    crate::github_connect::GithubConnectOutcome::Failed(code) => {
+                        this.connect_error =
+                            Some(crate::github_connect::connect_error_message(&code).into());
+                        cx.notify();
+                    }
                 }
             }),
         ];
@@ -153,6 +186,7 @@ impl RepositoriesPane {
             loaded_links: None,
             generation: 0,
             busy: false,
+            connect_error: None,
             _subscriptions: subscriptions,
         }
     }
@@ -210,6 +244,12 @@ impl RepositoriesPane {
 
         if show_loading {
             self.load = Load::Loading;
+            // A full (re)load is a fresh context (pane opened, team switch) —
+            // retire any connect-failure notice. The non-loading
+            // refetch_stale path deliberately keeps it: the window-activation
+            // refetch races the error deep link and must not wipe the copy
+            // before the user reads it.
+            self.connect_error = None;
         }
         self.loaded_team = Some(team_id.to_string());
         self.loaded_links = Some(links_snapshot(team_id, cx));
@@ -387,6 +427,12 @@ impl Render for RepositoriesPane {
             Load::Ready(loaded) => {
                 // GitHub connect state: live server truth, ONE line.
                 body = body.child(github_status_line(loaded.status.as_ref(), cx));
+
+                // EXP-368: the browser connect hand-off deep-linked back
+                // with an error.
+                if let Some(message) = self.connect_error.clone() {
+                    body = body.child(error_notice(message, cx));
+                }
 
                 match &loaded.repos {
                     Err(message) => {

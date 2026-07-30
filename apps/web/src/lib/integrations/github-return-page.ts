@@ -12,6 +12,9 @@ import { githubConnectedDeepLink } from "@/lib/deep-link"
 // the deep link) instead of redirecting to web routes — the callback's web
 // error pages live behind the login wall, which a bearer-only native user
 // can't pass inside the in-app browser tab.
+//
+// EXP-368: the desktop IDE rides the same flow (it sends platform: "mobile"
+// and consumes exponential://github-connected like the mobile apps).
 
 // Human copy per callback error code; the claim page (claim.tsx) holds the
 // web-side equivalents. Unknown codes fall back to the generic line.

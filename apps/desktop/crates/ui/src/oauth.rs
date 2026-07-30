@@ -68,10 +68,21 @@ pub(crate) fn start(
 }
 
 /// The `on_open_urls` sink (call from the app shell's foreground drain).
-/// Routes OAuth callbacks, the §4.2 `exponential://invite/<token>` deep link and the
-/// EXP-4 `exponential://issue/<IDENTIFIER>` deep link; anything else is ignored.
+/// Routes OAuth callbacks, the EXP-368 `exponential://github-connected`
+/// hand-back, the §4.2 `exponential://invite/<token>` deep link and the
+/// EXP-4 `exponential://issue/<IDENTIFIER>` deep link; anything else is
+/// ignored.
 pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
     for url in urls {
+        // EXP-368: checked before parse_oauth_callback — the host-agnostic
+        // param scan would otherwise adopt `github-connected?error=…` as an
+        // OAuth Error callback and silently eat it (complete() ignores
+        // callbacks while signed in). Belt to the api-crate scheme-host
+        // guard's suspenders.
+        if let Some(outcome) = crate::github_connect::parse_github_connected_deep_link(&url) {
+            crate::github_connect::report_github_connected(outcome, cx);
+            continue;
+        }
         if let Some(callback) = api::login::parse_oauth_callback(&url) {
             complete(callback, cx);
             continue;
