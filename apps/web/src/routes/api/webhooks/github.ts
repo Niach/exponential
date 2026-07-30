@@ -1,8 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { githubInstallations, issues, repositories } from "@/db/schema"
+import {
+  githubInstallationLinks,
+  githubInstallations,
+  issues,
+  repositories,
+} from "@/db/schema"
 import {
   applyPrClosedState,
   applyPrMergeState,
@@ -205,10 +210,37 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           )
       }
       if (added.length > 0) {
+        // Tenant-scoped heal (EXP-363 hardening): a bare full_name match let
+        // ANY installation of the App rebind another team's registry row (a
+        // renamed-then-squatted account could clear the no-access flag and
+        // repoint installation_id from the outside). Heal only rows that are
+        // already bound to THIS installation, still unbound (connected before
+        // this webhook existed), or owned by a team that has actually claimed
+        // this installation — the same trust root every token mint checks.
+        const claimingTeams = db
+          .select({ teamId: githubInstallationLinks.teamId })
+          .from(githubInstallationLinks)
+          .innerJoin(
+            githubInstallations,
+            eq(
+              githubInstallations.id,
+              githubInstallationLinks.githubInstallationId
+            )
+          )
+          .where(eq(githubInstallations.installationId, installation.id))
         await db
           .update(repositories)
           .set({ inaccessibleAt: null, installationId: installation.id })
-          .where(inArray(repositories.fullName, added))
+          .where(
+            and(
+              inArray(repositories.fullName, added),
+              or(
+                isNull(repositories.installationId),
+                eq(repositories.installationId, installation.id),
+                inArray(repositories.teamId, claimingTeams)
+              )
+            )
+          )
       }
       await invalidateRepoCacheForInstallation(installation.id)
       return jsonResponse(200, { ok: true })

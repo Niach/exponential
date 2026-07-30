@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-github-claim-ownership`,
+    date: `2026-07-30`,
+    title: `GitHub connections locked to owners`,
+    summary: `Connecting GitHub now requires owning the installation — collaborator access on someone else's repos can no longer claim their account for your team.`,
+    body: `- **Ownership-verified connections** — connecting GitHub to a team now proves you control the installation: personal installations must belong to the GitHub account you authorize, organization installations require an active org membership. Being a collaborator on someone else's repository no longer surfaces their account or repositories in your team.
+- **A way out of every dead end** — if the account you authorized has no installation of its own, the connect flow now explains exactly what happened and offers a one-click **Install on GitHub** button that takes you to GitHub's account and repository selection.
+- **One-time approval for organizations** — the GitHub App now asks for read-only organization-members access (used solely to verify your membership); org installations need to approve the updated permissions once.`,
+  },
+  {
     id: `2026-07-merge-and-close-fix`,
     date: `2026-07-30`,
     title: `Merges unstuck`,
