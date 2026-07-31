@@ -3,21 +3,34 @@
 // directly, so it must never grow imports; timeline.ts attaches the frame
 // numbers and exports the full CHAPTERS list the player seeks by.
 //
-// EXP-337: the movie is five self-contained flow clips inside one frame —
-// IDE flows first (the IDE is the hero and the poster), collaboration
-// fourth, intake last, so "feedback → issue lands on the board" wraps into
-// "start coding" when the loop restarts.
+// EXP-385: the film opens on the multiplayer board (teams managing their
+// product is the headline), then the merged remote-start + live-steer clip,
+// review/merge/deploy, intake, and the platform-lineup finale. "Feedback →
+// issue lands on the board" still wraps into the live board when the loop
+// restarts.
 
 export type FlowInfo = { id: string; label: string; phrase: string }
 
 export const FLOW_INFO: FlowInfo[] = [
   {
-    id: "start-coding",
-    label: "Start coding",
-    phrase: "one click starts an agent",
+    id: "board-live",
+    label: "Live board",
+    phrase: "multiplayer vibecoding",
   },
-  { id: "live-steer", label: "Live steer", phrase: "guide it from your phone" },
-  { id: "review-merge", label: "Review & merge", phrase: "diff, review, ship" },
-  { id: "board-live", label: "Live board", phrase: "your team in realtime" },
+  {
+    id: "code-everywhere",
+    label: "Code from everywhere",
+    phrase: "starts on your phone, runs on your Mac",
+  },
+  {
+    id: "review-merge",
+    label: "Review & merge",
+    phrase: "diff, merge, deploy",
+  },
   { id: "feedback", label: "Feedback", phrase: "reports become issues" },
+  {
+    id: "platforms",
+    label: "Every platform",
+    phrase: "desktop, web, mobile",
+  },
 ]

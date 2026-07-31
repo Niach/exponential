@@ -9,13 +9,13 @@ import { FLOW_INFO } from "./chapters"
 
 export const FPS = 30
 
-// Per-clip frame budgets (~6–7.5s each @ 30fps).
+// Per-clip frame budgets (~5–8.5s each @ 30fps; EXP-385 order).
 export const SEGMENT_DURATIONS: Record<string, number> = {
-  "start-coding": 220,
-  "live-steer": 210,
-  "review-merge": 190,
-  "board-live": 195,
-  feedback: 205,
+  "board-live": 245,
+  "code-everywhere": 260,
+  "review-merge": 235,
+  feedback: 235,
+  platforms: 150,
 }
 
 export type Segment = {

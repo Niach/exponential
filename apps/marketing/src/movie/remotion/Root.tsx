@@ -10,18 +10,18 @@ import { Composition, useCurrentFrame } from "remotion"
 import { ClosedLoop, DURATION_IN_FRAMES, FPS } from "../closedloop"
 import { SEGMENTS } from "../closedloop/timeline"
 import type { SegmentProps } from "../closedloop/segments/common"
-import { StartCodingSegment } from "../closedloop/segments/startcoding"
-import { LiveSteerSegment } from "../closedloop/segments/livesteer"
-import { ReviewMergeSegment } from "../closedloop/segments/reviewmerge"
 import { BoardLiveSegment } from "../closedloop/segments/boardlive"
+import { CodeEverywhereSegment } from "../closedloop/segments/codeeverywhere"
+import { ReviewMergeSegment } from "../closedloop/segments/reviewmerge"
 import { FeedbackSegment } from "../closedloop/segments/feedback"
+import { PlatformsSegment } from "../closedloop/segments/platforms"
 
 const SEGMENT_COMPONENTS: Record<string, React.FC<SegmentProps>> = {
-  "start-coding": StartCodingSegment,
-  "live-steer": LiveSteerSegment,
-  "review-merge": ReviewMergeSegment,
   "board-live": BoardLiveSegment,
+  "code-everywhere": CodeEverywhereSegment,
+  "review-merge": ReviewMergeSegment,
   feedback: FeedbackSegment,
+  platforms: PlatformsSegment,
 }
 
 const segmentPreview = (id: string): React.FC => {

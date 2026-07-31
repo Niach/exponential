@@ -1,10 +1,13 @@
-// closedloop/segments/reviewmerge.tsx — clip 3 (190f): the PR's diff paints
-// in the Changes tab, the rail switches to Reviews, the two-stage merge runs
-// and the board regroups EXP-151 to Done. All beats are LOCAL frames.
+// closedloop/segments/reviewmerge.tsx — clip 3 (235f, extended by EXP-385):
+// the PR's diff paints in the Changes tab, the rail switches to Reviews, the
+// two-stage merge runs and the board regroups EXP-151 to Done — then, without
+// ever leaving the app, the rail switches to Actions and the "Deploy
+// storefront" runbook runs in the dock: merge → deploy. All beats are LOCAL
+// frames.
 
 import React from "react"
-import { AbsoluteFill, interpolate } from "remotion"
-import { PAGE_FONT, WIN } from "../../ships/theme"
+import { AbsoluteFill, interpolate, spring } from "remotion"
+import { C, PAGE_FONT, SETTLE, WIN } from "../../ships/theme"
 import {
   Camera,
   Caption,
@@ -14,6 +17,7 @@ import {
   type CursorKey,
 } from "../../ships/rig"
 import {
+  ActionsTool,
   BoardActions,
   BoardTool,
   ReviewsTool,
@@ -30,9 +34,12 @@ import {
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
 import { ChangesPane } from "../../ships/surfaces/diffview"
+import { TerminalDock, type DockTab } from "../../ships/surfaces/terminal"
 import {
   CL,
+  CL_ACTIONS,
   CL_BOARD,
+  CL_DEPLOY_SESSION,
   CL_DIFF_FILES,
   CL_DIFF_HEADER,
   CL_DIFF_ROWS,
@@ -40,7 +47,9 @@ import {
   CL_ISSUE,
   CL_REVIEW_ROW,
   COPY,
+  LIVE_EDIT_ID,
   NEW_ISSUE_ID,
+  REMOTE_DRAG_ID,
 } from "../fixtures"
 import { SEGMENT_DURATIONS } from "../timeline"
 import {
@@ -72,11 +81,21 @@ const B = {
   doneAt: 132, // EXP-151 regroups to Done
   regroupEnd: 150,
   sidebarSwapIn: 130, // reviews → board crossfade
+  // The actions phase (EXP-385): merge → deploy, never leaving the app.
+  actionsTransition: 154, // rail pill slides reviews → actions
+  actionsClick: 156,
+  actionsSwap: 158, // board → actions crossfade
+  runHover: 168,
+  runClick: 174, // Run → Running…
+  deployDock: 178, // the dock springs open with the deploy session
+  deployTab: 182,
+  deployFeed: [186, 198, 210] as const, // CL_DEPLOY_SESSION events
 } as const
 
 const CAPTIONS = {
   rm1: { in: 10, out: 78 },
-  rm2: { in: 108, out: 162 },
+  rm2: { in: 108, out: 150 },
+  rm3: { in: 182, out: 222 },
 } as const
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -86,12 +105,16 @@ const CAMERA_KEYS: CamKey[] = [
   { f: 80, s: 1.55, x: 940, y: 455, ease: "linear" },
   { f: 84, s: 1.55, x: 940, y: 455 },
   { f: 96, s: 1.7, x: 520, y: 360 },
+  { f: 152, s: 1.7, x: 520, y: 360 },
+  { f: 172, s: 1.25, x: 560, y: 530 },
 ]
 
 // ── Cursor ────────────────────────────────────────────────────────────────────
 const railReviews = railRowCenter("reviews")
+const railActions = railRowCenter("actions")
 const MERGE_BTN = { x: 641, y: 118 }
 const CONFIRM_BTN = { x: 618, y: 118 }
+const RUN_BTN = { x: 644, y: 118 } // first ActionsTool row's Run button
 
 const CURSOR_KEYS: CursorKey[] = [
   { f: 74, x: 900, y: 400 },
@@ -102,13 +125,40 @@ const CURSOR_KEYS: CursorKey[] = [
   { f: 110, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
   { f: 118, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
   { f: 130, x: 700, y: 560 },
+  { f: 144, x: 700, y: 560 },
+  { f: 152, x: railActions.x, y: railActions.y },
+  { f: 160, x: railActions.x, y: railActions.y },
+  { f: 168, x: RUN_BTN.x, y: RUN_BTN.y },
+  { f: 178, x: RUN_BTN.x, y: RUN_BTN.y },
+  { f: 190, x: 900, y: 620 },
 ]
-const CURSOR_CLICKS = [B.railClick, B.confirmAt, B.mergingAt]
+const CURSOR_CLICKS = [
+  B.railClick,
+  B.confirmAt,
+  B.mergingAt,
+  B.actionsClick,
+  B.runClick,
+]
 
 const TAB_151: ChromeTab = {
   id: "exp151",
   identifier: NEW_ISSUE_ID,
   label: CL_ISSUE.title,
+}
+const DOCK_TABS: DockTab[] = [
+  { id: "zsh", label: "zsh" },
+  {
+    id: "deploy",
+    label: CL_ACTIONS[0].name,
+    dot: C.green,
+    popAt: B.deployTab,
+  },
+]
+
+const dockHeightAt = (frame: number): number => {
+  if (frame < B.deployDock) return WIN.dockStrip
+  const t = spring({ frame: frame - B.deployDock, fps: 30, config: SETTLE })
+  return WIN.dockStrip + (WIN.dockExpanded - WIN.dockStrip) * t
 }
 
 // ── The clip ──────────────────────────────────────────────────────────────────
@@ -116,13 +166,18 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   frame,
   textScale,
 }) => {
-  const dockH = WIN.dockStrip
+  const dockH = dockHeightAt(frame)
   const paneH = WIN.h - CONTENT_TOP - dockH
   const captionSize = Math.round(72 * textScale)
 
   const heroStatus =
     frame >= B.doneAt ? ("done" as const) : ("in_progress" as const)
-  const overrides = { [NEW_ISSUE_ID]: { status: heroStatus } }
+  // Carried multiplayer state from the earlier clips.
+  const overrides = {
+    [NEW_ISSUE_ID]: { status: heroStatus },
+    [REMOTE_DRAG_ID]: { status: "in_progress" as const },
+    [LIVE_EDIT_ID]: { assignee: "JL" },
+  }
   const regroup =
     frame >= B.doneAt
       ? {
@@ -132,29 +187,17 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
         }
       : undefined
 
-  // Sidebar crossfades: board ↔ reviews.
+  // Sidebar crossfades: board → reviews → board → actions.
+  const fade6 = (at: number, from: number, to: number) =>
+    interpolate(frame, [at, at + 6], [from, to], CLAMP)
   const boardO =
-    frame < (B.sidebarSwapOut + B.sidebarSwapIn) / 2
-      ? interpolate(
-          frame,
-          [B.sidebarSwapOut, B.sidebarSwapOut + 6],
-          [1, 0],
-          CLAMP
-        )
-      : interpolate(
-          frame,
-          [B.sidebarSwapIn, B.sidebarSwapIn + 6],
-          [0, 1],
-          CLAMP
-        )
-  const reviewsO =
-    interpolate(
-      frame,
-      [B.sidebarSwapOut, B.sidebarSwapOut + 6],
-      [0, 1],
-      CLAMP
-    ) *
-    interpolate(frame, [B.sidebarSwapIn, B.sidebarSwapIn + 6], [1, 0], CLAMP)
+    frame < B.sidebarSwapIn
+      ? fade6(B.sidebarSwapOut, 1, 0)
+      : frame < B.actionsSwap
+        ? fade6(B.sidebarSwapIn, 0, 1)
+        : fade6(B.actionsSwap, 1, 0)
+  const reviewsO = fade6(B.sidebarSwapOut, 0, 1) * fade6(B.sidebarSwapIn, 1, 0)
+  const actionsO = fade6(B.actionsSwap, 0, 1)
 
   const mergeState: MergeState =
     frame < B.confirmAt
@@ -180,11 +223,17 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   const railProps: ExpandedRailProps =
     frame < B.railTransition
       ? { frame, active: "board" }
-      : {
-          frame,
-          active: "reviews",
-          activeTransition: { from: "board", at: B.railTransition },
-        }
+      : frame < B.actionsTransition
+        ? {
+            frame,
+            active: "reviews",
+            activeTransition: { from: "board", at: B.railTransition },
+          }
+        : {
+            frame,
+            active: "actions",
+            activeTransition: { from: "reviews", at: B.actionsTransition },
+          }
   const railDots = frame < B.railClick + 4 ? ["reviews"] : []
 
   return (
@@ -208,7 +257,9 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
             />
 
             {/* sidebar: board */}
-            {frame < B.sidebarSwapOut + 8 || frame >= B.sidebarSwapIn ? (
+            {boardO > 0 &&
+            (frame < B.sidebarSwapOut + 8 ||
+              (frame >= B.sidebarSwapIn && frame < B.actionsSwap + 8)) ? (
               <div style={{ opacity: boardO }}>
                 <SidebarPane
                   title="All Issues"
@@ -240,6 +291,22 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                     rowFade={rowFade}
                     row={CL_REVIEW_ROW}
                     project={CL.project}
+                  />
+                </SidebarPane>
+              </div>
+            ) : null}
+
+            {/* sidebar: actions — merge flows straight into deploy */}
+            {frame >= B.actionsSwap ? (
+              <div style={{ opacity: actionsO }}>
+                <SidebarPane title="Actions" bottomInset={dockH}>
+                  <ActionsTool
+                    frame={frame}
+                    rows={CL_ACTIONS}
+                    runId={CL_ACTIONS[0].id}
+                    hoverAt={B.runHover}
+                    runAt={B.runClick}
+                    team={CL.project}
                   />
                 </SidebarPane>
               </div>
@@ -296,14 +363,29 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
               </div>
             </div>
 
-            <DockCollapsedStrip frame={frame} count={2} />
+            {/* dock: collapsed until the deploy action spawns its session */}
+            {frame < B.deployDock ? (
+              <DockCollapsedStrip frame={frame} count={2} />
+            ) : (
+              <TerminalDock
+                frame={frame}
+                height={dockH}
+                tabs={DOCK_TABS}
+                activeTab={frame < B.deployTab ? "zsh" : "deploy"}
+                feed={{
+                  events: CL_DEPLOY_SESSION,
+                  schedule: B.deployFeed,
+                }}
+                spinnerBase={{ sec: 2, tokensK: 0.3 }}
+              />
+            )}
 
             <CursorLayer
               keys={CURSOR_KEYS}
               clicks={CURSOR_CLICKS}
               frame={frame}
               from={74}
-              to={140}
+              to={196}
             />
           </WindowChassis>
         </Camera>

@@ -1,9 +1,12 @@
-// closedloop/segments/boardlive.tsx — clip 4 (195f, NEW in EXP-337):
-// realtime board multiplayer. A presence facepile pops into the top bar,
-// Mara's colored remote cursor drags EXP-149 Todo → In Progress (the FLIP
-// regroup reads as the drag), a teammate's live edit flashes onto EXP-150
-// (an assignee appears), and the local cursor moves simultaneously.
-// EXP-151 sits in Done — the post-merge state. All beats are LOCAL frames.
+// closedloop/segments/boardlive.tsx — clip 1 (245f, the OPENER since
+// EXP-385): multiplayer vibecoding. Opens FULLY COMPOSED — local frame 0 is
+// the checked-in poster frame (bun run movie:poster): the whole IDE with
+// EXP-151 open in Todo. A presence facepile pops into the titlebar, Mara's
+// colored remote cursor drags EXP-149 Todo → In Progress (the FLIP regroup
+// reads as the drag), the phone rises and the status change lands on it as a
+// PUSH notification (the inbox rail dot pops with it), a teammate's live
+// edit flashes onto EXP-150, and the local cursor moves simultaneously.
+// All beats are LOCAL frames.
 
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
@@ -29,6 +32,7 @@ import {
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
+import { NotifPhone } from "../surfaces/steerphone"
 import {
   CL,
   CL_BOARD,
@@ -54,57 +58,70 @@ const DUR = SEGMENT_DURATIONS["board-live"]
 
 // ── Beats (local frames) ──────────────────────────────────────────────────────
 const B = {
-  presenceAt: 12,
-  remoteIn: 26,
-  dragPress: 54,
-  dragFrom: 56,
-  dragTo: 76,
-  remoteOut: 150,
-  liveEdit: 108, // EXP-150: assignee pops in with an indigo flash
+  presenceAt: 10,
+  remoteIn: 30,
+  dragPress: 56,
+  dragFrom: 58,
+  dragTo: 78,
+  phoneIn: 88, // the iPhone rises beside the window
+  pushAt: 112, // the status change lands as a push banner (+ inbox rail dot)
+  liveEdit: 160, // EXP-150: assignee pops in with an indigo flash
+  phoneOut: 190,
+  remoteOut: 212,
 } as const
 
-const CAPTIONS = { bl1: { in: 16, out: 170 } } as const
+const CAPTIONS = {
+  bl1: { in: 8, out: 104 },
+  bl2: { in: 118, out: 196 },
+} as const
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-// Framed high enough that the titlebar's presence facepile stays in shot
-// (y ≤ 540/s keeps window-local y0 visible).
+// f0 is the poster: the WHOLE IDE window composed over the canvas. Then push
+// onto the board for the drag (facepile bound: y ≤ 540/s keeps y0 visible),
+// widen to the two-hander for the phone push, and settle back.
 const CAMERA_KEYS: CamKey[] = [
-  { f: 0, s: 1.55, x: 600, y: 330 },
-  { f: 44, s: 1.55, x: 600, y: 330 },
-  { f: 58, s: 1.7, x: 440, y: 270 },
-  { f: 92, s: 1.7, x: 440, y: 270 },
-  { f: 108, s: 1.55, x: 600, y: 330 },
+  { f: 0, s: 1.05, x: 784, y: 490 },
+  { f: 14, s: 1.05, x: 784, y: 490 },
+  { f: 32, s: 1.7, x: 440, y: 270 },
+  { f: 84, s: 1.7, x: 440, y: 270 },
+  { f: 100, s: 1.32, x: 1010, y: 500 },
+  { f: 188, s: 1.32, x: 1010, y: 500 },
+  { f: 206, s: 1.55, x: 600, y: 330 },
 ]
 
 // ── Cursors (window-local tool-window coords; rows y = 104 + layout offset) ──
-// Before the drag: h:ip 104, EXP-148 132, h:todo 160, EXP-149 188, EXP-150 216.
-// After: EXP-149 lands at 160 (after EXP-148 inside In Progress).
+// Before the drag: h:ip 104, EXP-148 132, h:todo 160, EXP-151 188, EXP-149 216,
+// EXP-150 244. After: EXP-149 lands at 160 (after EXP-148 inside In Progress).
 const REMOTE_KEYS: CursorKey[] = [
   { f: B.remoteIn, x: 220, y: 146 },
-  { f: 40, x: 360, y: 202 },
-  { f: B.dragFrom, x: 360, y: 202 },
+  { f: 44, x: 360, y: 230 },
+  { f: B.dragFrom, x: 360, y: 230 },
   { f: B.dragTo, x: 360, y: 174 },
-  { f: 88, x: 360, y: 174 },
-  { f: 104, x: 420, y: 300 },
-  { f: 132, x: 420, y: 300 },
+  { f: 92, x: 360, y: 174 },
+  { f: 118, x: 420, y: 320 },
+  { f: 150, x: 420, y: 320 },
   { f: B.remoteOut, x: 110, y: 260 },
 ]
 
 const LOCAL_KEYS: CursorKey[] = [
   { f: 0, x: 900, y: 420 },
-  { f: 50, x: 900, y: 420 },
-  { f: 66, x: 340, y: 230 + 28 }, // EXP-150 (shifted down while EXP-149 is mid-flight… settles)
-  { f: 70, x: 340, y: 230 },
-  { f: 100, x: 340, y: 230 },
-  { f: 118, x: 900, y: 500 },
+  { f: 52, x: 900, y: 420 },
+  { f: 70, x: 340, y: 258 }, // EXP-150 (its slot is stable through the regroup)
+  { f: 150, x: 340, y: 258 },
+  { f: 168, x: 340, y: 258 },
+  { f: 190, x: 900, y: 500 },
 ]
 
 const TAB_151: ChromeTab = {
   id: "exp151",
   identifier: NEW_ISSUE_ID,
   label: CL_ISSUE.title,
-  status: "done",
+  status: "todo",
 }
+
+// Phone placement in COMP coordinates inside the camera layer (floats over
+// the window's right edge; scaled for legibility at the two-hander zoom).
+const PHONE_POS = { x: 1490, y: 300, scale: 1.15 } as const
 
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const BoardLiveSegment: React.FC<SegmentProps> = ({
@@ -118,9 +135,8 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
   const dragging = frame >= B.dragFrom
   const overrides: Record<
     string,
-    { status?: "done" | "in_progress"; assignee?: string }
+    { status?: "in_progress"; assignee?: string }
   > = {
-    [NEW_ISSUE_ID]: { status: "done" },
     ...(dragging
       ? { [REMOTE_DRAG_ID]: { status: "in_progress" as const } }
       : {}),
@@ -134,8 +150,12 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
       }
     : undefined
 
+  const phoneRise =
+    interpolate(frame, [B.phoneIn, B.phoneIn + 14], [0, 1], CLAMP_EASE) *
+    interpolate(frame, [B.phoneOut, B.phoneOut + 12], [1, 0], CLAMP_EASE)
+
   return (
-    <SegmentShell frame={frame} dur={DUR}>
+    <SegmentShell frame={frame} dur={DUR} openComposed>
       <AbsoluteFill>
         <Camera keys={CAMERA_KEYS} frame={frame}>
           <WindowChassis>
@@ -148,6 +168,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
             <ExpandedRail
               frame={frame}
               active="board"
+              dots={frame >= B.pushAt + 2 ? ["inbox"] : []}
               boardName={CL.project}
               userName={CL.user}
               userInitial={CL.initials}
@@ -163,15 +184,15 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
                 frame={frame}
                 rows={CL_BOARD}
                 overrides={overrides}
-                hover={{ id: LIVE_EDIT_ID, from: 70, to: 100 }}
+                hover={{ id: LIVE_EDIT_ID, from: 76, to: 150 }}
+                selectedId={NEW_ISSUE_ID}
                 regroup={regroup}
                 flashAt={{ id: LIVE_EDIT_ID, at: B.liveEdit }}
-                prDotId={{ id: NEW_ISSUE_ID, at: 0 }}
                 showLabels={false}
               />
             </SidebarPane>
 
-            {/* center: the merged issue's detail, at rest */}
+            {/* center: EXP-151 open in Todo — the state feedback wraps into */}
             <div
               style={{
                 position: "absolute",
@@ -185,8 +206,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
               <IssueDetailPane
                 frame={frame}
                 tab="details"
-                prChip={{ at: 0 }}
-                status="done"
+                status="todo"
                 priority="none"
                 issue={CL_ISSUE}
                 width={CENTER_W}
@@ -194,7 +214,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
               />
             </div>
 
-            <DockCollapsedStrip frame={frame} count={2} />
+            <DockCollapsedStrip frame={frame} count={1} />
 
             {/* Mara's remote cursor drags the row; the local cursor moves at
                 the same time — simultaneity is the story. */}
@@ -209,6 +229,33 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
             />
             <CursorLayer keys={LOCAL_KEYS} frame={frame} from={0} to={DUR} />
           </WindowChassis>
+
+          {/* the phone, floating over the window's right edge (comp coords):
+              Mara's drag arrives as a push on the lock screen */}
+          {phoneRise > 0.01 ? (
+            <div
+              style={{
+                position: "absolute",
+                left: PHONE_POS.x,
+                top: PHONE_POS.y,
+                opacity: phoneRise,
+                translate: `0px ${(1 - phoneRise) * 46}px`,
+              }}
+            >
+              <div
+                style={{
+                  transform: `scale(${PHONE_POS.scale})`,
+                  transformOrigin: "0 0",
+                }}
+              >
+                <NotifPhone
+                  frame={frame}
+                  bannerAt={B.pushAt}
+                  glass={{ x: PHONE_POS.x, y: PHONE_POS.y }}
+                />
+              </div>
+            </div>
+          ) : null}
         </Camera>
       </AbsoluteFill>
 

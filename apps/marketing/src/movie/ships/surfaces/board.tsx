@@ -1019,3 +1019,149 @@ export const ReviewsTool: React.FC<{
     </div>
   )
 }
+
+// ── ActionsTool (the Actions rail surface, EXP-385: merge → deploy) ──────────
+// The saved-runbook list; one row's Run button morphs Run → Running… with the
+// merge-button grammar while the deploy session streams in the dock.
+
+const ZapGlyph: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ display: `block`, flexShrink: 0 }}
+  >
+    <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+  </svg>
+)
+
+export type ActionRow = { id: string; name: string; sub: string }
+export type ActionRunState = `rest` | `running`
+
+const RUN_W: Record<ActionRunState, number> = { rest: 48, running: 96 }
+
+export const ActionsTool: React.FC<{
+  frame: number
+  rows: readonly ActionRow[]
+  runId: string // the action being run
+  hoverAt?: number // global frame the cursor reaches its Run button
+  runAt?: number // global frame of the Run click → "Running…" morph
+  team?: string // group header team name (default "Exponential")
+}> = ({ frame, rows, runId, hoverAt, runAt, team = `Exponential` }) => {
+  const running = runAt !== undefined && frame >= runAt
+  const morphT =
+    runAt === undefined
+      ? 0
+      : interpolate(frame, [runAt, runAt + 6], [0, 1], {
+          ...CLAMP,
+          easing: EASE,
+        })
+  const hovering =
+    hoverAt !== undefined && frame >= hoverAt && (runAt === undefined || frame < runAt)
+
+  return (
+    <div
+      style={{
+        position: `absolute`,
+        inset: 0,
+        fontFamily: UI_FONT,
+        overflow: `hidden`,
+      }}
+    >
+      {/* group header: team dot + name */}
+      <div
+        style={{
+          height: ROW_H,
+          display: `flex`,
+          alignItems: `center`,
+          gap: 8,
+          padding: `0 12px`,
+        }}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            flex: `none`,
+            borderRadius: 999,
+            backgroundColor: C.indigoSoft,
+          }}
+        />
+        <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>
+          {team}
+        </span>
+      </div>
+      {rows.map((row) => {
+        const isTarget = row.id === runId
+        const state: ActionRunState = isTarget && running ? `running` : `rest`
+        const width = isTarget
+          ? interpolate(morphT, [0, 1], [RUN_W.rest, RUN_W[state]], CLAMP)
+          : RUN_W.rest
+        return (
+          <div key={row.id} style={{ margin: `0 8px`, padding: `5px 6px` }}>
+            <div style={{ display: `flex`, alignItems: `center`, gap: 6 }}>
+              <span style={{ color: C.muted, display: `flex`, flex: `none` }}>
+                <ZapGlyph size={14} />
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 13,
+                  color: C.text,
+                  whiteSpace: `nowrap`,
+                  overflow: `hidden`,
+                  textOverflow: `ellipsis`,
+                }}
+              >
+                {row.name}
+              </span>
+              <span
+                style={{
+                  width,
+                  height: 22,
+                  flex: `none`,
+                  display: `inline-flex`,
+                  alignItems: `center`,
+                  justifyContent: `center`,
+                  gap: 5,
+                  borderRadius: 8,
+                  border: `1px solid ${C.strokeStrong}`,
+                  backgroundColor:
+                    isTarget && hovering ? C.fillActive : `transparent`,
+                  color: state === `running` ? C.muted : C.text,
+                  fontFamily: UI_FONT,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  whiteSpace: `nowrap`,
+                  overflow: `hidden`,
+                }}
+              >
+                {state === `running` ? <Spinner frame={frame} /> : null}
+                {state === `running` ? `Running…` : `Run`}
+              </span>
+            </div>
+            <div
+              style={{
+                paddingLeft: 20,
+                marginTop: 2,
+                fontSize: 11.5,
+                color: C.muted,
+                whiteSpace: `nowrap`,
+                overflow: `hidden`,
+                textOverflow: `ellipsis`,
+              }}
+            >
+              {row.sub}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
