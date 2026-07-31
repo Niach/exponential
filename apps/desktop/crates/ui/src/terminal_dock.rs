@@ -20,7 +20,10 @@
 //! - **empty state** (EXP-369): an expanded, tab-less dock NEVER spawns
 //!   anything by itself — it renders the tab bar over a row of launch cards
 //!   (`render_empty_dock_options`), one per doctor-installed agent plus "New
-//!   shell", carrying exactly the `+` menu's options and gating;
+//!   shell", carrying exactly the `+` menu's options and gating. Picking one
+//!   hides the whole row behind a progress line for the rest of the launch
+//!   (EXP-372) — the agent prepare takes about a second, and cards that stayed
+//!   clickable through it spawned one tab per click;
 //! - the dock **expands when a tab is created** (`TabOpened` →
 //!   `Dock::set_open`, §4's dock open/close) and the new tab's terminal is
 //!   focused; the grid element resizes with the dock (§6.10);
@@ -39,9 +42,10 @@
 //! dock/manager only surface the exit edge.
 
 use gpui::{
-    actions, div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
-    FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window,
+    actions, div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent,
+    Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement,
+    Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, WeakEntity,
+    Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -49,6 +53,7 @@ use gpui_component::{
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
+    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use std::collections::HashMap;
@@ -128,6 +133,14 @@ pub struct TerminalDockPanel {
     /// window closed with live holds leaks its refresh loops until quit —
     /// bounded and rare; sessions normally end by tab close.)
     agent_shell_holds: HashMap<TabId, PathBuf>,
+    /// EXP-372: the in-flight empty-state launch (its card label), if any.
+    /// `prepare_agent_shell` (doctor → token → clone/autopull → MCP wiring)
+    /// takes about a second, and the launch cards stayed live and clickable
+    /// that whole time — every extra click spawned another tab. Set
+    /// synchronously on click, so the very next paint replaces the cards with
+    /// a progress line; cleared when the tab opens or the attempt fails (the
+    /// cards come back).
+    pending_launch: Option<SharedString>,
     _subscription: Subscription,
 }
 
@@ -236,6 +249,7 @@ impl TerminalDockPanel {
             manager,
             dock_area,
             agent_shell_holds: HashMap::new(),
+            pending_launch: None,
             _subscription: subscription,
         }
     }
@@ -380,6 +394,9 @@ impl TerminalDockPanel {
     /// non-board screen (or missing session/board) opens at `$HOME`
     /// immediately (`open_shell(None)`).
     fn new_shell_tab(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // EXP-372: hide the empty-state cards for the whole resolve — even the
+        // cwd lookup is a frame or two of clickable window.
+        self.set_pending_launch(Some("New shell".into()), cx);
         let Some((resolver, board_id, settings)) = self.shell_scope(window, cx) else {
             self.open_shell_cwd(None, cx);
             return;
@@ -410,12 +427,26 @@ impl TerminalDockPanel {
 
     /// Spawn a shell tab at `cwd` (`None` → `$HOME`, resolved by the manager).
     fn open_shell_cwd(&mut self, cwd: Option<PathBuf>, cx: &mut gpui::Context<Self>) {
+        // The launch is over either way — a spawn failure must put the empty
+        // state's cards back rather than leave a stuck progress line.
+        self.set_pending_launch(None, cx);
         let shell_override = crate::coding_flow::terminal_shell_override(cx);
         let result = self
             .manager
             .update(cx, |manager, cx| manager.open_shell(cwd, shell_override, cx));
         if let Err(error) = result {
             log::error!("terminal dock: shell spawn failed: {error:#}");
+        }
+    }
+
+    /// EXP-372: flip the in-flight-launch state and repaint. Only the empty
+    /// state reads it (a dock with tabs renders its terminals regardless), so
+    /// a launch started from the `+` menu / cmd-t / the file tree just sets and
+    /// clears it unobserved.
+    fn set_pending_launch(&mut self, label: Option<SharedString>, cx: &mut gpui::Context<Self>) {
+        if self.pending_launch != label {
+            self.pending_launch = label;
+            cx.notify();
         }
     }
 
@@ -877,12 +908,17 @@ impl TerminalDockPanel {
             full_name,
             cwd_override,
         };
+        // EXP-372: the prepare below is ~a second of work; the empty state's
+        // cards must be gone before it starts, not after it lands.
+        self.set_pending_launch(Some(agent.label().into()), cx);
         cx.spawn_in(window, async move |this, cx| {
             let prepared = cx
                 .background_executor()
                 .spawn(async move { coding::prepare_agent_shell(&request, &deps) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
+                // Landed — success or not, the cards come back if no tab opens.
+                this.set_pending_launch(None, cx);
                 let launch = match prepared {
                     Ok(coding::PreparedAgentShell::Ready(launch)) => launch,
                     Ok(coding::PreparedAgentShell::Disabled(reason)) => {
@@ -996,11 +1032,33 @@ impl TerminalDockPanel {
     /// has several, and stays inert while the resolver is loading or no board
     /// is backed by a repo (the menu's exact gating). No doctor report yet
     /// (the probe is still running) → the shell card alone.
+    ///
+    /// EXP-372: once a card is clicked the row is REPLACED by a progress line
+    /// until the tab opens (or the launch fails) — the agent prepare takes
+    /// about a second, and live cards in that window spawned a tab per click.
     fn render_empty_dock_options(
         &self,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> AnyElement {
+        if let Some(label) = self.pending_launch.clone() {
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .items_center()
+                .justify_center()
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(Spinner::new().icon(registry::UI_LOADING).xsmall())
+                        .child(format!("Starting {label}\u{2026}")),
+                )
+                .into_any_element();
+        }
+
         let installed = CodingHub::global(cx)
             .read(cx)
             .doctor
@@ -1118,6 +1176,7 @@ impl TerminalDockPanel {
                         })),
                     ),
             )
+            .into_any_element()
     }
 }
 
