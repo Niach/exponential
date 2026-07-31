@@ -1,0 +1,1 @@
+Open-source licence notices now ship inside the app, and the built-in action descriptions were refreshed to cover every coding agent.
