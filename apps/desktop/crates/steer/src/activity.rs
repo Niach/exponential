@@ -2192,7 +2192,11 @@ impl SteerState {
                 }
             }
             QuestionKind::Ask | QuestionKind::Submit => {
-                let Some(snapshot) = question_picker::detect(&lines) else {
+                // The during-ask detector: a hook-known question exists, so an
+                // overflowing picker with its tab bar (or the review step's
+                // footer) scrolled off the grid must still be answerable
+                // (EXP-394).
+                let Some(snapshot) = question_picker::detect_during_ask(&lines) else {
                     return AnswerAttempt::Retry;
                 };
                 let visible = normalize_question_text(&snapshot.text);
@@ -2216,6 +2220,16 @@ impl SteerState {
                     }
                     _ => {}
                 }
+                let step_moved = || match question_picker::detect_during_ask(&screen_lines(term))
+                {
+                    None => true,
+                    Some(next) => {
+                        !normalized_texts_match(
+                            &live.text_norm,
+                            &normalize_question_text(&next.text),
+                        ) || next.review != snapshot.review
+                    }
+                };
                 if live.multi_select && live.kind == QuestionKind::Ask {
                     // Digits TOGGLE in a multiSelect picker, so drive the
                     // checkboxes to the requested set, then Tab to advance
@@ -2229,6 +2243,9 @@ impl SteerState {
                         }
                     }
                     write_input(b"\t");
+                    if !settle(step_moved) {
+                        return AnswerAttempt::Settled; // injected — never twice
+                    }
                 } else {
                     let Some(key) = answer.keys.first() else {
                         return AnswerAttempt::Settled;
@@ -2239,18 +2256,19 @@ impl SteerState {
                         return AnswerAttempt::Retry;
                     }
                     write_input(key.as_bytes());
-                }
-                let moved = settle(|| match question_picker::detect(&screen_lines(term)) {
-                    None => true,
-                    Some(next) => {
-                        !normalized_texts_match(
-                            &live.text_norm,
-                            &normalize_question_text(&next.text),
-                        ) || next.review != snapshot.review
+                    // Classic ask pickers submit on the digit; a
+                    // PREVIEW-carrying question renders side-by-side and its
+                    // digit only MOVES the cursor — Enter activates the row
+                    // (EXP-394, the same digit-then-Enter probe the plan
+                    // picker needed in EXP-334). Never after a multiSelect
+                    // Tab: a trailing Enter there toggles/answers whatever
+                    // the cursor sits on next.
+                    if !settle_for(PLAN_SUBMIT_PROBE, step_moved) {
+                        write_input(b"\r");
                     }
-                });
-                if !moved {
-                    return AnswerAttempt::Settled; // injected — never twice
+                    if !settle(step_moved) {
+                        return AnswerAttempt::Settled; // injected — never twice
+                    }
                 }
             }
         }
@@ -2594,7 +2612,15 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             // augments it with rows only the TUI has (the synthetic "Type
             // something"), then publishes the review/submit step. Without a
             // hook this stays the pre-v2 grid-only publication.
-            let question_detection = question_picker::detect(&lines);
+            // With a hook-confirmed ask pending, tolerate the anchors an
+            // overflowing picker scrolls off the grid (EXP-394); without one,
+            // the strict shape keeps footer-carrying lookalikes out of the
+            // legacy grid-only publication path.
+            let question_detection = if steer.ask.is_some() {
+                question_picker::detect_during_ask(&lines)
+            } else {
+                question_picker::detect(&lines)
+            };
             // EXP-334: the raw (undebounced) "a picker is on screen" fact for
             // the publisher's free-text reroute. While the viewport is
             // scrolled the bottom of the grid is not visible — keep the last

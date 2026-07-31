@@ -94,6 +94,12 @@ pub struct QuestionSnapshot {
     pub review: bool,
 }
 
+/// Box-drawing characters of the option-preview pane (EXP-394): a preview
+/// question renders side-by-side — narrow option column left, framed preview
+/// pane right — so option rows carry pane borders/content after the label.
+/// The label is cut at the first such character.
+const PREVIEW_PANE_CHARS: &[char] = &['│', '┌', '┐', '└', '┘', '├', '┤', '─'];
+
 /// One parsed option row: number, label (checkbox stripped), and the checkbox
 /// state — `None` on a single-select row, `Some(ticked)` on a multiSelect one.
 fn parse_option_row(row: &str) -> Option<(u32, &str, Option<bool>)> {
@@ -115,6 +121,9 @@ fn parse_option_row(row: &str) -> Option<(u32, &str, Option<bool>)> {
                 label = rest[close + 1..].trim_start();
             }
         }
+    }
+    if let Some(pane) = label.find(PREVIEW_PANE_CHARS) {
+        label = &label[..pane];
     }
     let label = label.trim_end();
     (!label.is_empty()).then_some((number, label, checkbox))
@@ -200,6 +209,29 @@ fn is_review(tabs: &[QuestionTab], current: Option<usize>, options: &[QuestionOp
 
 /// Detect an AskUserQuestion picker on a visible-screen snapshot.
 pub fn detect(lines: &[String]) -> Option<QuestionSnapshot> {
+    detect_impl(lines, false)
+}
+
+/// Detect while a hook already says an AskUserQuestion IS pending (EXP-394).
+/// A picker taller than the grid — long option descriptions on the default
+/// 80x24 remote-session terminal — scrolls its TAB BAR (and on the review
+/// step even the footer) out of the viewport, and [`detect`]'s anchor
+/// requirements then reject the very picker the ask is parked on: remote
+/// answers were parked, dropped after the retry TTL, and never acked, so the
+/// mobile stepper rolled back to question 1 with nothing injected. With the
+/// hook vouching that an ask is on screen, the missing anchors are excused:
+/// - no tab bar: accepted with the footer as the remaining anchor
+///   (`tabs`/`current_tab` come back empty/None; answer routing matches on
+///   the question TEXT, which stays visible at the top of the box),
+/// - no tab bar AND no footer: accepted only when an option row offers
+///   submitting (the overflowing ≥2.1.220 review step).
+/// The strict entry stays the one lookalike-proof enough for the hook-less
+/// legacy path.
+pub fn detect_during_ask(lines: &[String]) -> Option<QuestionSnapshot> {
+    detect_impl(lines, true)
+}
+
+fn detect_impl(lines: &[String], ask_pending: bool) -> Option<QuestionSnapshot> {
     // Plan-approval screens belong to the plan watcher — never double-detect.
     if plan_picker::detect(lines).is_some() {
         return None;
@@ -266,26 +298,40 @@ pub fn detect(lines: &[String]) -> Option<QuestionSnapshot> {
     let tab_idx = lines[..first_idx]
         .iter()
         .rposition(|l| tab_glyph_count(l.trim()) >= 2)
-        .or_else(|| lines[..first_idx].iter().rposition(|l| is_tab_line(l.trim())))?;
-    let tabs = parse_tab_bar(&lines[tab_idx]);
+        .or_else(|| lines[..first_idx].iter().rposition(|l| is_tab_line(l.trim())));
+    // The tab bar is a hard anchor UNLESS a hook vouches an ask is pending —
+    // an overflowing picker scrolls the bar out of the viewport (EXP-394).
+    if tab_idx.is_none() && !ask_pending {
+        return None;
+    }
+    let tabs = tab_idx.map(|idx| parse_tab_bar(&lines[idx])).unwrap_or_default();
     // claude ≥2.1.220 renders the REVIEW step without the footer (and without
     // the rule + "Chat about this") — requiring it stranded every remote
     // multi-question ask on the review screen (EXP-374). There the bar itself
     // is the anchor: every question tab answered plus the ✔ Submit tab (≥2
     // glyphs). Ordinary question tabs keep the footer requirement — it is
     // what excludes footer-less lookalikes (the workspace-trust prompt's
-    // single-☐ bar, plain numbered lists under stray glyphs).
+    // single-☐ bar, plain numbered lists under stray glyphs). During a
+    // hook-confirmed ask the OVERFLOWING review step shows neither bar nor
+    // footer — there the submit option row is the remaining anchor.
     let has_footer = lines[last_option_idx + 1..]
         .iter()
         .any(|l| l.contains(FOOTER_ANCHOR));
-    if !has_footer && !(tabs.len() >= 2 && tabs.iter().all(|tab| tab.answered)) {
+    let offers_submit = options
+        .iter()
+        .any(|option| option.label.to_ascii_lowercase().starts_with("submit"));
+    if !has_footer
+        && !(tabs.len() >= 2 && tabs.iter().all(|tab| tab.answered))
+        && !(ask_pending && tab_idx.is_none() && offers_submit)
+    {
         return None;
     }
 
     // Question text: the contiguous non-blank block right above the options
-    // (long questions wrap — re-join the lines), bounded by the tab bar.
+    // (long questions wrap — re-join the lines), bounded by the tab bar (when
+    // visible — an overflowed one leaves the block bounded by the screen top).
     let mut text_lines: Vec<&str> = Vec::new();
-    for line in lines[tab_idx + 1..first_idx].iter().rev() {
+    for line in lines[tab_idx.map_or(0, |idx| idx + 1)..first_idx].iter().rev() {
         let t = line.trim();
         if is_boundary(t) || parse_option_row(t).is_some() {
             if text_lines.is_empty() {
@@ -720,6 +766,152 @@ mod tests {
         let mut lines = toppings_screen();
         lines.retain(|l| !l.contains(FOOTER_ANCHOR));
         assert_eq!(detect(&lines), None);
+    }
+
+    /// Captured against claude v2.1.220 on the default 80x24 remote-session
+    /// grid (EXP-394): three long option descriptions make the picker taller
+    /// than the screen, and the TAB BAR scrolls out of the viewport — the
+    /// visible screen starts at the question text.
+    fn overflow_screen() -> Vec<String> {
+        screen(&[
+            "For the in-film readability on phones, which approach should this PR take?",
+            "❯ 1. Mobile camera zoom (Recommended)",
+            "     Thread a small flag from LoopMoviePlayer through Reel into the segments and",
+            "     give each one a tighter, refocused Camera key set - crop off the",
+            "     rail/outer chrome, focus the issue list + detail. This is the crop-and-zoom",
+            "     equivalent of your narrow-window screenshot, without relaying out the",
+            "     mocks. Needs a mobile poster regenerated too. Verified by rendering stills",
+            "     at each chapter and looking at them.",
+            "  2. Sizing only, film untouched",
+            "     Ship just the layout fix (gap + bottom-bar clipping + bigger film) and file",
+            "     the in-film zoom as a separate issue. Smallest, safest PR; phones still",
+            "     show unreadable 11px mock type.",
+            "  3. 1:1 mobile composition",
+            "     A second Remotion composition at 1:1 for phones. Every segment is laid out",
+            "     in 1920x1080 comp coords with hardcoded positions, so this is effectively",
+            "     re-authoring all five scenes - very large, and doubles the maintenance",
+            "     surface forever. I would avoid it.",
+            "  4. Type something.",
+            "────────────────────────────────────────────────────────────────────────────────",
+            "  5. Chat about this",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ])
+    }
+
+    #[test]
+    fn overflowing_question_screen_detects_only_with_the_hook_voucher() {
+        // EXP-394: without a hook saying an ask is pending, the tab bar stays
+        // a hard anchor — the overflowed screen is rejected …
+        assert_eq!(detect(&overflow_screen()), None);
+        // … but during a hook-confirmed ask the footer alone anchors it.
+        let snap = detect_during_ask(&overflow_screen()).expect("overflowed picker detected");
+        assert_eq!(
+            snap.text,
+            "For the in-film readability on phones, which approach should this PR take?"
+        );
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| (o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("1", "Mobile camera zoom (Recommended)"),
+                ("2", "Sizing only, film untouched"),
+                ("3", "1:1 mobile composition"),
+                ("4", "Type something."),
+            ]
+        );
+        assert!(snap.tabs.is_empty());
+        assert_eq!(snap.current_tab, None);
+        assert!(!snap.review);
+    }
+
+    #[test]
+    fn overflowing_footerless_review_detects_via_its_submit_row() {
+        // The ≥2.1.220 review step has no footer (EXP-374); overflowing it
+        // also scrolls the tab bar off. With both anchors gone the submit
+        // option row is what remains — accepted only during a pending ask.
+        let lines = screen(&[
+            "   → \"Coding agents\" (Recommended)",
+            " ● Which pricing surface should be treated as canonical?",
+            "   → Billing settings page",
+            "",
+            "Ready to submit your answers?",
+            "",
+            "❯ 1. Submit answers",
+            "  2. Cancel",
+            "",
+        ]);
+        assert_eq!(detect(&lines), None);
+        let snap = detect_during_ask(&lines).expect("overflowed review detected");
+        assert_eq!(snap.text, "Ready to submit your answers?");
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| o.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Submit answers", "Cancel"]
+        );
+    }
+
+    #[test]
+    fn preview_layout_options_are_cut_at_the_pane_border() {
+        // Captured against claude v2.1.220 at 120x40 (EXP-394): an option
+        // carrying a `preview` renders SIDE-BY-SIDE — narrow option column
+        // left, framed preview pane right — so option rows carry pane
+        // borders/content, labels wrap inside the column, and the footer
+        // gains "n to add notes · Tab to switch questions".
+        let lines = screen(&[
+            "────────────────────────────────────────────────────────────",
+            "←  ☐ Readability  ☐ Mobile width  ✔ Submit  →",
+            "For the in-film readability on phones, which approach should this PR take?",
+            "❯ 1. Mobile camera zoom           ┌───────────────────────────────────────────────┐",
+            "    (Recommended)                 │ boardlive  s: 1.12 -> ~1.9, focus x/y retuned │",
+            "  2. Sizing only, film            │ codeeverywhere  s: 1.06 -> ~1.7               │",
+            "    untouched                     │ reviewmerge  s: 1.12 -> ~1.9                  │",
+            "  3. 1:1 mobile composition       │ feedback  s: 1.45 -> ~2.0                     │",
+            "                                  │ platforms  (no Camera) -> own scale wrapper   │",
+            "                                  │                                               │",
+            "                                  │ - loop-poster-mobile.webp, picture swap       │",
+            "                                  └───────────────────────────────────────────────┘",
+            "                                  Notes: press n to add notes",
+            "────────────────────────────────────────────────────────────",
+            "  Chat about this",
+            "Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel",
+        ]);
+        let snap = detect(&lines).expect("preview picker detected");
+        assert_eq!(
+            snap.text,
+            "For the in-film readability on phones, which approach should this PR take?"
+        );
+        // Pane borders/content never leak into the labels (the wrapped label
+        // tails are lost to the column — answer routing is by KEY, and the
+        // hook already published the full labels).
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| (o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("1", "Mobile camera zoom"),
+                ("2", "Sizing only, film"),
+                ("3", "1:1 mobile composition"),
+            ]
+        );
+        assert_eq!(snap.current_tab, Some(0));
+        assert!(!snap.review);
+    }
+
+    #[test]
+    fn during_ask_detection_still_needs_an_anchor() {
+        // No tab bar, no footer, no submit row — a plain ❯-marked numbered
+        // list stays rejected even while an ask is pending.
+        let lines = screen(&[
+            "Pick a database:",
+            "❯ 1. Postgres",
+            "  2. SQLite",
+        ]);
+        assert_eq!(detect_during_ask(&lines), None);
     }
 
     #[test]

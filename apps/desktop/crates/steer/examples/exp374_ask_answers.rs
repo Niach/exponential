@@ -157,13 +157,19 @@ fn main() {
     // session whose view is never opened keeps this grid for its lifetime.
     let cols: u16 = std::env::var("EXP374_COLS").ok().and_then(|v| v.parse().ok()).unwrap_or(80);
     let rows: u16 = std::env::var("EXP374_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(24);
+    // EXP-394: a file overriding the ask prompt, to replay a reported ask
+    // shape (e.g. very long option descriptions) through the same pipeline.
+    let prompt = std::env::var("EXP374_PROMPT_FILE")
+        .ok()
+        .map(|path| std::fs::read_to_string(path).expect("read EXP374_PROMPT_FILE"))
+        .unwrap_or_else(|| PROMPT.to_string());
     println!("{} spawning claude in {}x{} PTY", stamp(), cols, rows);
     let spec = SpawnSpec::new("claude")
         .args([
             "--settings",
             settings_path.to_str().unwrap(),
             "--dangerously-skip-permissions",
-            PROMPT,
+            &prompt,
         ])
         .env("TERM", "xterm-256color")
         .env(HOOK_PORT_ENV, &hook_server.port().to_string())
@@ -335,7 +341,7 @@ fn main() {
             }
         }
         println!("[viewer] done — acked {} answers: {:?}", acked.len(), acked);
-        (acked, resolved)
+        (answered, acked, resolved)
     });
 
     // Foreground: accept the trust dialog if it appears, and dump the grid
@@ -360,17 +366,21 @@ fn main() {
         std::thread::sleep(Duration::from_millis(200));
     }
 
-    let (acked, resolved) = viewer_rt.block_on(viewer).unwrap_or_default();
+    let (answered, acked, resolved) = viewer_rt.block_on(viewer).unwrap_or_default();
     println!("\n===== final grid =====");
     for line in screen_lines(&terminal.term()).iter().filter(|l| !l.trim().is_empty()) {
         println!("| {line}");
     }
     println!("======================");
+    // Every answer this viewer sent must have acked, and the ask must have
+    // resolved — the tap count itself varies with the prompt (EXP-394 replays
+    // reported ask shapes via EXP374_PROMPT_FILE).
+    let all_acked = !answered.is_empty() && answered.iter().all(|id| acked.contains(id));
     println!(
-        "[result] {} — {} acks ({:?}), ask resolved: {resolved}",
-        if acked.len() >= 5 && resolved { "PASS" } else { "FAIL" },
+        "[result] {} — {} taps, {} acks ({acked:?}), ask resolved: {resolved}",
+        if all_acked && resolved { "PASS" } else { "FAIL" },
+        answered.len(),
         acked.len(),
-        acked,
     );
     terminal.kill();
     active.store(false, std::sync::atomic::Ordering::SeqCst);
