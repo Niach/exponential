@@ -559,7 +559,7 @@ fn handle_connection(
     Ok(())
 }
 
-fn respond(writer: &mut TcpStream, status: &str) -> std::io::Result<()> {
+pub(crate) fn respond(writer: &mut TcpStream, status: &str) -> std::io::Result<()> {
     write!(
         writer,
         "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -569,7 +569,7 @@ fn respond(writer: &mut TcpStream, status: &str) -> std::io::Result<()> {
 
 /// `Authorization: Bearer <token>` in constant time over the token bytes (a
 /// local attacker guessing byte-by-byte is cheap to rule out).
-fn bearer_matches(header: &str, token: &str) -> bool {
+pub(crate) fn bearer_matches(header: &str, token: &str) -> bool {
     let Some(presented) = header.strip_prefix("Bearer ").map(str::trim) else {
         return false;
     };

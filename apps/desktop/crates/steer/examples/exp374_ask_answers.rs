@@ -180,6 +180,8 @@ fn main() {
         kill: Arc::new(|_| {}),
         error: Arc::new(|message| println!("[publisher error] {message}")),
         answers: Some(answer_link.clone()),
+        agent: steer::activity::SessionAgent::Claude,
+        text_sink: None,
     };
     let handle = publish(
         &runtime,
@@ -194,6 +196,7 @@ fn main() {
     let active = Arc::new(AtomicBool::new(true));
     steer::spawn_activity_emitter(
         EmitterConfig {
+            agent: steer::activity::SessionAgent::Claude,
             worktree: worktree.clone(),
             term: Some(terminal.term()),
             extra_secrets: Vec::new(),
@@ -205,6 +208,7 @@ fn main() {
                 write_input,
             }),
             bypass_permissions: true,
+            pi_events: None,
         },
         handle.activity_sender(),
         active.clone(),

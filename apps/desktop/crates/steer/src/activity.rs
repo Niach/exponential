@@ -102,12 +102,12 @@ pub const AGENT_TYPE_MAX: usize = 64;
 /// never rename it without a protocol bump.
 const SUBAGENT_TYPE_FALLBACK: &str = "agent";
 /// Relay-enforced option-count cap; also the range of digit keys we can map.
-const QUESTION_OPTIONS_MAX: usize = 9;
+pub(crate) const QUESTION_OPTIONS_MAX: usize = 9;
 
 /// Minimum gap between worktree diff snapshots (only emitted when changed).
-const DIFF_INTERVAL: Duration = Duration::from_secs(3);
+pub(crate) const DIFF_INTERVAL: Duration = Duration::from_secs(3);
 /// Transcript tail poll cadence (also the answer-intake timeout).
-const POLL_INTERVAL: Duration = Duration::from_secs(1);
+pub(crate) const POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// How long an `ExitPlanMode` hook waits for the grid to confirm the approval
 /// picker before the plan is published as a plain narration instead. The
 /// picker normally paints within a frame; this only fires when detection
@@ -153,7 +153,7 @@ const TRANSCRIPT_WAIT: Duration = Duration::from_secs(20);
 /// EXP-355: cooldown between re-attempts of a `needs_input` forward whose
 /// write failed — fire-and-forget on flips used to stick the synced badge on
 /// its last value until the NEXT flip (which may never come this session).
-const NEEDS_INPUT_RETRY: Duration = Duration::from_secs(5);
+pub(crate) const NEEDS_INPUT_RETRY: Duration = Duration::from_secs(5);
 /// Exact secrets shorter than this are ignored (never mask a common
 /// substring); real tokens/keys are far longer.
 const MIN_SECRET_LEN: usize = 8;
@@ -1226,7 +1226,7 @@ fn attribute_to_card(event: ActivityEvent, subagents: &Subagents) -> ActivityEve
 
 /// A unified diff of the worktree — unstaged plus staged — as one string.
 /// Empty when the tree is clean or git fails (best-effort).
-fn worktree_diff(worktree: &Path) -> String {
+pub(crate) fn worktree_diff(worktree: &Path) -> String {
     let mut out = git_diff(worktree, false);
     let cached = git_diff(worktree, true);
     if !cached.is_empty() {
@@ -2331,10 +2331,25 @@ fn grid_options(snapshot: &QuestionSnapshot, redactor: &Redactor) -> Vec<Questio
 // The emitter thread
 // ---------------------------------------------------------------------------
 
+/// EXP-383: which agent CLI the session runs — picks the activity emitter.
+/// Local mirror of `coding::CodingAgent` (this crate cannot depend on
+/// `coding` — §3.1); the ui wiring converts by id.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SessionAgent {
+    #[default]
+    Claude,
+    Codex,
+    Pi,
+}
+
 /// What the emitter needs to run: the worktree to tail/diff, plus the live
 /// terminal grid for plan-picker detection (EXP-150). `term: None` runs
 /// transcript+diff only (tests / headless callers).
 pub struct EmitterConfig {
+    /// EXP-383: dispatches to the per-agent emitter — claude tails
+    /// `~/.claude/projects`, codex tails its rollout JSONL, pi drains the
+    /// observer-extension sidecar.
+    pub agent: SessionAgent,
     pub worktree: PathBuf,
     pub term: Option<TermHandle>,
     /// REV2-17: exact secrets the wiring already holds at spawn time that no
@@ -2362,6 +2377,11 @@ pub struct EmitterConfig {
     /// EXP-249: the semantic-answer seam. `None` = no remote answering (the
     /// publisher then never forwards `answer` frames either).
     pub steering: Option<Steering>,
+    /// EXP-383: a pi session's slice of the observer sidecar
+    /// ([`crate::pi_observer`]) — the structured event stream the
+    /// `.exp-pi-observer.ts` extension POSTs. `None` for claude/codex, or
+    /// when the sidecar never came up (the pi feed then degrades to diffs).
+    pub pi_events: Option<flume::Receiver<crate::pi_observer::PiEvent>>,
     /// EXP-275: the session was launched with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass) — permission-flavored
     /// Notifications then never become "blocked on approval" cards.
@@ -2375,9 +2395,89 @@ pub struct EmitterConfig {
 pub fn spawn_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<AtomicBool>) {
     std::thread::Builder::new()
         .name("activity-emitter".to_string())
-        .spawn(move || run_emitter(config, sender, active))
+        .spawn(move || match config.agent {
+            SessionAgent::Claude => run_emitter(config, sender, active),
+            SessionAgent::Codex => crate::codex_activity::run_emitter(config, sender, active),
+            SessionAgent::Pi => crate::pi_activity::run_emitter(config, sender, active),
+        })
         .map(|_| ())
         .unwrap_or_else(|err| log::warn!("activity: emitter thread spawn failed: {err}"));
+}
+
+/// The debounced changed-only worktree diff snapshot — step 6 of every
+/// emitter, extracted verbatim so the codex/pi emitters share it (EXP-383).
+pub(crate) struct DiffSnapshots {
+    last: String,
+    last_at: Option<Instant>,
+}
+
+impl DiffSnapshots {
+    pub(crate) fn new() -> Self {
+        Self {
+            last: String::new(),
+            last_at: None,
+        }
+    }
+
+    pub(crate) fn tick(&mut self, worktree: &Path, sender: &ActivitySender, redactor: &Redactor) {
+        let due = self.last_at.is_none_or(|at| at.elapsed() >= DIFF_INTERVAL);
+        if !due {
+            return;
+        }
+        self.last_at = Some(Instant::now());
+        let diff = worktree_diff(worktree);
+        if diff != self.last {
+            self.last = diff.clone();
+            if !diff.is_empty() {
+                sender.send(ActivityEvent::diff(truncate(
+                    &redactor.redact(&diff),
+                    DIFF_MAX,
+                )));
+            }
+        }
+    }
+}
+
+/// The EXP-214 synced needs-input flag, tracked as the last CONFIRMED server
+/// value (`None` = the last write failed and wants a retry). The session row
+/// is born with the flag off. Forwarded on flips; an unconfirmed write
+/// re-attempts every [`NEEDS_INPUT_RETRY`] (EXP-355). Extracted verbatim from
+/// the claude emitter so the codex/pi emitters share it (EXP-383).
+pub(crate) struct NeedsInputForwarder {
+    forwarded: Option<bool>,
+    retry_at: Option<Instant>,
+}
+
+pub(crate) type NeedsInputHook = Arc<dyn Fn(bool) -> bool + Send + Sync>;
+
+impl NeedsInputForwarder {
+    pub(crate) fn new() -> Self {
+        Self {
+            forwarded: Some(false),
+            retry_at: None,
+        }
+    }
+
+    pub(crate) fn tick(&mut self, pending: bool, hook: &Option<NeedsInputHook>) {
+        if self.forwarded != Some(pending) && self.retry_at.is_none_or(|at| Instant::now() >= at) {
+            let landed = match hook {
+                Some(hook) => hook(pending),
+                None => true,
+            };
+            self.forwarded = landed.then_some(pending);
+            self.retry_at = (!landed).then(|| Instant::now() + NEEDS_INPUT_RETRY);
+        }
+    }
+
+    /// Teardown tidiness: never leave the synced attention flag stuck on a
+    /// session whose emitter is gone (the terminal-exit `end` supersedes).
+    pub(crate) fn clear_on_teardown(&mut self, hook: &Option<NeedsInputHook>) {
+        if self.forwarded != Some(false) {
+            if let Some(hook) = hook {
+                hook(false);
+            }
+        }
+    }
 }
 
 fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<AtomicBool>) {
@@ -2400,8 +2500,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut sidechain_scan_at: Option<Instant> = None;
     // EXP-356: agent ids whose `.meta.json` was already absorbed — read once.
     let mut absorbed_sidechains: HashSet<String> = HashSet::new();
-    let mut last_diff = String::new();
-    let mut last_diff_at: Option<Instant> = None;
+    let mut diffs = DiffSnapshots::new();
     let mut transcript_deadline = Some(Instant::now() + TRANSCRIPT_WAIT);
     let mut picker_watcher = PlanPickerWatcher::new();
     let mut question_watcher = QuestionPickerWatcher::new();
@@ -2413,12 +2512,8 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         bypass_permissions: config.bypass_permissions,
         ..SteerState::default()
     };
-    // EXP-214: the synced needs-input flag, tracked as the last CONFIRMED
-    // server value (`None` = the last write failed and wants a retry). The
-    // session row is born with the flag off. Forwarded on flips; an
-    // unconfirmed write re-attempts every [`NEEDS_INPUT_RETRY`] (EXP-355).
-    let mut needs_input_forwarded: Option<bool> = Some(false);
-    let mut needs_input_retry_at: Option<Instant> = None;
+    // EXP-214/EXP-355: the synced needs-input flag (see [`NeedsInputForwarder`]).
+    let mut needs_input = NeedsInputForwarder::new();
     // EXP-334: transiently refused remote answers, retried each tick until
     // [`ANSWER_RETRY_TTL`] — a tap that beats the picker paint must not be
     // dropped on the floor.
@@ -2536,16 +2631,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             || question_watcher.is_pending()
             || steer.has_pending_question();
         let pending = picker_pending || steer.attention.is_some();
-        if needs_input_forwarded != Some(pending)
-            && needs_input_retry_at.is_none_or(|at| Instant::now() >= at)
-        {
-            let landed = match &config.on_needs_input {
-                Some(on_needs_input) => on_needs_input(pending),
-                None => true,
-            };
-            needs_input_forwarded = landed.then_some(pending);
-            needs_input_retry_at = (!landed).then(|| Instant::now() + NEEDS_INPUT_RETRY);
-        }
+        needs_input.tick(pending, &config.on_needs_input);
         if let Some(steering) = &config.steering {
             // The publisher's Enter-cascade guard keys on an ASK picker only
             // (EXP-334): an ask digit selects-and-submits, so its trailing
@@ -2711,20 +2797,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         }
 
         // 6) Debounced worktree diff snapshot (only when changed).
-        let due = last_diff_at.is_none_or(|at| at.elapsed() >= DIFF_INTERVAL);
-        if due {
-            last_diff_at = Some(Instant::now());
-            let diff = worktree_diff(&config.worktree);
-            if diff != last_diff {
-                last_diff = diff.clone();
-                if !diff.is_empty() {
-                    sender.send(ActivityEvent::diff(truncate(
-                        &redactor.redact(&diff),
-                        DIFF_MAX,
-                    )));
-                }
-            }
-        }
+        diffs.tick(&config.worktree, &sender, &redactor);
 
         // 7) Wait out the poll interval — interrupted by a remote answer, so
         //    steering never sits a full second behind the steerer's tap.
@@ -2773,13 +2846,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         }
     }
 
-    // Teardown tidiness: never leave the synced attention flag stuck on a
-    // session whose emitter is gone (the terminal-exit `end` supersedes).
-    if needs_input_forwarded != Some(false) {
-        if let Some(on_needs_input) = &config.on_needs_input {
-            on_needs_input(false);
-        }
-    }
+    needs_input.clear_on_teardown(&config.on_needs_input);
     if let Some(steering) = &config.steering {
         steering.link.set_ask_pending(false);
         steering.link.set_grid_picker_pending(false);
@@ -2791,7 +2858,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 /// the new offset (a trailing partial line is left for the next poll). The two
 /// closures are what separates a main transcript (stateful parse, observed
 /// publication) from a subagent sidechain (tool headlines only).
-fn tail_transcript(
+pub(crate) fn tail_transcript(
     path: &Path,
     offset: u64,
     parse: &mut dyn FnMut(&str) -> Vec<ActivityEvent>,
@@ -2833,7 +2900,7 @@ fn tail_transcript(
 /// so the byte cap is the strictest of the three. (A char-count cap let
 /// CJK/emoji-heavy diffs through at up to 4x the byte budget, and the relay
 /// answered an oversize frame by severing the shared publisher socket.)
-fn truncate(s: &str, max: usize) -> String {
+pub(crate) fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
     }

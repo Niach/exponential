@@ -57,8 +57,8 @@ use gpui::{App, AppContext as _, Entity, Global, WeakEntity};
 use terminal::{TabId, TerminalManager};
 
 use coding::{
-    prepare_with_hooks, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared,
-    PrepareRequest, RepoGroup,
+    prepare_with_hooks, BatchIssueSpec, BatchLaunchRequest, CodingAgent, LaunchOptions,
+    LaunchOrigin, Prepared, PrepareRequest, RepoGroup,
 };
 use steer::publisher::pty_writer_input_hook;
 use steer::{
@@ -125,6 +125,13 @@ pub fn install(cx: &mut App) {
     match HookSidecar::start() {
         Some(sidecar) => cx.set_global(HookSidecarGlobal(sidecar)),
         None => log::warn!("steer: hooks sidecar unavailable — grid-only detection"),
+    }
+
+    // EXP-383: the pi observer sidecar — same one-server-per-process shape,
+    // its port/token handed to every launch through `observer_setup`.
+    match steer::pi_observer::ObserverServer::start() {
+        Ok(server) => cx.set_global(PiObserverGlobal(Arc::new(server))),
+        Err(err) => log::warn!("steer: pi observer sidecar failed to bind: {err}"),
     }
 
     // §8.3 #4: relay `start_session` → foreground launcher.
@@ -267,6 +274,27 @@ fn route_hook_event(subscribers: &Arc<Mutex<Vec<HookSubscriber>>>, event: HookEv
 pub fn hook_setup(cx: &App) -> Option<coding::HookSetup> {
     cx.try_global::<HookSidecarGlobal>()
         .map(|global| global.0.setup.clone())
+}
+
+// ---------------------------------------------------------------------------
+// The pi observer sidecar (EXP-383) — one server, per-worktree routing
+// ---------------------------------------------------------------------------
+
+/// The process-wide pi observer server ([`steer::pi_observer`]). Routing to
+/// sessions lives inside the server itself (by canonicalized worktree), so
+/// unlike the hooks sidecar there is no router thread here.
+struct PiObserverGlobal(Arc<steer::pi_observer::ObserverServer>);
+impl Global for PiObserverGlobal {}
+
+/// The observer wiring every launch site passes to
+/// `coding::prepare_with_hooks` (EXP-383). `None` = no sidecar — a pi
+/// session then runs with the observer extension inert (diffs-only feed).
+pub fn observer_setup(cx: &App) -> Option<coding::ObserverSetup> {
+    cx.try_global::<PiObserverGlobal>()
+        .map(|global| coding::ObserverSetup {
+            port: global.0.port(),
+            token: global.0.token().to_string(),
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -622,11 +650,17 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
     };
 
     let hooks = hook_setup(cx);
+    let observer = observer_setup(cx);
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                prepare_with_hooks(&PrepareRequest::Issue(request), &deps, hooks.as_ref())
+                prepare_with_hooks(
+                    &PrepareRequest::Issue(request),
+                    &deps,
+                    hooks.as_ref(),
+                    observer.as_ref(),
+                )
             })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
@@ -769,11 +803,17 @@ fn remote_batch_start(
     };
 
     let hooks = hook_setup(cx);
+    let observer = observer_setup(cx);
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                prepare_with_hooks(&PrepareRequest::Batch(request), &deps, hooks.as_ref())
+                prepare_with_hooks(
+                    &PrepareRequest::Batch(request),
+                    &deps,
+                    hooks.as_ref(),
+                    observer.as_ref(),
+                )
             })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
@@ -858,8 +898,18 @@ pub fn attach_publisher(
     // plan mode off) — the emitter keeps permission-flavored notifications
     // from becoming "blocked on approval" cards in bypass mode.
     bypass_permissions: bool,
+    // EXP-383: which agent CLI the session runs — selects the activity
+    // emitter and gates the claude-only hook/answer machinery off for
+    // codex/pi.
+    agent: CodingAgent,
     cx: &mut App,
 ) {
+    let session_agent = match agent {
+        CodingAgent::Claude => steer::activity::SessionAgent::Claude,
+        CodingAgent::Codex => steer::activity::SessionAgent::Codex,
+        CodingAgent::Pi => steer::activity::SessionAgent::Pi,
+    };
+    let is_claude = session_agent == steer::activity::SessionAgent::Claude;
     let Some(runtime) = runtime(cx) else {
         return; // steer off (runtime failed to init)
     };
@@ -892,6 +942,20 @@ pub fn attach_publisher(
     // emitter, which owns question identity and the live grid.
     let (answer_link, answers) = AnswerLink::new();
 
+    // EXP-383: a pi session's observer subscription — the emitter drains the
+    // event stream, the publisher pushes remote composer messages into the
+    // steer queue the extension long-polls (applied via pi.sendUserMessage).
+    let pi_observer = (session_agent == steer::activity::SessionAgent::Pi)
+        .then(|| {
+            cx.try_global::<PiObserverGlobal>()
+                .map(|global| global.0.subscribe(&worktree))
+        })
+        .flatten();
+    let (pi_events, pi_steer) = match pi_observer {
+        Some((events, steer_handle)) => (Some(events), Some(steer_handle)),
+        None => (None, None),
+    };
+
     let hooks = PublisherHooks {
         write_input: write_input.clone(),
         // The rest marshal to the foreground (they touch the gpui-held term).
@@ -901,7 +965,14 @@ pub fn attach_publisher(
         error: Arc::new(move |message| {
             let _ = error_tx.send(SteerUiEvent::Error(message));
         }),
-        answers: Some(answer_link.clone()),
+        // EXP-383: the semantic answer path is claude-only (grid keystroke
+        // choreography against the claude TUI) — `None` keeps the publisher's
+        // Enter-cascade/Esc-reroute logic inert for codex/pi.
+        answers: is_claude.then(|| answer_link.clone()),
+        agent: session_agent,
+        text_sink: pi_steer.map(|handle| {
+            Arc::new(move |text: String| handle.push(text)) as Arc<dyn Fn(String) + Send + Sync>
+        }),
     };
 
     // EXP-214: the needs-input forwarder's own handle — cloned before the
@@ -957,12 +1028,18 @@ pub fn attach_publisher(
         .collect();
     // EXP-249: this session's slice of the hooks sidecar — the structured
     // plan/question/subagent/permission stream. Absent when the sidecar never
-    // came up; the emitter then runs grid-only, exactly as before.
-    let hook_events = cx
-        .try_global::<HookSidecarGlobal>()
-        .map(|global| global.0.subscribe(&worktree));
+    // came up; the emitter then runs grid-only, exactly as before. Claude
+    // only (EXP-383): the sidecar is fed by claude's `--settings` hooks, so
+    // a codex/pi subscription would just leak.
+    let hook_events = is_claude
+        .then(|| {
+            cx.try_global::<HookSidecarGlobal>()
+                .map(|global| global.0.subscribe(&worktree))
+        })
+        .flatten();
     spawn_activity_emitter(
         EmitterConfig {
+            agent: session_agent,
             worktree,
             extra_secrets,
             // The live grid: the emitter watches it to confirm pickers the
@@ -983,12 +1060,15 @@ pub fn attach_publisher(
                 }
             })),
             hooks: hook_events,
-            steering: Some(Steering {
+            // EXP-383: remote answering is claude-only — the Steering seam
+            // drives the claude TUI's pickers by keystroke.
+            steering: is_claude.then(|| Steering {
                 answers,
                 link: answer_link,
                 write_input,
             }),
             bypass_permissions,
+            pi_events,
         },
         handle.activity_sender(),
         activity_active.clone(),

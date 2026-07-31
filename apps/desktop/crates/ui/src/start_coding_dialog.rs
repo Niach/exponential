@@ -1248,11 +1248,12 @@ impl StartCodingDialogView {
         cx.notify();
 
         let hooks = crate::steer_wiring::hook_setup(cx);
+        let observer = crate::steer_wiring::observer_setup(cx);
         let opener = self.opener;
         cx.spawn_in(window, async move |this, window| {
             let prepared = window
                 .background_executor()
-                .spawn(async move { coding::prepare_with_hooks(&request, &deps, hooks.as_ref()) })
+                .spawn(async move { coding::prepare_with_hooks(&request, &deps, hooks.as_ref(), observer.as_ref()) })
                 .await;
             // The terminal tab spawns into the OPENER window's dock
             // (EXP-284) — a fresh cross-window update from the async
