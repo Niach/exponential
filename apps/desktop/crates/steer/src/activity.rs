@@ -2377,6 +2377,11 @@ pub struct EmitterConfig {
     /// EXP-249: the semantic-answer seam. `None` = no remote answering (the
     /// publisher then never forwards `answer` frames either).
     pub steering: Option<Steering>,
+    /// EXP-383: a pi session's slice of the observer sidecar
+    /// ([`crate::pi_observer`]) — the structured event stream the
+    /// `.exp-pi-observer.ts` extension POSTs. `None` for claude/codex, or
+    /// when the sidecar never came up (the pi feed then degrades to diffs).
+    pub pi_events: Option<flume::Receiver<crate::pi_observer::PiEvent>>,
     /// EXP-275: the session was launched with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass) — permission-flavored
     /// Notifications then never become "blocked on approval" cards.

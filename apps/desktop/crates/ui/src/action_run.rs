@@ -401,6 +401,7 @@ fn launch_action(request: ActionLaunchRequest, target: gpui::AnyWindowHandle, cx
         return;
     };
     let hooks = crate::steer_wiring::hook_setup(cx);
+    let observer = crate::steer_wiring::observer_setup(cx);
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
@@ -409,6 +410,7 @@ fn launch_action(request: ActionLaunchRequest, target: gpui::AnyWindowHandle, cx
                     &PrepareRequest::Action(request),
                     &deps,
                     hooks.as_ref(),
+                    observer.as_ref(),
                 )
             })
             .await;

@@ -21,7 +21,7 @@ use std::path::Path;
 
 use crate::agent::CodingAgent;
 use crate::mcp_json::MCP_JSON_FILE;
-use crate::pi_bridge::PI_BRIDGE_FILE;
+use crate::pi_bridge::{PI_BRIDGE_FILE, PI_OBSERVER_FILE};
 use crate::settings::Settings;
 
 /// The env var carrying the raw `expu_` key for codex + pi sessions (EXP-201)
@@ -39,6 +39,12 @@ pub const MCP_URL_ENV: &str = "EXP_MCP_URL";
 /// time, so the file itself stays constant and secret-free.
 pub const HOOK_PORT_ENV: &str = "EXP_HOOK_PORT";
 pub const HOOK_TOKEN_ENV: &str = "EXP_HOOK_TOKEN";
+
+/// Spawn-env vars the pi observer extension reads (EXP-383; mirror of
+/// `steer::pi_observer::OBSERVER_{URL,TOKEN}_ENV` — the two crates cannot
+/// depend on each other, §3.1).
+pub const OBSERVER_URL_ENV: &str = "EXP_OBSERVER_URL";
+pub const OBSERVER_TOKEN_ENV: &str = "EXP_OBSERVER_TOKEN";
 
 /// The MCP wiring of every CLAUDE coding argv: the launcher-written worktree
 /// [`MCP_JSON_FILE`] (`.exp-mcp.json`) rides `--mcp-config` (resolved against
@@ -351,6 +357,12 @@ pub fn session_args(
             // -a/--approve (it would auto-trust repo-carried extensions).
             args.push("-e".into());
             args.push(format!("./{PI_BRIDGE_FILE}"));
+            // The observer extension (EXP-383): reports activity to the
+            // loopback sidecar and applies remote steers via
+            // pi.sendUserMessage. `-e` is repeatable; the file is inert
+            // without the EXP_OBSERVER_* env, so it rides unconditionally.
+            args.push("-e".into());
+            args.push(format!("./{PI_OBSERVER_FILE}"));
         }
     }
     match tail {
@@ -672,6 +684,8 @@ mod tests {
                 "high",
                 "-e",
                 "./.exp-pi-mcp.ts",
+                "-e",
+                "./.exp-pi-observer.ts",
                 "prompt",
             ]
         );
@@ -687,7 +701,10 @@ mod tests {
             skip_permissions: true, // inert for pi
         };
         let args = session_args(&opts, &AgentMcp::PiExtension, None, SessionTail::Prompt("p"));
-        assert_eq!(args, vec!["-e", "./.exp-pi-mcp.ts", "p"]);
+        assert_eq!(
+            args,
+            vec!["-e", "./.exp-pi-mcp.ts", "-e", "./.exp-pi-observer.ts", "p"]
+        );
         assert!(!args.iter().any(|arg| arg == "-a" || arg == "--approve"));
     }
 
@@ -716,7 +733,15 @@ mod tests {
         };
         assert_eq!(
             session_args(&opts, &AgentMcp::PiExtension, None, SessionTail::Continue),
-            vec!["--model", "fable", "-e", "./.exp-pi-mcp.ts", "--continue"]
+            vec![
+                "--model",
+                "fable",
+                "-e",
+                "./.exp-pi-mcp.ts",
+                "-e",
+                "./.exp-pi-observer.ts",
+                "--continue"
+            ]
         );
 
         // codex: the exact recovered session id rides the `resume`
@@ -788,7 +813,10 @@ mod tests {
             skip_permissions: false,
         };
         let args = session_args(&pi, &AgentMcp::PiExtension, None, SessionTail::None);
-        assert_eq!(args, vec!["-e", "./.exp-pi-mcp.ts"]);
+        assert_eq!(
+            args,
+            vec!["-e", "./.exp-pi-mcp.ts", "-e", "./.exp-pi-observer.ts"]
+        );
     }
 
     /// EXP-325: an explicit agent pick seeds THAT agent's persisted pair and

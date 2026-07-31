@@ -39,7 +39,7 @@ use terminal::TerminalManager;
 use crate::agent::CodingAgent;
 use crate::argv::{
     session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_PORT_ENV, HOOK_TOKEN_ENV,
-    MCP_TOKEN_ENV, MCP_URL_ENV,
+    MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
 };
 use crate::action_prompt::{render_action_prompt, ActionInputValue};
 use crate::action_prompt::{create_action_prompt, fix_pr_conflicts_prompt};
@@ -47,7 +47,7 @@ use crate::batch_launcher::{batch_branch_name, BatchLaunchRequest, RepoGroup};
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
-use crate::pi_bridge::write_pi_bridge;
+use crate::pi_bridge::{write_pi_bridge, write_pi_observer};
 use crate::git_credentials;
 use crate::git_worktree::{
     branch_name, clone_path, create_worktree, ensure_clone, fetch_base,
@@ -277,6 +277,7 @@ impl WorktreeProvider for GitWorktrees {
             &[
                 crate::mcp_json::MCP_JSON_FILE,
                 crate::pi_bridge::PI_BRIDGE_FILE,
+                crate::pi_bridge::PI_OBSERVER_FILE,
                 crate::worktree_agents::AGENTS_FILE,
             ],
         );
@@ -473,6 +474,20 @@ pub struct HookSetup {
     pub settings_json: String,
 }
 
+/// The pi observer sidecar's per-session wiring (EXP-383), handed in by the
+/// app/ui layer exactly like [`HookSetup`]: it owns the
+/// `steer::pi_observer::ObserverServer` (this crate cannot depend on `steer`
+/// — §3.1) and the launcher puts the two env vars on a pi spawn so the
+/// `.exp-pi-observer.ts` extension can reach it.
+///
+/// Absent (or a non-pi agent) = no observer env: the extension file is still
+/// written but stays inert.
+#[derive(Clone, Debug)]
+pub struct ObserverSetup {
+    pub port: u16,
+    pub token: String,
+}
+
 /// Where the per-session `--settings` files live: under the app data dir,
 /// NEVER in the worktree. A `.claude/settings.json` inside the tree would be
 /// committable by the agent AND would land in claude's project-approval scan
@@ -577,8 +592,33 @@ fn wire_agent_mcp(
         CodingAgent::Pi => {
             write_pi_bridge(cwd)
                 .map_err(|e| CodingError::Io(format!("write .exp-pi-mcp.ts: {e}")))?;
+            // The observer extension rides along unconditionally (EXP-383):
+            // static file, inert without the EXP_OBSERVER_* env — but its
+            // absence with the env set would fail the `-e` load, so a write
+            // failure is only logged when no observer is wired anyway.
+            write_pi_observer(cwd)
+                .map_err(|e| CodingError::Io(format!("write .exp-pi-observer.ts: {e}")))?;
             Ok(AgentMcp::PiExtension)
         }
+    }
+}
+
+/// The spawn-env half of the pi observer wiring (EXP-383): url + token for
+/// the `.exp-pi-observer.ts` extension. Only a pi spawn with a live sidecar
+/// gets them — without the env the extension returns immediately.
+fn apply_observer_env(
+    spawn: SpawnSpec,
+    agent: CodingAgent,
+    observer: Option<&ObserverSetup>,
+) -> SpawnSpec {
+    match (agent, observer) {
+        (CodingAgent::Pi, Some(observer)) => spawn
+            .env(
+                OBSERVER_URL_ENV,
+                format!("http://127.0.0.1:{}", observer.port),
+            )
+            .env(OBSERVER_TOKEN_ENV, &observer.token),
+        _ => spawn,
     }
 }
 
@@ -645,7 +685,7 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 /// 6. `codingSessions.start` / `start_batch` — BEFORE spawn; its id keys
 ///    tab + steer room.
 pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    prepare_with_hooks(req, deps, None)
+    prepare_with_hooks(req, deps, None, None)
 }
 
 /// [`prepare`] with the EXP-249 claude hooks sidecar wired in. The caller
@@ -658,11 +698,12 @@ pub fn prepare_with_hooks(
     req: &PrepareRequest,
     deps: &CodingDeps,
     hooks: Option<&HookSetup>,
+    observer: Option<&ObserverSetup>,
 ) -> Result<Prepared, CodingError> {
     // Action runs share none of the worktree/branch/PR skeleton below —
     // they get their own sequence (EXP-253).
     if let PrepareRequest::Action(action_req) = req {
-        return prepare_action(action_req, deps, hooks);
+        return prepare_action(action_req, deps, hooks, observer);
     }
     let resume_requested = matches!(req, PrepareRequest::Issue(issue_req) if issue_req.resume);
     let mut options = match req {
@@ -955,6 +996,7 @@ pub fn prepare_with_hooks(
     // The MCP credential env half of the wiring ([`apply_mcp_env`]).
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
     spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
+    spawn = apply_observer_env(spawn, agent, observer);
 
     let heartbeat_scope = match req {
         PrepareRequest::Issue(issue_req) => coding_sessions::HeartbeatScope {
@@ -1020,6 +1062,7 @@ fn prepare_action(
     req: &ActionLaunchRequest,
     deps: &CodingDeps,
     hooks: Option<&HookSetup>,
+    observer: Option<&ObserverSetup>,
 ) -> Result<Prepared, CodingError> {
     // EXP-257: options apply AS-IS — same per-agent vocabulary as an issue
     // run (the server validates remote starts identically).
@@ -1122,7 +1165,11 @@ fn prepare_action(
             // needs excluding too; AGENTS_FILE never exists on a trunk run).
             let _ = crate::git_worktree::ensure_local_excludes(
                 &clone,
-                &[crate::mcp_json::MCP_JSON_FILE, crate::pi_bridge::PI_BRIDGE_FILE],
+                &[
+                    crate::mcp_json::MCP_JSON_FILE,
+                    crate::pi_bridge::PI_BRIDGE_FILE,
+                    crate::pi_bridge::PI_OBSERVER_FILE,
+                ],
             );
             let cwd = match &req.kind {
                 // EXP-259: the fix-conflicts run works on the PR branch, not
@@ -1272,6 +1319,7 @@ fn prepare_action(
         .cwd(&cwd);
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
     spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
+    spawn = apply_observer_env(spawn, agent, observer);
     if let Some(clone) = &trunk_clone {
         // Same EXP-76 shared-cache posture as a session — keyed off the
         // CLONE (the fix-conflicts cwd is a worktree); inert repo-less.
@@ -1411,7 +1459,11 @@ pub fn prepare_agent_shell(
     let _ = crate::clone_manager::auto_sync(&clone, &url);
     let _ = crate::git_worktree::ensure_local_excludes(
         &clone,
-        &[crate::mcp_json::MCP_JSON_FILE, crate::pi_bridge::PI_BRIDGE_FILE],
+        &[
+            crate::mcp_json::MCP_JSON_FILE,
+            crate::pi_bridge::PI_BRIDGE_FILE,
+            crate::pi_bridge::PI_OBSERVER_FILE,
+        ],
     );
 
     // EXP-369: the agent runs in the pinned worktree when the caller gave
@@ -2081,6 +2133,7 @@ mod tests {
             &PrepareRequest::Issue(request("EXP-42")),
             &deps,
             Some(&hooks),
+            None,
         )
         .unwrap()
         {
@@ -2167,7 +2220,9 @@ mod tests {
         };
         let hooks = hook_setup();
         let prepared =
-            match prepare_with_hooks(&PrepareRequest::Issue(req), &deps, Some(&hooks)).unwrap() {
+            match prepare_with_hooks(&PrepareRequest::Issue(req), &deps, Some(&hooks), None)
+                .unwrap()
+            {
                 Prepared::Ready(prepared) => prepared,
                 other => panic!("expected Ready, got {other:?}"),
             };
@@ -2197,6 +2252,7 @@ mod tests {
             &PrepareRequest::Action(action_request()),
             &deps,
             Some(&hooks),
+            None,
         )
         .unwrap()
         {
@@ -3076,6 +3132,90 @@ mod tests {
                 prepared.spawn.env
             );
         }
+    }
+
+    /// EXP-383: a pi launch with an observer sidecar wired gets the
+    /// EXP_OBSERVER_* env, the second `-e` extension, and the observer file
+    /// on disk (git-excluded like the bridge). Without a sidecar the file
+    /// still lands but the env stays absent (inert extension).
+    #[test]
+    fn pi_launch_wires_the_observer_sidecar() {
+        let dir = temp_dir("pi-observer");
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+            // The second (no-sidecar) prepare replays the same sequence.
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.pi_path = "git".to_string(); // runnable stub
+        let mut req = request("EXP-42");
+        req.options.agent = CodingAgent::Pi;
+
+        let observer = ObserverSetup {
+            port: 45678,
+            token: "obs-token".to_string(),
+        };
+        let prepared = match prepare_with_hooks(
+            &PrepareRequest::Issue(req),
+            &deps,
+            None,
+            Some(&observer),
+        )
+        .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        // Both extensions ride argv; the observer file is on disk and
+        // secret-free.
+        let args = &prepared.spawn.args;
+        let extensions: Vec<&str> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| *arg == "-e")
+            .filter_map(|(i, _)| args.get(i + 1).map(String::as_str))
+            .collect();
+        assert_eq!(extensions, ["./.exp-pi-mcp.ts", "./.exp-pi-observer.ts"]);
+        let observer_source = fs::read_to_string(worktree.join(".exp-pi-observer.ts")).unwrap();
+        assert!(!observer_source.contains("expu_"));
+        for (key, value) in [
+            ("EXP_OBSERVER_URL", "http://127.0.0.1:45678".to_string()),
+            ("EXP_OBSERVER_TOKEN", "obs-token".to_string()),
+        ] {
+            assert!(
+                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
+                "missing env {key}={value}: {:?}",
+                prepared.spawn.env
+            );
+        }
+
+        // No sidecar ⇒ no env (the extension returns immediately).
+        let mut req = request("EXP-43");
+        req.options.agent = CodingAgent::Pi;
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert!(
+            !prepared
+                .spawn
+                .env
+                .iter()
+                .any(|(key, _)| key.starts_with("EXP_OBSERVER_")),
+            "{:?}",
+            prepared.spawn.env
+        );
     }
 
     /// EXP-201 per-agent doctor gate: a missing codex blocks a CODEX launch

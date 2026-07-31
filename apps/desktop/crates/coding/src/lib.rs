@@ -63,7 +63,7 @@ pub mod worktree_agents;
 pub use agent::CodingAgent;
 pub use argv::{
     permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_PORT_ENV,
-    HOOK_TOKEN_ENV, MCP_TOKEN_ENV, MCP_URL_ENV,
+    HOOK_TOKEN_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
 };
 pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
@@ -92,12 +92,13 @@ pub use launcher::{
     prepare_with_hooks, spawn_prepared, spawn_prepared_with, ActionLaunchRequest, ActionRunKind,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason, ExitNotify,
     GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
+    ObserverSetup,
     Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };
-pub use pi_bridge::{write_pi_bridge, PI_BRIDGE_FILE};
+pub use pi_bridge::{write_pi_bridge, write_pi_observer, PI_BRIDGE_FILE, PI_OBSERVER_FILE};
 pub use prompt::{
     deliver_prompt, deliver_prompt_file, render_prompt, render_resume_prompt,
     write_rendered_prompt, PromptDelivery, PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,

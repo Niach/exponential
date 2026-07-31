@@ -208,6 +208,7 @@ fn main() {
                 write_input,
             }),
             bypass_permissions: true,
+            pi_events: None,
         },
         handle.activity_sender(),
         active.clone(),
