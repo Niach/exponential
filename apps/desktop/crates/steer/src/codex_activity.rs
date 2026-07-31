@@ -716,6 +716,14 @@ fn run_emitter_with_root(
                             config.worktree.display(),
                             ROLLOUT_WAIT.as_secs()
                         );
+                        // EXP-389: say so on the feed too — a codex parked on
+                        // an interactive startup screen (login, an onboarding
+                        // prompt a future version adds) records no rollout,
+                        // and without this a remote viewer just stares at an
+                        // empty feed.
+                        sender.send(ActivityEvent::narration(
+                            "Codex hasn't produced any activity yet — it may be waiting on a prompt in the desktop terminal.",
+                        ));
                         rollout_deadline = None;
                     }
                 }

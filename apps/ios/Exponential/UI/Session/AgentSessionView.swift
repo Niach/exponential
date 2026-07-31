@@ -321,6 +321,11 @@ struct AgentSessionView: View {
                             ForEach(rows) { row in
                                 feedRow(row, isLast: row.id == rows.last?.id)
                             }
+                            // EXP-389: the agent-is-busy footer — live and
+                            // nothing waiting on the user (Android parity).
+                            if isWorking(model) {
+                                WorkingIndicatorRow()
+                            }
                         }
                         Color.clear
                             .frame(height: 1)
@@ -401,6 +406,15 @@ struct AgentSessionView: View {
                 }
             }
         }
+    }
+
+    /// EXP-389: the agent is actively working — live socket, session not
+    /// ended, no active question card, and the synced `needs_input` flag
+    /// clear (all three agents drive it: claude via hooks, codex via turn
+    /// edges, pi via agent_settled).
+    private func isWorking(_ model: AgentSessionModel) -> Bool {
+        model.phase == .live && !model.sessionEnded && !model.awaitingInput
+            && model.session?.needsInput != true
     }
 
     @ViewBuilder
@@ -665,6 +679,33 @@ private struct NarrationBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 5)
+    }
+}
+
+/// The trailing "agent is busy" row (EXP-389): a gently pulsing "Working…"
+/// under the newest event whenever the session is live and nothing waits on
+/// the user — without it a feed that ends in tool rows gives no cue whether
+/// the agent is still going. Static under Reduce Motion.
+private struct WorkingIndicatorRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AppIcon(AppIcons.codingAssistant, size: 11)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Text("Working…")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+        .padding(.vertical, 5)
+        .opacity(pulsing ? 0.4 : 1)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                pulsing = true
+            }
+        }
     }
 }
 

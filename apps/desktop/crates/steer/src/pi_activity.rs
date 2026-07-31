@@ -10,8 +10,11 @@
 //! * `input` (interactive OR extension source) → [`ActivityEvent::UserMessage`]
 //!   — an extension-injected steer is a real user turn and OTHER viewers must
 //!   see it (the sender's own client already dedupes its echo).
-//! * completed assistant text blocks → narration; thinking blocks are skipped
-//!   (claude parity: prose only).
+//! * completed assistant text blocks → narration; completed THINKING blocks
+//!   → narration too (EXP-389). Pi models mostly think between tool calls
+//!   and only write prose at the end of a turn, so a thinking-less feed is
+//!   just a wall of tool headlines — the deliberate codex parity here is the
+//!   `agent_reasoning` narration, not claude's prose-only stance.
 //! * `tool_execution_start` → a tool headline with a DERIVED detail (path /
 //!   pattern / description / bash first token — never a raw command string).
 //! * `agent_start` / `agent_settled` → the synced needs-input flag.
@@ -51,11 +54,9 @@ pub(crate) fn map_event(
                 NARRATION_MAX,
             )))
         }
-        PiEvent::AssistantText { text } => Some(ActivityEvent::narration(truncate(
-            &redactor.redact(&text),
-            NARRATION_MAX,
-        ))),
-        PiEvent::Thinking { .. } => None,
+        PiEvent::AssistantText { text } | PiEvent::Thinking { text } => Some(
+            ActivityEvent::narration(truncate(&redactor.redact(&text), NARRATION_MAX)),
+        ),
         PiEvent::ToolStart { name, args, .. } => {
             let detail = tool_detail(&name, &args)
                 .map(|detail| truncate(&redactor.redact(&detail), TOOL_DETAIL_MAX));
@@ -217,7 +218,9 @@ mod tests {
     }
 
     #[test]
-    fn narration_flows_and_thinking_is_skipped() {
+    fn assistant_text_and_thinking_both_become_narration() {
+        // EXP-389: thinking is pi's only between-tool-calls signal — a feed
+        // without it is just tool headlines.
         let mut idle = false;
         assert!(matches!(
             map_event(
@@ -227,11 +230,16 @@ mod tests {
             ),
             Some(ActivityEvent::Narration { ref text, .. }) if text == "Done."
         ));
-        assert!(map_event(
-            PiEvent::Thinking { text: "hmm".into() },
-            &mut idle,
-            &redactor()
-        )
-        .is_none());
+        assert!(matches!(
+            map_event(
+                PiEvent::Thinking {
+                    text: "Checking how the launcher spawns codex".into()
+                },
+                &mut idle,
+                &redactor()
+            ),
+            Some(ActivityEvent::Narration { ref text, .. })
+                if text == "Checking how the launcher spawns codex"
+        ));
     }
 }

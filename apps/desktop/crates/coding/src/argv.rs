@@ -14,7 +14,11 @@
 //! - **codex** — the TUI's own "Auto" preset (`--sandbox workspace-write
 //!   --ask-for-approval on-request`, plus the network override so `git push`
 //!   works inside the sandbox), or `--dangerously-bypass-approvals-and-sandbox`
-//!   when skipping. `--full-auto` is deprecated and never used.
+//!   when skipping. `--full-auto` is deprecated and never used. Every codex
+//!   argv also disables the startup update prompt (EXP-389 — it parks an
+//!   unattended session; the directory-trust screen is handled separately by
+//!   [`crate::codex_trust`], because `-c projects.….trust_level` cannot
+//!   express paths containing dots).
 //! - **pi** — no permission system exists; no flags either way.
 
 use std::path::Path;
@@ -306,6 +310,13 @@ pub fn session_args(
             args.extend(permission_args(opts.plan_mode, opts.skip_permissions));
         }
         CodingAgent::Codex => {
+            // EXP-389: codex's startup update prompt ("Update now / Skip …
+            // Press enter to continue") blocks an unattended session exactly
+            // like the trust screen — a remote start would park on it with
+            // nothing visible on the phone. Session-scoped override, the
+            // user's own config/interactive runs keep their update checks.
+            args.push("-c".into());
+            args.push("check_for_update_on_startup=false".into());
             if !trimmed_model.is_empty() {
                 args.push("-m".into());
                 args.push(trimmed_model.to_string());
@@ -614,6 +625,8 @@ mod tests {
         assert_eq!(
             session_args(&opts, &mcp, None, SessionTail::Prompt("prompt")),
             vec![
+                "-c",
+                "check_for_update_on_startup=false",
                 "-m",
                 "gpt-5.6-sol",
                 "-c",
@@ -648,6 +661,8 @@ mod tests {
         assert_eq!(
             args,
             vec![
+                "-c",
+                "check_for_update_on_startup=false",
                 "-c",
                 "mcp_servers.exponential.url=\"https://app.exponential.at/api/mcp\"",
                 "-c",
