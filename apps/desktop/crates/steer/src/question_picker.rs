@@ -27,7 +27,10 @@
 //! option run, a tab-bar line (`☐`/`☒`/`☑`/`✔`) above it, and an
 //! "Enter to select" footer below it — and parses the REAL option labels/keys
 //! off the rows, skipping interleaved description lines and stopping at the
-//! rule (so the synthetic "Chat about this" is never offered). Plan-approval
+//! rule (so the synthetic "Chat about this" is never offered). The one
+//! footer-less screen accepted is the REVIEW step as claude ≥2.1.220 paints
+//! it (no footer, no rule, no "Chat about this" — EXP-374): there a fully
+//! answered multi-tab bar is the anchor instead. Plan-approval
 //! screens are explicitly excluded ([`plan_picker`] owns those).
 //! [`QuestionPickerWatcher`] debounces detections and re-fires when the
 //! visible question changes (the multi-question tab flow advances in place).
@@ -264,9 +267,20 @@ pub fn detect(lines: &[String]) -> Option<QuestionSnapshot> {
         .iter()
         .rposition(|l| tab_glyph_count(l.trim()) >= 2)
         .or_else(|| lines[..first_idx].iter().rposition(|l| is_tab_line(l.trim())))?;
-    lines[last_option_idx + 1..]
+    let tabs = parse_tab_bar(&lines[tab_idx]);
+    // claude ≥2.1.220 renders the REVIEW step without the footer (and without
+    // the rule + "Chat about this") — requiring it stranded every remote
+    // multi-question ask on the review screen (EXP-374). There the bar itself
+    // is the anchor: every question tab answered plus the ✔ Submit tab (≥2
+    // glyphs). Ordinary question tabs keep the footer requirement — it is
+    // what excludes footer-less lookalikes (the workspace-trust prompt's
+    // single-☐ bar, plain numbered lists under stray glyphs).
+    let has_footer = lines[last_option_idx + 1..]
         .iter()
-        .position(|l| l.contains(FOOTER_ANCHOR))?;
+        .any(|l| l.contains(FOOTER_ANCHOR));
+    if !has_footer && !(tabs.len() >= 2 && tabs.iter().all(|tab| tab.answered)) {
+        return None;
+    }
 
     // Question text: the contiguous non-blank block right above the options
     // (long questions wrap — re-join the lines), bounded by the tab bar.
@@ -287,7 +301,6 @@ pub fn detect(lines: &[String]) -> Option<QuestionSnapshot> {
         return None;
     }
 
-    let tabs = parse_tab_bar(&lines[tab_idx]);
     let current_tab = current_tab_index(&tabs);
     let review = is_review(&tabs, current_tab, &options);
     Some(QuestionSnapshot {
@@ -657,6 +670,56 @@ mod tests {
         );
         assert_eq!(snap.current_tab, Some(2));
         assert!(snap.review);
+    }
+
+    #[test]
+    fn footerless_review_screen_still_detects() {
+        // Captured against claude v2.1.220 (EXP-374): the review step lost
+        // its "Enter to select" footer, the rule AND the "Chat about this"
+        // row. Requiring the footer stranded every remote multi-question ask
+        // on this screen — the fully answered tab bar anchors it instead.
+        let lines = screen(&[
+            "────────────────────────────────────────────",
+            "←  ☒ Docs label  ☒ Pricing  ☒ Scope  ☒ Tone  ✔ Submit  →",
+            "",
+            "Review your answers",
+            "",
+            " ● The `/docs/coding/` page is titled \"Coding with Claude\" — what",
+            "   should it become?",
+            "   → \"Coding agents\" (Recommended)",
+            " ● Which pricing surface should be treated as canonical?",
+            "   → Billing settings page",
+            " ● Should the cleanup also rewrite the INSTALL.md runbook?",
+            "   → Both",
+            " ● What tone should the rewritten docs take?",
+            "   → Concise technical",
+            "",
+            "Ready to submit your answers?",
+            "",
+            "❯ 1. Submit answers",
+            "  2. Cancel",
+            "",
+        ]);
+        let snap = detect(&lines).expect("footerless review detected");
+        assert_eq!(snap.text, "Ready to submit your answers?");
+        assert!(snap.review);
+        assert_eq!(snap.current_tab, Some(4));
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| (o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("1", "Submit answers"), ("2", "Cancel")]
+        );
+    }
+
+    #[test]
+    fn footerless_question_tab_is_still_rejected() {
+        // The footer requirement stays for ordinary tabs (unanswered ones in
+        // the bar) — it is what keeps footer-less lookalikes out.
+        let mut lines = toppings_screen();
+        lines.retain(|l| !l.contains(FOOTER_ANCHOR));
+        assert_eq!(detect(&lines), None);
     }
 
     #[test]

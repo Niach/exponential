@@ -2146,6 +2146,16 @@ impl SteerState {
         sender: &ActivitySender,
     ) -> AnswerAttempt {
         if self.answered.contains(&answer.question_id) {
+            // Already injected — never twice. But re-ACK it: a viewer that
+            // (re)joined after the original ack sees the journal's questions
+            // without its own answer state, re-taps, and a silent drop left
+            // that card timing out and the whole stepper rolling back to
+            // question 1 (EXP-374).
+            sender.send(ActivityEvent::AnswerAck {
+                id: answer.question_id.clone(),
+                ask_id: answer.ask_id.clone(),
+                at: None,
+            });
             return AnswerAttempt::Settled;
         }
         let Some(live) = self.live.get(&answer.question_id).cloned() else {
@@ -4812,8 +4822,10 @@ mod tests {
             other => panic!("expected an answer_ack, got {other:?}"),
         }
 
-        // A duplicate (two taps / a re-delivered frame) is silently ignored —
-        // and settled, never parked for retry.
+        // A duplicate (two taps, a re-delivered frame, or a re-tap from a
+        // viewer that rejoined after the ack replayed) never injects again —
+        // but it IS re-acked, so that viewer's card locks instead of timing
+        // out and rolling the stepper back (EXP-374).
         let outcome = steer.handle_answer(
             &RemoteAnswer {
                 question_id: "toolu_01#0".to_string(),
@@ -4826,7 +4838,13 @@ mod tests {
         );
         assert_eq!(outcome, AnswerAttempt::Settled);
         assert_eq!(keys.lock().unwrap().len(), 3, "no second injection");
-        assert!(drained(&rx).is_empty(), "no second ack");
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, ask_id, .. }] => {
+                assert_eq!(id, "toolu_01#0");
+                assert_eq!(ask_id.as_deref(), Some("toolu_01"));
+            }
+            other => panic!("expected a re-ack, got {other:?}"),
+        }
     }
 
     #[test]
@@ -5010,6 +5028,74 @@ mod tests {
         assert!(!snapshot.review, "the fixture must exercise the lost flag");
         assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
         drained(&rx);
+
+        // Submitting empties the picker (the ask is over).
+        let (write_input, keys) = recording_input(term.clone(), Some(Vec::new()), "1");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "toolu_01#submit".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["1"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "toolu_01#submit"),
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_footerless_review_screen_publishes_the_submit_step_and_takes_the_answer() {
+        // EXP-374: claude ≥2.1.220 paints the review step WITHOUT the
+        // "Enter to select" footer (and without the rule + "Chat about
+        // this"). The old footer anchor made detection fail there, so the
+        // `#submit` card never published and every remote multi-question ask
+        // stranded on the review screen.
+        let footerless_review: Vec<String> = [
+            "←  ☒ Toppings  ☒ Size  ✔ Submit  →",
+            "",
+            "Review your answers",
+            "",
+            " ● Which toppings do you want?",
+            "   → Cheese, Mushrooms",
+            " ● Which size?",
+            "   → Small",
+            "",
+            "Ready to submit your answers?",
+            "",
+            "❯ 1. Submit answers",
+            "  2. Cancel",
+            "",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect();
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &footerless_review);
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        let snapshot = question_picker::detect(&screen_lines(&term)).expect("picker");
+        assert!(snapshot.review, "the fully answered bar flags the review step");
+        assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { id, options, .. }] => {
+                assert_eq!(id.as_deref(), Some("toolu_01#submit"));
+                assert_eq!(options[0].label, "Submit answers");
+            }
+            other => panic!("expected the submit step, got {other:?}"),
+        }
 
         // Submitting empties the picker (the ask is over).
         let (write_input, keys) = recording_input(term.clone(), Some(Vec::new()), "1");
