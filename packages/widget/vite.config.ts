@@ -2,6 +2,7 @@ import { copyFileSync, mkdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { defineConfig, type Plugin } from "vite"
 import preact from "@preact/preset-vite"
+import { legalBanner } from "./src/legal-banner"
 
 // Both artifacts build straight into the web app's public dir (gitignored)
 // so Nitro serves them in dev and copies them into .output/public for prod.
@@ -39,8 +40,16 @@ export default defineConfig(({ mode }) => {
         formats: [`iife`],
         fileName: () => (isLoader ? `loader.js` : `widget.js`),
       },
-      rollupOptions: { output: { inlineDynamicImports: true } },
+      rollupOptions: {
+        output: { inlineDynamicImports: true, banner: legalBanner },
+      },
     },
+    // Rollup's banner is part of the chunk esbuild minifies, so it only
+    // survives because it is a `/*!` legal comment AND we keep them inline.
+    // Left explicit rather than relying on esbuild's default for the transform
+    // API — a bundle served to third parties must not lose its notices to a
+    // default changing underneath us (EXP-377).
+    esbuild: { legalComments: `inline` },
     test: {
       environment: `happy-dom`,
       environmentOptions: {
