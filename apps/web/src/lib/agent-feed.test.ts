@@ -18,6 +18,7 @@ import {
   pushEcho,
   summarizeSubagentRow,
   upsertQuestion,
+  visibleSubagentTabs,
   ECHO_CAP,
   ECHO_TTL_MS,
   PLAN_RESOLVED_NARRATION,
@@ -765,6 +766,35 @@ describe(`collectSubagents`, () => {
     expect(collectSubagents([])).toEqual([])
     expect(
       collectSubagents([{ kind: `tool` }, { kind: `narration` }])
+    ).toEqual([])
+  })
+})
+
+describe(`visibleSubagentTabs`, () => {
+  const run = (subagentId: string, done: boolean) => ({
+    subagentId,
+    agentType: `Explore`,
+    done,
+    detail: undefined,
+    toolCount: 0,
+  })
+
+  it(`drops completed runs and keeps running ones (EXP-387)`, () => {
+    const agents = [run(`toolu_a`, true), run(`toolu_b`, false)]
+    expect(visibleSubagentTabs(agents, null)).toEqual([run(`toolu_b`, false)])
+  })
+
+  it(`the focused tab survives its own completion until deselected`, () => {
+    const agents = [run(`toolu_a`, true), run(`toolu_b`, false)]
+    expect(visibleSubagentTabs(agents, `toolu_a`)).toEqual(agents)
+    expect(visibleSubagentTabs(agents, `toolu_b`)).toEqual([
+      run(`toolu_b`, false),
+    ])
+  })
+
+  it(`all done and Main selected leaves the strip empty`, () => {
+    expect(
+      visibleSubagentTabs([run(`toolu_a`, true), run(`toolu_b`, true)], null)
     ).toEqual([])
   })
 })

@@ -669,6 +669,25 @@ class AgentFeedTest {
         assertTrue(collectSubagents(listOf(tool(1))).isEmpty())
     }
 
+    @Test
+    fun `visibleSubagentTabs drops completed runs except the focused one`() {
+        // EXP-387: the strip shows running subagents only — a completed run's
+        // tab is dropped, unless it is the focused one (never yank the user
+        // out mid-read); all-done with Main focused leaves the strip empty.
+        val feed = listOf(
+            subagent(1, "a", completed = false),
+            subagent(2, "b", completed = false),
+            subagent(3, "a", completed = true),
+        )
+        val agents = collectSubagents(feed)
+        assertEquals(listOf("b"), visibleSubagentTabs(agents, null).map { it.subagentId })
+        assertEquals(listOf("a", "b"), visibleSubagentTabs(agents, "a").map { it.subagentId })
+        assertEquals(listOf("b"), visibleSubagentTabs(agents, "b").map { it.subagentId })
+
+        val done = collectSubagents(listOf(subagent(1, "a", completed = true)))
+        assertTrue(visibleSubagentTabs(done, null).isEmpty())
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────────
 
     private fun ActivityFeedState.applying(event: JsonObject) = applyActivityEvent(event)

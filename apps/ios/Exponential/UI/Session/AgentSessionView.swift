@@ -208,11 +208,14 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-356: conversation tabs — Main plus one per subagent. Rendered only
-    /// once a subagent exists; the strip scrolls horizontally on a fan-out.
+    /// EXP-356: conversation tabs — Main plus one per RUNNING subagent (ended
+    /// tabs are dropped, EXP-387). Rendered only while a tab is visible; the
+    /// strip scrolls horizontally on a fan-out.
     @ViewBuilder
     private func agentTabStrip(_ model: AgentSessionModel) -> some View {
-        let agents = AgentFeed.subagents(model.feed)
+        let agents = AgentFeed.visibleSubagentTabs(
+            AgentFeed.subagents(model.feed), selected: agentTab
+        )
         if !agents.isEmpty {
             let active = agents.contains { $0.subagentId == agentTab } ? agentTab : nil
             ScrollView(.horizontal, showsIndicators: false) {

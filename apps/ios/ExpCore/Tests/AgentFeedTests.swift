@@ -398,6 +398,26 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.subagents([tool(1), .narration(id: 2, text: "x")]), [])
     }
 
+    func testVisibleTabsDropCompletedRunsExceptTheFocusedOne() {
+        // EXP-387: the strip shows running subagents only — a completed run's
+        // tab is dropped, unless it is the focused one (never yank the user
+        // out mid-read); all-done with Main focused leaves the strip empty.
+        let feed: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "a", agentType: "Explore", status: .started, detail: nil),
+            .subagent(id: 2, subagentId: "b", agentType: "review", status: .started, detail: nil),
+            .subagent(id: 3, subagentId: "a", agentType: "Explore", status: .completed, detail: nil),
+        ]
+        let agents = AgentFeed.subagents(feed)
+        XCTAssertEqual(AgentFeed.visibleSubagentTabs(agents, selected: nil).map(\.subagentId), ["b"])
+        XCTAssertEqual(AgentFeed.visibleSubagentTabs(agents, selected: "a").map(\.subagentId), ["a", "b"])
+        XCTAssertEqual(AgentFeed.visibleSubagentTabs(agents, selected: "b").map(\.subagentId), ["b"])
+
+        let done: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "a", agentType: "Explore", status: .completed, detail: nil),
+        ]
+        XCTAssertEqual(AgentFeed.visibleSubagentTabs(AgentFeed.subagents(done), selected: nil), [])
+    }
+
     func testAFallbackTypedCompletedEdgeNeverDegradesTheLabel() {
         // Old desktops stamp the fallback "agent" onto the completed edge
         // (claude's SubagentStop hook carries no agent_type) — the started

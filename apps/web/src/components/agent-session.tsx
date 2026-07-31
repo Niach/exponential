@@ -33,6 +33,7 @@ import {
   pushEcho,
   summarizeSubagentRow,
   upsertQuestion,
+  visibleSubagentTabs,
   ANSWER_ACK_TIMEOUT_MS,
   FEED_CAP,
   PLAN_RESOLVED_NARRATION,
@@ -853,10 +854,15 @@ export function AgentSessionView({
    *  (EXP-97), one ask's questions into a stepper and a subagent's work into
    *  its own group — a projection only, the flat feed stays the state. */
   const rows = useMemo(() => groupFeedRows(feed), [feed])
-  /** EXP-356: the subagents seen so far — one conversation tab each. */
+  /** EXP-356: the subagents seen so far — one conversation tab each. EXP-387:
+   *  the strip only shows the still-running ones (plus the focused tab). */
   const agents = useMemo(() => collectSubagents(feed), [feed])
+  const visibleTabs = useMemo(
+    () => visibleSubagentTabs(agents, agentTab),
+    [agents, agentTab]
+  )
   const activeAgent =
-    agentTab !== null && agents.some((a) => a.subagentId === agentTab)
+    agentTab !== null && visibleTabs.some((a) => a.subagentId === agentTab)
       ? agentTab
       : null
   /** The focused agent's stream (its lifecycle markers + tool calls). */
@@ -937,15 +943,16 @@ export function AgentSessionView({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
-          {/* EXP-356: conversation tabs — Main plus one per subagent. */}
-          {agents.length > 0 && (
+          {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
+              (ended tabs are dropped, EXP-387). */}
+          {visibleTabs.length > 0 && (
             <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-2 py-1">
               <AgentTab
                 label="Main"
                 active={activeAgent === null}
                 onClick={() => setAgentTab(null)}
               />
-              {agents.map((agent) => (
+              {visibleTabs.map((agent) => (
                 <AgentTab
                   key={agent.subagentId}
                   label={agent.agentType}
