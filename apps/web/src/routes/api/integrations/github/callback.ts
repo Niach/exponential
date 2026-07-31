@@ -53,6 +53,14 @@ import {
 // zero-grant capture strands the connect until a manual reconnect (EXP-365).
 const GRANT_CAPTURE_RETRY_MS = 2000
 
+// EXP-390: mobile dead ends whose remedy IS GitHub's install page. The mobile
+// error deep link closes the in-app browser instantly, so bouncing back with
+// `error=none` left a zero-installation user with no path to the install page
+// at all — instead, keep the browser sheet open and continue straight there.
+// `orgperm` stays an error hand-off: installing can't fix a pending org
+// permission approval, only an org admin accepting it on GitHub can.
+const MOBILE_INSTALL_REDIRECT_ERRORS = new Set([`none`, `notowner`])
+
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -74,7 +82,20 @@ export async function handleCallback(request: Request): Promise<Response> {
     error: string,
     extra?: { login?: string; install?: string }
   ) => {
-    if (fromMobile) return mobileConnectedResponse(error)
+    if (fromMobile) {
+      // Continue to the install page when that's the fix (EXP-390). The target
+      // is exclusively the server-minted `githubAppInstallUrl` from the branch
+      // below — never request-derived — so this is not an open redirect. Its
+      // signed state re-enters setup.ts → OAuth → back here with an
+      // installation to claim, ending in the success deep link.
+      if (extra?.install && MOBILE_INSTALL_REDIRECT_ERRORS.has(error)) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: extra.install },
+        })
+      }
+      return mobileConnectedResponse(error)
+    }
     let location = `/integrations/github/claim?error=${error}`
     if (extra?.login) location += `&login=${encodeURIComponent(extra.login)}`
     if (extra?.install)

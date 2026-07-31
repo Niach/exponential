@@ -46,15 +46,19 @@ class DeepLinkBus @Inject constructor() {
     private val _target = MutableStateFlow<Target?>(null)
     val target: StateFlow<Target?> = _target.asStateFlow()
 
-    // exponential://github-connected — the GitHub App install/reconnect finished
-    // in the Custom Tab and the server's page deep-linked back into the app.
-    // Delivered as a monotonic counter, NOT via `target` (EXP-365): the repo
-    // picker AND team settings can both be alive, and the consume()-based
-    // one-shot let whichever collector won the race null the value before the
-    // other saw it — the loser stayed stale. Every collector observes every
-    // increment; collectors `drop(1)` to skip the StateFlow replay.
-    private val _githubConnected = MutableStateFlow(0)
-    val githubConnected: StateFlow<Int> = _githubConnected.asStateFlow()
+    // exponential://github-connected[?error=<code>] — the GitHub App
+    // install/reconnect finished in the Custom Tab and the server's page
+    // deep-linked back into the app. Delivered on a monotonic `seq`, NOT via
+    // `target` (EXP-365): the repo picker AND team settings can both be alive,
+    // and the consume()-based one-shot let whichever collector won the race
+    // null the value before the other saw it — the loser stayed stale. Every
+    // collector observes every increment; collectors `drop(1)` to skip the
+    // StateFlow replay. `error` is the server's failure slug (EXP-390) — null
+    // means the connect succeeded.
+    data class GithubConnected(val seq: Int = 0, val error: String? = null)
+
+    private val _githubConnected = MutableStateFlow(GithubConnected())
+    val githubConnected: StateFlow<GithubConnected> = _githubConnected.asStateFlow()
 
     fun openIssue(id: String) {
         _target.value = Target.Issue(id)
@@ -77,8 +81,8 @@ class DeepLinkBus @Inject constructor() {
         _target.value = Target.WebIssueRef(uri, host, teamSlug, identifier)
     }
 
-    fun openGithubConnected() {
-        _githubConnected.value += 1
+    fun openGithubConnected(error: String? = null) {
+        _githubConnected.value = GithubConnected(_githubConnected.value.seq + 1, error)
     }
 
     fun openShare(text: String?, subject: String?, imageUris: List<android.net.Uri>) {

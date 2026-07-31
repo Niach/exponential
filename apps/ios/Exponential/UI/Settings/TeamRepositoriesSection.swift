@@ -45,6 +45,9 @@ struct TeamRepositoriesSection: View {
     @State private var githubLoadFailed = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var connectSession = InstallWebAuthSession()
+    // A failed GitHub connect hop's message (EXP-390) — separate from
+    // `errorText`, which belongs to mutations and is cleared by `mutate`.
+    @State private var connectError: String?
     // "Add repository" picker sheet (EXP-225): registers a repo in the
     // server-only registry via repositories.add (web parity —
     // repositories-section.tsx's "Add repository" dialog).
@@ -90,7 +93,8 @@ struct TeamRepositoriesSection: View {
 
             // Above the list so a failure is on-screen even for teams with
             // many repos (EXP-365 — failed adds used to be invisible).
-            if let message = errorText ?? loadErrorText {
+            // `connectError` is the failed GitHub connect hop (EXP-390).
+            if let message = connectError ?? errorText ?? loadErrorText {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.red.opacity(0.8))
@@ -146,9 +150,15 @@ struct TeamRepositoriesSection: View {
         // An install/connect that finishes in an EXTERNAL browser comes back
         // via the app-level `exponential://github-connected` deep link instead
         // of the auth-session callback — re-query so the new grants appear
-        // (GithubRepoPicker parity).
-        .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { _ in
-            Task { await reload(refreshGithub: true) }
+        // (GithubRepoPicker parity). An error slug means the connect FAILED:
+        // surface it instead of refreshing (EXP-390).
+        .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { notification in
+            if let slug = notification.userInfo?["error"] as? String {
+                connectError = GithubConnect.errorMessage(for: slug)
+            } else {
+                connectError = nil
+                Task { await reload(refreshGithub: true) }
+            }
         }
         // Fallback when the deep link never arrives (external-browser install,
         // swallowed handoff): returning to the foreground re-detects, same as
@@ -180,7 +190,6 @@ struct TeamRepositoriesSection: View {
                         }
                     }
                 }
-                .presentationBackground(.ultraThinMaterial)
             }
         }
         .alert("Remove repository", isPresented: Binding(
@@ -373,7 +382,9 @@ struct TeamRepositoriesSection: View {
     private func openConnect(_ github: GithubReposResult) {
         guard let urlString = github.connectUrl ?? github.installUrl,
               let url = URL(string: urlString) else { return }
-        connectSession.start(url: url) {
+        connectError = nil
+        connectSession.start(url: url) { errorSlug in
+            connectError = errorSlug.map { GithubConnect.errorMessage(for: $0) }
             Task { await reload(refreshGithub: true) }
         }
     }

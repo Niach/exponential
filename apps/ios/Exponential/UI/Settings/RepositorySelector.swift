@@ -112,7 +112,6 @@ struct RepositorySelector: View {
                     isPrivate: repo.`private`
                 )
             }
-            .presentationBackground(.ultraThinMaterial)
         }
     }
 

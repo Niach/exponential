@@ -31,37 +31,44 @@ struct GithubRepoPicker: View {
     @State private var loading = true
     @State private var query = ""
     @State private var error: String?
+    // A failed connect hop's message (EXP-390) — separate from `error`, which
+    // belongs to the repos query and has its own lifecycle.
+    @State private var connectError: String?
     @State private var installSession = InstallWebAuthSession()
 
+    // Bottom-sheet presentation (EXP-390, Android parity): the glass sheet
+    // chrome instead of a full-height NavigationStack sheet.
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppBackground()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        content
-                        if let error {
-                            Text(error).font(.caption).foregroundStyle(.red)
-                        }
+        GlassSheetChrome(title: "Add repository", detents: [.medium, .large]) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    content
+                    if let connectError {
+                        Text(connectError).font(.caption).foregroundStyle(.red)
                     }
-                    .padding(16)
+                    if let error {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
-            .navigationTitle("Add repository")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
-            }
-            .task { await load() }
-            .onChange(of: scenePhase) { _, phase in
-                // Self-heal after any trip through another app/browser (e.g. an
-                // install finished externally); bypass the server cache so a
-                // just-granted repo shows up.
-                if phase == .active { Task { await load(refresh: true) } }
-            }
-            // The app-level deep-link path for `exponential://github-connected` — covers
-            // an install that finishes outside the in-app auth session.
-            .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { _ in
+        }
+        .task { await load() }
+        .onChange(of: scenePhase) { _, phase in
+            // Self-heal after any trip through another app/browser (e.g. an
+            // install finished externally); bypass the server cache so a
+            // just-granted repo shows up.
+            if phase == .active { Task { await load(refresh: true) } }
+        }
+        // The app-level deep-link path for `exponential://github-connected` — covers
+        // an install that finishes outside the in-app auth session. An error
+        // slug means the connect FAILED: surface it instead of refreshing.
+        .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { notification in
+            if let slug = notification.userInfo?["error"] as? String {
+                connectError = GithubConnect.errorMessage(for: slug)
+            } else {
+                connectError = nil
                 Task { await load(refresh: true) }
             }
         }
@@ -265,6 +272,7 @@ struct GithubRepoPicker: View {
     // mobile-friendly OAuth `connectUrl` (single consent screen) and fall back
     // to the GitHub App install page when it's absent.
     private func openConnect(_ data: GithubReposResult) {
+        connectError = nil
         openInBrowser(data.connectUrl ?? data.installUrl)
     }
 
@@ -272,10 +280,12 @@ struct GithubRepoPicker: View {
     // fallback was removed in v5 (repo management lives in team settings →
     // Repositories). Opened in an ASWebAuthenticationSession: mobile-width
     // rendering, and the server's `exponential://github-connected` redirect
-    // dismisses it and hands control back.
+    // dismisses it and hands control back — carrying the error slug when the
+    // connect failed (EXP-390).
     private func openInBrowser(_ urlString: String?) {
         guard let urlString, let url = URL(string: urlString) else { return }
-        installSession.start(url: url) {
+        installSession.start(url: url) { errorSlug in
+            connectError = errorSlug.map { GithubConnect.errorMessage(for: $0) }
             Task { await load(refresh: true) }
         }
     }
@@ -300,20 +310,23 @@ struct GithubRepoPicker: View {
 /// (b) auto-dismisses when the server's post-install page fires the
 /// `exponential://github-connected` deep link (callback scheme `exponential`).
 /// The completion fires on callback AND on manual dismissal — the install may
-/// have landed either way, so callers should re-query regardless.
+/// have landed either way, so callers should re-query regardless. It receives
+/// the callback's `?error=` slug (EXP-390) — nil on success AND on manual
+/// dismissal, so nil means "no error to show", never "connected".
 @MainActor
 final class InstallWebAuthSession: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var session: ASWebAuthenticationSession?
 
-    func start(url: URL, onFinished: @escaping @MainActor () -> Void) {
+    func start(url: URL, onFinished: @escaping @MainActor (String?) -> Void) {
         session?.cancel()
         let session = ASWebAuthenticationSession(
             url: url,
             callbackURLScheme: "exponential"
-        ) { [weak self] _, _ in
+        ) { [weak self] callbackURL, _ in
+            let errorSlug = callbackURL.flatMap { GithubConnect.errorSlug(from: $0) }
             Task { @MainActor in
                 self?.session = nil
-                onFinished()
+                onFinished(errorSlug)
             }
         }
         session.presentationContextProvider = self

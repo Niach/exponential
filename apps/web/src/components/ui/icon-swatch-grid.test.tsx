@@ -32,18 +32,9 @@ describe(`IconSwatchGrid`, () => {
     expect(onChange).toHaveBeenCalledWith(`database`)
   })
 
-  it(`filters by name and reports an empty result`, () => {
+  it(`has no search field — the full set always renders (EXP-390)`, () => {
     render(<IconSwatchGrid value="code" onChange={vi.fn()} />)
-    const search = screen.getByLabelText(`Search icons`)
-
-    fireEvent.change(search, { target: { value: `git` } })
-    // `git-branch` is the only pickable name containing "git".
-    expect(screen.getAllByRole(`button`)).toHaveLength(1)
-    expect(screen.getByLabelText(`git-branch`)).toBeTruthy()
-
-    fireEvent.change(search, { target: { value: `zzzz` } })
-    expect(screen.queryAllByRole(`button`)).toHaveLength(0)
-    expect(screen.getByText(/No icon matches/)).toBeTruthy()
+    expect(screen.queryByLabelText(`Search icons`)).toBeNull()
   })
 })
 

@@ -29,6 +29,7 @@ import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
 import {
   GithubRepoPicker,
   type PickerRepo,
+  useGithubConnectShortcut,
 } from "@/components/github-repo-picker"
 import { derivePrefix } from "@/lib/board"
 
@@ -324,6 +325,7 @@ function BoardStep({
   const [error, setError] = useState<string | null>(null)
   // Plan-cap failures render as a softer nudge than hard errors.
   const [limitError, setLimitError] = useState<string | null>(null)
+  const connectShortcut = useGithubConnectShortcut(teamId)
 
   const handleNameChange = (value: string) => {
     setName(value)
@@ -446,7 +448,13 @@ function BoardStep({
               variant="outline"
               size="sm"
               className="w-full justify-start text-muted-foreground"
-              onClick={() => setShowRepo(true)}
+              onClick={() => {
+                // One-step connect (EXP-390): open the GitHub popup directly
+                // when no account is linked; the expanded picker is the
+                // return surface either way.
+                connectShortcut()
+                setShowRepo(true)
+              }}
             >
               <Github className="mr-2 h-4 w-4" />
               Connect a GitHub repository

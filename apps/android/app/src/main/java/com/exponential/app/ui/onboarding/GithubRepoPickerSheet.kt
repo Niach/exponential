@@ -70,6 +70,7 @@ fun GithubRepoPickerSheet(
     val result by viewModel.result.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val connectError by viewModel.connectError.collectAsStateWithLifecycle()
 
     // Re-query on every resume so returning from the GitHub install Custom Tab
     // (new repos granted) refreshes without a manual tap. The first load isn't a
@@ -121,6 +122,7 @@ fun GithubRepoPickerSheet(
                         buttonLabel = "Connect GitHub",
                         buttonIcon = ExpIcons.uiGithub,
                         onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
+                        onConnectStarted = viewModel::clearConnectError,
                     )
                 }
                 // A suspended installation lists no repos AND cannot be fixed by
@@ -146,6 +148,7 @@ fun GithubRepoPickerSheet(
                         // The reconnect hop returns here and re-queries by itself;
                         // only the not-installed state keeps a manual escape hatch.
                         onRefresh = null,
+                        onConnectStarted = viewModel::clearConnectError,
                     )
                 }
                 // Honestly empty: connected, granted, but no reachable repos.
@@ -162,7 +165,19 @@ fun GithubRepoPickerSheet(
                     query = query,
                     onQueryChange = { query = it },
                     onPick = { onPick(it); onDismiss() },
+                    onConnectStarted = viewModel::clearConnectError,
                 )
+            }
+            // A FAILED connect hop's outcome (EXP-390): the deep link's error
+            // slug used to be dropped, making every failure a silent no-op.
+            if (connectError != null) {
+                item(key = "connect-error") {
+                    Text(
+                        connectError ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
             // Surfaced even with stale data on screen (EXP-365): the re-query
             // that runs on every return from the GitHub hop used to fail
@@ -240,6 +255,8 @@ private fun ConnectPrompt(
     buttonLabel: String,
     buttonIcon: ImageVector,
     onRefresh: (() -> Unit)?,
+    // A fresh attempt clears the previous hop's failure message (EXP-390).
+    onConnectStarted: () -> Unit = {},
 ) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -255,6 +272,7 @@ private fun ConnectPrompt(
         Button(
             onClick = {
                 connectUrl?.let {
+                    onConnectStarted()
                     CustomTabsIntent.Builder().build()
                         .launchUrl(context, android.net.Uri.parse(it))
                 }
@@ -286,6 +304,7 @@ private fun LazyListScope.installedRepoItems(
     query: String,
     onQueryChange: (String) -> Unit,
     onPick: (GithubPickerRepo) -> Unit,
+    onConnectStarted: () -> Unit = {},
 ) {
     val filtered = data.repos.filter {
         query.isBlank() || it.fullName.contains(query.trim(), ignoreCase = true)
@@ -320,6 +339,7 @@ private fun LazyListScope.installedRepoItems(
                 OutlinedButton(
                     onClick = {
                         reconnectUrl?.let {
+                            onConnectStarted()
                             CustomTabsIntent.Builder().build()
                                 .launchUrl(context, android.net.Uri.parse(it))
                         }

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.domain.githubConnectErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -37,6 +38,11 @@ class GithubRepoPickerViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    // A failed connect hop's message (EXP-390) — separate from `error`, which
+    // belongs to the repos query and wears a "Couldn't refresh" prefix.
+    private val _connectError = MutableStateFlow<String?>(null)
+    val connectError: StateFlow<String?> = _connectError.asStateFlow()
+
     private var lastAccountId: String? = null
     private var lastTeamId: String? = null
     private var loadJob: Job? = null
@@ -48,8 +54,15 @@ class GithubRepoPickerViewModel @Inject constructor(
         // the user returns to already shows the fresh repo list. Event counter,
         // not a consumed one-shot (EXP-365): team settings may be collecting
         // too, and both must refresh. drop(1) skips the StateFlow replay.
+        // An error slug means the connect FAILED (EXP-390): surface it instead
+        // of refreshing — nothing changed server-side.
         viewModelScope.launch {
-            deepLinkBus.githubConnected.drop(1).collect {
+            deepLinkBus.githubConnected.drop(1).collect { event ->
+                if (event.error != null) {
+                    _connectError.value = githubConnectErrorMessage(event.error)
+                    return@collect
+                }
+                _connectError.value = null
                 val account = lastAccountId
                 val team = lastTeamId
                 if (account != null && team != null) {
@@ -57,6 +70,11 @@ class GithubRepoPickerViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // A fresh connect attempt clears the previous failure.
+    fun clearConnectError() {
+        _connectError.value = null
     }
 
     fun load(accountId: String, teamId: String, refresh: Boolean = false) {

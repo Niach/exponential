@@ -55,6 +55,43 @@ type ReposResult = {
 // `variant="plain"` drops the Command's own card chrome for hosts that already
 // provide a glass surface (the Add-repository dialog); inline hosts keep the
 // default bordered card.
+
+// The connect hop must open synchronously inside a click handler or popup
+// blockers eat it — shared by the picker and the one-step trigger shortcut.
+function openConnectPopup(url: string | null | undefined) {
+  if (url) window.open(url, `gh-install`, `popup,width=980,height=820`)
+}
+
+// One-step connect for hosts whose compact "Connect a GitHub repository"
+// trigger expands into this picker (EXP-390): prefetches the team's connect
+// state so the trigger click can open the GitHub popup DIRECTLY when no
+// account is linked yet, instead of expanding to a second "Connect GitHub"
+// button. Callers still expand the picker on the same click — it's the return
+// surface whose window-focus listener re-detects the connection. `enabled`
+// gates the prefetch for hosts that mount closed (dialogs).
+export function useGithubConnectShortcut(teamId: string, enabled = true) {
+  const [data, setData] = useState<ReposResult | null>(null)
+
+  useEffect(() => {
+    if (!enabled) return
+    let active = true
+    void trpc.integrations.github.repos
+      .query({ teamId })
+      .then((result) => {
+        if (active) setData(result)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [teamId, enabled])
+
+  return useCallback(() => {
+    if (!data?.configured || data.installed) return
+    openConnectPopup(data.connectUrl ?? data.installUrl)
+  }, [data])
+}
+
 export function GithubRepoPicker({
   teamId,
   onSelect,
@@ -109,10 +146,7 @@ export function GithubRepoPicker({
   }, [refresh])
 
   const openConnect = () => {
-    const url = data?.connectUrl ?? data?.installUrl
-    if (url) {
-      window.open(url, `gh-install`, `popup,width=980,height=820`)
-    }
+    openConnectPopup(data?.connectUrl ?? data?.installUrl)
   }
 
   if (loading && !data) {
@@ -151,7 +185,9 @@ export function GithubRepoPicker({
             You&rsquo;ll come right back here.
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: narrow hosts (mobile-width dialogs) must wrap the
+            refresh button instead of clipping it (EXP-390). */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button type="button" onClick={openConnect}>
             <Github className="mr-2 h-4 w-4" />
             Connect GitHub
