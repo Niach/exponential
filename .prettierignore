@@ -1,0 +1,16 @@
+# EXP-375 — generated licence data. `bun run format` is `prettier --write .`,
+# and prettier reformats JSON (it collapses short arrays onto one line). These
+# files are written by `packages/licenses/scripts/collect-*.ts` with
+# JSON.stringify(…, null, 2) and byte-compared by the drift gate in
+# apps/web/src/lib/licenses.test.ts, so a reformat would break that gate
+# permanently. Reproduced licence text must not be reflowed either.
+packages/licenses/inventory/
+packages/licenses/texts/
+
+# Generated notices (prettier does not format .txt today; listed so it stays
+# that way if a future prettier plugin changes that).
+apps/desktop/assets/licenses/NOTICES.txt
+apps/web/public/NOTICES.txt
+apps/marketing/public/NOTICES.txt
+apps/ios/Exponential/Resources/NOTICES.txt
+apps/android/app/src/main/assets/NOTICES.txt

@@ -1,0 +1,12 @@
+The .txt files in this directory are the canonical SPDX licence texts,
+fetched verbatim from spdx/license-list-data at tag v3.28.0:
+
+  https://github.com/spdx/license-list-data/tree/v3.28.0/text
+
+They are used only as the fallback body for a package that declares an
+SPDX id but ships no licence file of its own. A package that DOES ship
+one has that file reproduced instead. Regenerate with:
+
+  bun run --filter @exp/licenses fetch:texts
+
+Do not hand-edit these files.
