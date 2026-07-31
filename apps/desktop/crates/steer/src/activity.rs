@@ -2039,11 +2039,19 @@ impl SteerState {
         // the review screen's own ✔ summary rows used to drop the flag
         // (EXP-275), stranding the whole ask on the TUI. While a
         // MULTI-question ask is pending, the only settled ask-shaped picker
-        // whose text matches none of the hook's questions is the review
-        // screen (its copy varies by claude version), so an unmatched text is
-        // treated as the submit step too. A single-question ask renders no
-        // review step — an unmatched text there keeps the legacy fallback.
-        if snapshot.review || (matched.is_none() && ask.questions.len() > 1) {
+        // whose text matches none of the hook's questions AND offers a submit
+        // row is the review screen (its copy varies by claude version), so
+        // that unmatched text is treated as the submit step too. Without the
+        // submit row it can be a REAL question overflow clipped below the
+        // match floor (EXP-394) — swallowed below, so parked answers retry
+        // instead of landing on a phantom `#submit` card. A single-question
+        // ask renders no review step — an unmatched text there keeps the
+        // legacy fallback.
+        let offers_submit = snapshot
+            .options
+            .iter()
+            .any(|option| option.label.to_ascii_lowercase().starts_with("submit"));
+        if snapshot.review || (matched.is_none() && ask.questions.len() > 1 && offers_submit) {
             if ask.submit_published {
                 return true;
             }
@@ -2066,7 +2074,9 @@ impl SteerState {
             return true;
         }
         let Some(index) = matched else {
-            return false;
+            // Multi-question: the hook's cards are already live — swallow the
+            // unclassifiable sliver rather than publish a legacy duplicate.
+            return ask.questions.len() > 1;
         };
         if snapshot.options.len() <= ask.published_options[index] {
             return true; // the hook already knew every row
@@ -5081,6 +5091,43 @@ mod tests {
         // The dedupe guard holds across re-sightings.
         assert!(steer.confirm_question_from_grid(&snapshot, &sender, &redactor));
         assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn an_unmatched_sliver_without_a_submit_row_is_not_the_submit_step() {
+        // EXP-394 edge: overflow can leave fewer than the match floor's 12
+        // normalized chars of a REAL question visible — unmatched, but not
+        // the review step. Without a submit row nothing is published (the
+        // hook's cards are already live; parked answers retry) instead of a
+        // phantom `#submit` card.
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+
+        let snapshot = QuestionSnapshot {
+            text: "want?".to_string(),
+            options: vec![
+                QuestionOption::new("Cheese", "1"),
+                QuestionOption::new("Ham", "2"),
+            ],
+            multi_select: false,
+            checked: vec![false, false],
+            tabs: Vec::new(),
+            current_tab: None,
+            review: false,
+        };
+        assert!(
+            steer.confirm_question_from_grid(&snapshot, &sender, &redactor),
+            "handled — the legacy id-less publication must not fire either"
+        );
+        assert!(drained(&rx).is_empty(), "no card at all, no submit step");
+        assert!(
+            !steer.ask.as_ref().unwrap().submit_published,
+            "the real review step can still publish later"
+        );
     }
 
     #[test]
