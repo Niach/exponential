@@ -49,10 +49,9 @@ export function ContactPage() {
           >
             Self-hosting is free for everyone — Exponential is open source
             under Apache-2.0. If you want more than the community, this form is
-            how you get <strong>Enterprise Support</strong>: €590/year up to 25
-            users, €1,900/year up to 100, custom above — SLA, priority support,
-            deployment help, and custom development. SSO and DPA conversations
-            start here too.
+            how you get <strong>Enterprise Support</strong> — SLA, priority
+            support, deployment help, and custom development. SSO and DPA
+            conversations start here too.
           </p>
 
           <ContactForm />

@@ -105,4 +105,4 @@ One capability doesn't travel: **mobile push notifications**. The store-distribu
 
 ## License
 
-[Apache-2.0](./LICENSE) — fully open source. Self-host it in production for free, for any team size, with no restrictions. Optional [Enterprise Support](https://exponential.at/pricing/) is available for self-hosters who want an SLA, priority support, deployment help, or custom development (support@exponential.at).
+[Apache-2.0](./LICENSE) — fully open source. Self-host it in production for free, for any team size, with no restrictions. Optional [Enterprise Support](https://exponential.at/contact/) is available for self-hosters who want an SLA, priority support, deployment help, or custom development (support@exponential.at).

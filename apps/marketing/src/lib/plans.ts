@@ -2,7 +2,7 @@
    Consumed by PlanCards.tsx (the full cards, rendered on BOTH the home
    pricing section and /pricing/ — EXP-207), PricingPage.tsx (footnote +
    licensing section) and seo.ts (JSON-LD offers derive from priceNumber, so
-   contact-sales and self-host cards stay out automatically).
+   the self-host card stays out automatically).
 
    Values mirror apps/web/src/lib/billing.ts PLAN_LIMITS and the in-app grid
    in apps/web/src/components/team/plan-comparison.tsx — keep the three in
@@ -18,7 +18,7 @@
 import { LINKS } from "./links"
 
 export type Plan = {
-  id: `free` | `team` | `selfhost` | `support`
+  id: `free` | `team` | `selfhost`
   name: string
   amount: string
   /* Set only for self-serve cloud tiers — drives the schema.org Offer list. */
@@ -32,7 +32,6 @@ export type Plan = {
   monthlyAmount?: string
   tagline: string
   highlight?: boolean
-  enterprise?: boolean
   selfHost?: boolean
   features: string[]
   /* Rendered after the feature list with a warning glyph instead of a check —
@@ -114,25 +113,8 @@ export const PLANS: Plan[] = [
   },
 ]
 
-/* Enterprise Support — an OPTIONAL add-on for self-hosters (EXP-352: the
-   Apache-2.0 switch deleted the mandatory 10+-people commercial license;
-   the published prices carried over as a support contract). Rendered as a
-   single card in the /pricing Enterprise Support section. */
-export const ENTERPRISE_SUPPORT: Plan = {
-  id: `support`,
-  name: `Enterprise Support`,
-  amount: `€590`,
-  cadence: `/year`,
-  note: `up to 25 users`,
-  tagline: `Optional add-on — self-hosting stays free either way.`,
-  enterprise: true,
-  features: [
-    `€590/yr up to 25 users`,
-    `€1,900/yr up to 100 users`,
-    `Custom above 100`,
-    `SLA & priority support`,
-    `Deployment help & custom development`,
-  ],
-  /* Dedicated contact page with the sales form (EXP-39). */
-  cta: { label: `Contact sales`, href: `/contact/` },
-}
+/* Enterprise Support is an OPTIONAL add-on for self-hosters (EXP-352: the
+   Apache-2.0 switch deleted the mandatory 10+-people commercial license).
+   EXP-218: its pricing is NOT published — self-hosting reads as free, full
+   stop, and support is a conversation. Never reintroduce price points for
+   it here or on any marketing page; route people to /contact/. */

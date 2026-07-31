@@ -754,13 +754,9 @@ docker compose pull && docker compose up -d
             <h3>Enterprise Support — optional</h3>
             <p>
               If you want more than the community around the repo, add{` `}
-              <strong>Enterprise Support</strong>: <strong>€590/year</strong>
-              {` `}
-              for organizations of up to 25 users, <strong>€1,900/year</strong>
-              {` `}
-              up to 100, custom above that — SLA, priority support, deployment
-              help, and custom development, on one annual invoice. It&apos;s an
-              add-on, never a requirement.{` `}
+              <strong>Enterprise Support</strong> — SLA, priority support,
+              deployment help, and custom development, on one annual invoice.
+              It&apos;s an add-on, never a requirement.{` `}
               <a href="/contact/">Contact sales</a> or email{` `}
               <a href="mailto:support@exponential.at">support@exponential.at</a>
               . Need SSO, SLA, or DPA? That conversation starts there too.

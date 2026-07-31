@@ -256,7 +256,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/self-host/index.html`,
     sources: [`src/SelfHostDocsPage.tsx`],
     title: `Self-host — Exponential`,
-    description: `Self-host Exponential with one Docker Compose pulling the published image — no checkout, no build. Bring any S3-compatible storage; no plan limits. Free for everyone under Apache-2.0; optional Enterprise Support.`,
+    description: `Self-host Exponential with one Docker Compose pulling the published image — no checkout, no build. Bring any S3-compatible storage; no plan limits. Free for everyone under Apache-2.0, with optional Enterprise Support.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

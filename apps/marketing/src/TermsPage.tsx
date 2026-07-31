@@ -79,9 +79,7 @@ export function TermsPage() {
             You may self-host Exponential on your own infrastructure for free,
             at any company size, under the license above. Optional Enterprise
             Support — SLA, priority support, deployment help, custom
-            development — is available as a paid add-on: €590/year for
-            organizations of up to 25 users, €1,900/year up to 100, custom
-            above (
+            development — is available as a paid add-on (
             <a href="mailto:support@exponential.at" style={linkStyle}>
               support@exponential.at
             </a>

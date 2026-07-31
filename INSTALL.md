@@ -141,4 +141,4 @@ automatically.
 
 ## Licensing
 
-Exponential is free to self-host under [Apache-2.0](https://github.com/Niach/exponential/blob/master/LICENSE) — open source, any team size, no restrictions. Optional Enterprise Support (SLA, priority support, deployment help, custom development) is available at [exponential.at/pricing](https://exponential.at/pricing/) or support@exponential.at.
+Exponential is free to self-host under [Apache-2.0](https://github.com/Niach/exponential/blob/master/LICENSE) — open source, any team size, no restrictions. Optional Enterprise Support (SLA, priority support, deployment help, custom development) is available at [exponential.at/contact](https://exponential.at/contact/) or support@exponential.at.

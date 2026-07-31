@@ -1,10 +1,9 @@
 import { useId, useState } from "react"
 import { motion } from "motion/react"
-import { Check, Mail, Server, TriangleAlert } from "lucide-react"
+import { Check, Server, TriangleAlert } from "lucide-react"
 import { cardReveal, staggerContainer, viewportOnce } from "../lib/animations"
 import {
   ENTERPRISE_LINE,
-  ENTERPRISE_SUPPORT,
   PLANS,
   type Plan,
 } from "../lib/plans"
@@ -82,7 +81,7 @@ function PlanCard({ plan }: { plan: Plan }) {
 
   return (
     <motion.div
-      className={`plan-card${plan.highlight ? ` is-highlight` : ``}${plan.selfHost ? ` is-selfhost` : ``}${plan.enterprise ? ` is-enterprise` : ``}`}
+      className={`plan-card${plan.highlight ? ` is-highlight` : ``}${plan.selfHost ? ` is-selfhost` : ``}`}
       variants={cardReveal}
     >
       {plan.highlight && <span className="plan-flag">Most popular</span>}
@@ -90,9 +89,6 @@ function PlanCard({ plan }: { plan: Plan }) {
         <h3>
           {plan.selfHost && (
             <Server size={14} strokeWidth={2} style={{ marginRight: 6 }} />
-          )}
-          {plan.enterprise && (
-            <Mail size={14} strokeWidth={2} style={{ marginRight: 6 }} />
           )}
           {plan.name}
         </h3>
@@ -104,7 +100,7 @@ function PlanCard({ plan }: { plan: Plan }) {
       )}
       <FeatureList features={plan.features} caveat={plan.caveat} />
       <a
-        className={`btn ${plan.highlight || plan.enterprise ? `btn-primary` : `btn-ghost`}`}
+        className={`btn ${plan.highlight ? `btn-primary` : `btn-ghost`}`}
         href={plan.cta.href}
         style={{ justifyContent: `center` }}
       >
@@ -144,19 +140,3 @@ export function EnterpriseLine() {
   )
 }
 
-/* Enterprise Support (EXP-352: the free self-host card lives in the main
-   grid; this optional add-on card replaced the old mandatory 10+-people
-   commercial license). */
-export function EnterpriseSupportCard() {
-  return (
-    <motion.div
-      className="plan-grid plan-grid-selfhost"
-      variants={staggerContainer}
-      initial="hidden"
-      whileInView="visible"
-      viewport={viewportOnce}
-    >
-      <PlanCard plan={ENTERPRISE_SUPPORT} />
-    </motion.div>
-  )
-}
