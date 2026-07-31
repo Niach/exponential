@@ -1160,6 +1160,7 @@ dependencies = [
  "serde",
  "serde_json",
  "terminal",
+ "toml 0.8.23",
  "uuid",
 ]
 

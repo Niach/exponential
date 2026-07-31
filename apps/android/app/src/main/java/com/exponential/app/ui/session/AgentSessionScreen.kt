@@ -208,6 +208,12 @@ fun AgentSessionScreen(
                     else -> ActivityFeed(
                         feed = feed,
                         live = phase == AgentPhase.Live,
+                        // EXP-389: the agent is actively working — live and
+                        // nothing waiting on the user (no active question
+                        // card, synced needs_input clear; all three agents
+                        // drive the flag).
+                        working = phase == AgentPhase.Live && !sessionEnded &&
+                            !awaitingInput && session?.needsInput != true,
                         // Question cards are answerable while live (EXP-78;
                         // live implies ownership since EXP-312); the card
                         // itself also checks its own state.
@@ -438,6 +444,9 @@ private fun SessionStatusTitle(
 private fun ActivityFeed(
     feed: List<AgentFeedItem>,
     live: Boolean,
+    /** EXP-389: show the trailing "Working…" indicator — the session is live
+     *  and nothing waits on the user. */
+    working: Boolean,
     answerEnabled: Boolean,
     answerStates: Map<String, AnswerState>,
     /** (question, keys) — the option keys chosen on that card; a multi-select
@@ -481,9 +490,14 @@ private fun ActivityFeed(
     // feed items without adding rows. scrollToItem alone lands on the last
     // item's TOP, which for a long message is nowhere near the end — the
     // scrollBy finishes the scroll to the true bottom (EXP-197). agentTab is a
-    // key too: switching conversations re-pins to the newest event (EXP-356).
-    LaunchedEffect(feed.size, follow, agentTab) {
-        val visible = if (focused != null) focused.tools.size + 1 else rows.size
+    // key too: switching conversations re-pins to the newest event (EXP-356),
+    // and `working` re-pins when the EXP-389 footer appears/disappears.
+    LaunchedEffect(feed.size, follow, agentTab, working) {
+        val visible = if (focused != null) {
+            focused.tools.size + 1
+        } else {
+            rows.size + (if (working) 1 else 0)
+        }
         if (follow && visible > 0) {
             listState.scrollToItem(visible - 1)
             listState.scrollBy(1_000_000f)
@@ -582,6 +596,12 @@ private fun ActivityFeed(
                         )
                     }
                 }
+            }
+            // EXP-389: the agent-is-busy footer under the newest event (iOS
+            // parity) — main conversation only, subagent chips carry their
+            // own spinner.
+            if (working) {
+                item(key = "working-indicator") { WorkingIndicatorRow() }
             }
             }
         }
@@ -693,6 +713,40 @@ private fun NarrationBubble(text: String) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+/** The trailing "agent is busy" row (EXP-389): a gently pulsing "Working…"
+ *  under the newest event whenever the session is live and nothing waits on
+ *  the user — without it a feed that ends in tool rows gives no cue whether
+ *  the agent is still going. */
+@Composable
+private fun WorkingIndicatorRow() {
+    val pulse by rememberInfiniteTransition(label = "working").animateFloat(
+        initialValue = 1f,
+        targetValue = 0.4f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "workingAlpha",
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp)
+            .alpha(pulse),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            ExpIcons.codingAssistant,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Text(
+            "Working…",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
     }
 }
 

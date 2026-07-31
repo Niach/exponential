@@ -975,6 +975,13 @@ pub fn prepare_with_hooks(
         (None, Some(id)) => SessionTail::CodexResume(id),
         (None, None) => SessionTail::Continue,
     };
+    // EXP-389: pre-trust the clone in codex's own config — a remotely
+    // started session would otherwise park forever on the TUI's
+    // directory-trust screen (codex resolves a linked worktree's trust
+    // subject to the main clone, so the clone is the entry that matters).
+    if agent == CodingAgent::Codex {
+        crate::codex_trust::ensure_trusted(&clone);
+    }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
     let args = session_args(options, &agent_mcp, hook_settings.as_deref(), tail);
     let tab_title = format!("{} · {tab_title_prefix}", agent.id());
@@ -1305,7 +1312,14 @@ fn prepare_action(
         Err(err) => return Err(err.into()),
     };
 
-    // Step 5 — the spawn spec: the selected agent, session argv.
+    // Step 5 — the spawn spec: the selected agent, session argv. EXP-389:
+    // pre-trust the run's directory first (the trunk clone for repo-backed
+    // runs — a fix-conflicts worktree resolves to it — or the scratch dir
+    // itself, which is stable per action) so codex never parks on its
+    // directory-trust screen.
+    if agent == CodingAgent::Codex {
+        crate::codex_trust::ensure_trusted(trunk_clone.as_deref().unwrap_or(&cwd));
+    }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
     let args = session_args(
         &options,
@@ -1478,7 +1492,12 @@ pub fn prepare_agent_shell(
     let agent_mcp = wire_agent_mcp(agent, &cwd, deps.trpc.base_url(), &personal_key)?;
 
     // The spawn spec: no prompt, no hooks sidecar (hooks are per-session —
-    // there is no session row to scope one to).
+    // there is no session row to scope one to). EXP-389: same codex
+    // directory pre-trust as a session (an EXP-369 worktree cwd resolves to
+    // the clone anyway).
+    if agent == CodingAgent::Codex {
+        crate::codex_trust::ensure_trusted(&clone);
+    }
     let args = session_args(options, &agent_mcp, None, SessionTail::None);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
@@ -2039,7 +2058,16 @@ mod tests {
         assert!(!scratch.join(".exp-mcp.json").exists());
         assert!(!scratch.join(".exp-pi-mcp.ts").exists());
         let args = &prepared.spawn.args;
-        assert_eq!(args[..2], ["-m".to_string(), "gpt-5.6-sol".to_string()]);
+        // EXP-389: the update-prompt suppression leads every codex argv.
+        assert_eq!(
+            args[..4],
+            [
+                "-c".to_string(),
+                "check_for_update_on_startup=false".to_string(),
+                "-m".to_string(),
+                "gpt-5.6-sol".to_string()
+            ]
+        );
         assert!(args.contains(&format!("mcp_servers.exponential.url=\"{base}/api/mcp\"")));
         assert!(args
             .contains(&"mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"".to_string()));
@@ -3062,8 +3090,17 @@ mod tests {
         assert!(args.contains(&"workspace-write".to_string()));
         assert!(args.contains(&"sandbox_workspace_write.network_access=true".to_string()));
         assert!(!args.iter().any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox"));
-        // Prompt positional-last, model/effort flags present.
-        assert_eq!(args[..2], ["-m".to_string(), "gpt-5.6-sol".to_string()]);
+        // Prompt positional-last, model/effort flags present, the EXP-389
+        // update-prompt suppression leading.
+        assert_eq!(
+            args[..4],
+            [
+                "-c".to_string(),
+                "check_for_update_on_startup=false".to_string(),
+                "-m".to_string(),
+                "gpt-5.6-sol".to_string()
+            ]
+        );
         assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
         assert!(args.last().unwrap().contains("EXP-42"));
     }
