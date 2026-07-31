@@ -2211,15 +2211,23 @@ fn render_view_line(
     let display = build_display_line(line, &marks, view.resolver.as_ref(), cx);
     let mono = theme.mono_font_family.clone();
 
+    // Inline code AND `#IDENT` chip tokens render monospace (web parity: the
+    // pill's identifier is mono, the injected title stays the body font). The
+    // two sets never overlap — decorations inside code spans are skipped.
+    let mut mono_overrides: Vec<(Range<usize>, SharedString)> = display
+        .code_ranges
+        .iter()
+        .chain(display.issue_token_ranges.iter())
+        .map(|range| (range.clone(), mono.clone()))
+        .collect();
+    mono_overrides.sort_by_key(|(range, _)| range.start);
+
     let styled = StyledText::new(SharedString::from(display.text.clone()))
         .with_highlights(display.highlights.clone())
-        .with_font_family_overrides(
-            display
-                .code_ranges
-                .iter()
-                .map(|range| (range.clone(), mono.clone()))
-                .collect::<Vec<_>>(),
-        );
+        .with_font_family_overrides(mono_overrides);
+    // The layout handle shares state with the element — after prepaint it
+    // yields the pixel bounds the chip pills are painted from (EXP-381).
+    let text_layout = styled.layout().clone();
 
     let text_element: gpui::AnyElement = if display.targets.is_empty() {
         styled.into_any_element()
@@ -2251,6 +2259,21 @@ fn render_view_line(
                 }
             })
             .into_any_element()
+    };
+    // EXP-381: real chips — rounded, bordered pill quads painted behind the
+    // resolved `@email` / `#IDENT` ranges (same look as the WYSIWYG editor and
+    // web's `.issue-ref-pill`).
+    let text_element: gpui::AnyElement = if display.pill_ranges.is_empty() {
+        text_element
+    } else {
+        PillText {
+            child: text_element,
+            layout: text_layout,
+            pills: display.pill_ranges,
+            background: theme.accent,
+            border: theme.border,
+        }
+        .into_any_element()
     };
 
     // Wrap with block-level styling + list gutter.
@@ -2337,6 +2360,153 @@ fn render_view_line(
 }
 
 // ---------------------------------------------------------------------------
+// PillText — rounded chip pills behind rendered reference ranges (EXP-381)
+// ---------------------------------------------------------------------------
+
+/// Wraps one rendered line's text element and paints a rounded, bordered pill
+/// quad behind every resolved `@email` / `#IDENT` chip range before the text
+/// itself paints — web `.issue-ref-pill` parity (`background: var(--accent)`,
+/// `border: 1px solid var(--border)`, `border-radius: 9999px`). gpui's flat
+/// per-run background can neither round corners nor draw the border that
+/// makes the pill legible, so the quads are painted by hand from the text
+/// layout, exactly like the WYSIWYG editor's chip quads.
+struct PillText {
+    child: gpui::AnyElement,
+    /// Shared handle onto the child's [`StyledText`] layout — valid (bounds +
+    /// wrap data) once the child has prepainted.
+    layout: gpui::TextLayout,
+    /// Chip ranges in display-string bytes.
+    pills: Vec<Range<usize>>,
+    background: gpui::Hsla,
+    border: gpui::Hsla,
+}
+
+/// Overdraw around the glyph box, mirroring the WYSIWYG theme's
+/// `reference_pad_x`/`reference_pad_y` so chips look identical in the editor
+/// and the read-only view.
+const PILL_PAD_X: f32 = 2.0;
+const PILL_PAD_Y: f32 = 1.0;
+
+impl IntoElement for PillText {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl gpui::Element for PillText {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, Self::RequestLayoutState) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _state: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        for range in &self.pills {
+            for segment in pill_segment_bounds(&self.layout, range.clone()) {
+                let quad_bounds = Bounds::from_corners(
+                    point(segment.left() - px(PILL_PAD_X), segment.top() - px(PILL_PAD_Y)),
+                    point(
+                        segment.right() + px(PILL_PAD_X),
+                        segment.bottom() + px(PILL_PAD_Y),
+                    ),
+                );
+                let mut quad = gpui::fill(quad_bounds, self.background);
+                // Full pill: gpui clamps the radius to half the smaller side,
+                // so 999 is simply "as round as it gets".
+                quad.corner_radii = gpui::Corners::all(px(999.));
+                quad.border_widths = gpui::Edges::all(px(1.));
+                quad.border_color = self.border;
+                window.paint_quad(quad);
+            }
+        }
+        self.child.paint(window, cx);
+    }
+}
+
+/// Pixel bounds of `range` within a rendered line's layout, one box per
+/// soft-wrapped row (a chip that wraps gets one pill per row, like web's
+/// wrapped inline pill and iOS's `enumerateEnclosingRects`). Rendered view
+/// lines contain no hard `\n`, so the layout holds a single wrapped line.
+fn pill_segment_bounds(layout: &gpui::TextLayout, range: Range<usize>) -> Vec<Bounds<Pixels>> {
+    if range.start >= range.end {
+        return Vec::new();
+    }
+    let Some(line) = layout.line_layout_for_index(range.start) else {
+        return Vec::new();
+    };
+    let bounds = layout.bounds();
+    let line_height = layout.line_height();
+
+    // Wrapped-row start offsets (byte offsets into the line).
+    let mut row_offsets: Vec<usize> = Vec::with_capacity(line.wrap_boundaries.len() + 2);
+    row_offsets.push(0);
+    for boundary in line.wrap_boundaries.iter() {
+        let run = &line.unwrapped_layout.runs[boundary.run_ix];
+        row_offsets.push(run.glyphs[boundary.glyph_ix].index.min(line.len()));
+    }
+    row_offsets.push(line.len());
+    row_offsets.dedup();
+
+    let mut segments = Vec::new();
+    for row in 0..row_offsets.len().saturating_sub(1) {
+        let row_start = row_offsets[row];
+        let row_end = row_offsets[row + 1];
+        let seg_start = range.start.max(row_start).min(row_end);
+        let seg_end = range.end.min(row_end).max(row_start);
+        if seg_start >= seg_end {
+            continue;
+        }
+        let row_start_x = line.unwrapped_layout.x_for_index(row_start);
+        let start_x = line.unwrapped_layout.x_for_index(seg_start) - row_start_x;
+        let end_x = line.unwrapped_layout.x_for_index(seg_end) - row_start_x;
+        let y = bounds.top() + line_height * row as f32;
+        segments.push(Bounds::from_corners(
+            point(bounds.left() + start_x, y),
+            point(bounds.left() + end_x, y + line_height),
+        ));
+    }
+    segments
+}
+
+// ---------------------------------------------------------------------------
 // Display-line construction: inline styles + decoration pills
 // ---------------------------------------------------------------------------
 
@@ -2345,6 +2515,13 @@ struct DisplayLine {
     highlights: Vec<(Range<usize>, HighlightStyle)>,
     code_ranges: Vec<Range<usize>>,
     targets: Vec<(Range<usize>, ClickTarget)>,
+    /// EXP-381: display ranges of resolved `@email` / `#IDENT` chips — each
+    /// gets a rounded, bordered pill quad painted behind it (web
+    /// `.issue-ref-pill` parity; a flat run background reads as plain text).
+    pill_ranges: Vec<Range<usize>>,
+    /// EXP-381: display ranges of `#IDENT` tokens alone (without the injected
+    /// title) — the only part of a chip that renders monospace, like web.
+    issue_token_ranges: Vec<Range<usize>>,
 }
 
 /// A decoration token found in the source line.
@@ -2416,11 +2593,14 @@ fn build_display_line(
     struct Replacement {
         orig: Range<usize>,
         display: Range<usize>,
+        /// Index into `decorations` — an overlapping decoration is skipped, so
+        /// replacements cannot be positionally zipped back onto decorations.
+        decoration_index: usize,
     }
     let mut display = String::new();
     let mut replacements: Vec<Replacement> = Vec::new();
     let mut last = 0usize;
-    for decoration in &decorations {
+    for (decoration_index, decoration) in decorations.iter().enumerate() {
         if decoration.range.start < last {
             continue; // overlapping decoration; keep the first
         }
@@ -2430,6 +2610,7 @@ fn build_display_line(
         replacements.push(Replacement {
             orig: decoration.range.clone(),
             display: display_start..display.len(),
+            decoration_index,
         });
         last = decoration.range.end;
     }
@@ -2493,7 +2674,10 @@ fn build_display_line(
             }
         }
     }
-    for (decoration, replacement) in decorations.iter().zip(&replacements) {
+    let mut pill_ranges: Vec<Range<usize>> = Vec::new();
+    let mut issue_token_ranges: Vec<Range<usize>> = Vec::new();
+    for replacement in &replacements {
+        let decoration = &decorations[replacement.decoration_index];
         let mut bits = Bits::default();
         match &decoration.style {
             DecorationStyle::MentionPill => bits.mention = true,
@@ -2503,9 +2687,16 @@ fn build_display_line(
                     replacement.display.clone(),
                     ClickTarget::Issue(identifier.clone()),
                 ));
+                // The display text starts with the raw `#IDENT` token, so the
+                // token's display range is just the original token's length.
+                issue_token_ranges.push(
+                    replacement.display.start
+                        ..replacement.display.start + decoration.range.len(),
+                );
             }
         }
         if bits != Bits::default() {
+            pill_ranges.push(replacement.display.clone());
             ranges.push((replacement.display.clone(), bits));
         }
     }
@@ -2568,8 +2759,10 @@ fn build_display_line(
             });
         }
         if bits.mention || bits.issue {
-            style.background_color = Some(theme.secondary);
-            style.color = Some(theme.secondary_foreground);
+            // EXP-381: no flat run background here — the chip's rounded,
+            // bordered pill quad is painted behind the text by [`PillText`]
+            // (web `.issue-ref-pill`: accent fill + `1px solid var(--border)`).
+            style.color = Some(theme.accent_foreground);
             style.font_weight = Some(FontWeight::MEDIUM);
         }
         highlights.push((a..b, style));
@@ -2580,6 +2773,8 @@ fn build_display_line(
         highlights,
         code_ranges,
         targets,
+        pill_ranges,
+        issue_token_ranges,
     }
 }
 
@@ -2735,5 +2930,105 @@ mod tests {
         assert_eq!(byte_offset_to_position(text, 3), Position::new(1, 0));
         // 'é' is 2 bytes: byte 7 (after é) is char 3 of line 1.
         assert_eq!(byte_offset_to_position(text, 7), Position::new(1, 3));
+    }
+
+    fn test_resolver() -> RefResolver {
+        RefResolver {
+            member_name: Rc::new(|email, _| {
+                (email == "ada@example.com").then(|| "Ada".to_string())
+            }),
+            issue_title: Rc::new(|identifier, _| {
+                (identifier == "EXP-42").then(|| "Fix login flow".to_string())
+            }),
+        }
+    }
+
+    /// EXP-381: resolved chips carry a pill range (the rounded, bordered quad
+    /// painted behind them) and NO flat run background — the quad IS the chip.
+    #[gpui::test]
+    async fn resolved_chips_carry_pill_ranges_not_flat_backgrounds(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            let line = "Ping @ada@example.com about #EXP-42 now";
+            let display = build_display_line(line, &[], Some(&test_resolver()), cx);
+
+            assert_eq!(display.text, "Ping @Ada about #EXP-42 Fix login flow now");
+            let mention = display.text.find("@Ada").expect("mention");
+            let issue = display.text.find("#EXP-42").expect("issue chip");
+            assert_eq!(
+                display.pill_ranges,
+                vec![
+                    mention..mention + "@Ada".len(),
+                    issue..issue + "#EXP-42 Fix login flow".len(),
+                ],
+                "both chips should get a pill quad"
+            );
+            // Only the identifier renders monospace — the injected title stays
+            // in the body font (web `.issue-ref-pill::after`).
+            assert_eq!(
+                display.issue_token_ranges,
+                vec![issue..issue + "#EXP-42".len()]
+            );
+            for (range, style) in &display.highlights {
+                assert_eq!(
+                    style.background_color, None,
+                    "chip range {range:?} must not carry a flat run background — \
+                     the pill quad replaces it"
+                );
+            }
+        });
+    }
+
+    /// An unresolved token stays plain text: no pill, no mono, no click.
+    #[gpui::test]
+    async fn unresolved_tokens_stay_plain(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            let line = "see #EXP-99 and @ghost@example.com";
+            let display = build_display_line(line, &[], Some(&test_resolver()), cx);
+            assert_eq!(display.text, line);
+            assert!(display.pill_ranges.is_empty());
+            assert!(display.issue_token_ranges.is_empty());
+            assert!(display.targets.is_empty());
+        });
+    }
+
+    /// EXP-381: [`PillText`] computes chip quads from the child's text layout
+    /// during paint — this drives the whole path (layout handle, wrap-row
+    /// segmentation, quad painting) through a real window so a layout-order
+    /// regression panics here instead of in the running app.
+    #[gpui::test]
+    async fn markdown_view_paints_chip_pills_in_a_real_window(cx: &mut gpui::TestAppContext) {
+        struct Host;
+        impl Render for Host {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                div().size_full().child(
+                    MarkdownView::new(
+                        SharedString::from("pill-paint-test"),
+                        // Long enough to soft-wrap in the test window, so the
+                        // per-row segmentation runs too.
+                        "Ping @ada@example.com about #EXP-42 and again \
+                         #EXP-42 #EXP-42 #EXP-42 #EXP-42 #EXP-42 #EXP-42",
+                    )
+                    .resolver(test_resolver()),
+                )
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_view, cx) = cx.add_window_view(|_window, _cx| Host);
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear());
+            cx.run_until_parked();
+        }
     }
 }

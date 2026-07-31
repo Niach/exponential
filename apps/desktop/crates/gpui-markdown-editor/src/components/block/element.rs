@@ -1378,6 +1378,7 @@ impl Element for BlockTextElement {
         if !self.is_placeholder {
             let text = shaped.text().as_ref();
             let reference_color = theme.colors.reference_bg;
+            let reference_border = theme.colors.reference_border;
             let pad_x = px(theme.dimensions.reference_pad_x);
             let pad_y = px(theme.dimensions.reference_pad_y);
             let radius = px(theme.dimensions.reference_radius);
@@ -1404,6 +1405,12 @@ impl Element for BlockTextElement {
                         // A full pill: gpui clamps the radius to half the
                         // smaller side, so 999 is simply "as round as it gets".
                         q.corner_radii = Corners::all(radius);
+                        // EXP-381: the border is what keeps the pill visible —
+                        // the accent fill is nearly the surface colour (web
+                        // `.issue-ref-pill` leans on `var(--border)` the same
+                        // way).
+                        q.border_widths = gpui::Edges::all(px(1.));
+                        q.border_color = reference_border;
                         q
                     });
                 }

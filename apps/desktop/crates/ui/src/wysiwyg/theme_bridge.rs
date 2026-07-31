@@ -40,9 +40,12 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
     c.code_bg = app.muted;
     c.code_text = app.foreground;
     // EXP-322: mirrors web `.issue-ref-pill` (`background: var(--accent)`,
-    // `color: var(--accent-foreground)`).
+    // `color: var(--accent-foreground)`, EXP-381: `1px solid var(--border)` —
+    // accent barely clears the surface behind it, so the border carries the
+    // pill's legibility exactly like it does on web).
     c.reference_bg = app.accent;
     c.reference_text = app.accent_foreground;
+    c.reference_border = app.border;
     c.cursor = app.caret;
     c.selection = app.selection;
     c.task_checkbox_border = app.border;
