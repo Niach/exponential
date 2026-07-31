@@ -93,16 +93,16 @@ export async function connectRepositoryInTx(
     private?: boolean
   }
 ): Promise<string> {
-  const installationId = await assertRepoInstallationAccess(
-    tx,
-    input.teamId,
-    input.fullName
-  )
-
   // Never blind-seed `main` (L30): when the caller didn't supply a branch, ask
   // GitHub for the authoritative default. Only fall back to `main` when the live
   // lookup yields nothing (App unconfigured / repo gone / transient failure), and
   // log so a wrong-fallback row is traceable.
+  // Resolved BEFORE the access gate below on purpose: the gate returns with the
+  // installation's link row locked FOR UPDATE, and this lookup is up to two
+  // unbounded GitHub round-trips (token mint + repo GET) — a GitHub hang under
+  // that lock would stall the team's unlink/claim/connect writers. Pre-lock
+  // matches the gate's own GitHub calls, and the lookup doesn't depend on the
+  // gate's result (it mints its own repo-scoped token).
   let defaultBranch = input.defaultBranch
   if (!defaultBranch) {
     try {
@@ -121,6 +121,12 @@ export async function connectRepositoryInTx(
       defaultBranch = `main`
     }
   }
+
+  const installationId = await assertRepoInstallationAccess(
+    tx,
+    input.teamId,
+    input.fullName
+  )
 
   const [inserted] = await tx
     .insert(repositories)

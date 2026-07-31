@@ -44,7 +44,7 @@ const softwareApplication: Record<string, unknown> = {
   name: SITE_NAME,
   applicationCategory: `DeveloperApplication`,
   operatingSystem: `Web, iOS, Android, macOS, Windows, Linux`,
-  description: `Issues, customer support and coding agents in one realtime tracker. AI agents run locally on your machines and open GitHub pull requests — unlimited sessions, flat price.`,
+  description: `Issues, customer support and coding agents in one realtime tracker. AI agents run locally on your machines, on your subscription, and open GitHub pull requests.`,
   url: `${SITE_ORIGIN}/`,
   offers: {
     "@type": `Offer`,
@@ -110,7 +110,7 @@ export const PAGES: PageSeo[] = [
       `src/lib/plans.ts`,
     ],
     title: `Exponential — Vibecode together`,
-    description: `Issues, customer support and coding agents in one realtime tracker. Agents run locally — unlimited sessions, flat price. Native on web, iOS, Android, macOS, Windows and Linux. Free for teams of three, open source and free to self-host.`,
+    description: `Issues, customer support and coding agents in one realtime tracker. Agents run locally on your machines, on your subscription. Native on web, iOS, Android, macOS, Windows and Linux. Free for teams of three, open source and free to self-host.`,
     ogImage: `/og/og-home.png`,
     jsonLd: [organization, softwareApplication],
   },
