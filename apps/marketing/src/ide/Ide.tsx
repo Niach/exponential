@@ -78,7 +78,7 @@ function EmptyState() {
     <div className="ide-empty">
       <IcInbox size={24} className="ide-c-muted" />
       <span className="ide-empty-title">Nothing open</span>
-      <span className="ide-empty-sub">Pick an issue from the sidebar — it opens as a tab here.</span>
+      <span className="ide-empty-sub">Pick an issue from the sidebar. It opens as a tab here.</span>
     </div>
   )
 }

@@ -30,9 +30,9 @@ export function CodingDocsPage() {
           <div className="shell docs-hero-content">
             <h1>Coding agents</h1>
             <p>
-              Hand issues to a coding agent from the desktop IDE — Claude
-              Code, Codex, or pi. It plans, implements, and opens the pull
-              request. On your machine, on your own agent subscription.
+              Hand issues to a coding agent from the desktop IDE: Claude Code,
+              Codex, or pi. It plans, implements, and opens the pull request.
+              On your machine, on your own agent subscription.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href={LINKS.downloadPage}>
@@ -50,7 +50,7 @@ export function CodingDocsPage() {
               The <a href="/docs/apps/">desktop app</a> is the client that
               runs coding sessions. When you start one, it hands the issue to
               {` `}
-              <strong>your agent running locally</strong> — Claude Code, Codex
+              <strong>your agent running locally</strong>: Claude Code, Codex
               or pi, on your machine, your checkout, your own agent
               subscription. Nothing executes in a cloud sandbox, and your code
               never routes through Exponential&apos;s servers.
@@ -65,8 +65,8 @@ export function CodingDocsPage() {
               </li>
               <li>
                 It <strong>opens and links pull requests</strong> when the
-                agent calls the built-in MCP tool — and tracks the PR through
-                to merge, completing the issue.
+                agent calls the built-in MCP tool, then tracks the PR through
+                to merge and completes the issue.
               </li>
             </ul>
             <p>
@@ -81,27 +81,27 @@ export function CodingDocsPage() {
             <ol>
               <li>
                 <strong>Install the desktop app</strong> from the{` `}
-                <a href={LINKS.downloadPage}>download page</a> — macOS,
-                Windows, or Linux.
+                <a href={LINKS.downloadPage}>download page</a> (macOS, Windows,
+                or Linux).
               </li>
               <li>
                 <strong>Have <code>git</code> plus whichever agent CLIs you
-                use on your <code>PATH</code></strong> — <code>claude</code>,
+                use on your <code>PATH</code></strong> (<code>claude</code>,
                 {` `}
-                <code>codex</code>, <code>pi</code> — each signed in to its own
+                <code>codex</code>, <code>pi</code>), each signed in to its own
                 account. The app checks all three but only requires the one
-                you pick for the run. That&apos;s the entire dependency list —
+                you pick for the run. That&apos;s the entire dependency list:
                 no <code>gh</code>, no tokens to paste.
               </li>
               <li>
-                <strong>Sign in</strong> — to{` `}
+                <strong>Sign in</strong> to{` `}
                 <code>app.exponential.at</code> or your self-hosted URL.
               </li>
               <li>
                 <strong>Open a repo-backed board.</strong> The IDE clones
                 the repository automatically. (Connect a repo in{` `}
                 <strong>Team settings → Repositories</strong> if you
-                haven&apos;t — see{` `}
+                haven&apos;t. See{` `}
                 <a href="/docs/getting-started/#connect-github">
                   Getting started
                 </a>
@@ -110,7 +110,7 @@ export function CodingDocsPage() {
             </ol>
             <p>
               Under the hood, the launcher wires a scoped MCP config into the
-              run carrying a personal API key — that&apos;s how the agent
+              run carrying a personal API key. That&apos;s how the agent
               drives Exponential itself: updating issue status, posting
               comments, and opening the PR, all as tools.
             </p>
@@ -120,7 +120,7 @@ export function CodingDocsPage() {
           <DocsSection id="start-coding" num="03" label="Start coding">
             <h2>Start coding</h2>
             <p>
-              Hit <strong>Start coding</strong> on any issue — or check
+              Hit <strong>Start coding</strong> on any issue, or check
               several on the board and start them together. One dialog covers
               both:
             </p>
@@ -129,37 +129,37 @@ export function CodingDocsPage() {
               <IdeDemo view="issue" />
             </div>
             <p className="docs-embed-caption">
-              Live demo — click Start coding on the issue to open the dialog.
+              Live demo: click Start coding on the issue to open the dialog.
             </p>
 
             <ul>
               <li>
-                An <strong>agent tab strip</strong> —{` `}
+                An <strong>agent tab strip</strong>:{` `}
                 <strong>Claude Code</strong>, <strong>Codex</strong> or{` `}
                 <strong>pi</strong>. The strip narrows to the CLIs the app
                 finds installed.
               </li>
               <li>
-                A <strong>searchable multi-issue picker</strong> — one checked
-                issue launches a single run, two or more launch a batch.
+                A <strong>searchable multi-issue picker</strong>. Check one
+                issue for a single run, two or more for a batch.
               </li>
               <li>
                 <strong>Model</strong> and <strong>Effort</strong> pickers, per
-                agent — each agent offers its own models and its own effort
+                agent. Each agent offers its own models and its own effort
                 vocabulary (Codex calls it Reasoning, pi calls it Thinking).
               </li>
               <li>
-                <strong>Skip permissions</strong> (Claude and Codex) — off
+                <strong>Skip permissions</strong> (Claude and Codex). Off
                 leaves the agent in its own guarded auto mode, on hands it a
                 full bypass.
               </li>
               <li>
-                <strong>Dynamic workflows (ultracode)</strong> — Claude only.
+                <strong>Dynamic workflows (ultracode)</strong>, Claude only.
                 Lets the run organize its own workflow; it takes over the
                 effort setting.
               </li>
               <li>
-                <strong>Plan mode</strong> — Claude only. It proposes a plan
+                <strong>Plan mode</strong>, Claude only. It proposes a plan
                 you approve before it touches code.
               </li>
             </ul>
@@ -168,13 +168,13 @@ export function CodingDocsPage() {
               batch runs prefill identically. Out of the box that&apos;s{` `}
               <strong>plan mode on</strong>, <strong>ultracode off</strong> and
               {` `}
-              <strong>skip permissions off</strong> — change them under{` `}
+              <strong>skip permissions off</strong>. Change them under{` `}
               <strong>Settings → Agents</strong> on the desktop, per agent, and
               every future run starts from your values. Every run uses exactly
               one repository.
             </p>
             <p>
-              The same dialog has an <strong>Actions</strong> tab — the
+              The same dialog has an <strong>Actions</strong> tab: the
               team&apos;s saved prompts, run with the same agent, model and
               effort pickers. See <a href="/docs/actions/">Actions</a>.
             </p>
@@ -188,7 +188,7 @@ export function CodingDocsPage() {
               <li>
                 The app creates a <strong>git worktree</strong> on a fresh
                 {` `}
-                <code>exp/&lt;IDENTIFIER&gt;</code> branch — your main
+                <code>exp/&lt;IDENTIFIER&gt;</code> branch. Your main
                 checkout stays untouched, and several runs can work the same
                 repo side by side.
               </li>
@@ -201,13 +201,13 @@ export function CodingDocsPage() {
               <li>
                 It implements, commits, pushes, and{` `}
                 <strong>opens the pull request itself</strong> via the built-in
-                MCP tool — the server opens the PR through the GitHub App and
+                MCP tool. The server opens the PR through the GitHub App and
                 links it to the issue.
               </li>
               <li>
                 The issue flips to <strong>In Review</strong> and merging the
-                PR completes it to <strong>Done</strong> — the default;
-                retarget either event in{` `}
+                PR completes it to <strong>Done</strong>. Both targets are
+                configurable in{` `}
                 <a href="/docs/issues/#branches-prs">Team settings → Statuses</a>
                 .
               </li>
@@ -227,29 +227,29 @@ export function CodingDocsPage() {
               batch. Merging that PR completes them all.
             </p>
             <p>
-              The batch is deliberately loose — the issues go over as a list
+              The batch is deliberately loose. The issues go over as a list
               and the agent organizes the work. Overlapping issues are fine,
               and often the point.
             </p>
             <h3>When to batch</h3>
             <ul>
               <li>
-                <strong>Related fixes</strong> — five small bugs in one screen
+                <strong>Related fixes</strong>: five small bugs in one screen
                 make one coherent session and one reviewable PR.
               </li>
               <li>
-                <strong>Sweeping changes</strong> — a rename, an API
+                <strong>Sweeping changes</strong>: a rename, an API
                 migration, a copy sweep across the codebase, filed as several
                 issues.
               </li>
               <li>
-                <strong>Feedback triage</strong> — bulk-select a morning&apos;s
+                <strong>Feedback triage</strong>: bulk-select a morning&apos;s
                 worth of widget reports and clear them in one run.
               </li>
             </ul>
             <DocsCallout kind="note" title="Batch size">
               A run takes up to 30 issues, and the dialog shows a cost hint on
-              large batches — every checked issue adds to the prompt, so big
+              large batches. Every checked issue adds to the prompt, so big
               batches are token-hungry.
             </DocsCallout>
           </DocsSection>
@@ -259,14 +259,14 @@ export function CodingDocsPage() {
             <h2>Watch &amp; steer</h2>
             <p>
               The embedded terminal is a <strong>real PTY</strong>, not a log
-              view — type into it any time to answer a question or redirect
+              view. Type into it any time to answer a question or redirect
               the run, and hit <strong>Stop</strong> to end the session.
             </p>
             <p>
               While a session runs, your other devices see it live: the{` `}
               <strong>Agents</strong> view on web and mobile shows the running
               session with a live activity feed, and you can{` `}
-              <strong>send steer messages</strong> from your phone — the agent
+              <strong>send steer messages</strong> from your phone. The agent
               picks them up mid-run.
             </p>
           </DocsSection>
@@ -283,7 +283,7 @@ export function CodingDocsPage() {
               </li>
               <li>
                 The <strong>Reviews</strong> list in the sidebar collects the
-                team&apos;s open PRs, across every board — open one, read the
+                team&apos;s open PRs, across every board. Open one, read the
                 diff, and <strong>merge from right there</strong>. The linked
                 issues complete on merge. A merge that hits conflicts offers
                 the <a href="/docs/actions/">Fix merge conflicts</a> action.
@@ -291,7 +291,7 @@ export function CodingDocsPage() {
             </ul>
             <p>
               Prefer GitHub&apos;s review UI? The PR is a completely normal
-              pull request — review and merge it there and the issue completes
+              pull request. Review and merge it there and the issue completes
               just the same.
             </p>
           </DocsSection>
@@ -301,7 +301,7 @@ export function CodingDocsPage() {
             <h2>The git IDE</h2>
             <p>
               Around the coding flow sits a git IDE. Open a board and its
-              repository <strong>clones automatically</strong> — that clone is
+              repository <strong>clones automatically</strong>. That clone is
               the <strong>trunk</strong>, kept level with the default branch by
               a background sync. Coding runs work in their own worktrees, off
               to the side.
@@ -319,7 +319,7 @@ export function CodingDocsPage() {
               renders any commit&apos;s diff side-by-side, and an issue&apos;s
               {` `}
               <strong>Changes</strong> tab diffs its branch against the default
-              branch. The one write affordance is an escape hatch — discard
+              branch. The one write affordance is an escape hatch: discard
               local changes and hard-reset to the remote, behind a confirm.
             </p>
           </DocsSection>

@@ -39,7 +39,7 @@ export function FeedbackDocsPage() {
               The <a href="/docs/widget/">embeddable widget</a> is how the
               outside world reaches your team: paste its snippet on your site
               and visitors can report bugs and ideas without ever leaving the
-              page. Your boards stay private — members triage what comes in.
+              page. Your boards stay private. Members triage what comes in.
             </p>
             <ul>
               <li>
@@ -49,7 +49,7 @@ export function FeedbackDocsPage() {
                 custom data) in the description.
               </li>
               <li>
-                The reporter is <strong>auto-subscribed</strong> — resolve the
+                The reporter is <strong>auto-subscribed</strong>. Resolve the
                 issue and the person who reported it is notified.
               </li>
               <li>
@@ -68,8 +68,8 @@ export function FeedbackDocsPage() {
               <strong>Settings → Feedback widget → Helpdesk</strong> (Team
               plan). With it on, support requests from the widget open
               {` `}
-              <strong>tickets in your team&apos;s shared Support inbox</strong>
-              {` `}— standalone email conversations with the reporter, not
+              <strong>tickets in your team&apos;s shared Support inbox</strong>:
+              {` `}standalone email conversations with the reporter, not
               issues. Every member sees the inbox and can answer.
             </p>
 
@@ -82,9 +82,9 @@ export function FeedbackDocsPage() {
               <li>
                 The reporter gets a confirmation email with a{` `}
                 <strong>magic link</strong> to their own{` `}
-                <code>/support/…</code> page — a live view of the
-                conversation, no account needed. They can reply from that page
-                or just answer the email.
+                <code>/support/…</code> page (a live view of the
+                conversation, no account needed). They can reply from that
+                page or just answer the email.
               </li>
               <li>
                 Your side happens in the <strong>Support inbox</strong>:
@@ -92,8 +92,8 @@ export function FeedbackDocsPage() {
                 team.
               </li>
               <li>
-                <strong>Internal notes</strong> stay internal — visible to
-                your team on the thread, never sent to the reporter.
+                <strong>Internal notes</strong> stay internal, visible to your
+                team on the thread and never sent to the reporter.
               </li>
               <li>
                 <strong>Closing</strong> a thread stops further replies but
@@ -109,15 +109,15 @@ export function FeedbackDocsPage() {
               When a ticket turns out to be a real bug, it becomes work with
               {` `}
               <strong>one click</strong>: escalate it into an issue on any
-              board. The ticket keeps the conversation with the reporter; the
-              issue carries the work — status, priority, assignee, labels,
+              board. The ticket keeps the conversation with the reporter.
+              The issue carries the work: status, priority, assignee, labels,
               and a <a href="/docs/coding/">coding session</a> if the board
               has a repository.
             </p>
             <p>
               The thread shows its linked issue, so whoever answers support
-              always knows where the fix stands — and can tell the reporter
-              the moment it ships.
+              always knows where the fix stands and can tell the reporter the
+              moment it ships.
             </p>
           </DocsSection>
 
@@ -129,15 +129,15 @@ export function FeedbackDocsPage() {
               workflow your team already knows: set priority, label it, move
               noise to <strong>Cancelled</strong>, mark repeats as{` `}
               <strong>Duplicate</strong>, and promote real bugs to{` `}
-              <strong>Todo</strong> — or bulk-select a batch of them and{` `}
+              <strong>Todo</strong>. Or bulk-select a batch of them and{` `}
               <a href="/docs/coding/#batch-runs">hand it to an agent</a>.
             </p>
             <p>
-              When the fix lands, the <strong>reporter is notified</strong> —
-              the loop closes with the person who reported it.
+              When the fix lands, the <strong>reporter is notified</strong>.
+              The loop closes with the person who reported it.
             </p>
             <DocsCallout kind="tip" title="Dogfood">
-              Exponential&apos;s own feedback runs exactly this setup — the
+              Exponential&apos;s own feedback runs exactly this setup: the
               feedback button in the corner of this site is the real widget,
               the helpdesk answers the support requests, and agents fix the
               bugs.

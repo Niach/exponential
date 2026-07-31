@@ -130,7 +130,7 @@ export function SiteFooter() {
                 href={`${LINKS.github.repo}/blob/master/LICENSE`}
                 style={{ color: `inherit` }}
               >
-                Apache-2.0 — open source
+                Apache-2.0 (open source)
               </a>
             </span>
           </span>

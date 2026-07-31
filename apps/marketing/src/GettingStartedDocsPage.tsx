@@ -51,7 +51,7 @@ export function GettingStartedDocsPage() {
             <h1>Getting started</h1>
             <p>
               From sign-up to your first board, connected repo, and invited
-              teammates — about five minutes.
+              teammates in about five minutes.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href={LINKS.app.login}>
@@ -70,7 +70,7 @@ export function GettingStartedDocsPage() {
             <h2>Sign up &amp; your team</h2>
             <p>
               Sign in at <a href={LINKS.app.login}>app.exponential.at</a>{` `}
-              with Google — your account is created on first sign-in, no
+              with Google. Your account is created on first sign-in, with no
               separate registration step. On first launch you either create
               a team (pick a name, you become its owner) or join an existing
               one by pasting an invite link.
@@ -78,11 +78,11 @@ export function GettingStartedDocsPage() {
             <p>
               Everything in Exponential lives inside a team: boards, issues,
               labels, members, connected repositories. Teams are private and
-              invite-only — the outside world reaches you only through the{` `}
+              invite-only. The outside world reaches you only through the{` `}
               <a href="/docs/widget/">embeddable feedback widget</a>.
             </p>
             <DocsCallout kind="note" title="Self-hosting?">
-              A self-hosted instance chooses its own sign-in methods —
+              A self-hosted instance chooses its own sign-in methods:
               email/password, Google, or any OIDC provider (Authentik,
               Keycloak, Zitadel, …). See the{` `}
               <a href="/docs/self-host/">self-host docs</a>.
@@ -99,24 +99,25 @@ export function GettingStartedDocsPage() {
             <h3>Name and prefix</h3>
             <p>
               The <strong>prefix</strong> is a short uppercase code that
-              numbers every issue on the board — prefix <code>EXP</code>{` `}
+              numbers every issue on the board. Prefix <code>EXP</code>{` `}
               gives you <code>EXP-1</code>, <code>EXP-2</code>, and so on.
               Those identifiers follow the issue everywhere: branch names (
               <code>exp/EXP-42</code>), PR titles, and{` `}
               <code>#EXP-42</code> references in comments.
             </p>
-            <h3>Repository — optional</h3>
+            <h3>Repository (optional)</h3>
             <p>
-              A board is just a board: issues, statuses, labels, comments —
-              great for code, ops, content, or user feedback alike. Connect a
+              A board is just a board: issues, statuses, labels, comments. It
+              works as well for ops, content, or user feedback as it does for
+              code. Connect a
               {` `}
               <strong>GitHub repository</strong> (during creation or any time
               later) and the board gains the coding loop: coding sessions,
               branches, and pull requests.
             </p>
             <DocsCallout kind="tip" title="Coding gates on the repo">
-              Any board with a connected repository can run coding sessions —
-              a feedback board backed by your app&apos;s repo lets an agent fix
+              Any board with a connected repository can run coding sessions. A
+              feedback board backed by your app&apos;s repo lets an agent fix
               user-reported bugs directly.
             </DocsCallout>
           </DocsSection>
@@ -136,7 +137,7 @@ export function GettingStartedDocsPage() {
                 Open <strong>Team settings → Repositories</strong> (or hit
                 {` `}
                 <strong>Connect GitHub</strong> inside the board-creation
-                flow — same thing).
+                flow, which does the same thing).
               </li>
               <li>
                 Approve the GitHub App for your account or organization and
@@ -146,7 +147,7 @@ export function GettingStartedDocsPage() {
               <li>
                 Pick repositories from the picker to register them with your
                 team. The picker only offers repos from installations your
-                team has claimed — to add more, grant the App access on
+                team has claimed. To add more, grant the App access on
                 GitHub&apos;s installation settings page.
               </li>
             </ol>
@@ -166,13 +167,13 @@ export function GettingStartedDocsPage() {
             <h2>Invite your team</h2>
             <p>
               Open <strong>Team settings → Members</strong> and create an
-              invite link — anyone who follows it joins your team. Invites are
+              invite link. Anyone who follows it joins your team. Invites are
               single-purpose tokens you can revoke any time before they&apos;re
               accepted.
             </p>
             <p>
               Roles are <strong>owner</strong> and <strong>member</strong>.
-              Owners manage the team — settings, members, repositories,
+              Owners manage the team: settings, members, repositories,
               widgets, billing, board deletion. Every member can edit issues,
               triage feedback, manage comments, and edit statuses and labels.
               There is no read-only seat.
@@ -185,24 +186,24 @@ export function GettingStartedDocsPage() {
             <p>
               The cloud is per-seat: <strong>Free</strong> for teams of up to
               three, and one paid <strong>Team</strong> plan at €12/seat/month
-              billed yearly (€15 billed monthly) with everything included —
-              full details on the <a href="/pricing/">pricing page</a>.
+              billed yearly (€15 billed monthly) with everything included.
+              Full details are on the <a href="/pricing/">pricing page</a>.
             </p>
             <ul>
               <li>
                 <strong>Coding needs no plan.</strong> Your agent runs on your
-                machine, on your own agent subscription — unlimited boards,
-                repos, and coding sessions on every tier, including Free.
+                machine, on your own agent subscription. Boards, repos, and
+                coding sessions are unlimited on every tier, including Free.
               </li>
               <li>
                 Every tier includes the{` `}
-                <a href="/docs/widget/">feedback widget</a> — Free has one
-                widget, Team is unlimited and adds the{` `}
+                <a href="/docs/widget/">feedback widget</a>. Free comes with
+                one, Team with unlimited widgets and the{` `}
                 <a href="/docs/feedback/">helpdesk</a>.
               </li>
               <li>
-                <strong>Self-hosting is free for everyone</strong> — open
-                source under Apache-2.0. Self-hosted is the default mode:
+                <strong>Self-hosting is free for everyone.</strong> It&apos;s
+                open source under Apache-2.0. Self-hosted is the default mode:
                 every plan limit is off, billing included. Optional{` `}
                 <a href="/docs/self-host/#licensing">Enterprise Support</a>
                 {` `}

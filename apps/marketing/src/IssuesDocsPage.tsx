@@ -53,8 +53,8 @@ export function IssuesDocsPage() {
             <h2>The board</h2>
             <p>
               A board is a list of issues grouped by status. Change status,
-              priority, assignee, labels, and due date inline from the row —
-              click through for the full detail view.
+              priority, assignee, labels, and due date inline from the row.
+              Click through for the full detail view.
             </p>
 
             <div className="docs-embed">
@@ -73,12 +73,12 @@ export function IssuesDocsPage() {
             <p>
               Need to move many issues at once? <strong>Bulk select</strong>
               {` `}
-              rows and change status or priority, add labels — or hand the
+              rows and change status or priority, add labels, or hand the
               whole selection to an agent as a{` `}
               <a href="/docs/coding/#batch-runs">batch coding run</a>.
             </p>
             <p>
-              Deleting a board is a <strong>48-hour soft delete</strong> — an
+              Deleting a board is a <strong>48-hour soft delete</strong>. An
               owner can restore it from the trash until the purge sweep runs.
             </p>
           </DocsSection>
@@ -87,20 +87,20 @@ export function IssuesDocsPage() {
           <DocsSection id="statuses" num="02" label="Statuses & priorities">
             <h2>Statuses &amp; priorities</h2>
             <p>
-              Every team starts with seven built-in statuses —{` `}
-              <strong>Backlog</strong>, <strong>Todo</strong>,{` `}
+              Every team starts with seven built-in statuses{` `}
+              (<strong>Backlog</strong>, <strong>Todo</strong>,{` `}
               <strong>In Progress</strong>, <strong>In Review</strong>,{` `}
               <strong>Done</strong>, <strong>Cancelled</strong>,{` `}
-              <strong>Duplicate</strong> — and adds its own under{` `}
+              <strong>Duplicate</strong>) and adds its own under{` `}
               <strong>Team settings → Statuses</strong>. Any member manages
               them; the seven builtins are locked (never renamed, recolored or
               deleted) but can be reordered.
             </p>
             <p>
-              Every status sits in one of six <strong>categories</strong> —{` `}
-              <code>backlog</code>, <code>unstarted</code>,{` `}
+              Every status sits in one of six <strong>categories</strong>{` `}
+              (<code>backlog</code>, <code>unstarted</code>,{` `}
               <code>started</code>, <code>completed</code>,{` `}
-              <code>cancelled</code>, <code>duplicate</code> — and the category
+              <code>cancelled</code>, <code>duplicate</code>), and the category
               is what the clients reason about: the board groups by it,{` `}
               <code>completed</code> stamps the completion timestamp, and{` `}
               <code>duplicate</code> points at the issue it duplicates. A custom
@@ -110,7 +110,7 @@ export function IssuesDocsPage() {
             <p>
               Priorities are <strong>Urgent</strong>, <strong>High</strong>,
               {` `}
-              <strong>Medium</strong>, <strong>Low</strong>, or none — and an
+              <strong>Medium</strong>, <strong>Low</strong>, or none. An
               optional <strong>due date</strong> shows on the row with a
               calendar marker as it approaches.
             </p>
@@ -122,7 +122,7 @@ export function IssuesDocsPage() {
             <p>
               Descriptions and comments are{` `}
               <strong>GitHub-flavored markdown</strong>, and the same text
-              renders identically on web, iOS, Android, and desktop — no
+              renders identically on web, iOS, Android, and desktop, with no
               client-specific dialects. Supported and round-trippable:
             </p>
             <ul>
@@ -132,12 +132,12 @@ export function IssuesDocsPage() {
               </li>
               <li>
                 <strong>Blocks</strong>: headings H1–H3, bullet and ordered
-                lists, task lists (<code>- [ ]</code> / <code>- [x]</code> —
+                lists, task lists (<code>- [ ]</code> / <code>- [x]</code>,
                 checkable from any client), blockquotes, and fenced code
                 blocks.
               </li>
               <li>
-                <strong>Links and images</strong> — paste or drop an image
+                <strong>Links and images</strong>: paste or drop an image
                 straight into the editor; it uploads as an attachment and
                 embeds in place, pre-sized so nothing jumps while loading.
               </li>
@@ -145,7 +145,7 @@ export function IssuesDocsPage() {
             <DocsCode language="markdown">{TASK_LIST_SNIPPET}</DocsCode>
             <DocsCallout kind="note" title="Deliberately not supported">
               Underline has no GFM representation, so it doesn&apos;t exist
-              here — what you write must survive a round-trip through plain
+              here. What you write must survive a round-trip through plain
               markdown on every client.
             </DocsCallout>
           </DocsSection>
@@ -162,7 +162,7 @@ export function IssuesDocsPage() {
             </p>
             <h3>#-issue references</h3>
             <p>
-              Type <code>#</code> and pick an issue — or just write{` `}
+              Type <code>#</code> and pick an issue, or just write{` `}
               <code>#EXP-42</code>. When the identifier resolves to an issue
               in the same team, every client renders it as a clickable pill
               that jumps straight to that issue. Unknown identifiers stay
@@ -176,7 +176,7 @@ export function IssuesDocsPage() {
             <h2>Issue detail</h2>
             <p>
               The full-page view puts the description front and center with a
-              properties rail — status, priority, assignee, labels, due date —
+              properties rail (status, priority, assignee, labels, due date)
               and the conversation below.
             </p>
 
@@ -188,7 +188,7 @@ export function IssuesDocsPage() {
               The <strong>activity timeline</strong> interleaves comments with
               events: status changes, label changes, assignments, PR opened,
               PR merged. <strong>Subscribe</strong> to any issue to get its
-              notifications — commenting, being assigned, or being mentioned
+              notifications. Commenting, being assigned, or being mentioned
               subscribes you automatically.
             </p>
           </DocsSection>
@@ -219,7 +219,7 @@ export function IssuesDocsPage() {
               comes.
             </p>
             <p>
-              Tune it under <strong>Account → Notifications</strong> — per-type
+              Tune it under <strong>Account → Notifications</strong>: per-type
               preferences, the send hour, and an <strong>hourly</strong>{` `}
               cadence if once a day is too slow. Every digest carries a
               one-click unsubscribe.
@@ -230,14 +230,14 @@ export function IssuesDocsPage() {
           <DocsSection id="branches-prs" num="07" label="Branches & PRs">
             <h2>Branches &amp; PRs</h2>
             <p>
-              An issue that gets coded maps to one branch —{` `}
-              <code>exp/&lt;IDENTIFIER&gt;</code>, e.g.{` `}
-              <code>exp/EXP-42</code> — and one linked pull request. The PR
+              An issue that gets coded maps to one branch{` `}
+              (<code>exp/&lt;IDENTIFIER&gt;</code>, e.g.{` `}
+              <code>exp/EXP-42</code>) and one linked pull request. The PR
               state (open, merged) is tracked on the issue automatically.
             </p>
             <h3>PR automation</h3>
             <p>
-              What a PR event does to the issue is a per-team setting —{` `}
+              What a PR event does to the issue is a per-team setting:{` `}
               <strong>Team settings → Statuses → PR automation</strong>. Out of
               the box, opening the PR moves the issue to{` `}
               <strong>In Review</strong> and merging it completes the issue to
@@ -252,7 +252,7 @@ export function IssuesDocsPage() {
               works several issues in one session on a shared{` `}
               <code>exp/batch-&lt;id&gt;</code> branch and opens{` `}
               <strong>one combined PR linked to every issue</strong> in the
-              batch — merging that single PR completes them all.
+              batch. Merging that single PR completes them all.
             </p>
           </DocsSection>
         </DocsLayout>

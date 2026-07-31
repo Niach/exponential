@@ -99,7 +99,7 @@ export const PLANS: Plan[] = [
     name: `Self-hosted`,
     amount: `Free`,
     cadence: `your hardware`,
-    tagline: `Free forever — open source under Apache-2.0.`,
+    tagline: `Free forever, open source under Apache-2.0.`,
     selfHost: true,
     features: [
       `Free forever, unlimited users`,

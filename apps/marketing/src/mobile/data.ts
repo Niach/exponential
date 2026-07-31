@@ -229,7 +229,7 @@ export type MobFeedItem =
   | { kind: `tool`; name: string; detail: string }
 
 export const mobSteerFeed: MobFeedItem[] = [
-  { kind: `narration`, text: `Reading EXP-12 — paste should reuse the drag-drop upload path.` },
+  { kind: `narration`, text: `Reading EXP-12: paste should reuse the drag-drop upload path.` },
   { kind: `tool`, name: `Read`, detail: `issue-editor/paste-upload.ts` },
   { kind: `tool`, name: `Edit`, detail: `paste-upload.ts +41 −3` },
   {
@@ -237,7 +237,7 @@ export const mobSteerFeed: MobFeedItem[] = [
     text: `Paste now goes through the same upload queue as drag-drop, with progress chips.`,
   },
   { kind: `tool`, name: `Bash`, detail: `bun run typecheck · 0 errors` },
-  { kind: `narration`, text: `Typecheck is clean — committing and opening the pull request.` },
+  { kind: `narration`, text: `Typecheck is clean. Committing and opening the pull request.` },
 ]
 
 export const mobSteerDiff = { files: 1, add: 41, del: 3 }

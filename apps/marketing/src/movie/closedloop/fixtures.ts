@@ -80,10 +80,10 @@ export const REPORT = {
   titleLabel: "Title",
   title: "Checkout button does nothing",
   detailsLabel: "Details",
-  details: "Clicked “Pay now” on Safari — no response.",
+  details: "Clicked “Pay now” on Safari. No response.",
   send: "Send feedback",
   sending: "Sending…",
-  successTitle: "Thanks — sent!",
+  successTitle: "Thanks for the report!",
   successSub: "Tracked as EXP-151",
   poweredBy: "Powered by Exponential",
 } as const
@@ -188,7 +188,7 @@ export const PHONE_START = {
   effortLabel: "Effort",
   effort: "CLI default",
   device: "MacBook Pro",
-  toast: "Start sent to MacBook Pro — watch it in the Agents tab.",
+  toast: "Start sent to MacBook Pro. Watch it in the Agents tab.",
 } as const
 
 // ── The Claude session (real CLI grammar, see ships/surfaces/terminal.tsx) ────
@@ -201,7 +201,7 @@ export const CL_SESSION: SessionEvent[] = [
   },
   {
     kind: "prose",
-    text: "The submit handler bails while cart revalidation is pending — on Safari that promise never settles, so every click is swallowed. Fixing the pending state and re-enabling submit:",
+    text: "The submit handler bails while cart revalidation is pending. On Safari that promise never settles, so every click is swallowed. Fixing the pending state and re-enabling submit:",
   },
   {
     kind: "tool",
@@ -230,7 +230,7 @@ export const CL_SESSION: SessionEvent[] = [
     result: "To github.com:acme/shop.git",
   },
   { kind: "tool", tool: "mcp__exponential__exponential_pr_open" },
-  { kind: "flash", text: `Opened PR #218 — ${REPORT.title}` },
+  { kind: "flash", text: `Opened PR #218: ${REPORT.title}` },
 ]
 
 // ── The EXP-151 diff (the PrDiff center screen Reviews rows open) ────────────
@@ -320,12 +320,12 @@ export const CL_REVIEW_ROW = {
 // steer activity view; the user types a steer on the phone, it lands in the
 // terminal as a highlighted line, and the agent acknowledges and continues.
 export const CL_STEER_MSG =
-  "Also guard double-submits — disable the button while a payment is in flight."
+  "Also guard double-submits: disable the button while a payment is in flight."
 
 export const CL_STEER_REPLY: SessionEvent[] = [
   {
     kind: "prose",
-    text: "Good catch — adding an in-flight guard and a double-submit test.",
+    text: "Good catch. Adding an in-flight guard and a double-submit test.",
   },
   {
     kind: "tool",
@@ -346,7 +346,7 @@ export const CL_PHONE_FEED: SteerItem[] = [
   { kind: "tool", name: "Read", summary: "PayButton.tsx" },
   {
     kind: "narration",
-    text: "The submit handler bails while cart revalidation is pending — fixing the pending state and re-enabling submit:",
+    text: "The submit handler bails while cart revalidation is pending. Fixing the pending state and re-enabling submit:",
   },
   {
     kind: "tool",
@@ -409,7 +409,7 @@ export const PLATFORMS_COPY = {
 export const COPY = {
   bl1: "Your whole team, live on one board.",
   bl2: "Every change, pushed to your phone.",
-  ce1: "Start coding — from anywhere.",
+  ce1: "Start coding from anywhere.",
   ce2: "It runs on your own machine.",
   ce3: "Steer it live.",
   rm1: "Review it in place.",

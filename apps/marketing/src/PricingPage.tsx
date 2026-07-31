@@ -38,7 +38,7 @@ export function PricingPage() {
             <PlanCards />
             <EnterpriseLine />
             <p className="plan-footnote">
-              {EVERY_PLAN_INCLUDES} Agents are free everywhere — you only ever
+              {EVERY_PLAN_INCLUDES} Agents are free everywhere. You only ever
               pay for people.
             </p>
           </div>
@@ -58,14 +58,14 @@ export function PricingPage() {
               Open source. Support if you want it
             </h2>
             <p className="section-sub">
-              Exponential is fully open source under Apache-2.0 — self-hosting
+              Exponential is fully open source under Apache-2.0. Self-hosting
               is free for everyone, at any size, forever. If you want an SLA,
               priority support, deployment help, or custom development on top,
-              Enterprise Support is available as an optional add-on — never a
+              Enterprise Support is available as an optional add-on, never a
               requirement. <a href="/contact/">Talk to us</a>.
             </p>
             <p className="plan-footnote">
-              📱 Mobile push is cloud-only — the store apps are built against
+              📱 Mobile push is cloud-only. The store apps are built against
               the first-party Firebase project. Web and desktop notifications
               work fully on self-hosted.
             </p>
@@ -77,7 +77,7 @@ export function PricingPage() {
             <span className="section-eyebrow">Comparison</span>
             <h2 className="section-title">Exponential vs. Linear</h2>
             <p className="section-sub">
-              A great tracker — but it bills for AI agents, runs only in their
+              A great tracker. But it bills for AI agents, runs only in their
               cloud, and can&apos;t be self-hosted.
             </p>
             <ComparisonTable />

@@ -27,11 +27,12 @@ export function PrivacyPage() {
           </p>
 
           <p style={prose}>
-            This privacy policy describes what data the Exponential service and
-            its apps (web, Android, iOS, and desktop — together “Exponential”,
-            “the service”) collect, how it is used, stored, shared, and deleted.
-            Exponential is operated by Dennis Strähhuber, Germany (“we”). It
-            applies to the hosted cloud service at{` `}
+            This privacy policy covers the Exponential service and its apps for
+            web, Android, iOS, and desktop (together “Exponential”, “the
+            service”). It describes what data they collect, how it is used,
+            stored, shared, and deleted. Exponential is operated by Dennis
+            Strähhuber, Germany (“we”). It applies to the hosted cloud service
+            at{` `}
             <code style={inlineCode}>app.exponential.at</code>. If you connect
             the apps to a self-hosted Exponential instance instead, the operator
             of that instance is responsible for the data it stores; this policy
@@ -49,7 +50,7 @@ export function PrivacyPage() {
               <code style={inlineCode}>email</code>). We request no other Google
               scopes and never access your contacts, mail, files, calendar, or
               location. When you sign in with Apple we receive your name and
-              email address from Apple — if you chose “Hide My Email”, that
+              email address from Apple. If you chose “Hide My Email”, that
               address is an Apple private-relay address and we never see the
               real one. No other Apple account data is accessed.
             </li>
@@ -63,12 +64,12 @@ export function PrivacyPage() {
             <li style={listItem}>
               <strong>Feedback widget submissions.</strong> If a site operator
               embeds our feedback widget and you submit feedback or a support
-              request through it, we store what you send — your message and
-              optional screenshot — plus the page URL you were on, your
+              request through it, we store what you send (your message and
+              optional screenshot) plus the page URL you were on, your
               browser’s user-agent and viewport/screen size, and any email,
               name, or custom data the host site chooses to pass along with your
               submission. This lets the site operator triage and follow up on
-              your report — the members of the operator’s team who handle
+              your report. The members of the operator’s team who handle
               feedback can see your email and message. Your email is never
               exposed outside that team.
             </li>
@@ -103,7 +104,7 @@ export function PrivacyPage() {
               together with any campaign parameters (ref/UTM) in the arriving
               link. Visits are counted under a pseudonymous identifier derived
               from the IP address and browser via a salted hash whose salt
-              rotates daily — the raw values are never stored and visits cannot
+              rotates daily. The raw values are never stored and visits cannot
               be linked across days (legitimate interest, Art. 6(1)(f) GDPR).
               This happens entirely server-side: no analytics cookies, no
               scripts from third parties, nothing stored on your device.
@@ -126,27 +127,27 @@ export function PrivacyPage() {
           </p>
           <ul style={listStyle}>
             <li style={listItem}>
-              <strong>Hetzner Online GmbH</strong> (Germany) — servers and
-              object storage for attachments.
+              <strong>Hetzner Online GmbH</strong> (Germany): servers and object
+              storage for attachments.
             </li>
             <li style={listItem}>
-              <strong>Google Firebase Cloud Messaging</strong> — delivery of
-              push notifications (receives the device token and the notification
+              <strong>Google Firebase Cloud Messaging</strong>: delivery of push
+              notifications (receives the device token and the notification
               payload).
             </li>
             <li style={listItem}>
-              <strong>Amazon Web Services (Amazon SES)</strong> — transactional
+              <strong>Amazon Web Services (Amazon SES)</strong>: transactional
               email (receives your email address and the message content, e.g.
               notification digests, team invitations, and support replies).
             </li>
             <li style={listItem}>
-              <strong>Creem</strong> — subscription billing (merchant of record;
+              <strong>Creem</strong>: subscription billing (merchant of record;
               receives your account email address to create the checkout
               session, plus the billing and payment details you enter with
               them).
             </li>
             <li style={listItem}>
-              <strong>GitHub</strong> — only if you connect the GitHub App;
+              <strong>GitHub</strong>: only if you connect the GitHub App;
               repository operations happen through GitHub’s API on your behalf.
             </li>
           </ul>
@@ -187,8 +188,8 @@ export function PrivacyPage() {
             your server → “Delete account”. Deletion is immediate and removes
             your account together with every team where you are the only member.
             If you are the sole owner of a team that still has other members,
-            transfer ownership or remove those members first — we will not
-            delete a shared team out from under the people still using it.
+            transfer ownership or remove those members first. We will not delete
+            a shared team out from under the people still using it.
             Alternatively, email{` `}
             <a href="mailto:support@exponential.at" style={linkStyle}>
               support@exponential.at
@@ -213,7 +214,7 @@ export function PrivacyPage() {
           <p style={prose}>
             Under the GDPR we rely on three legal bases. Performance of a
             contract (Art. 6(1)(b)) covers everything needed to provide the
-            service you signed up for — your account, your team’s content, and
+            service you signed up for: your account, your team’s content, and
             the paid subscription if you have one. Legitimate interests (Art.
             6(1)(f)) cover keeping the service secure, preventing abuse, and the
             short-lived operational logs that come with running servers. Consent
@@ -225,7 +226,7 @@ export function PrivacyPage() {
           <h2 style={h2Style}>7. International transfers</h2>
           <p style={prose}>
             The database and attachment storage stay on servers in Germany. Some
-            processors are US companies or process data outside the EU/EEA —
+            processors are US companies or process data outside the EU/EEA:
             Google (Firebase Cloud Messaging) for push notifications, Amazon Web
             Services for transactional email, and GitHub for the optional
             repository integration. Those transfers rely on the EU–US Data
@@ -237,7 +238,7 @@ export function PrivacyPage() {
             We use only strictly necessary cookies and local storage: a session
             cookie to keep you signed in, and device-local preferences such as
             the team you last opened. There are no advertising cookies, no
-            analytics cookies, and no cross-site tracking — our usage statistics
+            analytics cookies, and no cross-site tracking. Our usage statistics
             (section 1) work entirely without storing anything on your device,
             which is why you see no cookie banner.
           </p>
@@ -247,7 +248,7 @@ export function PrivacyPage() {
             You have the right to access the personal data we hold about you, to
             have it corrected or erased, to restrict or object to its
             processing, and to receive it in a portable format. Much of this you
-            can do yourself in the app — edit or delete your content, or delete
+            can do yourself in the app: edit or delete your content, or delete
             your account outright (see section 5). For anything else, email{` `}
             <a href="mailto:support@exponential.at" style={linkStyle}>
               support@exponential.at

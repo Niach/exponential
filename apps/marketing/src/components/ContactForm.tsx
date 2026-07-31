@@ -75,7 +75,7 @@ export function ContactForm() {
   if (state === `success`) {
     return (
       <div className="contact-form contact-success" role="status">
-        <p className="contact-success-title">Thanks — message sent.</p>
+        <p className="contact-success-title">Thanks, we got your message.</p>
         <p className="contact-success-sub">
           We&apos;ll get back to you at the email you provided, usually within
           one business day.
@@ -155,7 +155,7 @@ export function ContactForm() {
       />
       {state === `rateLimited` && (
         <p className="contact-error" role="alert">
-          Too many requests right now — please try again in a bit, or email us
+          Too many requests right now. Please try again in a bit, or email us
           directly at <MailtoFallback />.
         </p>
       )}

@@ -73,8 +73,8 @@ export function WidgetPanelDemo({
           </span>
           <span className={`cw-success-title`}>We got your request!</span>
           <span className={`cw-success-sub`}>
-            Check your email &mdash; we sent you a link to track the
-            conversation and reply.
+            Check your email. We sent you a link to track the conversation and
+            reply.
           </span>
         </div>
       ) : (
@@ -101,13 +101,13 @@ export function WidgetPanelDemo({
               <div className={`cw-mode-card`}>
                 <span className={`cw-mode-title`}>Give feedback</span>
                 <span className={`cw-mode-sub`}>
-                  Report a bug or share an idea &mdash; screenshot included.
+                  Report a bug or share an idea, screenshot included.
                 </span>
               </div>
               <div className={`cw-mode-card is-picked`}>
                 <span className={`cw-mode-title`}>Get help</span>
                 <span className={`cw-mode-sub`}>
-                  Ask us anything &mdash; we&apos;ll reply by email.
+                  Ask us anything. We&apos;ll reply by email.
                 </span>
               </div>
             </div>

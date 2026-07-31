@@ -24,14 +24,14 @@ export const linearComparison: CompareRow[] = [
   {
     label: `One paid plan`,
     exponential: {
-      value: `€12 / seat / mo billed yearly — everything included`,
+      value: `€12 / seat / mo billed yearly, everything included`,
       good: true,
     },
     linear: { value: `$10–14 / user / mo, features split across tiers` },
   },
   {
     label: `Helpdesk & feedback widget`,
-    exponential: { value: `Built in — one seat price`, good: true },
+    exponential: { value: `Built in, one seat price`, good: true },
     linear: { value: `Separate tools, separately billed` },
   },
   {
@@ -45,7 +45,7 @@ export const linearComparison: CompareRow[] = [
   {
     label: `Self-hosting`,
     exponential: {
-      value: `Full-featured — free for everyone`,
+      value: `Full-featured, free for everyone`,
       good: true,
     },
     linear: { value: `Not available` },

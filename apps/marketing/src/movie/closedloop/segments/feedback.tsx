@@ -51,7 +51,7 @@ const B = {
   detailsType: 114,
   sendHover: 138,
   sendClick: 142,
-  success: 154, // "Thanks — sent!" holds
+  success: 154, // "Thanks for the report!" holds
   phoneIn: 168, // the phone rises with the mobile board
   pushAt: 176, // "New feedback: EXP-151"
   insert: 190, // the EXP-151 row pops into Todo
