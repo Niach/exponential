@@ -6,9 +6,9 @@
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { C, MONO_FONT, POP, UI_FONT } from "../../ships/theme"
+import { C, GLASS, MONO_FONT, POP, UI_FONT } from "../../ships/theme"
 import type { SteerItem } from "../../ships/fixtures"
-import { typed, useBlink } from "../../ships/rig"
+import { typed, useBlink, wallpaperBackground } from "../../ships/rig"
 import { CL, CL_PHONE_FEED, CL_STEER_MSG } from "../fixtures"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
@@ -37,9 +37,15 @@ const Glyph: React.FC<{
 )
 
 // ── The bare chassis: bezel, screen, status row, dynamic island ──────────────
-export const PhoneChassis: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => (
+// `glass` = the chassis' comp position: the screen then renders the EXP-359
+// glass recipe (wallpaper replica + page gradient at the mobile alpha) instead
+// of the solid gradient, matching the IDE window. The replica offset ignores
+// any phone scale transform — on the soft wallpaper gradient the slight zoom
+// is invisible, and a real backdrop-filter is off-limits (see rig.tsx).
+export const PhoneChassis: React.FC<{
+  children: React.ReactNode
+  glass?: { x: number; y: number }
+}> = ({ children, glass }) => (
   <div
     style={{
       width: PHONE.w,
@@ -59,9 +65,30 @@ export const PhoneChassis: React.FC<{ children: React.ReactNode }> = ({
         height: PHONE.screenH,
         borderRadius: 36,
         overflow: "hidden",
-        background: `linear-gradient(to bottom, #09090b, #18181b)`,
+        backgroundColor: glass ? C.canvas : undefined,
+        background: glass
+          ? undefined
+          : `linear-gradient(to bottom, #09090b, #18181b)`,
       }}
     >
+      {glass ? (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: wallpaperBackground(-(glass.x + 9), -(glass.y + 9)),
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: `linear-gradient(to bottom, rgba(18,18,21,${GLASS.phoneAlpha}), rgba(24,24,27,${GLASS.phoneAlpha}))`,
+            }}
+          />
+        </>
+      ) : null}
       {/* status row */}
       <div
         style={{
@@ -243,6 +270,7 @@ export const SteerPhone: React.FC<{
   sendAt: number // send tap: bubble lands in the feed, composer clears
   items?: readonly SteerItem[]
   message?: string
+  glass?: { x: number; y: number } // chassis comp position (see PhoneChassis)
 }> = ({
   frame,
   feedSchedule,
@@ -250,6 +278,7 @@ export const SteerPhone: React.FC<{
   sendAt,
   items = CL_PHONE_FEED,
   message = CL_STEER_MSG,
+  glass,
 }) => {
   const blinkOn = useBlink(frame)
   const typedMsg = frame >= sendAt ? "" : typed(message, frame, typeAt, 2)
@@ -259,7 +288,7 @@ export const SteerPhone: React.FC<{
     ? spring({ frame: frame - sendAt, fps: 30, config: POP })
     : 0
   return (
-    <PhoneChassis>
+    <PhoneChassis glass={glass}>
       {/* header: session title + live badge */}
       <div
         style={{

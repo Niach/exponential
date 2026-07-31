@@ -780,17 +780,18 @@ export const BoardTool: React.FC<{
             <LabelChip name={row.label.name} dot={row.label.dot} />
           ) : null}
           <Avatar initials={row.assignee} size={18} />
-          <span
-            style={{
-              flex: `none`,
-              display: `flex`,
-              color: C.muted,
-              opacity: row.due ? 1 : 0.3,
-              position: `relative`,
-            }}
-          >
-            <CalendarGlyph size={13} />
-          </span>
+          {row.due ? (
+            <span
+              style={{
+                flex: `none`,
+                display: `flex`,
+                color: C.muted,
+                position: `relative`,
+              }}
+            >
+              <CalendarGlyph size={13} />
+            </span>
+          ) : null}
         </div>
       )
     }

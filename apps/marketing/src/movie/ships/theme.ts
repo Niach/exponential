@@ -105,6 +105,7 @@ export const C = {
 export const GLASS = {
   railAlpha: 0.72,
   contentAlpha: 0.96,
+  phoneAlpha: 0.88, // mobile GlassTheme screen — between rail and content
   panelBlur: 16, // floating panels
   backdropBlur: 64, // behind-window blur
   shadow:
