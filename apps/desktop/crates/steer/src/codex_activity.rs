@@ -593,20 +593,48 @@ fn collect_answer_strings(value: &Value, out: &mut Vec<String>) {
     }
 }
 
-/// `apply_patch` rides `custom_tool_call` — publish only the touched file
-/// paths parsed from the patch header lines, never the patch body.
+/// File-edit and scripted tools ride `custom_tool_call`:
+///
+/// * `apply_patch` — publish only the touched file paths parsed from the
+///   patch header lines, never the patch body.
+/// * `exec` (the newest models' scripting tool: `input` is JavaScript
+///   driving `tools.<name>(…)` calls) — an embedded apply_patch payload
+///   still yields per-path `apply_patch` rows; otherwise the headline is the
+///   first `tools.<name>(` invoked. The script body is never published.
 fn parse_custom_tool_call(payload: &Value, redactor: &Redactor) -> Vec<ActivityEvent> {
     let Some(name) = payload.get("name").and_then(Value::as_str) else {
         return Vec::new();
     };
-    if name != "apply_patch" {
-        return vec![ActivityEvent::tool(truncate(name, TOOL_NAME_MAX), None)];
+    let input = payload.get("input").and_then(Value::as_str).unwrap_or("");
+    match name {
+        "apply_patch" => {
+            let events = patch_path_events(input, redactor);
+            if events.is_empty() {
+                return vec![ActivityEvent::tool("apply_patch", None)];
+            }
+            events
+        }
+        "exec" => {
+            let events = patch_path_events(input, redactor);
+            if !events.is_empty() {
+                return events;
+            }
+            let detail = first_scripted_tool(input)
+                .map(|tool| truncate(&redactor.redact(&tool), TOOL_DETAIL_MAX));
+            vec![ActivityEvent::tool("exec", detail)]
+        }
+        other => vec![ActivityEvent::tool(truncate(other, TOOL_NAME_MAX), None)],
     }
-    let Some(input) = payload.get("input").and_then(Value::as_str) else {
-        return vec![ActivityEvent::tool("apply_patch", None)];
-    };
+}
+
+/// The `*** Update/Add/Delete File:` paths of an apply_patch payload — the
+/// only lines of a patch safe to publish. A patch embedded in a scripted
+/// `exec` rides inside a JS string literal, where its newlines are the
+/// two-character `\n` escape — normalize those to real newlines first.
+fn patch_path_events(input: &str, redactor: &Redactor) -> Vec<ActivityEvent> {
     const PATCH_FILES_MAX: usize = 8;
-    let events: Vec<ActivityEvent> = input
+    let normalized = input.replace("\\n", "\n");
+    normalized
         .lines()
         .filter_map(|line| {
             let line = line.trim();
@@ -621,11 +649,19 @@ fn parse_custom_tool_call(payload: &Value, redactor: &Redactor) -> Vec<ActivityE
                 Some(truncate(&redactor.redact(path.trim()), TOOL_DETAIL_MAX)),
             )
         })
+        .collect()
+}
+
+/// The first `tools.<name>(` call of a scripted `exec` input — a safe,
+/// derived headline (a bare identifier, never script content).
+fn first_scripted_tool(input: &str) -> Option<String> {
+    let start = input.find("tools.")? + "tools.".len();
+    let rest = &input[start..];
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
         .collect();
-    if events.is_empty() {
-        return vec![ActivityEvent::tool("apply_patch", None)];
-    }
-    events
+    (!name.is_empty()).then_some(name)
 }
 
 // ---------------------------------------------------------------------------
@@ -846,6 +882,50 @@ mod tests {
             })
             .collect();
         assert_eq!(details, vec!["src/a.rs", "src/b.rs"]);
+    }
+
+    #[test]
+    fn scripted_exec_derives_patch_paths_or_tool_names_never_the_script() {
+        // The newest codex models route file edits through a custom_tool_call
+        // named `exec` whose input is JavaScript driving tools.apply_patch —
+        // observed live on codex-cli 0.144.5 with gpt-5.6-terra (EXP-383
+        // harness run). The embedded patch yields per-path apply_patch rows.
+        let mut state = CodexState::default();
+        let input = "const r = await tools.apply_patch(\\\"*** Begin Patch\\\\n*** Add File: hello.txt\\\\n+secret content\\\\n*** End Patch\\\");\\ntext(r)";
+        let line = format!(
+            r#"{{"timestamp":"t","type":"response_item","payload":{{"type":"custom_tool_call","name":"exec","input":"{input}","call_id":"c1","status":"completed"}}}}"#
+        );
+        let events = parse(&mut state, &line);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "apply_patch");
+                assert_eq!(detail.as_deref(), Some("hello.txt"));
+            }
+            other => panic!("expected tool, got {other:?}"),
+        }
+
+        // No embedded patch: the first tools.<name>( call is the headline.
+        let line = r#"{"timestamp":"t","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"const files = await tools.list_dir({ path: \"src\" });\ntext(files)","call_id":"c2","status":"completed"}}"#;
+        let events = parse(&mut state, line);
+        match &events[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "exec");
+                assert_eq!(detail.as_deref(), Some("list_dir"));
+            }
+            other => panic!("expected tool, got {other:?}"),
+        }
+
+        // Script with no tools call at all: bare exec row, script never leaks.
+        let line = r#"{"timestamp":"t","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"text('secret literal')","call_id":"c3"}}"#;
+        let events = parse(&mut state, line);
+        match &events[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "exec");
+                assert_eq!(detail, &None);
+            }
+            other => panic!("expected tool, got {other:?}"),
+        }
     }
 
     #[test]
