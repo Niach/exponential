@@ -347,8 +347,10 @@ struct IssueDetailView: View {
                                         Label("Move to board", appIcon: AppIcons.navBoards)
                                     }
                                 }
-                                Button("Delete issue", role: .destructive) {
+                                Button(role: .destructive) {
                                     showDeleteConfirm = true
+                                } label: {
+                                    Label("Delete issue", appIcon: AppIcons.uiDelete)
                                 }
                             }
                         } label: {
