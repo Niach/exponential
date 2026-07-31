@@ -143,13 +143,15 @@ struct AppNavigator: View {
                 NotificationCenter.default.post(name: .oauthTokenReceived, object: nil, userInfo: ["token": token])
             }
         }
-        // exponential://github-connected — the GitHub App install flow finished (fired
-        // by the server's post-install page). The in-app install surface
-        // (ASWebAuthenticationSession) normally consumes this as its callback;
-        // this path covers installs that finish in an external browser. The
-        // repo picker listens and re-queries.
+        // exponential://github-connected[?error=<code>] — the GitHub App install flow
+        // finished (fired by the server's post-install page). The in-app install
+        // surface (ASWebAuthenticationSession) normally consumes this as its
+        // callback; this path covers installs that finish in an external browser.
+        // The repo picker listens and re-queries — and surfaces the error slug
+        // (EXP-390: dropping it made every failed connect a silent no-op).
         if url.host == "github-connected" {
-            NotificationCenter.default.post(name: .githubConnected, object: nil)
+            let userInfo = GithubConnect.errorSlug(from: url).map { ["error": $0] }
+            NotificationCenter.default.post(name: .githubConnected, object: nil, userInfo: userInfo)
         }
         // exponential://issue/<issueId>
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {

@@ -90,7 +90,6 @@ fun CreateBoardForm(
     var prefixEdited by remember { mutableStateOf(false) }
     var color by remember { mutableStateOf(DEFAULT_COLOR) }
     var iconName by remember { mutableStateOf("square-kanban") }
-    var iconQuery by remember { mutableStateOf("") }
     var repository by remember { mutableStateOf<BoardRepositoryChoice?>(null) }
 
     LaunchedEffect(teamId) {
@@ -158,30 +157,14 @@ fun CreateBoardForm(
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Icon", style = MaterialTheme.typography.labelMedium, color = secondary)
-            OutlinedTextField(
-                value = iconQuery,
-                onValueChange = { iconQuery = it },
-                singleLine = true,
-                placeholder = { Text("Search icons") },
-                leadingIcon = {
-                    Icon(ExpIcons.navSearch, contentDescription = null, modifier = Modifier.size(18.dp), tint = secondary)
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            // The shared registry's 60 icons (EXP-273) no longer fit a
-            // glanceable grid, so the query filters by name — the selected one
-            // stays in the grid regardless, so a filter can never hide the
-            // current choice.
-            val glyphNames = remember(iconQuery, iconName) {
-                val query = iconQuery.trim().lowercase()
-                if (query.isEmpty()) ExpIcons.pickable
-                else ExpIcons.pickable.filter { it.contains(query) || it == iconName }
-            }
+            // The registry's full pickable set (EXP-273), deliberately
+            // unfiltered: 60 glyphs scan faster than they search (EXP-390
+            // dropped the query field on every platform).
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                glyphNames.forEach { glyphName ->
+                ExpIcons.pickable.forEach { glyphName ->
                     val glyph = ExpIcons.byName(glyphName) ?: return@forEach
                     val selected = glyphName == iconName
                     Box(
@@ -205,9 +188,6 @@ fun CreateBoardForm(
                         )
                     }
                 }
-            }
-            if (glyphNames.isEmpty()) {
-                Text("No icons match", style = MaterialTheme.typography.bodySmall, color = secondary)
             }
         }
 

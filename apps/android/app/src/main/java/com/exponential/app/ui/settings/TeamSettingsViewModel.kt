@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.githubConnectErrorMessage
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.data.api.IntegrationsApi
@@ -135,9 +136,16 @@ class TeamSettingsViewModel @Inject constructor(
         // fires exponential://github-connected — re-fetch so the needsReauth row clears
         // without leaving the screen. Event counter, not a consumed one-shot
         // (EXP-365): the repo picker may be collecting too, and both must
-        // refresh. drop(1) skips the StateFlow replay.
+        // refresh. drop(1) skips the StateFlow replay. An error slug means the
+        // connect FAILED (EXP-390): surface it instead of refreshing.
         viewModelScope.launch {
-            deepLinkBus.githubConnected.drop(1).collect { refreshGithub() }
+            deepLinkBus.githubConnected.drop(1).collect { event ->
+                if (event.error != null) {
+                    _transient.value = githubConnectErrorMessage(event.error)
+                } else {
+                    refreshGithub()
+                }
+            }
         }
     }
 

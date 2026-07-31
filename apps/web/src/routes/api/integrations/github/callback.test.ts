@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  githubSetupStateWantsMobile,
   mintGithubSetupState,
   readGithubClaimTicket,
 } from "@/lib/integrations/github-setup-state"
@@ -114,6 +115,9 @@ const getUserOrgMembershipState = vi.fn(
   async (_token: string, _org: string): Promise<OrgMembershipState> =>
     `not-member`
 )
+const defaultInstallUrl = (state?: string): string | null =>
+  `https://github.com/apps/test-app/installations/new?state=${state ?? ``}`
+const githubAppInstallUrl = vi.fn(defaultInstallUrl)
 
 vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/github-app")>()),
@@ -124,8 +128,7 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
   getAuthenticatedGithubLogin: () => getAuthenticatedGithubLogin(),
   getUserOrgMembershipState: (_token: string, org: string) =>
     getUserOrgMembershipState(_token, org),
-  githubAppInstallUrl: (state?: string) =>
-    `https://github.com/apps/test-app/installations/new?state=${state ?? ``}`,
+  githubAppInstallUrl: (state?: string) => githubAppInstallUrl(state),
 }))
 
 // Imported AFTER the mocks are registered.
@@ -524,6 +527,8 @@ describe(`github OAuth callback — cookie-less mobile flows (EXP-365)`, () => {
     listUserInstallations.mockResolvedValue([userInst(11, `octocat`)])
     listUserInstallationRepos.mockReset()
     listUserInstallationRepos.mockImplementation(defaultRepoListing)
+    githubAppInstallUrl.mockReset()
+    githubAppInstallUrl.mockImplementation(defaultInstallUrl)
   })
 
   it(`completes a single-install claim with NO session (state-only trust)`, async () => {
@@ -558,8 +563,50 @@ describe(`github OAuth callback — cookie-less mobile flows (EXP-365)`, () => {
     expect(linkInserts()).toHaveLength(0)
   })
 
-  it(`mobile error branches return the deep-link page, never a web redirect`, async () => {
+  // EXP-390: `error=none`'s deep link closed the in-app browser instantly and
+  // both mobile apps dropped the query — a zero-installation user had NO path
+  // to GitHub's install page. Installable dead ends now continue there in the
+  // same browser sheet instead of bouncing back to the app.
+  it(`zero installations continue to the install page instead of the error deep link`, async () => {
     listUserInstallations.mockResolvedValue([])
+
+    const res = await handleCallback(callbackRequest(mobileState()))
+
+    expect(res.status).toBe(302)
+    const location = res.headers.get(`location`)!
+    expect(location).toContain(`https://github.com/apps/test-app/installations/new`)
+    // The re-minted state keeps the mobile marker so the post-install
+    // setup → OAuth round trip stays a cookie-less mobile flow.
+    const state = new URL(location).searchParams.get(`state`)
+    expect(githubSetupStateWantsMobile(state)).toBe(true)
+  })
+
+  it(`a collaborator-only enumeration (notowner) also continues to the install page`, async () => {
+    listUserInstallations.mockResolvedValue([userInst(11, `Niach`)])
+    getAuthenticatedGithubLogin.mockResolvedValue(`LukeTechMech`)
+
+    const res = await handleCallback(callbackRequest(mobileState()))
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get(`location`)).toContain(
+      `https://github.com/apps/test-app/installations/new`
+    )
+    expect(linkInserts()).toHaveLength(0)
+  })
+
+  it(`orgperm keeps the error deep link — installing can't fix a pending org approval`, async () => {
+    listUserInstallations.mockResolvedValue([orgInst(21, `acme`)])
+    getUserOrgMembershipState.mockResolvedValue(`permission-missing`)
+
+    const res = await handleCallback(callbackRequest(mobileState()))
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain(`github-connected?error=orgperm`)
+  })
+
+  it(`falls back to the error deep link when no install URL can be minted`, async () => {
+    listUserInstallations.mockResolvedValue([])
+    githubAppInstallUrl.mockReturnValue(null)
 
     const res = await handleCallback(callbackRequest(mobileState()))
 

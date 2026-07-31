@@ -116,8 +116,10 @@ class MainActivity : ComponentActivity() {
             }
             // Fired by the server's post-GitHub-App-install page: closes the
             // Custom Tab (singleTask clear-top) and lands back on the repo
-            // picker, which consumes this and re-fetches the repo list.
-            "github-connected" -> deepLinkBus.openGithubConnected()
+            // picker, which consumes this and re-fetches the repo list. The
+            // `error` slug marks a FAILED connect (EXP-390) — dropped before,
+            // which made every failure a silent no-op.
+            "github-connected" -> deepLinkBus.openGithubConnected(data.getQueryParameter("error")?.ifEmpty { null })
         }
     }
 

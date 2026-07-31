@@ -17,7 +17,10 @@ import {
   BoardNameField,
   BoardPrefixField,
 } from "@/components/board-form-fields"
-import { type PickerRepo } from "@/components/github-repo-picker"
+import {
+  type PickerRepo,
+  useGithubConnectShortcut,
+} from "@/components/github-repo-picker"
 import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { getRuntimeConfig } from "@/lib/runtime-config"
@@ -56,6 +59,7 @@ export function CreateBoardDialog({
 
   const [selection, setSelection] = useState<RepoSelection | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const connectShortcut = useGithubConnectShortcut(teamId, open)
 
   useEffect(() => {
     void getRuntimeConfig().then((config) => {
@@ -196,7 +200,14 @@ export function CreateBoardDialog({
                     variant="outline"
                     size="sm"
                     className="w-full justify-start text-muted-foreground"
-                    onClick={() => setShowRepo(true)}
+                    onClick={() => {
+                      // One-step connect (EXP-390): no linked account means the
+                      // expansion could only offer a second "Connect GitHub"
+                      // click — open the popup right here instead. The expanded
+                      // picker is the return surface either way.
+                      connectShortcut()
+                      setShowRepo(true)
+                    }}
                   >
                     <Github className="mr-2 h-4 w-4" />
                     Connect a GitHub repository
