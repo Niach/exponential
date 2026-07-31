@@ -53,7 +53,9 @@ falling back to metadata/en-US/release_notes.txt), and auto-submits the build fo
 
 Beta App Review. The external group + TestFlight Test Information must already
 
-exist in App Store Connect (see docs/release-ios.md → External TestFlight).
+exist in App Store Connect (create the group under External Testing, and fill the
+
+TestFlight Test Information incl. the Beta App Review contact + demo account).
 
 ### ios build_staging
 

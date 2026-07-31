@@ -31,7 +31,8 @@ licenseReport {
 // Release signing is fed by gradle properties or environment variables so CI can inject a
 // keystore without committing it. When RELEASE_STORE_FILE is absent (e.g. pre-keystore CI or
 // local dev) the release build stays UNSIGNED — assembleRelease keeps working, so the pipeline
-// stays green until a keystore exists. See docs/release-android.md for keystore generation.
+// stays green until a keystore exists. Generate the upload keystore
+// once with keytool (RSA 2048, alias `upload`) and keep it outside the repo.
 fun releaseProp(name: String): String? =
     (project.findProperty(name) as String?) ?: System.getenv(name)
 

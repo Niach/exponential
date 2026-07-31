@@ -1,7 +1,6 @@
 # fastlane lanes for the Exponential iOS app (apps/ios), layered on top of Tuist.
 #
-# Runs locally on a Mac with Xcode + Tuist. No CI Mac runner is required for launch —
-# see docs/release-ios.md for the full procedure.
+# Runs locally on a Mac with Xcode + Tuist. No CI Mac runner is required for launch.
 #
 # The Xcode project/workspace is NOT committed (Tuist-generated), so `build` regenerates
 # it first. Non-interactive uploads authenticate with an App Store Connect API key read
@@ -72,7 +71,8 @@ platform :ios do
   desc "build processing, attaches the What-to-Test changelog (TESTFLIGHT_CHANGELOG env,"
   desc "falling back to metadata/en-US/release_notes.txt), and auto-submits the build for"
   desc "Beta App Review. The external group + TestFlight Test Information must already"
-  desc "exist in App Store Connect (see docs/release-ios.md → External TestFlight)."
+  desc "exist in App Store Connect (create the group under External Testing, and fill the"
+  desc "TestFlight Test Information incl. the Beta App Review contact + demo account)."
   lane :beta do |options|
     build
     pilot_args = {

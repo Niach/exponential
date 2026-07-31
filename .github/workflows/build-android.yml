@@ -116,6 +116,6 @@ jobs:
           name: Android ${{ steps.version.outputs.VERSION }}
           body: |
             Built from ${{ github.sha }}.
-            Production release APK + Play bundle (`.aab`), signed when the signing secrets are configured, otherwise unsigned (sign locally before distributing). Upload the `.aab` to the Play Console — see docs/release-android.md.
+            Production release APK + Play bundle (`.aab`), signed when the signing secrets are configured, otherwise unsigned (sign locally before distributing). Upload the `.aab` to the Play Console via the fastlane lanes in `apps/android/fastlane/`.
           files: |
             dist/*

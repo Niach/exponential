@@ -26,7 +26,7 @@ packages/
 ├── steer-ticket/      # HS256 steer-ticket sign/verify (web mints, relay verifies)
 ├── widget/            # Feedback widget (Preact + snapDOM) → apps/web/public/widget/v1/
 └── tsconfig/
-docs/                  # release-{ios,android}.md, deploys.md, ses-production-access.md
+docs/                  # third-party-licences.md + licences/ (runbooks live outside the repo)
 docker-compose.yaml    # DEV backend stack (not the self-host one)
 selfhost/              # Pull-an-image self-host compose; INSTALL.md = agent-followable runbook
 Dockerfile{,.push-relay,.steer-relay}   # build context = repo root
@@ -92,7 +92,7 @@ Workspace scripts: `bun --filter @exp/web <script>` or `cd apps/web && bun run <
 
 Everything runs on Coolify (`coolify.home.straehhuber.com`, Hetzner). **Coolify is home-LAN-only — no auto-redeploy webhooks**; after a green Actions run, deploy from a LAN machine with `coolify deploy uuid <uuid>`. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags, multi-arch; the SAME image is the cloud app, staging, and the self-host distribution (`selfhost/` + `INSTALL.md`), so the ghcr package must stay PUBLIC and self-hosters pin semver tags. Its runtime `bun install` is `--filter '@exp/web'` on purpose (EXP-380: unfiltered it redistributed marketing's source-available Remotion); non-OSS components and their notices rules live in `docs/third-party-licences.md`, gated by `apps/web/src/lib/third-party-licences.test.ts`. Native releases are tag-triggered: `android-v*` (APK + Play bundle, `make_latest: false`), `desktop-v*` (`build-desktop.yml`: codegen-drift guard, then production + staging channels × macOS/Linux/Windows; `make_latest: true`, self-update in `crates/updater`); iOS has no CI.
 
-**`docs/deploys.md` is the operations runbook** — app/DB/Electric uuids, buckets, staging, the relays' required `TRUST_PROXY=true`, per-platform release steps and signing, and the release-time checklist (changelog entry, GitHub App webhook/permission settings, deep-link assets, cloud auth env, health checks, DNS). Read it before touching anything deploy-shaped; do not re-inline it here.
+**The operations runbook lives OUTSIDE the repo** (deliberately — infra uuids/domains stay out of git; the operator keeps it in local agent memory alongside the iOS/Android release and SES runbooks). It covers app/DB/Electric uuids, buckets, staging, the relays' required `TRUST_PROXY=true`, per-platform release steps and signing, and the release-time checklist (changelog entry, GitHub App webhook/permission settings, deep-link assets, cloud auth env, health checks, DNS). Consult it before touching anything deploy-shaped; do not re-inline it here.
 
 Every user-facing release PREPENDS a `ChangelogEntry` to `apps/web/src/lib/changelog.ts` (`changelog.test.ts` enforces the conventions) — the head id re-surfaces the sidebar "What's new" card.
 

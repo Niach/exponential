@@ -83,7 +83,7 @@ the published image. Two problems, neither of which the Free License resolves:
 
 There was never anything on the other side of the ledger: `apps/web` does not
 import Remotion, the marketing site is a separate Vite build deployed separately
-(`docs/deploys.md`), and the image runs neither. The runtime install is now
+(see the deploys section in `CLAUDE.md`), and the image runs neither. The runtime install is now
 scoped with `--filter '@exp/web'`, which keeps `drizzle-kit`, `drizzle-orm` and
 the workspace packages the boot-time migrate needs while dropping 376 packages —
 verified in the pinned `oven/bun:1.3.10-alpine` base: 1415 → 1039 packages,

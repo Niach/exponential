@@ -1,7 +1,7 @@
 # fastlane lanes for the Exponential Android app (apps/android).
 #
 # Runs locally on a Mac (or any machine with the Android SDK + JDK 17). CI wiring is
-# optional sugar on top — see docs/release-android.md for the full procedure.
+# optional sugar on top.
 #
 # Signing is driven by the RELEASE_* gradle properties / env vars that
 # app/build.gradle.kts reads via releaseProp(). When RELEASE_STORE_FILE is unset the
@@ -26,7 +26,7 @@ platform :android do
     unless ENV["RELEASE_STORE_FILE"]
       UI.important("RELEASE_STORE_FILE is unset — producing an UNSIGNED release build.")
       UI.important("Set RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / " \
-                   "RELEASE_KEY_PASSWORD to sign (see docs/release-android.md).")
+                   "RELEASE_KEY_PASSWORD to sign.")
     end
 
     # App Bundle (.aab) — the Play upload artifact.

@@ -1,6 +1,6 @@
 # Play service-account JSON for `supply` (upload_to_play_store). Path comes from env so
-# the credential never lands in the repo — see docs/release-android.md (Play Console →
-# API access). Falls back to the default `fastlane/api-key.json` if the env is unset.
+# the credential never lands in the repo (Play Console → Setup → API access → service
+# account with the Release manager role). Falls back to `fastlane/api-key.json` if unset.
 json_key_file(ENV["SUPPLY_JSON_KEY"] || "")
 
 # Production applicationId (apps/android/app/build.gradle.kts → defaultConfig). The
