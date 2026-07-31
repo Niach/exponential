@@ -46,10 +46,16 @@ const softwareApplication: Record<string, unknown> = {
   operatingSystem: `Web, iOS, Android, macOS, Windows, Linux`,
   description: `Issues, customer support and coding agents in one realtime tracker. AI agents run locally on your machines, on your subscription, and open GitHub pull requests.`,
   url: `${SITE_ORIGIN}/`,
+  /* SoftwareApplication is also eligible for Google's product rich result.
+     Give that item the same crawlable image and complete offer as the pricing
+     Product; otherwise GSC reports the home-page item separately as invalid. */
+  image: [`${SITE_ORIGIN}/og/og-home.png`, `${SITE_ORIGIN}/icon-512.png`],
   offers: {
     "@type": `Offer`,
+    url: `${SITE_ORIGIN}/pricing/`,
     price: `0`,
     priceCurrency: `EUR`,
+    availability: `https://schema.org/InStock`,
   },
 }
 
@@ -62,6 +68,7 @@ const pricingProduct: Record<string, unknown> = {
   "@type": `Product`,
   name: `${SITE_NAME} — plans`,
   description: `Per-seat pricing for Exponential cloud. Free for teams of three; local AI agents on every tier.`,
+  url: `${SITE_ORIGIN}/pricing/`,
   /* Google's merchant-listing validation REQUIRES image on Product — 16:9 and
      1:1 variants per its aspect-ratio recommendations (GSC flags the page
      invalid without it). */
@@ -73,6 +80,7 @@ const pricingProduct: Record<string, unknown> = {
       name: plan.name,
       price: String(plan.priceNumber),
       priceCurrency: `EUR`,
+      availability: `https://schema.org/InStock`,
       url: `${SITE_ORIGIN}/pricing/`,
       ...(plan.priceDescription ? { description: plan.priceDescription } : {}),
     })
