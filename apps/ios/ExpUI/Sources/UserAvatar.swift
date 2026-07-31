@@ -38,8 +38,14 @@ public struct UserAvatar: View {
     }
 
     private var initialsChip: some View {
+        // The glyph has to scale with the avatar. A fixed .caption is wider than
+        // the 16pt chip avatars on the issue detail, so SwiftUI truncated two
+        // initials to a lone "…" — visible in the App Store screenshots
+        // (EXP-393). 0.42 of the diameter matches the Android InitialsAvatar.
         Text(memberInitials(user, id: id))
-            .font(.caption.weight(.medium))
+            .font(.system(size: size * 0.42, weight: .medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(Color.white.opacity(0.15))

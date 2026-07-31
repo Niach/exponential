@@ -205,6 +205,12 @@ struct AgentSessionView: View {
                 agentTabStrip(model)
                 feedList(model)
             }
+            // Only present once real activity has arrived — the store-screenshot
+            // test waits on it so it never captures a placeholder state.
+            // `children: .contain` keeps the feed's own elements queryable; a
+            // bare identifier on a plain container never reaches the hierarchy.
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("agent-feed")
         }
     }
 

@@ -328,6 +328,10 @@ struct StartCodingSheet: View {
             }
         }
         .presentationDetents([.large])
+        // `children: .contain` keeps the form's controls queryable; a bare
+        // identifier on a plain container never reaches the UI-test hierarchy.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("start-coding-sheet")
         .onAppear { seed() }
         .task { await loadActionsData() }
         // Crossing into/out of batch flips the mode defaults — unless the user

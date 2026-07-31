@@ -18,8 +18,14 @@
  * a reused shape would serve the previous seed generation forever. Fresh
  * ids on every entity ⇒ fresh shapes ⇒ fresh snapshots.
  *
+ * Seeding is only half of it: three of the eight shots (Start-coding dialog,
+ * live steering, the "Coding now" row) need a steer relay with a desktop online
+ * on it, which `screenshot-desktop.ts` provides — run that next and leave it
+ * running for the capture.
+ *
  * Usage (from apps/web, local dev env with password signup enabled):
  *   bun run seed:screenshots
+ *   bun run screenshots:desktop   # second shell, stays up during the capture
  */
 import { eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -43,17 +49,39 @@ import {
   teams,
 } from "@/db/schema"
 import { auth } from "@/lib/auth"
-
-export const DEMO_EMAIL = `demo@exponential.at`
-export const DEMO_PASSWORD = `screenshots-demo`
-const DEMO_NAME = `Alex Carter`
-const TEAM_SLUG = `acme`
+import {
+  DEMO_DEVICE_LABEL,
+  DEMO_EMAIL,
+  DEMO_NAME,
+  DEMO_PASSWORD,
+  TEAM_SLUG,
+} from "./screenshot-demo"
 
 const TEAMMATES = [
   { id: `demo-mira`, name: `Mira Chen`, email: `mira@acme.dev` },
   { id: `demo-jonas`, name: `Jonas Weber`, email: `jonas@acme.dev` },
   { id: `demo-sofia`, name: `Sofia Almeida`, email: `sofia@acme.dev` },
 ] as const
+
+// The Review screenshot shows a REAL diff: `issues.prFiles` fetches the changed
+// files from GitHub, so the fictional acme/mobile-app PR URLs render an empty
+// file list. Safe to point one issue at a public PR because the Changes screen
+// displays neither the repo name nor the PR number — only the branch
+// (`exp/APP-14`), the state capsule, the file counts and the patches
+// (ChangesView.swift / ChangesScreen.kt) — so the demo fiction survives intact.
+//
+// Pinned to a repo the Exponential GitHub App is NOT installed on: prFiles then
+// resolves no installation token, never reaches the team link-gate, and falls
+// back to the unauthenticated public-repo path (lib/integrations/github-pr.ts).
+// Now in Android is Google's Apache-2.0 sample app — public, stable, and its
+// Kotlin diffs suit a mobile-app board. Override with SCREENSHOT_PR_URL.
+const REVIEW_PR_URL =
+  process.env.SCREENSHOT_PR_URL?.trim() ||
+  `https://github.com/android/nowinandroid/pull/2117`
+const REVIEW_PR_NUMBER = Number(REVIEW_PR_URL.match(/\/pull\/(\d+)/)?.[1])
+if (!REVIEW_PR_NUMBER) {
+  throw new Error(`SCREENSHOT_PR_URL must end in /pull/<number>: ${REVIEW_PR_URL}`)
+}
 
 const now = Date.now()
 const daysAgo = (d: number) => new Date(now - d * 86_400_000)
@@ -252,6 +280,8 @@ async function main() {
     createdDaysAgo: number
     completedDaysAgo?: number
     pr?: `open` | `merged`
+    /** Link this issue to REVIEW_PR instead of a fictional acme PR. */
+    realPr?: boolean
   }> = [
     {
       title: `Ship onboarding flow v2`,
@@ -375,8 +405,9 @@ async function main() {
       labels: [`Design`],
       createdDaysAgo: 10,
     },
-    // In review with an OPEN pull request — the agents screenshot shows this
-    // session parked in review, and the issue detail renders a live PR card.
+    // In review with an OPEN pull request — the issue detail renders a live PR
+    // card, and this is the issue the Review screenshot opens (realPr: its diff
+    // is fetched from GitHub for real, see REVIEW_PR_URL).
     {
       title: `Group board issues by assignee`,
       description: `Add an assignee grouping mode next to the status grouping. Remember the last choice per board.`,
@@ -387,11 +418,12 @@ async function main() {
       labels: [`Feature`],
       createdDaysAgo: 2,
       pr: `open`,
+      realPr: true,
     },
-    // Three more open PRs (APP-15..17) so the Reviews tab screenshot is a
-    // real list, not a single row. Appended AFTER the original 14 — the
-    // identifiers APP-1..APP-14 are load-bearing for the UI tests and the
-    // hand-written notification titles above.
+    // Three more open PRs (APP-15..17) so the Reviews tab — the way into the
+    // Review screenshot — is a real queue, not a single row. Appended AFTER
+    // the original 14: the identifiers APP-1..APP-14 are load-bearing for the
+    // UI tests and the hand-written notification titles above.
     {
       title: `Batch-edit labels from the board`,
       status: `in_review`,
@@ -447,8 +479,10 @@ async function main() {
             : daysAgo(spec.completedDaysAgo),
         ...(spec.pr
           ? {
-              prUrl: `https://github.com/acme/mobile-app/pull/${40 + i}`,
-              prNumber: 40 + i,
+              prUrl: spec.realPr
+                ? REVIEW_PR_URL
+                : `https://github.com/acme/mobile-app/pull/${40 + i}`,
+              prNumber: spec.realPr ? REVIEW_PR_NUMBER : 40 + i,
               prState: spec.pr,
               branch: `exp/APP-${i + 1}`,
               prMergedAt: spec.pr === `merged` ? daysAgo(1) : undefined,
@@ -608,7 +642,7 @@ async function main() {
       issueId: showcase.id,
       teamId: ws.id,
       userId: demoId,
-      deviceLabel: `Alex's MacBook Pro`,
+      deviceLabel: DEMO_DEVICE_LABEL,
       status: `running`,
       startedAt: hoursAgo(1),
     },
@@ -624,7 +658,7 @@ async function main() {
       issueId: reviewIssue.id,
       teamId: ws.id,
       userId: demoId,
-      deviceLabel: `Alex's MacBook Pro`,
+      deviceLabel: DEMO_DEVICE_LABEL,
       status: `in_review`,
       startedAt: hoursAgo(3),
     },
@@ -796,9 +830,11 @@ Seeded screenshot demo data:
   inbox       5 notifications (3 unread)
   agents      3 coding sessions (2 running + 1 in review)
   reviews     4 open pull requests
+  review shot APP-14 → ${REVIEW_PR_URL} (real diff, fetched from GitHub)
   actions     3 saved team actions
   support     ${seedThreads.length} helpdesk threads
 
+Next: bun run screenshots:desktop (needs STEER_RELAY_URL + STEER_RELAY_SECRET)
 `)
   process.exit(0)
 }

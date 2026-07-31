@@ -3,12 +3,28 @@
 # Prereqs (see StoreScreenshotsTest.kt):
 #   1. A running, seeded local backend reachable from the emulator:
 #        bun run backend:up && bun dev
-#        bun --filter @exp/web exec tsx scripts/seed-screenshots.ts   (from apps/web)
-#   2. An English-locale phone emulator booted (only one device attached).
-#   3. Both APKs built: bundle exec fastlane screenshots does this for you.
+#        bun run seed:screenshots                                    (from apps/web)
+#   2. Live steering genuinely switched on — three of the eight shots need it,
+#      and without it the issue detail reads "Live steering is unavailable on
+#      this instance" (EXP-393):
+#        docker compose --profile steer up -d                        (repo root)
+#        # STEER_RELAY_URL is BOTH the ws:// URL the server hands the client and
+#        # the http:// base the server itself calls for device presence, so for
+#        # an emulator it must be an address that resolves on both sides: the
+#        # host's LAN IP. `localhost` is the emulator, and `10.0.2.2` is the
+#        # emulator's alias for the host and means nothing to the server, which
+#        # then reports no online desktop and hides the Start-coding button.
+#        export STEER_RELAY_URL=ws://$(ipconfig getifaddr en0):4002    (iOS keeps localhost)
+#        # …plus the matching STEER_RELAY_SECRET, then in a second shell:
+#        bun run screenshots:desktop                                 (from apps/web)
+#      Leave it running for the whole capture. The steering shot gates on the
+#      published transcript, so a wrong URL fails the run instead of quietly
+#      photographing a "Reconnecting…" screen.
+#   3. An English-locale phone emulator booted (only one device attached).
+#   4. Both APKs built: bundle exec fastlane screenshots does this for you.
 #
 # Output lands in fastlane/metadata/android/en-US/images/phoneScreenshots/
-# (1_board.png … 6_inbox.png), replacing the previous set — the exact files
+# (1_board.png … 8_support.png), replacing the previous set — the exact files
 # `supply` uploads to the Play listing.
 
 # The production flavor's applicationId (debug build keeps the same id).

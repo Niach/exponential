@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -13,7 +14,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +56,7 @@ fun InitialsAvatar(
     contentColor: Color = Color.White,
 ) {
     val initials = remember(nameOrEmail) { initialsFor(nameOrEmail) }
+    val fontSize = (size.value * 0.42f).sp
     Box(
         modifier = modifier
             .size(size)
@@ -61,9 +66,24 @@ fun InitialsAvatar(
         Text(
             initials,
             color = contentColor,
-            fontSize = (size.value * 0.42f).sp,
+            fontSize = fontSize,
+            // Centering the Box centers the LINE box, not the glyph: with the
+            // ambient line height (much taller than this font size) plus the
+            // legacy font padding, the initials sat visibly below the circle's
+            // middle (EXP-393 — it shipped in the store screenshots). Trim the
+            // line box to the glyph and the two centres coincide.
+            lineHeight = fontSize,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
+            style = LocalTextStyle.current.merge(
+                TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    lineHeightStyle = LineHeightStyle(
+                        alignment = LineHeightStyle.Alignment.Center,
+                        trim = LineHeightStyle.Trim.Both,
+                    ),
+                ),
+            ),
         )
     }
 }
