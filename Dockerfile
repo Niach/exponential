@@ -33,7 +33,16 @@ COPY --from=builder /app/apps/marketing/package.json apps/marketing/package.json
 COPY --from=builder /app/apps/push-relay/package.json apps/push-relay/package.json
 COPY --from=builder /app/apps/steer-relay/package.json apps/steer-relay/package.json
 COPY --from=builder /app/packages packages
-RUN bun install --frozen-lockfile
+# EXP-380: scoped to @exp/web on purpose. Unfiltered, this reinstalled the ENTIRE
+# workspace into the published image — including apps/marketing's Remotion, which
+# is source-available, licensed to US on the basis of our headcount, and carries
+# no sublicence clause that would cover whoever pulls the image (see
+# docs/third-party-licences.md). The web app imports none of it; marketing is a
+# separately built and separately deployed Vite site. The filter keeps drizzle-kit
+# and the workspace packages the boot-time migrate needs.
+# The marketing/push-relay/steer-relay package.json COPYs above must stay even so
+# — --frozen-lockfile validates the full workspace set and fails if one is absent.
+RUN bun install --frozen-lockfile --filter '@exp/web'
 RUN touch apps/web/.env
 # REV2-6: Bun caps simultaneous outbound fetch() at 256 per process. Every
 # Electric shape long-poll is proxied through one fetch() held open ~20-60s
