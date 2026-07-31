@@ -112,6 +112,14 @@ class AuthRepository @Inject constructor(
         republish()
     }
 
+    // Sign a SPECIFIC account out locally (keeping its row). The active
+    // account's token is what AppNavHost's needsAuth gate reads, so clearing it
+    // routes to login; a background account just stops syncing.
+    fun clearToken(id: String) {
+        accountStore.clearToken(id)
+        republish()
+    }
+
     // Mark the active account onboarded (after onboarding.complete succeeds) so the
     // nav gate stops showing the wizard without needing a fresh session fetch.
     fun markOnboardingCompleted(completedAtIso: String) {

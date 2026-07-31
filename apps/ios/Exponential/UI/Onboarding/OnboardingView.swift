@@ -107,6 +107,13 @@ struct OnboardingView: View {
                         primaryButton("Try again", enabled: true) {
                             Task { await resolveTeam() }
                         }
+                        // The wizard is the FIRST authed surface, so a session
+                        // the server has invalidated (deleted account, revoked
+                        // session) lands here with a failure "Try again" can
+                        // never clear. Signing out is the way back to LoginView.
+                        secondaryButton("Sign out") {
+                            signOut()
+                        }
                     }
                     .padding(24)
                     .glassCard()
@@ -215,7 +222,37 @@ struct OnboardingView: View {
         )
     }
 
+    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+        }
+        .buttonStyle(.plain)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+        )
+    }
+
     // MARK: - Actions
+
+    /// Local-only sign-out of the active account — the same teardown the
+    /// dead-session gate performs (SessionGate → SyncManager): drop the token,
+    /// stop this account's sync, keep the record and its cache. No server-side
+    /// revocation: the session this escapes from is the one the server already
+    /// refuses, so the call would only 401.
+    private func signOut() {
+        guard let accountId = deps.auth.activeAccountId else { return }
+        Task {
+            await deps.syncManager.signOut(accountId: accountId)
+            deps.auth.signOutLocally(accountId: accountId)
+        }
+    }
 
     /// The server backfills onboardingCompletedAt on session reads for users
     /// who already have a board in a team (the unified rule in

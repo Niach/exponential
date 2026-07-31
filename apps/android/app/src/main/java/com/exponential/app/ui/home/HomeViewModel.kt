@@ -3,11 +3,9 @@ package com.exponential.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
-import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.TeamsApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
-import io.ktor.http.HttpStatusCode
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.MultiAccountBoardRepository
 import com.exponential.app.data.db.ServerBoardGroup
@@ -113,12 +111,10 @@ class HomeViewModel @Inject constructor(
                 }
                 _error.value = null
             } catch (error: Throwable) {
-                // A rejected session (expired/revoked token) can't be recovered by
-                // retrying — clear it so the app routes the active account back to
-                // login instead of looping on a 401'd home screen.
-                if (error is TrpcException && error.status == HttpStatusCode.Unauthorized) {
-                    auth.clearToken()
-                }
+                // A rejected session (expired/revoked token) can't be recovered
+                // by retrying, and TrpcClient has already reported the 401 to
+                // SessionInvalidator — which clears that account's token and
+                // routes it back to login. Nothing to do here but show why.
                 _error.value = error.message ?: "Failed to load team"
             } finally {
                 // Always clear the spinner — the success path, the

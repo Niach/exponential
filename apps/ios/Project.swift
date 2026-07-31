@@ -66,6 +66,9 @@ let shareExtensionSources: SourceFilesList = [
     // HTTPClient's 426 handling references the gate (EXP-104); the extension
     // compiles it too, where a trip is simply never read.
     "ExpCore/Sources/UpdateGate.swift",
+    // Same for its 401 dead-session gate: the extension records a trip that
+    // only the app (SyncManager) ever acts on.
+    "ExpCore/Sources/SessionGate.swift",
     "ExpCore/Sources/Shared/**",
     "ExpCore/Sources/Auth/KeychainStore.swift",
     "ExpCore/Sources/Auth/AccountStore.swift",

@@ -56,6 +56,57 @@ final class AuthRepositoryTests: XCTestCase {
         XCTAssertEqual(auth.authenticatedAccountIds, [cloudId], "only the token-holding account counts")
     }
 
+    // The dead-session sign-out (SessionGate → SyncManager): the token goes,
+    // the RECORD stays — LoginView needs the instance URL to re-authenticate
+    // against, and the per-user id keeps the local cache addressable. Scoped to
+    // the one rejected account.
+    func testSignOutLocallyClearsOneTokenAndKeepsTheRecord() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "A", token: "tA")
+        signIn(auth, url: selfHosted, userId: "B", token: "tB")
+        let cloudId = ServerAccount.makeId(instanceUrl: cloud, userId: "A")
+        let selfHostedId = ServerAccount.makeId(instanceUrl: selfHosted, userId: "B")
+
+        auth.signOutLocally(accountId: selfHostedId)
+
+        XCTAssertEqual(auth.accounts.count, 2, "the rejected server stays listed")
+        let signedOut = auth.accounts.first { $0.id == selfHostedId }
+        XCTAssertNil(signedOut?.token)
+        XCTAssertEqual(signedOut?.instanceUrl, selfHosted)
+        XCTAssertEqual(signedOut?.userEmail, "B@x.com", "LoginView can still name the account")
+        XCTAssertEqual(auth.authenticatedAccountIds, [cloudId], "the other account keeps syncing")
+    }
+
+    // Single-account devices (the reported case) must land on the nav gate's
+    // "every account is signed out" branch, which is what shows LoginView.
+    func testSignOutLocallyOfTheOnlyAccountLeavesNothingAuthenticated() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "A", token: "tA")
+
+        auth.signOutLocally(accountId: ServerAccount.makeId(instanceUrl: cloud, userId: "A"))
+
+        XCTAssertFalse(auth.isAuthenticated)
+        XCTAssertFalse(auth.hasAuthenticatedAccount)
+        XCTAssertTrue(auth.accounts.allSatisfy { $0.token == nil })
+        XCTAssertEqual(auth.instanceUrl, cloud, "the login screen still knows the server")
+    }
+
+    // A re-login after the dead-session sign-out must resolve back to the SAME
+    // per-user account (in-place token refresh), not strand a duplicate record.
+    func testReloginAfterLocalSignOutReusesTheSameAccount() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "A", token: "tA")
+        let cloudId = ServerAccount.makeId(instanceUrl: cloud, userId: "A")
+
+        auth.signOutLocally(accountId: cloudId)
+        auth.setToken("tA2", email: "A@x.com", userId: "A", onboardingKnown: true)
+
+        XCTAssertEqual(auth.accounts.count, 1)
+        XCTAssertEqual(auth.activeAccountId, cloudId)
+        XCTAssertEqual(auth.token, "tA2")
+        XCTAssertEqual(auth.authenticatedAccountIds, [cloudId])
+    }
+
     func testEveryAccountSignedOutIsNotAuthenticated() {
         let auth = makeAuth()
         signIn(auth, url: cloud, userId: "A", token: "tA")

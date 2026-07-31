@@ -9,6 +9,7 @@ import android.os.SystemClock
 import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CodingSessionEntity
@@ -62,6 +63,7 @@ class SyncManager @Inject constructor(
     private val client: HttpClient,
     private val json: Json,
     private val stats: SyncStats,
+    private val sessionInvalidator: SessionInvalidator,
     @ApplicationContext private val context: Context,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -359,6 +361,10 @@ class SyncManager @Inject constructor(
             onDropped = { cols -> reportDroppedColumns(accountId, shape, cols) },
             onDecodeDrop = { stats.reportDecodeDrop(accountId, shape) },
             onRecovering = { stats.setRecovering(accountId, shape) },
+            // A rejected bearer (401, never 403) signs THIS account out
+            // locally; the token disappearing is what the accounts collector
+            // above reconciles into cancelling this pipeline.
+            onUnauthorized = { sessionInvalidator.invalidate(accountId) },
         )
 
         // Per-account credential providers: read the specific account's URL +
@@ -585,6 +591,7 @@ class SyncManager @Inject constructor(
             onPollTiming = reporter.onPollTiming,
             onDecodeDrop = { reporter.onDecodeDrop() },
             onRecovering = reporter.onRecovering,
+            onUnauthorized = reporter.onUnauthorized,
             // Auto-recovery: mark the shape for a refetch so the next poll
             // pulls a fresh snapshot (the same marker the 409/400 path writes).
             // The rows stay until that snapshot's batch replaces them in one
@@ -659,6 +666,8 @@ private class ShapeReporter(
     val onDecodeDrop: () -> Unit = {},
     // An auto-reset of this shape has begun.
     val onRecovering: () -> Unit = {},
+    // The server rejected this account's bearer token (HTTP 401 only).
+    val onUnauthorized: () -> Unit = {},
 )
 
 // One schema cache for the whole process: every account's Room instance shares

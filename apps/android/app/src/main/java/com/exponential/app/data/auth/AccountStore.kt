@@ -112,7 +112,17 @@ class AccountStore @Inject constructor(
 
     fun clearActiveToken() {
         synchronized(lock) {
-            val id = _activeAccountId.value ?: return
+            clearToken(_activeAccountId.value ?: return)
+        }
+    }
+
+    // Drop ONE account's token, active or not: the sign-out shape of a session
+    // the server has already rejected (SessionInvalidator), which can land on
+    // any signed-in account's background shape loops. The row itself stays, so
+    // the login screen keeps its server and the cached DB resumes on re-login.
+    fun clearToken(id: String) {
+        synchronized(lock) {
+            if (_accounts.value.none { it.id == id && it.token != null }) return
             _accounts.value = _accounts.value.map {
                 if (it.id == id) it.copy(token = null) else it
             }

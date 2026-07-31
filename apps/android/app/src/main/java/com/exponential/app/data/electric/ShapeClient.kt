@@ -72,8 +72,13 @@ private const val SCHEMA_RESET_THRESHOLD = 3
 private const val NETWORK_UNREADY_RETRY_MS = 750L
 private const val NETWORK_UNREADY_BURST = 6
 
-/** Thrown on HTTP 401/403 so the run loop can report it as an *auth* failure. */
-private class ShapeAuthException(message: String) : Exception(message)
+/**
+ * Thrown on HTTP 401/403 so the run loop can report it as an *auth* failure.
+ * [status] is carried because only 401 (a bearer the server rejected) is a dead
+ * session — a 403 is an authorization verdict on a LIVE one and must never sign
+ * anyone out.
+ */
+private class ShapeAuthException(message: String, val status: Int) : Exception(message)
 
 /**
  * Thrown on HTTP 426 (client below the server's minimum version, EXP-104). The
@@ -129,6 +134,10 @@ class ShapeClient<T : Any>(
     private val onDecodeDrop: (String) -> Unit = {},
     // An auto-reset of this shape has begun (rows briefly empty until refetch).
     private val onRecovering: () -> Unit = {},
+    // The server rejected this loop's bearer token (HTTP 401 only — see
+    // ShapeAuthException). Wired to SessionInvalidator, which signs the account
+    // out locally so the app routes to login instead of polling forever.
+    private val onUnauthorized: () -> Unit = {},
     // Mark this shape for an atomic refetch, so the next poll re-snapshots.
     private val onReset: suspend () -> Unit = {},
     // Monotonic clock (SystemClock.elapsedRealtime in production). Injected so
@@ -298,6 +307,11 @@ class ShapeClient<T : Any>(
             } catch (auth: ShapeAuthException) {
                 android.util.Log.w("ShapeClient", "[$shapeName] auth error: ${auth.message}")
                 onError(true, auth.message, false)
+                // 401 ONLY: the bearer this loop presented was rejected, which
+                // is the dead-session signal that signs the account out (the
+                // pipeline is then cancelled by SyncManager's reconcile). A 403
+                // is a live session without access and keeps backing off.
+                if (auth.status == HttpStatusCode.Unauthorized.value) onUnauthorized()
                 consecutiveSchemaErrors = 0
                 // Keep backing off (don't hammer) — an auth failure on a
                 // requireAuth shape won't fix itself by retrying immediately.
@@ -535,7 +549,10 @@ class ShapeClient<T : Any>(
         if (response.status == HttpStatusCode.Unauthorized ||
             response.status == HttpStatusCode.Forbidden
         ) {
-            throw ShapeAuthException("Unauthorized syncing $shapeName (HTTP ${response.status.value})")
+            throw ShapeAuthException(
+                "Unauthorized syncing $shapeName (HTTP ${response.status.value})",
+                status = response.status.value,
+            )
         }
         if (!response.status.isSuccess()) {
             throw IOException("Shape $shapeName HTTP ${response.status.value}")

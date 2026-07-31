@@ -119,6 +119,17 @@ public final class AuthRepository: @unchecked Sendable {
         republish()
     }
 
+    /// Sign ONE account out locally, keeping its record and its local cache.
+    /// This is the dead-session teardown (`SessionGate`): the server-side
+    /// session is already gone, so there is nothing to revoke — calling
+    /// `authApi.signOut` or the push unregister here would just 401 and re-trip
+    /// the gate. Dropping the token is enough: SyncManager cancels the
+    /// account's pipeline and the nav gate falls through to LoginView.
+    public func signOutLocally(accountId: String) {
+        accountStore.clearToken(id: accountId)
+        republish()
+    }
+
     // MARK: - Internals
 
     private func republish() {

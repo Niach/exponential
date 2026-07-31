@@ -9,6 +9,7 @@ import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.TeamsApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.domain.WebLinks
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -42,6 +43,7 @@ class OnboardingViewModel @Inject constructor(
     private val invitesApi: TeamInvitesApi,
     private val holder: DatabaseHolder,
     private val selection: TeamSelection,
+    private val sessionInvalidator: SessionInvalidator,
 ) : ViewModel() {
 
     val instanceUrl: StateFlow<String?> = auth.instanceUrl
@@ -186,5 +188,17 @@ class OnboardingViewModel @Inject constructor(
     /** Done-step action: set the local onboarding flag; the screen navigates home. */
     fun finish() {
         auth.markOnboardingCompleted(java.time.Instant.now().toString())
+    }
+
+    /**
+     * The wizard's escape hatch. Its route replaces the whole back stack and
+     * hides the bottom bar, so an account the server refuses (a deleted user
+     * 401s every request, and Retry can never succeed) had no way out at all.
+     * Runs the SAME local sign-out an invalidated session performs — clearing
+     * the active account's token drops AppNavHost onto the login screen.
+     */
+    fun signOut() {
+        val accountId = auth.activeAccountId.value ?: return
+        sessionInvalidator.invalidate(accountId)
     }
 }

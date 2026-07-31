@@ -2,6 +2,7 @@ package com.exponential.app.data.api
 
 import android.util.Log
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.SessionInvalidator
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -87,6 +88,7 @@ class TrpcClient @Inject constructor(
     private val client: HttpClient,
     private val auth: AuthRepository,
     private val json: Json,
+    private val sessionInvalidator: SessionInvalidator,
 ) {
     private fun accountUrl(accountId: String): String =
         auth.accounts.value.firstOrNull { it.id == accountId }?.instanceUrl
@@ -118,6 +120,15 @@ class TrpcClient @Inject constructor(
             // Keep the raw body diagnosable in logcat; the thrown message is
             // user-presentable (EXP-219).
             Log.w("TrpcClient", "tRPC $path HTTP ${response.status.value}: $text")
+            // Classified on the STATUS, never the message text: a 401 answering
+            // a bearer we hold means that session is gone, so the account is
+            // signed out locally and the app routes to login instead of every
+            // screen 401ing forever.
+            sessionInvalidator.reportStatus(
+                accountId = accountId,
+                statusCode = response.status.value,
+                tokenPresented = token != null,
+            )
             throw TrpcException(
                 trpcUserMessageFromBody(text) ?: "Request failed (HTTP ${response.status.value})",
                 response.status,
@@ -164,6 +175,15 @@ class TrpcClient @Inject constructor(
             // Keep the raw body diagnosable in logcat; the thrown message is
             // user-presentable (EXP-219).
             Log.w("TrpcClient", "tRPC $path HTTP ${response.status.value}: $text")
+            // Classified on the STATUS, never the message text: a 401 answering
+            // a bearer we hold means that session is gone, so the account is
+            // signed out locally and the app routes to login instead of every
+            // screen 401ing forever.
+            sessionInvalidator.reportStatus(
+                accountId = accountId,
+                statusCode = response.status.value,
+                tokenPresented = token != null,
+            )
             throw TrpcException(
                 trpcUserMessageFromBody(text) ?: "Request failed (HTTP ${response.status.value})",
                 response.status,

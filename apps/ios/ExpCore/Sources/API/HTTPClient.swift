@@ -55,6 +55,16 @@ public final class HTTPClient: Sendable {
             let info = try? JSONDecoder().decode(ClientUpgradeResponse.self, from: data)
             await UpdateGate.shared.trigger(accountId: accountId, min: info?.min, latest: info?.latest)
         }
+        // Dead-session gate: a 401 on a request that DID carry this account's
+        // bearer means the server rejected the credential itself (deleted user,
+        // revoked session), so the account is signed out locally instead of
+        // 401ing forever. Gated on the header, not on the status alone — an
+        // unauthenticated call has nothing to invalidate. Status only, never
+        // message text; the tRPC error body is not a stable signal.
+        if httpResponse.statusCode == 401,
+           request.value(forHTTPHeaderField: "Authorization") != nil {
+            SessionGate.shared.invalidate(accountId: accountId)
+        }
         return (data, httpResponse)
     }
 

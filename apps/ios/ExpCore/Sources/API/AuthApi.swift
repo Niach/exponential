@@ -78,6 +78,16 @@ public enum SignInResult: Sendable {
     case failure(message: String)
 }
 
+/// What a `get-session` read established. `invalidated` is the only DEFINITIVE
+/// dead-session verdict (see `AuthApi.classifySessionRead`); `indeterminate`
+/// covers every "we don't know" case — offline, timeout, 5xx, garbled body — and
+/// must never sign an account out.
+enum SessionReadOutcome: Sendable {
+    case user(AuthUser)
+    case invalidated
+    case indeterminate
+}
+
 // MARK: - API
 
 public final class AuthApi: Sendable {
@@ -227,24 +237,79 @@ public final class AuthApi: Sendable {
         return try JSONDecoder().decode(AuthConfig.self, from: data)
     }
 
+    /// Session read for a stored account. Unlike the explicit-credential form
+    /// below, this one can attribute a DEAD session to an account, so it trips
+    /// the dead-session gate — the path that unsticks a surface whose only
+    /// affordance was retrying forever (the onboarding team step re-reads the
+    /// session on appear).
     public func fetchSession(accountId: String) async -> AuthUser? {
         guard let account = auth.accounts.first(where: { $0.id == accountId }) else { return nil }
-        return await fetchSession(instanceUrl: account.instanceUrl, token: account.token)
+        switch await readSession(instanceUrl: account.instanceUrl, token: account.token) {
+        case let .user(user):
+            return user
+        case .invalidated:
+            SessionGate.shared.invalidate(accountId: accountId)
+            return nil
+        case .indeterminate:
+            return nil
+        }
     }
 
     // Core session read. Takes instanceUrl + token explicitly so a login flow
     // can capture session fields (incl. onboardingCompletedAt) BEFORE persisting
     // the token, avoiding any window where the account looks "not onboarded".
+    // Never trips the gate: mid-login there is no account to invalidate yet.
     public func fetchSession(instanceUrl: String, token: String?) async -> AuthUser? {
-        guard let url = URL(string: "\(instanceUrl)/api/auth/get-session") else { return nil }
+        if case let .user(user) = await readSession(instanceUrl: instanceUrl, token: token) {
+            return user
+        }
+        return nil
+    }
+
+    private func readSession(instanceUrl: String, token: String?) async -> SessionReadOutcome {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/get-session") else { return .indeterminate }
         do {
             let (data, response) = try await httpClient.get(url, bearerToken: token)
-            guard (200...299).contains(response.statusCode) else { return nil }
-            let session = try JSONDecoder().decode(SessionResponse.self, from: data)
-            return session.user
+            return Self.classifySessionRead(
+                statusCode: response.statusCode, body: data, tokenPresented: token != nil
+            )
         } catch {
-            return nil
+            // Transport failure: offline, DNS, TLS, timeout. Indistinguishable
+            // from a healthy server we can't reach, so it must stay harmless.
+            return .indeterminate
         }
+    }
+
+    /// The one rule that decides whether a session read PROVES the credential is
+    /// dead. Better Auth answers a dead bearer with 200 + no session rather than
+    /// a 401, so 2xx-with-no-user is the definitive signal — but only when a
+    /// token was actually presented (tokenless reads are legitimately userless).
+    /// Everything else (non-2xx, unparseable bodies) is indeterminate on
+    /// purpose: the conservatism that keeps an offline app signed in.
+    static func classifySessionRead(
+        statusCode: Int, body: Data, tokenPresented: Bool
+    ) -> SessionReadOutcome {
+        guard (200...299).contains(statusCode) else { return .indeterminate }
+        if let session = try? JSONDecoder().decode(SessionResponse.self, from: body),
+           let user = session.user {
+            return .user(user)
+        }
+        guard Self.isUserlessSessionBody(body) else { return .indeterminate }
+        return tokenPresented ? .invalidated : .indeterminate
+    }
+
+    /// Does a 2xx `get-session` body actually say "no session"? Better Auth
+    /// sends a bare `null` for a dead credential (not decodable as an object at
+    /// all), so the shapes that count are JSON null and an object without a
+    /// user. A body we can't parse says nothing and must not sign anyone out.
+    private static func isUserlessSessionBody(_ body: Data) -> Bool {
+        guard let root = try? JSONSerialization.jsonObject(
+            with: body, options: [.fragmentsAllowed]
+        ) else { return false }
+        if root is NSNull { return true }
+        guard let dict = root as? [String: Any] else { return false }
+        let user = dict["user"]
+        return user == nil || user is NSNull
     }
 
     /// Fetch the session, retrying briefly. A login must resolve a stable

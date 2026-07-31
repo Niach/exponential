@@ -220,6 +220,7 @@ public final class SyncManager: @unchecked Sendable {
     // MARK: - Reconciliation
 
     private func reconcile(running: inout Set<String>) {
+        applyInvalidatedSessions()
         let signedIn = Set(auth.accounts.filter { $0.token != nil }.map { $0.id })
 
         // Cancel pipelines for accounts no longer signed in.
@@ -244,6 +245,23 @@ public final class SyncManager: @unchecked Sendable {
                 )
                 SyncDebug.shared.reportFatal("Local database open/migration failed: \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Turn a tripped `SessionGate` entry into a local sign-out of that one
+    /// account. Runs at the head of every reconcile tick because that is also
+    /// where the resulting tokenless account gets its pipeline cancelled — one
+    /// pass takes the app from "401ing forever" to LoginView. Entries are
+    /// CONSUMED, so signing back into the same account is not undone by a stale
+    /// gate entry, and the local DB is left alone (the same "resume offline
+    /// browsing" stance `signOut(accountId:)` documents).
+    private func applyInvalidatedSessions() {
+        for accountId in SessionGate.shared.consumeAll() {
+            guard auth.accounts.contains(where: { $0.id == accountId && $0.token != nil }) else {
+                continue
+            }
+            SyncDebug.shared.log("[auth] session rejected by server, signing this account out")
+            auth.signOutLocally(accountId: accountId)
         }
     }
 

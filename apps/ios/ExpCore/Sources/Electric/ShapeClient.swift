@@ -333,7 +333,13 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             return true
         }
 
+        // Dead-session gate: shape reads always carry the bearer, so a 401 is
+        // the server rejecting this account's credential (deleted user, revoked
+        // session). Trip the gate for the owning account only — SyncManager
+        // clears its token, which cancels this pipeline and lands the app on
+        // LoginView instead of retrying a dead session until the user reinstalls.
         if httpResponse.statusCode == 401 {
+            SessionGate.shared.invalidate(accountId: accountId)
             throw ShapeError.unauthorized
         }
 

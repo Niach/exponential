@@ -2,6 +2,7 @@ package com.exponential.app.data.api
 
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
+import com.exponential.app.data.auth.SessionInvalidator
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -19,6 +20,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -66,6 +68,7 @@ class AuthApi @Inject constructor(
     private val client: HttpClient,
     private val auth: AuthRepository,
     private val json: Json,
+    private val sessionInvalidator: SessionInvalidator,
 ) {
     suspend fun signInWithPassword(instanceUrl: String, email: String, password: String): SignInResult {
         val baseUrl = instanceUrl
@@ -128,6 +131,11 @@ class AuthApi @Inject constructor(
      * call is timeout-capped and never throws; callers await it AFTER the
      * push-token unregister (which still needs a live session) and BEFORE the
      * token is dropped locally.
+     *
+     * Deliberately NOT on the SessionInvalidator path: that token's session is
+     * already gone, so revoking it could only fail, and its 401 answer never
+     * reaches the invalidator (this call reports nothing) — a dead session can
+     * never loop through here.
      */
     suspend fun signOut(baseUrl: String, token: String) {
         withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) {
@@ -212,35 +220,96 @@ class AuthApi @Inject constructor(
         return true
     }
 
+    // Session read for a STORED account, so the dead-session answer can be
+    // acted on: Better Auth reports a rejected bearer as 2xx with a null
+    // session (not a 401), which the old "any failure collapses to null" read
+    // made indistinguishable from being offline — the account then 401'd
+    // forever instead of being routed back to login.
     suspend fun fetchSession(accountId: String): SessionInfo? {
         val account = auth.accounts.value.firstOrNull { it.id == accountId } ?: return null
-        return fetchSession(account.instanceUrl, account.token)
+        val read = readSession(account.instanceUrl, account.token)
+        if (read.statusCode != null) {
+            sessionInvalidator.reportSessionRead(
+                accountId = accountId,
+                statusCode = read.statusCode,
+                tokenPresented = account.token != null,
+                hasUser = read.hasUser,
+            )
+        }
+        return read.info
     }
 
     // Core session read. Takes baseUrl + token explicitly so a login flow can
     // capture session fields (incl. onboardingCompletedAt) BEFORE persisting the
     // token, avoiding any window where the account looks "not onboarded".
-    suspend fun fetchSession(baseUrl: String, token: String?): SessionInfo? {
-        return try {
-            val response = client.get("$baseUrl/api/auth/get-session") {
+    suspend fun fetchSession(baseUrl: String, token: String?): SessionInfo? =
+        readSession(baseUrl, token).info
+
+    /**
+     * One `get-session` read. [statusCode] is null when the request never got an
+     * answer (transport failure, timeout) — the case that must NEVER be read as
+     * a dead session. A 2xx that carries no usable user leaves [info] null with
+     * the status intact, which is the definitive dead-bearer signal.
+     */
+    private suspend fun readSession(baseUrl: String, token: String?): SessionRead {
+        val response = try {
+            client.get("$baseUrl/api/auth/get-session") {
                 if (token != null) header("Authorization", "Bearer $token")
             }
-            if (!response.status.isSuccess()) return null
+        } catch (e: Exception) {
+            return SessionRead(statusCode = null, info = null, hasUser = false)
+        }
+        val status = response.status.value
+        if (!response.status.isSuccess()) {
+            return SessionRead(statusCode = status, info = null, hasUser = false)
+        }
+        return try {
             val body = response.bodyAsText()
-            val parsed = json.parseToJsonElement(body) as? JsonObject ?: return null
-            val user = parsed["user"] as? JsonObject ?: return null
-            val email = user["email"]?.jsonPrimitive?.content ?: return null
-            val id = user["id"]?.jsonPrimitive?.content ?: return null
+            val root = json.parseToJsonElement(body)
+            // Better Auth answers a dead bearer with JSON `null` or an object
+            // with no user; any other root (array, string, number) is a broken
+            // response, not proof — drop the status so it can't invalidate a
+            // live session (iOS parity).
+            if (root !is JsonNull && root !is JsonObject) {
+                return SessionRead(statusCode = null, info = null, hasUser = false)
+            }
+            val parsed = root as? JsonObject
+            val user = parsed?.get("user") as? JsonObject
+            val email = user?.get("email")?.jsonPrimitive?.contentOrNull
+            val id = user?.get("id")?.jsonPrimitive?.contentOrNull
+            // A user that IS there but decodes short is a broken payload, not a
+            // dead session — hasUser keeps it out of the invalidating case.
+            if (email == null || id == null) {
+                return SessionRead(statusCode = status, info = null, hasUser = user != null)
+            }
             val name = user["name"]?.jsonPrimitive?.contentOrNull
             val isAdmin = (user["isAdmin"]?.jsonPrimitive?.booleanOrNull) ?: false
             // better-auth additionalField (type date, input:false) — returned on
             // session reads as an ISO string or null, exactly like the web gate.
             val onboarding = user["onboardingCompletedAt"]?.jsonPrimitive?.contentOrNull
-            SessionInfo(email = email, userId = id, name = name, isAdmin = isAdmin, onboardingCompletedAt = onboarding)
+            SessionRead(
+                statusCode = status,
+                info = SessionInfo(
+                    email = email,
+                    userId = id,
+                    name = name,
+                    isAdmin = isAdmin,
+                    onboardingCompletedAt = onboarding,
+                ),
+                hasUser = true,
+            )
         } catch (e: Exception) {
-            null
+            // An unparseable body is a broken response, not proof of anything:
+            // drop the status so it can't invalidate a live session.
+            SessionRead(statusCode = null, info = null, hasUser = false)
         }
     }
+
+    private class SessionRead(
+        val statusCode: Int?,
+        val info: SessionInfo?,
+        val hasUser: Boolean,
+    )
 
     companion object {
         // Mirrors PushTokenManager.UNREGISTER_TIMEOUT_MS — both are awaited

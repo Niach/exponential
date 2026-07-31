@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -104,6 +105,7 @@ fun OnboardingScreen(
                         prepareError = error,
                         actionError = teamError,
                         onRetry = { viewModel.prepare() },
+                        onSignOut = { viewModel.signOut() },
                         onCreateTeam = { viewModel.createTeam(it) },
                         onJoinTeam = { viewModel.joinTeam(it) },
                     )
@@ -113,6 +115,7 @@ fun OnboardingScreen(
                         preparing = preparing,
                         error = error,
                         onRetry = { viewModel.prepare() },
+                        onSignOut = { viewModel.signOut() },
                         onCreated = { boardId ->
                             viewModel.onBoardCreated(boardId)
                             step = 3
@@ -178,6 +181,7 @@ private fun TeamStep(
     prepareError: String?,
     actionError: String?,
     onRetry: () -> Unit,
+    onSignOut: () -> Unit,
     onCreateTeam: (String) -> Unit,
     onJoinTeam: (String) -> Unit,
 ) {
@@ -212,6 +216,7 @@ private fun TeamStep(
                 )
                 Spacer(Modifier.height(12.dp))
                 TextButton(onClick = onRetry) { Text("Retry") }
+                SignOutEscapeHatch(onSignOut = onSignOut)
             }
             preparing || !needsChoice -> {
                 Column(
@@ -290,6 +295,22 @@ private fun TeamStep(
     }
 }
 
+// The wizard's only way out (this route replaces the back stack and hides the
+// bottom bar): a rejected session — a deleted account, a revoked token — 401s
+// every request, so Retry can never succeed. Secondary to Retry, since a
+// transient failure is the common case.
+@Composable
+private fun SignOutEscapeHatch(onSignOut: () -> Unit) {
+    TextButton(
+        onClick = onSignOut,
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        ),
+    ) {
+        Text("Sign out")
+    }
+}
+
 // Step 3 — Create your first board: name + optional repository (with inline
 // GitHub connect inside the picker when no installation exists yet).
 @Composable
@@ -299,6 +320,7 @@ private fun CreateBoardStep(
     preparing: Boolean,
     error: String?,
     onRetry: () -> Unit,
+    onSignOut: () -> Unit,
     onCreated: (String) -> Unit,
 ) {
     Column(
@@ -331,6 +353,7 @@ private fun CreateBoardStep(
                     )
                     Spacer(Modifier.height(12.dp))
                     TextButton(onClick = onRetry) { Text("Retry") }
+                    SignOutEscapeHatch(onSignOut = onSignOut)
                 } else {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),

@@ -84,6 +84,7 @@ class ShapeClientTest {
         onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
         onSuccess: () -> Unit = {},
         onReset: suspend () -> Unit = {},
+        onUnauthorized: () -> Unit = {},
         // A real advancing clock by default, so kicks behave as in production;
         // the freshness test swaps in a clock it can hold still.
         nowMs: () -> Long = { System.currentTimeMillis() },
@@ -106,9 +107,52 @@ class ShapeClientTest {
             onError = onError,
             onSuccess = onSuccess,
             onReset = onReset,
+            onUnauthorized = onUnauthorized,
             nowMs = nowMs,
             active = active,
         )
+    }
+
+    /**
+     * The dead-session split: a shape poll's 401 means the bearer this loop
+     * presented was rejected, which signs the account out (SessionInvalidator);
+     * a 403 is an authorization verdict on a LIVE session and must keep backing
+     * off instead of ejecting a working account.
+     */
+    @Test
+    fun unauthorizedSignsTheAccountOutButForbiddenDoesNot() = runBlocking {
+        val dao = FakeOffsetDao()
+        val signOuts = java.util.concurrent.atomic.AtomicInteger(0)
+        val requests = java.util.concurrent.atomic.AtomicInteger(0)
+        val signOutsAfterForbidden = java.util.concurrent.atomic.AtomicInteger(-1)
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            onUnauthorized = { signOuts.incrementAndGet() },
+            handler = {
+                val n = requests.incrementAndGet()
+                if (n == 1) {
+                    respond("", HttpStatusCode.Forbidden)
+                } else {
+                    // Sampled before answering: the 403 has fully unwound by now.
+                    if (n == 2) signOutsAfterForbidden.set(signOuts.get())
+                    respond("", HttpStatusCode.Unauthorized)
+                }
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        withTimeout(10_000) {
+            while (signOuts.get() == 0) {
+                kotlinx.coroutines.delay(20)
+            }
+        }
+        job.cancel()
+        job.join()
+
+        assertEquals("a 403 must not sign anyone out", 0, signOutsAfterForbidden.get())
+        assertTrue("a 401 must sign the account out", signOuts.get() >= 1)
     }
 
     @Test

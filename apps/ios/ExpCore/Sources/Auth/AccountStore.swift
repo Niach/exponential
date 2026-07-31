@@ -180,6 +180,19 @@ public final class AccountStore: @unchecked Sendable {
         persistLocked()
     }
 
+    /// Drops one account's token, keeping the RECORD (instance URL, email,
+    /// userId, onboarding flag). Used by the dead-session sign-out, where the
+    /// server has already invalidated the credential: the row is what lets
+    /// LoginView name the server the user must re-authenticate against, and
+    /// keeping the per-user id keeps the local cache addressable.
+    public func clearToken(id: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let idx = cached.firstIndex(where: { $0.id == id }) else { return }
+        cached[idx].token = nil
+        persistLocked()
+    }
+
     /// Switches the active account to the given id. No-op if id is unknown.
     public func setActive(id: String) {
         lock.lock()
