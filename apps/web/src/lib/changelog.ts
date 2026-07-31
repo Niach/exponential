@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-codex-pi-steering`,
+    date: `2026-07-31`,
+    title: `Watch and steer Codex and Pi sessions`,
+    summary: `Codex and Pi coding sessions now stream a live activity feed — prompts, tool calls, questions, diffs — and take steering messages from web and mobile, just like Claude.`,
+    body: `- **Codex sessions go live** — watching a Codex session from web or mobile now shows the agent's narration, tool calls, your prompts, and worktree diffs as they happen, instead of an empty feed. Codex questions appear as cards in the feed; answer them by replying in chat. Approval prompts are still answered in the desktop terminal.
+- **Pi sessions too** — Pi sessions report the same live activity, and steering messages are delivered through Pi's own message queue: sent mid-run they arrive at the next tool boundary, sent while idle they start a new turn.
+- **Needs-input badges everywhere** — Codex and Pi sessions now flip the "Needs input" badge when they finish a turn or wait on a question, so you can tell from any device when the agent is parked.`,
+  },
+  {
     id: `2026-07-claim-flow-digest-hour`,
     date: `2026-07-31`,
     title: `Pick exactly what GitHub connects — and when email arrives`,
