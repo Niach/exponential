@@ -1,2 +1,1 @@
-- Connecting GitHub now continues straight to the install page instead of stopping on an error
-- Crisper avatar initials and clearer wording throughout
+- If your session is signed out on the server, the app now returns you to the login screen instead of getting stuck on an error

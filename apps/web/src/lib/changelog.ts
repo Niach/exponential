@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-mobile-session-recovery`,
+    date: `2026-08-01`,
+    title: `Mobile apps recover from a signed-out session`,
+    summary: `If your session is removed on the server, iOS and Android now return you to the login screen instead of getting stuck on an error.`,
+    body: `- **Session recovery**: when the server no longer recognizes your session (for example after an account was removed), the mobile apps now sign that account out locally and land on the login screen, matching the desktop app.
+- **Onboarding escape hatch**: the first-run wizard's error cards gained a Sign out button, so a connection stuck on an error is never a dead end.`,
+  },
+  {
     id: `2026-08-github-connect-polish`,
     date: `2026-08-01`,
     title: `Smoother GitHub connect and steadier steering`,

@@ -1,0 +1,1 @@
+If your session is signed out on the server, the app now returns you to the login screen instead of getting stuck on an error.
