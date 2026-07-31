@@ -47,6 +47,13 @@ public final class SyncManager: @unchecked Sendable {
     }
 
     public func start() {
+        // Self-heal, once per launch: collapse signed-out account records whose
+        // instance already has a signed-in one (the duplicate "Signed out" server
+        // row a re-login after a server-side account deletion used to strand).
+        // Here rather than in the reconcile tick because it is a one-shot repair,
+        // and here rather than in AuthRepository.init because the app wires
+        // `reclaimLocalCache` in between, so the dropped record's local DB goes too.
+        auth.pruneDuplicateSignedOutAccounts()
         observationTask = Task { [weak self] in
             guard let self else { return }
             // Snapshot of the signed-in accountIds we've launched pipelines for.

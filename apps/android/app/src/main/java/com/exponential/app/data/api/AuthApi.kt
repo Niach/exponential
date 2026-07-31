@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.data.auth.AccountDeduplicator
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.auth.SessionInvalidator
@@ -69,6 +70,7 @@ class AuthApi @Inject constructor(
     private val auth: AuthRepository,
     private val json: Json,
     private val sessionInvalidator: SessionInvalidator,
+    private val accountDeduplicator: AccountDeduplicator,
 ) {
     suspend fun signInWithPassword(instanceUrl: String, email: String, password: String): SignInResult {
         val baseUrl = instanceUrl
@@ -217,6 +219,10 @@ class AuthApi @Inject constructor(
             // (or it already was); a failed fetch must not start the wizard.
             onboardingKnown = info != null || prior?.onboardingKnown == true,
         )
+        // A re-signup on this instance mints a new userId, so the row just
+        // written is a SECOND one for the same server; drop the signed-out
+        // predecessor it shadows.
+        accountDeduplicator.prune()
         return true
     }
 

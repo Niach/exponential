@@ -132,6 +132,104 @@ class AccountResolverTest {
     }
 
     @Test
+    fun removesSignedOutDuplicateWhenSignedInSiblingExists() {
+        val signedOut = ServerAccount(
+            id = ServerAccount.makeId(url, "A"), instanceUrl = url, token = null, userId = "A",
+        )
+        val signedIn = ServerAccount(
+            id = ServerAccount.makeId(url, "B"), instanceUrl = url, token = "tokB", userId = "B",
+        )
+        val ids = duplicateSignedOutAccountIds(
+            listOf(signedOut, signedIn),
+            activeId = signedIn.id,
+        )
+        assertEquals(listOf(signedOut.id), ids)
+    }
+
+    @Test
+    fun keepsLoneSignedOutAccount() {
+        // The re-login affordance: nothing else on this server is signed in.
+        val signedOut = ServerAccount(
+            id = ServerAccount.makeId(url, "A"), instanceUrl = url, token = null, userId = "A",
+        )
+        assertEquals(
+            emptyList<String>(),
+            duplicateSignedOutAccountIds(listOf(signedOut), activeId = signedOut.id),
+        )
+    }
+
+    @Test
+    fun neverRemovesSignedInAccounts() {
+        // Two users signed in on the same server is legal multi-account state.
+        val a = ServerAccount(
+            id = ServerAccount.makeId(url, "A"), instanceUrl = url, token = "tokA", userId = "A",
+        )
+        val b = ServerAccount(
+            id = ServerAccount.makeId(url, "B"), instanceUrl = url, token = "tokB", userId = "B",
+        )
+        assertEquals(
+            emptyList<String>(),
+            duplicateSignedOutAccountIds(listOf(a, b), activeId = b.id),
+        )
+    }
+
+    @Test
+    fun neverRemovesTheActiveAccount() {
+        // The active row is signed out (its session died) while a background
+        // account on the same server still is: it stays, or the login screen
+        // would lose the server it is sitting on.
+        val active = ServerAccount(
+            id = ServerAccount.makeId(url, "A"), instanceUrl = url, token = null, userId = "A",
+        )
+        val other = ServerAccount(
+            id = ServerAccount.makeId(url, "B"), instanceUrl = url, token = "tokB", userId = "B",
+        )
+        assertEquals(
+            emptyList<String>(),
+            duplicateSignedOutAccountIds(listOf(active, other), activeId = active.id),
+        )
+    }
+
+    @Test
+    fun neverDedupesAcrossDifferentInstances() {
+        val signedOutHere = ServerAccount(
+            id = ServerAccount.makeId(url, "A"), instanceUrl = url, token = null, userId = "A",
+        )
+        val signedInElsewhere = ServerAccount(
+            id = ServerAccount.makeId("https://other.example", "B"),
+            instanceUrl = "https://other.example",
+            token = "otherTok",
+            userId = "B",
+        )
+        assertEquals(
+            emptyList<String>(),
+            duplicateSignedOutAccountIds(
+                listOf(signedOutHere, signedInElsewhere),
+                activeId = signedInElsewhere.id,
+            ),
+        )
+    }
+
+    @Test
+    fun postLoginDedupeKeepsTheNewRowAndDropsTheStaleOne() {
+        // The bug: the server-side account was deleted and signed up again, so
+        // the same email comes back as a NEW userId on the same instance.
+        val dead = ServerAccount(
+            id = ServerAccount.makeId(url, "A"), instanceUrl = url, token = null, userId = "A",
+        )
+        val pending = ServerAccount(id = ServerAccount.makeId(url), instanceUrl = url)
+        val resolved = resolve(listOf(dead, pending), userId = "B", token = "tokB")
+        assertEquals(2, resolved.accounts.size)
+
+        val ids = duplicateSignedOutAccountIds(resolved.accounts, resolved.activeId)
+        assertEquals(listOf(dead.id), ids)
+        // What survives is exactly the row this login wrote.
+        val kept = resolved.accounts.filterNot { it.id in ids }
+        assertEquals(listOf(ServerAccount.makeId(url, "B")), kept.map { it.id })
+        assertEquals("tokB", kept.single().token)
+    }
+
+    @Test
     fun leavesAccountsForOtherServersUntouched() {
         val other = ServerAccount(
             id = ServerAccount.makeId("https://other.example", "A"),

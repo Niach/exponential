@@ -59,6 +59,14 @@ final class AppDependencies: @unchecked Sendable {
         let httpClient = HTTPClient(auth: auth)
         let trpc = TrpcClient(httpClient: httpClient, auth: auth)
         let db = DatabaseManager()
+        // Teardown for records the auth layer drops on its own (the duplicate
+        // signed-out server rows): same sequence as the Settings remove-server
+        // path, so no DB file or picker mirror entry outlives its account.
+        auth.reclaimLocalCache = { accountId in
+            db.closePool(forAccountId: accountId)
+            DatabaseManager.deleteFiles(forAccountId: accountId)
+            SharedBoardMirror.remove(accountId: accountId)
+        }
         // One-shot: after the keychain re-key to per-user account ids
         // (AccountStore.migratePerUserIdsIfNeeded), the legacy URL-keyed DB files
         // are orphaned — and may hold the WRONG user's cached data (the very bug

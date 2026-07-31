@@ -193,6 +193,41 @@ public final class AccountStore: @unchecked Sendable {
         persistLocked()
     }
 
+    /// Collapses duplicate rows for one instance down to the signed-in one: every
+    /// TOKENLESS record whose instance URL already has a token-holding record is
+    /// dropped. A server-side account deletion makes the next signup mint a NEW
+    /// userId, so the re-login resolves a fresh per-user record and the
+    /// dead-session record it came from would linger as a second "Signed out"
+    /// entry for the same server.
+    /// Never removes a record that holds a token (a second USER on the same
+    /// server is a supported account, not a duplicate), and never the ACTIVE
+    /// record — a tokenless active record is the re-login target of an
+    /// in-progress sign-out / add-server flow. A LONE tokenless record also
+    /// survives: it is what lets LoginView name the server to re-authenticate
+    /// against. Returns the removed ids so the caller can reclaim their caches.
+    @discardableResult
+    public func removeDuplicateSignedOutAccounts() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        let signedInUrls = Set(
+            cached.lazy
+                .filter { $0.token != nil }
+                .compactMap { WebLinks.normalizedBase($0.instanceUrl) }
+        )
+        let removed = cached.filter { account in
+            guard account.token == nil, account.id != cachedActiveId,
+                  let url = WebLinks.normalizedBase(account.instanceUrl)
+            else { return false }
+            return signedInUrls.contains(url)
+        }.map(\.id)
+        guard !removed.isEmpty else { return [] }
+        // The active record is never in `removed`, so `cachedActiveId` stands.
+        let ids = Set(removed)
+        cached.removeAll { ids.contains($0.id) }
+        persistLocked()
+        return removed
+    }
+
     /// Switches the active account to the given id. No-op if id is unknown.
     public func setActive(id: String) {
         lock.lock()

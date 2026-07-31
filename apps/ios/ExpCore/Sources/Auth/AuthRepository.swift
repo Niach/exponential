@@ -34,6 +34,14 @@ public final class AuthRepository: @unchecked Sendable {
         Set(accounts.lazy.filter { $0.token != nil }.map(\.id))
     }
 
+    /// Reclaims one dropped account's local cache: the app sets this to close the
+    /// account's DB pool, delete its SQLite files and scrub its share-extension
+    /// board mirror — the same teardown the Settings remove / sign-out paths run.
+    /// Injected because the pool registry is app-side state the auth layer must
+    /// not own; the Share Extension and the unit tests have no per-account
+    /// database, so nil there is correct.
+    public var reclaimLocalCache: ((String) -> Void)?
+
     public init(accountStore: AccountStore) {
         self.accountStore = accountStore
         self.accounts = accountStore.accounts
@@ -96,7 +104,27 @@ public final class AuthRepository: @unchecked Sendable {
             onboardingCompletedAt: onboardingCompletedAt,
             onboardingKnown: onboardingKnown
         )
+        // A server must appear at most ONCE in the server list: the record we
+        // just signed in from may be a stale signed-out record of the same
+        // instance (a deleted-and-recreated server account mints a new userId,
+        // so it can never be re-keyed in place). Runs for every login path
+        // because they all persist their token here.
+        pruneDuplicateSignedOutAccounts()
         republish()
+    }
+
+    /// Drops signed-out records for instances that already have a signed-in one.
+    /// Called after every login and once at startup (`SyncManager.start`), so a
+    /// device that already carries the duplicate heals without a fresh login.
+    /// See `AccountStore.removeDuplicateSignedOutAccounts` for the exact rule.
+    @discardableResult
+    public func pruneDuplicateSignedOutAccounts() -> [String] {
+        let removed = accountStore.removeDuplicateSignedOutAccounts()
+        for accountId in removed {
+            reclaimLocalCache?(accountId)
+        }
+        republish()
+        return removed
     }
 
     /// Marks the active account onboarded (after onboarding.complete succeeds)

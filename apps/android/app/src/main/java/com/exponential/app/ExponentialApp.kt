@@ -8,6 +8,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import com.exponential.app.data.auth.AccountDeduplicator
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SecureStore
 import com.exponential.app.data.auth.legacyDbIdToWipe
@@ -27,11 +28,15 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var auth: AuthRepository
     @Inject lateinit var databaseHolder: DatabaseHolder
     @Inject lateinit var secureStore: SecureStore
+    @Inject lateinit var accountDeduplicator: AccountDeduplicator
 
     override fun onCreate() {
         super.onCreate()
         createIssueNotificationChannel()
         cleanupLegacyAccountDatabases()
+        // Self-heal a device that already carries a duplicate server row, before
+        // anything opens its DB or starts its pipelines.
+        accountDeduplicator.prune()
         // Open a Room instance for every signed-in account up front so
         // ViewModels that resolve `holder.database(forAccountId:)` at init
         // time get a cached instance instead of racing the first

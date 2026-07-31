@@ -107,6 +107,98 @@ final class AuthRepositoryTests: XCTestCase {
         XCTAssertEqual(auth.authenticatedAccountIds, [cloudId])
     }
 
+    // The reported bug: the server-side account was deleted, so signing up again
+    // with the same email mints a NEW userId — the login resolves a fresh
+    // per-user record and the dead-session record it came from used to stay
+    // listed, showing the same server twice ("Signed out" + signed in).
+    func testReloginWithANewUserIdLeavesOneRowForTheInstance() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "old", token: "tOld")
+        let oldId = ServerAccount.makeId(instanceUrl: cloud, userId: "old")
+        auth.signOutLocally(accountId: oldId)
+
+        // Same instance, new server-side identity.
+        auth.setToken("tNew", email: "A@x.com", userId: "new", onboardingKnown: true)
+        let newId = ServerAccount.makeId(instanceUrl: cloud, userId: "new")
+
+        XCTAssertEqual(auth.accounts.map(\.id), [newId], "the stale signed-out row is gone")
+        XCTAssertEqual(auth.activeAccountId, newId)
+        XCTAssertEqual(auth.token, "tNew")
+        XCTAssertEqual(auth.authenticatedAccountIds, [newId])
+    }
+
+    // A signed-out row on a DIFFERENT server is not a duplicate — logging into
+    // one instance must never drop another instance's re-login affordance.
+    func testLoginDoesNotTouchSignedOutRowsOnOtherInstances() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "A", token: "tA")
+        let cloudId = ServerAccount.makeId(instanceUrl: cloud, userId: "A")
+        auth.signOutLocally(accountId: cloudId)
+
+        signIn(auth, url: selfHosted, userId: "B", token: "tB")
+
+        XCTAssertEqual(auth.accounts.count, 2)
+        XCTAssertNil(auth.accounts.first { $0.id == cloudId }?.token, "still listed, still signed out")
+    }
+
+    // Self-heal for devices that already carry the duplicate (no fresh login
+    // needed): SyncManager.start runs this once per launch.
+    func testStartupPruneRemovesTheDuplicateSignedOutRow() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "old", token: "tOld")
+        signIn(auth, url: cloud, userId: "new", token: "tNew")
+        let oldId = ServerAccount.makeId(instanceUrl: cloud, userId: "old")
+        let newId = ServerAccount.makeId(instanceUrl: cloud, userId: "new")
+        auth.signOutLocally(accountId: oldId)
+        var reclaimed: [String] = []
+        auth.reclaimLocalCache = { reclaimed.append($0) }
+
+        XCTAssertEqual(auth.pruneDuplicateSignedOutAccounts(), [oldId])
+
+        XCTAssertEqual(auth.accounts.map(\.id), [newId])
+        XCTAssertEqual(auth.activeAccountId, newId)
+        XCTAssertEqual(reclaimed, [oldId], "the dropped record's local cache is reclaimed")
+    }
+
+    // A lone signed-out row IS the re-login entry point — it must survive, and so
+    // must a signed-out row whose only signed-in sibling is another instance.
+    func testPruneKeepsSignedOutRowsWithoutASignedInSibling() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "A", token: "tA")
+        signIn(auth, url: selfHosted, userId: "B", token: "tB")
+        let cloudId = ServerAccount.makeId(instanceUrl: cloud, userId: "A")
+        auth.signOutLocally(accountId: cloudId)
+
+        XCTAssertTrue(auth.pruneDuplicateSignedOutAccounts().isEmpty)
+        XCTAssertEqual(auth.accounts.count, 2)
+        XCTAssertEqual(auth.instanceUrl, selfHosted, "the active account is untouched")
+    }
+
+    // Two USERS signed into one server is a supported account set, not a
+    // duplicate: a token-holding row is never a prune candidate.
+    func testPruneNeverRemovesASignedInRow() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "A", token: "tA")
+        signIn(auth, url: cloud, userId: "B", token: "tB")
+
+        XCTAssertTrue(auth.pruneDuplicateSignedOutAccounts().isEmpty)
+        XCTAssertEqual(auth.accounts.count, 2)
+        XCTAssertEqual(auth.authenticatedAccountIds.count, 2)
+    }
+
+    // The tokenless record an add-server / per-server sign-out flow activates is
+    // the login screen's target — pruning it mid-flow would strand the user.
+    func testPruneKeepsTheActiveTokenlessRecord() {
+        let auth = makeAuth()
+        signIn(auth, url: cloud, userId: "A", token: "tA")
+        auth.setInstanceUrl(cloud)
+        let pendingId = ServerAccount.makeId(for: cloud)
+
+        XCTAssertTrue(auth.pruneDuplicateSignedOutAccounts().isEmpty)
+        XCTAssertEqual(auth.activeAccountId, pendingId)
+        XCTAssertEqual(auth.accounts.count, 2)
+    }
+
     func testEveryAccountSignedOutIsNotAuthenticated() {
         let auth = makeAuth()
         signIn(auth, url: cloud, userId: "A", token: "tA")

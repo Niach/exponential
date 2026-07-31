@@ -57,6 +57,32 @@ internal fun resolveAccounts(
 }
 
 /**
+ * Ids of stale signed-out rows to drop so one instance is never listed twice
+ * (product rule: a server appears at most once in the servers list).
+ *
+ * A server-side account that was deleted and signed up again mints a NEW
+ * userId, so the re-login writes a SECOND per-user row for the same instance
+ * while the dead-session fix leaves the first one signed out (token cleared,
+ * row kept).
+ *
+ * Removable = tokenless AND not active AND another row on the SAME instance is
+ * signed in. So a signed-in row, the active row and the row a login just wrote
+ * are never touched; a lone signed-out row survives as the re-login affordance;
+ * rows on different instances never dedupe each other.
+ */
+internal fun duplicateSignedOutAccountIds(
+    accounts: List<ServerAccount>,
+    activeId: String?,
+): List<String> {
+    // Instance identity is the stored URL string — the same value
+    // ServerAccount.makeId hashes, normalized once in AuthRepository.
+    val signedInUrls = accounts.filter { it.token != null }.map { it.instanceUrl }.toSet()
+    return accounts
+        .filter { it.token == null && it.id != activeId && it.instanceUrl in signedInUrls }
+        .map { it.id }
+}
+
+/**
  * The legacy URL-keyed DB id to wipe for [account] during the one-shot per-user
  * cleanup, or null to keep it. Wipe when:
  *  - the account was re-keyed to a per-user id (its old URL-keyed DB may hold

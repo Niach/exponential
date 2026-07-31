@@ -70,6 +70,9 @@ let shareExtensionSources: SourceFilesList = [
     // only the app (SyncManager) ever acts on.
     "ExpCore/Sources/SessionGate.swift",
     "ExpCore/Sources/Shared/**",
+    // AccountStore compares instance URLs through `WebLinks.normalizedBase`, so
+    // "same server" has exactly one normalization rule across the codebase.
+    "ExpCore/Sources/Domain/WebLinks.swift",
     "ExpCore/Sources/Auth/KeychainStore.swift",
     "ExpCore/Sources/Auth/AccountStore.swift",
     "ExpCore/Sources/Auth/ServerAccount.swift",
