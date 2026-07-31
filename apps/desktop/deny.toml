@@ -7,6 +7,11 @@
 [graph]
 # Audit every feature combination (the staging channel is a cargo feature) and all
 # release target triples — the three OSes pull different platform dependency sets.
+# Pinning `targets` (rather than auditing every triple) also keeps cfg-gated deps
+# that no shipped build can reach out of the graph: rav1e declares libfuzzer-sys
+# (`(MIT OR Apache-2.0) AND NCSA` — NCSA is deliberately NOT allowed below) under
+# `[target."cfg(fuzzing)".dependencies]`, and cfg(fuzzing) is false for all three.
+# `cargo tree -i libfuzzer-sys --target all` surfaces it; a real build never does.
 all-features = true
 targets = [
     "x86_64-unknown-linux-gnu",
@@ -42,13 +47,33 @@ allow = [
     "bzip2-1.0.6",           # libbz2-rs-sys (BSD-style bzip2 license)
     "0BSD",
 ]
-# Our own workspace crates (Apache-2.0, publish = false) are what we ship, not
-# third-party code the audit is for — skip them.
-private = { ignore = true }
+# Audit EVERYTHING, including crates that declare `publish = false` (EXP-378).
+# cargo-deny's `is_private` is purely `publish == []` with no source check, so
+# `ignore = true` did not mean "our crates" — zed sets `publish = false` in its
+# `[workspace.package]`, so 18 of the 20 zed crates we consume inherited it and
+# went unaudited, as did the vendored third-party `crates/gpui-markdown-editor`.
+# Our own crates are cheap to audit (they all inherit `license = "Apache-2.0"`
+# from the workspace), so there is nothing to buy back by skipping them.
+private = { ignore = false }
 
 # tree-sitter-graphql omits the `license` manifest field but ships a plain MIT
 # LICENSE file (verified by reading it in the crate package).
 [[licenses.clarify]]
 crate = "tree-sitter-graphql"
 expression = "MIT"
+license-files = []
+
+# gpui_shared_string and gpui_util omit the `license` manifest field (zed sets it
+# per-crate, and these two were missed upstream). Both ship a LICENSE-APACHE
+# symlinked to the zed workspace's Apache-2.0 text — verified by reading it in the
+# checkout at rev 1d217ee. cargo-deny harvests that file anyway; clarifying makes
+# the answer explicit instead of confidence-scored, and drops the CI warning.
+[[licenses.clarify]]
+crate = "gpui_shared_string"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+crate = "gpui_util"
+expression = "Apache-2.0"
 license-files = []
