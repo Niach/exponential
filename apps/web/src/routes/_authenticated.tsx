@@ -50,6 +50,7 @@ function AuthenticatedLayout() {
         utmSource: touch.utmSource,
         utmMedium: touch.utmMedium,
         utmCampaign: touch.utmCampaign,
+        creemRef: touch.creemRef,
         referrer: touch.referrer,
         landingPath: touch.landingPath,
       })

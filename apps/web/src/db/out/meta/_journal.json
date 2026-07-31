@@ -414,6 +414,13 @@
       "when": 1785650000004,
       "tag": "0058_clever_killer_shrike",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1785650000005,
+      "tag": "0059_rich_morgan_stark",
+      "breakpoints": true
     }
   ]
 }

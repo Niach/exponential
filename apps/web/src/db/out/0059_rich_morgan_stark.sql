@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "signup_creem_ref" text;

@@ -99,6 +99,9 @@ export const usersRouter = router({
         utmSource: z.string().max(512).optional(),
         utmMedium: z.string().max(512).optional(),
         utmCampaign: z.string().max(512).optional(),
+        // Creem's signed affiliate click token (EXP-384) — persisted so the
+        // checkout can re-forward it (lib/billing/affiliate.ts).
+        creemRef: z.string().max(512).optional(),
         referrer: z.string().max(2048).optional(),
         landingPath: z.string().max(2048).optional(),
       })
@@ -118,6 +121,7 @@ export const usersRouter = router({
           signupUtmSource: clean.utmSource,
           signupUtmMedium: clean.utmMedium,
           signupUtmCampaign: clean.utmCampaign,
+          signupCreemRef: clean.creemRef,
           signupReferrer: clean.referrer,
           signupLandingPath: clean.landingPath,
           updatedAt: new Date(),
@@ -130,6 +134,7 @@ export const usersRouter = router({
             isNull(users.signupUtmSource),
             isNull(users.signupUtmMedium),
             isNull(users.signupUtmCampaign),
+            isNull(users.signupCreemRef),
             isNull(users.signupReferrer),
             isNull(users.signupLandingPath)
           )

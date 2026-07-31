@@ -10,6 +10,9 @@ export type FirstTouch = {
   utmSource?: string
   utmMedium?: string
   utmCampaign?: string
+  // Creem's signed affiliate click token (EXP-384) — opaque, forwarded so the
+  // signup claim can persist it for later checkout attribution.
+  creemRef?: string
   referrer?: string
   landingPath?: string
 }
@@ -19,6 +22,7 @@ const ATTRIBUTION_KEYS = [
   `utm_source`,
   `utm_medium`,
   `utm_campaign`,
+  `creem_ref`,
 ] as const
 
 let captured: FirstTouch | null = null
@@ -32,10 +36,12 @@ function capture(): FirstTouch {
     const utmSource = params.get(`utm_source`)?.trim()
     const utmMedium = params.get(`utm_medium`)?.trim()
     const utmCampaign = params.get(`utm_campaign`)?.trim()
+    const creemRef = params.get(`creem_ref`)?.trim()
     if (ref) result.ref = ref
     if (utmSource) result.utmSource = utmSource
     if (utmMedium) result.utmMedium = utmMedium
     if (utmCampaign) result.utmCampaign = utmCampaign
+    if (creemRef) result.creemRef = creemRef
     // Only a cross-origin referrer is an acquisition source; internal
     // navigation (or the OAuth provider bouncing back) is not.
     const referrer = document.referrer
@@ -64,7 +70,11 @@ export function getFirstTouch(): FirstTouch {
 export function hasFirstTouchParams(): boolean {
   const touch = capture()
   return Boolean(
-    touch.ref || touch.utmSource || touch.utmMedium || touch.utmCampaign
+    touch.ref ||
+    touch.utmSource ||
+    touch.utmMedium ||
+    touch.utmCampaign ||
+    touch.creemRef
   )
 }
 
@@ -81,6 +91,7 @@ export function withFirstTouchParams(url: string): string {
       [`utm_source`, touch.utmSource],
       [`utm_medium`, touch.utmMedium],
       [`utm_campaign`, touch.utmCampaign],
+      [`creem_ref`, touch.creemRef],
     ]
     for (const [key, value] of pairs) {
       if (value && !target.searchParams.has(key)) {

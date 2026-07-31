@@ -46,6 +46,11 @@ export const users = pgTable(
     signupUtmCampaign: text(`signup_utm_campaign`),
     signupReferrer: text(`signup_referrer`),
     signupLandingPath: text(`signup_landing_path`),
+    // Creem's signed affiliate click token (EXP-384) — rides the same URL
+    // pipeline as ref/utm and is re-appended to the hosted checkout URL so
+    // the affiliate commission survives Creem's own redirect-set cookie being
+    // purged between signup and checkout. Opaque, SERVER-ONLY like the rest.
+    signupCreemRef: text(`signup_creem_ref`),
     signupAnonymousId: text(`signup_anonymous_id`),
     // IANA timezone name (e.g. `Europe/Berlin`) — the clock the daily digest's
     // send hour is interpreted in. Claimed once from the client at first
