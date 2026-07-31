@@ -1,10 +1,11 @@
 // closedloop/fixtures.ts — the ONE fixture world of the ClosedLoop film
-// (EXP-337: five per-flow clips): EXP-151 lives on the Acme Shop board, an
-// agent fixes it from the Start-coding dialog, gets steered live from a
-// phone, the PR merges, the team works the board in realtime, and a visitor
-// reports the bug through the embedded feedback widget — which wraps back
-// into "start coding" when the loop restarts. Everything here is
-// deterministic copy — no divergent content.
+// (EXP-337 five per-flow clips, reordered by EXP-385): the team works the
+// Acme Shop board in realtime, a coding run on EXP-151 starts FROM THE PHONE
+// and spawns in the desktop dock where it's steered live, the PR merges and a
+// deploy action ships it, a visitor reports the bug through the embedded
+// feedback widget, and the platform lineup closes the loop — which wraps back
+// into the live board when it restarts. Everything here is deterministic
+// copy — no divergent content.
 
 import type {
   BoardRow,
@@ -172,27 +173,18 @@ export const CL_ISSUE = {
   projectColor: CL.projectColor,
 } as const
 
-// ── Start-coding dialog checklist (EXP-151 checked, open siblings unchecked) ──
-export type DialogIssueRow = {
-  id: string
-  title: string
-  right: string
-  checked?: boolean
-}
-export const DIALOG_ISSUES: DialogIssueRow[] = [
-  { id: NEW_ISSUE_ID, title: REPORT.title, right: "Todo", checked: true },
-  { id: "EXP-149", title: "Add Apple Pay to checkout", right: "Todo" },
-  {
-    id: "EXP-150",
-    title: "Order confirmation email renders twice",
-    right: "Todo",
-  },
-  {
-    id: "EXP-148",
-    title: "Migrate product search to Typesense",
-    right: "In Progress",
-  },
-]
+// ── The phone start flow (remote start over the steer rails, EXP-385) ────────
+export const PHONE_START = {
+  sheetTitle: "Start coding",
+  status: "Todo",
+  button: "Start coding",
+  starting: "Starting…",
+  deviceLabel: "Device",
+  device: "Rileys-MacBook-Pro",
+  deviceState: "online",
+  modelLabel: "Model",
+  model: "Fable",
+} as const
 
 // ── The Claude session (real CLI grammar, see ships/surfaces/terminal.tsx) ────
 export const CL_SESSION: SessionEvent[] = [
@@ -317,30 +309,10 @@ export const CL_REVIEW_ROW = {
   sub: `#${CL.pr} · ${CL.branch}`,
 } as const
 
-// ── The live-steer clip: the session mid-flight + the phone steer ────────────
+// ── The live steer (inside the code-everywhere clip) ─────────────────────────
 // The dock streams the session while the SAME feed mirrors onto the phone's
 // steer activity view; the user types a steer on the phone, it lands in the
 // terminal as a highlighted line, and the agent acknowledges and continues.
-export const CL_STEER_SESSION: SessionEvent[] = [
-  {
-    kind: "tool",
-    tool: "Read",
-    args: "apps/shop/src/checkout/PayButton.tsx",
-    result: "Read 148 lines",
-  },
-  {
-    kind: "prose",
-    text: "The submit handler bails while cart revalidation is pending — fixing the pending state and re-enabling submit:",
-  },
-  {
-    kind: "tool",
-    tool: "Update",
-    args: "apps/shop/src/checkout/PayButton.tsx",
-    result: "Added 18 lines, removed 6 lines",
-  },
-  { kind: "spinner", verb: "Vibing" },
-]
-
 export const CL_STEER_MSG =
   "Also guard double-submits — disable the button while a payment is in flight."
 
@@ -377,7 +349,7 @@ export const CL_PHONE_FEED: SteerItem[] = [
   },
 ]
 
-// ── The board-live clip: presence + a remote teammate ────────────────────────
+// ── The board-live clip: presence + a remote teammate + a push ───────────────
 export const PRESENCE_USERS = [
   { initials: "RC", color: "#e879f9" }, // Riley (the local user, fuchsia like the board avatars)
   { initials: "MK", color: "#5eead4" },
@@ -388,14 +360,61 @@ export const REMOTE_USER = { name: "Mara", color: "#2dd4bf" } as const
 export const REMOTE_DRAG_ID = "EXP-149" // Mara drags "Add Apple Pay" Todo → In Progress
 export const LIVE_EDIT_ID = "EXP-150" // a teammate edit flashes in live
 
-// ── Caption copy (screen-space, one or two per clip) ─────────────────────────
+// The status change lands on the phone as a push (mobile push on notify).
+export const PUSH_NOTIFICATION = {
+  app: "Exponential",
+  title: "EXP-149 · In Progress",
+  body: "Mara moved “Add Apple Pay to checkout” to In Progress",
+  time: "now",
+} as const
+
+// ── The actions run (review-merge clip: merge → deploy) ──────────────────────
+export const CL_ACTIONS = [
+  {
+    id: "deploy",
+    name: "Deploy storefront",
+    sub: "Ship a release to production",
+  },
+  {
+    id: "migrate",
+    name: "Run migrations",
+    sub: "Apply pending database migrations",
+  },
+  { id: "relay", name: "Restart relay", sub: "Roll the push relay service" },
+] as const
+
+export const CL_DEPLOY_SESSION: SessionEvent[] = [
+  {
+    kind: "tool",
+    tool: "Bash",
+    args: "bun run deploy:storefront",
+    result: "build 12.4s · 0 errors",
+  },
+  {
+    kind: "tool",
+    tool: "Bash",
+    args: "git push production main",
+    result: "acme-shop → production",
+  },
+  { kind: "flash", text: "Deployed — acme.shop is live" },
+]
+
+// ── The platform-lineup finale ───────────────────────────────────────────────
+export const PLATFORMS_COPY = {
+  title: "Exponential",
+  sub: "Go exponential.",
+} as const
+
+// ── Caption copy (screen-space, up to three per clip) ────────────────────────
 export const COPY = {
-  sc1: "Pick an issue. Start coding.",
-  sc2: "Your agent fixes it in the dock.",
-  ls1: "Steer it live — from anywhere.",
+  bl1: "Your whole team, live on one board.",
+  bl2: "Every change, pushed to your phone.",
+  ce1: "Start coding — from anywhere.",
+  ce2: "It runs on your own machine.",
+  ce3: "Steer it live.",
   rm1: "Review it in place.",
   rm2: "Merge. Done.",
-  bl1: "Your whole team, live on one board.",
+  rm3: "Deploy. Never leave the app.",
   fb1: "A visitor hits a bug.",
   fb2: "It lands on your board.",
 } as const

@@ -9,18 +9,18 @@ import React from "react"
 import { useCurrentFrame } from "remotion"
 import { SEGMENTS, STORY_FRAMES } from "../timeline"
 import type { SegmentProps } from "../segments/common"
-import { StartCodingSegment } from "../segments/startcoding"
-import { LiveSteerSegment } from "../segments/livesteer"
-import { ReviewMergeSegment } from "../segments/reviewmerge"
 import { BoardLiveSegment } from "../segments/boardlive"
+import { CodeEverywhereSegment } from "../segments/codeeverywhere"
+import { ReviewMergeSegment } from "../segments/reviewmerge"
 import { FeedbackSegment } from "../segments/feedback"
+import { PlatformsSegment } from "../segments/platforms"
 
 const SEGMENT_COMPONENTS: Record<string, React.FC<SegmentProps>> = {
-  "start-coding": StartCodingSegment,
-  "live-steer": LiveSteerSegment,
-  "review-merge": ReviewMergeSegment,
   "board-live": BoardLiveSegment,
+  "code-everywhere": CodeEverywhereSegment,
+  "review-merge": ReviewMergeSegment,
   feedback: FeedbackSegment,
+  platforms: PlatformsSegment,
 }
 
 export const Reel: React.FC<{ textScale?: number }> = ({ textScale = 1 }) => {

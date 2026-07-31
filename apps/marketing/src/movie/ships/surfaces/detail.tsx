@@ -54,10 +54,9 @@ export const DETAIL_ANCHORS = {
   propsPriority: { x: PROPS_X, y: 149 },
   propsLabels: { x: PROPS_X, y: 213 },
   propsDueDate: { x: PROPS_X, y: 277 },
-  propsRecurrence: { x: PROPS_X + 10, y: 303 },
-  propsProject: { x: PROPS_X + 10, y: 367 },
+  propsProject: { x: PROPS_X + 10, y: 341 },
   // Start coding — the AGENT row in the properties panel (like the app).
-  startCoding: { x: PROPS_X, y: 448 },
+  startCoding: { x: PROPS_X, y: 422 },
 } as const
 
 // ── Tiny inline icons (lucide-like, stroke currentColor) ─────────────────────
@@ -123,14 +122,6 @@ const IcCalendarDays: React.FC<IconProps> = (p) => (
     <path d="M16 14h.01" />
     <path d="M8 18h.01" />
     <path d="M12 18h.01" />
-  </Svg>
-)
-const IcRepeat: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="m17 2 4 4-4 4" />
-    <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
-    <path d="m7 22-4-4 4-4" />
-    <path d="M21 13v1a4 4 0 0 1-4 4H3" />
   </Svg>
 )
 const IcSend: React.FC<IconProps> = (p) => (
@@ -482,10 +473,6 @@ const PropsPanel: React.FC<{
             Add due date
           </PropValue>
         )}
-        <div style={{ height: 22, marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
-          <IcRepeat size={13} style={{ color: C.muted }} />
-          <span style={{ fontSize: 12.5, color: C.muted }}>Add recurrence</span>
-        </div>
       </PropGroup>
       <PropGroup label="Board" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
         <div style={{ height: 22, display: "flex", alignItems: "center" }}>

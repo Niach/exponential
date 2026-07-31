@@ -6,10 +6,10 @@
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { C, MONO_FONT, POP, UI_FONT } from "../../ships/theme"
+import { C, GLASS, MONO_FONT, POP, UI_FONT } from "../../ships/theme"
 import type { SteerItem } from "../../ships/fixtures"
-import { typed, useBlink } from "../../ships/rig"
-import { CL, CL_PHONE_FEED, CL_STEER_MSG } from "../fixtures"
+import { ExpLogo, typed, useBlink, wallpaperBackground } from "../../ships/rig"
+import { CL, CL_PHONE_FEED, CL_STEER_MSG, PUSH_NOTIFICATION } from "../fixtures"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
@@ -37,9 +37,16 @@ const Glyph: React.FC<{
 )
 
 // ── The bare chassis: bezel, screen, status row, dynamic island ──────────────
-export const PhoneChassis: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => (
+// `glass` = the chassis' comp position: the screen then renders the EXP-359
+// glass recipe (wallpaper replica + page gradient at the mobile alpha) instead
+// of the solid gradient, matching the IDE window. The replica offset ignores
+// any phone scale transform — on the soft wallpaper gradient the slight zoom
+// is invisible, and a real backdrop-filter is off-limits (see rig.tsx).
+export const PhoneChassis: React.FC<{
+  children: React.ReactNode
+  glass?: { x: number; y: number }
+  hideStatus?: boolean // lock-screen shots carry their own big clock
+}> = ({ children, glass, hideStatus }) => (
   <div
     style={{
       width: PHONE.w,
@@ -59,9 +66,30 @@ export const PhoneChassis: React.FC<{ children: React.ReactNode }> = ({
         height: PHONE.screenH,
         borderRadius: 36,
         overflow: "hidden",
-        background: `linear-gradient(to bottom, #09090b, #18181b)`,
+        backgroundColor: glass ? C.canvas : undefined,
+        background: glass
+          ? undefined
+          : `linear-gradient(to bottom, #09090b, #18181b)`,
       }}
     >
+      {glass ? (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: wallpaperBackground(-(glass.x + 9), -(glass.y + 9)),
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: `linear-gradient(to bottom, rgba(18,18,21,${GLASS.phoneAlpha}), rgba(24,24,27,${GLASS.phoneAlpha}))`,
+            }}
+          />
+        </>
+      ) : null}
       {/* status row */}
       <div
         style={{
@@ -81,6 +109,7 @@ export const PhoneChassis: React.FC<{ children: React.ReactNode }> = ({
             fontWeight: 600,
             color: C.text,
             letterSpacing: 0.2,
+            opacity: hideStatus ? 0 : 1,
           }}
         >
           9:41
@@ -137,6 +166,112 @@ export const PhoneChassis: React.FC<{ children: React.ReactNode }> = ({
       {children}
     </div>
   </div>
+)
+
+// ── The push banner + lock-screen phone (board-live clip, EXP-385) ───────────
+// A status change fires a mobile push: the banner drops onto a lock-screen
+// style glass screen (big clock, nothing else) so the notification IS the shot.
+export const PushBanner: React.FC<{ frame: number; at: number }> = ({
+  frame,
+  at,
+}) => {
+  if (frame < at) return null
+  const t = spring({ frame: frame - at, fps: 30, config: POP })
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 10,
+        right: 10,
+        top: 46,
+        boxSizing: "border-box",
+        borderRadius: 18,
+        padding: "10px 12px",
+        backgroundColor: C.panelFloat,
+        border: `1px solid ${C.strokeCard}`,
+        boxShadow: "0 14px 34px rgba(0,0,0,0.45)",
+        display: "flex",
+        gap: 10,
+        opacity: Math.min(1, t * 2),
+        translate: `0px ${(t - 1) * 34}px`,
+        zIndex: 6,
+      }}
+    >
+      <div style={{ flexShrink: 0, marginTop: 1 }}>
+        <ExpLogo size={26} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: C.text }}>
+            {PUSH_NOTIFICATION.title}
+          </span>
+          <span style={{ fontSize: 10.5, color: C.dim, flexShrink: 0 }}>
+            {PUSH_NOTIFICATION.time}
+          </span>
+        </div>
+        <div
+          style={{
+            marginTop: 2,
+            fontSize: 11.5,
+            lineHeight: 1.4,
+            color: C.muted,
+          }}
+        >
+          {PUSH_NOTIFICATION.body}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export const NotifPhone: React.FC<{
+  frame: number
+  bannerAt: number
+  glass?: { x: number; y: number }
+}> = ({ frame, bannerAt, glass }) => (
+  <PhoneChassis glass={glass} hideStatus>
+    {/* lock-screen clock (below the banner drop zone) */}
+    <div
+      style={{
+        position: "absolute",
+        top: 158,
+        left: 0,
+        right: 0,
+        textAlign: "center",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 15,
+          fontWeight: 600,
+          color: C.muted,
+          letterSpacing: 0.2,
+        }}
+      >
+        Friday, July 18
+      </div>
+      <div
+        style={{
+          marginTop: 2,
+          fontSize: 64,
+          fontWeight: 600,
+          color: C.text,
+          letterSpacing: -1,
+          lineHeight: 1.05,
+        }}
+      >
+        9:41
+      </div>
+    </div>
+    <PushBanner frame={frame} at={bannerAt} />
+  </PhoneChassis>
 )
 
 // ── Steer feed rows (iOS activity-view grammar) ──────────────────────────────
@@ -243,6 +378,7 @@ export const SteerPhone: React.FC<{
   sendAt: number // send tap: bubble lands in the feed, composer clears
   items?: readonly SteerItem[]
   message?: string
+  glass?: { x: number; y: number } // chassis comp position (see PhoneChassis)
 }> = ({
   frame,
   feedSchedule,
@@ -250,6 +386,7 @@ export const SteerPhone: React.FC<{
   sendAt,
   items = CL_PHONE_FEED,
   message = CL_STEER_MSG,
+  glass,
 }) => {
   const blinkOn = useBlink(frame)
   const typedMsg = frame >= sendAt ? "" : typed(message, frame, typeAt, 2)
@@ -259,7 +396,7 @@ export const SteerPhone: React.FC<{
     ? spring({ frame: frame - sendAt, fps: 30, config: POP })
     : 0
   return (
-    <PhoneChassis>
+    <PhoneChassis glass={glass}>
       {/* header: session title + live badge */}
       <div
         style={{

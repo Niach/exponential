@@ -1,5 +1,5 @@
 import { motion } from "motion/react"
-import { eyebrowDraw, sectionReveal } from "../lib/animations"
+import { sectionReveal } from "../lib/animations"
 import { EVERY_PLAN_INCLUDES } from "../lib/plans"
 import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
@@ -14,13 +14,9 @@ export function HomePricing() {
     <section id={`pricing`} className={`home-pricing`}>
       <div className={`shell`}>
         <motion.div {...sectionReveal}>
-          <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
-            Pricing
-          </motion.span>
-          <h2 className={`section-title`}>Free for teams of three.</h2>
+          <h2 className={`section-title`}>Free for teams of three</h2>
           <p className={`section-sub`}>
-            One plan when you grow. Or self-host for free — open source under
-            Apache-2.0.
+            One plan when you grow. Or self-host for free.
           </p>
         </motion.div>
 

@@ -25,7 +25,7 @@ export function DownloadPage() {
             animate="visible"
           >
             <motion.h1 className="hero-title" variants={heroChild}>
-              Get Exponential.
+              Get Exponential
             </motion.h1>
             <motion.p className="hero-sub" variants={heroChild}>
               Native on every platform.

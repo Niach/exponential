@@ -46,17 +46,17 @@ type Card = { file: string; title: string; subtitle: string }
 const CARDS: Card[] = [
   {
     file: `og-home.png`,
-    title: `Vibecode together.`,
-    subtitle: `Issues, customer support and coding agents in one realtime workspace. Agents run locally — unlimited sessions, flat price.`,
+    title: `Vibecode together`,
+    subtitle: `Issues, customer support and coding agents in one realtime workspace. Agents run locally on your machines.`,
   },
   {
     file: `og-pricing.png`,
-    title: `Free for teams of three. One plan after that.`,
+    title: `Free for teams of three. One plan after that`,
     subtitle: `€12/seat/mo billed yearly, everything included. Local AI agents free on every plan. Self-host free — open source under Apache-2.0.`,
   },
   {
     file: `og-download.png`,
-    title: `Native on every platform.`,
+    title: `Native on every platform`,
     subtitle: `The Rust desktop IDE for macOS, Windows and Linux, plus iOS and Android companions.`,
   },
   {

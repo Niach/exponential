@@ -37,7 +37,7 @@ export const linearComparison: CompareRow[] = [
   {
     label: `AI coding`,
     exponential: {
-      value: `Bring your own agents — unlimited sessions, flat price`,
+      value: `Bring your own agents, run them locally`,
       good: true,
     },
     linear: { value: `Cloud agents, billed per use` },

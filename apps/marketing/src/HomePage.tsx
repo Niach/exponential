@@ -41,14 +41,14 @@ export function HomePage() {
                 </motion.span>
                 {` `}
                 <motion.span className={`hero-word`} variants={heroWord}>
-                  together.
+                  together
                 </motion.span>
               </span>
             </motion.h1>
             <motion.p className={`hero-sub`} variants={heroChild}>
               Issues, customer support and coding agents in one realtime
               tracker. Agents run locally on your machines, on your
-              subscription — unlimited sessions, flat price.
+              subscription.
             </motion.p>
             <motion.div className={`hero-cta`} variants={heroChild}>
               <HeroDownload />

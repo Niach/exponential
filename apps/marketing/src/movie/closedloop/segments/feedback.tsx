@@ -1,7 +1,8 @@
-// closedloop/segments/feedback.tsx — clip 5 (205f): a visitor hits the dead
-// Pay-now button on acme.shop, reports it through the embedded feedback
-// widget, and the whip-pan lands on the board as EXP-151 pops into Todo —
-// exactly where clip 1 begins, so the loop wraps into "start coding".
+// closedloop/segments/feedback.tsx — clip 4 (235f, given more room by
+// EXP-385): a visitor hits the dead Pay-now button on acme.shop, reports it
+// through the embedded feedback widget (the success card now HOLDS before the
+// cut), and the whip-pan lands on the board as EXP-151 pops into Todo —
+// exactly where clip 1 begins, so the loop wraps into the live board.
 // All beats are LOCAL frames.
 
 import React from "react"
@@ -33,7 +34,14 @@ import {
   SiteViewport,
 } from "../surfaces/sitemock"
 import { WIDGET_ANCHORS, WidgetPanel } from "../surfaces/widgetmock"
-import { CL, CL_BOARD, COPY, NEW_ISSUE_ID } from "../fixtures"
+import {
+  CL,
+  CL_BOARD,
+  COPY,
+  LIVE_EDIT_ID,
+  NEW_ISSUE_ID,
+  REMOTE_DRAG_ID,
+} from "../fixtures"
 import { SEGMENT_DURATIONS } from "../timeline"
 import { CLAMP, SegmentShell, type SegmentProps } from "./common"
 
@@ -53,15 +61,15 @@ const B = {
   detailsType: 114,
   sendHover: 138,
   sendClick: 142,
-  success: 154,
-  whip: 170, // hard cut site → board under the whip blur
-  cascade: 172,
-  insert: 184, // EXP-151 pops into Todo
+  success: 154, // "Thanks — sent!" holds a beat before the cut (EXP-385)
+  whip: 182, // hard cut site → board under the whip blur
+  cascade: 184,
+  insert: 198, // EXP-151 pops into Todo
 } as const
 
 const CAPTIONS = {
   fb1: { in: 12, out: 60 },
-  fb2: { in: 178, out: 198 },
+  fb2: { in: 206, out: 226 },
 } as const
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -103,7 +111,7 @@ const CURSOR_KEYS: CursorKey[] = [
   { f: 132, x: WD.x, y: WD.y },
   { f: 138, x: WS.x, y: WS.y },
   { f: 148, x: WS.x, y: WS.y },
-  { f: 160, x: 1430, y: 900 },
+  { f: 164, x: 1430, y: 900 },
 ]
 const CURSOR_CLICKS = [
   B.payClick,
@@ -156,7 +164,7 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({
                 clicks={CURSOR_CLICKS}
                 frame={frame}
                 from={0}
-                to={165}
+                to={176}
               />
             </BrowserChassis>
           ) : (
@@ -178,6 +186,10 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({
                 <BoardTool
                   frame={frame}
                   rows={CL_BOARD}
+                  overrides={{
+                    [REMOTE_DRAG_ID]: { status: "in_progress" },
+                    [LIVE_EDIT_ID]: { assignee: "JL" },
+                  }}
                   cascadeAt={B.cascade}
                   insertAt={{ id: NEW_ISSUE_ID, at: B.insert }}
                   showLabels={false}
