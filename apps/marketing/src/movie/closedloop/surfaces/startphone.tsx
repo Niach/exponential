@@ -20,7 +20,7 @@ import { Glyph, IssueScreen, MPriorityIcon, MStatusIcon } from "./mobileui"
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 const EASED = { ...CLAMP, easing: EASE } as const
 
-const SHEET_H = 420
+const SHEET_H = 470
 
 const Spinner: React.FC<{ frame: number; size?: number }> = ({
   frame,
@@ -176,6 +176,10 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
         priorityLabel="No priority"
         labelChip={CL_LABELS.widget}
         description={REPORT.details}
+        activity={[
+          "Feedback widget created the issue · 12 min ago",
+          "Jamie Lee subscribed as reporter · 12 min ago",
+        ]}
         playPressAt={tapAt}
       />
 
@@ -221,29 +225,45 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
             }}
           />
 
-          {/* toolbar: Cancel left · Start coding right (the confirm) */}
+          {/* toolbar: glass capsule Cancel left · Start coding right */}
           <div
             style={{
               position: "absolute",
               left: 16,
               right: 16,
-              top: 20,
+              top: 18,
               display: "flex",
               alignItems: "center",
             }}
           >
-            <span style={{ fontSize: 13, color: C.muted }}>
+            <span
+              style={{
+                height: 30,
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "0 13px",
+                borderRadius: 999,
+                backgroundColor: C.fillActive,
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: C.text,
+              }}
+            >
               {PHONE_START.cancel}
             </span>
             <span
               style={{
                 marginLeft: "auto",
-                display: "flex",
+                height: 30,
+                display: "inline-flex",
                 alignItems: "center",
                 gap: 6,
-                fontSize: 13,
+                padding: "0 13px",
+                borderRadius: 999,
+                backgroundColor: C.fillActive,
+                fontSize: 12.5,
                 fontWeight: 600,
-                color: C.indigoGlow,
+                color: C.text,
                 scale: String(1 - 0.05 * startPress),
               }}
             >
@@ -252,17 +272,15 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
             </span>
           </div>
 
-          {/* ISSUES section: search row + the checked issue row */}
+          {/* Issues section: search row + the checked issue row */}
           <div
             style={{
               position: "absolute",
               left: 16,
-              top: 52,
-              fontSize: 10.5,
+              top: 60,
+              fontSize: 14,
               fontWeight: 600,
-              letterSpacing: 0.4,
-              textTransform: "uppercase",
-              color: C.dim,
+              color: C.muted,
             }}
           >
             {PHONE_START.issuesLabel}
@@ -272,7 +290,7 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
               position: "absolute",
               left: 16,
               right: 16,
-              top: 70,
+              top: 84,
               borderRadius: 12,
               backgroundColor: C.fillCard,
               border: `1px solid rgba(255,255,255,0.06)`,
@@ -341,7 +359,7 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
           </div>
 
           {/* agent pill strip, then Model + Effort picker rows */}
-          <div style={{ position: "absolute", left: 0, right: 0, top: 168 }}>
+          <div style={{ position: "absolute", left: 0, right: 0, top: 180 }}>
             <AgentTabs flickT={flickT} />
           </div>
           <div
@@ -349,7 +367,7 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
               position: "absolute",
               left: 16,
               right: 16,
-              top: 212,
+              top: 222,
               borderRadius: 12,
               backgroundColor: C.fillCard,
               border: `1px solid rgba(255,255,255,0.06)`,
@@ -367,6 +385,69 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
               label={PHONE_START.effortLabel}
               value={PHONE_START.effort}
             />
+          </div>
+
+          {/* Claude-only toggles (all off) */}
+          <div
+            style={{
+              position: "absolute",
+              left: 16,
+              right: 16,
+              top: 316,
+              borderRadius: 12,
+              backgroundColor: C.fillCard,
+              border: `1px solid rgba(255,255,255,0.06)`,
+              overflow: "hidden",
+            }}
+          >
+            {(["Ultracode", "Plan mode", "Skip permissions"] as const).map(
+              (label, i) => (
+                <React.Fragment key={label}>
+                  {i > 0 ? (
+                    <div
+                      style={{
+                        height: 1,
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                      }}
+                    />
+                  ) : null}
+                  <div
+                    style={{
+                      height: 40,
+                      boxSizing: "border-box",
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "0 12px",
+                    }}
+                  >
+                    <span style={{ fontSize: 12.5, color: C.text }}>
+                      {label}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        width: 36,
+                        height: 22,
+                        boxSizing: "border-box",
+                        borderRadius: 999,
+                        backgroundColor: C.fillActive,
+                        padding: 2,
+                        display: "flex",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: 999,
+                          backgroundColor: "#e5e5e5",
+                        }}
+                      />
+                    </span>
+                  </div>
+                </React.Fragment>
+              )
+            )}
           </div>
         </div>
       ) : null}

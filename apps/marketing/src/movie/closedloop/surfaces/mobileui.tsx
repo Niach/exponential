@@ -71,9 +71,10 @@ export const MStatusIcon: React.FC<{ status: MobileStatus; size: number }> = ({
         />
       </Glyph>
     ) : (
+      // Done: filled blue disc with a cut-out check (matches the app).
       <Glyph size={size} sw={2}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="m8.5 12 2.5 2.5 5-5" />
+        <circle cx="12" cy="12" r="10" fill="currentColor" stroke="none" />
+        <path d="m8.5 12 2.5 2.5 5-5" stroke="#0b0b0e" />
       </Glyph>
     )}
   </span>
@@ -92,6 +93,14 @@ const prioColor = (p: MobilePriority): string =>
           ? C.prioLow
           : C.muted
 
+// Signal bars with a per-level active count (low 1 · medium 2 · high 3),
+// inactive bars ghosted — like the app. Urgent is the alert triangle.
+const PRIO_ACTIVE: Record<"low" | "medium" | "high", number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+}
+
 export const MPriorityIcon: React.FC<{
   priority: MobilePriority
   size: number
@@ -101,21 +110,27 @@ export const MPriorityIcon: React.FC<{
       <Glyph size={size} sw={2}>
         <path d="M5 12h14" />
       </Glyph>
-    ) : (
+    ) : priority === "urgent" ? (
       <Glyph size={size} sw={2}>
-        <path d="M4 20h.01" />
-        <path d="M8.5 20v-5" />
-        <path d="M13 20v-9" />
-        <path d="M17.5 20V6" />
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </Glyph>
+    ) : (
+      <Glyph size={size} sw={2.6}>
+        {(["M5 20v-4", "M12 20v-9", "M19 20V6"] as const).map((d, i) => (
+          <path key={d} d={d} opacity={i < PRIO_ACTIVE[priority] ? 1 : 0.25} />
+        ))}
       </Glyph>
     )}
   </span>
 )
 
 // ── The floating glass tab bar (icon-only) + detached compose circle ─────────
-// Real MobileTabBar: Issues (list) · My Work (inbox) · Agents (bot) ·
-// Reviews (git-pull-request) · Search — no text labels; active = white glyph
-// on a white-12% capsule; the square-pen compose circle floats detached right.
+// Real MobileTabBar: Issues (list) · My Work (inbox) · Support (life-buoy,
+// helpdesk teams) · Agents (bot) · Reviews (git-pull-request) · Search — no
+// text labels; active = white glyph on a white-12% circle; the square-pen
+// compose circle floats detached right.
 const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
   {
     id: "issues",
@@ -136,6 +151,19 @@ const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
       <Glyph size={15}>
         <path d="M22 12h-6l-2 3h-4l-2-3H2" />
         <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+      </Glyph>
+    ),
+  },
+  {
+    id: "support",
+    node: (
+      <Glyph size={15}>
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="4" />
+        <path d="m4.93 4.93 4.24 4.24" />
+        <path d="m14.83 14.83 4.24 4.24" />
+        <path d="m14.83 9.17 4.24-4.24" />
+        <path d="m4.93 19.07 4.24-4.24" />
       </Glyph>
     ),
   },
@@ -200,8 +228,8 @@ export const MobileTabBar: React.FC<{
           key={id}
           style={{
             position: "relative",
-            width: 38,
-            height: 36,
+            width: 34,
+            height: 34,
             borderRadius: 999,
             backgroundColor: id === active ? C.fillActive : "transparent",
             color: id === active ? C.text : C.muted,
@@ -439,7 +467,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
           gap: 6,
         }}
       >
-        <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
+        <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
           {boardName}
         </span>
         <span style={{ color: C.dim, display: "flex" }}>
@@ -449,15 +477,21 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
           </Glyph>
         </span>
       </div>
+      {/* filter + settings share ONE trailing glass capsule (like the app) */}
       <div
         style={{
           position: "absolute",
-          top: 44,
+          top: 42,
           right: 12,
-          height: 30,
+          height: 34,
+          boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: 14,
+          padding: "0 14px",
+          borderRadius: 999,
+          backgroundColor: C.fillCard,
+          border: `1px solid rgba(255,255,255,0.06)`,
           color: C.muted,
         }}
       >
@@ -501,7 +535,13 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
               </Glyph>
             </span>
             <MStatusIcon status={section.status} size={13} />
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: C.muted }}>
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "rgba(255,255,255,0.85)",
+              }}
+            >
               {section.name}
             </span>
             <span style={{ fontSize: 11.5, color: C.dim }}>{count}</span>
@@ -588,6 +628,11 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
                 {data.assignee.slice(0, 1)}
               </span>
             ) : null}
+            <span style={{ color: C.dim, display: "flex" }}>
+              <Glyph size={11} sw={2.2}>
+                <path d="m9 18 6-6-6-6" />
+              </Glyph>
+            </span>
           </div>
         )
       })}
@@ -616,8 +661,10 @@ export type IssueScreenProps = {
   priorityLabel: string
   labelChip?: { name: string; dot: string }
   description: string
-  /** Coding/PR card rows; state flips ready → merged at mergedAt. */
+  /** Coding/PR status rows (hairline rows, not a box); ready → merged at mergedAt. */
   pr?: { number: number; device: string; user: string; mergedAt?: number }
+  /** Activity timeline lines under the rail dots (e.g. "… created the issue · 1 hr ago"). */
+  activity?: readonly string[]
   /** Press flash on the play circle (the icon-only start button). */
   playPressAt?: number
   /** Replaces the play glyph with a pulsing green dot (session live). */
@@ -635,6 +682,7 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
   labelChip,
   description,
   pr,
+  activity,
   playPressAt,
   sessionLive,
 }) => {
@@ -675,37 +723,62 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
 
   return (
     <div style={{ position: "absolute", inset: 0, fontFamily: UI_FONT }}>
-      {/* nav bar: back chevron · "Issue" · ellipsis menu */}
+      {/* nav bar: circular glass back button · "Issue" · circular … menu */}
       <div
         style={{
           position: "absolute",
-          top: 44,
+          top: 40,
           left: 12,
           right: 12,
-          height: 28,
+          height: 34,
           display: "flex",
           alignItems: "center",
           color: C.muted,
         }}
       >
-        <Glyph size={16} sw={2.2}>
-          <path d="m15 18-6-6 6-6" />
-        </Glyph>
+        <span
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 999,
+            backgroundColor: C.fillCard,
+            border: `1px solid rgba(255,255,255,0.06)`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Glyph size={15} sw={2.2}>
+            <path d="m15 18-6-6 6-6" />
+          </Glyph>
+        </span>
         <span
           style={{
             position: "absolute",
             left: 0,
             right: 0,
             textAlign: "center",
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: 600,
             color: C.text,
           }}
         >
           Issue
         </span>
-        <span style={{ marginLeft: "auto", display: "flex" }}>
-          <Glyph size={16} sw={2}>
+        <span
+          style={{
+            marginLeft: "auto",
+            width: 34,
+            height: 34,
+            borderRadius: 999,
+            backgroundColor: C.fillCard,
+            border: `1px solid rgba(255,255,255,0.06)`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Glyph size={15} sw={2}>
             <circle cx="5" cy="12" r="0.9" fill="currentColor" />
             <circle cx="12" cy="12" r="0.9" fill="currentColor" />
             <circle cx="19" cy="12" r="0.9" fill="currentColor" />
@@ -772,7 +845,7 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
         {/* title */}
         <div
           style={{
-            fontSize: 17,
+            fontSize: 19,
             fontWeight: 600,
             lineHeight: 1.3,
             color: C.text,
@@ -831,27 +904,24 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
           {chip(<span style={{ color: C.muted }}>+</span>, "add")}
         </div>
 
-        {/* description */}
+        {/* description — near-white body text like the app */}
         <div
           style={{
-            fontSize: 12.5,
-            lineHeight: 1.55,
-            color: C.muted,
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: "#d4d4d4",
           }}
         >
           {description}
         </div>
 
-        {/* coding / PR card */}
+        {/* coding / PR status — plain hairline rows, not a boxed card */}
         {pr ? (
           <div
             style={{
               alignSelf: "stretch",
-              boxSizing: "border-box",
-              borderRadius: 12,
-              backgroundColor: C.fillCard,
-              border: `1px solid rgba(255,255,255,0.06)`,
-              overflow: "hidden",
+              borderTop: `1px solid rgba(255,255,255,0.08)`,
+              borderBottom: `1px solid rgba(255,255,255,0.08)`,
             }}
           >
             <div
@@ -860,7 +930,6 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                padding: "0 12px",
                 borderBottom: `1px solid rgba(255,255,255,0.06)`,
               }}
             >
@@ -906,7 +975,6 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                padding: "0 12px",
               }}
             >
               <span
@@ -933,6 +1001,44 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                 </Glyph>
               </span>
             </div>
+          </div>
+        ) : null}
+
+        {/* activity timeline */}
+        {activity && activity.length > 0 ? (
+          <div
+            style={{
+              alignSelf: "stretch",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.muted }}>
+              Activity
+            </div>
+            {activity.map((line) => (
+              <div
+                key={line}
+                style={{ display: "flex", alignItems: "flex-start", gap: 9 }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    marginTop: 4,
+                    borderRadius: 999,
+                    backgroundColor: "rgba(255,255,255,0.25)",
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  style={{ fontSize: 11.5, lineHeight: 1.5, color: C.muted }}
+                >
+                  {line}
+                </span>
+              </div>
+            ))}
           </div>
         ) : null}
       </div>

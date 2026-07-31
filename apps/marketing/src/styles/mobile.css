@@ -101,9 +101,15 @@ button.mob-backbtn {
   cursor: pointer;
 }
 
-.mob-header-id {
-  font-family: var(--font-code);
-  font-size: 12px;
+.mob-header-title {
+  flex: 1;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.mob-morebtn {
   color: var(--fg-muted);
 }
 
@@ -117,10 +123,32 @@ button.mob-backbtn {
   flex: none;
 }
 
+.mob-title.is-center {
+  margin: 10px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+}
+
 .mob-title-issue {
   font-size: 23px;
   line-height: 1.25;
-  margin-bottom: 14px;
+  margin: 6px 0 14px;
+}
+
+/* Identifier pill on the issue detail (under the nav bar) */
+.mob-idpill {
+  align-self: flex-start;
+  margin: 14px 18px 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  flex: none;
 }
 
 /* Search field */
@@ -138,58 +166,102 @@ button.mob-backbtn {
   flex: none;
 }
 
-.mob-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.08);
-  margin: 0 0 10px;
-  flex: none;
-}
-
-/* Filter chips */
-.mob-chips {
+/* ── The board nav bar: centered board-name combobox + ONE trailing
+   capsule holding filter + settings (the app has no filter-chip strip) ── */
+.mob-nav {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px 10px;
+  justify-content: center;
+  padding: 12px 16px 10px;
   flex: none;
 }
 
-.mob-chip-filter {
+.mob-nav-board {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.mob-nav-board svg {
+  color: var(--fg-dim);
+}
+
+.mob-navcaps {
+  position: absolute;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 13px;
+  height: 34px;
+  padding: 0 14px;
   border-radius: 999px;
   background: var(--bg-elev);
   color: var(--fg-muted);
+}
+
+/* ── My Work segmented control (Inbox | My Issues) ── */
+.mob-segment {
+  display: flex;
+  margin: 12px 16px 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-elev);
   flex: none;
 }
 
-.mob-chip {
-  display: inline-flex;
-  align-items: center;
+.mob-segbtn {
+  flex: 1;
   height: 30px;
-  padding: 0 13px;
   border: none;
   border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--fg-muted);
+  background: none;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  flex: none;
+  color: var(--fg-muted);
   cursor: pointer;
   transition:
     background 0.25s ease,
     color 0.25s ease;
 }
 
-.mob-chip-active {
+.mob-segbtn.is-active {
   background: var(--bg-soft);
   color: #ffffff;
+}
+
+/* ── The issue detail property chip box (wrapping capsules) ── */
+.mob-chipbox {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 16px 14px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--bg-elev);
+  flex: none;
+}
+
+.mob-propchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
 }
 
 /* Issue list */
@@ -246,22 +318,12 @@ button.mob-backbtn {
   color: var(--fg);
 }
 
-.mob-row-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
-  font-size: 11px;
-  color: var(--fg-muted);
-  flex: none;
-}
-
+/* Label DOT only — the real rows never show label text */
 .mob-row-label-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
+  flex: none;
 }
 
 .mob-row-chev {
@@ -335,33 +397,6 @@ button.mob-backbtn {
   margin: 0 16px;
   border-radius: 14px;
   background: var(--bg-elev);
-}
-
-.mob-props {
-  flex: none;
-}
-
-.mob-prop-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 11px 14px;
-  font-size: 14px;
-}
-
-.mob-prop-row + .mob-prop-row {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.mob-prop-key {
-  color: var(--fg-muted);
-}
-
-.mob-prop-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--fg);
 }
 
 .mob-desc {
@@ -451,47 +486,10 @@ button.mob-backbtn {
   min-height: 0;
 }
 
-/* Issues header: project name + inline switcher chevron */
-.mob-titlerow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0 0;
-  padding: 0;
-  border: none;
-  background: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  flex: none;
-}
-
-.mob-titlerow .mob-title {
-  margin: 0;
-  padding-left: 18px;
-}
-
-.mob-title-switch {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--fg-muted);
-  flex: none;
-  margin-top: 4px;
-}
-
-.mob-divider {
-  margin-top: 12px;
-}
-
-/* Dock buttons: 4 tabs, white when active */
+/* Dock buttons: 6 icon-only tabs, white when active */
 .mob-dock {
-  gap: 16px;
-  padding: 13px 16px;
+  gap: 10px;
+  padding: 11px 13px;
 }
 
 .mob-dock-btn {
@@ -555,7 +553,38 @@ button.mob-backbtn {
   animation: mob-blink 1.1s steps(2, start) infinite;
 }
 
-/* Agents list */
+/* Agents tab — desktop rows + running sessions */
+.mob-desktop-row {
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.mob-desktop-icon {
+  color: var(--fg-muted);
+  flex: none;
+}
+
+.mob-desktop-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mob-startpill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
 .mob-agent-row {
   border: none;
   font-family: inherit;
@@ -573,11 +602,22 @@ button.mob-backbtn {
   animation: mob-pulse 1.6s ease-in-out infinite;
 }
 
+.mob-agent-dot.is-amber {
+  background: var(--st-progress);
+}
+
 .mob-agent-main {
   display: flex;
   flex-direction: column;
   gap: 2px;
   flex: 1;
+  min-width: 0;
+}
+
+.mob-agent-line1 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -597,43 +637,40 @@ button.mob-backbtn {
   white-space: nowrap;
 }
 
-/* Live steer viewer */
-.mob-steer-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.mob-live-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 999px;
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--st-review);
-  font-size: 11.5px;
+.mob-agent-state {
   font-weight: 600;
+  color: var(--st-review);
 }
 
-.mob-steer-presence {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
+.mob-agent-state.is-amber {
+  color: var(--st-progress);
 }
 
-.mob-presence-chip {
+/* Live steer viewer — "Live · <device>" centered, stop square trailing */
+.mob-steer-title {
+  flex: 1;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 8px;
+  justify-content: center;
+  gap: 7px;
+}
+
+.mob-steer-device {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+}
+
+.mob-stopbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: var(--bg-elev);
-  color: var(--fg-muted);
-  font-size: 11px;
+  color: var(--pr-high);
+  flex: none;
 }
 
 /* Chat-style scrubbed activity feed — narration bubbles + tool rows */
@@ -647,16 +684,21 @@ button.mob-backbtn {
   margin: 12px 16px 0;
 }
 
-.mob-feed-bubble {
-  align-self: flex-start;
-  max-width: 92%;
-  padding: 9px 12px;
-  border-radius: 16px;
-  border-bottom-left-radius: 5px;
-  background: var(--bg-elev);
-  color: #e5e5e7;
+/* Narration: sparkles glyph + plain prose — no bubble in the real app */
+.mob-feed-narr {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 2px 4px;
+  color: #d4d4d8;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.mob-feed-narr svg {
+  margin-top: 3px;
+  color: var(--fg-dim);
+  flex: none;
 }
 
 .mob-feed-tool {
