@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-github-connect-polish`,
+    date: `2026-08-01`,
+    title: `Smoother GitHub connect and steadier steering`,
+    summary: `Connecting GitHub from mobile now continues straight to the install page, remote steering question cards stopped jumping, and copy got a polish everywhere.`,
+    body: `- **GitHub connect on mobile**: if the GitHub app isn't installed yet, connecting from iOS or Android onboarding and settings now continues straight to the install page instead of stopping on an error.
+- **Steadier steering**: question cards from remotely steered coding sessions no longer jump or go missing when the terminal picker overflows the pane.
+- **Polish**: crisper avatar initials on mobile and clearer wording across all apps, the widget, and the marketing site.`,
+  },
+  {
     id: `2026-07-about-licenses`,
     date: `2026-07-31`,
     title: `About screens with open-source acknowledgements`,

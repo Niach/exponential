@@ -1,0 +1,1 @@
+Connecting GitHub now continues straight to the install page instead of stopping on an error, with crisper avatars and clearer wording throughout.

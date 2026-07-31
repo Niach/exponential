@@ -1,3 +1,2 @@
-- Watch and steer Codex and Pi coding sessions with a live activity feed
-- Finished subagents now tidy away in the session view
-- About screen with version info and the bundled open-source licence notices
+- Connecting GitHub now continues straight to the install page instead of stopping on an error
+- Crisper avatar initials and clearer wording throughout
