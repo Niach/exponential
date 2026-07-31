@@ -1,6 +1,10 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
+// Procedures in this router read/write through `ctx.db` like every other
+// router; the module-level `db` is reserved for the exported helpers that
+// non-tRPC callers (webhooks, the setup/callback routes, MCP) reach for and for
+// the deliberately out-of-band suspension heal.
 import { db } from "@/db/connection"
 import {
   githubInstallationLinks,
@@ -26,6 +30,14 @@ import {
   readGithubClaimTicket,
 } from "@/lib/integrations/github-setup-state"
 
+type Db = typeof db
+type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
+// Every helper below only READS, so both the pooled connection and an open
+// transaction satisfy it. Passing the caller's executor (never the module-level
+// `db`) is what lets the connect path run its checks inside — and under the row
+// locks of — the transaction that writes the repository row (EXP-371).
+type Executor = Pick<Db, `select`>
+
 // Repo management (connect/remove/claim/unlink) is owner-or-instance-admin,
 // mirroring member management. Lives here (not repositories.ts) because both
 // routers need it and repositories.ts already imports from this module —
@@ -35,15 +47,74 @@ export async function assertCanManageRepos(userId: string, teamId: string) {
   await assertTeamMember(userId, teamId, [`owner`])
 }
 
+// --- The link row lock (EXP-371) --------------------------------------------
+// Unlinking guards on "no connected repo uses this installation"
+// (assertInstallationNotInUse) while connecting guards on "this installation is
+// linked to the team" (assertRepoInstallationAccess) — a TOCTOU pair. A
+// transaction alone does NOT close it: under READ COMMITTED the unlinking
+// transaction simply never sees a repository row a concurrent connect commits
+// after its guard ran, so the delete lands anyway and leaves a connected repo
+// whose token path is gone.
+//
+// Both sides therefore serialize on the SAME github_installation_links row:
+// the connect path locks it inside the transaction that inserts the repository
+// row, and every deleter locks it before running its in-use guard. Whoever
+// takes the lock first wins — the loser either sees the freshly connected
+// repository (unlink → CONFLICT) or finds its link already gone (connect →
+// CONFLICT). Rows are locked in id order so two multi-row lockers can't
+// deadlock, and callers delete only what they locked.
+export async function lockInstallationLinks(
+  tx: Tx,
+  linkIds: string[]
+): Promise<string[]> {
+  if (linkIds.length === 0) return []
+  const rows = await tx
+    .select({ id: githubInstallationLinks.id })
+    .from(githubInstallationLinks)
+    .where(inArray(githubInstallationLinks.id, linkIds))
+    .orderBy(asc(githubInstallationLinks.id))
+    .for(`update`)
+  return rows.map((row) => row.id)
+}
+
+// The team's link rows for a set of GitHub installation ids — the lookup the
+// unlink paths need before they can lock (the link table keys on the
+// installation's uuid PK, callers speak GitHub's numeric id).
+async function teamLinkRows(
+  exec: Executor,
+  teamId: string,
+  installationIds: number[]
+): Promise<Array<{ linkId: string; installationId: number }>> {
+  if (installationIds.length === 0) return []
+  return exec
+    .select({
+      linkId: githubInstallationLinks.id,
+      installationId: githubInstallations.installationId,
+    })
+    .from(githubInstallationLinks)
+    .innerJoin(
+      githubInstallations,
+      eq(githubInstallations.id, githubInstallationLinks.githubInstallationId)
+    )
+    .where(
+      and(
+        eq(githubInstallationLinks.teamId, teamId),
+        inArray(githubInstallations.installationId, installationIds)
+      )
+    )
+}
+
 // CONFLICT while the team still has connected (non-archived) repos under the
 // installation — mirroring repositories.remove's boards-restrict — so no repo
 // row silently loses its token path. Shared by `unlink` and the claim page's
-// unlink path.
+// unlink path. MUST run after lockInstallationLinks on the same executor: only
+// then is a concurrent connect either already visible here or still blocked.
 async function assertInstallationNotInUse(
+  exec: Executor,
   teamId: string,
   installationId: number
 ) {
-  const inUse = await db
+  const inUse = await exec
     .select({ id: repositories.id })
     .from(repositories)
     .where(
@@ -104,6 +175,9 @@ function connectUrlFor(
 }
 
 interface ResolvedInstallation {
+  // The github_installation_links row this resolution came through — the
+  // handle the connect path locks before writing (EXP-371).
+  linkId: string
   installationId: number
   accountLogin: string | null
   accountType: string | null
@@ -118,10 +192,12 @@ interface ResolvedInstallation {
 // invisible to every picker (the old "admins see all ownerless installs" rule
 // leaked one account's repos into unrelated contexts).
 async function resolveTeamInstallations(
+  exec: Executor,
   teamId: string
 ): Promise<ResolvedInstallation[]> {
-  return db
+  return exec
     .select({
+      linkId: githubInstallationLinks.id,
       installationId: githubInstallations.installationId,
       accountLogin: githubInstallations.accountLogin,
       accountType: githubInstallations.accountType,
@@ -152,6 +228,7 @@ async function resolveTeamInstallations(
 // the given linked installation ids. Any member's grant counts — entitlement
 // is the union across members.
 async function teamGrantRows(
+  exec: Executor,
   teamId: string,
   installationIds: number[]
 ): Promise<
@@ -163,7 +240,7 @@ async function teamGrantRows(
   }>
 > {
   if (installationIds.length === 0) return []
-  return db
+  return exec
     .select({
       installationId: githubInstallationRepoGrants.installationId,
       fullName: githubInstallationRepoGrants.fullName,
@@ -182,12 +259,13 @@ async function teamGrantRows(
 // The connect-time grant gate. No-op when the OAuth secret isn't configured
 // (no capture path exists — trusted single-tenant fallback).
 async function assertRepoGrant(
+  exec: Executor,
   teamId: string,
   installationId: number,
   fullName: string
 ): Promise<void> {
   if (!githubOAuthConfigured()) return
-  const [row] = await db
+  const [row] = await exec
     .select({ id: githubInstallationRepoGrants.id })
     .from(githubInstallationRepoGrants)
     .where(
@@ -270,6 +348,11 @@ async function healSuspendedInstallations(
       suspendProbedAt.set(inst.installationId, now)
       try {
         await listAllInstallationRepos(inst.installationId, { maxPages: 1 })
+        // Deliberately the module-level `db`, never the caller's transaction:
+        // clearing the mark is best-effort bookkeeping about GitHub's state, so
+        // it must survive a caller whose transaction later rolls back — and a
+        // long connect transaction must not hold a row lock on
+        // github_installations while it talks to GitHub.
         await db
           .update(githubInstallations)
           .set({ suspendedAt: null })
@@ -294,6 +377,26 @@ function suspendedLabel(installs: ResolvedInstallation[]): string {
   return logins.join(`, `)
 }
 
+// The connect side of the link lock (EXP-371). Re-reads the resolved link row
+// under FOR UPDATE inside the caller's transaction — the same transaction that
+// goes on to insert/un-archive the repository row — so an unlink can neither
+// slip its in-use guard past that insert nor delete the link behind it. A
+// vanished row means an unlink committed first: fail the connect closed.
+async function lockResolvedLink(
+  tx: Tx,
+  inst: ResolvedInstallation,
+  fullName: string
+): Promise<number> {
+  const locked = await lockInstallationLinks(tx, [inst.linkId])
+  if (locked.length === 0) {
+    throw new TRPCError({
+      code: `CONFLICT`,
+      message: `The GitHub account serving ${fullName} was disconnected from this team while connecting. Reconnect it in team settings → Repositories, then try again.`,
+    })
+  }
+  return inst.installationId
+}
+
 // Connect-path authorization: connecting a repo (repositories.add /
 // boards.create inline) must resolve to an installation LINKED to the target
 // team — the App JWT itself can reach every installation of the App, so
@@ -310,11 +413,16 @@ function suspendedLabel(installs: ResolvedInstallation[]): string {
 // A SUSPENDED installation is refused with its own actionable message
 // (REV2-29): it can't mint a token, so connecting through it would register a
 // repo row that fails at the first clone with a misleading "reconnect" error.
+// Runs inside the CONNECT TRANSACTION (connectRepositoryInTx's `tx`) — not a
+// convenience: the returned installation is only meaningful while this
+// transaction holds the link row's lock, which is what stops a concurrent
+// unlink stranding the repository row this transaction writes.
 export async function assertRepoInstallationAccess(
+  tx: Tx,
   teamId: string,
   fullName: string
 ): Promise<number> {
-  const linked = await resolveTeamInstallations(teamId)
+  const linked = await resolveTeamInstallations(tx, teamId)
   if (linked.length === 0) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
@@ -331,7 +439,10 @@ export async function assertRepoInstallationAccess(
   }
   const repoInstallationId = await installationIdForRepo(fullName)
   if (repoInstallationId != null) {
-    if (!installs.some((i) => i.installationId === repoInstallationId)) {
+    const matched = installs.find(
+      (i) => i.installationId === repoInstallationId
+    )
+    if (!matched) {
       const suspendedMatch = healed.find(
         (i) => i.installationId === repoInstallationId && i.suspendedAt != null
       )
@@ -344,8 +455,8 @@ export async function assertRepoInstallationAccess(
     }
     // The link alone is installation-granular; the grant (captured user-scoped
     // at OAuth time) proves a member can actually access THIS repo.
-    await assertRepoGrant(teamId, repoInstallationId, fullName)
-    return repoInstallationId
+    await assertRepoGrant(tx, teamId, repoInstallationId, fullName)
+    return lockResolvedLink(tx, matched, fullName)
   }
   for (const inst of installs) {
     // On GitHub a full_name maps to exactly one repo (and so one installation
@@ -359,8 +470,8 @@ export async function assertRepoInstallationAccess(
       // A revoked/suspended installation must not fail the whole scan.
     }
     if (found) {
-      await assertRepoGrant(teamId, inst.installationId, fullName)
-      return inst.installationId
+      await assertRepoGrant(tx, teamId, inst.installationId, fullName)
+      return lockResolvedLink(tx, inst, fullName)
     }
   }
   throw new TRPCError({
@@ -447,7 +558,7 @@ export const integrationsRouter = router({
         // settings section's only data source, so a stale mark would strand the
         // whole GitHub surface behind a suspension banner (REV2-29).
         const installs = await healSuspendedInstallations(
-          await resolveTeamInstallations(teamId)
+          await resolveTeamInstallations(ctx.db, teamId)
         )
         // Additive UX signal: a linked installation with ZERO grants for this
         // team (e.g. linked before grants existed) yields no repos and
@@ -457,6 +568,7 @@ export const integrationsRouter = router({
           ? new Set(
               (
                 await teamGrantRows(
+                  ctx.db,
                   teamId,
                   installs.map((i) => i.installationId)
                 )
@@ -525,7 +637,7 @@ export const integrationsRouter = router({
         // still-suspended installation contributes no connectable repos —
         // connecting through it would register a repo row that can't clone.
         const installs = await healSuspendedInstallations(
-          await resolveTeamInstallations(teamId)
+          await resolveTeamInstallations(ctx.db, teamId)
         )
         const urls = {
           installUrl: installUrlFor(userId, teamId, { mobile }),
@@ -586,7 +698,7 @@ export const integrationsRouter = router({
           // hasMore is always false here; re-running the connect flow is the
           // refresh. A linked installation with no grants at all needs exactly
           // that — surfaced as `needsReauth`.
-          const grants = await teamGrantRows(teamId, [...activeIds])
+          const grants = await teamGrantRows(ctx.db, teamId, [...activeIds])
           const grantedIds = new Set(grants.map((g) => g.installationId))
           for (const grant of grants) {
             if (seen.has(grant.fullName)) continue
@@ -671,7 +783,7 @@ export const integrationsRouter = router({
           })
         }
         await assertCanManageRepos(ctx.session.user.id, claim.w)
-        const rows = await db
+        const rows = await ctx.db
           .select({
             id: githubInstallations.id,
             installationId: githubInstallations.installationId,
@@ -680,7 +792,7 @@ export const integrationsRouter = router({
           })
           .from(githubInstallations)
           .where(inArray(githubInstallations.installationId, claim.ids))
-        const linked = await db
+        const linked = await ctx.db
           .select({
             githubInstallationId: githubInstallationLinks.githubInstallationId,
           })
@@ -690,7 +802,7 @@ export const integrationsRouter = router({
         // Active repo counts drive the picker's unlink affordance: an account
         // whose repos are still connected can't be unchecked (mirrors the
         // `unlink` CONFLICT guard), so the page disables the row with a note.
-        const repoCounts = await db
+        const repoCounts = await ctx.db
           .select({
             installationId: repositories.installationId,
             count: sql<number>`count(*)::int`,
@@ -771,56 +883,53 @@ export const integrationsRouter = router({
           })
         }
         await assertCanManageRepos(userId, claim.w)
-        for (const installationId of input.unlinkIds) {
-          await assertInstallationNotInUse(claim.w, installationId)
-        }
-        let linked = 0
-        if (input.linkIds.length > 0) {
-          const rows = await db
-            .select({ id: githubInstallations.id })
-            .from(githubInstallations)
-            .where(
-              inArray(githubInstallations.installationId, input.linkIds)
+        // One transaction for the whole save, opened by the LOCK on every link
+        // this save would delete (EXP-371) — the in-use guards below are only
+        // race-free while that lock is held, and a CONFLICT now rolls the
+        // link inserts back instead of relying on statement ordering.
+        const result = await ctx.db.transaction(async (tx) => {
+          const lockedLinkIds = await lockInstallationLinks(
+            tx,
+            (await teamLinkRows(tx, claim.w, input.unlinkIds)).map(
+              (row) => row.linkId
             )
-          if (rows.length > 0) {
-            await db
-              .insert(githubInstallationLinks)
-              .values(
-                rows.map((row) => ({
-                  teamId: claim.w,
-                  githubInstallationId: row.id,
-                  createdByUserId: userId,
-                }))
-              )
-              .onConflictDoNothing()
+          )
+          for (const installationId of input.unlinkIds) {
+            await assertInstallationNotInUse(tx, claim.w, installationId)
           }
-          linked = rows.length
-        }
-        let unlinked = 0
-        if (input.unlinkIds.length > 0) {
-          const rows = await db
-            .select({ id: githubInstallations.id })
-            .from(githubInstallations)
-            .where(
-              inArray(githubInstallations.installationId, input.unlinkIds)
-            )
-          if (rows.length > 0) {
-            await db
-              .delete(githubInstallationLinks)
+          let linked = 0
+          if (input.linkIds.length > 0) {
+            const rows = await tx
+              .select({ id: githubInstallations.id })
+              .from(githubInstallations)
               .where(
-                and(
-                  eq(githubInstallationLinks.teamId, claim.w),
-                  inArray(
-                    githubInstallationLinks.githubInstallationId,
-                    rows.map((row) => row.id)
-                  )
-                )
+                inArray(githubInstallations.installationId, input.linkIds)
               )
+            if (rows.length > 0) {
+              await tx
+                .insert(githubInstallationLinks)
+                .values(
+                  rows.map((row) => ({
+                    teamId: claim.w,
+                    githubInstallationId: row.id,
+                    createdByUserId: userId,
+                  }))
+                )
+                .onConflictDoNothing()
+            }
+            linked = rows.length
           }
-          unlinked = rows.length
-        }
+          // Delete exactly the locked rows: a link (re)created concurrently was
+          // never locked, so it is not this save's to remove.
+          if (lockedLinkIds.length > 0) {
+            await tx
+              .delete(githubInstallationLinks)
+              .where(inArray(githubInstallationLinks.id, lockedLinkIds))
+          }
+          return { linked, unlinked: lockedLinkIds.length, teamId: claim.w }
+        })
         invalidateRepoCache(claim.w)
-        return { linked, unlinked, teamId: claim.w }
+        return result
       }),
 
     // Remove a team ↔ installation link. Blocked (CONFLICT) while the
@@ -836,22 +945,28 @@ export const integrationsRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         await assertCanManageRepos(ctx.session.user.id, input.teamId)
-        await assertInstallationNotInUse(input.teamId, input.installationId)
-        const [inst] = await db
-          .select({ id: githubInstallations.id })
-          .from(githubInstallations)
-          .where(eq(githubInstallations.installationId, input.installationId))
-          .limit(1)
-        if (inst) {
-          await db
-            .delete(githubInstallationLinks)
-            .where(
-              and(
-                eq(githubInstallationLinks.teamId, input.teamId),
-                eq(githubInstallationLinks.githubInstallationId, inst.id)
-              )
+        await ctx.db.transaction(async (tx) => {
+          // Lock BEFORE the guard (EXP-371): a repositories.add racing this
+          // unlink is now either already committed — so the guard below sees
+          // its repo row and CONFLICTs — or blocked on this lock until the
+          // link is gone, which fails its own connect closed.
+          const lockedLinkIds = await lockInstallationLinks(
+            tx,
+            (await teamLinkRows(tx, input.teamId, [input.installationId])).map(
+              (row) => row.linkId
             )
-        }
+          )
+          await assertInstallationNotInUse(
+            tx,
+            input.teamId,
+            input.installationId
+          )
+          if (lockedLinkIds.length > 0) {
+            await tx
+              .delete(githubInstallationLinks)
+              .where(inArray(githubInstallationLinks.id, lockedLinkIds))
+          }
+        })
         invalidateRepoCache(input.teamId)
         return { ok: true as const }
       }),

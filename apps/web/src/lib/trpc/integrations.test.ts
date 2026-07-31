@@ -6,8 +6,18 @@ import { TRPCError } from "@trpc/server"
 // specific SELECT results (e.g. unlink's in-use check); everything else gets
 // the default link row, which keeps the cache tests isolated to cache
 // behavior (fresh serve, refresh bypass, invalidation, per-team keys).
+// `id`/`linkId` are the same link row seen from the two projections this
+// router selects it through (resolveTeamInstallations / teamLinkRows /
+// lockInstallationLinks), so an un-seeded select still resolves a coherent
+// default row.
 const DEFAULT_ROWS = [
-  { installationId: 1, accountLogin: `acme`, accountType: `User` },
+  {
+    id: `link-1`,
+    linkId: `link-1`,
+    installationId: 1,
+    accountLogin: `acme`,
+    accountType: `User`,
+  },
 ]
 const selectQueue: unknown[][] = []
 function nextRows(): unknown[] {
@@ -19,17 +29,27 @@ const deletes: number[] = []
 // Every `db.update(...).set(...)` payload — the suspension probe's self-heal
 // write is the only updater in this router.
 const updates: Record<string, unknown>[] = []
+// Whether each select() (in call order) ended in `.for('update')`. EXP-371's
+// whole fix is an ORDERING property — the link-row lock must be taken before
+// the in-use guard reads — so the tests assert this pattern, not just outcomes.
+const selectLocks: boolean[] = []
+// Number of transactions opened, so "the guard and the delete share ONE
+// transaction" stays observable.
+const transactions: number[] = []
 
-vi.mock(`@/db/connection`, () => ({
-  db: {
+vi.mock(`@/db/connection`, () => {
+  const dbMock = {
     select: () => {
       const rows = nextRows()
+      const index = selectLocks.push(false) - 1
       const chain: {
         from: () => typeof chain
         innerJoin: () => typeof chain
         where: () => typeof chain
         groupBy: () => typeof chain
-        limit: () => Promise<unknown[]>
+        orderBy: () => typeof chain
+        limit: () => typeof chain
+        for: () => typeof chain
         then: (
           onFulfilled: (rows: unknown[]) => unknown,
           onRejected?: (err: unknown) => unknown
@@ -39,7 +59,12 @@ vi.mock(`@/db/connection`, () => ({
         innerJoin: () => chain,
         where: () => chain,
         groupBy: () => chain,
-        limit: () => Promise.resolve(rows),
+        orderBy: () => chain,
+        limit: () => chain,
+        for: () => {
+          selectLocks[index] = true
+          return chain
+        },
         then: (onFulfilled, onRejected) =>
           Promise.resolve(rows).then(onFulfilled, onRejected),
       }
@@ -69,8 +94,15 @@ vi.mock(`@/db/connection`, () => ({
         return Promise.resolve()
       },
     }),
-  },
-}))
+    // The transaction runs against the same recorder, so a test can't tell tx
+    // from db by accident — what it CAN tell is that one was opened at all.
+    transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
+      transactions.push(1)
+      return fn(dbMock)
+    },
+  }
+  return { db: dbMock }
+})
 
 vi.mock(`@/lib/admin`, () => ({
   isUserAdmin: vi.fn(async () => false),
@@ -128,6 +160,7 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
     listAllInstallationRepos(...(args as [number])),
 }))
 
+import { db } from "@/db/connection"
 import {
   assertRepoInstallationAccess,
   integrationsRouter,
@@ -143,8 +176,14 @@ import {
 function callerFor(userId: string) {
   return integrationsRouter.createCaller({
     session: { user: { id: userId } },
+    db,
   } as never)
 }
+
+// assertRepoInstallationAccess only runs inside the connect transaction (it
+// leaves the installation's link row locked for the repository INSERT that
+// follows) — the mock db doubles as that transaction.
+const tx = db as never
 
 // The default mock passes every membership check as owner (which keeps the
 // unrelated tests free of membership plumbing) — so the owner gate itself is
@@ -175,6 +214,8 @@ beforeEach(() => {
   inserted.length = 0
   deletes.length = 0
   updates.length = 0
+  selectLocks.length = 0
+  transactions.length = 0
   installUrlStates.length = 0
   connectUrlStates.length = 0
 })
@@ -302,13 +343,14 @@ describe(`integrations.github.status install URL platform marker (EXP-368)`, () 
 
 describe(`assertRepoInstallationAccess grant gate`, () => {
   // Select order on the live-resolution path: #1 the team's linked
-  // installations, #2 the grant lookup for (team, installation, repo).
+  // installations, #2 the grant lookup for (team, installation, repo), #3 the
+  // FOR UPDATE re-read of the resolved link row (EXP-371).
   it(`denies a linked-installation repo with NO grant when OAuth is configured`, async () => {
     githubOAuthConfigured.mockReturnValue(true)
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // grant lookup → none
     await expect(
-      assertRepoInstallationAccess(freshTeamId(), `acme/other-private`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/other-private`)
     ).rejects.toThrow(/reconnect GitHub in team settings/)
   })
 
@@ -317,7 +359,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push(DEFAULT_ROWS)
     selectQueue.push([{ id: `grant-1` }])
     await expect(
-      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
     ).resolves.toBe(1)
   })
 
@@ -327,7 +369,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // grant lookup after the scan hit → none
     await expect(
-      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
     ).rejects.toThrow(/reconnect GitHub in team settings/)
     // The scan itself ran (installation-wide listing) — the DENY came from the
     // missing grant, not from the repo being absent.
@@ -337,12 +379,14 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
   it(`bypasses the grant gate when OAuth is NOT configured (trusted self-hosted fallback)`, async () => {
     githubOAuthConfigured.mockReturnValue(false)
     selectQueue.push(DEFAULT_ROWS)
-    // Poison the next select: if the gate wrongly ran, it would see no grant
-    // row and throw.
-    selectQueue.push([])
+    selectQueue.push([{ id: `link-1` }]) // the link lock
     await expect(
-      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
     ).resolves.toBe(1)
+    // Exactly two selects — the linked installations and the lock. A grant
+    // lookup wrongly running would show up as an extra unlocked one between
+    // them.
+    expect(selectLocks).toEqual([false, true])
   })
 })
 
@@ -503,6 +547,15 @@ describe(`integrations.github.claimLinks guards`, () => {
 })
 
 describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
+  // Select order per save (EXP-371): the unlinked accounts' link rows, the
+  // FOR UPDATE lock on them, then one in-use guard per unlinked account, then
+  // the installation rows for the linked ones.
+  function seedUnlink(rows: unknown[] = []) {
+    selectQueue.push([{ linkId: `link-1`, installationId: 1 }])
+    selectQueue.push([{ id: `link-1` }]) // lock → still there
+    selectQueue.push(rows) // in-use check
+  }
+
   it(`links and unlinks in one save`, async () => {
     const teamId = freshTeamId()
     const ticket = mintGithubClaimTicket({
@@ -510,9 +563,8 @@ describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
       w: teamId,
       ids: [1, 2],
     })!
-    selectQueue.push([]) // in-use check for unlinkId 1 → none
+    seedUnlink()
     selectQueue.push([{ id: `gi-2` }]) // installation rows for linkIds
-    selectQueue.push([{ id: `gi-1` }]) // installation rows for unlinkIds
     const result = await callerFor(`user-apply`).github.claimLinks({
       ticket,
       linkIds: [2],
@@ -523,6 +575,9 @@ describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
       { teamId, githubInstallationId: `gi-2`, createdByUserId: `user-apply` },
     ])
     expect(deletes).toHaveLength(1)
+    // One transaction for the whole save, and the lock lands BEFORE the guard.
+    expect(transactions).toHaveLength(1)
+    expect(selectLocks).toEqual([false, true, false, false])
   })
 
   it(`link-only save still works`, async () => {
@@ -549,8 +604,7 @@ describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
       w: teamId,
       ids: [1],
     })!
-    selectQueue.push([]) // in-use check → none
-    selectQueue.push([{ id: `gi-1` }]) // installation rows for unlinkIds
+    seedUnlink()
     const result = await callerFor(`user-apply`).github.claimLinks({
       ticket,
       unlinkIds: [1],
@@ -558,6 +612,26 @@ describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
     expect(result).toEqual({ linked: 0, unlinked: 1, teamId })
     expect(inserted).toHaveLength(0)
     expect(deletes).toHaveLength(1)
+  })
+
+  it(`deletes only the links it locked (EXP-371)`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-apply`,
+      w: teamId,
+      ids: [1],
+    })!
+    selectQueue.push([{ linkId: `link-1`, installationId: 1 }])
+    selectQueue.push([]) // the row vanished before the lock (concurrent unlink)
+    selectQueue.push([]) // in-use check → none
+    const result = await callerFor(`user-apply`).github.claimLinks({
+      ticket,
+      unlinkIds: [1],
+    })
+    // Nothing was locked, so nothing is this save's to delete — a link
+    // (re)created concurrently must survive rather than be swept out unlocked.
+    expect(result).toEqual({ linked: 0, unlinked: 0, teamId })
+    expect(deletes).toHaveLength(0)
   })
 
   it(`CONFLICTs the whole save while connected repos use an unlinked account — nothing written`, async () => {
@@ -569,7 +643,7 @@ describe(`integrations.github.claimLinks apply (EXP-370)`, () => {
     })!
     // In-use check for unlinkId 1 → repos still connected. The guard runs
     // BEFORE any write, so the linkIds insert must not happen either.
-    selectQueue.push([{ id: `repo-1` }, { id: `repo-2` }])
+    seedUnlink([{ id: `repo-1` }, { id: `repo-2` }])
     await expect(
       callerFor(`user-apply`).github.claimLinks({
         ticket,
@@ -636,9 +710,16 @@ describe(`integrations.github.claimPreview (EXP-370)`, () => {
 })
 
 describe(`integrations.github.unlink`, () => {
+  // SELECT order (EXP-371): the team's link row for the installation, the
+  // FOR UPDATE lock on it, then the in-use repos check.
+  function seedLink(inUse: unknown[] = []) {
+    selectQueue.push([{ linkId: `link-1`, installationId: 1 }])
+    selectQueue.push([{ id: `link-1` }])
+    selectQueue.push(inUse)
+  }
+
   it(`CONFLICTs while connected repos still use the installation`, async () => {
-    // First SELECT in unlink = the in-use repos check.
-    selectQueue.push([{ id: `repo-1` }, { id: `repo-2` }])
+    seedLink([{ id: `repo-1` }, { id: `repo-2` }])
     await expect(
       callerFor(`user-unlink`).github.unlink({
         teamId: freshTeamId(),
@@ -649,8 +730,7 @@ describe(`integrations.github.unlink`, () => {
   })
 
   it(`deletes the link once no repos use the installation`, async () => {
-    selectQueue.push([]) // in-use check → none
-    selectQueue.push([{ id: `gi-row-uuid` }]) // installation row lookup
+    seedLink()
     const result = await callerFor(`user-unlink`).github.unlink({
       teamId: freshTeamId(),
       installationId: 1,
@@ -659,6 +739,69 @@ describe(`integrations.github.unlink`, () => {
     expect(deletes).toHaveLength(1)
   })
 
+  // EXP-371: the guard and the delete used to run unlocked and outside any
+  // transaction, so a repositories.add committing in between left a connected
+  // repo whose installation link was gone. The fix is an ORDER: take the link
+  // row's FOR UPDATE lock first, so a concurrent connect is either already
+  // visible to the guard below or blocked behind the lock.
+  it(`locks the link row inside a transaction BEFORE the in-use guard`, async () => {
+    seedLink()
+    await callerFor(`user-unlink`).github.unlink({
+      teamId: freshTeamId(),
+      installationId: 1,
+    })
+    expect(transactions).toHaveLength(1)
+    expect(selectLocks).toEqual([false, true, false])
+  })
+
+  it(`deletes nothing when the link vanished before the lock`, async () => {
+    selectQueue.push([{ linkId: `link-1`, installationId: 1 }])
+    selectQueue.push([]) // lock → row already gone
+    selectQueue.push([]) // in-use check → none
+    const result = await callerFor(`user-unlink`).github.unlink({
+      teamId: freshTeamId(),
+      installationId: 1,
+    })
+    expect(result).toEqual({ ok: true })
+    expect(deletes).toHaveLength(0)
+  })
+})
+
+// The connect side of the same lock: assertRepoInstallationAccess runs inside
+// the transaction that writes the repository row, and leaves the resolved
+// link row locked so an unlink can't slip its guard past that write.
+describe(`assertRepoInstallationAccess link lock (EXP-371)`, () => {
+  it(`locks the resolved link row before returning the installation id`, async () => {
+    selectQueue.push(DEFAULT_ROWS) // linked installations
+    selectQueue.push([{ id: `link-1` }]) // lock → still linked
+    await expect(
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+    ).resolves.toBe(1)
+    expect(selectLocks).toEqual([false, true])
+  })
+
+  it(`CONFLICTs when an unlink dropped the link first`, async () => {
+    selectQueue.push(DEFAULT_ROWS) // linked installations
+    selectQueue.push([]) // lock → the row is gone
+    await expect(
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+    ).rejects.toMatchObject({
+      code: `CONFLICT`,
+      message: expect.stringContaining(`was disconnected from this team`),
+    })
+  })
+
+  it(`locks the link the FALLBACK SCAN resolved too`, async () => {
+    // Live per-repo lookup 404s → the scan attributes the repo — that path
+    // must take the same lock, not just the direct one.
+    installationIdForRepo.mockResolvedValueOnce(null)
+    selectQueue.push(DEFAULT_ROWS) // linked installations
+    selectQueue.push([]) // lock → gone
+    await expect(
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+    ).rejects.toMatchObject({ code: `CONFLICT` })
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
+  })
 })
 
 // REV2-29: a GitHub suspension no longer destroys the team's claim link — the
@@ -671,6 +814,7 @@ describe(`integrations.github.unlink`, () => {
 describe(`suspended installations (REV2-29)`, () => {
   function suspendedRow(installationId: number) {
     return {
+      linkId: `link-${installationId}`,
       installationId,
       accountLogin: `acme`,
       accountType: `User`,
@@ -737,7 +881,7 @@ describe(`suspended installations (REV2-29)`, () => {
     listAllInstallationRepos.mockRejectedValueOnce(new Error(`suspended`))
 
     await expect(
-      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
     ).rejects.toThrow(/GitHub suspended the Exponential app for acme/)
     // Refused before any per-repo resolution — nothing to resolve through.
     expect(installationIdForRepo).not.toHaveBeenCalled()
@@ -752,7 +896,7 @@ describe(`suspended installations (REV2-29)`, () => {
     installationIdForRepo.mockResolvedValueOnce(904)
 
     await expect(
-      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
     ).rejects.toThrow(/suspended the Exponential app for acme, which owns acme\/repo/)
   })
 })

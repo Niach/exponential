@@ -318,7 +318,10 @@ describe(`connectRepositoryInTx`, () => {
     await expect(
       connectRepositoryInTx(tx as never, input)
     ).resolves.toBe(`r1`)
-    expect(mockAssertRepoAccess).toHaveBeenCalledWith(`ws1`, `acme/app`)
+    // The gate runs on THIS transaction (EXP-371) — it leaves the
+    // installation's link row locked for the insert below, which is the whole
+    // reason a concurrent unlink can't strand the row.
+    expect(mockAssertRepoAccess).toHaveBeenCalledWith(tx, `ws1`, `acme/app`)
     // The persisted id is GitHub's authoritative one, never a client claim.
     expect(captured.values?.installationId).toBe(7)
   })

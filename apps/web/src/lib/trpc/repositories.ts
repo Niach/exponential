@@ -80,6 +80,9 @@ type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
 // repository id. Owner/admin + plan-cap checks are the caller's responsibility
 // (done before opening the tx). The persisted installation id is the
 // authoritative one resolved from GitHub, never the client-supplied claim.
+// The gate runs on THIS transaction (EXP-371) and leaves the resolved
+// installation's link row locked FOR UPDATE, so a concurrent unlink can't drop
+// the token path out from under the repository row written below.
 export async function connectRepositoryInTx(
   tx: Tx,
   input: {
@@ -91,6 +94,7 @@ export async function connectRepositoryInTx(
   }
 ): Promise<string> {
   const installationId = await assertRepoInstallationAccess(
+    tx,
     input.teamId,
     input.fullName
   )
