@@ -915,7 +915,7 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
           {description}
         </div>
 
-        {/* coding / PR status — plain hairline rows, not a boxed card */}
+        {/* coding session status — a plain hairline row */}
         {pr ? (
           <div
             style={{
@@ -930,7 +930,6 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                borderBottom: `1px solid rgba(255,255,255,0.06)`,
               }}
             >
               <span
@@ -969,38 +968,56 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                 </Glyph>
               </span>
             </div>
-            <div
+          </div>
+        ) : null}
+
+        {/* the PR — a rounded glass CARD with the state right-aligned */}
+        {pr ? (
+          <div
+            style={{
+              alignSelf: "stretch",
+              height: 44,
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              padding: "0 13px",
+              borderRadius: 12,
+              backgroundColor: C.fillCard,
+              border: `1px solid rgba(255,255,255,0.06)`,
+            }}
+          >
+            <span
               style={{
-                height: 38,
+                color: merged ? C.indigoGlow : C.green,
                 display: "flex",
-                alignItems: "center",
-                gap: 8,
               }}
             >
-              <span
-                style={{
-                  color: merged ? C.indigoSoft : C.green,
-                  display: "flex",
-                }}
-              >
-                <Glyph size={13} sw={2}>
-                  <circle cx="6" cy="6" r="3" />
-                  <circle cx="18" cy="18" r="3" />
-                  <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-                  <path d="M6 9v12" />
-                </Glyph>
-              </span>
-              <span style={{ fontSize: 11.5, fontWeight: 500, color: C.text }}>
-                {`PR #${pr.number}`}
-              </span>
-              <span
-                style={{ marginLeft: "auto", color: C.dim, display: "flex" }}
-              >
-                <Glyph size={11} sw={2.2}>
-                  <path d="m9 18 6-6-6-6" />
-                </Glyph>
-              </span>
-            </div>
+              <Glyph size={14} sw={2}>
+                <circle cx="6" cy="6" r="3" />
+                <circle cx="18" cy="18" r="3" />
+                <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                <path d="M6 9v12" />
+              </Glyph>
+            </span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: C.text }}>
+              {`PR #${pr.number}`}
+            </span>
+            <span
+              style={{
+                marginLeft: "auto",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: C.muted,
+              }}
+            >
+              {merged ? "Merged" : "Open"}
+              <Glyph size={11} sw={2.2}>
+                <path d="m9 18 6-6-6-6" />
+              </Glyph>
+            </span>
           </div>
         ) : null}
 
