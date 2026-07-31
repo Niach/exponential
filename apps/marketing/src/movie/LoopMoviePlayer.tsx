@@ -11,6 +11,7 @@ import {
   FPS,
 } from "./closedloop"
 import type { LoopMovieController } from "./LoopMovie"
+import { SMALL_MEDIA } from "./viewport"
 
 const chapterIndexForFrame = (frame: number): number => {
   let index = 0
@@ -39,16 +40,17 @@ export default function LoopMoviePlayer({
   const percentRef = useRef(-1)
 
   /* This chunk is client-only (React.lazy), so matchMedia is safe in the
-     lazy initializer. On phone widths the composition renders its
-     screen-space captions 1.3× (EXP-176: the film scales down to ~343px
-     there — the captions are the only text that can stay readable; the
-     factor came down from 1.5 when the base caption grew to 72px, EXP-200). */
+     lazy initializer. On phone widths the composition enlarges its
+     screen-space captions and cuts to tight per-clip camera framings — the
+     film scales down to ~360px there, where the mocked UI's 11-13px type is
+     otherwise unreadable (EXP-176/200/392). SMALL_MEDIA is shared with the
+     poster <source> in LoopMovie so the two can't disagree at the boundary. */
   const [small, setSmall] = useState(
-    () => window.matchMedia(`(max-width: 720px)`).matches
+    () => window.matchMedia(SMALL_MEDIA).matches
   )
 
   useEffect(() => {
-    const mq = window.matchMedia(`(max-width: 720px)`)
+    const mq = window.matchMedia(SMALL_MEDIA)
     const apply = () => setSmall(mq.matches)
     mq.addEventListener(`change`, apply)
     return () => mq.removeEventListener(`change`, apply)
@@ -109,7 +111,7 @@ export default function LoopMoviePlayer({
       fps={FPS}
       compositionWidth={1920}
       compositionHeight={1080}
-      inputProps={{ textScale: small ? 1.3 : 1 }}
+      inputProps={{ small }}
       autoPlay={autoPlay}
       loop
       /* The composition is silent, and an UNMUTED Player anchors its clock

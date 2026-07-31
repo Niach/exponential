@@ -11,7 +11,13 @@
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
 import { C, EASE, PAGE_FONT, WIN } from "../../ships/theme"
-import { ExpLogo, WindowChassis } from "../../ships/rig"
+import {
+  Camera,
+  ExpLogo,
+  WindowChassis,
+  shotKeys,
+  type CamKey,
+} from "../../ships/rig"
 import {
   BoardActions,
   BoardTool,
@@ -159,6 +165,20 @@ const MacScreenFrozen: React.FC = () => {
 const PHONE_SCALE = 0.78
 const COLS = { web: 560, mac: 818, phone: Math.ceil(PHONE.w * PHONE_SCALE) } as const
 
+// ── Camera ────────────────────────────────────────────────────────────────────
+// The wide clip has NO camera: it's a title card laid out in raw comp coords,
+// and a camera would only re-raster it. Phones DO get one (EXP-392) — this is
+// the clip that reads worst there, and the fix isn't the devices (they're
+// shapes at any size) but the type: the 40px wordmark lands at ~7 CSS px on a
+// 360px stage and the 23px tagline at ~4. Shot A pushes into the brand lockup
+// while the devices rise underneath, then cuts back out to the full lineup
+// just before the icon rows animate. Camera keys are window-local, so these
+// are comp coords minus WIN.x/WIN.y (176, 50).
+const CAMERA_KEYS_SM: CamKey[] = shotKeys([
+  { at: 0, s: 2.6, x: 784, y: 170 }, // the wordmark + "Go exponential."
+  { at: 40, s: 1.0, x: 784, y: 490 }, // the three clients on one shelf
+])
+
 const IconRow: React.FC<{
   frame: number
   at: number
@@ -182,7 +202,7 @@ const IconRow: React.FC<{
 )
 
 // ── The clip ──────────────────────────────────────────────────────────────────
-export const PlatformsSegment: React.FC<SegmentProps> = ({ frame }) => {
+export const PlatformsSegment: React.FC<SegmentProps> = ({ frame, small }) => {
   const drawT = interpolate(
     frame,
     [B.logoDrawFrom, B.logoDrawTo],
@@ -192,168 +212,181 @@ export const PlatformsSegment: React.FC<SegmentProps> = ({ frame }) => {
   const contentO =
     1 - interpolate(frame, [B.fadeFrom, B.fadeTo], [0, 1], EASED)
 
-  return (
-    <SegmentShell frame={frame} dur={DUR}>
-      <AbsoluteFill style={{ opacity: contentO, fontFamily: PAGE_FONT }}>
-        {/* brand header — logo stroke-draw + wordmark + tagline */}
-        <div
+  const body = (
+    <AbsoluteFill style={{ opacity: contentO, fontFamily: PAGE_FONT }}>
+      {/* brand header — logo stroke-draw + wordmark + tagline */}
+      <div
+        style={{
+          position: "absolute",
+          top: 56,
+          left: 0,
+          right: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 18,
+          ...rise(frame, B.brandAt, 12, 16),
+        }}
+      >
+        <ExpLogo size={46} drawT={drawT} />
+        <span
           style={{
-            position: "absolute",
-            top: 56,
-            left: 0,
-            right: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 18,
-            ...rise(frame, B.brandAt, 12, 16),
+            fontSize: 40,
+            fontWeight: 600,
+            letterSpacing: "-0.03em",
+            color: C.text,
           }}
         >
-          <ExpLogo size={46} drawT={drawT} />
-          <span
-            style={{
-              fontSize: 40,
-              fontWeight: 600,
-              letterSpacing: "-0.03em",
-              color: C.text,
-            }}
-          >
-            {PLATFORMS_COPY.title}
-          </span>
-        </div>
-        <div
-          style={{
-            position: "absolute",
-            top: 122,
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            fontSize: 23,
-            fontWeight: 500,
-            letterSpacing: "-0.02em",
-            color: C.muted,
-            ...rise(frame, B.subAt, 10, 12),
-          }}
-        >
-          {PLATFORMS_COPY.sub}
-        </div>
+          {PLATFORMS_COPY.title}
+        </span>
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          top: 122,
+          left: 0,
+          right: 0,
+          textAlign: "center",
+          fontSize: 23,
+          fontWeight: 500,
+          letterSpacing: "-0.02em",
+          color: C.muted,
+          ...rise(frame, B.subAt, 10, 12),
+        }}
+      >
+        {PLATFORMS_COPY.sub}
+      </div>
 
-        {/* the three clients, bottom-aligned on one shelf line */}
+      {/* the three clients, bottom-aligned on one shelf line */}
+      <div
+        style={{
+          position: "absolute",
+          top: 176,
+          left: 0,
+          right: 0,
+          height: 652,
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "center",
+          gap: 56,
+        }}
+      >
         <div
           style={{
-            position: "absolute",
-            top: 176,
-            left: 0,
-            right: 0,
-            height: 652,
+            width: COLS.web,
             display: "flex",
-            alignItems: "flex-end",
             justifyContent: "center",
-            gap: 56,
+            ...rise(frame, B.webAt, 12, 22),
+          }}
+        >
+          <WebBrowserMock />
+        </div>
+        <div
+          style={{
+            width: COLS.mac,
+            display: "flex",
+            justifyContent: "center",
+            ...rise(frame, B.macAt, 12, 22),
+          }}
+        >
+          <MacBook screenW={700}>
+            <MacScreenFrozen />
+          </MacBook>
+        </div>
+        <div
+          style={{
+            width: COLS.phone,
+            display: "flex",
+            justifyContent: "center",
+            ...rise(frame, B.phoneAt, 12, 22),
           }}
         >
           <div
             style={{
-              width: COLS.web,
-              display: "flex",
-              justifyContent: "center",
-              ...rise(frame, B.webAt, 12, 22),
-            }}
-          >
-            <WebBrowserMock />
-          </div>
-          <div
-            style={{
-              width: COLS.mac,
-              display: "flex",
-              justifyContent: "center",
-              ...rise(frame, B.macAt, 12, 22),
-            }}
-          >
-            <MacBook screenW={700}>
-              <MacScreenFrozen />
-            </MacBook>
-          </div>
-          <div
-            style={{
-              width: COLS.phone,
-              display: "flex",
-              justifyContent: "center",
-              ...rise(frame, B.phoneAt, 12, 22),
+              width: PHONE.w * PHONE_SCALE,
+              height: PHONE_TOTAL_H * PHONE_SCALE,
             }}
           >
             <div
               style={{
-                width: PHONE.w * PHONE_SCALE,
-                height: PHONE_TOTAL_H * PHONE_SCALE,
+                transform: `scale(${PHONE_SCALE})`,
+                transformOrigin: "0 0",
               }}
             >
-              <div
-                style={{
-                  transform: `scale(${PHONE_SCALE})`,
-                  transformOrigin: "0 0",
-                }}
-              >
-                {/* the real mobile board, frozen post-story */}
-                <PhoneChassis>
-                  <BoardScreen
-                    frame={FROZEN}
-                    boardName={CL.project}
-                    rows={CL_PHONE_BOARD}
-                    overrides={{
-                      [NEW_ISSUE_ID]: "done",
-                      [REMOTE_DRAG_ID]: "in_progress",
-                    }}
-                    moveT={1}
-                  />
-                </PhoneChassis>
-              </div>
+              {/* the real mobile board, frozen post-story */}
+              <PhoneChassis>
+                <BoardScreen
+                  frame={FROZEN}
+                  boardName={CL.project}
+                  rows={CL_PHONE_BOARD}
+                  overrides={{
+                    [NEW_ISSUE_ID]: "done",
+                    [REMOTE_DRAG_ID]: "in_progress",
+                  }}
+                  moveT={1}
+                />
+              </PhoneChassis>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* per-client platform icon rows on one baseline */}
-        <div
-          style={{
-            position: "absolute",
-            top: 856,
-            left: 0,
-            right: 0,
-            display: "flex",
-            justifyContent: "center",
-            gap: 56,
-          }}
-        >
-          <div style={{ width: COLS.web }}>
-            <IconRow
-              frame={frame}
-              at={B.iconsAt}
-              icons={[<GlobeIcon key="web" size={34} />]}
-            />
-          </div>
-          <div style={{ width: COLS.mac }}>
-            <IconRow
-              frame={frame}
-              at={B.iconsAt + 3}
-              icons={[
-                <AppleIcon key="mac" size={34} />,
-                <WindowsIcon key="win" size={32} />,
-                <LinuxIcon key="linux" size={34} />,
-              ]}
-            />
-          </div>
-          <div style={{ width: COLS.phone }}>
-            <IconRow
-              frame={frame}
-              at={B.iconsAt + 6}
-              icons={[
-                <AppleIcon key="ios" size={32} />,
-                <AndroidIcon key="android" size={34} />,
-              ]}
-            />
-          </div>
+      {/* per-client platform icon rows on one baseline */}
+      <div
+        style={{
+          position: "absolute",
+          top: 856,
+          left: 0,
+          right: 0,
+          display: "flex",
+          justifyContent: "center",
+          gap: 56,
+        }}
+      >
+        <div style={{ width: COLS.web }}>
+          <IconRow
+            frame={frame}
+            at={B.iconsAt}
+            icons={[<GlobeIcon key="web" size={34} />]}
+          />
         </div>
-      </AbsoluteFill>
+        <div style={{ width: COLS.mac }}>
+          <IconRow
+            frame={frame}
+            at={B.iconsAt + 3}
+            icons={[
+              <AppleIcon key="mac" size={34} />,
+              <WindowsIcon key="win" size={32} />,
+              <LinuxIcon key="linux" size={34} />,
+            ]}
+          />
+        </div>
+        <div style={{ width: COLS.phone }}>
+          <IconRow
+            frame={frame}
+            at={B.iconsAt + 6}
+            icons={[
+              <AppleIcon key="ios" size={32} />,
+              <AndroidIcon key="android" size={34} />,
+            ]}
+          />
+        </div>
+      </div>
+    </AbsoluteFill>
+  )
+
+  return (
+    <SegmentShell frame={frame} dur={DUR}>
+      {/* The camera is mounted ONLY on phones. An identity camera would
+          still promote a transform layer and shift subpixel AA — enough to
+          move the checked-in wide poster and mp4, which must not change. */}
+      {small ? (
+        <Camera keys={CAMERA_KEYS_SM} frame={frame}>
+          {body}
+        </Camera>
+      ) : (
+        body
+      )}
     </SegmentShell>
   )
 }

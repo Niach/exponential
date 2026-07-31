@@ -15,7 +15,17 @@ export const CLAMP = {
 } as const
 export const CLAMP_EASE = { ...CLAMP, easing: EASE } as const
 
-export type SegmentProps = { frame: number; textScale: number }
+// `small` is the phone flag (EXP-392, viewport.ts SMALL_MEDIA). It drives two
+// things, and both are per-clip decisions rather than one global multiplier:
+// the screen-space caption size, and the segment's camera framing — phones get
+// tight crops because the 1920-wide stage lands at ~360px there, where the
+// mocked UI's 11-13px type is otherwise a texture, not text.
+export type SegmentProps = { frame: number; small: boolean }
+
+// Screen-space caption size. Phones get 1.3× so the narrative line stays
+// readable once the film scales down (EXP-176; the factor came down from 1.5
+// when the base caption grew to 72px, EXP-200).
+export const captionSize = (small: boolean): number => (small ? 94 : 72)
 
 // Center-pane geometry (window-local, post-EXP-253/282 shell: expanded rail
 // 164 + issue-list tool window 520; tabs live in the 34px titlebar).

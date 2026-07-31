@@ -42,6 +42,27 @@ export const camAt = (keys: CamKey[], frame: number) => {
   }
 }
 
+// A held framing. Phone framings (EXP-392) are CUTS, not moves: at s≈3 the
+// same angular pan is ~3× faster on screen, and an ANIMATING transform makes
+// Chrome raster the stage once and stretch it — softening exactly the type the
+// zoom exists to make readable. `at` is the segment-local frame the shot takes
+// over on.
+export type Shot = { at: number; s: number; x: number; y: number }
+
+// Shots → CamKeys. Each shot holds flat, then swaps in a single frame: camAt
+// returns the previous key exactly at `at - 1` and the next one exactly at
+// `at`, so no interpolated frame is ever produced between them.
+export const shotKeys = (shots: Shot[]): CamKey[] =>
+  shots.flatMap(({ at, s, x, y }, i) => {
+    const key = { s, x, y }
+    if (i === 0) return [{ f: 0, ...key }]
+    const prev = shots[i - 1]
+    return [
+      { f: at - 1, s: prev.s, x: prev.x, y: prev.y },
+      { f: at, ...key },
+    ]
+  })
+
 // Wrap the window layer (which renders at comp coords WIN.x/WIN.y). Children in
 // window-local coords should be inside <DesktopWindow>. `frame` must be global.
 export const Camera: React.FC<{

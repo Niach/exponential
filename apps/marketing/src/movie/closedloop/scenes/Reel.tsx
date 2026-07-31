@@ -23,7 +23,7 @@ const SEGMENT_COMPONENTS: Record<string, React.FC<SegmentProps>> = {
   platforms: PlatformsSegment,
 }
 
-export const Reel: React.FC<{ textScale?: number }> = ({ textScale = 1 }) => {
+export const Reel: React.FC<{ small?: boolean }> = ({ small = false }) => {
   const frame = useCurrentFrame()
   if (frame >= STORY_FRAMES) return null // END_HOLD rest tail
 
@@ -33,5 +33,5 @@ export const Reel: React.FC<{ textScale?: number }> = ({ textScale = 1 }) => {
   }
   const Segment = SEGMENT_COMPONENTS[active.id]
   if (!Segment) throw new Error(`no segment component for ${active.id}`)
-  return <Segment frame={frame - active.from} textScale={textScale} />
+  return <Segment frame={frame - active.from} small={small} />
 }

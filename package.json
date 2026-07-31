@@ -32,6 +32,7 @@
     "movie:render": "cd apps/marketing && remotion render src/movie/remotion/entry.ts ClosedLoop out/closed-loop.mp4 --crf 16",
     "movie:still": "cd apps/marketing && remotion still src/movie/remotion/entry.ts ClosedLoop",
     "movie:poster": "cd apps/marketing && remotion still src/movie/remotion/entry.ts ClosedLoop public/posters/loop-poster.webp --frame=0",
+    "movie:poster:small": "cd apps/marketing && remotion still src/movie/remotion/entry.ts ClosedLoop-Small public/posters/loop-poster-sm.webp --frame=0 --scale=0.5",
 
     "dev:widget": "bun --filter @exp/widget dev",
     "build:widget": "bun --filter @exp/widget build",

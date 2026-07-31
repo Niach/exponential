@@ -8,7 +8,9 @@
    one viewport (EXP-200): stage height ≤ 100svh − --movie-reserve (set on
    .hero in site.css), converted to width through the 16:9 ratio, floored
    at 470px so extreme letterbox viewports don't shrink the film into a
-   thumbnail. First width line is the fallback for browsers without svh. */
+   thumbnail (past that floor the hero simply overflows and the page
+   scrolls — .hero-movie-shell's `safe center` is the escape hatch).
+   First width line is the fallback for browsers without svh. */
 .movie {
   display: flex;
   flex-direction: column;
@@ -24,14 +26,6 @@
   position: relative;
   left: 50%;
   translate: -50% 0;
-}
-
-/* Very short desktop viewports give up on one-screen containment (site.css
-   drops the hero min-height there) — width-driven sizing again. */
-@media (max-height: 759px) and (min-width: 721px) {
-  .movie {
-    width: min(1440px, calc(100vw - 48px));
-  }
 }
 
 /* The stage reserves the full 16:9 box pre-mount (CLS-safe). */
@@ -199,9 +193,40 @@
 }
 
 @media (max-width: 720px) {
+  /* Phones run the film FULL BLEED (EXP-392): every pixel counts when the
+     1920-wide stage lands at ~360px, and edge-to-edge buys ~9% of width
+     back from the gutters. The stage squares off its outer corners to make
+     that read as intentional; the rail keeps the page's own inset.
+     Growing past .shell's gutter and pulling it back with matching negative
+     margins is exact — 100% resolves against the very box the padding came
+     from. The desktop 50%/-50% break-out does NOT survive here (its two
+     percentages stop sharing a reference box once the width no longer
+     matches the shell), and 100vw would fold the scrollbar in.
+     .shell carries `margin: 0 auto`, and cross-axis auto margins suppress
+     stretch — so the shell shrink-wraps its content by default. Harmless
+     while the film sized itself from vw; fatal once it sizes from 100% of
+     the shell (the two collapse into each other). Pin the shell wide. */
+  .hero-movie-shell {
+    width: 100%;
+  }
+
   .movie {
-    width: calc(100vw - 32px);
+    width: calc(100% + 40px);
+    left: auto;
+    translate: none;
+    margin-inline: -20px;
     gap: 10px;
+  }
+
+  .movie-stage {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .movie-stepper,
+  .movie-rail-now {
+    padding-inline: 16px;
   }
 
   .movie-stepper {
@@ -227,6 +252,20 @@
 
   .movie-step-track {
     height: 5px;
+  }
+}
+
+/* Small phones tighten .shell to 16px (responsive.css) — the full-bleed
+   margin has to follow it exactly or the film goes off-centre. */
+@media (max-width: 420px) {
+  .movie {
+    width: calc(100% + 32px);
+    margin-inline: -16px;
+  }
+
+  .movie-stepper,
+  .movie-rail-now {
+    padding-inline: 12px;
   }
 }
 

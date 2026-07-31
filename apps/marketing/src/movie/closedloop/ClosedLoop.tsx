@@ -2,10 +2,12 @@
 // (EXP-337): start coding → live steer → review & merge → live board →
 // feedback intake, plus an END_HOLD rest tail (see timeline.ts).
 // Player-compatible by construction: the background is a static CSS gradient
-// (no staticFile assets), everything below is frame-driven. `textScale`
-// (Player inputProps) scales ONLY the screen-space caption layer — the
-// marketing embed passes 1.3 on phone widths so the narrative text stays
-// readable at small sizes (EXP-176).
+// (no staticFile assets), everything below is frame-driven. `small` (Player
+// inputProps, true under viewport.ts SMALL_MEDIA) is the ONE phone signal the
+// composition gets: it enlarges the screen-space caption layer (EXP-176) and
+// swaps each clip onto its tight mobile camera framing (EXP-392). It replaced
+// the old numeric `textScale` — a single multiplier cannot express a per-clip
+// crop, and two props saying "this is a phone" could disagree.
 
 import React from "react"
 import { AbsoluteFill } from "remotion"
@@ -26,11 +28,11 @@ const GradientBackground: React.FC = () => (
   />
 )
 
-export const ClosedLoop: React.FC<{ textScale?: number }> = ({
-  textScale = 1,
+export const ClosedLoop: React.FC<{ small?: boolean }> = ({
+  small = false,
 }) => (
   <AbsoluteFill>
     <GradientBackground />
-    <Reel textScale={textScale} />
+    <Reel small={small} />
   </AbsoluteFill>
 )

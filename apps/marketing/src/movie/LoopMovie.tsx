@@ -25,6 +25,7 @@ import {
 } from "react"
 import { Play } from "lucide-react"
 import { FLOW_INFO } from "./closedloop/chapters"
+import { SMALL_MEDIA } from "./viewport"
 
 /* The imperative surface LoopMoviePlayer hands back once mounted. Defined
    here (not in the player chunk) so this file stays remotion-free. */
@@ -40,7 +41,9 @@ export type LoopMovieController = {
    the lazy chunk (the player seeks by index). */
 const FLOW_META = FLOW_INFO
 
-const POSTER_ALT = `The Exponential desktop IDE beside the mobile app: the team's live issue board and a bug report open as an issue on both screens. The whole team collaborates here in realtime, and coding runs start from any device.`
+/* Framing-neutral on purpose: <picture> serves a cropped mobile poster from
+   the same scene, and alt cannot vary per <source>. */
+const POSTER_ALT = `The Exponential issue board: the team's live issues with a bug report open as an issue. The whole team collaborates here in realtime, and coding runs start from any device.`
 
 const LoopMoviePlayer = lazy(() => import(`./LoopMoviePlayer`))
 
@@ -114,6 +117,55 @@ export function LoopMovie() {
     )
     observer.observe(el)
     return () => observer.disconnect()
+  }, [])
+
+  /* Hero fit (EXP-392) — measure --movie-reserve instead of guessing it.
+     The hero reserves one screen and loop.css sizes the 16:9 stage from
+     `100svh - var(--movie-reserve)`, where the reserve is everything in
+     that screen which ISN'T the stage. site.css can only carry a constant,
+     and that constant rotted with every copy change: it over-reserved by
+     ~150px, so the film was capped small AND a dead band opened above it.
+     Every term below is independent of the stage's own height, so this
+     converges on the first pass and can never feed back into itself. */
+  useEffect(() => {
+    const movie = wrapRef.current
+    const hero = movie?.closest(`.hero`)
+    if (!movie || !(hero instanceof HTMLElement)) return
+    const content = hero.querySelector(`.hero-content`)
+    const stage = movie.querySelector(`.movie-stage`)
+    if (!(content instanceof HTMLElement)) return
+    if (!(stage instanceof HTMLElement)) return
+
+    let applied = 0
+    const measure = () => {
+      const heroStyle = getComputedStyle(hero)
+      const movieStyle = getComputedStyle(movie)
+      const reserve =
+        /* the sticky topbar sitting above the hero */
+        hero.getBoundingClientRect().top +
+        window.scrollY +
+        parseFloat(heroStyle.paddingTop) +
+        parseFloat(heroStyle.paddingBottom) +
+        /* headline + sub + CTAs + agent strip */
+        content.offsetHeight +
+        parseFloat(movieStyle.marginTop) +
+        /* the flow stepper, the phone narration line, and their gaps */
+        (movie.offsetHeight - stage.offsetHeight)
+      if (Math.abs(reserve - applied) < 1) return
+      applied = reserve
+      hero.style.setProperty(`--movie-reserve`, `${Math.round(reserve)}px`)
+    }
+
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(content)
+    observer.observe(movie)
+    window.addEventListener(`resize`, measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener(`resize`, measure)
+      hero.style.removeProperty(`--movie-reserve`)
+    }
   }, [])
 
   const handleController = useCallback((controller: LoopMovieController) => {
@@ -207,15 +259,26 @@ export function LoopMovie() {
         </span>
       </p>
       <div className={`movie-stage`}>
-        <img
-          className={`movie-poster${ready ? ` is-hidden` : ``}`}
-          src={`/posters/loop-poster.webp`}
-          alt={POSTER_ALT}
-          width={1920}
-          height={1080}
-          loading={`lazy`}
-          decoding={`async`}
-        />
+        {/* Two posters, one per framing (EXP-392): the film cuts to a tight
+            mobile camera under SMALL_MEDIA, so the wide poster would visibly
+            jump when the player takes over there. <picture> resolves to ONE
+            url before any fetch, so phones never pay for the wide file (the
+            small one is half-scale on top). The class and the ready toggle
+            stay on the <img> — <picture> is position:static, so `inset: 0`
+            still resolves against .movie-stage. `alt` can't vary per source,
+            hence the framing-neutral wording. */}
+        <picture>
+          <source media={SMALL_MEDIA} srcSet={`/posters/loop-poster-sm.webp`} />
+          <img
+            className={`movie-poster${ready ? ` is-hidden` : ``}`}
+            src={`/posters/loop-poster.webp`}
+            alt={POSTER_ALT}
+            width={1920}
+            height={1080}
+            loading={`lazy`}
+            decoding={`async`}
+          />
+        </picture>
         {load && (
           <div className={`movie-layer`} aria-hidden>
             <Suspense fallback={null}>
