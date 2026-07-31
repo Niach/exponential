@@ -1031,7 +1031,7 @@ impl ScreensPanel {
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child("Pick an issue from the sidebar — it opens as a tab here."),
+                        .child("Pick an issue from the sidebar. It opens as a tab here."),
                 )
                 .into_any_element();
         }

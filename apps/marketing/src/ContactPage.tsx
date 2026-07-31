@@ -35,8 +35,8 @@ export function ContactPage() {
               margin: `0 0 16px`,
             }}
           >
-            Tell us about your team and how you plan to run Exponential —
-            we&apos;ll get back to you within a business day.
+            Tell us about your team and how you plan to run Exponential.
+            We&apos;ll get back to you within a business day.
           </p>
 
           <p
@@ -47,11 +47,11 @@ export function ContactPage() {
               margin: `0 0 28px`,
             }}
           >
-            Self-hosting is free for everyone — Exponential is open source
-            under Apache-2.0. If you want more than the community, this form is
-            how you get <strong>Enterprise Support</strong> — SLA, priority
-            support, deployment help, and custom development. SSO and DPA
-            conversations start here too.
+            Self-hosting is free for everyone. Exponential is open source under
+            Apache-2.0. If you want more than the community, this form is how
+            you get <strong>Enterprise Support</strong>: SLA, priority support,
+            deployment help, and custom development. SSO and DPA conversations
+            start here too.
           </p>
 
           <ContactForm />

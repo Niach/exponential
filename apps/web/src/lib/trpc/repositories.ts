@@ -50,7 +50,7 @@ export function isForeignKeyViolation(err: unknown): boolean {
 // by a board still pointing at the repo. A trashed board keeps its repo FK
 // (restrict) but is hidden from the synced "in use by" chips, so name that case.
 export function repoInUseMessage(count: number): string {
-  return `Cannot remove — this repository backs ${count} board${count === 1 ? `` : `s`}. Retarget or delete those boards first (a board in the trash may still use it).`
+  return `Can't remove this repository. It backs ${count} board${count === 1 ? `` : `s`}. Retarget or delete those boards first (a board in the trash may still use it).`
 }
 
 const fullNameSchema = z
@@ -163,7 +163,7 @@ export async function connectRepositoryInTx(
   if (!existing) {
     throw new TRPCError({
       code: `CONFLICT`,
-      message: `Repository was removed concurrently — retry.`,
+      message: `Repository was removed concurrently. Retry.`,
     })
   }
   return existing.id
@@ -488,7 +488,7 @@ export const repositoriesRouter = router({
           if (err.status === 409) {
             throw new TRPCError({
               code: `CONFLICT`,
-              message: `Head branch changed on GitHub — refresh and try again`,
+              message: `Head branch changed on GitHub. Refresh and try again.`,
             })
           }
           if (err.status === 404) {

@@ -264,7 +264,7 @@ export const usersRouter = router({
         if (adminCount <= 1) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `You are the last admin of this instance — promote another admin before deleting your account`,
+            message: `You are the last admin of this instance. Promote another admin before deleting your account.`,
           })
         }
       }

@@ -488,7 +488,7 @@ final class IssueDetailViewModel {
                         options: options
                     )
                     let label = device.deviceLabel.isEmpty ? "your desktop" : device.deviceLabel
-                    batchStartNotice = "Batch start sent to \(label) — follow it in the Agents tab."
+                    batchStartNotice = "Batch start sent to \(label). Follow it in the Agents tab."
                 } else {
                     try await steerApi.startSession(
                         accountId: accountId,

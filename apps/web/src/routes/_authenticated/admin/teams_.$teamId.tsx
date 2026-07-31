@@ -174,7 +174,7 @@ function AdminTeamDetail() {
                 ? `Effective plan comes from the admin comp override.`
                 : detail.subscription
                   ? `Effective plan comes from the Creem subscription.`
-                  : `No subscription — free tier.`}
+                  : `No subscription, so the team is on the free tier.`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -232,8 +232,8 @@ function AdminTeamDetail() {
               </Select>
             </div>
             <p className="text-xs text-muted-foreground">
-              A comp tier is a floor over the paid plan — it lifts the
-              team to at least that tier for free but never lowers a paid
+              A comp tier is a floor over the paid plan. It lifts the team
+              to at least that tier for free but never lowers a paid
               subscription.
             </p>
           </CardContent>
@@ -425,7 +425,7 @@ function AdminTeamDetail() {
                     <span className="font-medium text-foreground">
                       {e.issueIdentifier}
                     </span>
-                    {` — `}
+                    {` · `}
                     {e.issueTitle}
                   </span>
                 </div>
@@ -491,7 +491,7 @@ function AdminTeamDetail() {
             Deleting a team cascades to all boards, issues, comments,
             and attachments.
             {detail.subscription && !detail.subscription.cancelAtPeriodEnd
-              ? ` This team has a live subscription — cancel it first (team settings → Billing, or the Creem dashboard); the delete is refused until then.`
+              ? ` This team has a live subscription. Cancel it first (team settings → Billing, or the Creem dashboard); the delete is refused until then.`
               : ``}
           </CardDescription>
         </CardHeader>

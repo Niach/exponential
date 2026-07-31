@@ -585,7 +585,7 @@ export function AgentSessionView({
               if (f.outcome === `publisher_lost`) {
                 // The desktop's relay socket dropped but the session may still
                 // be running — the synced row is the truth. Stay retryable.
-                detail = `The desktop's connection to the relay dropped — retry once it reconnects.`
+                detail = `The desktop's connection to the relay dropped. Retry once it reconnects.`
               } else {
                 sawEnd = true
                 detail = f.outcome && f.outcome !== `ended` ? f.outcome : null
@@ -597,7 +597,7 @@ export function AgentSessionView({
               if (f.code === `no_such_session`) {
                 // Not live on the relay (yet) — auto-retry while the synced
                 // row still says running.
-                detail = `The live stream isn't up yet — the desktop may still be connecting.`
+                detail = `The live stream isn't up yet. The desktop may still be connecting.`
                 retryStarting = true
                 ws?.close()
               } else {
@@ -976,7 +976,7 @@ export function AgentSessionView({
                   <UiLoadingIcon className="size-4 animate-spin text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">
                     {phase.kind === `starting`
-                      ? `The agent is starting — waiting for the live stream…`
+                      ? `The agent is starting. Waiting for the live stream…`
                       : `Connecting…`}
                   </span>
                 </CenteredState>
@@ -986,7 +986,7 @@ export function AgentSessionView({
                     Waiting for activity…
                   </span>
                   <span className="text-xs text-muted-foreground/70">
-                    This session isn&apos;t publishing an activity feed — it may
+                    This session isn&apos;t publishing an activity feed. It may
                     be marked private on the desktop, or the desktop app needs
                     an update.
                   </span>
@@ -1101,7 +1101,7 @@ export function AgentSessionView({
           {phase.kind === `starting` && feed.length > 0 && (
             <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               <UiLoadingIcon className="size-3 animate-spin" />
-              The agent is starting — waiting for the live stream…
+              The agent is starting. Waiting for the live stream…
             </div>
           )}
 
@@ -1464,14 +1464,14 @@ function QuestionPrompt({
           again, with nothing to report. */}
       {answerState?.status === `error` && semantic && (
         <div className="mt-1.5 text-[0.6875rem] text-amber-400">
-          No confirmation from the desktop — pick again to retry.
+          No confirmation from the desktop. Pick again to retry.
         </div>
       )}
       {active && !canAnswer && (
         <div className="mt-2 text-xs text-muted-foreground">
           {item.planMode
-            ? `Waiting for approval — you're viewing read-only.`
-            : `Waiting for an answer — you're viewing read-only.`}
+            ? `Waiting for approval. You're viewing read-only.`
+            : `Waiting for an answer. You're viewing read-only.`}
         </div>
       )}
     </>
@@ -1965,7 +1965,7 @@ function MessageComposer({
         variant="outline"
         size="sm"
         className="h-9 shrink-0 px-2.5 font-mono text-xs text-muted-foreground"
-        title="Send Escape — interrupts what the agent is doing"
+        title="Send Escape to interrupt what the agent is doing"
         onClick={onEscape}
       >
         Esc

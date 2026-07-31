@@ -180,7 +180,7 @@ impl ToolsPane {
         let spec = AlertSpec::new(
             "Reset IDE data",
             format!(
-                "This signs you out on this device and deletes ALL local IDE data — \
+                "This signs you out on this device and deletes ALL local IDE data: \
                  settings, accounts, and synced caches. Cloned repositories and \
                  worktrees under {repos_root} are deleted too, including any \
                  uncommitted work in them. The app restarts onto the sign-in screen."
@@ -221,7 +221,7 @@ impl Render for ToolsPane {
         let card = section(cx)
             .child(card_header(
                 "Tools",
-                "Local per-machine settings — never synced.",
+                "Local per-machine settings, never synced.",
                 cx,
             ))
             .child(Self::labeled_input(

@@ -245,7 +245,7 @@ fun IssueDetailScreen(
             is SteerStartState.Sent ->
                 if (s.isBatch) {
                     snackbarHostState.showSnackbar(
-                        "Batch start sent to ${s.deviceLabel} — follow it in the Agents tab.",
+                        "Batch start sent to ${s.deviceLabel}. Follow it in the Agents tab.",
                     )
                 }
             else -> Unit
@@ -721,7 +721,7 @@ fun IssueDetailScreen(
                                 startState is SteerStartState.Sending || startState is SteerStartState.Sent -> Unit
                                 steerDevices.isNullOrEmpty() -> scope.launch {
                                     snackbarHostState.showSnackbar(
-                                        "No desktop online — open the Exponential desktop app to run here.",
+                                        "No desktop online. Open the Exponential desktop app to run here.",
                                     )
                                 }
                                 else -> activeSheet = IssueSheet.StartCoding
@@ -931,7 +931,7 @@ private fun RemoteEditBanner(onReload: () -> Unit) {
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
         Text(
-            "Updated by someone else — tap to reload",
+            "Updated by someone else. Tap to reload",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )

@@ -40,7 +40,7 @@ export type LoopMovieController = {
    the lazy chunk (the player seeks by index). */
 const FLOW_META = FLOW_INFO
 
-const POSTER_ALT = `The Exponential desktop IDE beside the mobile app: the team's live issue board and a bug report open as an issue on both screens — the whole team collaborates here in realtime, and coding runs start from any device.`
+const POSTER_ALT = `The Exponential desktop IDE beside the mobile app: the team's live issue board and a bug report open as an issue on both screens. The whole team collaborates here in realtime, and coding runs start from any device.`
 
 const LoopMoviePlayer = lazy(() => import(`./LoopMoviePlayer`))
 

@@ -37,8 +37,8 @@ export async function guardMcpAuthorize(
       return {
         response: errorPage(
           `This MCP client isn't registered here`,
-          `Your MCP client presented a saved registration this server doesn't know — usually because the client cached credentials from before the server's database changed.`,
-          `To fix it, clear this server's authentication in your MCP client and authenticate again. In Claude Code: run /mcp, select this server, choose "Clear authentication", then authenticate — the client will re-register automatically.`
+          `Your MCP client presented a saved registration this server doesn't know, usually because the client cached credentials from before the server's database changed.`,
+          `To fix it, clear this server's authentication in your MCP client and authenticate again. In Claude Code: run /mcp, select this server, choose "Clear authentication", then authenticate. The client will re-register automatically.`
         ),
       }
     }
@@ -73,7 +73,7 @@ function errorPage(title: string, detail: string, remedy: string) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>${esc(title)} — Exponential</title>
+<title>${esc(title)} · Exponential</title>
 <style>
   body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
          background: #09090b; color: #fafafa; font: 15px/1.6 ui-sans-serif, system-ui, sans-serif; }

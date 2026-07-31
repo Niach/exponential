@@ -255,7 +255,7 @@ impl AddRepositoryDialogView {
                     if crate::create_board_dialog::is_grant_forbidden(&err) {
                         this.error = Some(
                             "GitHub says you don't have access to this repository, or your \
-                             connection is stale — reconnect GitHub and try again."
+                             connection is stale. Reconnect GitHub and try again."
                                 .into(),
                         );
                         this.grant_reconnect = true;
@@ -335,7 +335,7 @@ impl AddRepositoryDialogView {
                     .text_color(theme::tokens::YELLOW.to_hsla()),
             )
             .child(div().flex_1().min_w_0().child(SharedString::from(format!(
-                "Reconnect GitHub{suffix} to refresh — repos created or shared with you \
+                "Reconnect GitHub{suffix} to refresh. Repos created or shared with you \
                  since your last connect won't appear until you do."
             ))))
             .children(self.connect_button("add-repo-reconnect", "Reconnect GitHub"))
@@ -422,7 +422,7 @@ fn suspended_notice(
         .text_color(cx.theme().danger)
         .child(Icon::new(registry::UI_WARNING).xsmall())
         .child(div().flex_1().min_w_0().child(SharedString::from(format!(
-            "GitHub suspended the Exponential app for {names} — its repositories can't \
+            "GitHub suspended the Exponential app for {names}. Its repositories can't \
              be connected until you unsuspend it on GitHub."
         ))))
         .children(manage_url.map(|url| {
@@ -481,7 +481,7 @@ impl Render for AddRepositoryDialogView {
                                 Button::new("add-repo-connected-refresh")
                                     .ghost()
                                     .small()
-                                    .label("I've connected — refresh")
+                                    .label("I've connected")
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.fetch(true, true, cx)
                                     })),
@@ -563,7 +563,7 @@ impl Render for AddRepositoryDialogView {
 
         if self.plan_limited {
             body = body.child(upgrade_notice(
-                "Repository limit reached — upgrade on the web to add more.".into(),
+                "Repository limit reached. Upgrade on the web to add more.".into(),
                 cx,
             ));
         }

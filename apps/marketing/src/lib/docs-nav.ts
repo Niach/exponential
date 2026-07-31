@@ -21,12 +21,12 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/coding/`,
     label: `Coding agents`,
-    blurb: `Hand issues to Claude Code, Codex or pi from the desktop IDE — single runs, batch runs, steer, review, merge.`,
+    blurb: `Hand issues to Claude Code, Codex or pi from the desktop IDE: single runs, batch runs, steer, review, merge.`,
   },
   {
     path: `/docs/actions/`,
     label: `Actions`,
-    blurb: `Reusable team prompts your agents run on demand — from the desktop, the web, or your phone.`,
+    blurb: `Reusable team prompts your agents run on demand from the desktop, the web, or your phone.`,
   },
   {
     path: `/docs/feedback/`,
@@ -36,7 +36,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/widget/`,
     label: `Feedback widget`,
-    blurb: `Embed the feedback button on any site — snippet, JS API, screenshots.`,
+    blurb: `Embed the feedback button on any site: snippet, JS API, screenshots.`,
   },
   {
     path: `/docs/mcp/`,
@@ -46,7 +46,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/apps/`,
     label: `Mobile & desktop apps`,
-    blurb: `The desktop IDE and the iOS / Android companions — install, push, steer.`,
+    blurb: `The desktop IDE and the iOS / Android companions: install, push, steer.`,
   },
   {
     path: `/docs/self-host/`,

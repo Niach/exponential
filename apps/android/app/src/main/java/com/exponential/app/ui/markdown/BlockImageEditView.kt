@@ -130,7 +130,7 @@ private fun RetryBadge(modifier: Modifier, error: String?, onRetry: () -> Unit) 
         IconButton(onClick = onRetry) {
             Icon(ExpIcons.uiRefresh, contentDescription = "Retry upload", tint = Color.White.copy(alpha = 0.8f))
         }
-        Text("Upload failed — tap to retry", color = Color.White.copy(alpha = 0.7f), style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.75f))
+        Text("Upload failed. Tap to retry", color = Color.White.copy(alpha = 0.7f), style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.75f))
         if (error != null) {
             Spacer(Modifier.height(4.dp))
             Text(

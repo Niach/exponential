@@ -161,7 +161,7 @@ struct IssueDetailView: View {
                                 vm.reloadRemoteDescription()
                             } label: {
                                 Label {
-                                    Text("Updated by someone else — Reload")
+                                    Text("Updated by someone else. Reload")
                                 } icon: {
                                     AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.small)
                                 }

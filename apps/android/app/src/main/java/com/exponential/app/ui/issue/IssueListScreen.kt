@@ -273,7 +273,7 @@ fun IssueListScreen(
                         is SteerStartState.Sent -> NoticeChip(
                             text = (if (sent.isBatch) "Batch start sent to " else "Start sent to ") +
                                 sent.deviceLabel.ifEmpty { "your desktop" } +
-                                " — watch it in Agents.",
+                                ". Watch it in Agents.",
                             isError = false,
                             onClick = null,
                         )
@@ -286,7 +286,7 @@ fun IssueListScreen(
                     }
                     if (noDesktopHint) {
                         NoticeChip(
-                            text = "No desktop online — open the Exponential desktop app to run here.",
+                            text = "No desktop online. Open the Exponential desktop app to run here.",
                             isError = true,
                             onClick = { noDesktopHint = false },
                         )

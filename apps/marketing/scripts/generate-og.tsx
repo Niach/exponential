@@ -47,12 +47,12 @@ const CARDS: Card[] = [
   {
     file: `og-home.png`,
     title: `Vibecode together`,
-    subtitle: `Issues, customer support and coding agents in one realtime workspace. Agents run locally on your machines.`,
+    subtitle: `Issues, customer support and coding agents in one realtime tracker. Agents run locally on your machines.`,
   },
   {
     file: `og-pricing.png`,
     title: `Free for teams of three. One plan after that`,
-    subtitle: `€12/seat/mo billed yearly, everything included. Local AI agents free on every plan. Self-host free — open source under Apache-2.0.`,
+    subtitle: `€12/seat/mo billed yearly, everything included. Local AI agents free on every plan. Self-host free, open source under Apache-2.0.`,
   },
   {
     file: `og-download.png`,
@@ -67,7 +67,7 @@ const CARDS: Card[] = [
   {
     file: `og-default.png`,
     title: `Exponential`,
-    subtitle: `One realtime workspace for issues, customer support and local AI coding agents.`,
+    subtitle: `One realtime tracker for issues, customer support and local AI coding agents.`,
   },
 ]
 

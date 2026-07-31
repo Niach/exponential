@@ -32,7 +32,7 @@ export function setWebMcpAppContext(ctx: WebMcpAppContext | null): void {
 export function getWebMcpAppContext(): WebMcpAppContext {
   if (!current) {
     throw new Error(
-      `No team is currently open in the app — open a team page first`
+      `No team is currently open in the app. Open a team page first.`
     )
   }
   return current

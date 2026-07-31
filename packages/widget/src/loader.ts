@@ -286,7 +286,7 @@ function start(): void {
       if (!state) {
         return {
           ok: false,
-          error: `Widget is not initialized — call init({ key }) first.`,
+          error: `Widget is not initialized. Call init({ key }) first.`,
         }
       }
       const runtime = state

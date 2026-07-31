@@ -1042,7 +1042,7 @@ impl StartCodingDialogView {
         }
         if self.checked.len() > MAX_ISSUES_PER_RUN {
             return Some(
-                format!("At most {MAX_ISSUES_PER_RUN} issues per run — split the batch.").into(),
+                format!("At most {MAX_ISSUES_PER_RUN} issues per run. Split the batch.").into(),
             );
         }
         // EXP-202: only ONE session per issue — a second agent spawned into
@@ -1059,7 +1059,7 @@ impl StartCodingDialogView {
             }
             if sessions.read(cx).get(&row.issue_id).is_some() {
                 return Some(
-                    format!("Already coding {} — stop that session first.", row.identifier)
+                    format!("Already coding {}. Stop that session first.", row.identifier)
                         .into(),
                 );
             }
@@ -1074,7 +1074,7 @@ impl StartCodingDialogView {
                     .unwrap_or_else(|| "another device".to_string());
                 return Some(
                     format!(
-                        "{} already has a live session on {device} — only one session per issue.",
+                        "{} already has a live session on {device} (only one session per issue).",
                         row.identifier
                     )
                     .into(),
@@ -1091,7 +1091,7 @@ impl StartCodingDialogView {
                     None => repo = Some(&resolved.repository_id),
                     Some(existing) if existing == resolved.repository_id => {}
                     Some(_) => {
-                        return Some("One repository per run — deselect the others.".into())
+                        return Some("One repository per run. Deselect the others.".into())
                     }
                 },
                 // Still resolving (or unresolvable-but-checked — transient).
@@ -1821,7 +1821,7 @@ impl StartCodingDialogView {
             _ => div()
                 .text_xs()
                 .text_color(muted)
-                .child("Unsupported input type — update the app.")
+                .child("This input type isn't supported. Update the app.")
                 .into_any_element(),
         };
         v_flex()
@@ -1991,7 +1991,7 @@ impl Render for StartCodingDialogView {
                 div()
                     .text_xs()
                     .text_color(theme_muted)
-                    .child("No matches — only open issues from this board are shown."),
+                    .child("No matches. Only open issues from this board are shown."),
             );
         }
         if hidden > 0 {
@@ -2000,7 +2000,7 @@ impl Render for StartCodingDialogView {
                     .text_xs()
                     .text_color(theme_muted)
                     .child(SharedString::from(format!(
-                        "+{hidden} more — refine your search."
+                        "+{hidden} more. Refine your search."
                     ))),
             );
         }
@@ -2148,7 +2148,7 @@ impl Render for StartCodingDialogView {
                         div()
                             .text_xs()
                             .text_color(theme_muted)
-                            .child("Run a reusable team action on this device — pick one and \
+                            .child("Run a reusable team action on this device. Pick one and \
 fill in its inputs. \"Create action\" authors a new one from your description."),
                     )
                     .child(Input::new(&self.action_search).small())
@@ -2181,7 +2181,7 @@ fill in its inputs. \"Create action\" authors a new one from your description.")
             if checked_count > MAX_ISSUES_PER_RUN {
                 left = left.child(div().text_xs().text_color(warning).child(
                     SharedString::from(format!(
-                        "At most {MAX_ISSUES_PER_RUN} issues per run — split the batch."
+                        "At most {MAX_ISSUES_PER_RUN} issues per run. Split the batch."
                     )),
                 ));
             } else if checked_count > COST_NOTE_THRESHOLD {

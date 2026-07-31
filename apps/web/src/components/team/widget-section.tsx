@@ -180,7 +180,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
       setWidgets(await trpc.widgets.list.query({ teamId }))
       setError(null)
     } catch {
-      setError(`Couldn't load widgets — are you an owner of this team?`)
+      setError(`Couldn't load widgets. Are you an owner of this team?`)
     } finally {
       setLoading(false)
     }
@@ -401,7 +401,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
           </CardTitle>
           <CardDescription>
             Embed the Exponential widget on your own site: visitors capture a
-            screenshot, describe the problem, and it lands here as an issue —
+            screenshot, describe the problem, and it lands here as an issue,
             with reporter email and page context attached.
           </CardDescription>
         </CardHeader>
@@ -458,7 +458,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                         // denied at serve time, so the widget is dead until
                         // domains are added.
                         <span className="text-amber-500">
-                          no allowed domains — widget blocked
+                          Widget blocked: no allowed domains
                         </span>
                       ) : (
                         widget.allowedDomains.map((domain) => (
@@ -558,7 +558,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                   </Select>
                   {formMode !== `feedback` && (
                     <p className="text-xs text-muted-foreground">
-                      Support files helpdesk tickets — visitors get a
+                      Support files helpdesk tickets. Visitors get a
                       reply-by-email conversation. Requires the helpdesk to be
                       enabled for this team (below).
                     </p>
@@ -724,7 +724,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {needsBoard
-                      ? `Hide the email field for teams that follow up in person — a name is often all you need. Support mode always asks for an email (it's the reply channel).`
+                      ? `Hide the email field for teams that follow up in person. A name is often all you need. Support mode always asks for an email (it's the reply channel).`
                       : `Support mode always asks for an email (it's the reply channel); the name field is optional.`}
                   </p>
                 </div>

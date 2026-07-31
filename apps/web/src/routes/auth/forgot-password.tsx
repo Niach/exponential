@@ -63,7 +63,7 @@ function ForgotPasswordPage() {
       {sent ? (
         <p className="text-sm text-muted-foreground">
           If an account exists for <span className="text-foreground">{email}</span>,
-          a reset link is on its way. Check your inbox (and spam folder) — the
+          a reset link is on its way. Check your inbox (and spam folder). The
           link expires in one hour.
         </p>
       ) : (

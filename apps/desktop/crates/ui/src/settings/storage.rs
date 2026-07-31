@@ -242,7 +242,7 @@ impl StoragePane {
             format!("Sweep {candidates} unreferenced image{plural}?"),
             "These images are no longer embedded in any description or \
              comment in this team, so deleting them changes no text. Images \
-             uploaded in the last 24 hours are kept — they may still be \
+             uploaded in the last 24 hours are kept. They may still be \
              sitting in an unsaved draft. Files are never swept.",
             "Sweep images",
         )
@@ -677,11 +677,11 @@ fn sweep_result_message(deleted: i64, freed_bytes: i64, skipped_recent: i64) -> 
         if skipped_recent > 0 {
             let plural = if skipped_recent == 1 { "" } else { "s" };
             return SharedString::from(format!(
-                "Nothing swept — {skipped_recent} recent upload{plural} are still inside \
+                "Nothing swept. {skipped_recent} recent upload{plural} are still inside \
                  the 24h grace window."
             ));
         }
-        return "Nothing to sweep — every image is still referenced.".into();
+        return "Nothing to sweep. Every image is still referenced.".into();
     }
     let plural = if deleted == 1 { "" } else { "s" };
     SharedString::from(format!(
@@ -713,11 +713,11 @@ mod tests {
     fn sweep_messages_cover_all_outcomes() {
         assert_eq!(
             sweep_result_message(0, 0, 0).as_ref(),
-            "Nothing to sweep — every image is still referenced."
+            "Nothing to sweep. Every image is still referenced."
         );
         assert_eq!(
             sweep_result_message(0, 0, 2).as_ref(),
-            "Nothing swept — 2 recent uploads are still inside the 24h grace window."
+            "Nothing swept. 2 recent uploads are still inside the 24h grace window."
         );
         assert_eq!(
             sweep_result_message(1, 2048, 0).as_ref(),

@@ -85,7 +85,7 @@ struct LabelsSheet: View {
                     }
 
                     if filtered.isEmpty, !showsCreateRow {
-                        Text("No labels yet — type a name to create one.")
+                        Text("No labels yet. Type a name to create one.")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .padding(.top, 16)

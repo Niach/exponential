@@ -250,7 +250,7 @@ impl CreateBoardDialogView {
         // EXP-368: the browser GitHub-connect hand-off ends in an
         // `exponential://github-connected` deep link that lands on the App —
         // adopt it here so the picker refreshes itself (success) or explains
-        // the failure without the user pressing "I've connected — refresh".
+        // the failure without the user pressing "I've connected".
         subscriptions.push(
             cx.observe_global::<crate::github_connect::GithubConnectSignal>(|this, cx| {
                 let Some(outcome) = cx
@@ -437,7 +437,7 @@ impl CreateBoardDialogView {
                         if is_grant_forbidden(&err) {
                             this.error = Some(
                                 "GitHub says you don't have access to this repository, or \
-                                 your connection is stale — reconnect GitHub and try again."
+                                 your connection is stale. Reconnect GitHub and try again."
                                     .into(),
                             );
                             this.grant_reconnect = true;
@@ -450,7 +450,7 @@ impl CreateBoardDialogView {
                                 // Wizard host: no dialog to close — the same
                                 // §4.9 neutral hand-off renders inline.
                                 this.error = Some(
-                                    "Board limit reached — upgrade on the web to create \
+                                    "Board limit reached. Upgrade on the web to create \
                                      more."
                                         .into(),
                                 );
@@ -464,7 +464,7 @@ impl CreateBoardDialogView {
                             native_dialog::close_then(window, cx, |window, cx| {
                                 window.push_notification(
                                     Notification::warning(
-                                        "Board limit reached — upgrade on the web to \
+                                        "Board limit reached. Upgrade on the web to \
                                          create more.",
                                     ),
                                     cx,
@@ -720,7 +720,7 @@ impl CreateBoardDialogView {
                 .text_color(cx.theme().danger)
                 .child(Icon::new(registry::UI_WARNING).xsmall())
                 .child(div().flex_1().min_w_0().child(SharedString::from(format!(
-                    "GitHub suspended the Exponential app for {names} — its repositories \
+                    "GitHub suspended the Exponential app for {names}. Its repositories \
                      can't be connected until you unsuspend it on GitHub."
                 ))));
             if let Some(url) = manage_url {
@@ -786,7 +786,7 @@ impl CreateBoardDialogView {
                         )
                     } else {
                         format!(
-                            "Reconnect GitHub{suffix} to refresh — repos created or shared \
+                            "Reconnect GitHub{suffix} to refresh. Repos created or shared \
                              with you since your last connect won't appear until you do."
                         )
                     },
@@ -825,7 +825,7 @@ impl CreateBoardDialogView {
                     "GitHub isn't configured on this server, so repositories can't be connected."
                         .into()
                 }
-                _ => "No repositories available yet — connect one on GitHub.".into(),
+                _ => "No repositories available yet. Connect one on GitHub.".into(),
             };
             column = column.child(
                 div()
@@ -854,7 +854,7 @@ impl CreateBoardDialogView {
                 .ghost()
                 .xsmall()
                 .label(if configured_not_installed {
-                    "I've connected \u{2014} refresh"
+                    "I've connected"
                 } else {
                     "Refresh"
                 })
@@ -1088,7 +1088,8 @@ pub(crate) fn is_plan_limit(err: &api::ApiError) -> bool {
 pub(crate) fn is_grant_forbidden(err: &api::ApiError) -> bool {
     matches!(
         err,
-        api::ApiError::Http { status: 403, message } if message.contains("reconnect GitHub")
+        api::ApiError::Http { status: 403, message }
+            if message.to_lowercase().contains("reconnect github")
     )
 }
 
@@ -1101,7 +1102,7 @@ mod tests {
         let grant = api::ApiError::Http {
             status: 403,
             message: "You don't have access to acme/repo on GitHub, or your connection is \
-                      stale — reconnect GitHub in team settings → Repositories to \
+                      stale. Reconnect GitHub in team settings → Repositories to \
                       refresh which repositories you can access."
                 .into(),
         };
@@ -1111,7 +1112,7 @@ mod tests {
         // The real plan-cap shape: 412 + the lib/plan-limit-error.ts prefix.
         let plan_cap = api::ApiError::Http {
             status: 412,
-            message: "Your plan allows 3 seats — upgrade to invite more members.".into(),
+            message: "Your plan allows 3 seats. Upgrade to invite more members.".into(),
         };
         assert!(!is_grant_forbidden(&plan_cap));
         assert!(is_plan_limit(&plan_cap));

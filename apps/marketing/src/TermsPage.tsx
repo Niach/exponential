@@ -78,8 +78,8 @@ export function TermsPage() {
           <p style={prose}>
             You may self-host Exponential on your own infrastructure for free,
             at any company size, under the license above. Optional Enterprise
-            Support — SLA, priority support, deployment help, custom
-            development — is available as a paid add-on (
+            Support (SLA, priority support, deployment help, custom development)
+            is available as a paid add-on (
             <a href="mailto:support@exponential.at" style={linkStyle}>
               support@exponential.at
             </a>

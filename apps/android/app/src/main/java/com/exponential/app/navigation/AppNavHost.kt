@@ -671,7 +671,7 @@ private fun GatedServersBanner(
             "${servers.size} servers need"
         }
         Text(
-            "$subject a newer app version — sync there is paused.",
+            "$subject a newer app version. Sync there is paused.",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f, fill = false),

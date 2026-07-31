@@ -14,7 +14,7 @@ export function BoardNotFound({
   return (
     <div className="flex flex-col items-start gap-3 p-6 text-sm">
       <div className="text-muted-foreground">
-        Board <span className="font-mono">{boardSlug}</span> not found — it may
+        Board <span className="font-mono">{boardSlug}</span> not found. It may
         have been deleted or renamed.
       </div>
       <Link

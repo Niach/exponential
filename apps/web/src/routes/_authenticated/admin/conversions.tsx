@@ -115,7 +115,7 @@ function AdminConversions() {
         <div>
           <h1 className="text-2xl font-bold">Conversions</h1>
           <p className="text-sm text-muted-foreground">
-            First-party funnel — period counts over the selected window, not
+            First-party funnel: period counts over the selected window, not
             cohorts. Visitors are unique visitor-days (cookieless daily ids, bot
             filtering is best-effort).
           </p>
@@ -158,25 +158,25 @@ function AdminConversions() {
 
       <div className="grid gap-3 md:grid-cols-2">
         <ChartCard
-          title={`Visitors — last ${days} days`}
+          title={`Visitors (last ${days} days)`}
           rows={landingRows}
           days={days}
           unit="visitor-day"
         />
         <ChartCard
-          title={`Signups — last ${days} days`}
+          title={`Signups (last ${days} days)`}
           rows={signupRows}
           days={days}
           unit="signup"
         />
         <ChartCard
-          title={`Activations — last ${days} days`}
+          title={`Activations (last ${days} days)`}
           rows={activationRows}
           days={days}
           unit="activation event"
         />
         <ChartCard
-          title={`Paid conversions — last ${days} days`}
+          title={`Paid conversions (last ${days} days)`}
           rows={paidRows}
           days={days}
           unit="subscription"

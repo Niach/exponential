@@ -127,9 +127,9 @@ async function assertInstallationNotInUse(
   if (inUse.length > 0) {
     throw new TRPCError({
       code: `CONFLICT`,
-      message: `Cannot disconnect — ${inUse.length} connected ${
+      message: `${inUse.length} connected ${
         inUse.length === 1 ? `repository uses` : `repositories use`
-      } this GitHub account. Remove them first.`,
+      } this GitHub account. Remove them before disconnecting.`,
     })
   }
 }
@@ -279,7 +279,7 @@ async function assertRepoGrant(
   if (row) return
   throw new TRPCError({
     code: `FORBIDDEN`,
-    message: `You don't have access to ${fullName} on GitHub, or your connection is stale — reconnect GitHub in team settings → Repositories to refresh which repositories you can access.`,
+    message: `You don't have access to ${fullName} on GitHub, or your connection is stale. Reconnect GitHub in team settings → Repositories to refresh which repositories you can access.`,
   })
 }
 

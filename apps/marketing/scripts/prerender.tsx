@@ -228,7 +228,7 @@ function writeLlmsTxt(): void {
   const lines: string[] = [
     `# ${SITE_NAME}`,
     ``,
-    `> An open-source (Apache-2.0) realtime tracker for issues, customer support and coding agents. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests — unlimited sessions, flat price. Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
+    `> An open-source (Apache-2.0) realtime tracker for issues, customer support and coding agents. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests (unlimited sessions, flat price). Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
     ``,
     `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential.`,
   ]

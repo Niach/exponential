@@ -43,7 +43,7 @@ export function WidgetDocsPage() {
           <div className="shell docs-hero-content">
             <h1>Feedback widget</h1>
             <p>
-              A feedback button for any website — visitors report bugs with an
+              A feedback button for any website. Visitors report bugs with an
               annotated screenshot, and each report lands as an issue on your
               board.
             </p>
@@ -58,8 +58,8 @@ export function WidgetDocsPage() {
               Create a widget in <strong>Team settings → Widget</strong>{` `}
               (team owners only; every plan includes at least one). Each
               config gets a public <code>expw_</code> key, a{` `}
-              <strong>domain allowlist</strong> — submissions are only
-              accepted from pages on domains you list — a{` `}
+              <strong>domain allowlist</strong> (submissions are only accepted
+              from pages on domains you list), a{` `}
               <strong>mode</strong> (feedback, support, or both), and for
               feedback a <strong>target board</strong> where reports land.
             </p>
@@ -70,14 +70,14 @@ export function WidgetDocsPage() {
             </p>
             <DocsCode language="html">{WIDGET_SNIPPET}</DocsCode>
             <p>
-              That&apos;s the whole install — a floating feedback button
+              That&apos;s the whole install. A floating feedback button
               appears, and calls made before the script loads are queued and
               replayed.
             </p>
             <DocsCallout kind="note" title="The key is public by design">
               <code>expw_</code> keys ship in page source, like an analytics
               ID. The domain allowlist plus server-side rate limits are what
-              gate submissions — never any secret in the page.
+              gate submissions, so no secret ever has to live in the page.
             </DocsCallout>
           </DocsSection>
 
@@ -89,7 +89,7 @@ export function WidgetDocsPage() {
               six calls:
             </p>
             <DocsCode language="js">{`
-// Required once — boots the widget with your public key.
+// Call this once to boot the widget with your public key.
 ExponentialWidget.init({ key: "expw_YOUR_KEY" });
 
 // Attach your signed-in user, so reports arrive with a
@@ -100,26 +100,26 @@ ExponentialWidget.identify({
   userId: "usr_123",
 });
 
-// Arbitrary context stamped onto every submission —
+// Arbitrary context stamped onto every submission:
 // plan, build, feature flags, tenant…
 ExponentialWidget.setCustomData({
   plan: "business",
   version: "1.42.0",
 });
 
-// Open / close the panel programmatically — e.g. wire
-// "Report a bug" in your own menu to open().
+// Open / close the panel programmatically. Wire your own
+// "Report a bug" menu item to open().
 ExponentialWidget.open();
 ExponentialWidget.close();
 
-// Submit without the panel — see Headless mode below.
+// Submit without the panel. See Headless mode below.
 ExponentialWidget.submit({ title: "Broken button" });
 `}</DocsCode>
             <p>
-              All calls are safe to make before the script has loaded — the
+              All calls are safe to make before the script has loaded. The
               loader queues and replays them in order. (A queued{` `}
-              <code>submit</code> runs fire-and-forget; call it after load —
-              e.g. from a click handler — to get its Promise.)
+              <code>submit</code> runs fire-and-forget; call it after load,
+              e.g. from a click handler, to get its Promise.)
             </p>
           </DocsSection>
 
@@ -133,26 +133,27 @@ ExponentialWidget.submit({ title: "Broken button" });
             </p>
             <ul>
               <li>
-                <strong>Email</strong> — shown by default and optional; make it
+                <strong>Email</strong>: shown by default and optional; make it
                 required, or hide it entirely for internal tools where nobody
                 wants resolution emails.
               </li>
               <li>
-                <strong>Name</strong> — off by default. Turn it on (optionally
+                <strong>Name</strong>: off by default. Turn it on (optionally
                 required) when a plain name is all you need to walk over and
-                ask &ldquo;what did you mean?&rdquo; — no email required.
+                ask &ldquo;what did you mean?&rdquo; without collecting an
+                email.
               </li>
               <li>
-                <strong>Custom fields</strong> — up to 8 extra text inputs
+                <strong>Custom fields</strong>: up to 8 extra text inputs
                 (e.g. &ldquo;Which page?&rdquo;, &ldquo;Order number&rdquo;).
                 Responses land in the submission&apos;s custom-data block,
-                alongside your <code>setCustomData</code> payload — a typed
+                alongside your <code>setCustomData</code> payload. A typed
                 response wins over a host-set key of the same name.
               </li>
             </ul>
             <p>
               Visitors attached via <code>identify()</code> skip the email and
-              name fields — their identity rides along invisibly. Support mode
+              name fields. Their identity rides along invisibly. Support mode
               always asks for an email: it&apos;s the reply channel.
             </p>
           </DocsSection>
@@ -162,7 +163,7 @@ ExponentialWidget.submit({ title: "Broken button" });
             <h2>Headless mode</h2>
             <p>
               Want your own feedback UI? Boot the widget without its button and
-              submit programmatically — you keep the key + domain gating, rate
+              submit programmatically. You keep the key + domain gating, rate
               limits, and issue creation, and skip the panel entirely:
             </p>
             <DocsCode language="js">{`
@@ -175,7 +176,7 @@ const result = await ExponentialWidget.submit({
   description: "Steps to reproduce…",
   name: "dani",                     // overrides identify()
   customData: { page: "checkout" }, // merged over setCustomData()
-  screenshot: myBlob,               // optional — you capture it
+  screenshot: myBlob,               // optional: you capture it
 });
 
 if (result.ok) {
@@ -188,13 +189,13 @@ if (result.ok) {
 await ExponentialWidget.submit({
   mode: "support",
   message: "I can't log in",
-  email: "ada@example.com", // required — it's the reply channel
+  email: "ada@example.com", // required: it's the reply channel
 });
 `}</DocsCode>
             <p>
               <code>submit()</code> resolves with{` `}
               <code>{`{ ok, identifier, url }`}</code> on success and{` `}
-              <code>{`{ ok: false, error, code }`}</code> on failure — it never
+              <code>{`{ ok: false, error, code }`}</code> on failure. It never
               throws. Screenshots are yours to capture in headless mode; pass a{` `}
               <code>Blob</code> (PNG, JPEG, or WebP) and it&apos;s attached
               like a panel screenshot. Server-side validation (required fields,
@@ -211,7 +212,7 @@ await ExponentialWidget.submit({
             <h2>Screenshots &amp; annotation</h2>
             <p>
               Screenshots are captured <strong>client-side, in the
-              browser</strong> — the visitor&apos;s viewport is rendered
+              browser</strong>. The visitor&apos;s viewport is rendered
               locally and nothing is fetched by a server-side browser, so
               what&apos;s on their screen (including logged-in state) is what
               you see.
@@ -223,7 +224,7 @@ await ExponentialWidget.submit({
               image on submit.
             </p>
             <DocsCallout kind="tip" title="Capture never blocks a report">
-              If capture fails on an exotic page, the report still submits —
+              If capture fails on an exotic page, the report still submits,
               just without the image.
             </DocsCallout>
           </DocsSection>
@@ -253,17 +254,17 @@ await ExponentialWidget.submit({
               </li>
             </ul>
             <p>
-              The reporter is <strong>auto-subscribed</strong> to the issue —
-              resolve it and they&apos;re notified.
+              The reporter is <strong>auto-subscribed</strong> to the issue.
+              Resolve it and they&apos;re notified.
             </p>
             <p>
               <strong>Support requests are different</strong>: with the{` `}
               <a href="/docs/feedback/#helpdesk">helpdesk</a> enabled (Team
               plan), they skip the board entirely and open a{` `}
-              <strong>ticket in your team&apos;s Support inbox</strong> — an
-              email conversation with the reporter that any member can answer,
-              and escalate into an issue on any board when it turns out to be
-              a bug.
+              <strong>ticket in your team&apos;s Support inbox</strong>. That
+              ticket is an email conversation with the reporter that any member
+              can answer, and escalate into an issue on any board when it turns
+              out to be a bug.
             </p>
           </DocsSection>
 
@@ -271,7 +272,7 @@ await ExponentialWidget.submit({
           <DocsSection id="try-it" num="07" label="Try it">
             <h2>Try it</h2>
             <p>
-              This site runs the real widget — the feedback button in the
+              This site runs the real widget. The feedback button in the
               corner of this page is a live install of exactly the snippet
               above. Click it, annotate a screenshot, submit, and your report
               lands on the Exponential team&apos;s own feedback board.

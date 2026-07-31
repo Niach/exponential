@@ -114,7 +114,7 @@ struct GithubRepoPicker: View {
             Button {
                 Task { await load(refresh: true) }
             } label: {
-                Text("I've connected — refresh").frame(maxWidth: .infinity)
+                Text("I've connected").frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
         }
@@ -228,7 +228,7 @@ struct GithubRepoPicker: View {
             .filter { $0.isSuspended }
             .map { $0.accountLogin ?? "a connected account" }
             .joined(separator: ", ")
-        Text("GitHub suspended the Exponential app for \(names) — its repositories can't be connected until you unsuspend it on GitHub.")
+        Text("GitHub suspended the Exponential app for \(names). Its repositories can't be connected until you unsuspend it on GitHub.")
             .font(.caption)
             .foregroundStyle(.red.opacity(0.8))
             .padding(.horizontal, 12)
@@ -249,7 +249,7 @@ struct GithubRepoPicker: View {
     // from the (non-empty) list until the user reconnects.
     @ViewBuilder private func reconnectNotice(_ data: GithubReposResult) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Reconnect GitHub\(reauthAccountSuffix(data, preposition: "for")) to refresh — repos created or shared with you since your last connect won't appear until you do.")
+            Text("Reconnect GitHub\(reauthAccountSuffix(data, preposition: "for")) to refresh. Repos created or shared with you since your last connect won't appear until you do.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Button {

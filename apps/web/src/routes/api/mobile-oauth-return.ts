@@ -112,7 +112,7 @@ function failureResponse(request: Request, rawReason: unknown): Response {
   return new Response(
     renderHandoffPage({
       ok: false,
-      title: `Sign-in failed — Exponential`,
+      title: `Sign-in failed · Exponential`,
       heading: `Sign-in didn't finish`,
       body: `${oauthErrorMessage(reason)} You can close this tab and try again in the app.`,
       deepLink: oauthReturnErrorDeepLink(reason),
@@ -216,7 +216,7 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
         return new Response(
           renderHandoffPage({
             ok: true,
-            title: `Signed in — Exponential`,
+            title: `Signed in · Exponential`,
             heading: `You're signed in`,
             body: `Exponential is opening. You can close this tab and return to the app.`,
             deepLink: target,

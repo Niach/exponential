@@ -139,7 +139,7 @@ fun AgentsScreen(
                             // null = still loading; render nothing under the header.
                             devs == null -> Unit
                             devs.isEmpty() -> item(key = "__no_desktop__") {
-                                HintRow("No desktop online — open the Exponential desktop app to run here.")
+                                HintRow("No desktop online. Open the Exponential desktop app to run here.")
                             }
                             else -> items(devs, key = { "dev_${it.deviceId}" }) { device ->
                                 DeviceRow(device = device, onStart = { sheetDevice = device })
@@ -325,9 +325,9 @@ private fun startStateCaption(state: SteerStartState): StartCaption? = when (sta
     is SteerStartState.Sending -> StartCaption("Sending start command…", false)
     is SteerStartState.Sent ->
         if (state.isBatch) {
-            StartCaption("Batch start sent to ${state.deviceLabel} — it'll appear below when the desktop picks up.", false)
+            StartCaption("Batch start sent to ${state.deviceLabel}. It'll appear below when the desktop picks up.", false)
         } else {
-            StartCaption("Start sent to ${state.deviceLabel} — waiting for the desktop…", false)
+            StartCaption("Start sent to ${state.deviceLabel}. Waiting for the desktop…", false)
         }
     is SteerStartState.Failed -> StartCaption(state.message, true)
 }
@@ -485,7 +485,7 @@ private fun AgentsEmptyState() {
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )
             Text(
-                "Start coding on an issue from the desktop IDE — live sessions show up here.",
+                "Start coding on an issue from the desktop IDE. Live sessions show up here.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 textAlign = TextAlign.Center,

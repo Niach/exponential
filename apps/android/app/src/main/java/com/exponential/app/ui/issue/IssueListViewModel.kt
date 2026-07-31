@@ -904,8 +904,8 @@ class IssueListViewModel @Inject constructor(
             }
         }
         if (failed.isNotEmpty()) {
-            _error.value = "Couldn't attach ${failed.joinToString(", ")} — " +
-                "add ${if (failed.size == 1) "it" else "them"} from the issue"
+            _error.value = "Couldn't attach ${failed.joinToString(", ")}. " +
+                "Add ${if (failed.size == 1) "it" else "them"} from the issue."
         }
     }
 }

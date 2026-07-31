@@ -284,7 +284,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                         // L30: never fabricate `main` — without a known
                         // default branch there is no rebase target.
                         let message =
-                            "The repository has no known default branch — refresh it in \
+                            "The repository has no known default branch. Refresh it in \
 team settings → Repositories.";
                         log::warn!("actions: fix-conflicts start refused — {message}");
                         let _ = window.update(cx, |_, window, cx| {

@@ -199,7 +199,7 @@ export function GithubRepoPicker({
             onClick={() => void refresh(true)}
           >
             <RefreshCw className="mr-2 h-4 w-4" />
-            I’ve connected — refresh
+            I’ve connected
           </Button>
         </div>
       </div>
@@ -231,8 +231,8 @@ export function GithubRepoPicker({
           <Github className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1">
             GitHub suspended the Exponential app for{` `}
-            {suspendedAccounts.join(`, `)} — its repositories can’t be
-            connected until you unsuspend it on GitHub.
+            {suspendedAccounts.join(`, `)}. Its repositories can’t be connected
+            until you unsuspend it on GitHub.
           </span>
         </div>
       )}
@@ -243,7 +243,7 @@ export function GithubRepoPicker({
           <span className="min-w-0 flex-1">
             {empty
               ? `Reconnect GitHub to load the repositories you can access${reauthAccounts.length > 0 ? ` from ${reauthAccounts.join(`, `)}` : ``}.`
-              : `Reconnect GitHub${reauthAccounts.length > 0 ? ` (${reauthAccounts.join(`, `)})` : ``} to refresh — repos created or shared with you since your last connect won’t appear until you do.`}
+              : `Reconnect GitHub${reauthAccounts.length > 0 ? ` (${reauthAccounts.join(`, `)})` : ``} to refresh. Repos created or shared with you since your last connect won’t appear until you do.`}
           </span>
           <Button type="button" size="sm" variant="outline" onClick={openConnect}>
             <RefreshCw className="mr-2 h-4 w-4" />

@@ -202,7 +202,7 @@ class SteerLaunchDelegate @Inject constructor(
                     // just vanished and nothing ever appeared. The desktop
                     // holds the reason (it notifies there); say so.
                     _runState.value = ActionRunState.Failed(
-                        "$label never started this run — open the Exponential desktop app " +
+                        "$label never started this run. Open the Exponential desktop app " +
                             "there to see why.",
                     )
                 }

@@ -282,7 +282,7 @@ struct ChangesView: View {
             Button("Close PR without merging", role: .destructive) { viewModel?.closePr() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Closes the pull request on GitHub without merging — use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.")
+            Text("Closes the pull request on GitHub without merging. Use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.")
         }
     }
 
@@ -559,7 +559,7 @@ struct ChangesView: View {
                     options: options,
                     inputs: inputs.isEmpty ? nil : inputs
                 )
-                runCaption = "Run sent to \(label) — it'll appear under Agents when it spins up."
+                runCaption = "Run sent to \(label). It'll appear under Agents when it spins up."
                 Task {
                     try? await Task.sleep(for: .seconds(30))
                     runCaption = nil
@@ -593,7 +593,7 @@ struct ChangesView: View {
                         options: options
                     )
                 }
-                runCaption = "Start sent to \(label) — it'll appear under Agents when it spins up."
+                runCaption = "Start sent to \(label). It'll appear under Agents when it spins up."
                 Task {
                     try? await Task.sleep(for: .seconds(30))
                     runCaption = nil

@@ -26,7 +26,7 @@ export function DocsPage() {
           <div className="shell docs-hero-content">
             <h1>Docs</h1>
             <p>
-              Everything about Exponential — issue tracking, coding agents,
+              Everything about Exponential: issue tracking, coding agents,
               feedback and the helpdesk, the apps, and the API.
             </p>
             <div className="docs-hero-cta">
@@ -52,7 +52,7 @@ export function DocsPage() {
               <a href="/docs/feedback/">team helpdesk</a>, your team
               triages them as <a href="/docs/issues/">issues</a>, and the{` `}
               <a href="/docs/coding/">desktop IDE hands issues to your agent</a>
-              {` `}— running locally on your machine — which implements,
+              {` `}(running locally on your machine), which implements,
               pushes, and opens the GitHub PR. Merging the PR completes the
               issue and can notify the person who reported it.
             </p>
@@ -62,7 +62,7 @@ export function DocsPage() {
               it: the free cloud at{` `}
               <a href={LINKS.app.login}>app.exponential.at</a> or{` `}
               <a href="/docs/self-host/">self-hosted</a> on your own server,
-              free for everyone — open source under Apache-2.0.
+              free for everyone. It&apos;s open source under Apache-2.0.
             </p>
 
             <div className="docs-embed">
@@ -77,7 +77,7 @@ export function DocsPage() {
             <ol>
               <li>
                 <strong>Sign up</strong> at{` `}
-                <a href={LINKS.app.login}>app.exponential.at</a> — then
+                <a href={LINKS.app.login}>app.exponential.at</a>, then
                 create a team or join one via invite link. Details in{` `}
                 <a href="/docs/getting-started/">Getting started</a>.
               </li>
@@ -88,19 +88,19 @@ export function DocsPage() {
                 GitHub repository if you want coding sessions and PRs.
               </li>
               <li>
-                <strong>File your first issue</strong> — title, markdown
+                <strong>File your first issue</strong>: title, markdown
                 description, status, priority, labels. See{` `}
                 <a href="/docs/issues/">Issues &amp; boards</a>.
               </li>
               <li>
                 <strong>Start coding</strong>: install the{` `}
                 <a href={LINKS.downloadPage}>desktop app</a>, open the issue,
-                and hit <strong>Start coding</strong> — your agent runs in the
+                and hit <strong>Start coding</strong>. Your agent runs in the
                 embedded terminal, plans first, implements, and opens the PR
                 itself. See <a href="/docs/coding/">Coding agents</a>.
               </li>
               <li>
-                <strong>Merge</strong> — the issue moves to In Review when the
+                <strong>Merge</strong>: the issue moves to In Review when the
                 PR opens and completes to Done when it merges.
               </li>
             </ol>
@@ -126,15 +126,15 @@ export function DocsPage() {
             <h2>Community &amp; help</h2>
             <p>
               The source is public at{` `}
-              <a href={LINKS.github.repo}>github.com/Niach/exponential</a> —
-              code, issues, and release notes all live there. Exponential is
+              <a href={LINKS.github.repo}>github.com/Niach/exponential</a>.
+              Code, issues, and release notes all live there. Exponential is
               fully open source under Apache-2.0: see{` `}
               <a href="/docs/self-host/#licensing">Licensing</a> for the
               details.
             </p>
             <p>
               Found a bug or want a feature? Hit the feedback button in the
-              corner of this very site — it&apos;s the{` `}
+              corner of this very site. It&apos;s the{` `}
               <a href="/docs/widget/">embeddable widget</a>, running for real.
               Your report lands straight on the Exponential team&apos;s own
               feedback board, where reports are triaged (and often fixed by an

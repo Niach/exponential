@@ -308,8 +308,8 @@ pub fn create_worktree(
         return Err(GitError {
             op: format!("git worktree add ({branch})"),
             detail: format!(
-                "{branch} is checked out in the main clone at {} — switch it back to the \
-default branch and retry",
+                "{branch} is checked out in the main clone at {}. Switch it back to the \
+default branch and retry.",
                 clone.display()
             ),
         });
@@ -385,9 +385,9 @@ pub fn ensure_branch_at_origin(
         return Err(GitError {
             op: format!("sync {branch} to origin/{branch}"),
             detail: format!(
-                "the local branch {branch} has commits that origin/{branch} does not — \
-push or delete the local branch (or its worktree) and retry; running fix-conflicts \
-from it would force-push those away"
+                "the local branch {branch} has commits that origin/{branch} does not. \
+Push or delete the local branch (or its worktree) and retry; running fix-conflicts \
+from it would force-push those away."
             ),
         });
     }
@@ -979,7 +979,7 @@ mod tests {
         // … must refuse, whether the branch is strictly ahead …
         let err =
             ensure_branch_at_origin(&clone, &worktree, "exp/EXP-9", &url).unwrap_err();
-        assert!(err.detail.contains("push or delete"), "{err}");
+        assert!(err.detail.contains("Push or delete"), "{err}");
         assert_eq!(rev(&clone, "exp/EXP-9"), local_tip, "local commit must survive");
 
         // … or fully diverged (remote grew a commit too).

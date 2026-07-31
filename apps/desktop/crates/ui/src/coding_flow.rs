@@ -1259,7 +1259,7 @@ impl CodingHub {
 /// when no agent CLI is installed (git may still be fine — coding just has
 /// nothing to launch).
 pub(crate) const NO_AGENT_COPY: &str =
-    "No coding agent CLI found (claude, codex, or pi) — install one in Settings → Tools.";
+    "No coding agent CLI found (claude, codex, or pi). Install one in Settings → Tools.";
 
 /// `Some(reason)` when the doctor has REPORTED and no agent CLI is usable —
 /// the shared gate for every Start-coding entry point (EXP-367: buttons
@@ -1390,7 +1390,7 @@ impl Render for StartCodingControl {
                 // repo server-side and surfaces the real failure.
                 let tooltip: SharedString = match &self.probe {
                     RepoProbe::Error(err) => format!(
-                        "Couldn't check the linked repository ({err}) — starting will retry."
+                        "Couldn't check the linked repository ({err}). Starting will retry."
                     )
                     .into(),
                     _ => "Clone the linked repository and start an agent on this issue".into(),

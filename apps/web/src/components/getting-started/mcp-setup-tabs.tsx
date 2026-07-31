@@ -130,13 +130,13 @@ export function McpSetupTabs() {
                 <li>Settings → Connectors → Add custom connector.</li>
                 <li>Paste the URL below and click Add.</li>
                 <li>
-                  Click Connect — the browser OAuth flow lets you pick which
+                  Click Connect. The browser OAuth flow lets you pick which
                   teams and boards to share.
                 </li>
               </Steps>
               <Snippet text={endpoint} copyLabel="Copy URL" />
               <Note>
-                Connectors connect from Anthropic&apos;s cloud — a self-hosted
+                Connectors connect from Anthropic&apos;s cloud. A self-hosted
                 instance must be reachable from the internet.
               </Note>
             </TabsContent>
@@ -159,8 +159,8 @@ export function McpSetupTabs() {
                 <code>
                   --header &quot;Authorization: Bearer expu_...&quot;
                 </code>{" "}
-                to the add command — with a header set it won&apos;t fall back
-                to OAuth.
+                to the add command. With a header set it won&apos;t fall back to
+                OAuth.
               </Note>
             </TabsContent>
           </Tabs>
@@ -192,7 +192,7 @@ export function McpSetupTabs() {
               </Steps>
               <Snippet text={endpoint} copyLabel="Copy URL" />
               <Note>
-                ChatGPT connectors are OAuth-only — API-key headers are not
+                ChatGPT connectors are OAuth-only. API-key headers are not
                 supported.
               </Note>
             </TabsContent>

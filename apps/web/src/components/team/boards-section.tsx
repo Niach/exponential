@@ -199,8 +199,8 @@ export function TeamBoardsSection({
                 {deleteTarget?.name}
               </span>
               {` `}
-              to the trash? It is kept for 48 hours — owners can restore it from
-              this page — then permanently deleted with all its issues.
+              to the trash? It is kept for 48 hours (owners can restore it from
+              this page), then permanently deleted with all its issues.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

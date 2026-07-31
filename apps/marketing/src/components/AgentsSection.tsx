@@ -99,7 +99,7 @@ export function AgentsSection() {
           <motion.div className={`aw-copy`} {...sectionReveal}>
             <h2 className={`section-title`}>Bring your own agents</h2>
             <p className={`section-sub`}>
-              Claude Code, Codex or pi &mdash; running locally on any connected
+              Claude Code, Codex or pi, all running locally on any connected
               desktop app or your server, on your subscription. Pick an issue
               and hit Start coding, even from your phone: your agent works on a
               real branch and opens the PR when it&rsquo;s done. Watch the

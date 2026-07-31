@@ -922,7 +922,7 @@ struct IssueListView: View {
         guard steerEnabled == true, !devices.isEmpty else {
             showNotice(
                 steerEnabled == true
-                    ? "No desktop online — open the Exponential desktop app to run here."
+                    ? "No desktop online. Open the Exponential desktop app to run here."
                     : "Remote start isn't available on this server.",
                 isError: true
             )
@@ -957,8 +957,8 @@ struct IssueListView: View {
                 }
                 showNotice(
                     isBatch
-                        ? "Batch start sent to \(label) — watch it in the Agents tab."
-                        : "Start sent to \(label) — watch it in the Agents tab.",
+                        ? "Batch start sent to \(label). Watch it in the Agents tab."
+                        : "Start sent to \(label). Watch it in the Agents tab.",
                     isError: false
                 )
             } catch {

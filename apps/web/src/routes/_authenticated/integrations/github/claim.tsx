@@ -44,11 +44,11 @@ const ERROR_COPY: Record<string, { title: string; body: string }> = {
   },
   none: {
     title: `No installation found`,
-    body: `That GitHub account has no installation of the Exponential App yet. Install it on your account or organization — you'll pick exactly which repositories it can see.`,
+    body: `That GitHub account has no installation of the Exponential App yet. Install it on your account or organization. You'll pick exactly which repositories it can see.`,
   },
   notowner: {
     title: `Not your installation`,
-    body: `The GitHub account you authorized doesn't own an installation of the Exponential App — it only has collaborator access to someone else's. Install the App on your own account or organization, then connect again.`,
+    body: `The GitHub account you authorized doesn't own an installation of the Exponential App. It only has collaborator access to someone else's. Install the App on your own account or organization, then connect again.`,
   },
   orgperm: {
     title: `Organization approval needed`,
@@ -182,7 +182,9 @@ function GithubClaim() {
       setDone(true)
     } catch (err) {
       setSaveError(
-        err instanceof Error ? err.message : `Saving failed — try again.`
+        err instanceof Error
+          ? err.message
+          : `Couldn't save your GitHub connections. Try again.`
       )
       // Repos may have been connected meanwhile (CONFLICT) — refresh so the
       // affected row re-disables with its in-use note. A stale ticket fails
@@ -250,7 +252,7 @@ function GithubClaim() {
                 {preview?.mobile
                   ? `Exponential is opening. You can close this tab and return to the app.`
                   : isPopup
-                    ? `Returning you to Exponential — you can close this tab if it stays open.`
+                    ? `Returning you to Exponential. You can close this tab if it stays open.`
                     : `Your GitHub connections are updated. Continue to pick a repository.`}
               </CardDescription>
             </CardHeader>
@@ -275,7 +277,7 @@ function GithubClaim() {
             <CardDescription>
               {ticket
                 ? `Loading your GitHub accounts.`
-                : `Missing claim ticket — restart the connect flow from team settings.`}
+                : `Missing claim ticket. Restart the connect flow from team settings.`}
             </CardDescription>
           </CardHeader>
         ) : (

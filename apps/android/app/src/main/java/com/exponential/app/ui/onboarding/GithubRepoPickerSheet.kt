@@ -237,7 +237,7 @@ private fun SuspendedNotice(data: GithubReposResult) {
         .filter { it.suspended }
         .joinToString(", ") { it.accountLogin ?: "a connected account" }
     Text(
-        "GitHub suspended the Exponential app for $names — its repositories " +
+        "GitHub suspended the Exponential app for $names. Its repositories " +
             "can't be connected until you unsuspend it on GitHub.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.error,
@@ -247,7 +247,7 @@ private fun SuspendedNotice(data: GithubReposResult) {
 
 // Connect/reconnect prompt: not-installed and the needs-reauth/empty-grant
 // states share the same Custom-Tab hop, differing in copy and in whether the
-// manual "I've connected — refresh" escape hatch is offered ([onRefresh]).
+// manual "I've connected" escape hatch is offered ([onRefresh]).
 @Composable
 private fun ConnectPrompt(
     data: GithubReposResult,
@@ -288,7 +288,7 @@ private fun ConnectPrompt(
             OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
                 Icon(ExpIcons.uiRefresh, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("I've connected — refresh")
+                Text("I've connected")
             }
         }
     }
@@ -331,7 +331,7 @@ private fun LazyListScope.installedRepoItems(
             ) {
                 Text(
                     "Reconnect GitHub" + reauthAccountSuffix(data, preposition = "for") +
-                        " to refresh — repos created or shared with you since " +
+                        " to refresh. Repos created or shared with you since " +
                         "your last connect won't appear until you do.",
                     style = MaterialTheme.typography.bodySmall,
                     color = secondary,

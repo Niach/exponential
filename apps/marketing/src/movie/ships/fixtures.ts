@@ -53,7 +53,7 @@ export const HERO = {
   title: "Live-steer terminal reconnect",
   descriptionParas: [
     "When the steer relay drops a WebSocket mid-session, the terminal view goes stale and never recovers. Reconnect with exponential backoff and resume the scrollback buffer.",
-    "Repro: restart the relay while a session is streaming — the viewer freezes until a full reload.",
+    "Repro: restart the relay while a session is streaming. The viewer freezes until a full reload.",
   ],
   switcher: "3 / 8", // "N / M" pager next to the chevrons
   activity: [
@@ -89,7 +89,7 @@ export const HERO_SESSION: SessionEvent[] = [
   { kind: "spinner", verb: "Vibing" },
   { kind: "tool", tool: "Bash", args: "git push -u origin exp/EXP-142", result: "To github.com:niach/exponential.git" },
   { kind: "tool", tool: "mcp__exponential__exponential_pr_open" },
-  { kind: "flash", text: "Opened PR #214 — Live-steer terminal reconnect" },
+  { kind: "flash", text: "Opened PR #214: Live-steer terminal reconnect" },
 ]
 export const FLASH_FORWARD_FROM = 2 // S1 crop starts at the Update event
 
@@ -107,7 +107,7 @@ export const PHONE_FEED: SteerItem[] = [
   { kind: "tool", name: "Bash", summary: "Run the backoff unit tests" },
   { kind: "tool", name: "Bash", summary: "Push the branch" },
   { kind: "tool", name: "mcp__exponential__exponential_pr_open" },
-  { kind: "narration", text: "Done — reconnect with exponential backoff, scrollback resume, tests green. Opened PR #214." },
+  { kind: "narration", text: "Done: reconnect with exponential backoff, scrollback resume, tests green. Opened PR #214." },
 ]
 export const PHONE_DIFFSTAT = { add: 51, del: 16 } // pinned "Latest changes" strip
 

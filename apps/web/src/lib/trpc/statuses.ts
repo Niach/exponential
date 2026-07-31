@@ -372,7 +372,7 @@ export const statusesRouter = router({
           if (!input.reassignToId) {
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
-              message: `${referencing.length} issues use this status — pick a replacement first`,
+              message: `${referencing.length} issues use this status. Pick a replacement first.`,
             })
           }
           if (input.reassignToId === input.statusId) {

@@ -540,7 +540,7 @@ fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl Int
                     .text_color(cx.theme().danger),
             )
             .child(format!(
-                "GitHub suspended the Exponential app for {names} — unsuspend it on GitHub."
+                "GitHub suspended the Exponential app for {names}. Unsuspend it on GitHub."
             ))
             .children(manage_url.map(|url| {
                 Button::new("gh-unsuspend")
@@ -649,7 +649,7 @@ impl RepositoriesPane {
         head = head.child(if linked > 0 {
             let plural = if linked == 1 { "" } else { "s" };
             remove.disabled(true).tooltip(SharedString::from(format!(
-                "In use by {linked} board{plural} — change their repository first"
+                "In use by {linked} board{plural}. Change their repository first."
             )))
         } else {
             let repo_for_remove = repo.clone();

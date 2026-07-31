@@ -69,7 +69,7 @@ pub(crate) fn row_severity(check: &ToolCheck, report: &DoctorReport) -> RowSever
 pub(crate) fn install_hint(tool: Tool) -> (&'static str, &'static str) {
     match tool {
         Tool::Git => (
-            "Install Git — on Windows: winget install --id Git.Git. Just installed it? \
+            "Install Git (on Windows: winget install --id Git.Git). Just installed it? \
              Restart Exponential so your PATH is re-read.",
             "https://git-scm.com/downloads",
         ),

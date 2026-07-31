@@ -122,7 +122,7 @@ function ChoiceStep({
           <span className="min-w-0">
             <span className="block font-medium">Create a team</span>
             <span className="block text-xs font-normal text-muted-foreground">
-              Start fresh — you&apos;ll be the owner
+              Start fresh. You&apos;ll be the owner.
             </span>
           </span>
         </Button>
@@ -191,7 +191,7 @@ function CreateTeamStep({
         </div>
         <CardTitle className="text-xl">Create a team</CardTitle>
         <CardDescription>
-          Name your team — you can rename it and invite teammates later.
+          Name your team. You can rename it and invite teammates later.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -376,8 +376,8 @@ function BoardStep({
           Create your first board
         </CardTitle>
         <CardDescription>
-          Boards hold your issues. Connect a GitHub repository to code on
-          them — everything can be changed later.
+          Boards hold your issues. Connect a GitHub repository to code on them.
+          Everything can be changed later.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

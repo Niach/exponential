@@ -80,20 +80,20 @@ export const SUPPORT_THREADS: SupportThread[] = [
       {
         direction: `inbound`,
         author: `Mara Winkler`,
-        body: `Hi — when I attach a screenshot to a bug report the upload spinner never finishes. Safari 17 on macOS.`,
+        body: `Hi, when I attach a screenshot to a bug report the upload spinner never finishes. Safari 17 on macOS.`,
         time: `1h`,
       },
       {
         direction: `outbound`,
         author: `Danny Strähhuber`,
-        body: `Thanks Mara — reproduced on Safari. The annotation layer is blocking the upload callback; fix is underway.`,
+        body: `Thanks Mara, I've reproduced it on Safari. The annotation layer is blocking the upload callback; fix is underway.`,
         time: `48m`,
       },
       {
         direction: `outbound`,
         internal: true,
         author: `Danny Strähhuber`,
-        body: `Same root cause as EXP-13 — the annotation flatten re-encode stalls on Safari WebP. Fix rides the next widget release.`,
+        body: `Same root cause as EXP-13. The annotation flatten re-encode stalls on Safari WebP. Fix rides the next widget release.`,
         time: `45m`,
       },
       {
@@ -127,7 +127,7 @@ export const SUPPORT_THREADS: SupportThread[] = [
       {
         direction: `outbound`,
         author: `Danny Strähhuber`,
-        body: `Not yet — paste uploads are tracked as EXP-12. I'll follow up here the moment it ships.`,
+        body: `Not yet. Paste uploads are tracked as EXP-12, and I'll follow up here the moment it ships.`,
         time: `3h`,
       },
     ],
@@ -151,7 +151,7 @@ export const SUPPORT_THREADS: SupportThread[] = [
       {
         direction: `outbound`,
         author: `Danny Strähhuber`,
-        body: `Fixed in last week's release — thanks for the report!`,
+        body: `Fixed in last week's release. Thanks for the report!`,
         time: `2d`,
       },
     ],

@@ -50,8 +50,8 @@ export function CancelSubscriptionDialog({
       invalidateBillingCache()
       toast.success(
         endDate
-          ? `Subscription cancelled — the team stays on ${planLabel} until ${endDate}`
-          : `Subscription cancelled — the team stays on ${planLabel} until the end of the paid period`
+          ? `Subscription cancelled. The team stays on ${planLabel} until ${endDate}.`
+          : `Subscription cancelled. The team stays on ${planLabel} until the end of the paid period.`
       )
       onOpenChange(false)
     } catch (err) {
@@ -81,8 +81,8 @@ export function CancelSubscriptionDialog({
         <div className="space-y-2 text-sm text-muted-foreground">
           <p>
             On Free the team is limited to 1 seat, 250 MB of attachment
-            storage and 1 feedback widget. Existing members keep working —
-            only new invites are blocked.
+            storage and 1 feedback widget. Existing members keep working. Only
+            new invites are blocked.
           </p>
           <p>You can resume the subscription any time before it ends.</p>
         </div>

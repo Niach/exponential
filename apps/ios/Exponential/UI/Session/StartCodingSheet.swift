@@ -795,12 +795,12 @@ struct StartCodingSheet: View {
     /// cap by name so the fix is obvious (EXP-323).
     private var noActionDeviceNote: String {
         if devices.isEmpty {
-            return "No desktop online — open the Exponential desktop app to run here."
+            return "No desktop online. Open the Exponential desktop app to run here."
         }
         if selectedActionNeedsFixConflictsCap {
-            return "No desktop can fix merge conflicts yet — update the Exponential desktop app."
+            return "No desktop can fix merge conflicts yet. Update the Exponential desktop app."
         }
-        return "No compatible desktop online — update the Exponential desktop app to run this action."
+        return "No compatible desktop online. Update the Exponential desktop app to run this action."
     }
 
     private var hasUnknownInputType: Bool {

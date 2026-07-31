@@ -722,7 +722,7 @@ fn run_emitter_with_root(
                         // and without this a remote viewer just stares at an
                         // empty feed.
                         sender.send(ActivityEvent::narration(
-                            "Codex hasn't produced any activity yet — it may be waiting on a prompt in the desktop terminal.",
+                            "Codex hasn't produced any activity yet. It may be waiting on a prompt in the desktop terminal.",
                         ));
                         rollout_deadline = None;
                     }

@@ -44,7 +44,7 @@ struct TeamSetupView: View {
                 Text("Create a team")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
-                Text("Start fresh — you become the owner and can invite teammates later.")
+                Text("Start fresh. You become the owner and can invite teammates later.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 

@@ -26,7 +26,7 @@ export function AppsDocsPage() {
           <div className="shell docs-hero-content">
             <h1>Mobile &amp; desktop apps</h1>
             <p>
-              Native apps on every platform — the desktop IDE that runs coding
+              Native apps on every platform: the desktop IDE that runs coding
               sessions, and iOS / Android companions that keep you in the
               loop.
             </p>
@@ -43,21 +43,21 @@ export function AppsDocsPage() {
           <DocsSection id="desktop" num="01" label="Desktop">
             <h2>Desktop</h2>
             <p>
-              The desktop app is a native Rust IDE — the client that runs{` `}
+              The desktop app is a native Rust IDE, the client that runs{` `}
               <a href="/docs/coding/">coding sessions</a> and the git IDE
               around them. Grab it from the{` `}
               <a href={LINKS.downloadPage}>download page</a>:
             </p>
             <ul>
               <li>
-                <strong>macOS</strong> — a notarized <code>.dmg</code>.
+                <strong>macOS</strong>: a notarized <code>.dmg</code>.
               </li>
               <li>
-                <strong>Windows</strong> — a portable <code>.exe</code>, no
+                <strong>Windows</strong>: a portable <code>.exe</code>, no
                 installer.
               </li>
               <li>
-                <strong>Linux</strong> — an <code>AppImage</code>.
+                <strong>Linux</strong>: an <code>AppImage</code>.
               </li>
             </ul>
             <p>
@@ -70,7 +70,7 @@ export function AppsDocsPage() {
             <h3>Self-updating</h3>
             <p>
               The app checks the latest release at launch and every four hours
-              while running. An update shows a banner — click it and the
+              while running. An update shows a banner. Click it and the
               download streams, verifies against the published checksums, and
               swaps in place; hit <strong>Restart to update</strong> when
               it&apos;s ready. No package manager, no manual downloads.
@@ -83,37 +83,37 @@ export function AppsDocsPage() {
             <p>
               Native <a href={LINKS.downloads.ios}>iOS</a> and{` `}
               <a href={LINKS.downloads.android}>Android</a> apps with
-              everything synced in real time. Five tabs — six with the helpdesk
-              on:
+              everything synced in real time. Five tabs (six with the helpdesk
+              on):
             </p>
             <ul>
               <li>
-                <strong>Issues</strong> — your boards: triage, edit,
+                <strong>Issues</strong>: your boards. Triage, edit,
                 filter, comment.
               </li>
               <li>
-                <strong>My Work</strong> — your inbox and the issues assigned
+                <strong>My Work</strong>: your inbox and the issues assigned
                 to you, in one place.
               </li>
               <li>
-                <strong>Support</strong> — the team&apos;s shared helpdesk
+                <strong>Support</strong>: the team&apos;s shared helpdesk
                 inbox. Present only while the helpdesk is enabled.
               </li>
               <li>
-                <strong>Agents</strong> — running coding sessions with a live
+                <strong>Agents</strong>: running coding sessions with a live
                 terminal feed and steering, plus the team&apos;s{` `}
                 <a href="/docs/actions/">actions</a>.
               </li>
               <li>
-                <strong>Reviews</strong> — every issue with an open PR, with a
+                <strong>Reviews</strong>: every issue with an open PR, with a
                 one-click merge.
               </li>
               <li>
-                <strong>Search</strong> — find any issue across your teams.
+                <strong>Search</strong>: find any issue across your teams.
               </li>
             </ul>
             <p>
-              The compose button floats over every tab — capture an issue the
+              The compose button floats over every tab. Capture an issue the
               moment you think of it. Full onboarding runs on mobile too:
               create boards, connect GitHub, and manage repos without ever
               opening a laptop.
@@ -128,8 +128,8 @@ export function AppsDocsPage() {
           <DocsSection id="push" num="03" label="Push notifications">
             <h2>Push notifications</h2>
             <p>
-              Everything that lands in your <a href="/docs/issues/#notifications">inbox</a> —
-              assignments, comments, mentions, PR opened / merged — arrives as
+              Everything that lands in your <a href="/docs/issues/#notifications">inbox</a>{` `}
+              (assignments, comments, mentions, PR opened / merged) arrives as
               a push notification the moment it happens. Tapping one deep-links
               straight to the issue. Notification preferences from{` `}
               <strong>Account → Notifications</strong> apply to push too.
@@ -153,13 +153,13 @@ export function AppsDocsPage() {
               A coding session started on your desktop doesn&apos;t chain you
               to the desk. The <strong>Agents</strong> tab (and the matching
               view on web) shows every running session with a{` `}
-              <strong>live terminal feed</strong> — watch the agent work in
+              <strong>live terminal feed</strong>. Watch the agent work in
               real time, and <strong>send steer messages</strong> mid-run:
               answer its question, veto an approach, add a constraint you
               forgot.
             </p>
             <p>
-              The full flow — starting runs, plan mode, batches, review — is
+              The full flow (starting runs, plan mode, batches, review) is
               in <a href="/docs/coding/">Coding agents</a>.
             </p>
           </DocsSection>

@@ -31,7 +31,7 @@ import { isCloudInstance } from "@/lib/bootstrap-cloud"
 //    paid for, no renewal follows, and the team may go now.
 
 /** The exact copy every client (web + native) surfaces for the delete gate. */
-export const TEAM_DELETE_ACTIVE_SUBSCRIPTION_MESSAGE = `This team has an active subscription — cancel the subscription in team settings → Billing before deleting the team`
+export const TEAM_DELETE_ACTIVE_SUBSCRIPTION_MESSAGE = `This team has an active subscription. Cancel the subscription in team settings → Billing before deleting the team.`
 
 /**
  * Creem's status for "cancellation scheduled, still paid through periodEnd"

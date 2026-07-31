@@ -187,7 +187,7 @@ export const boardsRouter = router({
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: trashed
-              ? `A board with this name is in the trash — restore it or wait for the purge`
+              ? `A board with this name is in the trash. Restore it or wait for the purge.`
               : `A board with this name already exists`,
           })
         }

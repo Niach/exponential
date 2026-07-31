@@ -56,7 +56,7 @@ function AdminOverview() {
       <div className="grid gap-3 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Signups — last 30 days</CardTitle>
+            <CardTitle className="text-sm">Signups (last 30 days)</CardTitle>
             <CardDescription className="text-xs">
               {signupTotal} new {signupTotal === 1 ? `user` : `users`}
             </CardDescription>
@@ -68,7 +68,7 @@ function AdminOverview() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">
-              Teams created — last 30 days
+              Teams created (last 30 days)
             </CardTitle>
             <CardDescription className="text-xs">
               {wsTotal} new {wsTotal === 1 ? `team` : `teams`}

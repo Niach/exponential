@@ -842,7 +842,7 @@ export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({
         Nothing open
       </div>
       <div style={{ marginTop: 4, fontSize: 12, color: C.muted }}>
-        Pick an issue from the sidebar — it opens as a tab here.
+        Pick an issue from the sidebar. It opens as a tab here.
       </div>
     </>
   )

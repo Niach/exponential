@@ -256,12 +256,12 @@ export function SupportConversationView({ token }: { token: string }) {
       } else if (res.status === 404) {
         setSendError(`This conversation no longer exists.`)
       } else if (res.status === 429) {
-        setSendError(`Too many messages — please wait a moment and try again.`)
+        setSendError(`Too many messages. Please wait a moment and try again.`)
       } else {
-        setSendError(`Sending failed — please try again.`)
+        setSendError(`Couldn't send your message. Please try again.`)
       }
     } catch {
-      setSendError(`Sending failed — please check your connection.`)
+      setSendError(`Couldn't send your message. Please check your connection.`)
     } finally {
       setSending(false)
     }

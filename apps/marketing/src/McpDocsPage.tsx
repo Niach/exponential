@@ -35,7 +35,7 @@ const TOOL_GROUPS: {
     tools: [
       { name: `exponential_boards_list`, desc: `List boards in one team or across all your teams.` },
       { name: `exponential_boards_get`, desc: `Get a single board.` },
-      { name: `exponential_boards_create`, desc: `Create a board — optionally repo-backed.` },
+      { name: `exponential_boards_create`, desc: `Create a board (optionally repo-backed).` },
       { name: `exponential_boards_update`, desc: `Update name, color, or icon.` },
       { name: `exponential_boards_delete`, desc: `Move a board to the 48-hour trash (owner only).` },
       { name: `exponential_boards_set_repository`, desc: `Point a board at a different registered repository.` },
@@ -44,15 +44,15 @@ const TOOL_GROUPS: {
   {
     heading: `Issues`,
     tools: [
-      { name: `exponential_issues_list`, desc: `List and filter issues — board, status, priority, assignee, due dates, title search.` },
+      { name: `exponential_issues_list`, desc: `List and filter issues by board, status, priority, assignee, due dates, or title search.` },
       { name: `exponential_issues_get`, desc: `Get one issue with labels and recent comments, by UUID or identifier ("EXP-42").` },
       { name: `exponential_issues_create`, desc: `Create an issue.` },
-      { name: `exponential_issues_update`, desc: `Update an issue's fields — pass only what changes.` },
+      { name: `exponential_issues_update`, desc: `Update an issue's fields. Pass only what changes.` },
       { name: `exponential_issues_delete`, desc: `Permanently delete an issue and everything attached to it.` },
       { name: `exponential_issues_update_status`, desc: `Set status during a coding run (PR events move it to the team's configured statuses).` },
-      { name: `exponential_pr_open`, desc: `Open + link the pull request server-side — one issue, or a whole batch via issueIds + head.` },
-      { name: `exponential_pr_merge`, desc: `Squash-merge an issue's linked PR (or a whole batch) through the GitHub App — no gh, no token.` },
-      { name: `exponential_pr_retarget`, desc: `Repoint an open PR's base branch — the fix for a stacked PR whose parent already merged.` },
+      { name: `exponential_pr_open`, desc: `Open + link the pull request server-side for one issue, or a whole batch via issueIds + head.` },
+      { name: `exponential_pr_merge`, desc: `Squash-merge an issue's linked PR (or a whole batch) through the GitHub App. No gh, no token.` },
+      { name: `exponential_pr_retarget`, desc: `Repoint an open PR's base branch, the fix for a stacked PR whose parent already merged.` },
       { name: `exponential_issues_pr_files`, desc: `List the linked PR's changed files with patches and add/delete counts.` },
     ],
   },
@@ -83,13 +83,13 @@ const TOOL_GROUPS: {
       { name: `exponential_issues_subscribe`, desc: `Subscribe to an issue's notifications.` },
       { name: `exponential_issues_unsubscribe`, desc: `Unsubscribe (and suppress auto-resubscribe).` },
       { name: `exponential_notifications_list`, desc: `List your notifications, newest first.` },
-      { name: `exponential_notifications_mark_read`, desc: `Mark one notification read — or all of them.` },
+      { name: `exponential_notifications_mark_read`, desc: `Mark one notification read, or all of them.` },
     ],
   },
   {
     heading: `Members & invites`,
     tools: [
-      { name: `exponential_members_list`, desc: `List a team's members — useful to resolve an assigneeId.` },
+      { name: `exponential_members_list`, desc: `List a team's members (useful to resolve an assigneeId).` },
       { name: `exponential_invites_create`, desc: `Create an invite link (owner only).` },
       { name: `exponential_invites_list`, desc: `List pending invites.` },
       { name: `exponential_invites_revoke`, desc: `Revoke a pending invite (owner only).` },
@@ -106,8 +106,8 @@ const TOOL_GROUPS: {
   {
     heading: `Actions`,
     tools: [
-      { name: `exponential_actions_list`, desc: `List a team's actions — reusable AI prompts members run on their own desktop.` },
-      { name: `exponential_actions_create`, desc: `Create an action — markdown instructions, optional repository (owner only).` },
+      { name: `exponential_actions_list`, desc: `List a team's actions, the reusable AI prompts members run on their own desktop.` },
+      { name: `exponential_actions_create`, desc: `Create an action with markdown instructions and an optional repository (owner only).` },
       { name: `exponential_actions_update`, desc: `Update an action (owner only).` },
       { name: `exponential_actions_delete`, desc: `Delete an action (owner only).` },
     ],
@@ -133,7 +133,7 @@ export function McpDocsPage() {
             <h1>MCP &amp; API</h1>
             <p>
               Connect Claude, ChatGPT, Cursor, or any MCP client to your
-              issues — file bugs from chat, triage from your editor, script
+              issues: file bugs from chat, triage from your editor, script
               your board.
             </p>
           </div>
@@ -149,7 +149,7 @@ export function McpDocsPage() {
             </p>
             <DocsCode language="text">{LINKS.app.mcp}</DocsCode>
             <p>
-              Self-hosting? It&apos;s the same path on your instance —{` `}
+              Self-hosting? It&apos;s the same path on your instance:{` `}
               <code>https://your-instance/api/mcp</code>. There is no separate
               {` `}
               <code>/sse</code> variant; modern clients speak streamable HTTP
@@ -160,25 +160,25 @@ export function McpDocsPage() {
           {/* ── 02 Authentication ── */}
           <DocsSection id="auth" num="02" label="Authentication">
             <h2>Authentication</h2>
-            <h3>OAuth — for interactive clients</h3>
+            <h3>OAuth for interactive clients</h3>
             <p>
               Point a client at the endpoint with no credentials and it
               registers itself (dynamic client registration) and sends you to
               your browser to approve. The consent screen is a{` `}
               <strong>scope picker</strong>: grant the client{` `}
               <em>everything</em>, specific teams, or specific boards. The
-              token it receives is confined to exactly that grant — a client
+              token it receives is confined to exactly that grant. A client
               with no grant gets nothing. Re-running consent updates the
               grant, so you can widen or narrow access later.
             </p>
-            <h3>API key — for headless use</h3>
+            <h3>API keys for headless use</h3>
             <p>
-              Scripts and CI use a personal API key instead — create one in
+              Scripts and CI use a personal API key instead. Create one in
               your account settings and send it as a bearer token:
             </p>
             <DocsCode language="text">{`Authorization: Bearer expu_...`}</DocsCode>
             <p>
-              API keys act as you, with your full membership — guard them
+              API keys act as you, with your full membership. Guard them
               accordingly.
             </p>
           </DocsSection>
@@ -190,13 +190,13 @@ export function McpDocsPage() {
             <h3>Claude (Desktop &amp; claude.ai)</h3>
             <p>
               <strong>Settings → Connectors → Add custom connector</strong>,
-              paste the endpoint URL, and hit <strong>Connect</strong> — your
+              paste the endpoint URL, and hit <strong>Connect</strong>. Your
               browser opens for OAuth and the scope picker. Works the same in
               the Claude desktop app and on claude.ai.
             </p>
             <DocsCallout kind="note" title="Connectors dial from Anthropic's cloud">
               Claude&apos;s connectors connect server-side, so a self-hosted
-              instance must be reachable from the internet — a LAN-only
+              instance must be reachable from the internet. A LAN-only
               instance won&apos;t work here. Connectors are OAuth-only; to use
               an API key instead, bridge through{` `}
               <code>mcp-remote</code> (see &quot;Other clients&quot; below).
@@ -296,7 +296,7 @@ npx mcp-remote ${LINKS.app.mcp}
                 <ul>
                   {group.tools.map((tool) => (
                     <li key={tool.name}>
-                      <code>{tool.name}</code> — {tool.desc}
+                      <code>{tool.name}</code>: {tool.desc}
                     </li>
                   ))}
                 </ul>
@@ -316,17 +316,17 @@ npx mcp-remote ${LINKS.app.mcp}
               <code>exponential_boards_list</code> →{` `}
               <code>exponential_issues_create</code> →{` `}
               <code>exponential_labels_list</code> →{` `}
-              <code>exponential_issue_labels_add</code> — and answers with the
+              <code>exponential_issue_labels_add</code>, and answers with the
               new identifier.
             </p>
 
             <h3>Check a PR&apos;s files from chat</h3>
             <p>
-              &quot;What does EXP-42&apos;s PR actually change?&quot; —{` `}
-              <code>exponential_issues_pr_files</code> returns the changed
-              files with patches, so the model can summarize the diff, flag a
-              risky change, or compare it against the issue&apos;s acceptance
-              criteria.
+              &quot;What does EXP-42&apos;s PR actually change?&quot; The client
+              calls <code>exponential_issues_pr_files</code>, which returns the
+              changed files with patches, so the model can summarize the diff,
+              flag a risky change, or compare it against the issue&apos;s
+              acceptance criteria.
             </p>
 
             <h3>One combined PR for several issues</h3>

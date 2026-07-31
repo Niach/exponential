@@ -1,4 +1,4 @@
-Vibecode together — Exponential keeps getting better.
+Vibecode together. Exponential keeps getting better.
 
 • Real-time issue tracking that syncs live with the web, desktop, and iOS clients.
 • Start coding from your phone: agents work on a real branch and open the PR.

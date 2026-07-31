@@ -513,7 +513,7 @@ function RemoteStartRow({
             <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <UiDeviceOfflineIcon className="mt-0.5 size-3.5 shrink-0" />
               <span>
-                No desktop online — open the Exponential desktop app to run
+                No desktop online. Open the Exponential desktop app to run
                 this issue there.
               </span>
             </div>
@@ -525,7 +525,7 @@ function RemoteStartRow({
     return (
       <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
         <UiDeviceOfflineIcon className="size-3.5 shrink-0" />
-        No desktop online — open the Exponential desktop app to run this issue
+        No desktop online. Open the Exponential desktop app to run this issue
         there.
       </div>
     )
@@ -577,7 +577,7 @@ function RemoteStartRow({
           {remote.sentTo && (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <LoaderCircle className="size-3 shrink-0 animate-spin" />
-              Start sent to {remote.sentTo} — waiting for the desktop…
+              Start sent to {remote.sentTo}. Waiting for the desktop…
             </p>
           )}
         </div>
@@ -592,7 +592,7 @@ function RemoteStartRow({
       {remote.sentTo && (
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           <LoaderCircle className="size-3 animate-spin" />
-          Start sent to {remote.sentTo} — waiting for the desktop…
+          Start sent to {remote.sentTo}. Waiting for the desktop…
         </span>
       )}
     </div>
@@ -673,7 +673,7 @@ function PrRow({
         <GitBranch className="size-4 shrink-0 text-muted-foreground" />
         <span className="truncate">
           Branch <span className="font-mono">exp/{issue.identifier}</span>
-          {` — no PR yet`}
+          {` · no PR yet`}
         </span>
         <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
       </Link>

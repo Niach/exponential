@@ -341,7 +341,7 @@ impl TrunkSync {
     pub(crate) fn hard_reset(&mut self, cx: &mut gpui::Context<Self>) {
         if self.syncing {
             self.op_error =
-                Some("A sync is already running — try the reset again in a moment.".into());
+                Some("A sync is already running. Try the reset again in a moment.".into());
             cx.notify();
             return;
         }
@@ -891,16 +891,16 @@ fn attention_reason(trunk: &TrunkState) -> Option<SharedString> {
     // someone checks the default branch back out (the Source Control hatch
     // does exactly that).
     if trunk.branch.starts_with('(') {
-        return Some("not on a branch — auto-pull is paused".into());
+        return Some("not on a branch. Auto-pull is paused.".into());
     }
     if trunk.ahead > 0 && trunk.has_upstream {
         let noun = if trunk.ahead == 1 { "commit" } else { "commits" };
         return Some(
-            format!("{} local {noun} not on origin — auto-pull is paused", trunk.ahead).into(),
+            format!("{} local {noun} not on origin. Auto-pull is paused.", trunk.ahead).into(),
         );
     }
     if trunk.dirty {
-        return Some("local changes in the working tree — auto-pull is paused".into());
+        return Some("local changes in the working tree. Auto-pull is paused.".into());
     }
     None
 }
@@ -1087,16 +1087,16 @@ mod tests {
     fn attention_names_every_state_ff_eligible_refuses() {
         assert_eq!(
             attention_reason(&trunk("master", 1, false)).as_deref(),
-            Some("1 local commit not on origin — auto-pull is paused")
+            Some("1 local commit not on origin. Auto-pull is paused.")
         );
         assert_eq!(
             attention_reason(&trunk("master", 0, true)).as_deref(),
-            Some("local changes in the working tree — auto-pull is paused")
+            Some("local changes in the working tree. Auto-pull is paused.")
         );
         // A detached HEAD parks the autopull forever and used to show NOTHING.
         assert_eq!(
             attention_reason(&trunk("(detached)", 0, false)).as_deref(),
-            Some("not on a branch — auto-pull is paused")
+            Some("not on a branch. Auto-pull is paused.")
         );
         // A paused rebase/merge outranks the rest (it is the actionable one).
         let conflict = ConflictState { kind: ConflictKind::Rebase, files: Vec::new() };

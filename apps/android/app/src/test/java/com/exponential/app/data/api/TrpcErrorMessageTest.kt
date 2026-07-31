@@ -35,7 +35,7 @@ class TrpcErrorMessageTest {
     @Test
     fun teamDeleteSubscriptionGateIsRewrittenForNative() {
         val body = trpcBody(
-            "This team has an active subscription — cancel the subscription in team settings → Billing before deleting the team"
+            "This team has an active subscription. Cancel the subscription in team settings → Billing before deleting the team."
         )
         val message = trpcUserMessageFromBody(body)
         assertEquals(TEAM_DELETE_SUBSCRIPTION_MESSAGE, message)

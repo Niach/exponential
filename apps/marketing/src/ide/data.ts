@@ -219,13 +219,13 @@ export const ISSUE_BODY: Record<string, Inline[][]> = {
     ],
     [
       {
-        t: `Repro: kill the relay while a Claude session is streaming — the viewer freezes until a full page reload.`,
+        t: `Repro: kill the relay while a Claude session is streaming. The viewer freezes until a full page reload.`,
       },
     ],
     [
       { t: `Same reconnect contract as ` },
       { t: `EXP-5`, ref: true },
-      { t: ` — ping ` },
+      { t: `. Ping ` },
       { t: `Danny Strähhuber`, mention: true },
       { t: ` once the relay patch lands.` },
     ],
@@ -243,7 +243,7 @@ export const ISSUE_ACTIVITY: Record<string, ActivityItem[]> = {
       author: `Danny Strähhuber`,
       initials: `DS`,
       time: `3 hours ago`,
-      body: `Backoff should cap at 15s — the relay load balancer kills idle sockets after 60s anyway.`,
+      body: `Backoff should cap at 15s. The relay load balancer kills idle sockets after 60s anyway.`,
     },
     {
       kind: `event`,
@@ -487,11 +487,11 @@ const PLAN_LINES: Record<string, string> = {
 export const codingScriptFor = (issue: Issue): ScriptLine[] => [
   { kind: `ok`, text: `Created worktree .worktrees/${issue.id} on branch exp/${issue.id}` },
   { kind: `ok`, text: `Launched Claude on ${issue.id}` },
-  { kind: `claude`, text: `Reading issue ${issue.id} — ${issue.title}` },
+  { kind: `claude`, text: `Reading issue ${issue.id}: ${issue.title}` },
   { kind: `claude`, text: PLAN_LINES[issue.id] ?? `Plan: implement the change, verify, open a PR` },
   { kind: `claude`, text: `Edited apps/web/src/components/steer-terminal.tsx (+24 -6)` },
   { kind: `cmd`, text: `git push -u origin exp/${issue.id}` },
-  { kind: `claude`, text: `Opened PR #${prNumberFor(issue)} — ${issue.title}` },
+  { kind: `claude`, text: `Opened PR #${prNumberFor(issue)}: ${issue.title}` },
   { kind: `ok`, text: `Session finished · 1 file changed` },
 ]
 
@@ -507,17 +507,17 @@ export const batchCodingScriptFor = (issues: Issue[]): ScriptLine[] => [
   { kind: `ok`, text: `Launched Claude on ${issues.length} issues` },
   {
     kind: `claude`,
-    text: `Plan: one pass across ${issues.map((i) => i.id).join(`, `)} — shared branch, one combined PR`,
+    text: `Plan: one pass across ${issues.map((i) => i.id).join(`, `)} (shared branch, one combined PR)`,
   },
   ...issues.slice(0, 3).map(
     (issue): ScriptLine => ({
       kind: `claude`,
-      text: `Implementing ${issue.id} — ${issue.title}`,
+      text: `Implementing ${issue.id}: ${issue.title}`,
     }),
   ),
   { kind: `claude`, text: `Typecheck and tests clean across the combined change` },
   { kind: `cmd`, text: `git push -u origin ${BATCH_BRANCH}` },
-  { kind: `claude`, text: `Opened PR #221 — ${issues.length} issues` },
+  { kind: `claude`, text: `Opened PR #221 (${issues.length} issues)` },
   { kind: `ok`, text: `Session finished · ${issues.length} issues in one PR` },
 ]
 

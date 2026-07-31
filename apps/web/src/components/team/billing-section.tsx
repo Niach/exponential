@@ -150,7 +150,7 @@ export function TeamBillingSection({
       toast.error(
         err instanceof Error && err.message
           ? err.message
-          : `Couldn't open the billing portal — try again`
+          : `Couldn't open the billing portal. Try again.`
       )
     } finally {
       setPortalLoading(false)
@@ -216,7 +216,7 @@ export function TeamBillingSection({
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
               <p className="text-muted-foreground">
                 {periodEndLabel
-                  ? `This subscription ends on ${periodEndLabel} — the team drops to Free after that.`
+                  ? `This subscription ends on ${periodEndLabel}. The team drops to Free after that.`
                   : `This subscription is scheduled to cancel at the end of the paid period.`}
               </p>
               <Button

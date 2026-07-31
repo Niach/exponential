@@ -949,8 +949,8 @@ private struct BlockImageView: View {
             HStack(spacing: 6) {
                 AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                 Text(reason == .storageFull
-                    ? "Team storage is full — tap to retry"
-                    : "Upload failed — tap to retry")
+                    ? "Team storage is full. Tap to retry"
+                    : "Upload failed. Tap to retry")
                     .font(.caption)
             }
             .foregroundStyle(.white)

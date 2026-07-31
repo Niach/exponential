@@ -109,7 +109,7 @@ fun LabelPickerSheet(
             }
             if (filtered.isEmpty() && trimmedQuery.isEmpty()) {
                 Text(
-                    "No labels yet — type a name to create one.",
+                    "No labels yet. Type a name to create one.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier

@@ -412,12 +412,12 @@ mod tests {
         // The reassign-required refusal the pane renders inline.
         let (base, _captured) = one_shot_server(
             412,
-            r#"{"error":{"json":{"message":"3 issues use this status — pick a replacement first","code":-32003}}}"#,
+            r#"{"error":{"json":{"message":"3 issues use this status. Pick a replacement first.","code":-32003}}}"#,
         );
         let err = statuses_delete(&client(&base), "t-1", "s-1", None).unwrap_err();
         match err {
             ApiError::Http { message, .. } => {
-                assert!(message.contains("pick a replacement first"), "{message}");
+                assert!(message.contains("Pick a replacement first"), "{message}");
             }
             other => panic!("expected an HTTP error, got {other:?}"),
         }

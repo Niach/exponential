@@ -351,7 +351,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push([]) // grant lookup → none
     await expect(
       assertRepoInstallationAccess(tx, freshTeamId(), `acme/other-private`)
-    ).rejects.toThrow(/reconnect GitHub in team settings/)
+    ).rejects.toThrow(/Reconnect GitHub in team settings/)
   })
 
   it(`allows a granted repo and returns the authoritative installation id`, async () => {
@@ -370,7 +370,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push([]) // grant lookup after the scan hit → none
     await expect(
       assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
-    ).rejects.toThrow(/reconnect GitHub in team settings/)
+    ).rejects.toThrow(/Reconnect GitHub in team settings/)
     // The scan itself ran (installation-wide listing) — the DENY came from the
     // missing grant, not from the repo being absent.
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)

@@ -66,7 +66,7 @@ export const mcpGrantsRouter = router({
       if (!client || client.disabled) {
         throw new TRPCError({
           code: `NOT_FOUND`,
-          message: `Unknown OAuth client — re-run authentication from your MCP client.`,
+          message: `Unknown OAuth client. Re-run authentication from your MCP client.`,
         })
       }
       return { name: client.name ?? `MCP client`, icon: client.icon }
@@ -131,7 +131,7 @@ export const mcpGrantsRouter = router({
         if (!redirectURI) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `The consent request is no longer valid — re-run authentication from your MCP client.`,
+            message: `The consent request is no longer valid. Re-run authentication from your MCP client.`,
           })
         }
         return { redirectURI }

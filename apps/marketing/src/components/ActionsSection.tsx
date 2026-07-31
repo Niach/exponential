@@ -14,7 +14,7 @@ const ACTIONS = [
   {
     icon: IcGitPr,
     title: `Code reviews`,
-    text: `Run a review action on any pull request — your agent reads the diff and reports what matters.`,
+    text: `Run a review action on any pull request. Your agent reads the diff and reports what matters.`,
   },
   {
     icon: IcGitMerge,
@@ -40,8 +40,8 @@ export function ActionsSection() {
         <motion.div {...sectionReveal}>
           <h2 className={`section-title`}>Use actions for AI tasks</h2>
           <p className={`section-sub`}>
-            Deploy your server, do code reviews, fix merge conflicts &mdash;
-            every action runs on your own agents, on your own machines.
+            Deploy your server, do code reviews, fix merge conflicts. Every
+            action runs on your own agents, on your own machines.
           </p>
         </motion.div>
         <motion.div

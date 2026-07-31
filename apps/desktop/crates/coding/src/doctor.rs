@@ -81,9 +81,9 @@ impl Tool {
     /// The §7.7 red actionable message for a missing binary.
     fn not_found_message(self) -> &'static str {
         match self {
-            Tool::Claude => "claude not found on PATH — set an absolute path",
-            Tool::Codex => "codex not found on PATH — set an absolute path",
-            Tool::Pi => "pi not found on PATH — set an absolute path",
+            Tool::Claude => "claude not found on PATH. Set an absolute path.",
+            Tool::Codex => "codex not found on PATH. Set an absolute path.",
+            Tool::Pi => "pi not found on PATH. Set an absolute path.",
             Tool::Git => "git not found on PATH",
         }
     }
@@ -190,8 +190,8 @@ fn apply_version_gate(check: &mut ToolCheck) {
         let (min_major, min_minor, min_patch) = MIN_CLAUDE_VERSION;
         check.ok = false;
         check.error = Some(format!(
-            "Claude Code {major}.{minor}.{patch} is too old — update to \
-{min_major}.{min_minor}.{min_patch}+ (run: claude update)"
+            "Claude Code {major}.{minor}.{patch} is too old. Update to \
+{min_major}.{min_minor}.{min_patch}+ (run: claude update)."
         ));
     }
 }
@@ -373,7 +373,7 @@ mod tests {
         assert!(!old.ok);
         assert_eq!(
             old.error.as_deref(),
-            Some("Claude Code 2.1.199 is too old — update to 2.1.215+ (run: claude update)")
+            Some("Claude Code 2.1.199 is too old. Update to 2.1.215+ (run: claude update).")
         );
 
         // Exactly the minimum and newer stay green.
@@ -395,7 +395,7 @@ mod tests {
         apply_version_gate(&mut dead);
         assert_eq!(
             dead.error.as_deref(),
-            Some("claude not found on PATH — set an absolute path")
+            Some("claude not found on PATH. Set an absolute path.")
         );
     }
 
@@ -454,7 +454,7 @@ mod tests {
             report
                 .first_failure_for(CodingAgent::Claude)
                 .and_then(|c| c.error.as_deref()),
-            Some("Claude Code 2.1.100 is too old — update to 2.1.215+ (run: claude update)")
+            Some("Claude Code 2.1.100 is too old. Update to 2.1.215+ (run: claude update).")
         );
 
         let new = write_stub("claude-new", "2.1.215");
@@ -527,17 +527,17 @@ mod tests {
         assert!(!check.ok);
         assert_eq!(
             check.error.as_deref(),
-            Some("claude not found on PATH — set an absolute path")
+            Some("claude not found on PATH. Set an absolute path.")
         );
         let check = check_tool(Tool::Codex, "definitely-not-a-real-binary-exp");
         assert_eq!(
             check.error.as_deref(),
-            Some("codex not found on PATH — set an absolute path")
+            Some("codex not found on PATH. Set an absolute path.")
         );
         let check = check_tool(Tool::Pi, "definitely-not-a-real-binary-exp");
         assert_eq!(
             check.error.as_deref(),
-            Some("pi not found on PATH — set an absolute path")
+            Some("pi not found on PATH. Set an absolute path.")
         );
         let check = check_tool(Tool::Git, "definitely-not-a-real-binary-exp");
         assert_eq!(check.error.as_deref(), Some("git not found on PATH"));

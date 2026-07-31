@@ -56,7 +56,7 @@ function AdminEmail() {
         <h1 className="text-2xl font-bold">Email health</h1>
         <p className="text-sm text-muted-foreground">
           Addresses that bounced or complained, reported by SES. Hard bounces
-          and complaints are blocked automatically — at send time and via the
+          and complaints are blocked automatically, at send time and via the
           SES account-level suppression list. The button suppresses a soft
           (Transient) bounce manually.
         </p>
@@ -71,7 +71,7 @@ function AdminEmail() {
       {bounces.length === 0 ? (
         <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
           No bounces or complaints reported. (Requires the SES feedback
-          webhook — an SNS topic subscribed to{` `}
+          webhook: an SNS topic subscribed to{` `}
           <code className="text-xs">/api/webhooks/ses</code>.)
         </div>
       ) : (

@@ -138,7 +138,7 @@ export function AdjustSeatsDialog({
           {belowMembers && (
             <p className="text-xs text-amber-500">
               This team has {memberCount} members. Reducing below that blocks
-              new invites — existing members keep working.
+              new invites. Existing members keep working.
             </p>
           )}
         </DialogBody>
