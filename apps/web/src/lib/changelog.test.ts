@@ -38,4 +38,17 @@ describe(`CHANGELOG`, () => {
   it(`latestChangelogEntry returns the head entry`, () => {
     expect(latestChangelogEntry()).toBe(CHANGELOG[0])
   })
+
+  it(`has no em dashes`, () => {
+    // EXP-391: the em dash as a clause connector is our loudest "written by an
+    // LLM" tell, and the changelog was its densest habitat (one per bullet).
+    // Bullets lead with `- **Title**: text`; prose takes a period, comma or
+    // parentheses.
+    const offenders = CHANGELOG.flatMap((entry) =>
+      ([`title`, `summary`, `body`] as const)
+        .filter((field) => entry[field].includes(`—`))
+        .map((field) => `${entry.id}.${field}`),
+    )
+    expect(offenders, `rewrite with a period, colon, comma or parentheses`).toEqual([])
+  })
 })
