@@ -95,9 +95,11 @@ const FEED_EVENTS: SessionEvent[] = [
 const FEED_SCHEDULE = [...B.feed, B.steerLand, ...B.reply]
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-// One wide two-hander holds phone + board + dock for the WHOLE clip — the
-// steer lands while the framing stands still (EXP-388: no camera moves).
-const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.3, x: 1010, y: 620 }]
+// ONE framing holds the WHOLE window — full issue detail + properties
+// sidebar (where the coding-now pill pops) and the dock — with the phone
+// floating over the window's LEFT edge so it never covers that sidebar.
+// The steer lands while the framing stands still (EXP-388: no camera moves).
+const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.06, x: 790, y: 513 }]
 
 const TAB_151 = (frame: number): ChromeTab => ({
   id: "exp151",
@@ -116,8 +118,10 @@ const dockHeightAt = (frame: number): number => {
   return WIN.dockStrip + (WIN.dockExpanded - WIN.dockStrip) * t
 }
 
-// Phone placement in COMP coordinates inside the camera layer.
-const PHONE_POS = { x: 1490, y: 300, scale: 1.15 } as const
+// Phone placement in COMP coordinates inside the camera layer — over the
+// window's LEFT edge (the board is carried context; the detail pane and its
+// properties sidebar stay clear on the right).
+const PHONE_POS = { x: 210, y: 268, scale: 1.15 } as const
 
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
@@ -225,12 +229,14 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
             )}
           </WindowChassis>
 
-          {/* the phone, floating over the window's right edge (comp coords) */}
+          {/* the phone, floating over the window's left edge (comp coords).
+              zIndex outranks the rail/titlebar (chrome z 10–20) it overlaps. */}
           <div
             style={{
               position: "absolute",
               left: PHONE_POS.x,
               top: PHONE_POS.y,
+              zIndex: 30,
               opacity: phoneRise,
               translate: `0px ${(1 - phoneRise) * 46}px`,
             }}
