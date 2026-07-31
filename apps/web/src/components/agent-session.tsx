@@ -811,7 +811,9 @@ export function AgentSessionView({
     if (!atBottom) return
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [feed, atBottom, phase.kind])
+    // needsInput re-pins when the EXP-389 "Working…" footer toggles (its
+    // other inputs — phase, the feed-derived question set — are covered).
+  }, [feed, atBottom, phase.kind, session.needsInput])
 
   // Switching conversation tabs re-pins to the newest event (EXP-356).
   useEffect(() => {
@@ -872,6 +874,10 @@ export function AgentSessionView({
   /** A trailing question/plan means the session is blocked on a human — the
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && questionIds.size > 0
+  /** EXP-389: the agent is actively working — live and nothing waiting on
+   *  the user (no active question card, synced needs_input clear; all three
+   *  agents drive the flag). Mobile parity. */
+  const working = live && !sessionEnded && !awaitingInput && !session.needsInput
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1055,6 +1061,9 @@ export function AgentSessionView({
                         )
                     }
                   })}
+                  {/* EXP-389: the agent-is-busy footer under the newest
+                      event (mobile parity) — main conversation only. */}
+                  {working && <WorkingIndicatorRow />}
                 </div>
               )}
             </div>
@@ -1219,6 +1228,19 @@ function CenteredState({ children }: { children: React.ReactNode }) {
 }
 
 /** Assistant prose — a chat bubble with a small glyph, selectable text. */
+/** The trailing "agent is busy" row (EXP-389): a gently pulsing "Working…"
+ *  under the newest event whenever the session is live and nothing waits on
+ *  the user — without it a feed that ends in tool rows gives no cue whether
+ *  the agent is still going. Static under reduced motion. */
+function WorkingIndicatorRow() {
+  return (
+    <div className="flex items-center gap-2 py-1.5 motion-safe:animate-pulse">
+      <CodingAssistantIcon className="size-3 shrink-0 text-muted-foreground/60" />
+      <span className="text-xs text-muted-foreground">Working…</span>
+    </div>
+  )
+}
+
 function NarrationBubble({ text }: { text: string }) {
   return (
     <div className="flex items-start gap-2 py-1">
