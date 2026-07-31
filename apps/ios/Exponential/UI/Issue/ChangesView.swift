@@ -649,6 +649,7 @@ struct ChangesView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(expanded ? "Collapse \(file.filename)" : "Expand \(file.filename)")
+            .accessibilityIdentifier("changes-file-row")
 
             if expanded {
                 if let patch = file.patch, !patch.isEmpty {

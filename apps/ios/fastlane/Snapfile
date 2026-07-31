@@ -2,8 +2,15 @@
 #
 # Run via `bundle exec fastlane screenshots` from apps/ios (regenerates the Tuist
 # project first). Requires the seeded local backend at http://localhost:5173
-# (apps/web/scripts/seed-screenshots.ts); override the target instance with the
+# (apps/web `bun run seed:screenshots`); override the target instance with the
 # SNAPSHOT_INSTANCE_URL env var (read by ExponentialUITests/StoreScreenshots.swift).
+#
+# It ALSO requires live steering to be genuinely on — three of the eight shots
+# need it, and without it the issue detail reads "Live steering is unavailable on
+# this instance" (EXP-393). Bring up the relay (`docker compose --profile steer
+# up -d` at the repo root), export STEER_RELAY_URL=ws://localhost:4002 plus the
+# matching STEER_RELAY_SECRET for the web server, and leave `bun run
+# screenshots:desktop` (apps/web) running for the whole capture.
 
 # xcodebuild only forwards TEST_RUNNER_-prefixed env vars into the UI-test
 # runner process (prefix stripped) — a bare SNAPSHOT_INSTANCE_URL on the

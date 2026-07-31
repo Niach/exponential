@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -709,6 +710,7 @@ private fun FileSection(file: PullFile, expanded: Boolean, onToggle: () -> Unit)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .testTag("changes-file-row")
                 .clickable(onClick = onToggle)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,

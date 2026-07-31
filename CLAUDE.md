@@ -83,7 +83,8 @@ bun run dev:desktop                # gpui IDE against local backend
 bun run build:desktop / appimage:desktop / macapp:desktop / test:desktop
 bun run clean:desktop              # on zed/gpui rev bumps — cargo never GCs stranded artifacts
 bun run --filter @exp/{domain-contract,design-tokens,icons} generate
-cd apps/web && bun run seed:screenshots   # demo data for store screenshots (docs/release-{ios,android}.md)
+cd apps/web && bun run seed:screenshots        # demo data for store screenshots
+cd apps/web && bun run screenshots:desktop     # + a relay desktop, so steering shots aren't "unavailable"
 ```
 
 Workspace scripts: `bun --filter @exp/web <script>` or `cd apps/web && bun run <script>`; plain `cargo` from `apps/desktop/` works. The generated Rust files (`contract.generated.rs`, `tokens.generated.rs`) are committed; regenerate only when `contract.json`/`tokens.json` change. Do NOT run `bun run lint` — its --fix corrupts `typeof import()` sites (EXP-13).

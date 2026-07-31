@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -506,7 +507,10 @@ private fun ActivityFeed(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // Only composed once real activity has arrived (the placeholder states are
+    // siblings) — the store-screenshot test waits on this tag so it never
+    // captures "Connecting…" / "Waiting for activity…".
+    Column(modifier = Modifier.fillMaxSize().testTag("agent-feed")) {
         if (visibleTabs.isNotEmpty()) {
             AgentTabStrip(
                 agents = visibleTabs,

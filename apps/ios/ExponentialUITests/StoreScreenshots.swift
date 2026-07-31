@@ -3,15 +3,24 @@ import XCTest
 /// Automated App Store screenshots (fastlane snapshot).
 ///
 /// Drives the real app against a seeded local backend: sign in on the
-/// InstanceView/LoginView flow, wait for Electric to sync the demo team,
-/// then capture the store shots (board, issue detail, comments, board
-/// switcher, agents, reviews, actions, inbox, support inbox, search — 10,
-/// the App Store cap; the create-issue shot gave way to reviews/actions in
-/// EXP-348). Run via `fastlane screenshots` (apps/ios) with the seeded dev
-/// server running (`apps/web/scripts/seed-screenshots.ts` —
-/// demo@exponential.at / screenshots-demo, team "Acme", board "Mobile App",
-/// showcase issue APP-5, live coding sessions, open PRs, saved actions,
-/// helpdesk threads).
+/// InstanceView/LoginView flow, wait for Electric to sync the demo team, then
+/// capture the eight store shots — board, issue detail, Start-coding dialog,
+/// live steering, PR review, actions, inbox, support inbox. EXP-393 replaced
+/// the comments / board-switcher / agents-list / reviews-list / search shots
+/// with the three that actually differentiate the product (start coding,
+/// steering, diff + merge), and kept the set identical to Android's, where
+/// Play caps phone screenshots at 8.
+///
+/// Run via `fastlane screenshots` (apps/ios). Prerequisites, in order:
+///   1. seeded dev server — `apps/web/scripts/seed-screenshots.ts`
+///      (demo@exponential.at / screenshots-demo, team "Acme", board
+///      "Mobile App", showcase issue APP-5, open PRs, actions, helpdesk)
+///   2. a steer relay, with STEER_RELAY_URL + STEER_RELAY_SECRET exported for
+///      the web server (`docker compose --profile steer up -d`)
+///   3. `bun run screenshots:desktop` left running for the whole capture
+/// Without 2+3 the instance reports steering disabled: the Start-coding and
+/// steering shots are unreachable and the issue detail renders "Live steering
+/// is unavailable on this instance." — which is what EXP-393 set out to fix.
 ///
 /// The instance URL defaults to http://localhost:5173 and can be overridden
 /// with the SNAPSHOT_INSTANCE_URL environment variable.
@@ -21,6 +30,17 @@ final class StoreScreenshots: XCTestCase {
     private static let demoPassword = "screenshots-demo"
     private static let showcaseTitle = "Reduce cold start below 800 ms"
     private static let showcaseIdentifier = "APP-5"
+    /// APP-3: repo-backed, member-assigned, and deliberately WITHOUT a coding
+    /// session of its own — an issue the demo user is already coding on turns
+    /// the bottom-bar circle into the session link instead of the start action.
+    private static let startCodingTitle = "Dark mode contrast pass across settings"
+    /// APP-14: the open PR whose diff is fetched from GitHub for real.
+    private static let reviewTitle = "Group board issues by assignee"
+    /// A fragment of the question screenshot-desktop.ts ends its transcript on
+    /// (DEMO_FEED_QUESTION) — proof that relay frames actually arrived. It has
+    /// to be the LAST event: the feed is bottom-anchored and lazy, so anything
+    /// above the fold is never rendered and no query can find it.
+    private static let feedQuestionFragment = "Lazy-load the markdown editor too"
 
     @MainActor
     func testCaptureAppStoreScreenshots() throws {
@@ -70,11 +90,6 @@ final class StoreScreenshots: XCTestCase {
         // element tap opens the priority picker sheet instead of navigating
         // (EXP-348 — it silently killed all three snapshot retries).
         let commentsHeader = app.staticTexts["comment-thread-header"]
-        // The last seeded comment renders as a markdown TextView (label, not
-        // StaticText) — the scroll target that proves the thread is on screen.
-        let lastComment = app.textViews.containing(
-            NSPredicate(format: "label CONTAINS %@", "re-run the profiling")
-        ).firstMatch
         var detailOpened = false
         for _ in 0..<3 {
             if showcaseRowTitle.exists && showcaseRowTitle.isHittable {
@@ -93,62 +108,102 @@ final class StoreScreenshots: XCTestCase {
             print("EXP-DEBUG hierarchy after failed detail open:\n\(app.debugDescription)")
         }
         XCTAssertTrue(detailOpened, "Issue detail did not open")
+        // The live session row sits above the comment thread — it is what makes
+        // this shot say "an agent is coding on this right now" rather than
+        // "live steering is unavailable on this instance".
+        XCTAssertTrue(
+            app.staticTexts["Coding now"].firstMatch.waitForExistence(timeout: 30),
+            "No live session on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
+        )
         settle(2)
         snapshot("02_issue-detail")
 
-        // ── 03: comment thread ──────────────────────────────────────────────
-        // Scroll until the LAST comment is on screen so the thread fills the
-        // viewport; skip when it already is (iPad: the 13" detail shows the
-        // whole thread without scrolling, so 03 would duplicate 02).
-        if !lastComment.isHittable {
-            var scrollAttempts = 0
-            while !lastComment.isHittable && scrollAttempts < 12 {
-                app.swipeUp()
-                scrollAttempts += 1
-            }
-            settle(2)
-            snapshot("03_comments")
-        }
+        // ── 04: live steering ───────────────────────────────────────────────
+        // The bottom-bar circle turns into the session link once the demo user
+        // has a live session of their own (EXP-312 — owner-only). Wait for the
+        // FEED, not just the screen: it renders "Connecting…" / "Waiting for
+        // activity…" placeholders until the first relay frame lands.
+        let sessionLink = app.buttons["Coding session"]
+        XCTAssertTrue(sessionLink.waitForExistence(timeout: 15), "Session link missing on the issue detail")
+        sessionLink.tap()
+        let agentFeed = app.descendants(matching: .any)
+            .matching(identifier: "agent-feed").firstMatch
+        XCTAssertTrue(
+            agentFeed.waitForExistence(timeout: 60),
+            "The steering feed never appeared — is screenshots:desktop publishing to the relay?"
+        )
+        // An EMPTY feed still renders the container (a dropped relay socket
+        // leaves the view "Reconnecting…" with nothing in it), so the tag alone
+        // would happily photograph a blank screen. Gate on real content —
+        // matched across every element type, since markdown-rendered feed rows
+        // surface as TextViews rather than StaticTexts.
+        let feedQuestion = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", Self.feedQuestionFragment)
+        ).firstMatch
+        XCTAssertTrue(
+            feedQuestion.waitForExistence(timeout: 60),
+            "The relay never replayed the transcript — is STEER_RELAY_URL reachable from the simulator?"
+        )
+        settle(3)
+        snapshot("04_steering")
+        goBack(app)
 
-        // ── 04: board switcher ────────────────────────────────────────────
-        // The sheet shows each board's tinted icon glyph next to its name
-        // and prefix.
+        // ── 03: Start-coding dialog ─────────────────────────────────────────
+        // From a repo-backed issue the demo user is NOT already coding on, so
+        // the circle offers the start action. The dialog needs an online
+        // desktop: without one it refuses to open and shows a notice instead.
         goBack(app)
         XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Did not return to the board")
-        let switcherButton = app.buttons["Switch board"]
-        XCTAssertTrue(switcherButton.waitForExistence(timeout: 10), "Board switcher control missing")
-        switcherButton.tap()
+        openIssue(app, title: Self.startCodingTitle)
+        let startButton = app.buttons["Start coding"]
+        XCTAssertTrue(startButton.waitForExistence(timeout: 20), "Start-coding control missing")
+        startButton.tap()
+        let startSheet = app.descendants(matching: .any)
+            .matching(identifier: "start-coding-sheet").firstMatch
         XCTAssertTrue(
-            app.staticTexts["Product Feedback"].waitForExistence(timeout: 15),
-            "Board switcher sheet did not show the seeded boards"
+            startSheet.waitForExistence(timeout: 20),
+            "Start-coding dialog did not open — is a desktop online on the relay?"
         )
         settle(2)
-        snapshot("04_boards")
+        snapshot("03_start-coding")
+        app.buttons["Cancel"].firstMatch.tap()
+        goBack(app)
 
-        // Dismiss without selecting (keep Mobile App current): tap the dimmed
-        // area above the medium-detent sheet.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        // ── 05: PR review (real diff + merge bar) ───────────────────────────
+        // The Reviews tab rows open the Changes page directly. The file list
+        // comes from GitHub via issues.prFiles — the seed points APP-14 at a
+        // real public PR so there is an actual diff to show.
+        let reviewsTab = app.buttons["tab-reviews"]
+        XCTAssertTrue(reviewsTab.waitForExistence(timeout: 15), "Reviews tab missing")
+        reviewsTab.tap()
+        let reviewRow = app.staticTexts[Self.reviewTitle].firstMatch
+        XCTAssertTrue(
+            reviewRow.waitForExistence(timeout: 60),
+            "Reviews tab never showed the seeded open PRs"
+        )
+        reviewRow.tap()
+        let fileRows = app.descendants(matching: .any).matching(identifier: "changes-file-row")
+        XCTAssertTrue(
+            fileRows.firstMatch.waitForExistence(timeout: 60),
+            "The PR diff never loaded — check SCREENSHOT_PR_URL is a reachable public PR"
+        )
+        // Every file starts collapsed; expand them so the shot shows patches
+        // rather than a bare filename list.
+        for index in 0..<min(fileRows.count, 5) {
+            let row = fileRows.element(boundBy: index)
+            if row.exists && row.isHittable { row.tap() }
+        }
+        settle(2)
+        snapshot("05_review")
+        goBack(app)
 
-        // ── 05: agents (live coding sessions) ───────────────────────────────
-        // The seed inserts a running session on APP-5 and an in-review session
-        // with an open PR, both with a fresh heartbeat (the clients hide
-        // sessions past the staleness window).
+        // ── 06: actions (EXP-253) — the seed inserts three team actions above
+        // the two client-side builtins. Reached from the Agents toolbar.
         let agentsTab = app.buttons["tab-agents"]
-        XCTAssertTrue(agentsTab.waitForExistence(timeout: 15), "Agents tab missing after sheet dismissal")
+        XCTAssertTrue(agentsTab.waitForExistence(timeout: 15), "Agents tab missing")
         agentsTab.tap()
-        let sessionRow = app.descendants(matching: .any)
-            .matching(identifier: "agent-session-row").firstMatch
-        XCTAssertTrue(
-            sessionRow.waitForExistence(timeout: 60),
-            "Agents tab never showed the seeded coding sessions"
-        )
-        settle(2)
-        snapshot("05_agents")
-
-        // ── 07: actions (EXP-253 — captured before 06, it rides the Agents
-        // toolbar). The seed inserts three team actions above the builtins.
         let actionsLink = app.buttons["Actions"]
-        XCTAssertTrue(actionsLink.waitForExistence(timeout: 10), "Actions toolbar entry missing")
+        XCTAssertTrue(actionsLink.waitForExistence(timeout: 15), "Actions toolbar entry missing")
         actionsLink.tap()
         let actionRow = app.descendants(matching: .any)
             .matching(identifier: "action-row").firstMatch
@@ -161,22 +216,10 @@ final class StoreScreenshots: XCTestCase {
             "Seeded team actions never synced"
         )
         settle(2)
-        snapshot("07_actions")
+        snapshot("06_actions")
         goBack(app)
 
-        // ── 06: reviews (open pull requests — 4 seeded) ─────────────────────
-        let reviewsTab = app.buttons["tab-reviews"]
-        XCTAssertTrue(reviewsTab.waitForExistence(timeout: 15), "Reviews tab missing")
-        reviewsTab.tap()
-        XCTAssertTrue(
-            app.staticTexts["Batch-edit labels from the board"].firstMatch
-                .waitForExistence(timeout: 60),
-            "Reviews tab never showed the seeded open PRs"
-        )
-        settle(2)
-        snapshot("06_reviews")
-
-        // ── 08: inbox (My Work tab, Inbox segment — the default) ────────────
+        // ── 07: inbox (My Work tab, Inbox segment — the default) ────────────
         // Wait for a real notification group — capturing the "You're all
         // caught up" empty state would silently ship an empty store shot.
         let inboxTab = app.buttons["tab-mywork"]
@@ -187,9 +230,9 @@ final class StoreScreenshots: XCTestCase {
             "Inbox never showed the seeded notifications"
         )
         settle(2)
-        snapshot("08_inbox")
+        snapshot("07_inbox")
 
-        // ── 09: support inbox (helpdesk threads) ────────────────────────────
+        // ── 08: support inbox (helpdesk threads) ────────────────────────────
         // The tab only exists because the seed flips the team's
         // helpdesk_enabled on; threads come from tRPC polling, not Electric.
         let supportTab = app.buttons["tab-support"]
@@ -205,21 +248,7 @@ final class StoreScreenshots: XCTestCase {
             "Support inbox never showed the seeded threads"
         )
         settle(2)
-        snapshot("09_support")
-
-        // ── 10: search ──────────────────────────────────────────────────────
-        app.buttons["tab-search"].tap()
-        let searchField = app.textFields["search-field"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field missing")
-        focus(searchField)
-        searchField.typeText("issue")
-        XCTAssertTrue(
-            app.staticTexts["Offline queue for issue edits"]
-                .waitForExistence(timeout: 30),
-            "Search results never appeared"
-        )
-        settle(2)
-        snapshot("10_search")
+        snapshot("08_support")
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         app.buttons["tab-issues"].tap()
@@ -227,6 +256,9 @@ final class StoreScreenshots: XCTestCase {
             showcaseRowTitle.waitForExistence(timeout: 15),
             "Board did not come back for the final capture"
         )
+        // Opening an issue earlier may have scrolled the list; the board shot
+        // has to start at the top of the first group.
+        for _ in 0..<3 { app.swipeDown() }
         dismissSavePasswordSheet(timeout: 2)
         settle(2)
         snapshot("01_board")
@@ -333,6 +365,25 @@ final class StoreScreenshots: XCTestCase {
         guard let current = element.value as? String, !current.isEmpty else { return }
         let deletes = String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2)
         element.typeText(deletes)
+    }
+
+    /// Opens an issue from the board by its title, scrolling the list until the
+    /// row is on screen.
+    ///
+    /// Taps the row's TITLE text, never the `issue-row-*` button element: since
+    /// the glass chip rework the row element's accessibility activation point
+    /// lands on the leading priority control, so an element tap opens the
+    /// priority picker sheet instead of navigating (EXP-348).
+    @MainActor
+    private func openIssue(_ app: XCUIApplication, title: String) {
+        let row = app.staticTexts[title]
+        var scrollAttempts = 0
+        while !row.isHittable && scrollAttempts < 12 {
+            app.swipeUp()
+            scrollAttempts += 1
+        }
+        XCTAssertTrue(row.isHittable, "Issue \"\(title)\" never became tappable on the board")
+        row.tap()
     }
 
     /// Pops the top view controller off the navigation stack (leading nav-bar
