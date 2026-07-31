@@ -1,3 +1,3 @@
-- Open-source licence notices are now bundled with the app
-- Built-in action descriptions refreshed to cover every coding agent, not just Claude
-- Icon set carries proper Lucide attribution
+- Watch and steer Codex and Pi coding sessions with a live activity feed
+- Finished subagents now tidy away in the session view
+- About screen with version info and the bundled open-source licence notices

@@ -1,0 +1,1 @@
+Codex and Pi coding sessions now stream a live activity feed you can watch and steer, and the new About screen ships the bundled open-source licence notices.
