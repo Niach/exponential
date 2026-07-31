@@ -1,5 +1,6 @@
 {
   "directoryListing": false,
+  "trailingSlash": true,
   "headers": [
     {
       "source": "**",
