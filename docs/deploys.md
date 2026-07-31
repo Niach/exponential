@@ -16,7 +16,7 @@ coolify deploy uuid <uuid>
 | Service | Domain | uuid | Notes |
 | --- | --- | --- | --- |
 | Web cloud | `app.exponential.at` | `hzoe7vty1rzjypyymsaqw2w6` | dockerimage `ghcr.io/niach/exponential-web:latest`; Postgres `hqc1ofbam3x5kyxjexwj1oio`, Electric `s12y6uvto3utdsan5mrkhjjp`; attachments in Hetzner bucket `exponential` |
-| Marketing | `exponential.at` | `bh4vnu32zwiu0bw6nf8d7yt8` | public-source clone; build `cd apps/marketing && bun run build`, start `npx -y serve --config apps/marketing/dist/serve.json apps/marketing/dist -l 80` |
+| Marketing | `exponential.at` | `bh4vnu32zwiu0bw6nf8d7yt8` | public-source clone; build `cd apps/marketing && bun run build`, start `npx -y serve apps/marketing/dist -l 80` (serve auto-loads the `serve.json` copied into `dist/`; a repo-relative `--config` path resolves against the served dir and crashes serve) |
 | Push relay | `push.exponential.at` | `escnmp723si2642q1vcrmnqt` | builds `Dockerfile.push-relay`; holds `FIREBASE_SERVICE_ACCOUNT_JSON` |
 | Steer relay | `steer.exponential.at` | `wxb6j3l0m01ogonvj5bxodum` | dockerimage `ghcr.io/niach/exponential-steer-relay:latest`; holds `STEER_RELAY_SECRET` (must match web env) **and `TRUST_PROXY=true`** |
 | Staging web | `next.exponential.at` | `i2h9ozcemp70yigkf8jylaq2` | same web image; Postgres `mu6of6u8vul17sycib40zax8`, Electric `x80j1jdcf6zmviyh18d9b8iq`, bucket `exponentialnext`; Creem test mode |
