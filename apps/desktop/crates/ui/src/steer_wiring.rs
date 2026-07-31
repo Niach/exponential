@@ -57,8 +57,8 @@ use gpui::{App, AppContext as _, Entity, Global, WeakEntity};
 use terminal::{TabId, TerminalManager};
 
 use coding::{
-    prepare_with_hooks, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared,
-    PrepareRequest, RepoGroup,
+    prepare_with_hooks, BatchIssueSpec, BatchLaunchRequest, CodingAgent, LaunchOptions,
+    LaunchOrigin, Prepared, PrepareRequest, RepoGroup,
 };
 use steer::publisher::pty_writer_input_hook;
 use steer::{
@@ -858,8 +858,18 @@ pub fn attach_publisher(
     // plan mode off) — the emitter keeps permission-flavored notifications
     // from becoming "blocked on approval" cards in bypass mode.
     bypass_permissions: bool,
+    // EXP-383: which agent CLI the session runs — selects the activity
+    // emitter and gates the claude-only hook/answer machinery off for
+    // codex/pi.
+    agent: CodingAgent,
     cx: &mut App,
 ) {
+    let session_agent = match agent {
+        CodingAgent::Claude => steer::activity::SessionAgent::Claude,
+        CodingAgent::Codex => steer::activity::SessionAgent::Codex,
+        CodingAgent::Pi => steer::activity::SessionAgent::Pi,
+    };
+    let is_claude = session_agent == steer::activity::SessionAgent::Claude;
     let Some(runtime) = runtime(cx) else {
         return; // steer off (runtime failed to init)
     };
@@ -901,7 +911,10 @@ pub fn attach_publisher(
         error: Arc::new(move |message| {
             let _ = error_tx.send(SteerUiEvent::Error(message));
         }),
-        answers: Some(answer_link.clone()),
+        // EXP-383: the semantic answer path is claude-only (grid keystroke
+        // choreography against the claude TUI) — `None` keeps the publisher's
+        // Enter-cascade/Esc-reroute logic inert for codex/pi.
+        answers: is_claude.then(|| answer_link.clone()),
     };
 
     // EXP-214: the needs-input forwarder's own handle — cloned before the
@@ -957,12 +970,18 @@ pub fn attach_publisher(
         .collect();
     // EXP-249: this session's slice of the hooks sidecar — the structured
     // plan/question/subagent/permission stream. Absent when the sidecar never
-    // came up; the emitter then runs grid-only, exactly as before.
-    let hook_events = cx
-        .try_global::<HookSidecarGlobal>()
-        .map(|global| global.0.subscribe(&worktree));
+    // came up; the emitter then runs grid-only, exactly as before. Claude
+    // only (EXP-383): the sidecar is fed by claude's `--settings` hooks, so
+    // a codex/pi subscription would just leak.
+    let hook_events = is_claude
+        .then(|| {
+            cx.try_global::<HookSidecarGlobal>()
+                .map(|global| global.0.subscribe(&worktree))
+        })
+        .flatten();
     spawn_activity_emitter(
         EmitterConfig {
+            agent: session_agent,
             worktree,
             extra_secrets,
             // The live grid: the emitter watches it to confirm pickers the
@@ -983,7 +1002,9 @@ pub fn attach_publisher(
                 }
             })),
             hooks: hook_events,
-            steering: Some(Steering {
+            // EXP-383: remote answering is claude-only — the Steering seam
+            // drives the claude TUI's pickers by keystroke.
+            steering: is_claude.then(|| Steering {
                 answers,
                 link: answer_link,
                 write_input,

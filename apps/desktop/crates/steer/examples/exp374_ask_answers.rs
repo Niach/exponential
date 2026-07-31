@@ -194,6 +194,7 @@ fn main() {
     let active = Arc::new(AtomicBool::new(true));
     steer::spawn_activity_emitter(
         EmitterConfig {
+            agent: steer::activity::SessionAgent::Claude,
             worktree: worktree.clone(),
             term: Some(terminal.term()),
             extra_secrets: Vec::new(),

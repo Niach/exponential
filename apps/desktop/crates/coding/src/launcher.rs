@@ -428,6 +428,11 @@ pub struct PreparedLaunch {
     /// this). The activity emitter uses it to keep permission-flavored
     /// notifications from becoming "blocked on approval" cards.
     pub bypass_permissions: bool,
+    /// EXP-383: which agent CLI the spawn runs. The steer wiring picks the
+    /// matching activity emitter (claude transcript tail / codex rollout
+    /// tail / pi observer) — every steer-room launch path flows through
+    /// here, so resume needs no separate plumbing.
+    pub agent: CodingAgent,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -982,6 +987,7 @@ pub fn prepare_with_hooks(
         heartbeat_scope,
         tab_kind: TabKind::Claude,
         bypass_permissions: options.skip_permissions && !options.plan_mode,
+        agent,
     }))
 }
 
@@ -1304,6 +1310,7 @@ fn prepare_action(
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: options.skip_permissions && !options.plan_mode,
+        agent,
     }))
 }
 

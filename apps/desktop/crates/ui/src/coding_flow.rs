@@ -969,6 +969,8 @@ pub fn spawn_into_window(
     let repository_id = prepared.repository_id.clone();
     // EXP-275: the emitter's permission posture rides the prepared launch.
     let bypass_permissions = prepared.bypass_permissions;
+    // EXP-383: the agent picks the activity emitter (claude/codex/pi).
+    let agent = prepared.agent;
     // Action identity for the registry's exit announcement (EXP-257).
     let action_id = match &prepared.tab_kind {
         TabKind::Action(id) => Some(id.clone()),
@@ -1012,6 +1014,7 @@ pub fn spawn_into_window(
                 &manager,
                 worktree,
                 bypass_permissions,
+                agent,
                 cx,
             );
             // P9: keep the clone's embedded token fresh for the session's

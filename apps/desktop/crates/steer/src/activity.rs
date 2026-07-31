@@ -2331,10 +2331,25 @@ fn grid_options(snapshot: &QuestionSnapshot, redactor: &Redactor) -> Vec<Questio
 // The emitter thread
 // ---------------------------------------------------------------------------
 
+/// EXP-383: which agent CLI the session runs — picks the activity emitter.
+/// Local mirror of `coding::CodingAgent` (this crate cannot depend on
+/// `coding` — §3.1); the ui wiring converts by id.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SessionAgent {
+    #[default]
+    Claude,
+    Codex,
+    Pi,
+}
+
 /// What the emitter needs to run: the worktree to tail/diff, plus the live
 /// terminal grid for plan-picker detection (EXP-150). `term: None` runs
 /// transcript+diff only (tests / headless callers).
 pub struct EmitterConfig {
+    /// EXP-383: dispatches to the per-agent emitter — claude tails
+    /// `~/.claude/projects`, codex tails its rollout JSONL, pi drains the
+    /// observer-extension sidecar.
+    pub agent: SessionAgent,
     pub worktree: PathBuf,
     pub term: Option<TermHandle>,
     /// REV2-17: exact secrets the wiring already holds at spawn time that no
