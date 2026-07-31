@@ -1,0 +1,12 @@
+Upstream font licences vendored verbatim, pinned to an upstream commit:
+
+  Geist-OFL.txt
+    https://github.com/vercel/geist-font/blob/c40c1aec7e72b9ebdce65a4fccd03cb3950a359b/OFL.txt
+
+Inter and JetBrains Mono are NOT duplicated here — the curated supplement
+reproduces apps/desktop/assets/fonts/LICENSE.txt and
+apps/desktop/assets/fonts/JetBrainsMono-OFL.txt directly, so each font
+licence has exactly one copy in the repository.
+
+Regenerate with: bun run --filter @exp/licenses fetch:texts
+Do not hand-edit these files.

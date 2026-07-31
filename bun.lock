@@ -181,6 +181,10 @@
         "lucide-react": "^0.544.0",
       },
     },
+    "packages/licenses": {
+      "name": "@exp/licenses",
+      "version": "0.0.0",
+    },
     "packages/steer-ticket": {
       "name": "@exp/steer-ticket",
       "version": "0.0.0",
@@ -508,6 +512,8 @@
     "@exp/electric-protocol": ["@exp/electric-protocol@workspace:packages/electric-protocol"],
 
     "@exp/icons": ["@exp/icons@workspace:packages/icons"],
+
+    "@exp/licenses": ["@exp/licenses@workspace:packages/licenses"],
 
     "@exp/marketing": ["@exp/marketing@workspace:apps/marketing"],
 

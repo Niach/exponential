@@ -6,6 +6,26 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.license)
+}
+
+// EXP-375 third-party notices. `licenseProductionReleaseReport` resolves the
+// shipped runtime graph — which is what the BOMs actually expand to, not the ~49
+// aliases in libs.versions.toml — and writes
+// app/build/reports/licenses/licenseProductionReleaseReport.json.
+// packages/licenses/scripts/collect-android.ts parses that into
+// packages/licenses/inventory/android.json.
+//
+// JSON only, and NOTHING is copied into assets/: the merge step owns
+// app/src/main/assets/NOTICES.txt and a plugin writing there would fight the
+// drift gate.
+licenseReport {
+    generateCsvReport = false
+    generateHtmlReport = false
+    generateJsonReport = true
+    copyCsvReportToAssets = false
+    copyHtmlReportToAssets = false
+    copyJsonReportToAssets = false
 }
 
 // Release signing is fed by gradle properties or environment variables so CI can inject a

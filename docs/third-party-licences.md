@@ -123,6 +123,35 @@ These are store-build-only and never reach the web app or the public image, so
 there is no redistribution question of the kind Remotion raised — only a notices
 question, answered below.
 
+### Android: the resolved graph carries ten, not one — 2026-07-31
+
+Building EXP-375's collector against the real `productionRelease` runtime
+configuration (rather than against `libs.versions.toml`, which names none of
+them) surfaced that `app-update-ktx` is not alone. Ten resolved artifacts
+declare proprietary terms in their POMs; folding them into the Apache aggregate
+would assert terms Google never granted.
+
+| Artifact | Terms |
+| --- | --- |
+| `com.google.android.play:app-update-ktx` 2.1.0 | Play Core SDK Terms of Service |
+| `com.google.android.play:app-update` 2.1.0 | Play Core SDK Terms of Service |
+| `com.google.android.play:core-common` 2.0.3 | Play Core SDK Terms of Service |
+| `com.google.android.gms:play-services-base` 18.0.1 | Android SDK License |
+| `com.google.android.gms:play-services-basement` 18.3.0 | Android SDK License |
+| `com.google.android.gms:play-services-cloud-messaging` 17.2.0 | Android SDK License |
+| `com.google.android.gms:play-services-stats` 17.0.2 | Android SDK License |
+| `com.google.android.gms:play-services-tasks` 18.1.0 | Android SDK License |
+| `com.google.firebase:firebase-iid-interop` 17.1.0 | Android SDK License |
+| `com.google.firebase:firebase-measurement-connector` 19.0.0 | Android SDK License |
+
+The first three come in through `play-app-update-ktx`; the rest through
+`firebase-messaging` via `compose-bom`/`firebase-bom` expansion. The collector
+emits all ten with an empty `licenses` array, which is the marker that routes a
+component into the commercially-licensed section — see the notices rule below.
+This list is not maintained by hand: it is whatever the resolved graph declares,
+and `apps/web/src/lib/licenses.test.ts` fails if one of them ever appears in the
+open-source aggregate.
+
 ## The notices rule
 
 Whatever the generator (EXP-375) emits, these components go in a dedicated
@@ -138,12 +167,44 @@ that were never granted.
   and `google-ads-on-device-conversion-ios-sdk`, identified as closed-source
   Google binaries with a pointer to Google's terms (there is no licence body to
   reproduce).
-- **Android** (`apps/android/app/src/main/assets/NOTICES.txt`) —
-  `com.google.android.play:app-update-ktx`, under the Play Core SDK Terms of
-  Service.
+- **Android** (`apps/android/app/src/main/assets/NOTICES.txt`) — the ten
+  proprietary Google artifacts tabulated above, under the Play Core SDK Terms of
+  Service and the Android SDK License.
 - **Web** (`apps/web/public/NOTICES.txt`) and **desktop** — nothing from this
   file. Both are Remotion-free by construction, and the section should be absent
   rather than empty.
 
 This sits alongside, and follows the same rule as, EXP-375's trademarks section:
 marks and non-OSS components each get their own heading, never an OSS one.
+
+## How this is enforced — EXP-375
+
+The rule above is mechanical, not aspirational. `packages/licenses` generates
+all five `NOTICES.txt` from the real dependency graphs, and a component is
+routed into the commercially-licensed section by having an EMPTY `licenses`
+array in its inventory entry — see `packages/licenses/README.md`.
+
+Determinations that a collector cannot derive live in
+`packages/licenses/curated/overrides.ts`, each one dated and carrying its
+evidence, next to this file. An override that stops matching anything is a hard
+error, so a determination cannot outlive the dependency it was written for.
+
+## Shipping the licence files — EXP-376
+
+Apache-2.0 section 4(a) requires giving recipients a copy of the License, and
+4(d) requires propagating our `NOTICE`. Every distributed artifact now carries
+both:
+
+| Artifact | Where |
+| --- | --- |
+| macOS `.app` | `Contents/Resources/{LICENSE,NOTICE,NOTICES.txt}` |
+| Linux `.AppImage` | `usr/share/doc/exponential/{LICENSE,NOTICE,NOTICES.txt}` |
+| GitHub Release (incl. the bare Windows `.exe`) | `LICENSE`, `NOTICE`, `NOTICES.txt` alongside `SHA256SUMS.txt` |
+| `ghcr.io/niach/exponential-web` | `/app/LICENSE`, `/app/NOTICE`; the inventory is served at `/NOTICES.txt` |
+| Desktop binary | `include_str!` — `apps/desktop/crates/app/src/licenses.rs` |
+
+The desktop binary embeds `NOTICES.txt` because `assets.rs` compiles in ~3.6 MB
+of OFL-licensed Font Software and Lucide's ISC geometry while the `LICENSE.txt`
+files sitting beside them are outside the rust-embed include list. The generated
+notice reproduces both bodies in full, which discharges OFL section 2 and the
+ISC notice without widening that list.

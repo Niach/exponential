@@ -33,6 +33,10 @@ screengrab = "2.1.1"
 google-services = "4.4.2"
 firebase-bom = "33.7.0"
 play-app-update = "2.1.0"
+# EXP-375: resolves the real runtime dependency graph (the BOMs expand to 200+
+# artifacts libs.versions.toml never names) into a JSON licence report that
+# packages/licenses/scripts/collect-android.ts turns into inventory/android.json.
+license-plugin = "0.9.9"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -93,3 +97,4 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }
+license = { id = "com.jaredsburrows.license", version.ref = "license-plugin" }

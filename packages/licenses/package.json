@@ -1,0 +1,19 @@
+{
+  "name": "@exp/licenses",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "bun run scripts/generate.ts",
+    "fetch:texts": "bun run scripts/fetch-texts.ts",
+    "collect:rust": "bun run scripts/collect-rust.ts",
+    "collect:npm": "bun run scripts/collect-npm.ts",
+    "collect:ios": "bun run scripts/collect-ios.ts",
+    "collect:android": "bun run scripts/collect-android.ts"
+  }
+}
