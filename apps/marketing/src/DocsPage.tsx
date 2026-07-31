@@ -26,8 +26,8 @@ export function DocsPage() {
           <div className="shell docs-hero-content">
             <h1>Docs</h1>
             <p>
-              Everything about Exponential — issue tracking, coding with
-              Claude, feedback and the helpdesk, the apps, and the API.
+              Everything about Exponential — issue tracking, coding agents,
+              feedback and the helpdesk, the apps, and the API.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href="/docs/getting-started/">
@@ -45,16 +45,16 @@ export function DocsPage() {
           <DocsSection id="what-is" num="01" label="What is Exponential">
             <h2>What is Exponential</h2>
             <p>
-              Exponential is one realtime workspace for{` `}
+              Exponential is one realtime tracker for{` `}
               <strong>issues, customer support, and coding agents</strong>.
               User reports arrive through the{` `}
               <a href="/docs/widget/">embeddable widget</a> or the{` `}
               <a href="/docs/feedback/">team helpdesk</a>, your team
               triages them as <a href="/docs/issues/">issues</a>, and the{` `}
-              <a href="/docs/coding/">desktop IDE hands issues to Claude</a> —
-              running locally on your machine — which implements, pushes, and
-              opens the GitHub PR. Merging the PR completes the issue and can
-              notify the person who reported it.
+              <a href="/docs/coding/">desktop IDE hands issues to your agent</a>
+              {` `}— running locally on your machine — which implements,
+              pushes, and opens the GitHub PR. Merging the PR completes the
+              issue and can notify the person who reported it.
             </p>
             <p>
               It syncs in real time across web, iOS, Android, and the native
@@ -95,9 +95,9 @@ export function DocsPage() {
               <li>
                 <strong>Start coding</strong>: install the{` `}
                 <a href={LINKS.downloadPage}>desktop app</a>, open the issue,
-                and hit <strong>Start coding</strong> — Claude runs in the
+                and hit <strong>Start coding</strong> — your agent runs in the
                 embedded terminal, plans first, implements, and opens the PR
-                itself. See <a href="/docs/coding/">Coding with Claude</a>.
+                itself. See <a href="/docs/coding/">Coding agents</a>.
               </li>
               <li>
                 <strong>Merge</strong> — the issue moves to In Review when the
@@ -137,8 +137,8 @@ export function DocsPage() {
               corner of this very site — it&apos;s the{` `}
               <a href="/docs/widget/">embeddable widget</a>, running for real.
               Your report lands straight on the Exponential team&apos;s own
-              feedback board, where reports are triaged (and often fixed by
-              Claude).
+              feedback board, where reports are triaged (and often fixed by an
+              agent).
             </p>
           </DocsSection>
         </DocsLayout>

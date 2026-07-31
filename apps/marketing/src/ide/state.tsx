@@ -50,12 +50,7 @@ export type IdeApi = {
   viewedBranch: string
   viewBranch: (name: string) => void
   changes: Change[]
-  staged: Set<string>
-  toggleStaged: (path: string) => void
   commits: Commit[]
-  commitAll: (message: string, push: boolean) => void
-  ahead: number
-  push: () => void
 
   inboxRead: Set<string>
   markInboxRead: (id: string) => void

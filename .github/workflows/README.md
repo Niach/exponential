@@ -10,7 +10,7 @@ and self-hosting:
   (`Dockerfile.steer-relay`, multi-arch via QEMU)
 
 Tag scheme (both images): `latest` + `master` + `sha-<short>` on master
-pushes, semver (`0.18.13` / `0.18`) on tag pushes. `latest` moves on every
+pushes, semver (`0.18.21` / `0.18`) on tag pushes. `latest` moves on every
 master push — self-hosters pin semver (`selfhost/docker-compose.yaml` +
 `INSTALL.md`). Both ghcr packages must stay **public** so anonymous
 `docker pull` works.

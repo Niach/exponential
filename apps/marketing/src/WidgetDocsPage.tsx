@@ -219,14 +219,12 @@ await ExponentialWidget.submit({
             <p>
               Before submitting, the visitor can <strong>annotate</strong> the
               screenshot in a full-screen editor: rectangles, arrows, and
-              freehand lines, with undo. Annotations stay editable until
-              submit, then are flattened into the final image — your issue
-              gets one plain screenshot with the markings baked in.
+              freehand lines, with undo. Annotations are flattened into the
+              image on submit.
             </p>
             <DocsCallout kind="tip" title="Capture never blocks a report">
               If capture fails on an exotic page, the report still submits —
-              just without the image. A lost screenshot is never a lost bug
-              report.
+              just without the image.
             </DocsCallout>
           </DocsSection>
 

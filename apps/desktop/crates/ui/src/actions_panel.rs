@@ -2,7 +2,7 @@
 //! list + ▶ Run and owner-only Delete. EXP-257: creation moved into the
 //! virtual **"Create action"** builtin (pinned first in this list; its run IS
 //! the creator — an MCP-wired agent session authoring the action), so the old
-//! "Describe with Claude"/"Write manually" headers and the local templates
+//! "Describe with your agent"/"Write manually" headers and the local templates
 //! are gone. EXP-268: the list is LIVE — it reads the synced `actions` shape
 //! (body-less rows; the editor fetches the body via `actions.get` on open),
 //! so an MCP-created action appears without any refetch machinery. Run opens

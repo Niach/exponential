@@ -2,7 +2,6 @@ import { motion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
 import {
   EnterpriseLine,
-  EnterpriseSupportCard,
   PlanCards,
 } from "./components/PlanCards"
 import { ComparisonTable } from "./components/ComparisonTable"
@@ -62,16 +61,13 @@ export function PricingPage() {
               Exponential is fully open source under Apache-2.0 — self-hosting
               is free for everyone, at any size, forever. If you want an SLA,
               priority support, deployment help, or custom development on top,
-              add Enterprise Support: an optional contract at published annual
-              pricing, never a requirement.
+              Enterprise Support is available as an optional add-on — never a
+              requirement. <a href="/contact/">Talk to us</a>.
             </p>
-            <EnterpriseSupportCard />
             <p className="plan-footnote">
-              📱 Push notifications require App Store distribution. Self-hosted
-              instances can use the web and desktop apps with full
-              functionality; the mobile apps work (build from source) but
-              won&apos;t receive push notifications. Enterprise push relay
-              coming soon.
+              📱 Mobile push is cloud-only — the store apps are built against
+              the first-party Firebase project. Web and desktop notifications
+              work fully on self-hosted.
             </p>
           </motion.div>
         </section>

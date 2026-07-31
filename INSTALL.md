@@ -12,7 +12,7 @@
   docker compose version
   ```
 
-- **Ports 80 and 443 free** on the host (Caddy binds both; 443 only actually serves once you configure a domain).
+- **Ports 80/tcp, 443/tcp and 443/udp free** on the host (Caddy binds all three — 443/udp is HTTP/3; 443 only actually serves once you configure a domain).
 - **An S3-compatible bucket + access key** — the one external dependency, used for attachments and widget screenshots. Any provider works: Hetzner Object Storage, MinIO, Cloudflare R2, AWS S3, … The app uses path-style addressing and streams all attachment traffic server-side, so the endpoint never needs to be reachable by browsers — a LAN MinIO is fine. **[decision]** which provider; if none exists yet, a local [Garage](https://garagehq.deuxfleurs.fr) or MinIO container is a fine single-binary answer, run and bootstrapped by you next to (not inside) this stack.
 - Outbound HTTPS to `ghcr.io` for image pulls.
 
@@ -60,6 +60,8 @@ If health fails, read `docker compose logs web --tail 50`.
 
 Open `http://localhost`, register, and create your first team. Verify attachments work (this is the S3 credentials smoke test): open any issue and paste or drag an image into the description — it must render back. If it errors, the `S3_*` values are wrong (`docker compose logs web` shows the S3 error).
 
+If you want the admin console (instance-wide users and teams), set `INITIAL_ADMIN_EMAILS=you@example.com` in `.env` before your first sign-in and `docker compose up -d` — there is no other way to become an admin.
+
 ## 5. Go live on a domain (optional)
 
 1. Point DNS (an `A`/`AAAA` record) at the host.
@@ -89,7 +91,7 @@ All configured by appending vars to `.env` (the whole file reaches the web conta
   curl -fsS http://localhost:4002/healthz
   ```
 
-- **Push notifications: not available for the store mobile apps.** The published iOS/Android binaries are compiled against Exponential's first-party Firebase project and only its cloud relay can reach their device tokens — a self-hosted relay cannot, by design (the relay authenticates senders). Self-hosted users get web, email, and desktop notifications; mobile push works only on the cloud, or if you build the mobile apps yourself against your own Firebase project.
+- **Push notifications: cloud only for the store mobile apps** — see [Limitations](#limitations).
 
 ## Upgrading
 
@@ -97,7 +99,30 @@ All configured by appending vars to `.env` (the whole file reaches the web conta
 docker compose pull && docker compose up -d
 ```
 
-The image self-migrates on boot — no other steps. `latest` tracks upstream `master`; to move deliberately instead, pin `IMAGE_TAG` in `.env` to a [release tag](https://github.com/Niach/exponential/tags) (e.g. `IMAGE_TAG=0.18.13`) and bump it when you choose.
+The image self-migrates on boot — no other steps. `latest` tracks upstream `master`; to move deliberately instead, pin `IMAGE_TAG` in `.env` to a [release tag](https://github.com/Niach/exponential/tags) (e.g. `IMAGE_TAG=0.18`, which tracks the latest patch of that minor) and bump it when you choose.
+
+## Backup and restore
+
+Three named volumes (`postgres_data`, `caddy_data`, `caddy_config`) plus your
+external S3 bucket hold all state; `.env` holds the secrets that make them
+readable.
+
+```sh
+# Database — the only irreplaceable local state
+docker compose exec -T postgres pg_dump -U postgres -Fc exponential > exponential-$(date +%F).dump
+
+# Restore into a fresh stack (bring it up first so migrations have run)
+docker compose exec -T postgres pg_restore -U postgres -d exponential --clean --if-exists < exponential-YYYY-MM-DD.dump
+```
+
+Back up `.env` alongside the dump — a lost `BETTER_AUTH_SECRET` invalidates
+every session, and lost `S3_*` credentials orphan every attachment. Attachments
+live in your S3 bucket, so back that up with your provider's tooling.
+`caddy_data` only holds Let's Encrypt certificates, which re-issue
+automatically.
+
+> **`docker compose down -v` deletes all three volumes, including the
+> database.** Use `docker compose down` to stop the stack.
 
 ## Troubleshooting
 
@@ -107,13 +132,13 @@ The image self-migrates on boot — no other steps. `latest` tracks upstream `ma
 | Port 80/443 already allocated | Another proxy owns them. Either stop it, or change the caddy `ports:` mapping and front this stack with your proxy (keep its read timeouts ≥ 5m and streaming/flush on — Electric uses long-polls). |
 | Sign-in loops or "origin not allowed" | `DOMAIN` and `APP_URL` disagree (scheme included). Set both to the same origin and `docker compose up -d`. |
 | Image pastes/attachments fail | Wrong `S3_*` values, missing bucket, or key without create permission — `docker compose logs web` shows the S3 error. |
-| Nobody can register | `AUTH_SIGNUP_ENABLED` is false/unset in production. Set `true` while onboarding, or configure an OAuth/OIDC provider. |
+| Nobody can register | `AUTH_SIGNUP_ENABLED=false` in `.env` — this stack defaults it to `true`, so an explicit `false` is the only way to get here. Set it back to `true` while onboarding, or configure an OAuth/OIDC provider. |
 | No certificates on your domain | Ports 80/443 not reachable from the internet, or DNS not propagated — `docker compose logs caddy`. |
 
 ## Limitations
 
-**Push notifications are not available for self-hosted mobile apps.** The store-distributed iOS and Android apps are compiled against the first-party Firebase/APNs project, so a self-hosted instance cannot push to them. Web and desktop apps are fully featured; the mobile apps work against your instance (build them from source), they just won't receive push. An enterprise push relay for self-hosters is planned.
+**Push notifications are not available for self-hosted mobile apps.** The store-distributed iOS and Android apps are compiled against the first-party Firebase/APNs project, so a self-hosted instance cannot push to them. Web and desktop apps are fully featured; the mobile apps work against your instance (build them from source), they just won't receive push. 
 
 ## Licensing
 
-Exponential is free to self-host under [Apache-2.0](https://github.com/Niach/exponential/blob/master/LICENSE) — open source, any team size, no restrictions. Optional Enterprise Support (SLA, priority support, deployment help, custom development) is available at [exponential.at/pricing](https://exponential.at/pricing/) or support@exponential.at.
+Exponential is free to self-host under [Apache-2.0](https://github.com/Niach/exponential/blob/master/LICENSE) — open source, any team size, no restrictions. Optional Enterprise Support (SLA, priority support, deployment help, custom development) is available at [exponential.at/contact](https://exponential.at/contact/) or support@exponential.at.

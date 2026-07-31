@@ -17,8 +17,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `batch-runs`, num: `05`, label: `Batch runs` },
   { id: `watch-steer`, num: `06`, label: `Watch & steer` },
   { id: `review-merge`, num: `07`, label: `Review & merge` },
-  { id: `run-configs`, num: `08`, label: `Run configs` },
-  { id: `git-ide`, num: `09`, label: `The git IDE` },
+  { id: `git-ide`, num: `08`, label: `The git IDE` },
 ]
 
 export function CodingDocsPage() {
@@ -29,7 +28,7 @@ export function CodingDocsPage() {
       <main>
         <section className="docs-hero">
           <div className="shell docs-hero-content">
-            <h1>Coding with Claude</h1>
+            <h1>Coding agents</h1>
             <p>
               Hand issues to a coding agent from the desktop IDE — Claude
               Code, Codex, or pi. It plans, implements, and opens the pull
@@ -169,9 +168,15 @@ export function CodingDocsPage() {
               batch runs prefill identically. Out of the box that&apos;s{` `}
               <strong>plan mode on</strong>, <strong>ultracode off</strong> and
               {` `}
-              <strong>skip permissions off</strong> — change them in the
-              desktop app&apos;s settings, per agent, and every future run
-              starts from your values. Every run uses exactly one repository.
+              <strong>skip permissions off</strong> — change them under{` `}
+              <strong>Settings → Agents</strong> on the desktop, per agent, and
+              every future run starts from your values. Every run uses exactly
+              one repository.
+            </p>
+            <p>
+              The same dialog has an <strong>Actions</strong> tab — the
+              team&apos;s saved prompts, run with the same agent, model and
+              effort pickers. See <a href="/docs/actions/">Actions</a>.
             </p>
           </DocsSection>
 
@@ -200,8 +205,11 @@ export function CodingDocsPage() {
                 links it to the issue.
               </li>
               <li>
-                The issue flips to <strong>In Review</strong>. Merge the PR
-                and it completes to <strong>Done</strong>.
+                The issue flips to <strong>In Review</strong> and merging the
+                PR completes it to <strong>Done</strong> — the default;
+                retarget either event in{` `}
+                <a href="/docs/issues/#branches-prs">Team settings → Statuses</a>
+                .
               </li>
             </ol>
           </DocsSection>
@@ -219,9 +227,9 @@ export function CodingDocsPage() {
               batch. Merging that PR completes them all.
             </p>
             <p>
-              The batch is deliberately loose — the issues are handed over as
-              a list and the agent organizes the work itself. Issues may overlap
-              or touch the same files; that&apos;s fine, and often the point.
+              The batch is deliberately loose — the issues go over as a list
+              and the agent organizes the work. Overlapping issues are fine,
+              and often the point.
             </p>
             <h3>When to batch</h3>
             <ul>
@@ -242,8 +250,7 @@ export function CodingDocsPage() {
             <DocsCallout kind="note" title="Batch size">
               A run takes up to 30 issues, and the dialog shows a cost hint on
               large batches — every checked issue adds to the prompt, so big
-              batches are token-hungry. Past a point, one giant session stops
-              being coherent; split it.
+              batches are token-hungry.
             </DocsCallout>
           </DocsSection>
 
@@ -260,8 +267,7 @@ export function CodingDocsPage() {
               <strong>Agents</strong> view on web and mobile shows the running
               session with a live activity feed, and you can{` `}
               <strong>send steer messages</strong> from your phone — the agent
-              picks them up mid-run. Review the plan from the couch, veto an
-              approach from the train.
+              picks them up mid-run.
             </p>
           </DocsSection>
 
@@ -277,9 +283,10 @@ export function CodingDocsPage() {
               </li>
               <li>
                 The <strong>Reviews</strong> list in the sidebar collects the
-                board&apos;s open PRs — open one, read the diff, and{` `}
-                <strong>merge from right there</strong>. The linked issues
-                complete on merge.
+                team&apos;s open PRs, across every board — open one, read the
+                diff, and <strong>merge from right there</strong>. The linked
+                issues complete on merge. A merge that hits conflicts offers
+                the <a href="/docs/actions/">Fix merge conflicts</a> action.
               </li>
             </ul>
             <p>
@@ -289,32 +296,15 @@ export function CodingDocsPage() {
             </p>
           </DocsSection>
 
-          {/* ── 08 Run configs ── */}
-          <DocsSection id="run-configs" num="08" label="Run configs">
-            <h2>Run configs</h2>
-            <p>
-              Run configs are per-board named commands — dev server, test
-              suite, code generation — stored as an argv plus optional working
-              directory and environment, and launched from the IDE with one
-              click. They&apos;re spawned directly (no shell), and the first
-              launch of a board&apos;s configs on a new machine asks you to
-              trust them — commands from a shared board never run silently.
-            </p>
-            <p>
-              Team owners manage them, editing happens in the IDE, and the
-              {` `}
-              <strong>Create with Claude</strong> button lets Claude inspect
-              the repo and draft the config for you.
-            </p>
-          </DocsSection>
-
-          {/* ── 09 The git IDE ── */}
-          <DocsSection id="git-ide" num="09" label="The git IDE">
+          {/* ── 08 The git IDE ── */}
+          <DocsSection id="git-ide" num="08" label="The git IDE">
             <h2>The git IDE</h2>
             <p>
-              Around the coding flow sits a real git IDE. Open a board and
-              its repository <strong>clones automatically</strong>; every run
-              gets its own branch lane you can switch into.
+              Around the coding flow sits a git IDE. Open a board and its
+              repository <strong>clones automatically</strong> — that clone is
+              the <strong>trunk</strong>, kept level with the default branch by
+              a background sync. Coding runs work in their own worktrees, off
+              to the side.
             </p>
 
             <div className="docs-embed">
@@ -322,11 +312,15 @@ export function CodingDocsPage() {
             </div>
 
             <p>
-              The <strong>source-control panel</strong> stages, commits,
-              pushes and pulls, and walks history; the <strong>files
-              rail</strong> browses the working tree; diffs render
-              side-by-side. It&apos;s enough to review, touch up, and land
-              agent work — or do a whole manual fix — without switching tools.
+              The editor is <strong>read-only</strong> by design: changes
+              arrive as pull requests, not local commits. The{` `}
+              <strong>files rail</strong> browses the trunk,{` `}
+              <strong>Source control</strong> walks its commit history and
+              renders any commit&apos;s diff side-by-side, and an issue&apos;s
+              {` `}
+              <strong>Changes</strong> tab diffs its branch against the default
+              branch. The one write affordance is an escape hatch — discard
+              local changes and hard-reset to the remote, behind a confirm.
             </p>
           </DocsSection>
         </DocsLayout>

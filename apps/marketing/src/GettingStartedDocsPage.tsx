@@ -20,8 +20,8 @@ const SECTIONS: DocsSectionType[] = [
 const NEXT_CARDS: { path: string; label: string; desc: string }[] = [
   {
     path: `/docs/coding/`,
-    label: `Coding with Claude`,
-    desc: `Hand your first issue to Claude from the desktop IDE.`,
+    label: `Coding agents`,
+    desc: `Hand your first issue to a coding agent from the desktop IDE.`,
   },
   {
     path: `/docs/feedback/`,
@@ -36,7 +36,7 @@ const NEXT_CARDS: { path: string; label: string; desc: string }[] = [
   {
     path: `/docs/mcp/`,
     label: `MCP & API`,
-    desc: `Drive your issues from Claude, ChatGPT, or Cursor.`,
+    desc: `Drive your issues from Claude, ChatGPT, Codex, or Cursor.`,
   },
 ]
 
@@ -116,7 +116,7 @@ export function GettingStartedDocsPage() {
             </p>
             <DocsCallout kind="tip" title="Coding gates on the repo">
               Any board with a connected repository can run coding sessions —
-              a feedback board backed by your app&apos;s repo lets Claude fix
+              a feedback board backed by your app&apos;s repo lets an agent fix
               user-reported bugs directly.
             </DocsCallout>
           </DocsSection>
@@ -157,7 +157,7 @@ export function GettingStartedDocsPage() {
               <code>exp/&lt;IDENTIFIER&gt;</code> branches, server-opened pull
               requests linked back to the issue, and automatic completion when
               the PR merges. Details in{` `}
-              <a href="/docs/coding/">Coding with Claude</a>.
+              <a href="/docs/coding/">Coding agents</a>.
             </p>
           </DocsSection>
 
@@ -171,13 +171,11 @@ export function GettingStartedDocsPage() {
               accepted.
             </p>
             <p>
-              Roles are deliberately simple: <strong>owner</strong> and{` `}
-              <strong>member</strong>. Owners manage the team itself —
-              settings, members, repositories, widgets, billing, and board
-              deletion. Everything else is for everyone:{` `}
-              <strong>every member moderates</strong>, meaning any member can
-              edit issues, triage feedback, and manage comments. There is no
-              read-only seat.
+              Roles are <strong>owner</strong> and <strong>member</strong>.
+              Owners manage the team — settings, members, repositories,
+              widgets, billing, board deletion. Every member can edit issues,
+              triage feedback, manage comments, and edit statuses and labels.
+              There is no read-only seat.
             </p>
           </DocsSection>
 
@@ -192,8 +190,8 @@ export function GettingStartedDocsPage() {
             </p>
             <ul>
               <li>
-                <strong>Coding needs no plan.</strong> Claude runs on your
-                machine, on your own Claude subscription — unlimited boards,
+                <strong>Coding needs no plan.</strong> Your agent runs on your
+                machine, on your own agent subscription — unlimited boards,
                 repos, and coding sessions on every tier, including Free.
               </li>
               <li>

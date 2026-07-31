@@ -1136,7 +1136,7 @@ export function AgentSessionView({
               This force-terminates the terminal
               {session.deviceLabel ? ` on ${session.deviceLabel}` : ``} and
               ends the session. Uncommitted work in the worktree is kept, but
-              Claude stops immediately.
+              the agent stops immediately.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

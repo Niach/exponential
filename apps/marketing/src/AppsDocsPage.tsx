@@ -83,7 +83,8 @@ export function AppsDocsPage() {
             <p>
               Native <a href={LINKS.downloads.ios}>iOS</a> and{` `}
               <a href={LINKS.downloads.android}>Android</a> apps with
-              everything synced in real time. Four tabs:
+              everything synced in real time. Five tabs — six with the helpdesk
+              on:
             </p>
             <ul>
               <li>
@@ -95,8 +96,17 @@ export function AppsDocsPage() {
                 to you, in one place.
               </li>
               <li>
+                <strong>Support</strong> — the team&apos;s shared helpdesk
+                inbox. Present only while the helpdesk is enabled.
+              </li>
+              <li>
                 <strong>Agents</strong> — running coding sessions with a live
-                terminal feed and steering.
+                terminal feed and steering, plus the team&apos;s{` `}
+                <a href="/docs/actions/">actions</a>.
+              </li>
+              <li>
+                <strong>Reviews</strong> — every issue with an open PR, with a
+                one-click merge.
               </li>
               <li>
                 <strong>Search</strong> — find any issue across your teams.
@@ -125,8 +135,10 @@ export function AppsDocsPage() {
               <strong>Account → Notifications</strong> apply to push too.
             </p>
             <DocsCallout kind="note" title="Push on self-hosted">
-              The cloud has push wired up out of the box. Self-hosted
-              instances run a small push relay —{` `}
+              The cloud has push wired up out of the box. The App Store / Play
+              Store apps push only for cloud accounts; self-hosted instances
+              get web, desktop and email notifications instead. Why, and the
+              build-it-yourself escape hatch:{` `}
               <a href="/docs/self-host/#push">
                 self-host docs: push notifications
               </a>
@@ -141,13 +153,14 @@ export function AppsDocsPage() {
               A coding session started on your desktop doesn&apos;t chain you
               to the desk. The <strong>Agents</strong> tab (and the matching
               view on web) shows every running session with a{` `}
-              <strong>live terminal feed</strong> — watch Claude work in real
-              time, and <strong>send steer messages</strong> mid-run: answer
-              its question, veto an approach, add a constraint you forgot.
+              <strong>live terminal feed</strong> — watch the agent work in
+              real time, and <strong>send steer messages</strong> mid-run:
+              answer its question, veto an approach, add a constraint you
+              forgot.
             </p>
             <p>
               The full flow — starting runs, plan mode, batches, review — is
-              in <a href="/docs/coding/">Coding with Claude</a>.
+              in <a href="/docs/coding/">Coding agents</a>.
             </p>
           </DocsSection>
         </DocsLayout>

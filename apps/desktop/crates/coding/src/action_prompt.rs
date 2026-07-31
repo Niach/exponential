@@ -61,7 +61,7 @@ board, label, and comment operations. When you finish, summarize what you did \
 }
 
 /// Prompt for the builtin "Create action" run (EXP-257 — the successor of
-/// the actions panel's "Describe with Claude" creator, EXP-253 / L24). It
+/// the actions panel's "Describe with your agent" creator, EXP-253 / L24). It
 /// runs as a regular ACTION session in a scratch dir with the exponential
 /// MCP tools wired, and asks Claude to author ONE action for `team_id` from
 /// the user's one-line `description`. `repo` is the optional repo INPUT the
@@ -78,7 +78,7 @@ pub fn create_action_prompt(
         Some(name) => format!(
             " Set `icon` to `{name}` — the user picked that glyph for the action."
         ),
-        // No pick: let Claude choose, since an unset icon renders as the
+        // No pick: let the agent choose, since an unset icon renders as the
         // generic action glyph and the list reads worse.
         None => " Also set `icon` to the curated icon name that best fits the \
 action (the same set as board icons, e.g. `bug`, `rocket`, `database`, `chart-line`)."

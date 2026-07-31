@@ -277,7 +277,7 @@ pub fn builtin_create_action(team_id: &str) -> Action {
         team_id: team_id.to_string(),
         repository_id: None,
         name: BUILTIN_CREATE_ACTION_NAME.to_string(),
-        description: Some("Describe a new action and let Claude author it for the team".to_string()),
+        description: Some("Describe a new action and let your agent author it for the team".to_string()),
         icon: Some("sparkles".to_string()),
         body: String::new(),
         builtin: true,
@@ -325,7 +325,7 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
         repository_id: None,
         name: BUILTIN_FIX_CONFLICTS_NAME.to_string(),
         description: Some(
-            "Pick a conflicted pull request and let Claude rebase, resolve, and merge it"
+            "Pick a conflicted pull request and let your agent rebase, resolve, and merge it"
                 .to_string(),
         ),
         icon: Some("git-branch".to_string()),

@@ -33,6 +33,7 @@ import { DocsPage } from "../src/DocsPage"
 import { GettingStartedDocsPage } from "../src/GettingStartedDocsPage"
 import { IssuesDocsPage } from "../src/IssuesDocsPage"
 import { CodingDocsPage } from "../src/CodingDocsPage"
+import { ActionsDocsPage } from "../src/ActionsDocsPage"
 import { FeedbackDocsPage } from "../src/FeedbackDocsPage"
 import { WidgetDocsPage } from "../src/WidgetDocsPage"
 import { McpDocsPage } from "../src/McpDocsPage"
@@ -56,6 +57,7 @@ const COMPONENTS: Record<string, ComponentType> = {
   "/docs/getting-started/": GettingStartedDocsPage,
   "/docs/issues/": IssuesDocsPage,
   "/docs/coding/": CodingDocsPage,
+  "/docs/actions/": ActionsDocsPage,
   "/docs/feedback/": FeedbackDocsPage,
   "/docs/widget/": WidgetDocsPage,
   "/docs/mcp/": McpDocsPage,
@@ -209,6 +211,7 @@ function writeLlmsTxt(): void {
         `/docs/getting-started/`,
         `/docs/issues/`,
         `/docs/coding/`,
+        `/docs/actions/`,
         `/docs/feedback/`,
         `/docs/widget/`,
         `/docs/mcp/`,
@@ -225,7 +228,7 @@ function writeLlmsTxt(): void {
   const lines: string[] = [
     `# ${SITE_NAME}`,
     ``,
-    `> An open-source (Apache-2.0) realtime workspace for issues, customer support and coding agents. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests — unlimited sessions, flat price. Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
+    `> An open-source (Apache-2.0) realtime tracker for issues, customer support and coding agents. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests — unlimited sessions, flat price. Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
     ``,
     `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential.`,
   ]

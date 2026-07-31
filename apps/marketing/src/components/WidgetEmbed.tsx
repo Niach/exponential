@@ -20,7 +20,14 @@ export function WidgetEmbed() {
 
     const q: unknown[][] = []
     const api = { q } as WidgetApi
-    for (const m of [`init`, `identify`, `setCustomData`, `open`, `close`]) {
+    for (const m of [
+      `init`,
+      `identify`,
+      `setCustomData`,
+      `open`,
+      `close`,
+      `submit`,
+    ]) {
       ;(api as unknown as Record<string, (...a: unknown[]) => void>)[m] = (
         ...args: unknown[]
       ) => {

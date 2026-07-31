@@ -62,7 +62,7 @@ const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
 const ENTRY_TITLES: Record<EntryKey, string> = {
   github: `Connect a GitHub repo`,
   board: `Create a board`,
-  coding: `Start coding with Claude`,
+  coding: `Start coding with an agent`,
   widget: `Set up the feedback widget`,
   helpdesk: `Enable the helpdesk`,
   mcp: `Connect your tools via MCP`,
@@ -71,7 +71,7 @@ const ENTRY_TITLES: Record<EntryKey, string> = {
 const ENTRY_DESCRIPTIONS: Record<EntryKey, string> = {
   github: `Link a GitHub account to your team so boards can attach repositories — pull requests and coding sessions flow back into their issues.`,
   board: `Boards hold your issues. Connect a repository to code on a board; without one it works as a plain board.`,
-  coding: `The desktop app is a full git IDE and the one client that runs coding sessions: "Start coding" on any issue hands it to Claude on your machine — it plans first, implements, then commits, pushes, and opens the pull request linked back to the issue. You just need git and the claude CLI on your PATH.`,
+  coding: `The desktop app is a full git IDE and the one client that runs coding sessions: "Start coding" on any issue hands it to your coding agent on your machine — it plans first, implements, then commits, pushes, and opens the pull request linked back to the issue. You just need git and your agent CLI (claude, codex or pi) on your PATH.`,
   widget: `Embed a feedback button on any website — visitors report bugs with an annotated screenshot, and each lands here as an issue with reporter email and page context.`,
   helpdesk: `Flip the switch in Settings → Feedback widget and every member shares the Support inbox — support tickets from the widget land there, with replies emailed to the reporter.`,
   mcp: `This instance exposes an MCP server at /api/mcp. Connect Claude, ChatGPT, Cursor, or any MCP client to work with issues, boards, and comments from your tools.`,

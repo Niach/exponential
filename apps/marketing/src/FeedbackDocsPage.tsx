@@ -54,8 +54,8 @@ export function FeedbackDocsPage() {
               </li>
               <li>
                 Connect the board to your app&apos;s repository and{` `}
-                <a href="/docs/coding/">Claude can fix reported bugs</a>{` `}
-                straight off the board.
+                <a href="/docs/coding/">your agents can fix reported bugs</a>
+                {` `}straight off the board.
               </li>
             </ul>
           </DocsSection>
@@ -130,17 +130,16 @@ export function FeedbackDocsPage() {
               noise to <strong>Cancelled</strong>, mark repeats as{` `}
               <strong>Duplicate</strong>, and promote real bugs to{` `}
               <strong>Todo</strong> — or bulk-select a batch of them and{` `}
-              <a href="/docs/coding/#batch-runs">hand it to Claude</a>.
+              <a href="/docs/coding/#batch-runs">hand it to an agent</a>.
             </p>
             <p>
-              When the fix lands and the issue resolves, the{` `}
-              <strong>reporter is notified</strong> — the loop closes with the
-              person who cared enough to report it.
+              When the fix lands, the <strong>reporter is notified</strong> —
+              the loop closes with the person who reported it.
             </p>
             <DocsCallout kind="tip" title="Dogfood">
               Exponential&apos;s own feedback runs exactly this setup — the
               feedback button in the corner of this site is the real widget,
-              the helpdesk answers the support requests, and Claude fixes the
+              the helpdesk answers the support requests, and agents fix the
               bugs.
             </DocsCallout>
           </DocsSection>

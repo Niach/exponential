@@ -60,8 +60,8 @@ export function SelfHostDocsPage() {
             <h1>Self-host</h1>
             <p>
               Two files and a <code>docker compose up</code> — pulling the
-              published image, no checkout, no build. Every feature unlocked.
-              Free for everyone, open source under Apache-2.0. Or skip reading
+              published image, no checkout, no build. No plan limits. Free for
+              everyone, open source under Apache-2.0. Or skip reading
               entirely: copy the prompt and let your coding agent do the
               install.
             </p>
@@ -356,8 +356,7 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
               . The iOS and Android apps from the App Store / Play Store are
               compiled against Exponential&apos;s first-party Firebase
               project, and only the cloud&apos;s push relay can reach their
-              device tokens — a self-hosted relay cannot, by design. Push for
-              the official mobile apps is a cloud feature.
+              device tokens — a self-hosted relay cannot, by design.
             </p>
             <p>
               Self-hosted users still get web notifications, the email digest,
@@ -748,33 +747,20 @@ docker compose pull && docker compose up -d
                 Apache License 2.0
               </a>
               . Self-hosting is free for everyone — any company size, in
-              production, forever. No seat caps, no headcount thresholds, no
-              commercial license, no phone home, no nag screens.
+              production, forever. No seat caps, no commercial license, no
+              phone home.
             </p>
 
             <h3>Enterprise Support — optional</h3>
             <p>
               If you want more than the community around the repo, add{` `}
-              <strong>Enterprise Support</strong>: <strong>€590/year</strong>
-              {` `}
-              for organizations of up to 25 users, <strong>€1,900/year</strong>
-              {` `}
-              up to 100, custom above that — SLA, priority support, deployment
-              help, and custom development, on one annual invoice. It&apos;s an
-              add-on, never a requirement.{` `}
+              <strong>Enterprise Support</strong> — SLA, priority support,
+              deployment help, and custom development, on one annual invoice.
+              It&apos;s an add-on, never a requirement.{` `}
               <a href="/contact/">Contact sales</a> or email{` `}
               <a href="mailto:support@exponential.at">support@exponential.at</a>
               . Need SSO, SLA, or DPA? That conversation starts there too.
             </p>
-
-            <DocsCallout kind="warn" title="No push notifications">
-              Push notifications require App Store distribution: the store
-              mobile apps are compiled against the first-party Firebase/APNs
-              project, so a self-hosted instance cannot push to them. Web and
-              desktop apps are fully functional; the mobile apps work against
-              your instance (build them from source) but won&apos;t receive
-              push notifications. Enterprise push relay coming soon.
-            </DocsCallout>
           </DocsSection>
         </DocsLayout>
       </main>

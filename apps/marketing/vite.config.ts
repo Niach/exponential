@@ -39,6 +39,7 @@ export default defineConfig({
         ),
         "docs-issues": resolve(__dirname, `docs/issues/index.html`),
         "docs-coding": resolve(__dirname, `docs/coding/index.html`),
+        "docs-actions": resolve(__dirname, `docs/actions/index.html`),
         "docs-feedback": resolve(__dirname, `docs/feedback/index.html`),
         "docs-widget": resolve(__dirname, `docs/widget/index.html`),
         "docs-mcp": resolve(__dirname, `docs/mcp/index.html`),

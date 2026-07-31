@@ -2,9 +2,9 @@
    picker, mirroring the real desktop dialog (EXP-106). The checked count
    decides the run mode: 1 issue → a plain session on exp/<IDENTIFIER>,
    2+ → ONE batch session on ONE exp/batch-<id8> branch ending in ONE
-   combined PR. Per-mode defaults: issue runs plan ON / ultracode OFF,
-   batch runs ultracode ON / plan OFF. ─── */
-import { useEffect, useMemo, useState } from "react"
+   combined PR. Defaults are per AGENT (EXP-206), not per mode — single and
+   batch runs prefill identically. ─── */
+import { useMemo, useState } from "react"
 import { ISSUES } from "./data"
 import { useIde, type CodingTarget } from "./state"
 import { StatusIcon } from "./bits"
@@ -115,12 +115,7 @@ export function StartCodingDialog() {
   const [planMode, setPlanMode] = useState(true)
   const [ultracode, setUltracode] = useState(false)
 
-  /* Mode defaults re-apply when the checked count flips modes. */
   const isBatch = checked.size >= 2
-  useEffect(() => {
-    setPlanMode(!isBatch)
-    setUltracode(isBatch)
-  }, [isBatch])
 
   /* The board's OPEN issues (done/cancelled/duplicate hidden); pre-seeded
      ids stay visible regardless of status or search — the pick wins. */
