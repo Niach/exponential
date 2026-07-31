@@ -15,6 +15,7 @@ import {
   Caption,
   CursorLayer,
   WindowChassis,
+  shotKeys,
   type CamKey,
   type CursorKey,
 } from "../../ships/rig"
@@ -53,6 +54,7 @@ import {
   CLAMP_EASE,
   CONTENT_TOP,
   SegmentShell,
+  captionSize,
   type SegmentProps,
 } from "./common"
 
@@ -80,6 +82,19 @@ const CAPTIONS = {
 // (EXP-388: no camera moves).
 const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.12, x: 850, y: 470 }]
 
+// Phones (EXP-392): the diff, then the phone's card flip. The desktop
+// two-stage merge button goes off-camera — deliberately. "Merge. Done." is a
+// STATE claim, and the phone states it in 12.5px chips where the review row
+// would state it in an 11px button. The cut is caption-free (rm1 is gone by
+// 94, rm2 arrives at 126) and lands before mergedAt, so the flip is on camera.
+const CAMERA_KEYS_SM: CamKey[] = shotKeys([
+  { at: 0, s: 3.0, x: 1126, y: 214 }, // the PR header + the diff painting in
+  // x holds the whole card while leaving only a sliver of window edge in
+  // frame — the phone overhangs the window (1568), and past that is only
+  // wallpaper, which reads as the shot having run off the set.
+  { at: 100, s: 3.0, x: 1345, y: 628 }, // the phone: Ready for review → Merged
+])
+
 // ── Cursor ────────────────────────────────────────────────────────────────────
 const MERGE_BTN = { x: 641, y: 118 }
 const CONFIRM_BTN = { x: 618, y: 118 }
@@ -106,11 +121,11 @@ const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   frame,
-  textScale,
+  small,
 }) => {
   const dockH = WIN.dockStrip
   const paneH = WIN.h - CONTENT_TOP - dockH
-  const captionSize = Math.round(72 * textScale)
+  const capSize = captionSize(small)
 
   const heroStatus =
     frame >= B.mergedAt ? ("done" as const) : ("in_progress" as const)
@@ -141,7 +156,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   return (
     <SegmentShell frame={frame} dur={DUR}>
       <AbsoluteFill>
-        <Camera keys={CAMERA_KEYS} frame={frame}>
+        <Camera keys={small ? CAMERA_KEYS_SM : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
             <TitleBar
               frame={frame}
@@ -257,7 +272,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
           frame={frame}
           in={CAPTIONS[key].in}
           out={CAPTIONS[key].out}
-          size={captionSize}
+          size={capSize}
           fontFamily={PAGE_FONT}
           letterSpacing="-0.03em"
         >

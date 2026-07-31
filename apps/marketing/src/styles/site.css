@@ -175,9 +175,16 @@
    (EXP-200). --movie-reserve is everything that ISN'T the 16:9 stage
    (topbar, text stack, rail, gaps) — loop.css derives the stage cap from
    it; the max-height tier below tightens the stack and lowers the reserve
-   so short displays give the film as much room as possible. */
+   so short displays give the film as much room as possible.
+   The values here are only the PRE-HYDRATION defaults: LoopMovie measures
+   the real reserve and writes it back (EXP-392). Hand-tuned constants
+   silently rotted every time the hero copy changed — by EXP-392 this one
+   over-reserved by ~150px, which capped the film small AND left a dead
+   band above it. So they err a touch generous (too small would push the
+   frame past the fold for one frame) and are not worth re-tuning by hand.
+   Phones drop the one-screen contract entirely (responsive.css). */
 .hero {
-  --movie-reserve: 640px;
+  --movie-reserve: 500px;
   min-height: calc(100vh - 56px);
   min-height: calc(100svh - 56px);
   display: flex;
@@ -423,11 +430,10 @@ h1.hero-title {
 
 /* Short-viewport tier (typical laptops): tighten the text stack so the film
    keeps as much of the remaining height as possible. Must come AFTER the
-   base hero type rules — same specificity, cascade order decides. Reserve
-   values are measured, not derived (EXP-200 hero-fit verification). */
+   base hero type rules — same specificity, cascade order decides. */
 @media (max-height: 940px) and (min-width: 721px) {
   .hero {
-    --movie-reserve: 505px;
+    --movie-reserve: 400px;
     padding-top: 28px;
   }
   h1.hero-title {
@@ -443,15 +449,6 @@ h1.hero-title {
   }
   .hero-agents {
     margin-bottom: 20px;
-  }
-}
-
-/* Very short desktop viewports (≤ ~760px): full containment would shrink the
-   film into a thumbnail — give up on the one-screen hero and let the page
-   scroll instead (loop.css reverts the movie to width-driven sizing). */
-@media (max-height: 759px) and (min-width: 721px) {
-  .hero {
-    min-height: 0;
   }
 }
 

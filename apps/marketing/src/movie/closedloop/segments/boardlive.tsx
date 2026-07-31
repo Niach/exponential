@@ -17,6 +17,7 @@ import {
   CursorLayer,
   RemoteCursor,
   WindowChassis,
+  shotKeys,
   type CamKey,
   type CursorKey,
 } from "../../ships/rig"
@@ -54,6 +55,7 @@ import {
   CLAMP_EASE,
   CONTENT_TOP,
   SegmentShell,
+  captionSize,
   type SegmentProps,
 } from "./common"
 
@@ -84,6 +86,21 @@ const CAMERA_KEYS: CamKey[] = [
   { f: 0, s: 1.12, x: 850, y: 470 },
   { f: DUR, s: 1.15, x: 850, y: 470, ease: "linear" },
 ]
+
+// Phones (EXP-392) can't hold both subjects — the issue list ends at local
+// x 684 and the phone starts at 1314, and any crop tight enough to read
+// 13px rows is ~600 local px wide. So it's two shots. The cut sits in the
+// caption gap (bl1 is gone by 110, bl2 arrives at 118) and 12f after the
+// push lands, so the banner has fully sprung by the time we arrive.
+// Shot A doubles as the SMALL POSTER frame (movie:poster:small) — re-run
+// that script if these numbers move.
+const CAMERA_KEYS_SM: CamKey[] = shotKeys([
+  { at: 0, s: 3.2, x: 424, y: 170 }, // the issue list + facepile + Mara
+  // x is pulled left of the phone's own center so the frame's right edge
+  // stops at the window (1568) — the phone overhangs it, and past that
+  // there is only wallpaper.
+  { at: 112, s: 4.0, x: 1328, y: 341 }, // the phone's push banner
+])
 
 // ── Cursors (window-local tool-window coords; rows y = 104 + layout offset) ──
 // Before the drag: h:ip 104, EXP-148 132, h:todo 160, EXP-151 188, EXP-149 216,
@@ -120,13 +137,10 @@ const TAB_151: ChromeTab = {
 const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 
 // ── The clip ──────────────────────────────────────────────────────────────────
-export const BoardLiveSegment: React.FC<SegmentProps> = ({
-  frame,
-  textScale,
-}) => {
+export const BoardLiveSegment: React.FC<SegmentProps> = ({ frame, small }) => {
   const dockH = WIN.dockStrip
   const paneH = WIN.h - CONTENT_TOP - dockH
-  const captionSize = Math.round(72 * textScale)
+  const capSize = captionSize(small)
 
   const dragging = frame >= B.dragFrom
   const overrides: Record<
@@ -157,7 +171,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
   return (
     <SegmentShell frame={frame} dur={DUR} openComposed>
       <AbsoluteFill>
-        <Camera keys={CAMERA_KEYS} frame={frame}>
+        <Camera keys={small ? CAMERA_KEYS_SM : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
             <TitleBar
               frame={frame}
@@ -271,7 +285,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
           frame={frame}
           in={CAPTIONS[key].in}
           out={CAPTIONS[key].out}
-          size={captionSize}
+          size={capSize}
           fontFamily={PAGE_FONT}
           letterSpacing="-0.03em"
         >

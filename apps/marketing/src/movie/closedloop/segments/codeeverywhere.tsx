@@ -14,7 +14,13 @@
 import React from "react"
 import { AbsoluteFill, interpolate, spring } from "remotion"
 import { C, PAGE_FONT, SETTLE, WIN } from "../../ships/theme"
-import { Camera, Caption, WindowChassis, type CamKey } from "../../ships/rig"
+import {
+  Camera,
+  Caption,
+  WindowChassis,
+  shotKeys,
+  type CamKey,
+} from "../../ships/rig"
 import {
   BoardActions,
   BoardTool,
@@ -51,6 +57,7 @@ import {
   CLAMP_EASE,
   CONTENT_TOP,
   SegmentShell,
+  captionSize,
   type SegmentProps,
 } from "./common"
 
@@ -101,6 +108,17 @@ const FEED_SCHEDULE = [...B.feed, B.steerLand, ...B.reply]
 // The steer lands while the framing stands still (EXP-388: no camera moves).
 const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.06, x: 790, y: 513 }]
 
+// Phones (EXP-392): the sheet IS the story for the first ~100f, then the
+// story moves to the phone's session feed and the dock — two shots. The cut
+// sits 4f before `simul`, so the dock springs open ON camera in shot B, and
+// in the caption gap (ce1 is gone by 106, ce2 arrives at 116). Shot A's x is
+// biased right of the phone's own center to keep the wallpaper out of frame
+// (the phone's left edge is at local x 34).
+const CAMERA_KEYS_SM: CamKey[] = shotKeys([
+  { at: 0, s: 3.4, x: 290, y: 622 }, // the start sheet: issues, agent, model
+  { at: 108, s: 2.8, x: 367, y: 760 }, // the steer composer + the terminal dock
+])
+
 const TAB_151 = (frame: number): ChromeTab => ({
   id: "exp151",
   identifier: NEW_ISSUE_ID,
@@ -126,11 +144,11 @@ const PHONE_POS = { x: 210, y: 268, scale: 1.15 } as const
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
   frame,
-  textScale,
+  small,
 }) => {
   const dockH = dockHeightAt(frame)
   const paneH = WIN.h - CONTENT_TOP - dockH
-  const captionSize = Math.round(72 * textScale)
+  const capSize = captionSize(small)
 
   const heroStatus =
     frame >= B.simul ? ("in_progress" as const) : ("todo" as const)
@@ -166,7 +184,7 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
   return (
     <SegmentShell frame={frame} dur={DUR}>
       <AbsoluteFill>
-        <Camera keys={CAMERA_KEYS} frame={frame}>
+        <Camera keys={small ? CAMERA_KEYS_SM : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
             <TitleBar frame={frame} tabs={[TAB_151(frame)]} activeId="exp151" />
             <ExpandedRail
@@ -289,7 +307,7 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
           frame={frame}
           in={CAPTIONS[key].in}
           out={CAPTIONS[key].out}
-          size={captionSize}
+          size={capSize}
           fontFamily={PAGE_FONT}
           letterSpacing="-0.03em"
         >
