@@ -37,6 +37,11 @@ enum AppRoute: Hashable {
     case teamSettings(accountId: String, teamId: String)
     case invite(token: String)
     case syncDebug
+    /// About (EXP-262): the app's version surface, pushed from Settings →
+    /// General. Third-party licences are one push further so the notice blob
+    /// never weighs down the settings screen.
+    case about
+    case thirdPartyLicenses
 }
 
 /// The board the Issues tab is currently showing. May belong to a
@@ -613,6 +618,10 @@ struct MainNavigator: View {
             InviteAcceptView(token: token)
         case .syncDebug:
             SyncDebugView()
+        case .about:
+            AboutView()
+        case .thirdPartyLicenses:
+            ThirdPartyLicensesView()
         }
     }
 

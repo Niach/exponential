@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
+import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SupportTokenRouteImport } from './routes/support/$token'
@@ -98,6 +99,11 @@ import { Route as TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport } fro
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   id: '/robots.txt',
   path: '/robots.txt',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -545,6 +551,7 @@ const TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/t/$teamSlug': typeof TTeamSlugRouteRouteWithChildren
@@ -631,6 +638,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
@@ -716,6 +724,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
+  '/about': typeof AboutRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/t/$teamSlug': typeof TTeamSlugRouteRouteWithChildren
@@ -804,6 +813,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/about'
     | '/robots.txt'
     | '/admin'
     | '/t/$teamSlug'
@@ -890,6 +900,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/about'
     | '/robots.txt'
     | '/.well-known/apple-app-site-association'
     | '/.well-known/assetlinks.json'
@@ -974,6 +985,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/about'
     | '/robots.txt'
     | '/_authenticated/admin'
     | '/t/$teamSlug'
@@ -1062,6 +1074,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  AboutRoute: typeof AboutRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   TTeamSlugRouteRoute: typeof TTeamSlugRouteRouteWithChildren
   Char91DotwellKnownChar93AppleAppSiteAssociationRoute: typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
@@ -1123,6 +1136,13 @@ declare module '@tanstack/react-router' {
       path: '/robots.txt'
       fullPath: '/robots.txt'
       preLoaderRoute: typeof RobotsDottxtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -1829,6 +1849,7 @@ const TTeamSlugRouteRouteWithChildren = TTeamSlugRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  AboutRoute: AboutRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   TTeamSlugRouteRoute: TTeamSlugRouteRouteWithChildren,
   Char91DotwellKnownChar93AppleAppSiteAssociationRoute:

@@ -49,6 +49,7 @@ import {
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
+const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavAgentsIcon = conceptIcon(`nav-agents`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
@@ -369,6 +370,12 @@ export function TeamSidebar({
               <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
                 <NavChangelogIcon className="mr-2 h-4 w-4" />
                 What&apos;s new
+              </DropdownMenuItem>
+              {/* EXP-262: version-less About page with the third-party
+                  licence notices. */}
+              <DropdownMenuItem onClick={() => navigate({ to: `/about` })}>
+                <NavAboutIcon className="mr-2 h-4 w-4" />
+                About
               </DropdownMenuItem>
               {!showChrome && (
                 <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>

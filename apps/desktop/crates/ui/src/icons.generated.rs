@@ -429,6 +429,8 @@ pub const PRIORITY_MEDIUM: ExpIcon = ExpIcon::SignalMedium;
 pub const PRIORITY_NONE: ExpIcon = ExpIcon::Minus;
 /// Registry concept `priority-urgent` -> Lucide `triangle-alert`.
 pub const PRIORITY_URGENT: ExpIcon = ExpIcon::TriangleAlert;
+/// Registry concept `settings-about` -> Lucide `info`.
+pub const SETTINGS_ABOUT: ExpIcon = ExpIcon::Info;
 /// Registry concept `settings-account` -> Lucide `circle-user`.
 pub const SETTINGS_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
 /// Registry concept `settings-agents` -> Lucide `bot`.
@@ -441,6 +443,8 @@ pub const SETTINGS_BOARDS: ExpIcon = ExpIcon::SquareKanban;
 pub const SETTINGS_GENERAL: ExpIcon = ExpIcon::Building2;
 /// Registry concept `settings-labels` -> Lucide `tag`.
 pub const SETTINGS_LABELS: ExpIcon = ExpIcon::Tag;
+/// Registry concept `settings-licenses` -> Lucide `scale`.
+pub const SETTINGS_LICENSES: ExpIcon = ExpIcon::Scale;
 /// Registry concept `settings-local-repos` -> Lucide `hard-drive`.
 pub const SETTINGS_LOCAL_REPOS: ExpIcon = ExpIcon::HardDrive;
 /// Registry concept `settings-members` -> Lucide `users`.

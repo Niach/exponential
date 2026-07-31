@@ -58,10 +58,12 @@ import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.session.AgentsScreen
+import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.TeamSettingsScreen
+import com.exponential.app.ui.settings.ThirdPartyLicensesScreen
 import com.exponential.app.ui.share.ShareTargetPickerViewModel
 import com.exponential.app.ui.share.buildSharePrefill
 import com.exponential.app.ui.support.SupportScreen
@@ -421,12 +423,22 @@ private fun AuthenticatedNav(
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
                 onOpenTeamSettings = { navController.navigate("team-settings") },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
+                onOpenAbout = { navController.navigate("about") },
                 onAddServer = { navController.navigate("add-server") },
                 onBack = { navController.popBackStack() },
             )
         }
         composable("sync-diagnostics") {
             SyncDiagnosticsScreen(onBack = { navController.popBackStack() })
+        }
+        composable("about") {
+            AboutScreen(
+                onOpenThirdPartyLicenses = { navController.navigate("third-party-licenses") },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("third-party-licenses") {
+            ThirdPartyLicensesScreen(onBack = { navController.popBackStack() })
         }
         composable("add-server") {
             InstanceScreen(

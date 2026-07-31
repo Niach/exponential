@@ -198,6 +198,10 @@ struct SettingsView: View {
                     settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
                 }
                 .buttonStyle(.plain)
+                NavigationLink(value: AppRoute.about) {
+                    settingsRow(icon: AppIcons.settingsAbout, title: "About")
+                }
+                .buttonStyle(.plain)
             }
         }
     }

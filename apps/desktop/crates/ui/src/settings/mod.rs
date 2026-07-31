@@ -24,6 +24,7 @@
 //! `lib/billing.ts`) render as a neutral "Upgrade on the web" notice. The
 //! GitHub App *install* is a browser hand-off (§7.9).
 
+mod about;
 mod account;
 mod add_repository_dialog;
 mod agents;
@@ -62,6 +63,7 @@ use crate::icons::registry;
 use crate::queries;
 use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared};
 
+use about::AboutPane;
 use labels::LabelsPane;
 use statuses::StatusesPane;
 use local_repos::LocalReposPane;
@@ -100,6 +102,10 @@ pub(crate) enum SettingsSection {
     /// old Coding pane).
     Agents,
     LocalRepos,
+    /// EXP-262: version + third-party licence notices. Lives in the Personal
+    /// group's static tail (with Account), NOT in [`NAV_GROUPS`] — so the
+    /// fallback scan and its gating tests stay untouched. Never gated.
+    About,
 }
 
 struct NavItem {
@@ -192,6 +198,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
         SettingsSection::Agents => Icon::from(registry::SETTINGS_AGENTS),
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
+        SettingsSection::About => Icon::from(registry::SETTINGS_ABOUT),
     }
 }
 
@@ -287,6 +294,8 @@ pub struct SettingsView {
     /// §4.7 desktop-only Local repositories section (clone disk usage +
     /// prune/remove) — local per-install state, un-gated.
     local_repos: Entity<LocalReposPane>,
+    /// EXP-262: version + third-party licence notices (stateless, un-gated).
+    about: Entity<AboutPane>,
     /// EXP-282: the nav selection lives on the window's [`RailShared`] now —
     /// the nav column renders OUTSIDE this view (it replaces the tool column
     /// while settings are up), so both must read one value. Clamped through
@@ -311,6 +320,7 @@ impl SettingsView {
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
+        let about = cx.new(|_| AboutPane);
 
         // The section nav + header depend on role (owner gating) and the
         // solo heuristic — re-render when membership/team data moves.
@@ -338,6 +348,7 @@ impl SettingsView {
             tools,
             agents,
             local_repos,
+            about,
             shared,
             _subscriptions: subscriptions,
         }
@@ -381,6 +392,7 @@ impl Render for SettingsView {
             SettingsSection::Tools => self.tools.clone().into_any_element(),
             SettingsSection::Agents => self.agents.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
+            SettingsSection::About => self.about.clone().into_any_element(),
         };
 
         // EXP-277: no screen header (the center tab already carries the
@@ -620,6 +632,22 @@ impl Render for SettingsNavPanel {
                 )
                 .on_click(cx.listener(|_, _, window, cx| {
                     navigate(window, cx, Screen::Account);
+                })),
+            )
+            // EXP-262: version + third-party licences — an ordinary settings
+            // section (unlike Account's own screen), kept out of NAV_GROUPS so
+            // the fallback scan stays untouched.
+            .child(
+                Self::row(
+                    "settings-nav-about",
+                    "About",
+                    Some(section_icon(&SettingsSection::About)),
+                    !on_account && effective == SettingsSection::About,
+                    cx,
+                )
+                .on_click(cx.listener(|_, _, window, cx| {
+                    select_settings_section(window, cx, SettingsSection::About);
+                    navigate(window, cx, Screen::Settings);
                 })),
             );
 
@@ -1074,6 +1102,22 @@ mod tests {
                 effective_selection(section.clone(), false, true, any_board),
                 section
             );
+        }
+    }
+
+    /// EXP-262: About is never gated and never falls back — for any
+    /// owner/solo combination the selection sticks, even though the section
+    /// lives outside `NAV_GROUPS` (the fallback scan could never return it).
+    #[test]
+    fn about_is_never_gated_and_never_falls_back() {
+        for owner in [false, true] {
+            for solo in [false, true] {
+                assert!(section_visible(&SettingsSection::About, owner, solo));
+                assert_eq!(
+                    effective_selection(SettingsSection::About, owner, solo, any_board),
+                    SettingsSection::About
+                );
+            }
         }
     }
 

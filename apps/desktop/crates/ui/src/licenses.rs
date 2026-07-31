@@ -16,6 +16,9 @@
 //! The file is GENERATED — `bun run --filter @exp/licenses generate`. It is
 //! byte-compared on every PR by `apps/web/src/lib/licenses.test.ts`, and the
 //! `include_str!` below means a build cannot even succeed without it.
+//!
+//! Lives in the `ui` crate (EXP-262) because Settings → About renders it;
+//! `app` depends on `ui`, so it still travels with every binary.
 
 /// The full third-party notice for this build, as shipped.
 pub const NOTICES: &str = include_str!("../../../assets/licenses/NOTICES.txt");

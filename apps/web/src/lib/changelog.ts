@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-about-licenses`,
+    date: `2026-07-31`,
+    title: `About screens with open-source acknowledgements`,
+    summary: `Every app now has an About surface — version, source and license links, and the full third-party license notices bundled with that build.`,
+    body: `- **About everywhere** — the desktop IDE (Settings → About), iOS and Android (Settings → General → About) and the web app (user menu → About) now show what you're running, with links to the source code and the Apache-2.0 license.
+- **Third-party licenses** — each build ships and displays the complete license notices for the open-source components it bundles; on the web they're also downloadable at /NOTICES.txt.
+- **Version at a glance** — desktop and mobile show their build version right on the About row.`,
+  },
+  {
     id: `2026-07-codex-pi-steering`,
     date: `2026-07-31`,
     title: `Watch and steer Codex and Pi sessions`,

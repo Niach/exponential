@@ -49,6 +49,7 @@ pub mod issue_detail;
 mod issue_files;
 mod issue_list;
 mod join_team;
+pub mod licenses;
 mod login;
 #[cfg(target_os = "macos")]
 pub mod macos_blur;
