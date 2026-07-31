@@ -225,10 +225,13 @@ export default function (pi: any) {
     emit({ kind: "input", text: e.text, source: e.source })
   })
   on("agent_start", () => emit({ kind: "agent_start" }))
-  // agent_settled — NOT agent_end — is the true idle signal: pi may still
-  // auto-retry, auto-compact, or continue with queued follow-ups after
-  // agent_end.
+  // agent_settled is the true idle signal: pi may still auto-retry,
+  // auto-compact, or continue with queued follow-ups after agent_end. It is
+  // also a recent addition (absent before ~0.8x), so agent_end doubles as
+  // the fallback — on newer pi both fire and the flag write is idempotent;
+  // a premature idle from agent_end is corrected by the next agent_start.
   on("agent_settled", () => { emit({ kind: "agent_settled" }); flush() })
+  on("agent_end", () => { emit({ kind: "agent_settled" }); flush() })
   on("message_update", (e) => {
     const ev = e?.assistantMessageEvent
     if (ev?.type === "text_end" && typeof ev.content === "string" && ev.content.length) {
@@ -301,6 +304,7 @@ mod tests {
             "input",
             "agent_start",
             "agent_settled",
+            "agent_end", // idle fallback for pi builds predating agent_settled
             "message_update",
             "tool_execution_start",
             "tool_execution_end",
