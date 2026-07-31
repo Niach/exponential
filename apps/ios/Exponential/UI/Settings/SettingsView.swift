@@ -194,10 +194,14 @@ struct SettingsView: View {
     private var generalSection: some View {
         sectionStack(title: "General") {
             VStack(spacing: 6) {
-                NavigationLink(value: AppRoute.syncDebug) {
-                    settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
+                // EXP-232: staging-only — exposes live shape status and a
+                // "Resync now" data-wipe hatch, not for store builds.
+                if AppConstants.isStaging {
+                    NavigationLink(value: AppRoute.syncDebug) {
+                        settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
                 NavigationLink(value: AppRoute.about) {
                     settingsRow(icon: AppIcons.settingsAbout, title: "About")
                 }

@@ -186,13 +186,17 @@ fun SettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("General")
                     Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
-                        SettingsRow(
-                            icon = ExpIcons.settingsSync,
-                            title = "Sync diagnostics",
-                            subtitle = "Live Electric shape status",
-                            onClick = onOpenSyncDiagnostics,
-                        )
-                        CardDivider()
+                        // EXP-232: staging-only — exposes live shape status and
+                        // a "Resync now" data-wipe hatch, not for store builds.
+                        if (AppConstants.IS_STAGING) {
+                            SettingsRow(
+                                icon = ExpIcons.settingsSync,
+                                title = "Sync diagnostics",
+                                subtitle = "Live Electric shape status",
+                                onClick = onOpenSyncDiagnostics,
+                            )
+                            CardDivider()
+                        }
                         // EXP-260 — Android is the only client with a store
                         // listing so far, so this row is Android-only.
                         SettingsRow(
