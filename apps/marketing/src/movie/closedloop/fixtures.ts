@@ -1,11 +1,11 @@
 // closedloop/fixtures.ts — the ONE fixture world of the ClosedLoop film
-// (EXP-337 five per-flow clips, reordered by EXP-385): the team works the
-// Acme Shop board in realtime, a coding run on EXP-151 starts FROM THE PHONE
-// and spawns in the desktop dock where it's steered live, the PR merges and a
-// deploy action ships it, a visitor reports the bug through the embedded
-// feedback widget, and the platform lineup closes the loop — which wraps back
-// into the live board when it restarts. Everything here is deterministic
-// copy — no divergent content.
+// (EXP-337 five per-flow clips, reordered by EXP-385, calmed by EXP-388):
+// the team works the Acme Shop board in realtime, a coding run on EXP-151
+// starts FROM THE PHONE and spawns in the desktop dock where it's steered
+// live, the PR merges from the Reviews row, a visitor reports the bug
+// through the embedded feedback widget, and the platform lineup closes the
+// loop — which wraps back into the live board when it restarts. Everything
+// here is deterministic copy — no divergent content.
 
 import type {
   BoardRow,
@@ -174,16 +174,21 @@ export const CL_ISSUE = {
 } as const
 
 // ── The phone start flow (remote start over the steer rails, EXP-385) ────────
+// Strings mirror the real StartCodingSheet: a Form with Cancel / Start coding
+// in the toolbar, an Issues section with a search row, the agent pill strip,
+// and Model + Effort picker rows. One desktop online = no Device row at all;
+// after submit the caller shows the "Start sent" capsule toast.
 export const PHONE_START = {
-  sheetTitle: "Start coding",
-  status: "Todo",
-  button: "Start coding",
-  starting: "Starting…",
-  deviceLabel: "Device",
-  device: "Rileys-MacBook-Pro",
-  deviceState: "online",
+  cancel: "Cancel",
+  confirm: "Start coding",
+  issuesLabel: "Issues",
+  searchPlaceholder: "Search issues",
   modelLabel: "Model",
   model: "Fable",
+  effortLabel: "Effort",
+  effort: "CLI default",
+  device: "MacBook Pro",
+  toast: "Start sent to MacBook Pro — watch it in the Agents tab.",
 } as const
 
 // ── The Claude session (real CLI grammar, see ships/surfaces/terminal.tsx) ────
@@ -228,11 +233,12 @@ export const CL_SESSION: SessionEvent[] = [
   { kind: "flash", text: `Opened PR #218 — ${REPORT.title}` },
 ]
 
-// ── The EXP-151 diff (Changes tab) ────────────────────────────────────────────
-export const CL_DIFF_HEADER = {
+// ── The EXP-151 diff (the PrDiff center screen Reviews rows open) ────────────
+export const CL_PR_HEAD = {
+  identifier: NEW_ISSUE_ID,
+  title: REPORT.title,
+  pr: CL.pr,
   branch: CL.branch,
-  pr: `PR #${CL.pr}`,
-  stats: { files: 2, add: 24, del: 6 },
 } as const
 
 export const CL_DIFF_FILES = [
@@ -360,44 +366,38 @@ export const REMOTE_USER = { name: "Mara", color: "#2dd4bf" } as const
 export const REMOTE_DRAG_ID = "EXP-149" // Mara drags "Add Apple Pay" Todo → In Progress
 export const LIVE_EDIT_ID = "EXP-150" // a teammate edit flashes in live
 
-// The status change lands on the phone as a push (mobile push on notify).
+// Pushes land with the REAL notification grammar (lib/integrations/
+// notifications.ts): title "{Actor} changed {ID} to {Status}" / "New feedback:
+// {ID}", body = the issue title.
 export const PUSH_NOTIFICATION = {
-  app: "Exponential",
-  title: "EXP-149 · In Progress",
-  body: "Mara moved “Add Apple Pay to checkout” to In Progress",
-  time: "now",
+  title: `Mara changed ${REMOTE_DRAG_ID} to In Progress`,
+  body: "Add Apple Pay to checkout",
 } as const
 
-// ── The actions run (review-merge clip: merge → deploy) ──────────────────────
-export const CL_ACTIONS = [
-  {
-    id: "deploy",
-    name: "Deploy storefront",
-    sub: "Ship a release to production",
-  },
-  {
-    id: "migrate",
-    name: "Run migrations",
-    sub: "Apply pending database migrations",
-  },
-  { id: "relay", name: "Restart relay", sub: "Roll the push relay service" },
-] as const
+export const PUSH_FEEDBACK = {
+  title: `New feedback: ${NEW_ISSUE_ID}`,
+  body: REPORT.title,
+} as const
 
-export const CL_DEPLOY_SESSION: SessionEvent[] = [
-  {
-    kind: "tool",
-    tool: "Bash",
-    args: "bun run deploy:storefront",
-    result: "build 12.4s · 0 errors",
-  },
-  {
-    kind: "tool",
-    tool: "Bash",
-    args: "git push production main",
-    result: "acme-shop → production",
-  },
-  { kind: "flash", text: "Deployed — acme.shop is live" },
-]
+// The mobile board list (BoardScreen) — the same CL_BOARD world projected
+// onto the real IssueListView row shape (label → dot, assignee → initial).
+export type PhoneBoardProjection = {
+  id: string
+  title: string
+  priority: "none" | "urgent" | "high" | "medium" | "low"
+  status: "backlog" | "todo" | "in_progress" | "done"
+  labelDot?: string
+  assignee?: string
+}
+
+export const CL_PHONE_BOARD: PhoneBoardProjection[] = CL_BOARD.map((row) => ({
+  id: row.id,
+  title: row.title,
+  priority: row.priority,
+  status: row.status,
+  labelDot: row.label?.dot,
+  assignee: row.assignee,
+}))
 
 // ── The platform-lineup finale ───────────────────────────────────────────────
 export const PLATFORMS_COPY = {
@@ -414,7 +414,6 @@ export const COPY = {
   ce3: "Steer it live.",
   rm1: "Review it in place.",
   rm2: "Merge. Done.",
-  rm3: "Deploy. Never leave the app.",
   fb1: "A visitor hits a bug.",
   fb2: "It lands on your board.",
 } as const

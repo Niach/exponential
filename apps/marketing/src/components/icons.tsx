@@ -31,12 +31,16 @@ import {
   GitMerge,
   GitPullRequest,
   Inbox,
+  Info,
   Keyboard,
   LayoutGrid,
+  LifeBuoy,
+  ListFilter,
   ListTodo,
   MessageSquare,
   Minus,
   Monitor,
+  MoreHorizontal,
   PanelLeft,
   Paperclip,
   Play,
@@ -48,6 +52,7 @@ import {
   Server,
   Settings,
   Shield,
+  Wrench,
   SignalHigh,
   SignalLow,
   SignalMedium,
@@ -155,6 +160,11 @@ export const IcUserPlus = wrap(UserPlus)
 export const IcEye = wrap(Eye)
 export const IcKeyboard = wrap(Keyboard)
 export const IcRocket = wrap(Rocket)
+export const IcInfo = wrap(Info)
+export const IcLifeBuoy = wrap(LifeBuoy)
+export const IcListFilter = wrap(ListFilter)
+export const IcMore = wrap(MoreHorizontal)
+export const IcWrench = wrap(Wrench)
 
 const Custom = ({
   size = 16,

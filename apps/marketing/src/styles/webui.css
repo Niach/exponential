@@ -1054,21 +1054,53 @@
 }
 .web-rail-issue {
   margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 13px;
   font-weight: 500;
   font-family: var(--font-code);
+  color: var(--fg);
 }
-.web-rail-props {
+.web-rail-sub.is-wrap {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.45;
+}
+.web-rail-escalate {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   margin-top: 8px;
 }
-.web-rail-view {
-  margin-top: 8px;
+/* .web-root prefix outweighs the `.web-root button` reset above. */
+.web-root .web-rail-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.web-root .web-rail-create {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  opacity: 0.55;
 }
 .web-rail-foot {
   margin-top: auto;

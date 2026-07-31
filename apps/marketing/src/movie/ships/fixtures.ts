@@ -61,7 +61,6 @@ export const HERO = {
     { actor: "Alex Carter", text: "added this to release v0.12" },
   ],
   branch: "exp/EXP-142",
-  worktree: ".worktrees/EXP-142",
   pr: 214,
   sessionTab: "Fix live-steer terminal reconnect", // real app titles session tabs by task
 } as const
@@ -112,12 +111,7 @@ export const PHONE_FEED: SteerItem[] = [
 ]
 export const PHONE_DIFFSTAT = { add: 51, del: 16 } // pinned "Latest changes" strip
 
-// ── EXP-142 diff (Changes tab) ────────────────────────────────────────────────
-export const DIFF_HEADER = {
-  branch: "exp/EXP-142",
-  pr: "PR #214",
-  stats: { files: 5, add: 120, del: 34 },
-}
+// ── EXP-142 diff (the PrDiff center screen) ──────────────────────────────────
 export const DIFF_FILES = [
   { status: "M", path: "apps/web/src/components/agent-session.tsx", selected: true },
   { status: "M", path: "apps/web/src/lib/steer.ts" },

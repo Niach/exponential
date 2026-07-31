@@ -7,30 +7,14 @@
 // product is the headline), then the merged remote-start + live-steer clip,
 // review/merge/deploy, intake, and the platform-lineup finale. "Feedback →
 // issue lands on the board" still wraps into the live board when the loop
-// restarts.
+// restarts. Labels only — the per-flow subtitle phrases were cut (EXP-388).
 
-export type FlowInfo = { id: string; label: string; phrase: string }
+export type FlowInfo = { id: string; label: string }
 
 export const FLOW_INFO: FlowInfo[] = [
-  {
-    id: "board-live",
-    label: "Live board",
-    phrase: "multiplayer vibecoding",
-  },
-  {
-    id: "code-everywhere",
-    label: "Code from everywhere",
-    phrase: "starts on your phone, runs on your Mac",
-  },
-  {
-    id: "review-merge",
-    label: "Review & merge",
-    phrase: "diff, merge, deploy",
-  },
-  { id: "feedback", label: "Feedback", phrase: "reports become issues" },
-  {
-    id: "platforms",
-    label: "Every platform",
-    phrase: "desktop, web, mobile",
-  },
+  { id: "board-live", label: "Live board" },
+  { id: "code-everywhere", label: "Code from everywhere" },
+  { id: "review-merge", label: "Review & merge" },
+  { id: "feedback", label: "Feedback" },
+  { id: "platforms", label: "Every platform" },
 ]

@@ -192,24 +192,31 @@ export const mobAssigned: MobIssue[] = [
   },
 ]
 
-/* ─── Agents tab fixtures — running coding sessions ─── */
+/* ─── Agents tab fixtures — online desktops + running coding sessions ─── */
+
+export const mobDesktops = [`dennis-mbp.local`, `dennis-studio.local`]
+
+export type MobAgentState = `live` | `needs_input` | `ready`
 
 export type MobAgent = {
   identifier: string
   title: string
-  meta: string
+  state: MobAgentState
+  device: string
 }
 
 export const mobAgents: MobAgent[] = [
   {
     identifier: `EXP-12`,
     title: `Attachment paste uploads`,
-    meta: `Claude on dennis-mbp · 12m`,
+    state: `live`,
+    device: `dennis-mbp.local`,
   },
   {
     identifier: `EXP-8`,
     title: `Live-steer terminal reconnect`,
-    meta: `Claude on dennis-mbp · 34m`,
+    state: `needs_input`,
+    device: `dennis-mbp.local`,
   },
 ]
 

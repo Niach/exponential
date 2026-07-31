@@ -1,12 +1,12 @@
 // closedloop/segments/boardlive.tsx — clip 1 (245f, the OPENER since
 // EXP-385): multiplayer vibecoding. Opens FULLY COMPOSED — local frame 0 is
 // the checked-in poster frame (bun run movie:poster): the whole IDE with
-// EXP-151 open in Todo. A presence facepile pops into the titlebar, Mara's
-// colored remote cursor drags EXP-149 Todo → In Progress (the FLIP regroup
-// reads as the drag), the phone rises and the status change lands on it as a
-// PUSH notification (the inbox rail dot pops with it), a teammate's live
-// edit flashes onto EXP-150, and the local cursor moves simultaneously.
-// All beats are LOCAL frames.
+// EXP-151 open in Todo and the phone beside it showing the SAME board in the
+// real mobile app. A presence facepile pops into the titlebar, Mara's colored
+// remote cursor drags EXP-149 Todo → In Progress, the mobile list regroups
+// with her AND the push banner drops ("Mara changed EXP-149 to In Progress"),
+// a teammate's live edit flashes onto EXP-150. ONE static framing with a
+// slow push — the camera never jumps (EXP-388). All beats are LOCAL frames.
 
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
@@ -32,15 +32,18 @@ import {
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
-import { NotifPhone } from "../surfaces/steerphone"
+import { PhoneChassis } from "../surfaces/steerphone"
+import { BoardScreen } from "../surfaces/mobileui"
 import {
   CL,
   CL_BOARD,
   CL_ISSUE,
+  CL_PHONE_BOARD,
   COPY,
   LIVE_EDIT_ID,
   NEW_ISSUE_ID,
   PRESENCE_USERS,
+  PUSH_NOTIFICATION,
   REMOTE_DRAG_ID,
   REMOTE_USER,
 } from "../fixtures"
@@ -63,10 +66,8 @@ const B = {
   dragPress: 56,
   dragFrom: 58,
   dragTo: 78,
-  phoneIn: 88, // the iPhone rises beside the window
-  pushAt: 112, // the status change lands as a push banner (+ inbox rail dot)
+  pushAt: 100, // the status change lands as a push banner (+ inbox rail dot)
   liveEdit: 160, // EXP-150: assignee pops in with an indigo flash
-  phoneOut: 190,
   remoteOut: 212,
 } as const
 
@@ -76,17 +77,12 @@ const CAPTIONS = {
 } as const
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-// f0 is the poster: the WHOLE IDE window composed over the canvas. Then push
-// onto the board for the drag (facepile bound: y ≤ 540/s keeps y0 visible),
-// widen to the two-hander for the phone push, and settle back.
+// ONE framing holds board + detail + phone for the whole clip; the only
+// motion is a barely-there push (EXP-388: no big camera movements). f0 is
+// the poster.
 const CAMERA_KEYS: CamKey[] = [
-  { f: 0, s: 1.05, x: 784, y: 490 },
-  { f: 14, s: 1.05, x: 784, y: 490 },
-  { f: 32, s: 1.7, x: 440, y: 270 },
-  { f: 84, s: 1.7, x: 440, y: 270 },
-  { f: 100, s: 1.32, x: 1010, y: 500 },
-  { f: 188, s: 1.32, x: 1010, y: 500 },
-  { f: 206, s: 1.55, x: 600, y: 330 },
+  { f: 0, s: 1.12, x: 850, y: 470 },
+  { f: DUR, s: 1.15, x: 850, y: 470, ease: "linear" },
 ]
 
 // ── Cursors (window-local tool-window coords; rows y = 104 + layout offset) ──
@@ -120,8 +116,8 @@ const TAB_151: ChromeTab = {
 }
 
 // Phone placement in COMP coordinates inside the camera layer (floats over
-// the window's right edge; scaled for legibility at the two-hander zoom).
-const PHONE_POS = { x: 1490, y: 300, scale: 1.15 } as const
+// the window's right edge; unscaled so the whole device fits the framing).
+const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const BoardLiveSegment: React.FC<SegmentProps> = ({
@@ -150,9 +146,13 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
       }
     : undefined
 
-  const phoneRise =
-    interpolate(frame, [B.phoneIn, B.phoneIn + 14], [0, 1], CLAMP_EASE) *
-    interpolate(frame, [B.phoneOut, B.phoneOut + 12], [1, 0], CLAMP_EASE)
+  // The mobile list regroups WITH Mara's drag (slightly behind the cursor).
+  const phoneMoveT = interpolate(
+    frame,
+    [B.dragTo - 6, B.dragTo + 10],
+    [0, 1],
+    CLAMP_EASE
+  )
 
   return (
     <SegmentShell frame={frame} dur={DUR} openComposed>
@@ -205,7 +205,6 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
             >
               <IssueDetailPane
                 frame={frame}
-                tab="details"
                 status="todo"
                 priority="none"
                 issue={CL_ISSUE}
@@ -230,32 +229,39 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
             <CursorLayer keys={LOCAL_KEYS} frame={frame} from={0} to={DUR} />
           </WindowChassis>
 
-          {/* the phone, floating over the window's right edge (comp coords):
-              Mara's drag arrives as a push on the lock screen */}
-          {phoneRise > 0.01 ? (
+          {/* the phone, composed from f0 (it IS part of the poster): the real
+              mobile board list — Mara's drag regroups it live, then the push
+              banner drops with the real notification copy */}
+          <div
+            style={{
+              position: "absolute",
+              left: PHONE_POS.x,
+              top: PHONE_POS.y,
+            }}
+          >
             <div
               style={{
-                position: "absolute",
-                left: PHONE_POS.x,
-                top: PHONE_POS.y,
-                opacity: phoneRise,
-                translate: `0px ${(1 - phoneRise) * 46}px`,
+                transform: `scale(${PHONE_POS.scale})`,
+                transformOrigin: "0 0",
               }}
             >
-              <div
-                style={{
-                  transform: `scale(${PHONE_POS.scale})`,
-                  transformOrigin: "0 0",
-                }}
-              >
-                <NotifPhone
+              <PhoneChassis glass={{ x: PHONE_POS.x, y: PHONE_POS.y }}>
+                <BoardScreen
                   frame={frame}
-                  bannerAt={B.pushAt}
-                  glass={{ x: PHONE_POS.x, y: PHONE_POS.y }}
+                  boardName={CL.project}
+                  rows={CL_PHONE_BOARD}
+                  overrides={{ [REMOTE_DRAG_ID]: "in_progress" }}
+                  moveT={phoneMoveT}
+                  tabDots={frame >= B.pushAt + 2 ? ["mywork"] : []}
+                  banner={{
+                    at: B.pushAt,
+                    title: PUSH_NOTIFICATION.title,
+                    body: PUSH_NOTIFICATION.body,
+                  }}
                 />
-              </div>
+              </PhoneChassis>
             </div>
-          ) : null}
+          </div>
         </Camera>
       </AbsoluteFill>
 

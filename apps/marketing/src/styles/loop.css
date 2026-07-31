@@ -140,17 +140,6 @@
   color: var(--fg);
 }
 
-/* The phrase renders once in .movie-rail-now — keep it for screen readers. */
-.movie-step-phrase {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  margin: 0;
-}
-
 .movie-step-track {
   position: relative;
   display: block;
@@ -184,7 +173,8 @@
   );
 }
 
-/* Narration line between the stepper and the frame. */
+/* Narration line between the stepper and the frame — phones only, where
+   the step labels go visually hidden. */
 .movie-rail-now {
   display: flex;
   justify-content: center;
@@ -201,15 +191,9 @@
   color: var(--fg);
 }
 
-.movie-rail-now-phrase {
-  font-size: 12px;
-  color: var(--fg-dim);
-}
-
-/* Desktop shows the labels on the steps themselves — the narration line
-   only carries the phrase there. */
+/* Desktop shows the labels on the steps themselves. */
 @media (min-width: 721px) {
-  .movie-rail-now-label {
+  .movie-rail-now {
     display: none;
   }
 }
@@ -225,7 +209,7 @@
   }
 
   /* Phones: label goes visually hidden too (36px tap target stays); the
-     narration line carries label + phrase. */
+     narration line carries the label. */
   .movie-step {
     min-height: 36px;
     justify-content: center;

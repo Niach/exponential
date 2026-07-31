@@ -1,13 +1,15 @@
 // closedloop/segments/codeeverywhere.tsx — clip 2 (260f, EXP-385: the merged
 // start-coding + live-steer clip). Code from everywhere, running locally:
-// the phone rises with EXP-151's mobile issue view, the start sheet slides up
-// (agent tabs · online device · model — a long dwell, this IS the film's
+// the phone rises with EXP-151's REAL mobile issue view (identifier pill,
+// chip box, the icon-only play circle), the real start sheet slides up
+// (Issues · agent pills · Model · Effort — a long dwell, this IS the film's
 // start-coding dialog) and on Start the desktop reacts SIMULTANEOUSLY — the
 // dock springs open with the session tab, EXP-151 FLIPs Todo → In Progress
-// and the "Coding now" pill pops. The phone flips to the steer activity view,
-// mirrors the feed, and a typed steer lands highlighted in the terminal.
-// No local desktop cursor in this clip: the hands are on the phone.
-// All beats are LOCAL frames.
+// and the coding-now pill pops in the properties panel. The "Start sent"
+// toast confirms, the phone flips to the session screen, mirrors the feed,
+// and a typed steer lands highlighted in the terminal. ONE static framing —
+// no camera moves (EXP-388). No local desktop cursor: the hands are on the
+// phone. All beats are LOCAL frames.
 
 import React from "react"
 import { AbsoluteFill, interpolate, spring } from "remotion"
@@ -57,17 +59,17 @@ const DUR = SEGMENT_DURATIONS["code-everywhere"]
 // ── Beats (local frames) ──────────────────────────────────────────────────────
 const B = {
   phoneIn: 8, // the iPhone rises with the EXP-151 issue view
-  tapAt: 28, // Start-coding button tap
+  tapAt: 28, // play-circle tap on the issue view
   sheetAt: 34, // the start sheet slides up — then DWELLS (~70f)
-  flick: { at: 58, out: 66 }, // hover flick across the Codex tab
-  startAt: 104, // sheet Start press → "Starting…"
+  flick: { at: 58, out: 66 }, // hover flick across the Codex pill
+  startAt: 104, // toolbar Start-coding press → spinner
   simul: 112, // the desktop reacts: dock springs, tab pops, board FLIPs
+  sheetOut: 112, // sheet collapses; the "Start sent" toast confirms
   sessionTab: 118,
-  sheetOut: 118, // sheet collapses; the phone flips to the steer view
-  phoneSwap: 122,
   feed: [124, 134, 146, 158, 168] as const, // first 5 CL_SESSION events
-  phoneFeed: [128, 140, 152] as const, // CL_PHONE_FEED mirror rows
-  typeAt: 168, // steer typing on the phone (2 cpf)
+  phoneSwap: 136, // the phone flips to the session screen
+  phoneFeed: [142, 152, 162] as const, // CL_PHONE_FEED mirror rows
+  typeAt: 172, // steer typing on the phone (2 cpf)
   sendAt: 210, // send tap → user bubble
   steerGlow: 214, // prompt-box indigo pulse in the dock
   steerLand: 218, // the steer lands as a highlighted terminal line
@@ -93,14 +95,11 @@ const FEED_EVENTS: SessionEvent[] = [
 const FEED_SCHEDULE = [...B.feed, B.steerLand, ...B.reply]
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-// One wide two-hander holds phone + board + dock through the start and the
-// simultaneity beat, then eases onto the dock for the steer landing (the
-// phone stays half in frame, still live).
-const CAMERA_KEYS: CamKey[] = [
-  { f: 0, s: 1.3, x: 1010, y: 620 },
-  { f: 208, s: 1.3, x: 1010, y: 620 },
-  { f: 238, s: 1.5, x: 780, y: 700 },
-]
+// ONE framing holds the WHOLE window — full issue detail + properties
+// sidebar (where the coding-now pill pops) and the dock — with the phone
+// floating over the window's LEFT edge so it never covers that sidebar.
+// The steer lands while the framing stands still (EXP-388: no camera moves).
+const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.06, x: 790, y: 513 }]
 
 const TAB_151 = (frame: number): ChromeTab => ({
   id: "exp151",
@@ -119,8 +118,10 @@ const dockHeightAt = (frame: number): number => {
   return WIN.dockStrip + (WIN.dockExpanded - WIN.dockStrip) * t
 }
 
-// Phone placement in COMP coordinates inside the camera layer.
-const PHONE_POS = { x: 1490, y: 300, scale: 1.15 } as const
+// Phone placement in COMP coordinates inside the camera layer — over the
+// window's LEFT edge (the board is carried context; the detail pane and its
+// properties sidebar stay clear on the right).
+const PHONE_POS = { x: 210, y: 268, scale: 1.15 } as const
 
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
@@ -204,7 +205,6 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
             >
               <IssueDetailPane
                 frame={frame}
-                tab="details"
                 codingNow={{ at: B.sessionTab, out: DUR + 30 }}
                 status={heroStatus}
                 priority="none"
@@ -229,12 +229,14 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
             )}
           </WindowChassis>
 
-          {/* the phone, floating over the window's right edge (comp coords) */}
+          {/* the phone, floating over the window's left edge (comp coords).
+              zIndex outranks the rail/titlebar (chrome z 10–20) it overlaps. */}
           <div
             style={{
               position: "absolute",
               left: PHONE_POS.x,
               top: PHONE_POS.y,
+              zIndex: 30,
               opacity: phoneRise,
               translate: `0px ${(1 - phoneRise) * 46}px`,
             }}

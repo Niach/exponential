@@ -1,13 +1,13 @@
 /* ─── Support — Featurebase-style 3-pane helpdesk inbox ───
-   Mirrors apps/web helpdesk/support-inbox.tsx: thread list (Open/Resolved
-   pills, unread indigo dot), conversation (inbound bubbles on --bg-soft,
-   outbound replies on --accent, amber-tinted internal notes), reply /
-   internal-note composer, details rail with reporter + linked issue. */
+   Mirrors apps/web helpdesk/support-inbox.tsx (EXP-388 re-match): thread list
+   (Open/Resolved pills, unread indigo dot), conversation headed by reporter +
+   THREAD title with the Close-ticket button, reply / internal-note composer,
+   and the details rail — Reporter, widget Context (page URL / user agent /
+   viewport), then Linked issue OR the Escalate board picker, lock footer. */
 import { useState, type KeyboardEvent } from "react"
-import { getIssue, PRIORITY_LABEL, STATUS_LABEL } from "../ide/data"
+import { getIssue } from "../ide/data"
 import { useWeb } from "./state"
-import { PriorityIcon, StatusIcon } from "../ide/bits"
-import { IcCheck, IcSend } from "../ide/icons"
+import { IcCheck, IcChevDown, IcSend } from "../ide/icons"
 import {
   IcExternalLink,
   IcLifeBuoy,
@@ -109,7 +109,7 @@ export function WebSupportInbox() {
   const thread = selectedThreadId ? getThread(selectedThreadId) : null
   const inFilter = thread ? visible.some((t) => t.id === thread.id) : false
   const shown = inFilter ? thread : null
-  const issue = shown ? getIssue(shown.issueId) : null
+  const issue = shown?.issueId ? getIssue(shown.issueId) : null
   const messages = shown
     ? [...shown.messages, ...(extraMessages[shown.id] ?? [])]
     : []
@@ -170,12 +170,12 @@ export function WebSupportInbox() {
       </div>
 
       {/* Middle — conversation */}
-      {shown && issue ? (
+      {shown ? (
         <div className="web-sup-chat">
           <div className="web-sup-chathead">
             <div className="web-sup-chatwho">
               <span className="web-sup-name">{shown.reporterName}</span>
-              <span className="web-sup-issuetitle">{issue.title}</span>
+              <span className="web-sup-issuetitle">{shown.title}</span>
             </div>
             <button className="web-btn-outline" type="button">
               <IcCheck size={12} />
@@ -239,8 +239,8 @@ export function WebSupportInbox() {
         </div>
       )}
 
-      {/* Right — details rail */}
-      {shown && issue && (
+      {/* Right — details rail (Reporter · Context · Linked issue / Escalate) */}
+      {shown && (
         <div className="web-sup-rail">
           {/* Divs, not <section>/<h2>/<p> — the site stylesheet pads bare
               sections (80px), which would blow the rail apart. */}
@@ -250,38 +250,54 @@ export function WebSupportInbox() {
             <div className="web-rail-sub">{shown.reporterEmail}</div>
             <div className="web-rail-sub">{`Last seen ${shown.lastSeen}`}</div>
           </div>
-          <div>
-            <div className="web-rail-label">Linked issue</div>
-            <div className="web-rail-issue">
-              {issue.id}
-              <IcExternalLink size={11} className="ide-c-muted" />
+          {shown.context && (
+            <div>
+              <div className="web-rail-label">Context</div>
+              <div className="web-rail-sub">{shown.context.pageUrl}</div>
+              <div className="web-rail-sub is-wrap">
+                {shown.context.userAgent}
+              </div>
+              <div className="web-rail-sub">{`Viewport ${shown.context.viewport}`}</div>
             </div>
-            <div className="web-rail-sub">{issue.title}</div>
-            <div className="web-rail-props">
-              <button className="web-prop-btn" type="button">
-                <StatusIcon status={issue.status} size={13} />
-                {STATUS_LABEL[issue.status]}
+          )}
+          {issue ? (
+            <div>
+              <div className="web-rail-label">Linked issue</div>
+              <button
+                className={`web-rail-issue${interactive ? ` is-click` : ``}`}
+                type="button"
+                onClick={
+                  interactive
+                    ? () => {
+                        setNav(`project`)
+                        openIssue(issue.id)
+                      }
+                    : undefined
+                }
+              >
+                {issue.id}
+                <IcExternalLink size={11} className="ide-c-muted" />
               </button>
-              <button className="web-prop-btn" type="button">
-                <PriorityIcon priority={issue.priority} size={13} />
-                {PRIORITY_LABEL[issue.priority]}
-              </button>
+              <div className="web-rail-sub">{issue.title}</div>
             </div>
-            <button
-              className={`web-btn-outline web-rail-view${interactive ? ` is-click` : ``}`}
-              type="button"
-              onClick={
-                interactive
-                  ? () => {
-                      setNav(`project`)
-                      openIssue(issue.id)
-                    }
-                  : undefined
-              }
-            >
-              View issue
-            </button>
-          </div>
+          ) : (
+            <div>
+              <div className="web-rail-label">Escalate</div>
+              <div className="web-rail-sub is-wrap">
+                Create an issue from this ticket on one of the team&rsquo;s
+                boards.
+              </div>
+              <div className="web-rail-escalate">
+                <button className="web-rail-select" type="button">
+                  Pick a board
+                  <IcChevDown size={12} className="ide-c-muted" />
+                </button>
+                <button className="web-rail-create" type="button" disabled>
+                  Create issue
+                </button>
+              </div>
+            </div>
+          )}
           <div className="web-rail-foot">
             <div className="web-rail-lock">
               <IcLock size={11} />

@@ -8,29 +8,33 @@ import {
   IcChevLeft,
   IcChevSwap,
   IcCircle,
-  IcCircleCheck,
   IcCompose,
-  IcEye,
-  IcFile,
-  IcFilter,
   IcGitMerge,
   IcGitPr,
   IcInbox,
+  IcInfo,
+  IcLifeBuoy,
+  IcListFilter,
   IcListTodo,
   IcLucideCircleDashed,
   IcMessage,
   IcMinus,
+  IcMonitor,
+  IcMore,
   IcSearch,
   IcSend,
+  IcSettings,
   IcSignalHigh,
   IcSignalMedium,
-  IcTerminalSquare,
-  IcTimer,
+  IcSparkles,
+  IcSquare,
   IcUserPlus,
+  IcWrench,
 } from "../components/icons"
 import {
   mobAgents,
   mobAssigned,
+  mobDesktops,
   mobDetailIssue,
   mobInboxItems,
   mobProjects,
@@ -38,6 +42,7 @@ import {
   mobSearchResults,
   mobSteerDiff,
   mobSteerFeed,
+  type MobAgentState,
   type MobInboxType,
   type MobIssue,
   type MobPriority,
@@ -56,6 +61,58 @@ const statusColor: Record<MobStatus, string> = {
   done: `var(--st-done)`,
 }
 
+/* The native status glyph set: pie-clock wedges for the started statuses
+   (icons.json progress-2-4 / progress-3-4) and a FILLED disc for Done. */
+const PieGlyph = ({
+  size,
+  wedge,
+  style,
+}: {
+  size: number
+  wedge: string
+  style?: React.CSSProperties
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox={`0 0 24 24`}
+    fill={`none`}
+    stroke={`currentColor`}
+    strokeWidth={2}
+    style={{ display: `block`, flexShrink: 0, ...style }}
+    aria-hidden
+  >
+    <circle cx={12} cy={12} r={10} />
+    <path d={wedge} fill={`currentColor`} stroke={`none`} />
+  </svg>
+)
+
+const DoneGlyph = ({
+  size,
+  style,
+}: {
+  size: number
+  style?: React.CSSProperties
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox={`0 0 24 24`}
+    style={{ display: `block`, flexShrink: 0, ...style }}
+    aria-hidden
+  >
+    <circle cx={12} cy={12} r={10} fill={`currentColor`} />
+    <path
+      d={`m8.5 12 2.5 2.5 5-5`}
+      fill={`none`}
+      stroke={`#0b0b0e`}
+      strokeWidth={2}
+      strokeLinecap={`round`}
+      strokeLinejoin={`round`}
+    />
+  </svg>
+)
+
 const StatusIcon = ({
   status,
   size = 15,
@@ -64,9 +121,23 @@ const StatusIcon = ({
   size?: number
 }) => {
   const style = { color: statusColor[status] }
-  if (status === `in_progress`) return <IcTimer size={size} style={style} />
-  if (status === `in_review`) return <IcGitPr size={size} style={style} />
-  if (status === `done`) return <IcCircleCheck size={size} style={style} />
+  if (status === `in_progress`)
+    return (
+      <PieGlyph
+        size={size}
+        wedge={`M12 12 L12 6 A6 6 0 0 1 12 18 Z`}
+        style={style}
+      />
+    )
+  if (status === `in_review`)
+    return (
+      <PieGlyph
+        size={size}
+        wedge={`M12 12 L12 6 A6 6 0 1 1 6 12 Z`}
+        style={style}
+      />
+    )
+  if (status === `done`) return <DoneGlyph size={size} style={style} />
   if (status === `backlog`)
     return <IcLucideCircleDashed size={size} style={style} />
   return <IcCircle size={size} style={style} />
@@ -137,15 +208,15 @@ const Avatar = ({
 )
 
 /* ─── Tabs / tour plumbing ───
-   Four real tabs (Issues, My Work, Agents, Search) + the detached compose
-   FAB, mirroring the native MobileTabBar; `steer` is the Agents sub-screen. */
+   The native MobileTabBar order: Issues · My Work · Support · Agents ·
+   Reviews · Search (icon-only) + the detached compose FAB; Support and
+   Reviews render for fidelity but stay inert — the demo keeps only the
+   tabs that carry a full recreation. `steer` is the Agents sub-screen. */
 
 type MobTab = `issues` | `mywork` | `agents` | `steer` | `search`
 
-const TOUR: { tab: MobTab; chip?: number }[] = [
-  { tab: `issues`, chip: 0 },
-  { tab: `issues`, chip: 1 },
-  { tab: `issues`, chip: 2 },
+const TOUR: { tab: MobTab }[] = [
+  { tab: `issues` },
   { tab: `agents` },
   { tab: `steer` },
   { tab: `mywork` },
@@ -160,20 +231,18 @@ const IssueRow = ({ issue }: { issue: MobIssue }) => (
     <StatusIcon status={issue.status} />
     <span className={`mob-row-title`}>{issue.title}</span>
     {issue.label ? (
-      <span className={`mob-row-label`}>
-        <span
-          className={`mob-row-label-dot`}
-          style={{ background: issue.label.color }}
-        />
-        {issue.label.name}
-      </span>
+      <span
+        className={`mob-row-label-dot`}
+        style={{ background: issue.label.color }}
+        title={issue.label.name}
+      />
     ) : null}
     {issue.assignee ? <Avatar initials={issue.assignee} size={20} /> : null}
     <IcChev size={15} className={`mob-row-chev`} />
   </div>
 )
 
-/* ─── Bottom dock (4 tabs + compose FAB) ─── */
+/* ─── Bottom dock (6 icon-only tabs + compose FAB) ─── */
 
 const DockBtn = ({
   active,
@@ -222,7 +291,7 @@ const BottomBar = ({
         onClick={() => onTab(`issues`)}
         label={`Issues`}
       >
-        <IcListTodo size={19} />
+        <IcListTodo size={18} />
       </DockBtn>
       <DockBtn
         active={tab === `mywork`}
@@ -230,7 +299,10 @@ const BottomBar = ({
         dot={inboxUnread ? `unread` : undefined}
         label={`My Work`}
       >
-        <IcInbox size={19} />
+        <IcInbox size={18} />
+      </DockBtn>
+      <DockBtn active={false} onClick={() => {}} label={`Support`}>
+        <IcLifeBuoy size={18} />
       </DockBtn>
       <DockBtn
         active={tab === `agents` || tab === `steer`}
@@ -238,14 +310,17 @@ const BottomBar = ({
         dot={`green`}
         label={`Agents`}
       >
-        <IcBot size={19} />
+        <IcBot size={18} />
+      </DockBtn>
+      <DockBtn active={false} onClick={() => {}} label={`Reviews`}>
+        <IcGitPr size={18} />
       </DockBtn>
       <DockBtn
         active={tab === `search`}
         onClick={() => onTab(`search`)}
         label={`Search`}
       >
-        <IcSearch size={19} />
+        <IcSearch size={18} />
       </DockBtn>
     </div>
     <div className={`mob-fab`}>
@@ -254,72 +329,46 @@ const BottomBar = ({
   </div>
 )
 
-/* ─── Issues tab — current project list + inline project switcher ─── */
-
-const chips = [`All Issues`, `Active`, `Backlog`] as const
-
-const chipStatuses: Record<number, MobStatus[]> = {
-  0: [`in_progress`, `in_review`, `todo`, `backlog`, `done`],
-  1: [`in_progress`, `in_review`, `todo`],
-  2: [`backlog`],
-}
+/* ─── Issues tab — board list under the real nav bar: centered board-name
+   combobox, filter + settings sharing ONE trailing capsule (filters live
+   behind the funnel — the app has no filter-chip strip). ─── */
 
 const IssuesScreen = ({
   reduce,
-  chip,
-  setChip,
   projIdx,
   cycleProject,
 }: {
   reduce: boolean
-  chip: number
-  setChip: (i: number) => void
   projIdx: number
   cycleProject: () => void
 }) => {
   const project = mobProjects[projIdx]
-  const visible = project.groups.filter((g) =>
-    chipStatuses[chip].includes(g.status)
-  )
 
   return (
     <>
-      <button
-        type={`button`}
-        className={`mob-titlerow`}
-        onClick={cycleProject}
-        tabIndex={-1}
-      >
-        <h2 className={`mob-title`}>{project.name}</h2>
-        <span className={`mob-title-switch`}>
-          <IcChevSwap size={15} />
+      <div className={`mob-nav`}>
+        <button
+          type={`button`}
+          className={`mob-nav-board`}
+          onClick={cycleProject}
+          tabIndex={-1}
+        >
+          {project.name}
+          <IcChevSwap size={13} />
+        </button>
+        <span className={`mob-navcaps`}>
+          <IcListFilter size={15} />
+          <IcSettings size={15} />
         </span>
-      </button>
-      <div className={`mob-divider`} />
-      <div className={`mob-chips`}>
-        <span className={`mob-chip-filter`}>
-          <IcFilter size={14} />
-        </span>
-        {chips.map((label, i) => (
-          <button
-            key={label}
-            type={`button`}
-            className={i === chip ? `mob-chip mob-chip-active` : `mob-chip`}
-            onClick={() => setChip(i)}
-            tabIndex={-1}
-          >
-            {label}
-          </button>
-        ))}
       </div>
       <motion.div
-        key={`${projIdx}-${chip}`}
+        key={projIdx}
         className={`mob-list`}
         initial={reduce ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, ease: `easeOut` }}
       >
-        {visible.map((group) => (
+        {project.groups.map((group) => (
           <div key={group.status} className={`mob-group`}>
             <div className={`mob-group-head`}>
               <IcChevDown size={13} className={`mob-group-chev`} />
@@ -360,42 +409,78 @@ const SearchScreen = () => (
   </>
 )
 
-/* ─── Agents tab — running coding sessions ─── */
+/* ─── Agents tab — online desktops (remote Start coding) + running
+   sessions with their coding-session state lines ─── */
+
+const AGENT_STATE: Record<
+  MobAgentState,
+  { label: string; tone: `green` | `amber` }
+> = {
+  live: { label: `Live`, tone: `green` },
+  needs_input: { label: `Needs input`, tone: `amber` },
+  ready: { label: `Ready for review`, tone: `green` },
+}
 
 const AgentsScreen = ({ onOpenSteer }: { onOpenSteer: () => void }) => (
   <>
-    <h2 className={`mob-title`}>Agents</h2>
+    <h2 className={`mob-title is-center`}>Agents</h2>
     <div className={`mob-list mob-list-scrollpad`}>
-      {mobAgents.map((agent, i) => (
-        <button
-          key={agent.identifier}
-          type={`button`}
-          className={`mob-row mob-agent-row`}
-          onClick={i === 0 ? onOpenSteer : undefined}
-          tabIndex={-1}
-        >
-          <span className={`mob-agent-dot`} />
-          <span className={`mob-row-id`}>{agent.identifier}</span>
-          <span className={`mob-agent-main`}>
-            <span className={`mob-agent-title`}>{agent.title}</span>
-            <span className={`mob-agent-meta`}>{agent.meta}</span>
-          </span>
-          <IcChev size={15} className={`mob-row-chev`} />
-        </button>
+      <div className={`mob-section-head`}>My desktops</div>
+      {mobDesktops.map((device) => (
+        <div key={device} className={`mob-row mob-desktop-row`}>
+          <IcMonitor size={15} className={`mob-desktop-icon`} />
+          <span className={`mob-desktop-name`}>{device}</span>
+          <span className={`mob-startpill`}>Start coding</span>
+        </div>
       ))}
+      <div className={`mob-section-head`}>Running</div>
+      {mobAgents.map((agent, i) => {
+        const state = AGENT_STATE[agent.state]
+        return (
+          <button
+            key={agent.identifier}
+            type={`button`}
+            className={`mob-row mob-agent-row`}
+            onClick={i === 0 ? onOpenSteer : undefined}
+            tabIndex={-1}
+          >
+            <span
+              className={
+                state.tone === `amber`
+                  ? `mob-agent-dot is-amber`
+                  : `mob-agent-dot`
+              }
+            />
+            <span className={`mob-agent-main`}>
+              <span className={`mob-agent-line1`}>
+                <span className={`mob-row-id`}>{agent.identifier}</span>
+                <span className={`mob-agent-title`}>{agent.title}</span>
+              </span>
+              <span className={`mob-agent-meta`}>
+                <span
+                  className={
+                    state.tone === `amber`
+                      ? `mob-agent-state is-amber`
+                      : `mob-agent-state`
+                  }
+                >
+                  {state.label}
+                </span>
+                {` ${agent.device}`}
+              </span>
+            </span>
+            <IcInfo size={15} className={`mob-row-chev`} />
+          </button>
+        )
+      })}
     </div>
   </>
 )
 
-/* ─── Live steer viewer — chat-style scrubbed activity feed (narration
-   bubbles + tool rows), pinned "Latest changes" chip, message composer.
+/* ─── Live steer viewer — the native AgentSessionView: "Live · <device>"
+   header (no issue title up there), sparkles narration WITHOUT bubbles,
+   wrench tool rows, pinned "Latest changes" chip, message composer.
    No terminal rendering on mobile or web. ─── */
-
-const toolIcon = (name: string) => {
-  if (name === `Bash`) return <IcTerminalSquare size={13} />
-  if (name === `Edit`) return <IcCompose size={13} />
-  return <IcFile size={13} />
-}
 
 const SteerScreen = ({ onBack }: { onBack: () => void }) => (
   <>
@@ -410,27 +495,23 @@ const SteerScreen = ({ onBack }: { onBack: () => void }) => (
         <IcChevLeft size={19} stroke={2.2} />
       </button>
       <span className={`mob-steer-title`}>
-        <span className={`mob-header-id`}>EXP-12</span>
-        <span className={`mob-live-pill`}>
-          <span className={`mob-agent-dot`} />
-          Live
-        </span>
+        <span className={`mob-agent-dot`} />
+        <span className={`mob-steer-device`}>Live · dennis-mbp.local</span>
       </span>
-      <span className={`mob-steer-presence`}>
-        <span className={`mob-presence-chip`}>
-          <IcEye size={13} /> 2
-        </span>
+      <span className={`mob-stopbtn`}>
+        <IcSquare size={14} />
       </span>
     </div>
     <div className={`mob-feed`}>
       {mobSteerFeed.map((item, i) =>
         item.kind === `narration` ? (
-          <div key={i} className={`mob-feed-bubble`}>
-            {item.text}
+          <div key={i} className={`mob-feed-narr`}>
+            <IcSparkles size={12} />
+            <span>{item.text}</span>
           </div>
         ) : (
           <div key={i} className={`mob-feed-tool`}>
-            {toolIcon(item.name)}
+            <IcWrench size={12} />
             <span className={`mob-feed-tool-name`}>{item.name}</span>
             <span className={`mob-feed-tool-detail`}>{item.detail}</span>
           </div>
@@ -471,47 +552,67 @@ const inboxIcon = (type: MobInboxType) => {
   return <IcMessage size={14} />
 }
 
-const MyWorkScreen = () => (
-  <>
-    <h2 className={`mob-title`}>My Work</h2>
-    <div className={`mob-list mob-list-scrollpad`}>
-      <div className={`mob-section-head`}>Inbox</div>
-      {mobInboxItems.map((n) => (
-        <div
-          key={n.identifier}
-          className={
-            n.unread ? `mob-inbox-row` : `mob-inbox-row mob-inbox-read`
-          }
-        >
-          <span className={`mob-inbox-badge`}>{inboxIcon(n.type)}</span>
-          <span className={`mob-inbox-main`}>
-            <span className={`mob-inbox-line1`}>
-              <span className={`mob-row-id`}>{n.identifier}</span>
-              <span
+const MyWorkScreen = () => {
+  const [seg, setSeg] = useState<`inbox` | `issues`>(`inbox`)
+  return (
+    <>
+      <h2 className={`mob-title is-center`}>My Work</h2>
+      <div className={`mob-segment`}>
+        {(
+          [
+            [`inbox`, `Inbox`],
+            [`issues`, `My Issues`],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type={`button`}
+            className={seg === id ? `mob-segbtn is-active` : `mob-segbtn`}
+            onClick={() => setSeg(id)}
+            tabIndex={-1}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className={`mob-list mob-list-scrollpad`}>
+        {seg === `inbox`
+          ? mobInboxItems.map((n) => (
+              <div
+                key={n.identifier}
                 className={
-                  n.unread
-                    ? `mob-inbox-title mob-inbox-unread`
-                    : `mob-inbox-title`
+                  n.unread ? `mob-inbox-row` : `mob-inbox-row mob-inbox-read`
                 }
               >
-                {n.title}
-              </span>
-            </span>
-            <span className={`mob-inbox-sentence`}>{n.sentence}</span>
-          </span>
-          <span className={`mob-inbox-meta`}>
-            <span className={`mob-inbox-time`}>{n.time}</span>
-            {n.unread ? <span className={`mob-inbox-dot`} /> : null}
-          </span>
-        </div>
-      ))}
-      <div className={`mob-section-head`}>My Issues</div>
-      {mobAssigned.map((issue) => (
-        <IssueRow key={issue.identifier} issue={issue} />
-      ))}
-    </div>
-  </>
-)
+                <span className={`mob-inbox-badge`}>{inboxIcon(n.type)}</span>
+                <span className={`mob-inbox-main`}>
+                  <span className={`mob-inbox-line1`}>
+                    <span className={`mob-row-id`}>{n.identifier}</span>
+                    <span
+                      className={
+                        n.unread
+                          ? `mob-inbox-title mob-inbox-unread`
+                          : `mob-inbox-title`
+                      }
+                    >
+                      {n.title}
+                    </span>
+                  </span>
+                  <span className={`mob-inbox-sentence`}>{n.sentence}</span>
+                </span>
+                <span className={`mob-inbox-meta`}>
+                  <span className={`mob-inbox-time`}>{n.time}</span>
+                  {n.unread ? <span className={`mob-inbox-dot`} /> : null}
+                </span>
+              </div>
+            ))
+          : mobAssigned.map((issue) => (
+              <IssueRow key={issue.identifier} issue={issue} />
+            ))}
+      </div>
+    </>
+  )
+}
 
 /* ─── Issue detail screen (static, used by docs embeds) ─── */
 
@@ -523,31 +624,28 @@ const IssueScreen = () => {
         <span className={`mob-backbtn`}>
           <IcChevLeft size={19} stroke={2.2} />
         </span>
-        <span className={`mob-header-id`}>{issue.identifier}</span>
+        <span className={`mob-header-title`}>Issue</span>
+        <span className={`mob-backbtn mob-morebtn`}>
+          <IcMore size={17} />
+        </span>
       </div>
+      <span className={`mob-idpill`}>{issue.identifier}</span>
       <h2 className={`mob-title mob-title-issue`}>{issue.title}</h2>
-      <div className={`mob-card mob-props`}>
-        <div className={`mob-prop-row`}>
-          <span className={`mob-prop-key`}>Status</span>
-          <span className={`mob-prop-value`}>
-            <StatusIcon status={issue.statusKey} />
-            {issue.status}
-          </span>
-        </div>
-        <div className={`mob-prop-row`}>
-          <span className={`mob-prop-key`}>Priority</span>
-          <span className={`mob-prop-value`}>
-            <IcSignalHigh size={15} style={{ color: `var(--pr-high)` }} />
-            {issue.priority}
-          </span>
-        </div>
-        <div className={`mob-prop-row`}>
-          <span className={`mob-prop-key`}>Assignee</span>
-          <span className={`mob-prop-value`}>
-            <Avatar initials={issue.assignee.initials} size={19} />
-            {issue.assignee.name}
-          </span>
-        </div>
+      {/* the property CHIP BOX (wrapping capsules), like the app */}
+      <div className={`mob-chipbox`}>
+        <span className={`mob-propchip`}>
+          <StatusIcon status={issue.statusKey} size={13} />
+          {issue.status}
+        </span>
+        <span className={`mob-propchip`}>
+          <IcSignalHigh size={13} style={{ color: `var(--pr-high)` }} />
+          {issue.priority}
+        </span>
+        <span className={`mob-propchip`}>
+          <Avatar initials={issue.assignee.initials} size={16} />
+          {issue.assignee.name}
+        </span>
+        <span className={`mob-propchip`}>+</span>
       </div>
       <div className={`mob-desc`}>
         {issue.description.map((p) => (
@@ -583,7 +681,6 @@ const AppShell = ({
   autoTour: boolean
 }) => {
   const [tab, setTab] = useState<MobTab>(`issues`)
-  const [chip, setChip] = useState(0)
   const [projIdx, setProjIdx] = useState(0)
   const [inboxSeen, setInboxSeen] = useState(false)
   const [touring, setTouring] = useState(autoTour && !reduce)
@@ -595,7 +692,6 @@ const AppShell = ({
       step.current = (step.current + 1) % TOUR.length
       const next = TOUR[step.current]
       setTab(next.tab)
-      if (next.chip !== undefined) setChip(next.chip)
       if (next.tab === `mywork`) setInboxSeen(true)
     }, 4200)
     return () => clearInterval(timer)
@@ -621,8 +717,6 @@ const AppShell = ({
         {tab === `issues` ? (
           <IssuesScreen
             reduce={reduce}
-            chip={chip}
-            setChip={setChip}
             projIdx={projIdx}
             cycleProject={() => setProjIdx((i) => (i + 1) % mobProjects.length)}
           />

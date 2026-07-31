@@ -1,13 +1,15 @@
-// closedloop/segments/reviewmerge.tsx — clip 3 (235f, extended by EXP-385):
-// the PR's diff paints in the Changes tab, the rail switches to Reviews, the
-// two-stage merge runs and the board regroups EXP-151 to Done — then, without
-// ever leaving the app, the rail switches to Actions and the "Deploy
-// storefront" runbook runs in the dock: merge → deploy. All beats are LOCAL
-// frames.
+// closedloop/segments/reviewmerge.tsx — clip 3 (235f, refocused by EXP-388):
+// ONE surface, one framing. The rail sits on Reviews, the PR's diff paints
+// into the PrDiff center screen (the screen Reviews rows open — the old
+// Changes tab is gone), and the two-stage merge runs ON the review row
+// (Merge → Confirm merge → Merging…). The phone beside the window shows the
+// REAL mobile issue detail: its coding/PR card flips "Ready for review" →
+// "Merged" and the status chip lands on Done as the merge completes.
+// All beats are LOCAL frames.
 
 import React from "react"
-import { AbsoluteFill, interpolate, spring } from "remotion"
-import { C, PAGE_FONT, SETTLE, WIN } from "../../ships/theme"
+import { AbsoluteFill, interpolate } from "remotion"
+import { PAGE_FONT, WIN } from "../../ships/theme"
 import {
   Camera,
   Caption,
@@ -17,9 +19,6 @@ import {
   type CursorKey,
 } from "../../ships/rig"
 import {
-  ActionsTool,
-  BoardActions,
-  BoardTool,
   ReviewsTool,
   SidebarPane,
   type MergeState,
@@ -28,34 +27,29 @@ import {
   DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
-  railRowCenter,
   type ChromeTab,
-  type ExpandedRailProps,
 } from "../../ships/surfaces/chrome"
-import { IssueDetailPane } from "../../ships/surfaces/detail"
-import { ChangesPane } from "../../ships/surfaces/diffview"
-import { TerminalDock, type DockTab } from "../../ships/surfaces/terminal"
+import { PrDiffPane } from "../../ships/surfaces/diffview"
+import { PhoneChassis } from "../surfaces/steerphone"
+import { IssueScreen } from "../surfaces/mobileui"
 import {
   CL,
-  CL_ACTIONS,
-  CL_BOARD,
-  CL_DEPLOY_SESSION,
   CL_DIFF_FILES,
-  CL_DIFF_HEADER,
   CL_DIFF_ROWS,
   CL_FILE_STATS,
   CL_ISSUE,
+  CL_LABELS,
+  CL_PR_HEAD,
   CL_REVIEW_ROW,
   COPY,
-  LIVE_EDIT_ID,
   NEW_ISSUE_ID,
-  REMOTE_DRAG_ID,
+  PHONE_START,
+  REPORT,
 } from "../fixtures"
 import { SEGMENT_DURATIONS } from "../timeline"
 import {
   CENTER_W,
   CENTER_X,
-  CLAMP,
   CLAMP_EASE,
   CONTENT_TOP,
   SegmentShell,
@@ -66,138 +60,60 @@ const DUR = SEGMENT_DURATIONS["review-merge"]
 
 // ── Beats (local frames) ──────────────────────────────────────────────────────
 const B = {
-  tabSwitch: 8,
-  statsRoll: 12,
-  paint: 16,
-  fileSelect: 62,
-  railTransition: 84,
-  railClick: 88,
-  sidebarSwapOut: 86, // board → reviews crossfade
-  mergeHover: 100,
+  statsRoll: 14,
+  paint: 18, // the diff paints into the PrDiff screen
+  mergeHover: 96,
   confirmAt: 106, // click 1 → Confirm merge
-  mergingAt: 116, // click 2 → Merging…
-  rowFadeFrom: 124,
-  rowFadeTo: 134,
-  doneAt: 132, // EXP-151 regroups to Done
-  regroupEnd: 150,
-  sidebarSwapIn: 130, // reviews → board crossfade
-  // The actions phase (EXP-385): merge → deploy, never leaving the app.
-  actionsTransition: 154, // rail pill slides reviews → actions
-  actionsClick: 156,
-  actionsSwap: 158, // board → actions crossfade
-  runHover: 168,
-  runClick: 174, // Run → Running…
-  deployDock: 178, // the dock springs open with the deploy session
-  deployTab: 182,
-  deployFeed: [186, 198, 210] as const, // CL_DEPLOY_SESSION events
+  mergingAt: 120, // click 2 → Merging…
+  mergedAt: 138, // the phone card flips Merged · chip lands on Done
+  rowFadeFrom: 148,
+  rowFadeTo: 162,
 } as const
 
 const CAPTIONS = {
-  rm1: { in: 10, out: 78 },
-  rm2: { in: 108, out: 150 },
-  rm3: { in: 182, out: 222 },
+  rm1: { in: 12, out: 88 },
+  rm2: { in: 126, out: 200 },
 } as const
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-const CAMERA_KEYS: CamKey[] = [
-  { f: 0, s: 1.55, x: 940, y: 400 },
-  { f: 14, s: 1.55, x: 940, y: 400 },
-  { f: 80, s: 1.55, x: 940, y: 455, ease: "linear" },
-  { f: 84, s: 1.55, x: 940, y: 455 },
-  { f: 96, s: 1.7, x: 520, y: 360 },
-  { f: 152, s: 1.7, x: 520, y: 360 },
-  { f: 172, s: 1.25, x: 560, y: 530 },
-]
+// ONE framing holds reviews sidebar + diff + phone for the whole clip
+// (EXP-388: no camera moves).
+const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.12, x: 850, y: 470 }]
 
 // ── Cursor ────────────────────────────────────────────────────────────────────
-const railReviews = railRowCenter("reviews")
-const railActions = railRowCenter("actions")
 const MERGE_BTN = { x: 641, y: 118 }
 const CONFIRM_BTN = { x: 618, y: 118 }
-const RUN_BTN = { x: 644, y: 118 } // first ActionsTool row's Run button
 
 const CURSOR_KEYS: CursorKey[] = [
   { f: 74, x: 900, y: 400 },
-  { f: 84, x: railReviews.x, y: railReviews.y },
-  { f: 92, x: railReviews.x, y: railReviews.y },
-  { f: 98, x: MERGE_BTN.x, y: MERGE_BTN.y },
+  { f: 90, x: MERGE_BTN.x, y: MERGE_BTN.y },
   { f: 104, x: MERGE_BTN.x, y: MERGE_BTN.y },
-  { f: 110, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
-  { f: 118, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
-  { f: 130, x: 700, y: 560 },
-  { f: 144, x: 700, y: 560 },
-  { f: 152, x: railActions.x, y: railActions.y },
-  { f: 160, x: railActions.x, y: railActions.y },
-  { f: 168, x: RUN_BTN.x, y: RUN_BTN.y },
-  { f: 178, x: RUN_BTN.x, y: RUN_BTN.y },
-  { f: 190, x: 900, y: 620 },
+  { f: 112, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
+  { f: 132, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
+  { f: 152, x: 780, y: 480 },
 ]
-const CURSOR_CLICKS = [
-  B.railClick,
-  B.confirmAt,
-  B.mergingAt,
-  B.actionsClick,
-  B.runClick,
-]
+const CURSOR_CLICKS = [B.confirmAt, B.mergingAt]
 
 const TAB_151: ChromeTab = {
   id: "exp151",
   identifier: NEW_ISSUE_ID,
   label: CL_ISSUE.title,
 }
-const DOCK_TABS: DockTab[] = [
-  { id: "zsh", label: "zsh" },
-  {
-    id: "deploy",
-    label: CL_ACTIONS[0].name,
-    dot: C.green,
-    popAt: B.deployTab,
-  },
-]
 
-const dockHeightAt = (frame: number): number => {
-  if (frame < B.deployDock) return WIN.dockStrip
-  const t = spring({ frame: frame - B.deployDock, fps: 30, config: SETTLE })
-  return WIN.dockStrip + (WIN.dockExpanded - WIN.dockStrip) * t
-}
+// Phone placement in COMP coordinates inside the camera layer.
+const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   frame,
   textScale,
 }) => {
-  const dockH = dockHeightAt(frame)
+  const dockH = WIN.dockStrip
   const paneH = WIN.h - CONTENT_TOP - dockH
   const captionSize = Math.round(72 * textScale)
 
   const heroStatus =
-    frame >= B.doneAt ? ("done" as const) : ("in_progress" as const)
-  // Carried multiplayer state from the earlier clips.
-  const overrides = {
-    [NEW_ISSUE_ID]: { status: heroStatus },
-    [REMOTE_DRAG_ID]: { status: "in_progress" as const },
-    [LIVE_EDIT_ID]: { assignee: "JL" },
-  }
-  const regroup =
-    frame >= B.doneAt
-      ? {
-          id: NEW_ISSUE_ID,
-          t: interpolate(frame, [B.doneAt, B.regroupEnd], [0, 1], CLAMP),
-          from: "in_progress" as const,
-        }
-      : undefined
-
-  // Sidebar crossfades: board → reviews → board → actions.
-  const fade6 = (at: number, from: number, to: number) =>
-    interpolate(frame, [at, at + 6], [from, to], CLAMP)
-  const boardO =
-    frame < B.sidebarSwapIn
-      ? fade6(B.sidebarSwapOut, 1, 0)
-      : frame < B.actionsSwap
-        ? fade6(B.sidebarSwapIn, 0, 1)
-        : fade6(B.actionsSwap, 1, 0)
-  const reviewsO = fade6(B.sidebarSwapOut, 0, 1) * fade6(B.sidebarSwapIn, 1, 0)
-  const actionsO = fade6(B.actionsSwap, 0, 1)
+    frame >= B.mergedAt ? ("done" as const) : ("in_progress" as const)
 
   const mergeState: MergeState =
     frame < B.confirmAt
@@ -220,21 +136,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
     CLAMP_EASE
   )
 
-  const railProps: ExpandedRailProps =
-    frame < B.railTransition
-      ? { frame, active: "board" }
-      : frame < B.actionsTransition
-        ? {
-            frame,
-            active: "reviews",
-            activeTransition: { from: "board", at: B.railTransition },
-          }
-        : {
-            frame,
-            active: "actions",
-            activeTransition: { from: "reviews", at: B.actionsTransition },
-          }
-  const railDots = frame < B.railClick + 4 ? ["reviews"] : []
+  const phoneRise = interpolate(frame, [4, 18], [0, 1], CLAMP_EASE)
 
   return (
     <SegmentShell frame={frame} dur={DUR}>
@@ -243,76 +145,31 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
           <WindowChassis>
             <TitleBar
               frame={frame}
-              tabs={[
-                { ...TAB_151, status: heroStatus },
-              ]}
+              tabs={[{ ...TAB_151, status: heroStatus }]}
               activeId="exp151"
             />
             <ExpandedRail
-              {...railProps}
-              dots={railDots}
+              frame={frame}
+              active="reviews"
               boardName={CL.project}
               userName={CL.user}
               userInitial={CL.initials}
             />
 
-            {/* sidebar: board */}
-            {boardO > 0 &&
-            (frame < B.sidebarSwapOut + 8 ||
-              (frame >= B.sidebarSwapIn && frame < B.actionsSwap + 8)) ? (
-              <div style={{ opacity: boardO }}>
-                <SidebarPane
-                  title="All Issues"
-                  actions={<BoardActions />}
-                  pills
-                  bottomInset={dockH}
-                >
-                  <BoardTool
-                    frame={frame}
-                    rows={CL_BOARD}
-                    overrides={overrides}
-                    prDotId={{ id: NEW_ISSUE_ID, at: 0 }}
-                    regroup={regroup}
-                    showLabels={false}
-                  />
-                </SidebarPane>
-              </div>
-            ) : null}
+            {/* sidebar: reviews — the merge runs on the row */}
+            <SidebarPane title="Reviews" bottomInset={dockH}>
+              <ReviewsTool
+                frame={frame}
+                mergeState={mergeState}
+                morphAt={mergeMorphAt}
+                hover={frame >= B.mergeHover && frame < B.confirmAt}
+                rowFade={rowFade}
+                row={CL_REVIEW_ROW}
+                project={CL.project}
+              />
+            </SidebarPane>
 
-            {/* sidebar: reviews */}
-            {frame >= B.railTransition && frame < B.sidebarSwapIn + 8 ? (
-              <div style={{ opacity: reviewsO }}>
-                <SidebarPane title="Reviews" bottomInset={dockH}>
-                  <ReviewsTool
-                    frame={frame}
-                    mergeState={mergeState}
-                    morphAt={mergeMorphAt}
-                    hover={frame >= B.mergeHover && frame < B.confirmAt}
-                    rowFade={rowFade}
-                    row={CL_REVIEW_ROW}
-                    project={CL.project}
-                  />
-                </SidebarPane>
-              </div>
-            ) : null}
-
-            {/* sidebar: actions — merge flows straight into deploy */}
-            {frame >= B.actionsSwap ? (
-              <div style={{ opacity: actionsO }}>
-                <SidebarPane title="Actions" bottomInset={dockH}>
-                  <ActionsTool
-                    frame={frame}
-                    rows={CL_ACTIONS}
-                    runId={CL_ACTIONS[0].id}
-                    hoverAt={B.runHover}
-                    runAt={B.runClick}
-                    team={CL.project}
-                  />
-                </SidebarPane>
-              </div>
-            ) : null}
-
-            {/* center: issue detail + Changes tab */}
+            {/* center: the PrDiff screen (what a Reviews row opens) */}
             <div
               style={{
                 position: "absolute",
@@ -323,71 +180,74 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                 overflow: "hidden",
               }}
             >
-              <IssueDetailPane
+              <PrDiffPane
                 frame={frame}
-                tab="changes"
-                tabSwitchAt={B.tabSwitch}
-                prChip={{ at: 0 }}
-                status={heroStatus}
-                priority="none"
-                issue={CL_ISSUE}
-                width={CENTER_W}
-                height={paneH}
+                paintAt={B.paint}
+                statsRollAt={B.statsRoll}
+                scrollY={0}
+                head={CL_PR_HEAD}
+                files={CL_DIFF_FILES}
+                rows={CL_DIFF_ROWS}
+                fileStats={CL_FILE_STATS}
               />
-              <div
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  top: 34,
-                  right: 0,
-                  bottom: 0,
-                  opacity: interpolate(
-                    frame,
-                    [B.tabSwitch, B.tabSwitch + 6],
-                    [0, 1],
-                    CLAMP
-                  ),
-                }}
-              >
-                <ChangesPane
-                  frame={frame}
-                  paintAt={B.paint}
-                  statsRollAt={B.statsRoll}
-                  fileSelectAt={B.fileSelect}
-                  scrollY={0}
-                  header={CL_DIFF_HEADER}
-                  files={CL_DIFF_FILES}
-                  rows={CL_DIFF_ROWS}
-                  fileStats={CL_FILE_STATS}
-                />
-              </div>
             </div>
 
-            {/* dock: collapsed until the deploy action spawns its session */}
-            {frame < B.deployDock ? (
-              <DockCollapsedStrip frame={frame} count={2} />
-            ) : (
-              <TerminalDock
-                frame={frame}
-                height={dockH}
-                tabs={DOCK_TABS}
-                activeTab={frame < B.deployTab ? "zsh" : "deploy"}
-                feed={{
-                  events: CL_DEPLOY_SESSION,
-                  schedule: B.deployFeed,
-                }}
-                spinnerBase={{ sec: 2, tokensK: 0.3 }}
-              />
-            )}
+            <DockCollapsedStrip frame={frame} count={2} />
 
             <CursorLayer
               keys={CURSOR_KEYS}
               clicks={CURSOR_CLICKS}
               frame={frame}
               from={74}
-              to={196}
+              to={170}
             />
           </WindowChassis>
+
+          {/* the phone: the real mobile issue detail — the merge lands there
+              as "Merged" + Done, live */}
+          {phoneRise > 0.01 ? (
+            <div
+              style={{
+                position: "absolute",
+                left: PHONE_POS.x,
+                top: PHONE_POS.y,
+                opacity: phoneRise,
+                translate: `0px ${(1 - phoneRise) * 46}px`,
+              }}
+            >
+              <div
+                style={{
+                  transform: `scale(${PHONE_POS.scale})`,
+                  transformOrigin: "0 0",
+                }}
+              >
+                <PhoneChassis glass={{ x: PHONE_POS.x, y: PHONE_POS.y }}>
+                  <IssueScreen
+                    frame={frame}
+                    identifier={CL_ISSUE.id}
+                    title={CL_ISSUE.title}
+                    origin="Feedback widget"
+                    status="in_progress"
+                    statusLabel="In Progress"
+                    priorityLabel="No priority"
+                    labelChip={CL_LABELS.widget}
+                    description={REPORT.details}
+                    activity={[
+                      "Feedback widget created the issue · 1 hr ago",
+                      "Riley Chen changed status from Todo to In Progress · 30 min ago",
+                    ]}
+                    pr={{
+                      number: CL.pr,
+                      device: PHONE_START.device,
+                      user: CL.user.split(" ")[0],
+                      mergedAt: B.mergedAt,
+                    }}
+                    sessionLive
+                  />
+                </PhoneChassis>
+              </div>
+            </div>
+          ) : null}
         </Camera>
       </AbsoluteFill>
 

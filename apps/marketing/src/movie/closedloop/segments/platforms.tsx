@@ -30,16 +30,16 @@ import {
   GlobeIcon,
   LinuxIcon,
   MacBook,
-  PhoneMock,
-  PHONE_TOTAL_H,
   WebBrowserMock,
   WindowsIcon,
 } from "../surfaces/platformmocks"
-import { PHONE } from "../surfaces/steerphone"
+import { PHONE, PHONE_TOTAL_H, PhoneChassis } from "../surfaces/steerphone"
+import { BoardScreen } from "../surfaces/mobileui"
 import {
   CL,
   CL_BOARD,
   CL_ISSUE,
+  CL_PHONE_BOARD,
   LIVE_EDIT_ID,
   NEW_ISSUE_ID,
   PLATFORMS_COPY,
@@ -142,8 +142,6 @@ const MacScreenFrozen: React.FC = () => {
         >
           <IssueDetailPane
             frame={FROZEN}
-            tab="details"
-            prChip={{ at: 0 }}
             status="done"
             priority="none"
             issue={CL_ISSUE}
@@ -296,7 +294,19 @@ export const PlatformsSegment: React.FC<SegmentProps> = ({ frame }) => {
                   transformOrigin: "0 0",
                 }}
               >
-                <PhoneMock />
+                {/* the real mobile board, frozen post-story */}
+                <PhoneChassis>
+                  <BoardScreen
+                    frame={FROZEN}
+                    boardName={CL.project}
+                    rows={CL_PHONE_BOARD}
+                    overrides={{
+                      [NEW_ISSUE_ID]: "done",
+                      [REMOTE_DRAG_ID]: "in_progress",
+                    }}
+                    moveT={1}
+                  />
+                </PhoneChassis>
               </div>
             </div>
           </div>

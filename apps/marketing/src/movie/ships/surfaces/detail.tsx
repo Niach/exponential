@@ -1,6 +1,9 @@
-// surfaces/detail.tsx — IssueDetailPane: the EXP-142 center pane (Details/Changes header,
-// title, markdown toolbar + description, activity, composer) + the 192px properties panel
+// surfaces/detail.tsx — IssueDetailPane: the issue-detail center pane (title,
+// markdown toolbar + description, activity, composer) + the 192px properties panel
 // (surface.rs DETAIL_SIDEBAR_WIDTH; Start coding lives HERE under AGENT, like the app).
+// EXP-388 matched it to the post-EXP-277 desktop: the Details/Changes header row is
+// GONE — the switcher / subscribe cluster lives in the properties panel's toolbar row,
+// and the coding-now pill sits inside the AGENT group.
 // Pixel truth (EXP-359 glass): the real-app reference screenshot — transparent panes
 // on the page gradient, hairline strokes, glass composer card, BOARD chip. All frames
 // are composition-global; the assembler passes `frame` down (no useCurrentFrame here).
@@ -11,8 +14,8 @@
 // cursor-target positions of every clickable element (pane-local).
 
 import React from "react"
-import { interpolate, interpolateColors, spring } from "remotion"
-import { C, EASE, MONO_FONT, POP, UI_FONT, WIN } from "../theme"
+import { interpolate, spring } from "remotion"
+import { C, EASE, POP, UI_FONT, WIN } from "../theme"
 import { BOARD, HERO, IDENTITY, LABELS } from "../fixtures"
 import type { IssueStatus, Priority } from "../fixtures"
 import { riseIn } from "../rig"
@@ -25,38 +28,28 @@ const DESC_FG = "#d4d4d4" // body paragraph color per contract
 const GREEN_BORDER = "rgba(34,197,94,0.4)" // coding-now pill border
 
 // ── Layout constants (pane-local) ────────────────────────────────────────────
-const HEADER_H = 34
 const PAD_X = 16
 const PROPS_W = WIN.propsPanel // 192
 const DEFAULT_W = WIN.w - WIN.rail - WIN.sidebar // 884
 const DEFAULT_H = WIN.h - WIN.titleBar - WIN.dockStrip // 917
 const COL_W = 640 // centered content column (incl. its 16px side padding)
-const BTN_SUB_W = 92
-const PILL_W = 184
-const PR_CHIP_W = 94
 
-// Properties-panel group pitch (pane-local Ys, panel padding 18 + ~64/group).
+// Properties-panel group pitch (pane-local Ys, toolbar row 30 + ~64/group).
 const PROPS_X = DEFAULT_W - PROPS_W / 2
 
-// Pane-local anchor points for the cursor rig (details state, defaults, no pill/chip).
+// Pane-local anchor points for the cursor rig (details state, defaults).
 // Window-local = anchor + (684, 34) when the pane sits under the titlebar.
 export const DETAIL_ANCHORS = {
-  detailsTab: { x: 40, y: 17 },
-  changesTab: { x: 110, y: 17 },
-  switcher: { x: DEFAULT_W - 305, y: 17 },
-  prevIssue: { x: DEFAULT_W - 267, y: 17 },
-  nextIssue: { x: DEFAULT_W - 245, y: 17 },
-  subscribed: { x: DEFAULT_W - 62, y: 17 },
-  title: { x: 224, y: 70 },
-  composerInput: { x: 300, y: 428 },
-  composerSend: { x: 590, y: 444 },
-  propsStatus: { x: PROPS_X, y: 85 },
-  propsPriority: { x: PROPS_X, y: 149 },
-  propsLabels: { x: PROPS_X, y: 213 },
-  propsDueDate: { x: PROPS_X, y: 277 },
-  propsProject: { x: PROPS_X + 10, y: 341 },
+  title: { x: 224, y: 48 },
+  composerInput: { x: 300, y: 406 },
+  composerSend: { x: 590, y: 422 },
+  propsStatus: { x: PROPS_X, y: 105 },
+  propsPriority: { x: PROPS_X, y: 169 },
+  propsLabels: { x: PROPS_X, y: 233 },
+  propsDueDate: { x: PROPS_X, y: 297 },
+  propsProject: { x: PROPS_X + 10, y: 361 },
   // Start coding — the AGENT row in the properties panel (like the app).
-  startCoding: { x: PROPS_X, y: 422 },
+  startCoding: { x: PROPS_X, y: 442 },
 } as const
 
 // ── Tiny inline icons (lucide-like, stroke currentColor) ─────────────────────
@@ -136,6 +129,13 @@ const IcGitPr: React.FC<IconProps> = (p) => (
     <circle cx="18" cy="18" r="3" />
     <path d="M13 6h3a2 2 0 0 1 2 2v7" />
     <path d="M6 9v12" />
+  </Svg>
+)
+const IcEllipsis: React.FC<IconProps> = (p) => (
+  <Svg {...p}>
+    <circle cx="5" cy="12" r="0.8" fill="currentColor" />
+    <circle cx="12" cy="12" r="0.8" fill="currentColor" />
+    <circle cx="19" cy="12" r="0.8" fill="currentColor" />
   </Svg>
 )
 const IcCircleDot: React.FC<IconProps> = (p) => (
@@ -420,6 +420,38 @@ const HERO_ISSUE: DetailIssueContent = {
   projectColor: IDENTITY.projectColor,
 }
 
+// The panel's first row (post-EXP-277 desktop): switcher + prev/next on the
+// left, copy-link · subscribe bell · actions menu on the right.
+const PropsToolbar: React.FC<{ switcher: string }> = ({ switcher }) => (
+  <div
+    style={{
+      height: 22,
+      display: "flex",
+      alignItems: "center",
+      gap: 4,
+      color: C.muted,
+    }}
+  >
+    <span style={{ fontSize: 12, color: C.muted }}>{switcher}</span>
+    <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <IcChevronUp size={12} />
+    </div>
+    <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <IcChevronDown size={12} />
+    </div>
+    <div style={{ flex: 1 }} />
+    <div style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <IcLink size={12} />
+    </div>
+    <div style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <IcBell size={12} />
+    </div>
+    <div style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <IcEllipsis size={14} />
+    </div>
+  </div>
+)
+
 const PropsPanel: React.FC<{
   frame: number
   staggerAt?: number
@@ -427,8 +459,18 @@ const PropsPanel: React.FC<{
   priority: Priority
   issue: DetailIssueContent
   codingActive?: boolean
+  codingPillT?: number // coding-now pill pop/out 0→1 (Agent group)
   hoverT?: number // Start-coding row hover wash 0→1
-}> = ({ frame, staggerAt, status, priority, issue, codingActive, hoverT = 0 }) => {
+}> = ({
+  frame,
+  staggerAt,
+  status,
+  priority,
+  issue,
+  codingActive,
+  codingPillT = 0,
+  hoverT = 0,
+}) => {
   const st = STATUS_META[status]
   const pr = PRIO_META[priority]
   const due = issue.due
@@ -446,12 +488,13 @@ const PropsPanel: React.FC<{
         boxSizing: "border-box",
         flexShrink: 0,
         borderLeft: `1px solid ${C.strokeRow}`,
-        padding: "18px 12px",
+        padding: "14px 12px 18px",
         display: "flex",
         flexDirection: "column",
         gap: 20,
       }}
     >
+      <PropsToolbar switcher={issue.switcher} />
       <PropGroup label="Status" frame={frame} staggerAt={staggerAt} index={0}>
         <PropValue icon={<st.Icon size={14} style={{ color: st.color }} />}>{st.label}</PropValue>
       </PropGroup>
@@ -494,6 +537,37 @@ const PropsPanel: React.FC<{
         </div>
       </PropGroup>
       <PropGroup label="Agent" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
+        {/* the coding-now pill lives INSIDE the Agent group (like the app) */}
+        {codingPillT > 0.01 ? (
+          <div
+            style={{
+              height: 24,
+              boxSizing: "border-box",
+              marginBottom: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 7,
+              borderRadius: 999,
+              border: `1px solid ${GREEN_BORDER}`,
+              opacity: codingPillT,
+              scale: String(0.9 + 0.1 * codingPillT),
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: C.green }} />
+            <span
+              style={{
+                fontSize: 11.5,
+                color: C.text,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {`Coding now · ${IDENTITY.device}`}
+            </span>
+          </div>
+        ) : null}
         <div
           style={{
             height: 30,
@@ -528,30 +602,19 @@ const PropsPanel: React.FC<{
 }
 
 // ── The pane ──────────────────────────────────────────────────────────────────
-export type DetailTab = "details" | "changes"
-
 export type IssueDetailPaneProps = {
   frame: number
-  /** Target tab; with tabSwitchAt set, the previous tab shows before that frame. */
-  tab?: DetailTab
-  /** Global frame the Details↔Changes switch happens (8f color/body crossfade). */
-  tabSwitchAt?: number
-  /** Springs the "Coding now · MacBook Pro" pill; Start coding → Stop while active. */
+  /** Springs the coding-now pill into the AGENT group; Start coding → Stop while active. */
   codingNow?: { at: number; out?: number }
-  /** Pops a PR chip into the header right cluster (default label from fixtures). */
-  prChip?: { at: number; label?: string }
   /** Properties panel groups stagger-fade in (4f stagger, 8px rise). */
   staggerAt?: number
   /** Whole pane slides in from the right 46px + fades over 20f (S4 entrance). */
   slideInAt?: number
-  /** Green live dot pops next to the Changes tab label. */
-  changesLiveAt?: number
   /** Hover highlight window on the Start coding button (cursor choreography). */
   startHover?: { at: number; out?: number }
   /** Properties STATUS value (board truth changes over the film). */
   status?: IssueStatus
   priority?: Priority
-  subscribed?: boolean
   /** Issue content (title/description/activity/properties). Default: the ships HERO. */
   issue?: DetailIssueContent
   width?: number
@@ -560,29 +623,16 @@ export type IssueDetailPaneProps = {
 
 export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
   frame,
-  tab = "details",
-  tabSwitchAt,
   codingNow,
-  prChip,
   staggerAt,
   slideInAt,
-  changesLiveAt,
   startHover,
   status = "todo",
   priority = "high",
-  subscribed = true,
   issue = HERO_ISSUE,
   width = DEFAULT_W,
   height = DEFAULT_H,
 }) => {
-  // Tab crossfade: t=1 means the target `tab` state fully applies.
-  const switchT =
-    tabSwitchAt === undefined ? 1 : interpolate(frame, [tabSwitchAt, tabSwitchAt + 8], [0, 1], CLAMP_EASE)
-  const detailsActive = tab === "details" ? switchT : 1 - switchT
-  const detailsColor = interpolateColors(detailsActive, [0, 1], [C.muted, C.text])
-  const changesColor = interpolateColors(detailsActive, [0, 1], [C.text, C.muted])
-  const detailsBodyO = detailsActive
-
   // Entrance slide (S4).
   const slide =
     slideInAt === undefined
@@ -592,21 +642,13 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
           translate: `${interpolate(frame, [slideInAt, slideInAt + 20], [46, 0], CLAMP_EASE)}px 0px`,
         }
 
-  // Coding-now pill + Start coding → Stop swap.
+  // Coding-now pill (Agent group) + Start coding → Stop swap.
   const pillPop = popIn(frame, codingNow?.at)
   const pillOut =
     codingNow?.out === undefined ? 1 : interpolate(frame, [codingNow.out, codingNow.out + 8], [1, 0], CLAMP)
-  const pillW = PILL_W * Math.min(1, pillPop) * pillOut
-  const pillO = Math.min(1, pillPop * 1.5) * pillOut
+  const codingPillT = Math.min(1, pillPop) * pillOut
   const codingActive =
     codingNow !== undefined && frame >= codingNow.at && (codingNow.out === undefined || frame < codingNow.out + 4)
-
-  // PR chip pop.
-  const chipPop = popIn(frame, prChip?.at)
-  const chipW = PR_CHIP_W * Math.min(1, chipPop)
-
-  // Changes live dot.
-  const liveDot = popIn(frame, changesLiveAt)
 
   // Start-coding hover highlight.
   const hoverIn = startHover === undefined ? 0 : interpolate(frame, [startHover.at, startHover.at + 6], [0, 1], CLAMP)
@@ -632,123 +674,16 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
         translate: slide.translate,
       }}
     >
-      {/* ── Header row ── */}
-      <div
-        style={{
-          height: HEADER_H,
-          display: "flex",
-          alignItems: "center",
-          padding: `0 ${PAD_X}px`,
-          borderBottom: `1px solid ${C.strokeRow}`,
-          gap: 12,
-        }}
-      >
-        <span style={{ fontSize: 13, fontWeight: 500, color: detailsColor }}>Details</span>
-        <span style={{ fontSize: 13, fontWeight: 500, color: changesColor, display: "flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
-          Changes
-          {changesLiveAt !== undefined && frame >= changesLiveAt ? (
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: 999,
-                backgroundColor: C.green,
-                scale: String(liveDot),
-              }}
-            />
-          ) : null}
-        </span>
-        <div style={{ flex: 1 }} />
-        {/* switcher */}
-        <span style={{ fontSize: 12.5, color: C.muted }}>{issue.switcher}</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted }}>
-            <IcChevronUp size={13} />
-          </div>
-          <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted }}>
-            <IcChevronDown size={13} />
-          </div>
-        </div>
-        {/* PR chip (pops after the PR opens) */}
-        {prChip !== undefined && frame >= prChip.at ? (
-          <div
-            style={{
-              width: chipW,
-              overflow: "hidden",
-              display: "flex",
-              justifyContent: "flex-end",
-              opacity: Math.min(1, chipPop * 1.5),
-            }}
-          >
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                height: 22,
-                padding: "0 9px",
-                borderRadius: 999,
-                border: `1px solid ${C.strokeCard}`,
-                scale: String(chipPop),
-                flexShrink: 0,
-              }}
-            >
-              <IcGitPr size={12} style={{ color: C.green }} />
-              <span style={{ fontFamily: MONO_FONT, fontSize: 11, color: C.text, whiteSpace: "nowrap" }}>
-                {prChip.label ?? `PR #${issue.pr ?? HERO.pr}`}
-              </span>
-            </div>
-          </div>
-        ) : null}
-        {/* Coding-now pill */}
-        {codingNow !== undefined && frame >= codingNow.at ? (
-          <div style={{ width: pillW, overflow: "hidden", display: "flex", justifyContent: "flex-end", opacity: pillO }}>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 7,
-                height: 22,
-                padding: "0 10px",
-                borderRadius: 999,
-                border: `1px solid ${GREEN_BORDER}`,
-                scale: String(Math.max(0, pillPop) * pillOut),
-                flexShrink: 0,
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: C.green }} />
-              <span style={{ fontSize: 12, color: C.text, whiteSpace: "nowrap" }}>{`Coding now · ${IDENTITY.device}`}</span>
-            </div>
-          </div>
-        ) : null}
-        {/* Subscribe toggle */}
-        <div
-          style={{
-            width: BTN_SUB_W,
-            height: 24,
-            borderRadius: 6,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-          }}
-        >
-          <IcBell size={13} style={{ color: C.muted }} />
-          <span style={{ fontSize: 12.5, fontWeight: 500, color: C.text }}>{subscribed ? "Subscribed" : "Subscribe"}</span>
-        </div>
-      </div>
-
-      {/* ── Body (Details tab): left column + properties panel ── */}
-      {detailsBodyO > 0.01 ? (
+      {/* ── Body: left column + properties panel (no header row — EXP-277) ── */}
+      {
         <div
           style={{
             position: "absolute",
             left: 0,
-            top: HEADER_H,
+            top: 0,
             width,
-            height: height - HEADER_H,
+            height,
             display: "flex",
-            opacity: detailsBodyO,
           }}
         >
           {/* left column */}
@@ -836,10 +771,11 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
             priority={priority}
             issue={issue}
             codingActive={codingActive}
+            codingPillT={codingPillT}
             hoverT={hoverT}
           />
         </div>
-      ) : null}
+      }
     </div>
   )
 }

@@ -1,15 +1,17 @@
-// closedloop/surfaces/steerphone.tsx — the live-steer phone (EXP-337): an
-// iPhone chassis (extracted from the retired platforms.tsx PhoneMock) whose
-// screen shows the mobile steer activity view — the session feed mirrored
-// onto the phone, a steer message being typed into the composer and sent.
+// closedloop/surfaces/steerphone.tsx — the live-steer phone: an iPhone
+// chassis whose screen shows the REAL mobile session screen (EXP-388,
+// AgentSessionView twin): nav bar with a status dot + "Live · MacBook Pro"
+// (no issue title up there), a bottom-anchored activity feed of wrench tool
+// rows and bubble-less sparkles narration, a trailing white user bubble, and
+// the "Message the agent…" composer with the small glass send capsule.
 // All frame props are COMPOSITION-LOCAL to the segment that renders it.
 
 import React from "react"
 import { interpolate, spring } from "remotion"
 import { C, GLASS, MONO_FONT, POP, UI_FONT } from "../../ships/theme"
 import type { SteerItem } from "../../ships/fixtures"
-import { ExpLogo, typed, useBlink, wallpaperBackground } from "../../ships/rig"
-import { CL, CL_PHONE_FEED, CL_STEER_MSG, PUSH_NOTIFICATION } from "../fixtures"
+import { typed, useBlink, wallpaperBackground } from "../../ships/rig"
+import { CL_PHONE_FEED, CL_STEER_MSG, PHONE_START } from "../fixtures"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
@@ -168,118 +170,13 @@ export const PhoneChassis: React.FC<{
   </div>
 )
 
-// ── The push banner + lock-screen phone (board-live clip, EXP-385) ───────────
-// A status change fires a mobile push: the banner drops onto a lock-screen
-// style glass screen (big clock, nothing else) so the notification IS the shot.
-export const PushBanner: React.FC<{ frame: number; at: number }> = ({
-  frame,
-  at,
-}) => {
-  if (frame < at) return null
-  const t = spring({ frame: frame - at, fps: 30, config: POP })
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 10,
-        right: 10,
-        top: 46,
-        boxSizing: "border-box",
-        borderRadius: 18,
-        padding: "10px 12px",
-        backgroundColor: C.panelFloat,
-        border: `1px solid ${C.strokeCard}`,
-        boxShadow: "0 14px 34px rgba(0,0,0,0.45)",
-        display: "flex",
-        gap: 10,
-        opacity: Math.min(1, t * 2),
-        translate: `0px ${(t - 1) * 34}px`,
-        zIndex: 6,
-      }}
-    >
-      <div style={{ flexShrink: 0, marginTop: 1 }}>
-        <ExpLogo size={26} />
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            gap: 8,
-          }}
-        >
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: C.text }}>
-            {PUSH_NOTIFICATION.title}
-          </span>
-          <span style={{ fontSize: 10.5, color: C.dim, flexShrink: 0 }}>
-            {PUSH_NOTIFICATION.time}
-          </span>
-        </div>
-        <div
-          style={{
-            marginTop: 2,
-            fontSize: 11.5,
-            lineHeight: 1.4,
-            color: C.muted,
-          }}
-        >
-          {PUSH_NOTIFICATION.body}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export const NotifPhone: React.FC<{
-  frame: number
-  bannerAt: number
-  glass?: { x: number; y: number }
-}> = ({ frame, bannerAt, glass }) => (
-  <PhoneChassis glass={glass} hideStatus>
-    {/* lock-screen clock (below the banner drop zone) */}
-    <div
-      style={{
-        position: "absolute",
-        top: 158,
-        left: 0,
-        right: 0,
-        textAlign: "center",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 15,
-          fontWeight: 600,
-          color: C.muted,
-          letterSpacing: 0.2,
-        }}
-      >
-        Friday, July 18
-      </div>
-      <div
-        style={{
-          marginTop: 2,
-          fontSize: 64,
-          fontWeight: 600,
-          color: C.text,
-          letterSpacing: -1,
-          lineHeight: 1.05,
-        }}
-      >
-        9:41
-      </div>
-    </div>
-    <PushBanner frame={frame} at={bannerAt} />
-  </PhoneChassis>
-)
-
-// ── Steer feed rows (iOS activity-view grammar) ──────────────────────────────
+// ── Steer feed rows (real AgentSessionView grammar) ──────────────────────────
 const reveal = (frame: number, at: number): React.CSSProperties => ({
   opacity: interpolate(frame, [at, at + 5], [0, 1], CLAMP),
   translate: `0px ${interpolate(frame, [at, at + 5], [8, 0], CLAMP)}px`,
 })
 
+// Tool row: wrench glyph · tool name · middle-truncated mono detail.
 const ToolRow: React.FC<{
   frame: number
   at: number
@@ -297,15 +194,14 @@ const ToolRow: React.FC<{
         ...reveal(frame, at),
       }}
     >
-      <span style={{ color: C.muted, display: "flex" }}>
-        <Glyph size={13} sw={2}>
-          <path d="m16 18 6-6-6-6" />
-          <path d="m8 6-6 6 6 6" />
+      <span style={{ color: C.dim, display: "flex" }}>
+        <Glyph size={12} sw={2}>
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
         </Glyph>
       </span>
       <span
         style={{
-          fontSize: 12.5,
+          fontSize: 12,
           fontWeight: 600,
           color: C.text,
           flexShrink: 0,
@@ -331,6 +227,7 @@ const ToolRow: React.FC<{
   )
 }
 
+// Narration: sparkles glyph + plain prose — NO bubble in the real app.
 const NarrationRow: React.FC<{ frame: number; at: number; text: string }> = ({
   frame,
   at,
@@ -346,9 +243,11 @@ const NarrationRow: React.FC<{ frame: number; at: number; text: string }> = ({
         ...reveal(frame, at),
       }}
     >
-      <span style={{ color: C.indigoGlow, display: "flex", marginTop: 2 }}>
+      <span style={{ color: C.dim, display: "flex", marginTop: 2 }}>
         <Glyph size={12} sw={1.8}>
-          <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
+          <path d="M9.9 2.9 11 6l3.1 1.1L11 8.2 9.9 11.3 8.8 8.2 5.7 7.1 8.8 6z" />
+          <path d="M18 10l.9 2.1L21 13l-2.1.9L18 16l-.9-2.1L15 13l2.1-.9z" />
+          <path d="M8 15l1 2.5L11.5 18.5 9 19.5 8 22l-1-2.5L4.5 18.5 7 17.5z" />
         </Glyph>
       </span>
       <span
@@ -357,11 +256,6 @@ const NarrationRow: React.FC<{ frame: number; at: number; text: string }> = ({
           fontSize: 12,
           lineHeight: 1.5,
           color: C.muted,
-          backgroundColor: C.fillCard,
-          border: `1px solid ${C.strokeCard}`,
-          borderRadius: 12,
-          borderTopLeftRadius: 4,
-          padding: "7px 10px",
         }}
       >
         {text}
@@ -370,7 +264,7 @@ const NarrationRow: React.FC<{ frame: number; at: number; text: string }> = ({
   )
 }
 
-// ── The steer screen ─────────────────────────────────────────────────────────
+// ── The session screen ───────────────────────────────────────────────────────
 export const SteerPhone: React.FC<{
   frame: number
   feedSchedule: readonly number[] // per CL_PHONE_FEED item
@@ -397,58 +291,64 @@ export const SteerPhone: React.FC<{
     : 0
   return (
     <PhoneChassis glass={glass}>
-      {/* header: session title + live badge */}
+      {/* nav bar: back chevron · status dot + "Live · MacBook Pro" · stop */}
       <div
         style={{
           position: "absolute",
           top: 44,
-          left: 16,
-          right: 16,
+          left: 12,
+          right: 12,
+          height: 26,
+          display: "flex",
+          alignItems: "center",
+          color: C.muted,
           zIndex: 2,
         }}
       >
-        <div
+        <Glyph size={16} sw={2.2}>
+          <path d="m15 18-6-6 6-6" />
+        </Glyph>
+        <span
           style={{
-            fontSize: 14.5,
-            fontWeight: 600,
-            color: C.text,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {CL.sessionTab}
-        </div>
-        <div
-          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
             display: "flex",
             alignItems: "center",
-            gap: 5,
-            marginTop: 3,
+            justifyContent: "center",
+            gap: 6,
           }}
         >
           <span
             style={{
-              width: 6,
-              height: 6,
+              width: 8,
+              height: 8,
               borderRadius: 999,
               backgroundColor: C.green,
             }}
           />
           <span
-            style={{ fontSize: 11, color: C.muted }}
-          >{`Live · Rileys-MacBook-Pro.local`}</span>
-        </div>
+            style={{ fontSize: 12, fontWeight: 500, color: C.muted }}
+          >{`Live · ${PHONE_START.device}`}</span>
+        </span>
+        {/* kill-session stop glyph (owner-only in the app) */}
+        <span
+          style={{ marginLeft: "auto", color: C.destructive, display: "flex" }}
+        >
+          <Glyph size={14} sw={2}>
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </Glyph>
+        </span>
       </div>
 
       {/* the activity feed */}
       <div
         style={{
           position: "absolute",
-          top: 96,
-          left: 16,
-          right: 16,
-          bottom: 96,
+          top: 82,
+          left: 14,
+          right: 14,
+          bottom: 76,
           display: "flex",
           flexDirection: "column",
           justifyContent: "flex-end",
@@ -469,7 +369,7 @@ export const SteerPhone: React.FC<{
             <NarrationRow key={i} frame={frame} at={at} text={item.text} />
           )
         })}
-        {/* the sent steer message — right-aligned user bubble */}
+        {/* the sent steer message — trailing user bubble (white 10%) */}
         {sent ? (
           <div
             style={{
@@ -486,8 +386,8 @@ export const SteerPhone: React.FC<{
                 maxWidth: "88%",
                 fontSize: 12,
                 lineHeight: 1.5,
-                color: "#ffffff",
-                backgroundColor: C.indigo,
+                color: C.text,
+                backgroundColor: "rgba(255,255,255,0.10)",
                 borderRadius: 12,
                 borderBottomRightRadius: 4,
                 padding: "7px 10px",
@@ -499,7 +399,7 @@ export const SteerPhone: React.FC<{
         ) : null}
       </div>
 
-      {/* composer */}
+      {/* composer: "Message the agent…" field + small glass send capsule */}
       <div
         style={{
           position: "absolute",
@@ -514,18 +414,18 @@ export const SteerPhone: React.FC<{
         <div
           style={{
             flex: 1,
-            minHeight: 40,
+            minHeight: 38,
             boxSizing: "border-box",
             padding: "9px 12px",
-            borderRadius: 20,
-            backgroundColor: C.fillCard,
-            border: `1px solid ${frame >= typeAt && !sent ? "rgba(99,102,241,0.55)" : C.strokeCard}`,
+            borderRadius: 12,
+            backgroundColor: "rgba(255,255,255,0.06)",
+            border: `1px solid ${frame >= typeAt && !sent ? "rgba(99,102,241,0.55)" : "rgba(255,255,255,0.10)"}`,
             fontSize: 12,
             lineHeight: 1.5,
             color: typedMsg ? C.text : C.dim,
           }}
         >
-          {typedMsg || (sent || frame < typeAt ? "Steer the agent…" : "")}
+          {typedMsg || (sent || frame < typeAt ? "Message the agent…" : "")}
           {!sent && frame >= typeAt ? (
             <span
               style={{
@@ -542,12 +442,15 @@ export const SteerPhone: React.FC<{
         </div>
         <span
           style={{
-            width: 40,
-            height: 40,
+            height: 34,
+            padding: "0 12px",
             flexShrink: 0,
             borderRadius: 999,
-            backgroundColor: typedMsg || sent ? C.indigo : C.fillActive,
-            color: typedMsg || sent ? "#ffffff" : C.dim,
+            backgroundColor:
+              typedMsg || sent ? C.fillActive : "rgba(255,255,255,0.06)",
+            border: `1px solid ${C.strokeCard}`,
+            color: C.text,
+            opacity: typedMsg || sent ? 1 : 0.5,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -556,9 +459,9 @@ export const SteerPhone: React.FC<{
               : "1",
           }}
         >
-          <Glyph size={16} sw={2.2}>
-            <path d="m5 12 7-7 7 7" />
-            <path d="M12 19V5" />
+          <Glyph size={15} sw={2}>
+            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+            <path d="m21.854 2.147-10.94 10.939" />
           </Glyph>
         </span>
       </div>
