@@ -88,6 +88,10 @@ const assertCanManageRepos = vi.fn(async () => {})
 vi.mock(`@/lib/trpc/integrations`, () => ({
   assertCanManageRepos: () => assertCanManageRepos(),
   invalidateRepoCache: () => {},
+  // The self-heal reap is a link DELETER, so it locks its candidate rows first
+  // (EXP-371). The lock's own semantics are covered in integrations.test.ts;
+  // here it resolves to "every candidate is still there".
+  lockInstallationLinks: async (_tx: unknown, linkIds: string[]) => linkIds,
 }))
 
 const listUserInstallations = vi.fn(async (): Promise<AppInstallation[]> => [])

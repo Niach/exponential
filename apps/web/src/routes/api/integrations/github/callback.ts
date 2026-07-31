@@ -29,6 +29,7 @@ import {
 import {
   assertCanManageRepos,
   invalidateRepoCache,
+  lockInstallationLinks,
 } from "@/lib/trpc/integrations"
 
 // GitHub App OAuth callback — the PRIMARY team claim path. The user
@@ -253,43 +254,61 @@ export async function handleCallback(request: Request): Promise<Response> {
           link.suspendedAt == null
       )
       if (candidates.length > 0) {
-        const candidateIds = candidates.map((link) => link.installationId)
-        const granted = await db
-          .select({
-            installationId: githubInstallationRepoGrants.installationId,
-          })
-          .from(githubInstallationRepoGrants)
-          .where(
-            and(
-              eq(githubInstallationRepoGrants.teamId, teamId),
-              inArray(githubInstallationRepoGrants.installationId, candidateIds)
+        // Same lock discipline as `unlink` (EXP-371): this is a link DELETER,
+        // so the "load-bearing?" reads only mean anything while the candidate
+        // link rows are locked — otherwise a concurrent repositories.add
+        // commits its repo row right after the `connected` read and the reap
+        // strands it. Locking first makes the two mutually exclusive.
+        await db.transaction(async (tx) => {
+          const lockedIds = new Set(
+            await lockInstallationLinks(
+              tx,
+              candidates.map((link) => link.linkId)
             )
           )
-        const connected = await db
-          .select({ installationId: repositories.installationId })
-          .from(repositories)
-          .where(
-            and(
-              eq(repositories.teamId, teamId),
-              inArray(repositories.installationId, candidateIds),
-              isNull(repositories.archivedAt)
+          const locked = candidates.filter((link) => lockedIds.has(link.linkId))
+          if (locked.length === 0) return
+          const candidateIds = locked.map((link) => link.installationId)
+          const granted = await tx
+            .select({
+              installationId: githubInstallationRepoGrants.installationId,
+            })
+            .from(githubInstallationRepoGrants)
+            .where(
+              and(
+                eq(githubInstallationRepoGrants.teamId, teamId),
+                inArray(
+                  githubInstallationRepoGrants.installationId,
+                  candidateIds
+                )
+              )
             )
-          )
-        const loadBearing = new Set([
-          ...granted.map((row) => row.installationId),
-          ...connected.map((row) => row.installationId),
-        ])
-        const staleLinkIds = candidates
-          .filter((link) => !loadBearing.has(link.installationId))
-          .map((link) => link.linkId)
-        if (staleLinkIds.length > 0) {
-          await db
-            .delete(githubInstallationLinks)
-            .where(inArray(githubInstallationLinks.id, staleLinkIds))
-          console.warn(
-            `[github-callback] self-healed ${staleLinkIds.length} stale installation link(s) for team ${teamId}`
-          )
-        }
+          const connected = await tx
+            .select({ installationId: repositories.installationId })
+            .from(repositories)
+            .where(
+              and(
+                eq(repositories.teamId, teamId),
+                inArray(repositories.installationId, candidateIds),
+                isNull(repositories.archivedAt)
+              )
+            )
+          const loadBearing = new Set([
+            ...granted.map((row) => row.installationId),
+            ...connected.map((row) => row.installationId),
+          ])
+          const staleLinkIds = locked
+            .filter((link) => !loadBearing.has(link.installationId))
+            .map((link) => link.linkId)
+          if (staleLinkIds.length > 0) {
+            await tx
+              .delete(githubInstallationLinks)
+              .where(inArray(githubInstallationLinks.id, staleLinkIds))
+            console.warn(
+              `[github-callback] self-healed ${staleLinkIds.length} stale installation link(s) for team ${teamId}`
+            )
+          }
+        })
       }
     } catch (err) {
       // Not a repo manager (demoted since linking) — leave the links alone.
