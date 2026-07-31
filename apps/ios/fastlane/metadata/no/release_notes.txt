@@ -1,0 +1,3 @@
+- Følg og styr Codex- og Pi-kodeøkter med en live aktivitetsfeed
+- Ferdige subagenter ryddes nå bort i øktvisningen
+- Om-side med versjonsinfo og lisensmerknadene for åpen kildekode

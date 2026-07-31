@@ -1,0 +1,3 @@
+- Segui e guida le sessioni di coding di Codex e Pi con un feed di attività in diretta
+- I subagent terminati ora si riordinano nella vista sessione
+- Schermata Info con la versione e le note delle licenze open source incluse

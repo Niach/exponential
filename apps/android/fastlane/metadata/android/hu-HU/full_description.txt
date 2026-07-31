@@ -1,0 +1,20 @@
+Vibecode together.
+
+Az Exponential valós idejű hibakövető olyan csapatoknak, amelyek AI-val építenek. Feladatok, ügyfélszolgálat és kódoló ügynökök egyetlen munkatérben, minden eszközön szinkronban.
+
+Kövesd a munkát a csapatoddal:
+• Feladatok prioritásokkal, címkékkel, határidőkkel és saját státuszokkal
+• Boardok a terméked minden részéhez, mindegyik igény szerint egy GitHub-repóra kötve
+• Markdown-leírások és kommentek @mentions-szel, teendőlistákkal és beszúrt képekkel
+• Valós idejű szinkron weben, desktopon, iOS-en és Androidon. Nincs frissítgetés, nincsenek elavult nézetek
+• Push-értesítések említésekről, hozzárendelésekről és PR-aktivitásról
+
+Hozd a saját ügynökeidet. A Claude Code, a Codex vagy a pi helyben fut a csatlakoztatott gépeden, a saját előfizetéseddel. Válassz egy feladatot, nyomd meg a Start codingot, akár a telefonodról is. Az ügynök valódi branchen dolgozik a desktop IDE-dben, és ha végzett, megnyitja a pull requestet.
+
+• Nézd élőben a kódolási munkameneteket az Agents tabon, és tereld őket üzenetekkel
+• Válaszolj az ügynök kérdéseire egyenesen a telefonodról
+• Ments el akciókat az ismétlődő AI-feladatokhoz, például code review-hoz, deployhoz vagy merge-konfliktusokhoz, és futtasd őket egy koppintással
+
+Ügyfélszolgálat ugyanabban a munkatérben. A felhasználóid jegyei a feladataid mellé érkeznek, a válaszok e-mailben mennek ki, és az egész csapat látja a beszélgetést.
+
+Ingyenes legfeljebb háromfős csapatoknak a felhős verzióban, egyetlen csomag, ha növekedtek. Az Exponential nyílt forráskódú, Apache-2.0 licenc alatt, így a self-hosting bármekkora cégnél ingyenes.

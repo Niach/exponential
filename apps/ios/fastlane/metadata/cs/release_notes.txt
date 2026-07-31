@@ -1,0 +1,3 @@
+- Sledujte a směrujte coding sessions Codexu a Pi se živým feedem aktivity
+- Dokončení subagenti se teď uklidí v pohledu session
+- Obrazovka O aplikaci s informacemi o verzi a licencemi open source knihoven

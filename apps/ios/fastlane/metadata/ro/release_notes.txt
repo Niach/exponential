@@ -1,0 +1,3 @@
+- Urmărește și ghidează sesiunile Codex și Pi cu un feed de activitate live
+- Subagenții încheiați se strâng acum ordonat în vizualizarea sesiunii
+- Ecran Despre cu informații despre versiune și notele de licență open source incluse

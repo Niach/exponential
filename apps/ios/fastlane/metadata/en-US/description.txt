@@ -1,26 +1,20 @@
 Vibecode together.
 
-Exponential is a realtime workspace for teams that build with AI — issues, customer support, and coding agents in one place, live on every device.
+Exponential is a realtime issue tracker for teams that build with AI. Issues, customer support and coding agents in one workspace, in sync on every device.
 
-From report to shipped:
-• A visitor files a report through your feedback widget — screenshot, annotations, and page context attached automatically.
-• The report lands as an issue on your board, in real time, on every device.
-• Pick an issue and hit Start coding — even from your phone. A coding agent works on a real branch in your desktop IDE and opens the pull request when it's done.
-• You review and merge — and the original reporter gets an email that their issue is resolved.
+Track work with your team:
+• Issues with priorities, labels, due dates and custom statuses
+• Boards for every part of your product, each optionally backed by a GitHub repository
+• Markdown descriptions and comments with @mentions, task lists and inline images
+• Realtime sync across web, desktop, iOS and Android. No refresh, no stale views
+• Push notifications for mentions, assignments and PR activity
 
-Bring your own agents. Coding agents run locally on your connected desktop, on your own Claude or Codex subscription — unlimited sessions, flat price.
+Bring your own agents. Claude Code, Codex or pi run locally on your connected desktop, on your subscription. Pick an issue and hit Start coding, even from your phone. Your agent works on a real branch in your desktop IDE and opens the pull request when it is done.
 
-Native everywhere. The iOS app syncs live with the web and desktop apps over the same real-time engine, so your board is always current — no pull-to-refresh, no stale views.
+• Watch coding sessions live in the Agents tab and steer them by message
+• Answer your agent's questions right from your phone
+• Save actions for repeating AI tasks like code reviews, deploys or merge conflicts, and run them with one tap
 
-Built for the way you actually work:
-• Fast issue tracking with priorities, labels, due dates, and custom statuses.
-• Boards you can back with a GitHub repository to code on.
-• Rich Markdown descriptions and comments with @mentions, task lists, and inline images.
-• Watch coding sessions live in the Agents tab, steer them, and answer your agent's questions right from your phone.
-• Saved actions — reusable agent prompts your team runs with one tap, on any connected desktop.
-• A shared Support inbox — helpdesk tickets from your users land next to your issues, and replies go out by email.
-• Push notifications for mentions, assignments, and PR activity.
+Customer support in the same workspace. Tickets from your users land next to your issues, replies go out by email, and the whole team sees the conversation.
 
-Free for teams of up to three on the hosted cloud. Exponential is open source under Apache-2.0 — self-hosting is free for everyone, at any company size.
-
-Vibecode together.
+Free for teams of up to three on the hosted cloud, one plan when you grow. Exponential is open source under Apache-2.0, so self-hosting is free at any company size.

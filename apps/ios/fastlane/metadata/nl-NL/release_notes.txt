@@ -1,0 +1,3 @@
+- Volg en stuur Codex- en Pi-codeersessies met een live activiteitenfeed
+- Afgeronde subagents worden nu netjes opgeruimd in de sessieweergave
+- Over-scherm met versie-info en de meegeleverde open-source licentievermeldingen

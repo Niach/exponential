@@ -1,0 +1,3 @@
+- Prati i usmjeravaj Codex i Pi sesije uz live feed aktivnosti
+- Završeni subagenti sada se uredno sklapaju u prikazu sesije
+- Ekran O aplikaciji s informacijama o verziji i priloženim open source licencama

@@ -1,0 +1,20 @@
+Vibecode together.
+
+Exponential es un issue tracker en tiempo real para equipos que construyen con IA. Issues, soporte al cliente y agentes de código en un solo espacio, sincronizado en todos tus dispositivos.
+
+Organiza el trabajo con tu equipo:
+• Issues con prioridades, etiquetas, fechas límite y estados personalizados
+• Boards para cada parte de tu producto, cada uno con un repositorio de GitHub opcional
+• Descripciones y comentarios en Markdown, con @mentions, listas de tareas e imágenes
+• Sincronización en tiempo real entre web, escritorio, iOS y Android. Sin recargar, sin vistas desactualizadas
+• Notificaciones push de menciones, asignaciones y actividad en PRs
+
+Trae tus propios agentes. Claude Code, Codex o pi corren en local en tu ordenador conectado, con tu suscripción. Elige un issue y pulsa Start coding, incluso desde el móvil. Tu agente trabaja en una rama real en el IDE de tu escritorio y abre la pull request cuando termina.
+
+• Sigue las sesiones de código en directo en la pestaña Agents y guíalas por mensaje
+• Responde a las preguntas de tu agente directamente desde el móvil
+• Guarda acciones para tareas de IA repetitivas como revisiones de código, deploys o conflictos de merge, y lánzalas con un toque
+
+Soporte al cliente en el mismo espacio. Los tickets de tus usuarios llegan junto a tus issues, las respuestas salen por email y todo el equipo ve la conversación.
+
+Gratis para equipos de hasta tres personas en la nube alojada, un único plan cuando creces. Exponential es open source bajo Apache-2.0, así que el self-hosting es gratis para empresas de cualquier tamaño.

@@ -1,0 +1,3 @@
+- Seuraa ja ohjaa Codexin ja Pi:n koodaussessioita live-aktiviteettisyötteellä
+- Valmiit subagentit siistiytyvät nyt pois sessionäkymässä
+- Tietoja-näyttö, jossa versiotiedot ja mukana tulevat open source -lisenssitiedot

@@ -1,0 +1,3 @@
+- Kövesd és tereld a Codex és Pi munkameneteket élő aktivitási feeddel
+- A befejezett al-ügynökök mostantól szépen összecsukódnak a munkamenet-nézetben
+- Névjegy képernyő verzióinformációval és a csomagolt nyílt forráskódú licencekkel

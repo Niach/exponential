@@ -1,0 +1,3 @@
+- Sleduj a usmerňuj sessions agentov Codex a Pi so živým feedom aktivity
+- Dokončené subagenty sa teraz prehľadne zbalia v zobrazení session
+- Obrazovka O aplikácii s informáciami o verzii a priloženými open source licenciami

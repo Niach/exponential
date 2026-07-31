@@ -1,0 +1,3 @@
+- Verfolge und steuere Codex- und Pi-Coding-Sessions mit einem Live-Aktivitätsfeed
+- Fertige Subagents räumen sich in der Session-Ansicht jetzt selbst auf
+- Info-Screen mit Versionsinfos und den mitgelieferten Open-Source-Lizenzhinweisen

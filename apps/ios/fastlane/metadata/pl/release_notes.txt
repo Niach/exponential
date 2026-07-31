@@ -1,0 +1,3 @@
+- Oglądaj i steruj sesjami kodowania Codex i Pi z aktywnością na żywo
+- Zakończone subagenty chowają się teraz w widoku sesji
+- Ekran O aplikacji z wersją i dołączonymi licencjami open source

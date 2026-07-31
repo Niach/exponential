@@ -1,0 +1,3 @@
+- Acompanha e orienta sessões de código do Codex e do Pi com um feed de atividade em direto
+- Os subagents terminados agora arrumam-se na vista de sessão
+- Ecrã Acerca com a versão e os avisos de licenças open source incluídos

@@ -1,0 +1,3 @@
+- Følg og styr Codex- og Pi-kodesessioner med et aktivitetsfeed i realtid
+- Færdige subagenter bliver nu ryddet pænt af vejen i sessionsvisningen
+- Om-skærm med versionsinfo og de medfølgende open source-licensnotitser

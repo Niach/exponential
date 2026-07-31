@@ -1,0 +1,20 @@
+Vibecode together.
+
+Exponential je issue tracker u stvarnom vremenu za timove koji grade s AI-jem. Zadaci, korisnička podrška i agenti za kodiranje u jednom radnom prostoru, sinkronizirani na svim uređajima.
+
+Prati posao sa svojim timom:
+• Zadaci s prioritetima, oznakama, rokovima i prilagođenim statusima
+• Boardovi za svaki dio proizvoda, svaki po želji povezan s GitHub repozitorijem
+• Markdown opisi i komentari s @mentions, popisima zadataka i slikama u tekstu
+• Sinkronizacija u stvarnom vremenu na webu, desktopu, iOS-u i Androidu. Bez osvježavanja, bez zastarjelih prikaza
+• Push obavijesti za spominjanja, dodjele i aktivnost na PR-ovima
+
+Dovedi vlastite agente. Claude Code, Codex ili pi rade lokalno na tvom povezanom računalu, na tvojoj pretplati. Odaberi zadatak i pritisni Start coding, čak i s mobitela. Agent radi na pravom branchu u tvom desktop IDE-u i otvara pull request kad završi.
+
+• Prati sesije kodiranja uživo u tabu Agents i usmjeravaj ih porukama
+• Odgovaraj na pitanja agenta izravno s mobitela
+• Spremi akcije za ponavljajuće AI zadatke poput code reviewa, deploya ili merge konflikata i pokreći ih jednim dodirom
+
+Korisnička podrška u istom radnom prostoru. Tiketi tvojih korisnika stižu uz tvoje zadatke, odgovori idu e-mailom, a cijeli tim vidi razgovor.
+
+Besplatno za timove do troje ljudi u hostanom cloudu, jedan plan kad narastete. Exponential je open source pod licencom Apache-2.0, pa je self-hosting besplatan za tvrtke bilo koje veličine.
