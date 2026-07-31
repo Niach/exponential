@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm"
 import { createCheckout } from "@creem_io/better-auth/server"
 import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
-import { creem_subscriptions } from "@/db/schema"
+import { creem_subscriptions, users } from "@/db/schema"
+import { withCreemRef } from "@/lib/billing/affiliate"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import {
   countOwnedTeams,
@@ -153,6 +154,19 @@ export const billingRouter = router({
         input.successUrl ??
         `${process.env.BETTER_AUTH_URL ?? ``}/settings/billing`
 
+      // Affiliate attribution (EXP-384) — read off the USER row, never from
+      // client input (metadata is client-suppliable; the buyer must not get to
+      // name their own affiliate). `signupRef` rides checkout metadata so Creem
+      // transactions reconcile against the admin funnel; the signed `creem_ref`
+      // click token is re-appended to the hosted checkout URL below.
+      const [attribution] = await ctx.db
+        .select({
+          signupRef: users.signupRef,
+          signupCreemRef: users.signupCreemRef,
+        })
+        .from(users)
+        .where(eq(users.id, ctx.session.user.id))
+
       const { url } = await createCheckout(
         {
           apiKey,
@@ -170,6 +184,9 @@ export const billingRouter = router({
             referenceId: ctx.session.user.id,
             teamId: input.teamId,
             seats: input.seats,
+            ...(attribution?.signupRef
+              ? { signupRef: attribution.signupRef }
+              : {}),
           },
         }
       )
@@ -181,10 +198,13 @@ export const billingRouter = router({
           teamId: input.teamId,
           productId: input.productId,
           seats: input.seats,
+          ...(attribution?.signupRef
+            ? { signupRef: attribution.signupRef }
+            : {}),
         },
       })
 
-      return { url }
+      return { url: withCreemRef(url, attribution?.signupCreemRef) }
     }),
 
   // Mint a Creem customer-portal link (EXP-315) so the owner can fetch

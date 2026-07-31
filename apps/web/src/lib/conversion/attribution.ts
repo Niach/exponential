@@ -6,6 +6,9 @@
 
 const PARAM_MAX = 128
 const URLISH_MAX = 256
+// Creem's signed affiliate click token (EXP-384). Unlike a campaign name, a
+// truncated token is garbage — over-long values are DROPPED, never sliced.
+const CREEM_REF_MAX = 512
 
 export type AttributionParams = {
   ref?: string
@@ -80,6 +83,7 @@ export function truncateAttributionInput(args: {
   utmSource?: string | null
   utmMedium?: string | null
   utmCampaign?: string | null
+  creemRef?: string | null
   referrer?: string | null
   landingPath?: string | null
 }): {
@@ -87,14 +91,17 @@ export function truncateAttributionInput(args: {
   utmSource: string | null
   utmMedium: string | null
   utmCampaign: string | null
+  creemRef: string | null
   referrer: string | null
   landingPath: string | null
 } {
+  const creemRef = args.creemRef?.trim()
   return {
     ref: truncate(args.ref ?? null, PARAM_MAX) ?? null,
     utmSource: truncate(args.utmSource ?? null, PARAM_MAX) ?? null,
     utmMedium: truncate(args.utmMedium ?? null, PARAM_MAX) ?? null,
     utmCampaign: truncate(args.utmCampaign ?? null, PARAM_MAX) ?? null,
+    creemRef: creemRef && creemRef.length <= CREEM_REF_MAX ? creemRef : null,
     referrer: truncate(args.referrer ?? null, URLISH_MAX) ?? null,
     landingPath: truncate(args.landingPath ?? null, URLISH_MAX) ?? null,
   }

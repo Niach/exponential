@@ -8,7 +8,16 @@
      MPA's full page loads, so a visitor who browses before clicking
      "Sign in" still carries their source. */
 
-const PARAM_KEYS = [`ref`, `utm_source`, `utm_medium`, `utm_campaign`] as const
+// `creem_ref` is Creem's signed affiliate click token (EXP-384) — it arrives
+// alongside `ref` when an affiliate link redirects here and must reach the app
+// so it can be stamped onto the account and later onto the checkout URL.
+const PARAM_KEYS = [
+  `ref`,
+  `utm_source`,
+  `utm_medium`,
+  `utm_campaign`,
+  `creem_ref`,
+] as const
 
 const APP_ORIGIN = `https://app.exponential.at`
 

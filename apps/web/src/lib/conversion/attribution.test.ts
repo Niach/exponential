@@ -134,8 +134,19 @@ describe(`truncateAttributionInput`, () => {
     expect(out.ref).toBe(`lobsters`)
     expect(out.utmSource).toBeNull()
     expect(out.utmMedium).toBeNull()
+    expect(out.creemRef).toBeNull()
     expect(out.referrer).toHaveLength(256)
     expect(out.landingPath).toBeNull()
+  })
+
+  it(`passes creemRef through but DROPS an over-long one (never truncates)`, () => {
+    expect(truncateAttributionInput({ creemRef: ` tok_abc ` }).creemRef).toBe(
+      `tok_abc`
+    )
+    expect(
+      truncateAttributionInput({ creemRef: `t`.repeat(513) }).creemRef
+    ).toBeNull()
+    expect(truncateAttributionInput({ creemRef: `  ` }).creemRef).toBeNull()
   })
 })
 
