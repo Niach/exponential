@@ -108,9 +108,13 @@ struct GithubRepoPicker: View {
                     AppIcon(AppIcons.uiGithub, size: AppIcon.Size.medium)
                     Text("Connect GitHub")
                 }
+                .foregroundStyle(DesignTokens.Palette.primaryForeground)
                 .frame(maxWidth: .infinity)
             }
+            // Android parity: the connect button renders in the theme's white
+            // primary, not the system accent.
             .buttonStyle(.borderedProminent)
+            .tint(DesignTokens.Palette.primary)
             Button {
                 Task { await load(refresh: true) }
             } label: {
@@ -210,9 +214,12 @@ struct GithubRepoPicker: View {
                         AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.medium)
                         Text("Reconnect GitHub")
                     }
+                    .foregroundStyle(DesignTokens.Palette.primaryForeground)
                     .frame(maxWidth: .infinity)
                 }
+                // Android parity: white primary, not the system accent.
                 .buttonStyle(.borderedProminent)
+                .tint(DesignTokens.Palette.primary)
             }
         } else {
             Text("No repositories found for your connected GitHub accounts.")
