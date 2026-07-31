@@ -4,7 +4,6 @@
 import { motion } from "motion/react"
 import {
   cardReveal,
-  eyebrowDraw,
   sectionReveal,
   staggerContainer,
   viewportOnce,
@@ -20,12 +19,12 @@ const ACTIONS = [
   {
     icon: IcGitMerge,
     title: `Fix merge conflicts`,
-    text: `One click rebases the PR branch, resolves the conflicts and merges — in the branch's own worktree.`,
+    text: `One click rebases the PR branch, resolves the conflicts and merges.`,
   },
   {
     icon: IcRocket,
     title: `Deploy your server`,
-    text: `Ship a release, run a migration, restart a service — your runbooks become one-click actions.`,
+    text: `Ship a release, run a migration, restart a service.`,
   },
   {
     icon: IcSparkles,
@@ -39,10 +38,7 @@ export function ActionsSection() {
     <section id={`actions`} className={`home-actions`}>
       <div className={`shell`}>
         <motion.div {...sectionReveal}>
-          <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
-            Actions
-          </motion.span>
-          <h2 className={`section-title`}>Use actions for AI tasks.</h2>
+          <h2 className={`section-title`}>Use actions for AI tasks</h2>
           <p className={`section-sub`}>
             Deploy your server, do code reviews, fix merge conflicts &mdash;
             every action runs on your own agents, on your own machines.

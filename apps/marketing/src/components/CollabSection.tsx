@@ -8,7 +8,7 @@
    finished widget state statically. */
 import { motion } from "motion/react"
 import { useEffect, useState } from "react"
-import { EASE_EXPO, eyebrowDraw, sectionReveal } from "../lib/animations"
+import { EASE_EXPO, sectionReveal } from "../lib/animations"
 import { useScenePlayer } from "../lib/use-scene-player"
 import { SUPPORT_THREADS } from "../webui/data"
 import { WebDemo } from "../webui/WebDemo"
@@ -92,17 +92,12 @@ export function CollabSection() {
     <section id={`collaboration`} className={`home-collab`}>
       <div className={`shell`}>
         <motion.div className={`co-copy`} {...sectionReveal}>
-          <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
-            Collaboration
-          </motion.span>
           <h2 className={`section-title`}>
-            Customer support and feedback in one place.
+            Customer support and feedback in one place
           </h2>
           <p className={`section-sub`}>
-            A support request from the feedback widget lands in your
-            team&rsquo;s shared Support inbox as an email conversation. Reply
-            from there, drop internal notes the reporter never sees, and turn
-            tickets into board issues your agents can pick up.
+            Embed our feedback and support widget into your site and fix your
+            customers&rsquo; needs faster.
           </p>
           <span className={`co-pro`}>
             <span className={`co-pro-badge`}>Team</span> Helpdesk is included in
@@ -133,9 +128,6 @@ export function CollabSection() {
                 </motion.div>
               )}
             </div>
-            <span className={`co-stage-caption`}>
-              Your users, in the feedback widget
-            </span>
           </div>
 
           {/* ── Connector: the request travels into the inbox ── */}
@@ -150,17 +142,13 @@ export function CollabSection() {
                  always mounted so the looping scene never shifts layout ── */}
           <div className={`co-webuicol`}>
             <WebDemo view={`support`} interactive={false} />
-            <span className={`co-stage-caption`}>
-              Your team, in the shared Support inbox
-            </span>
           </div>
         </div>
 
         {/* ── Cross-platform line (real content, outside the stage) ── */}
         <motion.div className={`co-platforms`} {...sectionReveal}>
           <p className={`co-platforms-note`}>
-            Collaborate across every platform &mdash; native apps for macOS,
-            Windows, Linux, iOS and Android, plus the web.
+            Collaborate across every platform
           </p>
           <DownloadIconRow />
         </motion.div>

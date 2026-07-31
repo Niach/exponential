@@ -6,7 +6,7 @@
    Stage is decorative (aria-hidden + inert); reduced motion renders the
    sheet and the finished infographic statically, side by side. */
 import { AnimatePresence, motion } from "motion/react"
-import { EASE_EXPO, eyebrowDraw, sectionReveal } from "../lib/animations"
+import { EASE_EXPO, sectionReveal } from "../lib/animations"
 import { useScenePlayer } from "../lib/use-scene-player"
 import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
@@ -97,10 +97,7 @@ export function AgentsSection() {
       <div className={`shell`}>
         <div className={`aw-grid`}>
           <motion.div className={`aw-copy`} {...sectionReveal}>
-            <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
-              Agents
-            </motion.span>
-            <h2 className={`section-title`}>Bring your own agents.</h2>
+            <h2 className={`section-title`}>Bring your own agents</h2>
             <p className={`section-sub`}>
               Claude Code, Codex or pi &mdash; running locally on any connected
               desktop app or your server, on your subscription. Pick an issue

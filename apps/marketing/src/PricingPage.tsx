@@ -22,13 +22,13 @@ export function PricingPage() {
             animate="visible"
           >
             <motion.h1 className="hero-title" variants={heroChild}>
-              Free for teams of three.
+              Free for teams of three
               <br />
-              <em>One plan after that.</em>
+              <em>One plan after that</em>
             </motion.h1>
             <motion.p className="hero-sub" variants={heroChild}>
               Start with your whole team for free. One paid plan with
-              everything in it — no feature matrix to decode.
+              everything in it.
             </motion.p>
           </motion.div>
         </section>
@@ -55,7 +55,7 @@ export function PricingPage() {
           <motion.div className="shell" {...sectionReveal}>
             <span className="section-eyebrow">Self-hosting</span>
             <h2 className="section-title">
-              Open source. Support if you want it.
+              Open source. Support if you want it
             </h2>
             <p className="section-sub">
               Exponential is fully open source under Apache-2.0 — self-hosting
@@ -75,7 +75,7 @@ export function PricingPage() {
         <section id="compare">
           <motion.div className="shell" {...sectionReveal}>
             <span className="section-eyebrow">Comparison</span>
-            <h2 className="section-title">Exponential vs. Linear.</h2>
+            <h2 className="section-title">Exponential vs. Linear</h2>
             <p className="section-sub">
               A great tracker — but it bills for AI agents, runs only in their
               cloud, and can&apos;t be self-hosted.
@@ -85,7 +85,7 @@ export function PricingPage() {
         </section>
 
         <FooterCTA
-          title="Start free today."
+          title="Start free today"
           subtitle="Three seats and your coding agents, free forever. No card required."
         />
       </main>

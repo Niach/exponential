@@ -56,8 +56,8 @@ export function SiteHeader() {
 }
 
 export function FooterCTA({
-  title = `Bring your team to the next level.`,
-  subtitle = `The only tool your team will need — free for teams of three, no credit card required.`,
+  title = `Bring your team to the next level`,
+  subtitle = `The only tool your team will need`,
 }: {
   title?: string
   subtitle?: string
@@ -86,7 +86,6 @@ export function FooterCTA({
 export function SiteFooter() {
   const groups = [
     {
-      title: `Product`,
       links: [
         { label: `Pricing`, href: `/pricing/` },
         { label: `Download`, href: LINKS.downloadPage },
@@ -95,7 +94,6 @@ export function SiteFooter() {
       ],
     },
     {
-      title: `Meta`,
       links: [
         { label: `GitHub`, href: LINKS.github.repo },
         { label: `Contact`, href: `/contact/` },
@@ -118,8 +116,7 @@ export function SiteFooter() {
           </span>
           <span className="foot-groups">
             {groups.map((g) => (
-              <span key={g.title} className="foot-group">
-                <span className="foot-group-title">{g.title}</span>
+              <span key={g.links[0].label} className="foot-group">
                 {g.links.map((l) => (
                   <a key={l.label} href={l.href} style={{ color: `inherit` }}>
                     {l.label}
