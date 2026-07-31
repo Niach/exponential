@@ -489,6 +489,16 @@ fun orderedSteps(steps: List<AgentFeedItem.Question>): List<AgentFeedItem.Questi
 fun collectSubagents(feed: List<AgentFeedItem>): List<AgentFeedRow.SubagentRun> =
     groupFeedRows(feed).filterIsInstance<AgentFeedRow.SubagentRun>()
 
+/** The tabs the strip actually shows (EXP-387): running subagents, plus the
+ *  focused one even when done — a completion never yanks the user out of a
+ *  conversation they are reading; the tab disappears once they click away.
+ *  Completed runs stay readable via their inline group row in Main. */
+fun visibleSubagentTabs(
+    agents: List<AgentFeedRow.SubagentRun>,
+    selected: String?,
+): List<AgentFeedRow.SubagentRun> =
+    agents.filter { !it.completed || it.subagentId == selected }
+
 /** The step a stepper card should show: the first one still waiting on this
  *  client, or null once every step is answered — the card then renders the
  *  whole ask with its answers. [answered] holds the lock keys of steps whose

@@ -537,6 +537,17 @@ export function collectSubagents<
   }))
 }
 
+/** The tabs the strip actually shows (EXP-387): running subagents, plus the
+ *  focused one even when done — a completion never yanks the user out of a
+ *  conversation they are reading; the tab disappears once they click away.
+ *  Completed runs stay readable via their inline group row in Main. */
+export function visibleSubagentTabs(
+  agents: readonly SubagentSummary[],
+  selected: string | null
+): SubagentSummary[] {
+  return agents.filter((a) => !a.done || a.subagentId === selected)
+}
+
 /** What a subagent group row displays (EXP-350) — one place for the label /
  *  status / detail selection so all clients can mirror it:
  *  - `agentType`: the first marker's real type — a later marker carrying the

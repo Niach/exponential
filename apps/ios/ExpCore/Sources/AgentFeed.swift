@@ -564,6 +564,16 @@ public enum AgentFeed {
         }
     }
 
+    /// The tabs the strip actually shows (EXP-387): running subagents, plus
+    /// the focused one even when done — a completion never yanks the user out
+    /// of a conversation they are reading; the tab disappears once they click
+    /// away. Completed runs stay readable via their inline group row in Main.
+    public static func visibleSubagentTabs(
+        _ agents: [AgentSubagentRun], selected: String?
+    ) -> [AgentSubagentRun] {
+        agents.filter { !$0.done || $0.subagentId == selected }
+    }
+
     /// Mutable accumulator behind `rows` — the row cases carry immutable
     /// payloads, but a group keeps collecting items as the feed is walked.
     private struct RowBuilder {

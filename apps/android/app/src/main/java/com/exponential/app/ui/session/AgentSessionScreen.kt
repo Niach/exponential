@@ -466,10 +466,12 @@ private fun ActivityFeed(
     val rows = remember(feed) { groupFeedRows(feed) }
     // EXP-356: conversation tabs — null is the main agent; a subagent id
     // focuses that agent's stream. Falls back to Main whenever the id
-    // vanishes from the feed (an activity_reset replay).
+    // vanishes from the feed (an activity_reset replay). EXP-387: the strip
+    // only shows the still-running subagents (plus the focused tab).
     var agentTab by remember { mutableStateOf<String?>(null) }
     val agents = remember(feed) { collectSubagents(feed) }
-    val focused = agents.firstOrNull { it.subagentId == agentTab }
+    val visibleTabs = remember(agents, agentTab) { visibleSubagentTabs(agents, agentTab) }
+    val focused = visibleTabs.firstOrNull { it.subagentId == agentTab }
     // A HOLDING lock counts as answered for stepper advance — a Sending lock
     // advances the stepper the moment the tap goes out (claude-TUI-snappy; web
     // parity). A Failed lock (5s no-ack timeout, EXP-334) does NOT: its step
@@ -505,9 +507,9 @@ private fun ActivityFeed(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (agents.isNotEmpty()) {
+        if (visibleTabs.isNotEmpty()) {
             AgentTabStrip(
-                agents = agents,
+                agents = visibleTabs,
                 selected = focused?.subagentId,
                 onSelect = { id ->
                     agentTab = id
@@ -623,8 +625,9 @@ private fun ActivityFeed(
     }
 }
 
-/** EXP-356: conversation tabs — Main plus one chip per subagent, labeled with
- *  the run's real agent type and a spinner while it works. */
+/** EXP-356: conversation tabs — Main plus one chip per RUNNING subagent
+ *  (ended tabs are dropped, EXP-387), labeled with the run's real agent type
+ *  and a spinner while it works. */
 @Composable
 private fun AgentTabStrip(
     agents: List<AgentFeedRow.SubagentRun>,
