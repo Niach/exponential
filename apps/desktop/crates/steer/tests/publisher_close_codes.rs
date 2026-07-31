@@ -130,6 +130,8 @@ fn idle_close_4001_reconnects_and_never_fires_the_kill_hook() {
             kill: Arc::new(move |signal| kills_in_hook.lock().unwrap().push(signal)),
             error: Arc::new(|_| {}),
             answers: None,
+            agent: steer::activity::SessionAgent::Claude,
+            text_sink: None,
         },
     );
 

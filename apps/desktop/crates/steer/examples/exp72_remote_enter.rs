@@ -146,6 +146,8 @@ fn main() {
         kill: Arc::new(|_| {}),
         error: Arc::new(|message| println!("[publisher error] {message}")),
         answers: None,
+        agent: steer::activity::SessionAgent::Claude,
+        text_sink: None,
     };
     let handle = publish(
         &runtime,

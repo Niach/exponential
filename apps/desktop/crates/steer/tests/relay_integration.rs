@@ -247,6 +247,8 @@ fn recording_hooks_with(
         kill: Arc::new(move |signal| r2.kills.lock().unwrap().push(signal)),
         error: Arc::new(move |message| r3.errors.lock().unwrap().push(message)),
         answers,
+        agent: steer::activity::SessionAgent::Claude,
+        text_sink: None,
     }
 }
 

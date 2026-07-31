@@ -28,7 +28,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::activity::{AnswerLink, RemoteAnswer};
+use crate::activity::{AnswerLink, RemoteAnswer, SessionAgent};
 use crate::frames::{
     ActivityEvent, ClientFrame, ServerFrame, CLOSE_REPLACED, CLOSE_UNAUTHORIZED,
 };
@@ -114,6 +114,16 @@ pub struct PublisherHooks {
     /// emitter) makes `answer` a no-op — steerers on such a session fall back
     /// to the legacy keystroke path.
     pub answers: Option<Arc<AnswerLink>>,
+    /// EXP-383: which agent CLI the session runs. Message-text frames get
+    /// per-agent composer treatment — the codex TUI hijacks a leading `/`,
+    /// `!` or `@` into a popup/mode whose Enter no longer submits, so those
+    /// messages are prefixed with a space.
+    pub agent: SessionAgent,
+    /// EXP-383: pi's steer path. `Some` routes whole composer messages to
+    /// the observer extension (which injects them via pi's own
+    /// `sendUserMessage` queue semantics) instead of the PTY; single
+    /// keystrokes still land raw. `None` (claude/codex) keeps the PTY path.
+    pub text_sink: Option<Arc<dyn Fn(String) + Send + Sync>>,
 }
 
 /// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, any lone
@@ -478,9 +488,18 @@ async fn pump_connection(
     // One Esc per message: later chunks of the same (≤4 KiB-chunked) message
     // must not re-fire while the emitter's grid flag lags the dismissal.
     const ESC_REROUTE_WINDOW: Duration = Duration::from_secs(3);
+    // EXP-383: composer-message chunk tracking. A message arrives as ≤4 KiB
+    // text chunks closed by a bare `\r`; the FIRST chunk is where codex's
+    // leading-sigil guard applies and where pi's sink buffer opens. A chunk
+    // this stale without its `\r` is a dead message (client gone mid-send) —
+    // the next text chunk counts as a fresh composer open again.
+    const MESSAGE_STALENESS: Duration = Duration::from_secs(5);
     let mut last_input_at: Option<Instant> = None;
     let mut last_digit_at: Option<Instant> = None;
     let mut esc_routed_at: Option<Instant> = None;
+    let mut message_chunk_at: Option<Instant> = None;
+    // EXP-383 (pi): text chunks buffered for `text_sink` until the `\r`.
+    let mut sink_buffer = String::new();
     let mut ping_interval = tokio::time::interval(PING_INTERVAL);
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -514,6 +533,29 @@ async fn pump_connection(
             msg = ws.next() => match msg {
                 Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
                     Some(ServerFrame::Input { data }) => {
+                        // EXP-383 (pi): with a text sink, whole composer
+                        // messages route to the observer extension — pi's own
+                        // `sendUserMessage` submits them, so the trailing
+                        // `\r` is swallowed too. Single keystrokes (digits,
+                        // Esc, arrows) still land raw on the PTY: local
+                        // parity for everything that is not a message.
+                        if let Some(sink) = &hooks.text_sink {
+                            let stale = message_chunk_at
+                                .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
+                            if stale && !sink_buffer.is_empty() {
+                                sink_buffer.clear();
+                            }
+                            if is_message_text(&data) {
+                                sink_buffer.push_str(&data);
+                                message_chunk_at = Some(Instant::now());
+                                continue;
+                            }
+                            if data == "\r" && !sink_buffer.is_empty() {
+                                sink(std::mem::take(&mut sink_buffer));
+                                message_chunk_at = None;
+                                continue;
+                            }
+                        }
                         let ask_pending = hooks
                             .answers
                             .as_ref()
@@ -559,6 +601,25 @@ async fn pump_connection(
                                     tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
                                 }
                             }
+                        }
+                        if is_message_text(&data) {
+                            // EXP-383: the codex composer hijacks a leading
+                            // `/` (slash popup), `!` (bash mode) or `@` (file
+                            // search) — Enter then accepts a completion
+                            // instead of submitting. A space prefix defuses
+                            // all three; only the chunk that OPENS the
+                            // composer needs it.
+                            let opens_composer = message_chunk_at
+                                .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
+                            if hooks.agent == SessionAgent::Codex
+                                && opens_composer
+                                && data.starts_with(['/', '!', '@'])
+                            {
+                                (hooks.write_input)(b" ");
+                            }
+                            message_chunk_at = Some(Instant::now());
+                        } else if data == "\r" {
+                            message_chunk_at = None;
                         }
                         if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
                             last_digit_at = Some(Instant::now());
@@ -873,6 +934,8 @@ mod tests {
                 r3.errors.lock().unwrap().push(message);
             }),
             answers,
+            agent: SessionAgent::Claude,
+            text_sink: None,
         }
     }
 
@@ -1044,6 +1107,134 @@ mod tests {
             .unwrap();
         wait_for(|| recorded.inputs.lock().unwrap().len() == 2);
         assert_eq!(recorded.inputs.lock().unwrap()[1], b"\r");
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn a_codex_message_with_a_leading_sigil_gets_a_space_prefix() {
+        // EXP-383: the codex composer hijacks a leading `/` `!` `@` into a
+        // popup/mode whose Enter no longer submits — the publisher defuses it
+        // with a typed space before the pasted text. Only the chunk that
+        // OPENS the composer is guarded; continuation chunks land verbatim.
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.agent = SessionAgent::Codex;
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-cx".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        let send = |data: &str| {
+            inject_tx
+                .send(Message::Text(format!(
+                    r#"{{"t":"input","data":{}}}"#,
+                    serde_json::to_string(data).unwrap()
+                )))
+                .unwrap();
+        };
+        // A sigil-leading message: space, then the text, then the Enter.
+        send("/help me");
+        send("\r");
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 3);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b" ".to_vec(), b"/help me".to_vec(), b"\r".to_vec()]
+        );
+        recorded.inputs.lock().unwrap().clear();
+
+        // A multi-chunk message: only the opening chunk is guarded.
+        send("!first chunk");
+        send("!second chunk");
+        send("\r");
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 4);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[
+                b" ".to_vec(),
+                b"!first chunk".to_vec(),
+                b"!second chunk".to_vec(),
+                b"\r".to_vec()
+            ]
+        );
+        recorded.inputs.lock().unwrap().clear();
+
+        // An ordinary message and single keystrokes stay untouched.
+        send("plain message");
+        send("\r");
+        send("2");
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 3);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b"plain message".to_vec(), b"\r".to_vec(), b"2".to_vec()]
+        );
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn a_pi_text_sink_takes_whole_messages_and_keystrokes_stay_on_the_pty() {
+        // EXP-383: with a text sink (pi), composer messages route to the
+        // observer extension — including the swallowed submit Enter — while
+        // keystrokes (legacy digits, Esc) still land raw on the PTY.
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let sunk: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.agent = SessionAgent::Pi;
+        let sink = sunk.clone();
+        hooks.text_sink = Some(Arc::new(move |text| sink.lock().unwrap().push(text)));
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-pi".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        let send = |data: &str| {
+            inject_tx
+                .send(Message::Text(format!(
+                    r#"{{"t":"input","data":{}}}"#,
+                    serde_json::to_string(data).unwrap()
+                )))
+                .unwrap();
+        };
+        // A chunked message + its Enter → ONE sink delivery, nothing on the
+        // PTY.
+        send("hello ");
+        send("pi world");
+        send("\r");
+        wait_for(|| !sunk.lock().unwrap().is_empty());
+        assert_eq!(sunk.lock().unwrap().as_slice(), &["hello pi world".to_string()]);
+        assert!(recorded.inputs.lock().unwrap().is_empty(), "message never hits the PTY");
+
+        // Keystrokes and a lone Enter (empty buffer) still reach the PTY.
+        send("2");
+        send("\u{1b}");
+        send("\r");
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 3);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b"2".to_vec(), b"\x1b".to_vec(), b"\r".to_vec()]
+        );
+        assert_eq!(sunk.lock().unwrap().len(), 1);
         handle.shutdown(None);
     }
 

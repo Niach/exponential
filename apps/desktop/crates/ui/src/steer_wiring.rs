@@ -915,6 +915,10 @@ pub fn attach_publisher(
         // choreography against the claude TUI) — `None` keeps the publisher's
         // Enter-cascade/Esc-reroute logic inert for codex/pi.
         answers: is_claude.then(|| answer_link.clone()),
+        agent: session_agent,
+        // Filled for pi sessions below (the observer extension's steer
+        // queue); claude/codex keep the PTY path.
+        text_sink: None,
     };
 
     // EXP-214: the needs-input forwarder's own handle — cloned before the
