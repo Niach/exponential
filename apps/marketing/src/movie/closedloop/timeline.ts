@@ -21,23 +21,22 @@ export const SEGMENT_DURATIONS: Record<string, number> = {
 export type Segment = {
   id: string
   label: string
-  phrase: string
   from: number
   dur: number
 }
 
 export const SEGMENTS: Segment[] = (() => {
   let from = 0
-  return FLOW_INFO.map(({ id, label, phrase }) => {
+  return FLOW_INFO.map(({ id, label }) => {
     const dur = SEGMENT_DURATIONS[id]
     if (dur === undefined) throw new Error(`segment ${id} has no duration`)
-    const seg = { id, label, phrase, from, dur }
+    const seg = { id, label, from, dur }
     from += dur
     return seg
   })
 })()
 
-// Chapter markers for the marketing player stepper — id/label/phrase metadata
+// Chapter markers for the marketing player stepper — id/label metadata
 // lives in chapters.ts (remotion-free, shared with the stepper); the frame is
 // the segment's derived start.
 export type Chapter = { id: string; label: string; frame: number }

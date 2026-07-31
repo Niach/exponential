@@ -1,14 +1,16 @@
-// surfaces/diffview.tsx — ChangesPane: the EXP-142 Changes tab (S7).
-// Header row (branch · PR · rolling stats), 240px file list, side-by-side diff
-// with paint-in rows, hot-flash add/del tints and a tiny TS syntax tinter.
-// Pixel truth: the desktop-source-control-diff reference screenshot (local-only, untracked; right half).
+// surfaces/diffview.tsx — PrDiffPane: the PR-diff CENTER SCREEN the Reviews
+// rows open in today's desktop (EXP-181/EXP-388 — the per-issue Changes tab
+// and its "Open terminal in worktree" button are gone). Thin header row
+// (PR icon · identifier · title · "#N · branch", no buttons), then per-file
+// header bands over a side-by-side diff with paint-in rows, hot-flash
+// add/del tints and a tiny TS syntax tinter.
 // The component fills its parent (position:absolute inset 0) — the assembler
 // places it over the center pane (window-local x 304–1568, below the tab strip).
 
 import React from "react"
 import { interpolate } from "remotion"
 import { C, EASE, MONO_FONT, UI_FONT } from "../theme"
-import { DIFF_FILES, DIFF_HEADER, DIFF_ROWS, type DiffRow } from "../fixtures"
+import { DIFF_FILES, DIFF_ROWS, HERO, type DiffRow } from "../fixtures"
 import { rollNum } from "../rig"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
@@ -18,28 +20,12 @@ const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 const CODE_FG = "#d4d4d4"
 
 // ── Tiny inline icons (lucide-style, stroke 1.6, currentColor) ───────────────
-const GitBranchIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
+const GitPullRequestIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <line x1="6" y1="3" x2="6" y2="15" />
-    <circle cx="18" cy="6" r="3" />
-    <circle cx="6" cy="18" r="3" />
-    <path d="M18 9a9 9 0 0 1-9 9" />
-  </svg>
-)
-
-const SquareTerminalIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-    <path d="m7 11 2-2-2-2" />
-    <path d="M11 13h4" />
-    <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-  </svg>
-)
-
-const EllipsisIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-    <circle cx="5" cy="12" r="1.6" />
-    <circle cx="12" cy="12" r="1.6" />
-    <circle cx="19" cy="12" r="1.6" />
+    <circle cx="6" cy="6" r="3" />
+    <circle cx="18" cy="18" r="3" />
+    <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+    <path d="M6 9v12" />
   </svg>
 )
 
@@ -170,42 +156,51 @@ const DiffCell: React.FC<{ side: Side | null; bgAlpha: number }> = ({ side, bgAl
 }
 
 export type DiffFileSpec = { status: string; path: string; selected?: boolean }
-export type DiffHeaderSpec = { branch: string; pr: string; stats: { files: number; add: number; del: number } }
+export type PrDiffHead = {
+  identifier: string
+  title: string
+  pr: number
+  branch: string
+}
 
-export type ChangesPaneProps = {
+export type PrDiffPaneProps = {
   frame: number
   /** Global frame the diff area starts painting in (file header, then 1 row/frame). Undefined = resting (all painted). */
   paintAt?: number
-  /** Global frame the header +120 −34 stats start digit-rolling from 0 (12f). Undefined = resting values. */
+  /** Global frame the file band's +N −N stats start digit-rolling from 0 (12f). Undefined = resting values. */
   statsRollAt?: number
   /** Extra vertical scroll of the diff content in px (assembler-driven). */
   scrollY?: number
-  /** Global frame the selected file-list row tint fades in (6f). Undefined = shown from the start. */
-  fileSelectAt?: number
-  /** Header content (branch · PR · stats). Default: the ships DIFF_HEADER fixture. */
-  header?: DiffHeaderSpec
-  /** File list. Default: the ships DIFF_FILES fixture. */
+  /** Header content (identifier · title · "#N · branch"). Default: the ships HERO. */
+  head?: PrDiffHead
+  /** Changed files (band paths). Default: the ships DIFF_FILES fixture. */
   files?: readonly DiffFileSpec[]
   /** Unified diff rows (paired side-by-side here). Default: the ships DIFF_ROWS fixture. */
   rows?: readonly DiffRow[]
-  /** Selected file's own +N −N header-band stats. Default: the ships FILE_STATS. */
+  /** Shown file's +N −N header-band stats. Default: the ships FILE_STATS. */
   fileStats?: { add: number; del: number }
 }
 
-export const ChangesPane: React.FC<ChangesPaneProps> = ({
+const HERO_HEAD: PrDiffHead = {
+  identifier: HERO.id,
+  title: HERO.title,
+  pr: HERO.pr,
+  branch: HERO.branch,
+}
+
+export const PrDiffPane: React.FC<PrDiffPaneProps> = ({
   frame,
   paintAt,
   statsRollAt,
   scrollY = 0,
-  fileSelectAt,
-  header = DIFF_HEADER,
+  head = HERO_HEAD,
   files = DIFF_FILES,
   rows,
   fileStats = FILE_STATS,
 }) => {
   const pairs = rows === undefined ? PAIRS : buildPairs(rows)
-  const add = statsRollAt === undefined ? header.stats.add : rollNum(frame, statsRollAt, statsRollAt + 12, 0, header.stats.add)
-  const del = statsRollAt === undefined ? header.stats.del : rollNum(frame, statsRollAt, statsRollAt + 12, 0, header.stats.del)
+  const add = statsRollAt === undefined ? fileStats.add : rollNum(frame, statsRollAt, statsRollAt + 12, 0, fileStats.add)
+  const del = statsRollAt === undefined ? fileStats.del : rollNum(frame, statsRollAt, statsRollAt + 12, 0, fileStats.del)
 
   // Paint-in: file header reveals at paintAt, display row i at paintAt + 1 + i.
   const revealO = (at: number | undefined) =>
@@ -213,9 +208,6 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
   // Hot flash → settle: add/del row bg alpha 0.20 → 0.10 over 8f after its reveal.
   const tintAlpha = (at: number | undefined) =>
     at === undefined ? 0.1 : interpolate(frame, [at, at + 8], [0.2, 0.1], CLAMP)
-
-  const selTint =
-    fileSelectAt === undefined ? 1 : interpolate(frame, [fileSelectAt, fileSelectAt + 6], [0, 1], { ...CLAMP, easing: EASE })
 
   return (
     <div
@@ -228,110 +220,51 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
         overflow: "hidden",
       }}
     >
-      {/* ── Header row: ⎇ branch · PR #214 · 5 files +120 −34 · [Open terminal in worktree] [⋯] ── */}
+      {/* ── Header row (PrDiff, EXP-181): PR icon · identifier · title ·
+             "#N · branch" — no buttons ── */}
       <div
         style={{
-          height: 42,
+          height: 34,
           flexShrink: 0,
           display: "flex",
           alignItems: "center",
           gap: 8,
-          padding: "0 16px",
+          padding: "0 12px",
           borderBottom: `1px solid ${C.strokeRow}`,
         }}
       >
-        <span style={{ color: C.muted, display: "flex", alignItems: "center" }}>
-          <GitBranchIcon />
+        <span style={{ color: C.diffAdd, display: "flex", alignItems: "center" }}>
+          <GitPullRequestIcon />
         </span>
-        <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.text }}>{header.branch}</span>
-        <span style={{ fontSize: 12, color: C.dim }}>·</span>
-        <span style={{ fontSize: 12, color: C.muted }}>{header.pr}</span>
-        <span style={{ fontSize: 12, color: C.dim }}>·</span>
-        <span style={{ fontSize: 12, color: C.muted }}>{`${header.stats.files} files`}</span>
-        <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffAdd }}>{`+${add}`}</span>
-        <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffDel }}>{`−${del}`}</span>
-        <div style={{ flex: 1 }} />
-        <div
+        <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.muted }}>{head.identifier}</span>
+        <span
           style={{
-            height: 26,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "0 8px",
-            borderRadius: 6,
-            color: C.muted,
-            fontSize: 12,
+            flex: 1,
+            minWidth: 0,
+            fontSize: 12.5,
             fontWeight: 500,
+            color: C.text,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
-          <SquareTerminalIcon />
-          <span>Open terminal in worktree</span>
-        </div>
-        <div
-          style={{
-            width: 24,
-            height: 24,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 6,
-            color: C.muted,
-          }}
-        >
-          <EllipsisIcon />
-        </div>
+          {head.title}
+        </span>
+        <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>
+          {`#${head.pr} · `}
+          <span style={{ fontFamily: MONO_FONT, fontSize: 11.5 }}>{head.branch}</span>
+        </span>
       </div>
 
-      {/* ── Body: 240px file list + side-by-side diff ── */}
+      {/* ── Body: side-by-side diff under a per-file header band (no file
+             list in the real PrDiff screen) ── */}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${C.strokeRow}`, paddingTop: 4 }}>
-          {files.map((f) => {
-            const selected = "selected" in f && f.selected === true
-            return (
-              <div
-                key={f.path}
-                style={{
-                  height: 24,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0,
-                  padding: "0 10px",
-                  backgroundColor: selected ? `rgba(255,255,255,${0.15 * selTint})` : "transparent",
-                }}
-              >
-                <span
-                  style={{
-                    width: 16,
-                    flexShrink: 0,
-                    fontFamily: MONO_FONT,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: f.status === "A" ? C.diffAdd : C.statusInProgress,
-                  }}
-                >
-                  {f.status}
-                </span>
-                <span
-                  style={{
-                    fontFamily: MONO_FONT,
-                    fontSize: 11,
-                    color: selected ? C.text : C.muted,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {f.path}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-
         {/* diff scroll area */}
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
           <div style={{ translate: `0px ${-scrollY}px` }}>
-            {/* file header band (26px, muted@30 bar, bold mono path, +29 −11 right) */}
+            {/* file header band (26px, muted@30 bar, status badge, bold mono
+                path, rolling +N −N right) */}
             <div
               style={{
                 height: 26,
@@ -344,12 +277,22 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
                 opacity: revealO(paintAt),
               }}
             >
+              <span
+                style={{
+                  fontFamily: MONO_FONT,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: files[0]?.status === "A" ? C.diffAdd : C.statusInProgress,
+                }}
+              >
+                {files[0]?.status ?? "M"}
+              </span>
               <span style={{ fontFamily: MONO_FONT, fontSize: 12, fontWeight: 700, color: C.text }}>
                 {files[0]?.path ?? ""}
               </span>
               <div style={{ flex: 1 }} />
-              <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffAdd }}>{`+${fileStats.add}`}</span>
-              <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffDel }}>{`−${fileStats.del}`}</span>
+              <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffAdd }}>{`+${add}`}</span>
+              <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffDel }}>{`−${del}`}</span>
             </div>
 
             {pairs.map((row, i) => {

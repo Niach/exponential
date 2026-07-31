@@ -31,8 +31,11 @@ export const WEB_USER = {
 export const AGENTS_RUNNING = 1
 
 /* ─── Support (helpdesk) threads — server-only tables in the real app,
-   so the demo carries its own conversation fixtures. Each thread links an
-   issue from the shared fixture universe. ─── */
+   so the demo carries its own conversation fixtures. Mirrors the real
+   support-inbox.tsx shape (EXP-388): a thread carries its own title and the
+   widget submission context (page URL / user agent / viewport), and an issue
+   exists only once a member ESCALATES the ticket — un-escalated threads show
+   the Escalate board picker in the details rail instead. ─── */
 
 export type SupportMessage = {
   direction: `inbound` | `outbound`
@@ -47,7 +50,11 @@ export type SupportThread = {
   id: string
   reporterName: string
   reporterEmail: string
-  issueId: string
+  title: string
+  /* Set once a member escalated the ticket into an issue. */
+  issueId?: string
+  /* Widget submission context shown in the details rail. */
+  context?: { pageUrl: string; userAgent: string; viewport: string }
   lastSeen: string
   resolved?: boolean
   unread?: boolean
@@ -60,7 +67,12 @@ export const SUPPORT_THREADS: SupportThread[] = [
     id: `t-mara`,
     reporterName: `Mara Winkler`,
     reporterEmail: `mara@heliolabs.io`,
-    issueId: `EXP-13`,
+    title: `Screenshot upload never finishes`,
+    context: {
+      pageUrl: `https://app.heliolabs.io/reports`,
+      userAgent: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Safari/17.6`,
+      viewport: `1728×1024`,
+    },
     lastSeen: `12m ago`,
     unread: true,
     time: `12m`,
@@ -96,7 +108,13 @@ export const SUPPORT_THREADS: SupportThread[] = [
     id: `t-jonas`,
     reporterName: `Jonas Petersen`,
     reporterEmail: `jonas@fjordworks.no`,
+    title: `Paste images from the clipboard?`,
     issueId: `EXP-12`,
+    context: {
+      pageUrl: `https://fjordworks.no/support`,
+      userAgent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36`,
+      viewport: `1920×1080`,
+    },
     lastSeen: `3h ago`,
     time: `3h`,
     messages: [
@@ -118,6 +136,7 @@ export const SUPPORT_THREADS: SupportThread[] = [
     id: `t-sofia`,
     reporterName: `Sofia Marino`,
     reporterEmail: `sofia@brightapps.co`,
+    title: `Diff view clips on ultrawide`,
     issueId: `EXP-5`,
     lastSeen: `2d ago`,
     resolved: true,

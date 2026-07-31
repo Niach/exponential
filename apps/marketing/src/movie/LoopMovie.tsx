@@ -36,11 +36,11 @@ export type LoopMovieController = {
 
 /* The composition's own flow metadata (remotion-free module) — same list
    CHAPTERS is built from, so the stepper and the film can't drift.
-   Labels/phrases render statically for SEO; the frame numbers stay inside
+   Labels render statically for SEO; the frame numbers stay inside
    the lazy chunk (the player seeks by index). */
 const FLOW_META = FLOW_INFO
 
-const POSTER_ALT = `The Exponential desktop IDE: the team's live issue board on the left and a bug report open as an issue — the whole team collaborates here in realtime, and coding runs start from any device.`
+const POSTER_ALT = `The Exponential desktop IDE beside the mobile app: the team's live issue board and a bug report open as an issue on both screens — the whole team collaborates here in realtime, and coding runs start from any device.`
 
 const LoopMoviePlayer = lazy(() => import(`./LoopMoviePlayer`))
 
@@ -194,19 +194,16 @@ export function LoopMovie() {
             aria-current={index === active}
           >
             <span className={`movie-step-label`}>{flow.label}</span>
-            <span className={`movie-step-phrase`}>{flow.phrase}</span>
             <span className={`movie-step-track`} aria-hidden />
           </button>
         ))}
       </div>
-      {/* Narrates the active flow at every width; the steps keep their
-          (partly visually-hidden) text, so this stays aria-hidden. */}
+      {/* Narrates the active flow on phones (where the step labels go
+          visually hidden); the steps keep their text, so this stays
+          aria-hidden. Desktop hides it entirely — the steps show labels. */}
       <p className={`movie-rail-now`} aria-hidden>
         <span className={`movie-rail-now-label`}>
           {FLOW_META[active].label}
-        </span>
-        <span className={`movie-rail-now-phrase`}>
-          {FLOW_META[active].phrase}
         </span>
       </p>
       <div className={`movie-stage`}>

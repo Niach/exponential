@@ -1,32 +1,21 @@
-// closedloop/segments/feedback.tsx — clip 4 (235f, given more room by
-// EXP-385): a visitor hits the dead Pay-now button on acme.shop, reports it
-// through the embedded feedback widget (the success card now HOLDS before the
-// cut), and the whip-pan lands on the board as EXP-151 pops into Todo —
-// exactly where clip 1 begins, so the loop wraps into the live board.
-// All beats are LOCAL frames.
+// closedloop/segments/feedback.tsx — clip 4 (235f, calmed by EXP-388): a
+// visitor hits the dead Pay-now button on acme.shop and reports it through
+// the embedded feedback widget. ONE framing on the site the whole clip — no
+// whip-pan: after "Thanks — sent!" the phone rises with the REAL mobile board
+// list, the "New feedback: EXP-151" push drops and the issue row pops into
+// Todo — exactly the state clip 1 opens on, so the loop wraps into the live
+// board. All beats are LOCAL frames.
 
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
-import { PAGE_FONT, WIN } from "../../ships/theme"
+import { PAGE_FONT } from "../../ships/theme"
 import {
   Camera,
   Caption,
   CursorLayer,
-  WindowChassis,
   type CamKey,
   type CursorKey,
 } from "../../ships/rig"
-import {
-  BoardActions,
-  BoardTool,
-  SidebarPane,
-} from "../../ships/surfaces/board"
-import {
-  CenterEmptyState,
-  DockCollapsedStrip,
-  ExpandedRail,
-  TitleBar,
-} from "../../ships/surfaces/chrome"
 import {
   BrowserChassis,
   FeedbackFab,
@@ -34,16 +23,17 @@ import {
   SiteViewport,
 } from "../surfaces/sitemock"
 import { WIDGET_ANCHORS, WidgetPanel } from "../surfaces/widgetmock"
+import { PhoneChassis } from "../surfaces/steerphone"
+import { BoardScreen } from "../surfaces/mobileui"
 import {
   CL,
-  CL_BOARD,
+  CL_PHONE_BOARD,
   COPY,
-  LIVE_EDIT_ID,
   NEW_ISSUE_ID,
-  REMOTE_DRAG_ID,
+  PUSH_FEEDBACK,
 } from "../fixtures"
 import { SEGMENT_DURATIONS } from "../timeline"
-import { CLAMP, SegmentShell, type SegmentProps } from "./common"
+import { CLAMP_EASE, SegmentShell, type SegmentProps } from "./common"
 
 const DUR = SEGMENT_DURATIONS.feedback
 
@@ -61,35 +51,21 @@ const B = {
   detailsType: 114,
   sendHover: 138,
   sendClick: 142,
-  success: 154, // "Thanks — sent!" holds a beat before the cut (EXP-385)
-  whip: 182, // hard cut site → board under the whip blur
-  cascade: 184,
-  insert: 198, // EXP-151 pops into Todo
+  success: 154, // "Thanks — sent!" holds
+  phoneIn: 168, // the phone rises with the mobile board
+  pushAt: 176, // "New feedback: EXP-151"
+  insert: 190, // the EXP-151 row pops into Todo
 } as const
 
 const CAPTIONS = {
   fb1: { in: 12, out: 60 },
-  fb2: { in: 206, out: 226 },
+  fb2: { in: 198, out: 226 },
 } as const
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-const CAMERA_KEYS: CamKey[] = [
-  { f: 0, s: 1.1, x: 784, y: 490 },
-  { f: 14, s: 1.1, x: 784, y: 490 },
-  { f: 34, s: 1.55, x: 920, y: 475 },
-  { f: 44, s: 1.55, x: 920, y: 475 },
-  { f: 56, s: 1.85, x: 1049, y: 688 },
-  { f: B.whip - 1, s: 1.85, x: 1049, y: 688 },
-  { f: B.whip, s: 1.9, x: 640, y: 300 },
-]
-
-const whipBlurAt = (frame: number): number =>
-  interpolate(
-    frame,
-    [B.whip - 4, B.whip - 1, B.whip + 1, B.whip + 4],
-    [0, 3, 3, 0],
-    CLAMP
-  )
+// ONE framing holds checkout + widget + the rising phone (EXP-388: no
+// whip-pan, no camera moves).
+const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.45, x: 1050, y: 600 }]
 
 // ── Cursor (site side) ────────────────────────────────────────────────────────
 const PAY = SITE_ANCHORS.payButton
@@ -121,88 +97,98 @@ const CURSOR_CLICKS = [
   B.sendClick,
 ]
 
+// Phone placement in COMP coordinates inside the camera layer (rises over
+// the checkout page, left of the widget panel).
+const PHONE_POS = { x: 950, y: 300, scale: 0.95 } as const
+
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const FeedbackSegment: React.FC<SegmentProps> = ({
   frame,
   textScale,
 }) => {
-  const onSite = frame < B.whip
-  const blur = whipBlurAt(frame)
   const captionSize = Math.round(72 * textScale)
+
+  const phoneRise = interpolate(
+    frame,
+    [B.phoneIn, B.phoneIn + 14],
+    [0, 1],
+    CLAMP_EASE
+  )
+  const insertT = interpolate(
+    frame,
+    [B.insert, B.insert + 14],
+    [0, 1],
+    CLAMP_EASE
+  )
 
   return (
     <SegmentShell frame={frame} dur={DUR}>
-      <AbsoluteFill
-        style={{
-          filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined,
-        }}
-      >
+      <AbsoluteFill>
         <Camera keys={CAMERA_KEYS} frame={frame}>
-          {onSite ? (
-            <BrowserChassis>
-              <SiteViewport frame={frame} shakeAts={[B.payClick]} />
-              <FeedbackFab
+          <BrowserChassis>
+            <SiteViewport frame={frame} shakeAts={[B.payClick]} />
+            <FeedbackFab
+              frame={frame}
+              hoverAt={B.fabHover}
+              pressAt={B.fabClick}
+              restAt={B.fabRest}
+            />
+            {frame >= B.panelAppear ? (
+              <WidgetPanel
                 frame={frame}
-                hoverAt={B.fabHover}
-                pressAt={B.fabClick}
-                restAt={B.fabRest}
+                appearAt={B.panelAppear}
+                annotateAt={B.annotate}
+                titleTypeAt={B.titleType}
+                detailsTypeAt={B.detailsType}
+                sendHoverAt={B.sendHover}
+                sendingAt={B.sendClick}
+                successAt={B.success}
               />
-              {frame >= B.panelAppear ? (
-                <WidgetPanel
-                  frame={frame}
-                  appearAt={B.panelAppear}
-                  annotateAt={B.annotate}
-                  titleTypeAt={B.titleType}
-                  detailsTypeAt={B.detailsType}
-                  sendHoverAt={B.sendHover}
-                  sendingAt={B.sendClick}
-                  successAt={B.success}
-                />
-              ) : null}
-              <CursorLayer
-                keys={CURSOR_KEYS}
-                clicks={CURSOR_CLICKS}
-                frame={frame}
-                from={0}
-                to={176}
-              />
-            </BrowserChassis>
-          ) : (
-            <WindowChassis>
-              <TitleBar frame={frame} />
-              <ExpandedRail
-                frame={frame}
-                active="board"
-                boardName={CL.project}
-                userName={CL.user}
-                userInitial={CL.initials}
-              />
-              <SidebarPane
-                title="All Issues"
-                actions={<BoardActions />}
-                pills
-                bottomInset={WIN.dockStrip}
+            ) : null}
+            <CursorLayer
+              keys={CURSOR_KEYS}
+              clicks={CURSOR_CLICKS}
+              frame={frame}
+              from={0}
+              to={176}
+            />
+          </BrowserChassis>
+
+          {/* the phone: the report lands as a push + a new Todo row on the
+              real mobile board */}
+          {phoneRise > 0.01 ? (
+            <div
+              style={{
+                position: "absolute",
+                left: PHONE_POS.x,
+                top: PHONE_POS.y,
+                opacity: phoneRise,
+                translate: `0px ${(1 - phoneRise) * 46}px`,
+              }}
+            >
+              <div
+                style={{
+                  transform: `scale(${PHONE_POS.scale})`,
+                  transformOrigin: "0 0",
+                }}
               >
-                <BoardTool
-                  frame={frame}
-                  rows={CL_BOARD}
-                  overrides={{
-                    [REMOTE_DRAG_ID]: { status: "in_progress" },
-                    [LIVE_EDIT_ID]: { assignee: "JL" },
-                  }}
-                  cascadeAt={B.cascade}
-                  insertAt={{ id: NEW_ISSUE_ID, at: B.insert }}
-                  showLabels={false}
-                />
-              </SidebarPane>
-              <CenterEmptyState
-                frame={frame}
-                bottom={WIN.dockStrip}
-                contentCenter={{ x: 1000, y: 330 }}
-              />
-              <DockCollapsedStrip frame={frame} count={1} />
-            </WindowChassis>
-          )}
+                <PhoneChassis glass={{ x: PHONE_POS.x, y: PHONE_POS.y }}>
+                  <BoardScreen
+                    frame={frame}
+                    boardName={CL.project}
+                    rows={CL_PHONE_BOARD}
+                    insertId={NEW_ISSUE_ID}
+                    moveT={insertT}
+                    banner={{
+                      at: B.pushAt,
+                      title: PUSH_FEEDBACK.title,
+                      body: PUSH_FEEDBACK.body,
+                    }}
+                  />
+                </PhoneChassis>
+              </div>
+            </div>
+          ) : null}
         </Camera>
       </AbsoluteFill>
 
