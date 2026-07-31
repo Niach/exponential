@@ -4,9 +4,9 @@
 
 **Vibecode together.** Issues, customer support, and coding agents in one realtime tracker — agents run locally on your machines, on your subscription, with unlimited sessions at a flat price. Native apps for web, macOS, Linux, iOS, and Android (the Windows desktop is an unsigned build). Open source under Apache-2.0.
 
-- **Cloud**: [app.exponential.at](https://app.exponential.at) — free for teams of up to three
-- **Self-host**: one `docker compose`, free for everyone — no seat caps, no licence gate; mobile push is the one cloud-only capability ([docs](https://exponential.at/docs/self-host/))
-- **Download the desktop IDE**: [exponential.at/download](https://exponential.at/download/)
+- **Cloud**: [app.exponential.at](https://app.exponential.at/?ref=github) — free for teams of up to three
+- **Self-host**: one `docker compose`, free for everyone — no seat caps, no licence gate; mobile push is the one cloud-only capability ([docs](https://exponential.at/docs/self-host/?ref=github))
+- **Download the desktop IDE**: [exponential.at/download](https://exponential.at/download/?ref=github)
 
 ## What it does
 
@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/Niach/exponential/master/selfhost/.
 docker compose up -d
 ```
 
-App at `http://localhost` — migrations and the custom trigger SQL apply themselves at every boot. Bring any S3-compatible bucket for attachments (Hetzner, MinIO, R2, AWS, Garage, …); everything else is bundled. The full runbook — domain + automatic HTTPS, email, sign-in providers, steer relay, upgrades — is [`INSTALL.md`](./INSTALL.md) (written so you can also hand it to a coding agent), with a longer walkthrough in the [self-host docs](https://exponential.at/docs/self-host/).
+App at `http://localhost` — migrations and the custom trigger SQL apply themselves at every boot. Bring any S3-compatible bucket for attachments (Hetzner, MinIO, R2, AWS, Garage, …); everything else is bundled. The full runbook — domain + automatic HTTPS, email, sign-in providers, steer relay, upgrades — is [`INSTALL.md`](./INSTALL.md) (written so you can also hand it to a coding agent), with a longer walkthrough in the [self-host docs](https://exponential.at/docs/self-host/?ref=github).
 
 Teams, boards, and issues work out of the box: a **GitHub App is only needed for coding** — backing a board with a repository, and the PRs coding sessions open. Set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` when you want that; see [`.env.example`](./.env.example) for these and everything else (OIDC, Google login, SMTP/Amazon SES, steer). Upgrades are `docker compose pull && docker compose up -d`; pin `IMAGE_TAG` to a [release tag](https://github.com/Niach/exponential/tags) if you'd rather move deliberately than track `master`.
 
@@ -105,4 +105,4 @@ One capability doesn't travel: **mobile push notifications**. The store-distribu
 
 ## License
 
-[Apache-2.0](./LICENSE) — fully open source. Self-host it in production for free, for any team size, with no restrictions. Optional [Enterprise Support](https://exponential.at/contact/) is available for self-hosters who want an SLA, priority support, deployment help, or custom development (support@exponential.at).
+[Apache-2.0](./LICENSE) — fully open source. Self-host it in production for free, for any team size, with no restrictions. Optional [Enterprise Support](https://exponential.at/contact/?ref=github) is available for self-hosters who want an SLA, priority support, deployment help, or custom development (support@exponential.at).
