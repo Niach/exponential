@@ -21,6 +21,7 @@ set -euo pipefail
 
 CHANNEL="${1:-production}"
 DESKTOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "${DESKTOP_DIR}/../.." && pwd)"
 TARGET_DIR="${CARGO_TARGET_DIR:-${DESKTOP_DIR}/target}"
 BIN="${TARGET_DIR}/release/exp-desktop"
 ARCH="$(uname -m)"
@@ -38,10 +39,22 @@ APPDIR="${WORK}/AppDir"
 rm -rf "$WORK"
 mkdir -p "$APPDIR/usr/bin" \
          "$APPDIR/usr/share/applications" \
+         "$APPDIR/usr/share/doc/exponential" \
          "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 # --- Binary ---------------------------------------------------------------
 cp "$BIN" "$APPDIR/usr/bin/exp-desktop"
+
+# --- Licences (EXP-376) ---------------------------------------------------
+# Apache-2.0 section 4(a) requires giving recipients a copy of the License, and
+# section 4(d) requires propagating our NOTICE. linuxdeploy packages the whole
+# AppDir, so anything under usr/share/doc travels inside the .AppImage and is
+# visible via `--appimage-extract`. NOTICES.txt is the generated per-dependency
+# inventory (packages/licenses).
+cp "${REPO_ROOT}/LICENSE" "$APPDIR/usr/share/doc/exponential/LICENSE"
+cp "${REPO_ROOT}/NOTICE" "$APPDIR/usr/share/doc/exponential/NOTICE"
+cp "${DESKTOP_DIR}/assets/licenses/NOTICES.txt" \
+   "$APPDIR/usr/share/doc/exponential/NOTICES.txt"
 
 # --- Icon (rasterize the vector logo) -------------------------------------
 # Use the WHITE-on-transparent logo variant (EXP-16): the plain `logo.svg` is a

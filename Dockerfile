@@ -9,6 +9,7 @@ COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/domain-contract/package.json packages/domain-contract/package.json
 COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
 COPY packages/icons/package.json packages/icons/package.json
+COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
 COPY packages/tsconfig/package.json packages/tsconfig/package.json
@@ -44,6 +45,13 @@ COPY --from=builder /app/packages packages
 # — --frozen-lockfile validates the full workspace set and fails if one is absent.
 RUN bun install --frozen-lockfile --filter '@exp/web'
 RUN touch apps/web/.env
+# EXP-376: Apache-2.0 section 4(a) requires giving every recipient of the work a
+# copy of the License. This image is published PUBLICLY as
+# ghcr.io/niach/exponential-web and is also the self-host distribution, so its
+# recipients are the ones the clause is about. NOTICE carries our own attribution
+# notice (section 4(d)); the per-dependency inventory is served by the app itself
+# at /NOTICES.txt, from apps/web/public/NOTICES.txt.
+COPY --from=builder /app/LICENSE /app/NOTICE ./
 # REV2-6: Bun caps simultaneous outbound fetch() at 256 per process. Every
 # Electric shape long-poll is proxied through one fetch() held open ~20-60s
 # (apps/web/src/lib/electric-proxy.ts), and each fully-synced client holds 14

@@ -55,8 +55,20 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run --filter @exp/domain-contract generate
       - run: bun run --filter @exp/design-tokens generate
-      - name: Fail if the committed Rust files drifted
-        run: git diff --exit-code -- apps/desktop/crates/domain/src/contract.generated.rs apps/desktop/crates/theme/src/tokens.generated.rs
+      # EXP-375 — the notices merge is pure bun, so it belongs on this gate too.
+      # Only the merge: re-collecting needs cargo/gradle/network and runs in
+      # test.yml's `desktop` and `android` jobs.
+      - run: bun run --filter @exp/licenses generate
+      - name: Fail if the committed generated files drifted
+        run: |
+          git diff --exit-code -- \
+            apps/desktop/crates/domain/src/contract.generated.rs \
+            apps/desktop/crates/theme/src/tokens.generated.rs \
+            apps/desktop/assets/licenses/NOTICES.txt \
+            apps/web/public/NOTICES.txt \
+            apps/marketing/public/NOTICES.txt \
+            apps/ios/Exponential/Resources/NOTICES.txt \
+            apps/android/app/src/main/assets/NOTICES.txt
 
   # Gate 2 (EXP-222): everything statically linked into the shipped binary must
   # carry an allowed license (deny.toml). Zed's GPL-3.0 ztracing/zlog are patched
@@ -301,6 +313,25 @@ jobs:
           [ ${#macos[@]} -gt 0 ] || { echo "missing production macOS .dmg/.zip" >&2; exit 1; }
           [ -f dist/Exponential-production-x86_64-windows.exe ] ||
             echo "::warning::no production Windows .exe — publishing without it"
+      # EXP-376: the raw Windows .exe has no bundle to carry them, so the
+      # Release page is the only route by which a Windows user receives the
+      # Apache-2.0 License text (section 4(a)) and our NOTICE (section 4(d)).
+      # Placed before the checksum step so they land in SHA256SUMS.txt too.
+      - name: Check out the licence files
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          sparse-checkout: |
+            LICENSE
+            NOTICE
+            apps/desktop/assets/licenses/NOTICES.txt
+          sparse-checkout-cone-mode: false
+      - name: Add LICENSE, NOTICE and NOTICES.txt to the release
+        run: |
+          set -euo pipefail
+          cp repo/LICENSE repo/NOTICE dist/
+          cp repo/apps/desktop/assets/licenses/NOTICES.txt dist/
+          rm -rf repo
       - name: Checksums
         working-directory: dist
         run: |

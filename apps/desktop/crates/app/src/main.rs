@@ -15,6 +15,11 @@
 mod actions;
 mod assets;
 mod channel;
+// EXP-375/EXP-376 — NOTICES.txt/LICENSE/NOTICE compiled into the binary. The
+// in-app surface that renders them is EXP-262; `include_str!` here is what makes
+// the build fail if the generated notice is ever missing.
+#[allow(dead_code)]
+mod licenses;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod desktop_integration;
 #[cfg(target_os = "macos")]

@@ -28,3 +28,11 @@ pnpm-lock.yaml
 
 # Rust desktop build artifacts (13GB+ — never part of any image)
 apps/desktop/target
+
+# EXP-375: build-time licence data (~7 MB of inventory JSON). The image needs
+# packages/licenses/package.json — `bun install --frozen-lockfile` validates the
+# whole workspace set — but never the inventories or the reproduced texts. The
+# notice the app actually serves is apps/web/public/NOTICES.txt, already built
+# into .output/public.
+packages/licenses/inventory
+packages/licenses/texts

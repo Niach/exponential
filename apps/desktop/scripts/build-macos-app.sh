@@ -23,6 +23,7 @@ set -euo pipefail
 
 CHANNEL="${1:-production}"
 DESKTOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "${DESKTOP_DIR}/../.." && pwd)"
 TARGET_DIR="${CARGO_TARGET_DIR:-${DESKTOP_DIR}/target}"
 # Defaults to the release binary; override with EXP_DESKTOP_BIN for a debug or
 # custom build (e.g. EXP_DESKTOP_BIN=target/debug/exp-desktop for local runs).
@@ -56,6 +57,18 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 # --- Binary ---------------------------------------------------------------
 cp "$BIN" "$APP_DIR/Contents/MacOS/exp-desktop"
 chmod +x "$APP_DIR/Contents/MacOS/exp-desktop"
+
+# --- Licences (EXP-376) ---------------------------------------------------
+# Apache-2.0 section 4(a) requires giving recipients a copy of the License, and
+# section 4(d) requires propagating our NOTICE. NOTICES.txt is the generated
+# per-dependency inventory (packages/licenses) and carries the full OFL and ISC
+# bodies for the fonts and icons embedded in the binary.
+#
+# These MUST be copied before the codesign block below: adding files to a bundle
+# after it is signed invalidates the seal.
+cp "${REPO_ROOT}/LICENSE" "$APP_DIR/Contents/Resources/LICENSE"
+cp "${REPO_ROOT}/NOTICE" "$APP_DIR/Contents/Resources/NOTICE"
+cp "${DESKTOP_DIR}/assets/licenses/NOTICES.txt" "$APP_DIR/Contents/Resources/NOTICES.txt"
 
 # --- Info.plist (substitute placeholders, then patch per channel) ---------
 PLIST_SRC="${DESKTOP_DIR}/assets/packaging/Info.plist"
