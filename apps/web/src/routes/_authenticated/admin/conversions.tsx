@@ -1,4 +1,10 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useRouter,
+  type ErrorComponentProps,
+} from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { Badge } from "@/components/ui/badge"
@@ -40,7 +46,38 @@ export const Route = createFileRoute(`/_authenticated/admin/conversions`)({
     return { overview }
   },
   component: AdminConversions,
+  // Without a route-level boundary a failing loader escapes to the router's
+  // global fallback, which replaces the ENTIRE app — on the forced dark theme
+  // that reads as a black screen with no way back (EXP-373). Keep the failure
+  // inside the admin shell so the nav survives and the reason is readable.
+  errorComponent: ConversionsError,
 })
+
+function ConversionsError({ error }: ErrorComponentProps) {
+  const router = useRouter()
+  return (
+    <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
+      <h1 className="text-2xl font-bold">Conversions</h1>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Couldn’t load conversions</CardTitle>
+          <CardDescription className="text-xs">
+            {error instanceof Error ? error.message : String(error)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => void router.invalidate()}
+          >
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
 function pct(part: number, whole: number): string | undefined {
   if (whole <= 0) return undefined
