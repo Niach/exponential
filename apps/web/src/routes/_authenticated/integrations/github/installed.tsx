@@ -55,7 +55,7 @@ function GithubInstalled() {
           <CardTitle className="text-xl">GitHub connected</CardTitle>
           <CardDescription>
             {isPopup
-              ? `Returning you to Exponential — you can close this tab if it stays open.`
+              ? `Returning you to Exponential. You can close this tab if it stays open.`
               : `Your repositories are now available. Continue to pick one for your board.`}
           </CardDescription>
         </CardHeader>

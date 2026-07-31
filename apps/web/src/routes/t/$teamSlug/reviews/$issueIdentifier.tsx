@@ -122,7 +122,7 @@ function BranchDiffSection({
           <GitBranch className="size-4 shrink-0 text-muted-foreground" />
           <span className="truncate">
             Branch <span className="font-mono">exp/{identifier}</span>
-            {` — no PR yet`}
+            {` · no PR yet`}
           </span>
           <Button
             variant="ghost"
@@ -595,7 +595,7 @@ function ReviewDetailPage() {
                 : `Close ${issue.identifier}'s pull request?`}
             </DialogTitle>
             <DialogDescription>
-              {`Closes pull request #${issue.prNumber}${issue.branch ? ` (${issue.branch})` : ``} on GitHub WITHOUT merging — use this when the issue was dropped even though the work exists. The branch is kept; the PR can be reopened on GitHub.`}
+              {`Closes pull request #${issue.prNumber}${issue.branch ? ` (${issue.branch})` : ``} on GitHub WITHOUT merging. Use this when the issue was dropped even though the work exists. The branch is kept; the PR can be reopened on GitHub.`}
               {isBatch
                 ? ` The PR is linked to ${linked.length} issues: ${linked
                     .map((i) => i.identifier)

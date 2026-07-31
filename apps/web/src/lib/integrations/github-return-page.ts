@@ -43,7 +43,7 @@ export function renderGithubConnectedPage(error?: string): string {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${title} — Exponential</title>
+<title>${title} · Exponential</title>
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; }

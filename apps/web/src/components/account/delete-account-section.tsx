@@ -97,13 +97,13 @@ export function DeleteAccountSection() {
               <li>
                 Teams where you are the only member are deleted with all their
                 boards, issues and files. If one of them has a paid plan, that
-                subscription is cancelled immediately — no refund for the rest
-                of the period.
+                subscription is cancelled immediately, with no refund for the
+                rest of the period.
               </li>
               <li>
                 Teams you share with others stay exactly as they are, including
-                their paid plan — a subscription belongs to the team, so it
-                keeps running and the remaining owners keep managing it.
+                their paid plan. A subscription belongs to the team, so it keeps
+                running and the remaining owners keep managing it.
               </li>
               <li>
                 In shared teams, the issues you created and the images you

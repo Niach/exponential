@@ -900,13 +900,13 @@ mod tests {
         // user-facing message the panel shows verbatim.
         let (base, _captured) = one_shot_server(
             412,
-            r#"{"error":{"message":"The pull request is merged — only open pull requests can be closed","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+            r#"{"error":{"message":"The pull request is merged. Only open pull requests can be closed.","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
         let result = close_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000");
         match result {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
-                assert!(message.contains("only open pull requests can be closed"));
+                assert!(message.contains("Only open pull requests can be closed"));
             }
             other => panic!("expected Http error, got {other:?}"),
         }

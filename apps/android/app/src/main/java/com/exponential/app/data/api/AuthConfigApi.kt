@@ -81,7 +81,7 @@ class AuthConfigApi @Inject constructor(
                     add("cause=${c::class.simpleName ?: "?"}${c.message?.let { ": $it" } ?: ""}")
                 }
             }
-            Result.failure(IllegalStateException("$url — ${parts.joinToString(" — ")}"))
+            Result.failure(IllegalStateException("$url: ${parts.joinToString(" · ")}"))
         }
     }
 }

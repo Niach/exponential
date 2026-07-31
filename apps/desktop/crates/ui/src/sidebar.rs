@@ -962,21 +962,21 @@ impl Render for RailView {
             None
         };
         let sc_tooltip: SharedString = if let Some(reason) = sc_attention {
-            format!("Source Control — {reason}").into()
+            format!("Source Control: {reason}").into()
         } else if let Some(error) = git_bar.read(cx).sync_error() {
             // EXP-366: the red dot's WHY — a failed clone ("git not found on
             // PATH") used to color the dot and say nothing anywhere.
-            format!("Source Control — sync failed: {error}").into()
+            format!("Source Control sync failed: {error}").into()
         } else if let Some(percent) = git_bar.read(cx).clone_progress() {
-            format!("Source Control — cloning… {percent}%").into()
+            format!("Source Control: cloning… {percent}%").into()
         } else {
             match git_bar.read(cx).last_synced() {
                 Some(at) => {
                     let (short, _) = crate::trunk_sync::synced_ago_labels(at.elapsed());
                     if short.as_ref() == "now" {
-                        "Source Control — synced just now".into()
+                        "Source Control: synced just now".into()
                     } else {
-                        format!("Source Control — synced {short} ago").into()
+                        format!("Source Control: synced {short} ago").into()
                     }
                 }
                 None => "Source Control".into(),

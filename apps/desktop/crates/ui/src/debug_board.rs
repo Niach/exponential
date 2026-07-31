@@ -196,7 +196,7 @@ impl Render for DebugBoardPanel {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Debug board — Phase 3 replaces this with the real board view."),
+                    .child("Debug board. Phase 3 replaces this with the real board view."),
             )
             .child(self.render_status_line(cx))
             .child(

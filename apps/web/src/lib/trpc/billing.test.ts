@@ -160,7 +160,7 @@ describe(`billing.cancelSubscription`, () => {
     mocks.subscription = { ...mocks.subscription!, creemSubscriptionId: null }
     await expect(
       caller().cancelSubscription({ teamId: WS })
-    ).rejects.toThrow(/contact support/)
+    ).rejects.toThrow(/Contact support/)
     expect(mocks.schedule).not.toHaveBeenCalled()
   })
 })
@@ -261,7 +261,7 @@ describe(`billing.createPortalSession`, () => {
     mocks.subscription = { ...mocks.subscription!, creemCustomerId: null }
     await expect(
       caller().createPortalSession({ teamId: WS })
-    ).rejects.toThrow(/contact support/)
+    ).rejects.toThrow(/Contact support/)
     expect(mocks.portal).not.toHaveBeenCalled()
   })
 })

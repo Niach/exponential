@@ -194,7 +194,7 @@ export function PlanComparison({
       toast.error(
         err instanceof Error && err.message
           ? err.message
-          : `Couldn't start checkout — try again`
+          : `Couldn't start checkout. Try again.`
       )
     } finally {
       setLoading(null)

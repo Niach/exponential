@@ -435,14 +435,14 @@ mod tests {
         // boards, so the pane renders it as-is instead of a generic failure.
         let (base, _captured) = one_shot_server(
             409,
-            r#"{"error":{"message":"Cannot remove — this repository backs 2 boards. Retarget or delete those boards first (a board in the trash may still use it).","code":-32009,"data":{"code":"CONFLICT","httpStatus":409}}}"#,
+            r#"{"error":{"message":"Can't remove this repository. It backs 2 boards. Retarget or delete those boards first (a board in the trash may still use it).","code":-32009,"data":{"code":"CONFLICT","httpStatus":409}}}"#,
         );
         match remove(&client(&base), "repo-1") {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 409);
                 assert_eq!(
                     message,
-                    "Cannot remove — this repository backs 2 boards. Retarget or delete those \
+                    "Can't remove this repository. It backs 2 boards. Retarget or delete those \
                      boards first (a board in the trash may still use it)."
                 );
             }

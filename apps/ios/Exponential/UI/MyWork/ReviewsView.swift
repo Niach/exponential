@@ -417,7 +417,7 @@ struct ReviewsListContent: View {
                     options: options,
                     inputs: inputs.isEmpty ? nil : inputs
                 )
-                runCaption = "Run sent to \(label) — it'll appear under Agents when it spins up."
+                runCaption = "Run sent to \(label). It'll appear under Agents when it spins up."
                 Task {
                     try? await Task.sleep(for: .seconds(30))
                     runCaption = nil
@@ -451,7 +451,7 @@ struct ReviewsListContent: View {
                         options: options
                     )
                 }
-                runCaption = "Start sent to \(label) — it'll appear under Agents when it spins up."
+                runCaption = "Start sent to \(label). It'll appear under Agents when it spins up."
                 Task {
                     try? await Task.sleep(for: .seconds(30))
                     runCaption = nil

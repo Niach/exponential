@@ -118,7 +118,7 @@ enum ShareSubmitError: Error, LocalizedError {
         switch self {
         case let .imagesFailed(count, underlying):
             let noun = count == 1 ? "image" : "images"
-            return "\(underlying.trpcUserMessage) The issue was created — tap Post to retry \(count) \(noun)."
+            return "\(underlying.trpcUserMessage) The issue was created. Tap Post to retry \(count) \(noun)."
         }
     }
 }

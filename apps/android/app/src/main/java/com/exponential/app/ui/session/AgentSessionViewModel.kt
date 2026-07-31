@@ -1030,7 +1030,7 @@ class AgentSessionViewModel @Inject constructor(
                     // still be running — the synced row is the truth. Stay
                     // retryable (Closed, auto-reconnecting).
                     FrameResult(
-                        detail = "The desktop's connection to the relay dropped — waiting for it to come back.",
+                        detail = "The desktop's connection to the relay dropped. Waiting for it to come back.",
                     )
                 } else {
                     FrameResult(sawEnd = true, detail = outcome?.takeIf { it != "ended" })
@@ -1042,7 +1042,7 @@ class AgentSessionViewModel @Inject constructor(
                     // Not live on the relay (yet). With the synced row still
                     // running this flips into the auto-retrying Starting phase.
                     FrameResult(
-                        detail = "The live stream isn't up yet — the desktop may still be connecting.",
+                        detail = "The live stream isn't up yet. The desktop may still be connecting.",
                         retryStarting = true,
                     )
                 } else {

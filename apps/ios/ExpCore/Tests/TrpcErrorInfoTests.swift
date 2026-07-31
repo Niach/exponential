@@ -44,7 +44,7 @@ final class TrpcErrorInfoTests: XCTestCase {
 
     func testTeamDeleteSubscriptionGateIsRewrittenForNative() {
         let body = envelope(
-            message: "This team has an active subscription — cancel the subscription in team settings → Billing before deleting the team",
+            message: "This team has an active subscription. Cancel the subscription in team settings → Billing before deleting the team.",
             code: "PRECONDITION_FAILED"
         )
         let error = TrpcError.httpError(412, body)

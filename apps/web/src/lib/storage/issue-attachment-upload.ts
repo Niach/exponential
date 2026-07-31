@@ -63,7 +63,7 @@ export async function handleIssueAttachmentUpload(
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: mangled
-        ? `Unsupported multipart encoding (unquoted disposition) — update the app`
+        ? `Unsupported multipart encoding (unquoted disposition). Update the app.`
         : imagesOnly
           ? `Missing image file`
           : `Missing file`,

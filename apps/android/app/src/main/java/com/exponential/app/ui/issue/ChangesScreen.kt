@@ -444,7 +444,7 @@ fun ChangesScreen(
                 title = { Text("Close pull request?") },
                 text = {
                     Text(
-                        "Closes the pull request on GitHub WITHOUT merging — use this " +
+                        "Closes the pull request on GitHub WITHOUT merging. Use this " +
                             "when the issue was dropped even though the work exists. " +
                             "The branch is kept and the PR can be reopened on GitHub.",
                     )

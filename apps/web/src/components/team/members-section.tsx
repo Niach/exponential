@@ -288,7 +288,7 @@ function InviteControls({ teamId }: { teamId: string }) {
       } else {
         setInviteUrl(`${window.location.origin}/invite/${token}`)
         toast.error(
-          `Couldn't email the invite — copy the link below and share it instead`
+          `Couldn't email the invite. Copy the link below and share it instead.`
         )
       }
     } catch (err) {

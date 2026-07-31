@@ -34,7 +34,7 @@ fun SteerRunCaptionRow(
         is ActionRunState.Idle -> return
         is ActionRunState.Sending -> "Sending start command…"
         is ActionRunState.Sent ->
-            "Start sent to ${state.deviceLabel} — waiting for the desktop…"
+            "Start sent to ${state.deviceLabel}. Waiting for the desktop…"
         is ActionRunState.Failed -> state.message
     }
     val showSpinner = state is ActionRunState.Sending || state is ActionRunState.Sent

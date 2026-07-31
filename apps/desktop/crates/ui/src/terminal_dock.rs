@@ -697,7 +697,7 @@ impl TerminalDockPanel {
             button = button.outline().label("Merge and close").danger();
         } else {
             button = button.ghost().icon(ExpIcon::GitMerge).tooltip(
-                "Merge and close — completes every linked issue and closes this coding session",
+                "Merge and close: completes every linked issue and closes this coding session",
             );
         }
         let issue_id = issue.issue_id.clone();

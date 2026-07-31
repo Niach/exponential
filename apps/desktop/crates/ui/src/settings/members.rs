@@ -197,7 +197,7 @@ impl MembersPane {
                                 // Requested but not delivered (transport down
                                 // or unconfigured) — fall back to the link.
                                 this.error = Some(
-                                    "Couldn't email the invite — copy the link and share it instead."
+                                    "Couldn't email the invite. Copy the link and share it instead."
                                         .into(),
                                 );
                             }

@@ -1773,7 +1773,7 @@ mod tests {
                 assert_eq!(check.tool, crate::doctor::Tool::Claude);
                 assert_eq!(
                     check.error.as_deref(),
-                    Some("claude not found on PATH — set an absolute path")
+                    Some("claude not found on PATH. Set an absolute path.")
                 );
             }
             other => panic!("expected DoctorFailed, got {other:?}"),
@@ -3276,7 +3276,7 @@ mod tests {
                 assert_eq!(check.tool, crate::doctor::Tool::Codex);
                 assert_eq!(
                     check.error.as_deref(),
-                    Some("codex not found on PATH — set an absolute path")
+                    Some("codex not found on PATH. Set an absolute path.")
                 );
             }
             other => panic!("expected DoctorFailed, got {other:?}"),

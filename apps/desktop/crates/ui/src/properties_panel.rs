@@ -679,7 +679,7 @@ impl PropertiesPanel {
             } else {
                 "Merge PR"
             })
-            .tooltip("Merge the pull request — completes every linked issue")
+            .tooltip("Merge the pull request and complete every linked issue")
             .on_click(cx.listener(move |_, _, _, cx| {
                 crate::pr_merge::two_click(
                     crate::pr_merge::MergeOp::MergeIssuePr {
@@ -911,7 +911,7 @@ impl PropertiesPanel {
             .icon(Icon::from(icon).text_color(tint))
             .disabled(self.subscribe_busy || account.is_none())
             .tooltip(if subscribed {
-                "Subscribed — click to unsubscribe"
+                "Subscribed. Click to unsubscribe."
             } else {
                 "Subscribe to this issue"
             })

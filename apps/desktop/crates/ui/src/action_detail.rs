@@ -1287,7 +1287,7 @@ impl Render for ActionDetailView {
                     div()
                         .text_xs()
                         .text_color(muted)
-                        .child("Built-in action — shipped with the app, not editable."),
+                        .child("Built-in action: shipped with the app, not editable."),
                 )
             });
         let prompt = self.render_prompt(editable, cx);

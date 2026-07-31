@@ -300,7 +300,7 @@ export const steerRouter = router({
         } catch {
           throw new TRPCError({
             code: `BAD_GATEWAY`,
-            message: `Steer relay unreachable — try again`,
+            message: `Couldn't reach the steer relay. Try again.`,
           })
         }
       }
@@ -480,7 +480,7 @@ export const steerRouter = router({
         if (!device || !caps.includes(`actions`)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That desktop app can't run actions yet — update it`,
+            message: `That desktop app can't run actions yet. Update it.`,
           })
         }
         if (
@@ -489,7 +489,7 @@ export const steerRouter = router({
         ) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That desktop app can't run action inputs yet — update it`,
+            message: `That desktop app can't run action inputs yet. Update it.`,
           })
         }
         // The fix-conflicts builtin (EXP-259) needs its own launch path on
@@ -502,7 +502,7 @@ export const steerRouter = router({
         ) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That desktop app can't fix merge conflicts yet — update it`,
+            message: `That desktop app can't fix merge conflicts yet. Update it.`,
           })
         }
         // EXP-257: actions run on any agent the device advertised, same
@@ -520,7 +520,7 @@ export const steerRouter = router({
         if (actionAgent !== `claude` && !caps.includes(`action-inputs`)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That desktop app can only run actions on claude yet — update it`,
+            message: `That desktop app can only run actions on claude yet. Update it.`,
           })
         }
         const actionDeviceAgents =
@@ -594,7 +594,7 @@ export const steerRouter = router({
         if (!resolved) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `No repository linked to this board — link one in team settings`,
+            message: `No repository linked to this board. Link one in team settings.`,
           })
         }
         if (repo && repo.repositoryId !== resolved.repositoryId) {

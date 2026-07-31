@@ -267,7 +267,7 @@ export async function sendPasswordResetEmail(args: {
     subject: `Reset your Exponential password`,
     html: actionEmailHtml({
       heading: `Reset your password`,
-      body: `Someone requested a password reset for this email address. If that was you, set a new password below — the link expires in one hour. If not, you can safely ignore this email.`,
+      body: `Someone requested a password reset for this email address. If that was you, set a new password below. The link expires in one hour. If not, you can safely ignore this email.`,
       actionLabel: `Set a new password`,
       actionUrl: args.url,
     }),
@@ -291,7 +291,7 @@ export async function sendTeamInviteEmail(args: {
     subject: `${args.inviterName} invited you to ${args.teamName} on Exponential`,
     html: actionEmailHtml({
       heading: `Join ${args.teamName}`,
-      body: `${args.inviterName} invited you to the ${args.teamName} team on Exponential. Accept below — the link expires in 7 days and can be used once.`,
+      body: `${args.inviterName} invited you to the ${args.teamName} team on Exponential. Accept below. The link expires in 7 days and can be used once.`,
       actionLabel: `Accept invite`,
       actionUrl: args.inviteUrl,
     }),
@@ -415,12 +415,12 @@ export async function sendSupportReplyEmail(args: {
         View conversation
       </a>
       <p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:#a1a1aa;">
-        Reply from the conversation page — this link is personal to you, so don't share it.
+        Reply from the conversation page. This link is personal to you, so don't share it.
       </p>
     </div>
   </body>
 </html>`,
-    text: `${subject}\n\n${args.replyText}\n\nView and reply: ${args.threadUrl}\n\nThis link is personal to you — don't share it.`,
+    text: `${subject}\n\n${args.replyText}\n\nView and reply: ${args.threadUrl}\n\nThis link is personal to you, so don't share it.`,
   })
 }
 
@@ -432,7 +432,7 @@ export async function sendSupportConfirmationEmail(args: {
   boardName: string
   threadUrl: string
 }): Promise<EmailSendResult> {
-  const subject = `We got your request — ${args.boardName} support`
+  const subject = `${args.boardName} support: we got your request`
   return await sendEmail({
     to: args.to,
     subject,
@@ -442,7 +442,7 @@ export async function sendSupportConfirmationEmail(args: {
     <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px;">
       <h1 style="margin:0 0 12px;font-size:18px;">${escapeHtml(subject)}</h1>
       <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#3f3f46;">
-        Thanks for reaching out — we'll get back to you as soon as we can.
+        Thanks for reaching out. We'll get back to you as soon as we can.
         Track the conversation and reply from the link below.
       </p>
       <a href="${args.threadUrl}"
@@ -455,7 +455,7 @@ export async function sendSupportConfirmationEmail(args: {
     </div>
   </body>
 </html>`,
-    text: `${subject}\n\nThanks for reaching out — we'll get back to you as soon as we can.\n\nTrack and reply here: ${args.threadUrl}\n\nThis link is personal to you — don't share it.`,
+    text: `${subject}\n\nThanks for reaching out. We'll get back to you as soon as we can.\n\nTrack and reply here: ${args.threadUrl}\n\nThis link is personal to you, so don't share it.`,
   })
 }
 

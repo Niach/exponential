@@ -277,7 +277,7 @@ export function WebMcpReadTools() {
       unreadOnly: z
         .boolean()
         .optional()
-        .describe(`Default true — only unread notifications`),
+        .describe(`Only unread notifications (default true)`),
     },
     annotations: readAnnotations,
     handler: async (input) => {

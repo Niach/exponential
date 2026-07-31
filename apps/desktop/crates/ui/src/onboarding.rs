@@ -361,14 +361,14 @@ impl Render for OnboardingView {
                 WizardStep::Board { .. } => (
                     "Create your first board",
                     "Boards hold your issues. Connect a GitHub repository to unlock \
-                     coding features — you can also do this later.",
+                     coding features. You can also do this later.",
                     Some((2, total)),
                 ),
                 WizardStep::Tools => (
                     "Set up your tools",
                     "Exponential runs coding sessions with git and an agent CLI (Claude \
-                     Code, Codex, or pi). Git is required; one agent is enough — and \
-                     everything else works without them.",
+                     Code, Codex, or pi). Git is required; one agent is enough. \
+                     Everything else works without them.",
                     Some((total.max(1), total.max(1))),
                 ),
             }

@@ -14,7 +14,7 @@ export function resolveBoard<B extends Pick<Board, `slug` | `name`>>(
   const wanted = ref ?? currentBoardSlug
   if (wanted == null) {
     throw new Error(
-      `No board specified and none is open — pass a board slug. Available boards: ${available}`
+      `No board specified and none is open. Pass a board slug. Available boards: ${available}`
     )
   }
   const needle = wanted.toLowerCase()
@@ -24,7 +24,7 @@ export function resolveBoard<B extends Pick<Board, `slug` | `name`>>(
   if (byName.length === 1 && byName[0]) return byName[0]
   if (byName.length > 1) {
     throw new Error(
-      `Board name "${wanted}" is ambiguous — use a slug. Available boards: ${available}`
+      `Board name "${wanted}" is ambiguous. Use a slug. Available boards: ${available}`
     )
   }
   throw new Error(
@@ -40,14 +40,14 @@ export function resolveIssue<I extends Pick<Issue, `identifier`>>(
   const wanted = ref ?? currentIssueIdentifier
   if (wanted == null) {
     throw new Error(
-      `No issue specified and none is open — pass an issue identifier like EXP-42`
+      `No issue specified and none is open. Pass an issue identifier like EXP-42.`
     )
   }
   const needle = wanted.toLowerCase()
   const match = issues.find((i) => i.identifier.toLowerCase() === needle)
   if (!match) {
     throw new Error(
-      `No issue "${wanted}" in this team — check the identifier (e.g. via list_issues or search_issues)`
+      `No issue "${wanted}" in this team. Check the identifier (e.g. via list_issues or search_issues).`
     )
   }
   return match
@@ -67,7 +67,7 @@ export function resolveAssignee(
   if (byName.length === 1 && byName[0]) return byName[0].id
   if (byName.length > 1) {
     throw new Error(
-      `Assignee name "${ref}" is ambiguous — use an email address instead`
+      `Assignee name "${ref}" is ambiguous. Use an email address instead.`
     )
   }
   const members = users.map((u) => `${u.name} <${u.email}>`).join(`, `)

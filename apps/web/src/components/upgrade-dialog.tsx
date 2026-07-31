@@ -60,7 +60,7 @@ export function UpgradeDialog({
             <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
               <p className="text-sm text-muted-foreground">
                 Your plan has {subscription.seats} seat
-                {subscription.seats === 1 ? `` : `s`} — add more without
+                {subscription.seats === 1 ? `` : `s`}. Add more without
                 switching plans.
               </p>
               <Button

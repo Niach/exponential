@@ -886,7 +886,7 @@ impl Shell {
 
         let label: SharedString = match &phase {
             UpdatePhase::Available => {
-                format!("Update available — Exponential {version} is out.").into()
+                format!("Update available. Exponential {version} is out.").into()
             }
             UpdatePhase::Downloading { received, total } => {
                 format!("Downloading Exponential {version}… {}", format_progress(*received, *total))
@@ -894,7 +894,7 @@ impl Shell {
             }
             UpdatePhase::Installing => format!("Installing Exponential {version}…").into(),
             UpdatePhase::ReadyToRestart { .. } => {
-                format!("Exponential {version} is ready — restart to finish updating.").into()
+                format!("Exponential {version} is ready. Restart to finish updating.").into()
             }
             UpdatePhase::Failed { message } => {
                 format!("Update to Exponential {version} failed: {message}").into()
@@ -1022,7 +1022,7 @@ impl Shell {
                 Some(reason) => format!("In-app update isn't available: {reason}.").into(),
                 None => match info.as_ref() {
                     Some(_) => SharedString::from(
-                        "The release doesn't include this platform's update file yet — checking again automatically.",
+                        "The release doesn't include this platform's update file yet. Checking again automatically.",
                     ),
                     None => SharedString::from(
                         "Looking for the release… if this persists, the update check can't reach GitHub.",
@@ -1039,7 +1039,7 @@ impl Shell {
             }
             UpdatePhase::Installing => Some("Installing…".into()),
             UpdatePhase::ReadyToRestart { .. } => {
-                Some("Update installed — restart to finish.".into())
+                Some("The update is installed. Restart to finish.".into())
             }
             UpdatePhase::Failed { message } => Some(format!("Update failed: {message}").into()),
         };

@@ -139,7 +139,7 @@ struct AgentsView: View {
             Text("No agents running")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Start coding on an issue from the desktop IDE — live sessions show up here.")
+            Text("Start coding on an issue from the desktop IDE. Live sessions show up here.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
@@ -232,7 +232,7 @@ struct AgentsView: View {
             // EXP-317: the same glyph the web draws next to this exact copy
             // (`ui-device-offline`); `ui-offline` stays the network indicator.
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            Text("No desktop online — open the Exponential desktop app to run here.")
+            Text("No desktop online. Open the Exponential desktop app to run here.")
                 .font(.caption)
             Spacer(minLength: 0)
         }
@@ -519,8 +519,8 @@ struct AgentsView: View {
                     )
                 }
                 sentCaption = isBatch
-                    ? "Batch start sent to \(label) — it'll appear here when it spins up."
-                    : "Start sent to \(label) — it'll appear here when it spins up."
+                    ? "Batch start sent to \(label). It'll appear here when it spins up."
+                    : "Start sent to \(label). It'll appear here when it spins up."
                 // The desktop inserts the coding_sessions row when the launcher
                 // spins up, which surfaces in the Running list via sync. Clear
                 // the informational caption after a grace window (errors persist
@@ -559,7 +559,7 @@ struct AgentsView: View {
                     options: options,
                     inputs: inputs.isEmpty ? nil : inputs
                 )
-                sentCaption = "Run sent to \(label) — it'll appear here when it spins up."
+                sentCaption = "Run sent to \(label). It'll appear here when it spins up."
                 Task {
                     try? await Task.sleep(for: .seconds(30))
                     sentCaption = nil

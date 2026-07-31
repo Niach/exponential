@@ -99,13 +99,13 @@ export function assertSubscriptionMutable(
   if (!row.creemSubscriptionId) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: `This subscription can't be changed automatically — contact support`,
+      message: `This subscription can't be changed automatically. Contact support.`,
     })
   }
   if (row.cancelAtPeriodEnd) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: `This subscription is scheduled to cancel — resume it before changing it`,
+      message: `This subscription is scheduled to cancel. Resume it before changing it.`,
     })
   }
 }
@@ -130,14 +130,14 @@ export function buildSeatUpdateItems(
   if (!items || items.length !== 1) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: `This subscription can't be changed automatically — contact support`,
+      message: `This subscription can't be changed automatically. Contact support.`,
     })
   }
   const item = items[0]
   if (!item.id || !item.productId || !item.priceId) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: `This subscription can't be changed automatically — contact support`,
+      message: `This subscription can't be changed automatically. Contact support.`,
     })
   }
   return [

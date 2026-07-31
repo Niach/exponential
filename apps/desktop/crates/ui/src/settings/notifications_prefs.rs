@@ -317,7 +317,7 @@ impl Render for NotificationsPrefsPane {
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child(
-                                "Email sending is not configured on this server — no \
+                                "Email sending is not configured on this server. No \
                                  digest emails go out.",
                             ),
                     );

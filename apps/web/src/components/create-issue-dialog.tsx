@@ -597,7 +597,7 @@ export function CreateIssueDialog({
           <DialogHeader>
             <DialogTitle>Discard draft?</DialogTitle>
             <DialogDescription>
-              This issue hasn&apos;t been created yet — discarding clears the
+              This issue hasn&apos;t been created yet. Discarding clears the
               title, description and any attached images.
             </DialogDescription>
           </DialogHeader>

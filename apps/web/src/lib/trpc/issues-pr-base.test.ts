@@ -287,7 +287,7 @@ describe(`issues.retargetPr (EXP-324)`, () => {
       caller.retargetPr({ issueId: ISSUE_ID })
     ).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
-      message: `The pull request is merged — only open pull requests can be retargeted`,
+      message: `The pull request is merged. Only open pull requests can be retargeted.`,
     })
   })
 })

@@ -504,7 +504,7 @@ final class AgentSessionModel {
                 // The desktop's relay socket dropped but the session may still
                 // be running — the synced row is the truth. Stay retryable
                 // (closed, auto-reconnecting).
-                endDetail = "The desktop's connection to the relay dropped — waiting for it to come back."
+                endDetail = "The desktop's connection to the relay dropped. Waiting for it to come back."
             } else {
                 sawEnd = true
                 endDetail = (outcome != nil && outcome != "ended") ? outcome : nil
@@ -515,7 +515,7 @@ final class AgentSessionModel {
                 // Not live on the relay (yet). With the synced row still
                 // running this flips into the auto-retrying starting phase.
                 retryStarting = true
-                endDetail = "The live stream isn't up yet — the desktop may still be connecting."
+                endDetail = "The live stream isn't up yet. The desktop may still be connecting."
                 disconnectSocket()
                 onSocketClosed()
             } else {

@@ -146,7 +146,7 @@ export const billingRouter = router({
       if (existing) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `This team already has an active subscription — adjust seats or switch plans instead`,
+          message: `This team already has an active subscription. Adjust seats or switch plans instead.`,
         })
       }
 
@@ -238,7 +238,7 @@ export const billingRouter = router({
       if (!subscription.creemCustomerId) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `This subscription has no billing portal — contact support`,
+          message: `This subscription has no billing portal. Contact support.`,
         })
       }
 
@@ -400,7 +400,7 @@ export const billingRouter = router({
       if (!subscription.creemSubscriptionId) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `This subscription can't be changed automatically — contact support`,
+          message: `This subscription can't be changed automatically. Contact support.`,
         })
       }
 
@@ -458,7 +458,7 @@ export const billingRouter = router({
       if (!subscription.creemSubscriptionId) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `This subscription can't be changed automatically — contact support`,
+          message: `This subscription can't be changed automatically. Contact support.`,
         })
       }
 

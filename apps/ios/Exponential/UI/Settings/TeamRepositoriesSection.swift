@@ -292,7 +292,7 @@ struct TeamRepositoriesSection: View {
         let status: String = { () -> String in
             if !github.configured { return "GitHub isn't configured on this server." }
             if !suspended.isEmpty {
-                return "GitHub suspended the Exponential app for \(suspended.map(label).joined(separator: ", ")) — unsuspend it on GitHub."
+                return "GitHub suspended the Exponential app for \(suspended.map(label).joined(separator: ", ")). Unsuspend it on GitHub."
             }
             if needsReauth {
                 return "Reconnect GitHub to refresh which repositories you can access from \(reauthInstalls.map(label).joined(separator: ", "))."

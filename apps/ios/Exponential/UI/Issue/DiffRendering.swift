@@ -149,7 +149,7 @@ struct DiffPatchBlock: View {
                 .textSelection(.enabled)
             }
             if rendered.truncated {
-                Text("Diff truncated — showing the first \(rendered.lines.count) lines.")
+                Text("Diff truncated. Showing the first \(rendered.lines.count) lines.")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .padding(.horizontal, 8)

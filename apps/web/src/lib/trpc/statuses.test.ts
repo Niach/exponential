@@ -343,7 +343,7 @@ describe(`statuses.delete`, () => {
       caller.delete({ teamId: TEAM, statusId: STATUS_A })
     ).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
-      message: `2 issues use this status — pick a replacement first`,
+      message: `2 issues use this status. Pick a replacement first.`,
     })
     expect(deletes).toHaveLength(0)
   })

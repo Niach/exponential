@@ -138,7 +138,7 @@ describe(`assertSubscriptionMutable`, () => {
         creemSubscriptionId: null,
         cancelAtPeriodEnd: false,
       })
-    ).toThrow(/contact support/)
+    ).toThrow(/Contact support/)
   })
 
   it(`throws when the subscription is scheduled to cancel`, () => {

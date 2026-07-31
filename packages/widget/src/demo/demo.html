@@ -45,12 +45,12 @@
     <main>
       <div class="card">
         <span class="pill">bug</span><span class="pill">feedback</span>
-        <p>Hover the tiny widget button (bottom-left by default — it scales up
-        and reveals its label). Screenshots are on demand: the panel opens on
+        <p>Hover the tiny widget button (bottom-left by default): it scales up
+        and reveals its label. Screenshots are on demand: the panel opens on
         the plain form, and <b>Take screenshot</b> captures this page (without
         the widget itself) and drops into the annotation editor.</p>
         <p>Add <code>?position=bottom-right</code> to flip the launcher side.
-        Add <code>?margin=24</code> to give the body a 24px margin — the default
+        Add <code>?margin=24</code> to give the body a 24px margin. The default
         <code>margin:0</code> hides viewport-crop origin bugs, so scroll down a
         viewport and take a screenshot to check the capture still aligns.
         In the editor, pick the <b>Crop</b> tool and drag a rectangle: the
@@ -59,13 +59,13 @@
         out of a fresh capture discards it.</p>
       </div>
       <button id="open-above" style="position:relative;z-index:5;padding:8px 12px">
-        Simulate a modal (pointer-events:none on body) — launcher must stay clickable
+        Simulate a modal (pointer-events:none on body). Launcher must stay clickable.
       </button>
       <div class="card">
         <canvas id="chart" width="320" height="120"></canvas>
       </div>
       <div class="card" style="margin-top: 60vh">
-        <p>Scrolled-down content — capture should crop to the viewport.</p>
+        <p>Scrolled-down content: capture should crop to the viewport.</p>
       </div>
     </main>
 

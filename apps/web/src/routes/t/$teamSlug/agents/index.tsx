@@ -379,7 +379,7 @@ function AgentsPage() {
             ) : remote.devices.length === 0 ? (
               <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
                 <MonitorOff className="size-3.5 shrink-0" />
-                No desktop online — open the Exponential desktop app to start
+                No desktop online. Open the Exponential desktop app to start
                 coding.
               </div>
             ) : (
@@ -409,7 +409,7 @@ function AgentsPage() {
             {remote.sentTo && (
               <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
                 <LoaderCircle className="size-3 animate-spin" />
-                Start sent to {remote.sentTo} — waiting for the desktop…
+                Start sent to {remote.sentTo}. Waiting for the desktop…
               </div>
             )}
           </div>

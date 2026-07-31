@@ -466,8 +466,8 @@ function ConversationPane({
                   {deliveryFailed && (
                     <p className="mt-1 flex items-center gap-1 text-[0.65rem] font-medium text-destructive">
                       <MailWarning className="h-3 w-3" />
-                      Email delivery failed — the reporter didn&apos;t receive
-                      this
+                      Email delivery failed. The reporter didn&apos;t receive
+                      this.
                     </p>
                   )}
                 </div>

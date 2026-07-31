@@ -290,7 +290,7 @@ function AccountNotifications() {
                   {verifyState === `sent` &&
                     ` Verification email sent to ${emailPrefs.email}.`}
                   {verifyState === `error` &&
-                    ` Couldn't send the verification email — try again in a moment.`}
+                    ` Couldn't send the verification email. Try again in a moment.`}
                 </p>
               </div>
               <Button

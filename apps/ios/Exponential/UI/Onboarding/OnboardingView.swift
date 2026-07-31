@@ -143,7 +143,7 @@ struct OnboardingView: View {
 
             Spacer().frame(height: 8)
 
-            Text("Create a board to start tracking issues — connect a GitHub repo to code on it.")
+            Text("Create a board to start tracking issues. Connect a GitHub repo to code on it.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .multilineTextAlignment(.center)

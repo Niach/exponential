@@ -292,9 +292,9 @@ export function Panel(props: {
           <div className="exp-success-sub">
             {props.successFlavor === `support` ? (
               props.successEmailDelivered === false ? (
-                `We couldn't send the confirmation email — the team has received your message and will follow up.`
+                `We couldn't send the confirmation email. The team has received your message and will follow up.`
               ) : (
-                `Check your email — we sent you a link to track the conversation and reply.`
+                `Check your email. We sent you a link to track the conversation and reply.`
               )
             ) : props.successIdentifier ? (
               props.successUrl ? (
@@ -363,7 +363,7 @@ export function Panel(props: {
           >
             <span className="exp-mode-title">Give feedback</span>
             <span className="exp-mode-sub">
-              Report a bug or share an idea — screenshot included.
+              Report a bug or share an idea, screenshot included.
             </span>
           </button>
           <button
@@ -373,7 +373,7 @@ export function Panel(props: {
           >
             <span className="exp-mode-title">Get help</span>
             <span className="exp-mode-sub">
-              Ask us anything — we'll reply by email.
+              Ask us anything. We'll reply by email.
             </span>
           </button>
         </div>

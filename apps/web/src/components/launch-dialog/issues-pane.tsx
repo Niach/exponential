@@ -99,7 +99,7 @@ export function IssuesPane({
       )}
       {overCap && (
         <p className="text-xs text-destructive">
-          At most {MAX_ISSUES_PER_RUN} issues per run — split the batch.
+          At most {MAX_ISSUES_PER_RUN} issues per run. Split the batch.
         </p>
       )}
       {spansRepos && (

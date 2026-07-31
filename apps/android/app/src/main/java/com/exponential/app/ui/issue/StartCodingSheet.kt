@@ -606,7 +606,7 @@ fun StartCodingSheet(
                     // Validation captions (blocking) + the large-batch soft note.
                     val validationCaption = when {
                         multiRepo -> "Pick issues from a single repository per run."
-                        tooMany -> "At most $MAX_BATCH_ISSUES issues per run — split the batch."
+                        tooMany -> "At most $MAX_BATCH_ISSUES issues per run. Split the batch."
                         else -> null
                     }
                     if (validationCaption != null) {
@@ -774,9 +774,9 @@ fun StartCodingSheet(
                     OptionGroup {
                         Text(
                             if (needsFixConflictsCap) {
-                                "No desktop can fix merge conflicts yet — update the Exponential desktop app."
+                                "No desktop can fix merge conflicts yet. Update the Exponential desktop app."
                             } else {
-                                "No actions-capable desktop online — open or update the Exponential desktop app."
+                                "No actions-capable desktop online. Open or update the Exponential desktop app."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),

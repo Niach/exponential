@@ -139,7 +139,7 @@ fun PatchLines(
         }
         if (truncated) {
             Text(
-                text = "Diff truncated — showing the first $maxLines lines.",
+                text = "Diff truncated. Showing the first $maxLines lines.",
                 color = contextColor,
                 fontSize = 11.sp,
                 lineHeight = 15.sp,

@@ -346,7 +346,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       // before the network round-trip.
       const mergedCustomData = mergeCustomValues(form.customValues)
       if (JSON.stringify(mergedCustomData).length > 8 * 1024) {
-        return `Your responses are too long to submit — please shorten them.`
+        return `Your responses are too long to submit. Please shorten them.`
       }
       setPhase({ kind: `submitting` })
       // A flatten can still be encoding here (the disabled Send button can

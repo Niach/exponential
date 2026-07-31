@@ -120,7 +120,7 @@ final class ActionsViewModel {
                     options: options,
                     inputs: inputs.isEmpty ? nil : inputs
                 )
-                sentCaption = "Start sent to \(label) — waiting for the desktop…"
+                sentCaption = "Start sent to \(label). Waiting for the desktop…"
                 watchForStartedRun(actionName: action.name, userId: userId)
             } catch {
                 startError = error.localizedDescription
@@ -168,8 +168,8 @@ final class ActionsViewModel {
                     )
                 }
                 let sent = isBatch
-                    ? "Batch start sent to \(label) — it'll appear on the Agents tab when it spins up."
-                    : "Start sent to \(label) — it'll appear on the Agents tab when it spins up."
+                    ? "Batch start sent to \(label). It'll appear on the Agents tab when it spins up."
+                    : "Start sent to \(label). It'll appear on the Agents tab when it spins up."
                 sentCaption = sent
                 // The informational caption clears after a grace window; a
                 // newer attempt's caption must not be clobbered (errors

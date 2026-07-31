@@ -604,11 +604,11 @@ export function LaunchDialog({
             noDeviceNote={
               tab === `actions`
                 ? needsFixConflictsCap
-                  ? `No desktop can fix merge conflicts yet — update the Exponential desktop app.`
+                  ? `No desktop can fix merge conflicts yet. Update the Exponential desktop app.`
                   : needsInputsCap
-                    ? `No capable desktop online — this action needs a desktop app new enough to run action inputs.`
-                    : `No actions-capable desktop online — open (or update) the Exponential desktop app.`
-                : `No desktop online — open the Exponential desktop app to start coding.`
+                    ? `No capable desktop online. This action needs a desktop app new enough to run action inputs.`
+                    : `No actions-capable desktop online. Open (or update) the Exponential desktop app.`
+                : `No desktop online. Open the Exponential desktop app to start coding.`
             }
             agent={agent}
             availableAgents={availableAgents}

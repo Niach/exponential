@@ -184,7 +184,7 @@ fun AgentSessionScreen(
                             )
                             Text(
                                 if (phase == AgentPhase.Starting) {
-                                    "The agent is starting — waiting for the live stream…"
+                                    "The agent is starting. Waiting for the live stream…"
                                 } else {
                                     "Connecting…"
                                 },
@@ -260,7 +260,7 @@ fun AgentSessionScreen(
                     }
                     Text(
                         p.detail
-                            ?: if (p.reconnecting) "Connection lost — reconnecting…" else "Disconnected",
+                            ?: if (p.reconnecting) "Connection lost. Reconnecting…" else "Disconnected",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         modifier = Modifier.weight(1f),
@@ -274,7 +274,7 @@ fun AgentSessionScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            "The agent is starting — waiting for the live stream…",
+                            "The agent is starting. Waiting for the live stream…",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
@@ -1093,7 +1093,7 @@ private fun QuestionCard(
                         if (state == AnswerState.Sending) {
                             "Sending your answer…"
                         } else {
-                            "Answer sent — waiting for the agent."
+                            "Answer sent. Waiting for the agent."
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
@@ -1104,16 +1104,16 @@ private fun QuestionCard(
                 // the step re-surfaced instead of silently rolling back
                 // (EXP-334, web parity).
                 Text(
-                    "No confirmation from the desktop — pick again to retry.",
+                    "No confirmation from the desktop. Pick again to retry.",
                     style = MaterialTheme.typography.labelSmall,
                     color = ConnectingYellow,
                 )
             } else if (active && !answerEnabled) {
                 Text(
                     if (item.planMode) {
-                        "Waiting for approval — you're viewing read-only."
+                        "Waiting for approval. You're viewing read-only."
                     } else {
-                        "Waiting for an answer — you're viewing read-only."
+                        "Waiting for an answer. You're viewing read-only."
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),

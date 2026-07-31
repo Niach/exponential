@@ -185,7 +185,7 @@ const boardIconEnumSchema = z
   .string()
   .refine(
     (v) => (boardIconValues as ReadonlyArray<string>).includes(v),
-    `Unknown icon — valid names: ${boardIconValues.join(`, `)}`
+    `Unknown icon. Valid names: ${boardIconValues.join(`, `)}`
   )
   .transform((v) => v as (typeof boardIconValues)[number])
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, `Expected YYYY-MM-DD`)
@@ -326,7 +326,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_create`,
     {
-      description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional — coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline. icon is a curated icon name.`,
+      description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional. Coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline. icon is a curated icon name.`,
       inputSchema: {
         teamId: uuidString,
         name: z.string().min(1).max(255),
@@ -645,7 +645,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_attachments_get`,
     {
-      description: `Fetch an issue attachment by id and return it as inline image content. Markdown embeds look like ![alt](/api/attachments/{id}) — pass that {id}. Non-image content types are rejected.`,
+      description: `Fetch an issue attachment by id and return it as inline image content. Markdown embeds look like ![alt](/api/attachments/{id}). Pass that {id}. Non-image content types are rejected.`,
       inputSchema: { id: uuidString },
     },
     async ({ id }) => {
@@ -656,7 +656,7 @@ export function registerExponentialTools(
 
         if (!attachment.contentType.startsWith(`image/`)) {
           throw new Error(
-            `Attachment ${id} is ${attachment.contentType}, not an image — only images can be returned inline.`
+            `Attachment ${id} is ${attachment.contentType}. Only images can be returned inline.`
           )
         }
 
@@ -919,7 +919,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_update_status`,
     {
-      description: `Set an issue's status during a coding session (UUID or identifier). Only 'in_progress' (started working) and 'done' (work merged) are allowed. Never set 'in_review' yourself — exponential_pr_open and PR merges move issues to the team's configured statuses automatically.`,
+      description: `Set an issue's status during a coding session (UUID or identifier). Only 'in_progress' (started working) and 'done' (work merged) are allowed. Never set 'in_review' yourself. Both exponential_pr_open and PR merges move issues to the team's configured statuses automatically.`,
       inputSchema: {
         issueId: z.string().min(1),
         status: z.enum([`in_progress`, `done`]),
@@ -943,7 +943,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR on the linked repository and link it to the issue(s) — the server uses the GitHub App, no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR on the linked repository and link it to the issue(s). The server uses the GitHub App, no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -960,7 +960,7 @@ export function registerExponentialTools(
         }
         if (issueIds?.length && !head) {
           throw new Error(
-            `'head' is required with issueIds — pass the pushed batch branch`
+            `'head' is required with issueIds. Pass the pushed batch branch.`
           )
         }
 
@@ -989,7 +989,7 @@ export function registerExponentialTools(
           })
           if (!issueRepo) {
             throw new Error(
-              `No repository linked to this board — link one in team settings.`
+              `No repository linked to this board. Link one in team settings.`
             )
           }
           if (repo && repo.repositoryId !== issueRepo.repositoryId) {
@@ -1128,7 +1128,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge linked open PRs via the GitHub App — no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (one merge per distinct prUrl — issues sharing a batch PR merge once). Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions move to 'merged' and stay open. Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. If a merge is rejected because the base branch is stale, fix it with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge linked open PRs via the GitHub App, no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once). Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions move to 'merged' and stay open. Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. If a merge is rejected because the base branch is stale, fix it with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -1214,7 +1214,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_retarget`,
     {
-      description: `Change the base branch of an issue's open PR via the GitHub App — use when a merge is rejected because the base is stale (e.g. stacked on an already-merged parent PR). Omit 'base' for the repo's default branch. Then rebase onto the new base, push with --force-with-lease, and call exponential_pr_merge.`,
+      description: `Change the base branch of an issue's open PR via the GitHub App. Use it when a merge is rejected because the base is stale (e.g. stacked on an already-merged parent PR). Omit 'base' for the repo's default branch. Then rebase onto the new base, push with --force-with-lease, and call exponential_pr_merge.`,
       inputSchema: {
         issueId: z.string().min(1),
         base: z.string().min(1).max(255).optional(),
@@ -1444,7 +1444,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_members_list`,
     {
-      description: `List the members of a team with their id, name, email, and role — use this to resolve an assigneeId for issues.`,
+      description: `List the members of a team with their id, name, email, and role. Use this to resolve an assigneeId for issues.`,
       inputSchema: {
         teamId: uuidString,
       },
@@ -1562,7 +1562,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_list`,
     {
-      description: `List a team's actions — reusable markdown prompts run as interactive agent sessions on a member's own desktop. Team members only.`,
+      description: `List a team's actions: reusable markdown prompts run as interactive agent sessions on a member's own desktop. Team members only.`,
       inputSchema: { teamId: uuidString },
     },
     async ({ teamId }) => {
@@ -1852,7 +1852,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_attachments_upload`,
     {
-      description: `Upload a base64-encoded file and attach it to an issue (UUID or identifier). Images (png/jpeg/webp/gif/avif, max 10 MB) also return a "markdown" field — embed that string to show the image. Other types (max 50 MB) land in the issue's Files list, return no markdown, and must not be embedded. Storage limits apply; base64 inflates ~33%.`,
+      description: `Upload a base64-encoded file and attach it to an issue (UUID or identifier). Images (png/jpeg/webp/gif/avif, max 10 MB) also return a "markdown" field. Embed that string to show the image. Other types (max 50 MB) land in the issue's Files list, return no markdown, and must not be embedded. Storage limits apply; base64 inflates ~33%.`,
       inputSchema: {
         issueId: z.string().min(1),
         filename: z.string().min(1).max(255),
@@ -1886,7 +1886,7 @@ export function registerExponentialTools(
 
         const body = new Uint8Array(Buffer.from(dataBase64, `base64`))
         if (body.byteLength === 0) {
-          throw new Error(`Decoded file is empty — check the base64 payload.`)
+          throw new Error(`Decoded file is empty. Check the base64 payload.`)
         }
         if (body.byteLength > getMaxUploadBytesForContentType(contentType)) {
           throw new Error(

@@ -313,7 +313,7 @@ private fun CreateBoardStep(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Name your board — connecting a GitHub repository is optional.",
+            "Name your board. Connecting a GitHub repository is optional.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,

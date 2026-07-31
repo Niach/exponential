@@ -413,7 +413,7 @@ impl StatusesPane {
         let dialog_content = content.clone();
         let spec = AlertSpec::new(
             format!("Delete {status_name}?"),
-            "Issues using this status — including any on trashed boards — \
+            "Issues using this status, including any on trashed boards, \
              will move to the status you pick.",
             "Delete status",
         )

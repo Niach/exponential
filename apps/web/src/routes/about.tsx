@@ -46,7 +46,7 @@ function AboutPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">About</h1>
           <p className="text-sm text-muted-foreground">
-            Exponential — a real-time issue tracker.
+            Exponential: a real-time issue tracker.
           </p>
         </div>
 

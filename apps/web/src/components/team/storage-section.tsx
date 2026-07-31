@@ -138,10 +138,10 @@ export function TeamStorageSection({
       if (result.deletedCount === 0) {
         toast.success(
           result.skippedRecentCount > 0
-            ? `Nothing swept — ${result.skippedRecentCount} recent upload${
+            ? `Nothing swept. ${result.skippedRecentCount} recent upload${
                 result.skippedRecentCount === 1 ? `` : `s`
               } are still inside the 24h grace window.`
-            : `Nothing to sweep — every image is still referenced.`
+            : `Nothing to sweep. Every image is still referenced.`
         )
         return
       }
@@ -169,7 +169,7 @@ export function TeamStorageSection({
           <CardTitle className="text-base">Storage</CardTitle>
           <CardDescription>
             Every file and image attached to this team&apos;s issues. Deleting
-            an attachment is permanent — any image reference left in a
+            an attachment is permanent. Any image reference left in a
             description or comment is replaced with a plain-text note.
           </CardDescription>
           <CardAction>
@@ -359,7 +359,7 @@ export function TeamStorageSection({
             <AlertDialogDescription>
               These images are no longer embedded in any description or comment
               in this team, so deleting them changes no text. Images uploaded in
-              the last 24 hours are kept — they may still be sitting in an
+              the last 24 hours are kept. They may still be sitting in an
               unsaved draft. Files are never swept.
             </AlertDialogDescription>
           </AlertDialogHeader>

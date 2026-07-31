@@ -118,7 +118,7 @@ export function BoardSettingsDialog({
         <DialogHeader>
           <DialogTitle>Board settings</DialogTitle>
           <DialogDescription>
-            Same settings as board creation — changes apply to{` `}
+            Same settings as board creation. Changes apply to{` `}
             <span className="font-medium text-foreground">{board?.name}</span>
             {` `}immediately.
           </DialogDescription>

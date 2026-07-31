@@ -67,7 +67,7 @@ export async function submitSupportRequest(args: {
     if (response.status === 429) {
       return {
         ok: false,
-        message: `Too many requests right now — try again in a minute.`,
+        message: `Too many requests right now. Try again in a minute.`,
         status: 429,
         code: null,
       }
@@ -153,7 +153,7 @@ export async function submitFeedback(args: {
     if (response.status === 429) {
       return {
         ok: false,
-        message: `Too many reports right now — try again in a minute.`,
+        message: `Too many reports right now. Try again in a minute.`,
         status: 429,
         code: null,
       }

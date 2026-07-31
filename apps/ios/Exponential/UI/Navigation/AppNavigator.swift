@@ -536,8 +536,8 @@ struct MainNavigator: View {
                 HStack(spacing: 6) {
                     AppIcon(AppIcons.uiUpdate, size: 11)
                     Text(gated.count > 1
-                        ? "\(gated.count) servers need a newer app version — their sync is paused"
-                        : "\(first.displayName) needs a newer app version — its sync is paused")
+                        ? "\(gated.count) servers need a newer app version. Their sync is paused."
+                        : "\(first.displayName) needs a newer app version. Its sync is paused.")
                         .font(.caption2)
                 }
                 .foregroundStyle(.white.opacity(0.9))
@@ -560,8 +560,8 @@ struct MainNavigator: View {
             HStack(spacing: 6) {
                 AppIcon(health == .unauthorized ? AppIcons.uiWarning : AppIcons.uiOffline, size: 11)
                 Text(health == .unauthorized
-                    ? "Session expired — sign in again to keep syncing"
-                    : "Can't reach the server — showing cached data")
+                    ? "Session expired. Sign in again to keep syncing."
+                    : "Can't reach the server, showing cached data")
                     .font(.caption2)
             }
             .foregroundStyle(.white.opacity(0.9))

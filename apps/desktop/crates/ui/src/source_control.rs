@@ -465,7 +465,7 @@ impl SourceControlView {
         if session_live {
             description.push_str(
                 " A coding or action session is currently running in \
-                 this clone — the reset will move the working tree \
+                 this clone. The reset will move the working tree \
                  under it and may disrupt the session.",
             );
         }
@@ -505,7 +505,7 @@ impl SourceControlView {
             ConflictKind::Rebase => ("Rebase paused", "Abort rebase"),
             ConflictKind::Merge => ("Merge paused", "Abort merge"),
         };
-        let title = format!("{verb} — {} conflicted files", conflict.files.len());
+        let title = format!("{verb}: {} conflicted files", conflict.files.len());
         let files = conflict.files.clone();
         gpui_component::v_flex()
             .flex_shrink_0()
@@ -659,7 +659,7 @@ impl SourceControlView {
             })
             .when(git_missing, |this| {
                 this.child(
-                    "Git is required to clone repositories — install it, then run \
+                    "Git is required to clone repositories. Install it, then run \
                      \u{201c}Check tools\u{201d} in Settings → Tools.",
                 )
                 .child(
@@ -712,7 +712,7 @@ impl SourceControlView {
                 .text_xs()
                 .text_color(theme.muted_foreground)
                 .child(
-                    "No repository linked to this board — link one in team settings.",
+                    "No repository linked to this board. Link one in team settings.",
                 )
                 .into_any_element();
         }
@@ -839,7 +839,7 @@ fn anomaly_strip_message(status: &scm::StatusSummary) -> Option<String> {
     // hatch beside the message (force-checkout the default branch) is the way
     // back.
     if status.branch.starts_with('(') {
-        return Some("Not on a branch — auto-pull is paused".to_string());
+        return Some("Not on a branch. Auto-pull is paused.".to_string());
     }
     let mut parts: Vec<String> = Vec::new();
     if status.ahead > 0 && status.upstream.is_some() {
@@ -860,7 +860,7 @@ fn anomaly_strip_message(status: &scm::StatusSummary) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
-    Some(format!("{} — auto-pull is paused", parts.join(" · ")))
+    Some(format!("{}. Auto-pull is paused.", parts.join(" · ")))
 }
 
 // ---------------------------------------------------------------------------
@@ -1183,24 +1183,24 @@ mod tests {
         // The Linux EXP-346 screenshot: 1 local commit, 48 behind, clean.
         assert_eq!(
             anomaly_strip_message(&summary(1, 48, 0, true)).as_deref(),
-            Some("1 local commit not on origin (48 behind origin) — auto-pull is paused")
+            Some("1 local commit not on origin (48 behind origin). Auto-pull is paused.")
         );
         // Ahead-only (nothing behind yet) drops the lag suffix, plural noun.
         assert_eq!(
             anomaly_strip_message(&summary(2, 0, 0, true)).as_deref(),
-            Some("2 local commits not on origin — auto-pull is paused")
+            Some("2 local commits not on origin. Auto-pull is paused.")
         );
         // Dirty-only keeps the pre-EXP-346 count wording.
         assert_eq!(
             anomaly_strip_message(&summary(0, 0, 1, true)).as_deref(),
-            Some("1 changed file in the working tree — auto-pull is paused")
+            Some("1 changed file in the working tree. Auto-pull is paused.")
         );
         // Both compose into one strip.
         assert_eq!(
             anomaly_strip_message(&summary(1, 2, 3, true)).as_deref(),
             Some(
                 "1 local commit not on origin (2 behind origin) · \
-                 3 changed files in the working tree — auto-pull is paused"
+                 3 changed files in the working tree. Auto-pull is paused."
             )
         );
     }
@@ -1213,7 +1213,7 @@ mod tests {
         let detached = StatusSummary { branch: "(detached)".to_string(), ..summary(0, 7, 2, true) };
         assert_eq!(
             anomaly_strip_message(&detached).as_deref(),
-            Some("Not on a branch — auto-pull is paused")
+            Some("Not on a branch. Auto-pull is paused.")
         );
     }
 }

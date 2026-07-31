@@ -184,7 +184,7 @@ struct AgentSessionView: View {
             centeredState {
                 ProgressView().tint(.white)
                 Text(model.phase == .starting
-                    ? "The agent is starting — waiting for the live stream…"
+                    ? "The agent is starting. Waiting for the live stream…"
                     : "Connecting…")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -541,14 +541,14 @@ struct AgentSessionView: View {
                 if reconnecting {
                     ProgressView().controlSize(.small).tint(.white)
                 }
-                Text(detail ?? (reconnecting ? "Connection lost — reconnecting…" : "Disconnected"))
+                Text(detail ?? (reconnecting ? "Connection lost. Reconnecting…" : "Disconnected"))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         case .starting where !model.feed.isEmpty:
             bannerRow {
                 ProgressView().controlSize(.small).tint(.white)
-                Text("The agent is starting — waiting for the live stream…")
+                Text("The agent is starting. Waiting for the live stream…")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
@@ -861,8 +861,8 @@ private struct QuestionCard: View {
                 }
                 if active, !canAnswer {
                     Text(question.planMode
-                        ? "Waiting for approval — you're viewing read-only."
-                        : "Waiting for an answer — you're viewing read-only.")
+                        ? "Waiting for approval. You're viewing read-only."
+                        : "Waiting for an answer. You're viewing read-only.")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
@@ -993,7 +993,7 @@ private struct QuestionCard: View {
         } else if failed, !question.resolved, answerable {
             // The optimistic lock expired with no `answer_ack` — say WHY the
             // step re-surfaced instead of silently rolling back (EXP-334).
-            Text("No confirmation from the desktop — pick again to retry.")
+            Text("No confirmation from the desktop. Pick again to retry.")
                 .font(.caption2)
                 .foregroundStyle(DesignTokens.Semantic.yellow)
         }

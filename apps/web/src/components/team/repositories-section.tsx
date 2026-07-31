@@ -442,7 +442,7 @@ function GithubStatusLine({
         <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
         <span className="min-w-0 flex-1">
           GitHub suspended the Exponential app for{` `}
-          {suspended.map(installationLabel).join(`, `)} — unsuspend it on
+          {suspended.map(installationLabel).join(`, `)}. Unsuspend it on
           GitHub.
         </span>
         {manageUrl && (
@@ -571,8 +571,8 @@ function RepoRow({
               </TooltipTrigger>
               <TooltipContent>
                 In use by {repo.boards.length}{` `}
-                {repo.boards.length === 1 ? `board` : `boards`} — change
-                their repository first
+                {repo.boards.length === 1 ? `board` : `boards`}. Change their
+                repository first.
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -595,8 +595,8 @@ function RepoRow({
           <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 flex-1">
             {installationSuspended
-              ? `GitHub suspended the Exponential app for this repository's account — unsuspend it on GitHub to code on this repo again.`
-              : `The GitHub App lost access to this repository — re-grant it on GitHub.`}
+              ? `GitHub suspended the Exponential app for this repository's account. Unsuspend it on GitHub to code on this repo again.`
+              : `The GitHub App lost access to this repository. Re-grant it on GitHub.`}
           </span>
           {manageUrl && (
             <Button

@@ -480,7 +480,7 @@ fn render_image_slot(
             &if alt.is_empty() {
                 "Image unavailable".to_string()
             } else {
-                format!("Image unavailable — {alt}")
+                format!("Image unavailable: {alt}")
             },
             cx,
         ),

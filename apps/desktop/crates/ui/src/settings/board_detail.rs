@@ -261,8 +261,8 @@ impl BoardDetailPane {
         let spec = AlertSpec::new(
             "Move board to trash",
             format!(
-                "Move {board_name} to the trash? It's kept for 48 hours — it can be \
-                 restored from the team settings on the web — then permanently deleted \
+                "Move {board_name} to the trash? It's kept for 48 hours (it can be \
+                 restored from the team settings on the web), then permanently deleted \
                  with all its issues."
             ),
             "Move to trash",

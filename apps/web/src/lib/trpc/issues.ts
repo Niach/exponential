@@ -306,7 +306,7 @@ export const issuesRouter = router({
         // bulkUpdate). The statusId path rejects duplicate-category rows in
         // resolveStatusWrite.
         .refine((i) => i.status !== `duplicate`, {
-          message: `Duplicate requires a canonical issue — create the issue first, then mark it`,
+          message: `Duplicate requires a canonical issue. Create the issue first, then mark it.`,
         })
         .refine((i) => i.status === undefined || i.statusId === undefined, {
           message: `Pass status or statusId, not both`,
@@ -956,7 +956,7 @@ export const issuesRouter = router({
         // invariant every single-issue path intercepts. The statusId path
         // rejects duplicate-category rows in resolveStatusWrite.
         .refine((i) => i.status !== `duplicate`, {
-          message: `Duplicate requires a canonical issue — mark issues individually`,
+          message: `Duplicate requires a canonical issue. Mark issues individually.`,
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1206,7 +1206,7 @@ export const issuesRouter = router({
       if (row.prState !== `open`) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The pull request is ${row.prState} — only open pull requests can be merged`,
+          message: `The pull request is ${row.prState}. Only open pull requests can be merged.`,
         })
       }
 
@@ -1285,7 +1285,7 @@ export const issuesRouter = router({
           if (err.status === 409) {
             throw new TRPCError({
               code: `CONFLICT`,
-              message: `Head branch changed on GitHub — refresh and try again`,
+              message: `Head branch changed on GitHub. Refresh and try again.`,
             })
           }
           if (err.status === 404) {
@@ -1369,7 +1369,7 @@ export const issuesRouter = router({
       if (row.prState !== `open`) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The pull request is ${row.prState} — only open pull requests can be closed`,
+          message: `The pull request is ${row.prState}. Only open pull requests can be closed.`,
         })
       }
 
@@ -1494,7 +1494,7 @@ export const issuesRouter = router({
         if (row.prState !== `open`) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `The pull request is ${row.prState} — only open pull requests can be retargeted`,
+            message: `The pull request is ${row.prState}. Only open pull requests can be retargeted.`,
           })
         }
 
@@ -1612,7 +1612,7 @@ export const issuesRouter = router({
       if (row.prState !== `open`) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The pull request is ${row.prState} — only open pull requests can be conflict-fixed`,
+          message: `The pull request is ${row.prState}. Only open pull requests can be conflict-fixed.`,
         })
       }
 

@@ -87,7 +87,7 @@ export function IssueFilesSection({
       ? []
       : images.map(
           (file) =>
-            `${file.name}: images go in the description — add them with the editor's image button`
+            `${file.name}: images go in the description. Add them with the editor's image button.`
         )
 
     setUploading(true)
@@ -115,7 +115,7 @@ export function IssueFilesSection({
       setError(
         failures.length === selected.length
           ? failures.join(` · `)
-          : `${failures.length} of ${selected.length} files failed — ${failures.join(` · `)}`
+          : `${failures.length} of ${selected.length} files failed: ${failures.join(` · `)}`
       )
     }
   }
@@ -254,10 +254,10 @@ export function IssueFilesSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this file?</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDelete?.filename} will be permanently removed for everyone
-              — this can&apos;t be undone. If it is referenced anywhere in a
-              description or comment, that reference is replaced with a plain
-              &ldquo;deleted image&rdquo; note.
+              {pendingDelete?.filename} will be permanently removed for
+              everyone. This can&apos;t be undone. If it is referenced anywhere
+              in a description or comment, that reference is replaced with a
+              plain &ldquo;deleted image&rdquo; note.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

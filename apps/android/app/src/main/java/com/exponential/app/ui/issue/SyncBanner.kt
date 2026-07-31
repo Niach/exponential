@@ -81,7 +81,7 @@ fun SyncBannerRow(banner: SyncBanner, modifier: Modifier = Modifier) {
         CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
         Text(
             when (banner) {
-                SyncBanner.Stalled -> "Sync stalled — open Settings → Sync diagnostics"
+                SyncBanner.Stalled -> "Sync stalled. Open Settings → Sync diagnostics."
                 else -> "Syncing team…"
             },
             style = MaterialTheme.typography.bodySmall,

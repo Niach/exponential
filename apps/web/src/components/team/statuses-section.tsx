@@ -261,7 +261,7 @@ function StatusRow({
         </span>
 
         {isBuiltin && (
-          <IconTooltip label="Built-in status — reorderable, but not renamable, recolorable or deletable.">
+          <IconTooltip label="Built-in status: reorderable, but not renamable, recolorable or deletable.">
             <span className="flex h-7 w-7 items-center justify-center text-muted-foreground">
               <Lock className="h-3.5 w-3.5" />
             </span>

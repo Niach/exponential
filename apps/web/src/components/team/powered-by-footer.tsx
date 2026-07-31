@@ -12,7 +12,7 @@ export function PoweredByFooter() {
         rel="noreferrer"
         className="text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
-        Powered by <span className="font-semibold">Exponential</span> — issue
+        Powered by <span className="font-semibold">Exponential</span>: issue
         tracking with local AI agents
       </a>
       <span className="mx-2 text-xs text-muted-foreground/60">·</span>

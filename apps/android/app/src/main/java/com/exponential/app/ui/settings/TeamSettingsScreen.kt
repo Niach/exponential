@@ -505,7 +505,7 @@ private fun RepositoriesSection(
                         suspended.isNotEmpty() ->
                             "GitHub suspended the Exponential app for " +
                                 suspended.joinToString(", ", transform = label) +
-                                " — unsuspend it on GitHub."
+                                ". Unsuspend it on GitHub."
                         needsReauth ->
                             "Reconnect GitHub to refresh which repositories you can access from " +
                                 reauthInstalls.joinToString(", ", transform = label) + "."

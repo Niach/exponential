@@ -508,7 +508,7 @@ impl LocalReposPane {
                 .disabled(busy || in_use);
             if in_use {
                 button = button
-                    .tooltip("A coding session is running on this repository — stop it first.");
+                    .tooltip("A coding session is running on this repository. Stop it first.");
             } else {
                 button = button
                     .tooltip("Delete the local clone and its worktrees from disk (confirmed).")
@@ -647,7 +647,7 @@ impl LocalReposPane {
             // as "Remove local copy", one level down.
             if in_use {
                 button = button
-                    .tooltip("A coding session is running on this worktree — stop it first.");
+                    .tooltip("A coding session is running on this worktree. Stop it first.");
             } else {
                 button = button
                     .tooltip("Remove this worktree from disk (confirmed)")

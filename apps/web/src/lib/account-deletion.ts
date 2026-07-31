@@ -145,7 +145,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
         : `before deleting this user`
     throw new TRPCError({
       code: `BAD_REQUEST`,
-      message: `${subject} the only owner of ${names}, which still ${rows.length === 1 ? `has` : `have`} other members — transfer ownership or remove those members ${tail}`,
+      message: `${subject} the only owner of ${names}, which still ${rows.length === 1 ? `has` : `have`} other members. Transfer ownership or remove those members ${tail}.`,
     })
   }
 

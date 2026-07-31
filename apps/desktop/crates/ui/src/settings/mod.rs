@@ -1136,8 +1136,8 @@ mod tests {
     fn team_delete_billing_gate_is_rewritten_for_desktop() {
         let err = api::ApiError::Http {
             status: 412,
-            message: "This team has an active subscription — cancel the subscription in \
-                      team settings → Billing before deleting the team"
+            message: "This team has an active subscription. Cancel the subscription in \
+                      team settings → Billing before deleting the team."
                 .to_string(),
         };
         let message = team_delete_error_message(&err);
