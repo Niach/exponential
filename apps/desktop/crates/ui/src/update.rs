@@ -70,13 +70,14 @@ const CHANNEL_CHECKS_UPDATES: bool = true;
 #[cfg(feature = "staging")]
 const CHANNEL_CHECKS_UPDATES: bool = false;
 
-/// The version this binary was compiled at. Release CI injects the real tag
-/// version via `EXP_DESKTOP_VERSION` (the team `Cargo.toml` version is a
-/// static `0.1.0` placeholder that would never advance); local/dev builds fall
-/// back to it, which simply means the comparison always reports an update
-/// available off a real release — harmless in dev.
+/// The version this binary was compiled at — the shared
+/// `domain::client_version` value (EXP-262 extracted it so the About screen
+/// shows the same number the update check compares). Local/dev builds fall
+/// back to the static `0.1.0` team placeholder, which simply means the
+/// comparison always reports an update available off a real release —
+/// harmless in dev.
 fn current_version() -> &'static str {
-    option_env!("EXP_DESKTOP_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+    domain::client_version::current_version()
 }
 
 fn releases_api() -> String {

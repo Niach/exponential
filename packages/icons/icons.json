@@ -104,6 +104,8 @@
     "settings-servers": "server",
     "settings-sync": "refresh-cw",
     "settings-rate": "star",
+    "settings-about": "info",
+    "settings-licenses": "scale",
 
     "status-backlog": "circle-dashed",
     "status-todo": "circle",

@@ -5977,6 +5977,8 @@ public object ExpIcons {
     public val priorityNone: ImageVector get() = `minus`
     /** Concept `priority-urgent`. */
     public val priorityUrgent: ImageVector get() = `triangle-alert`
+    /** Concept `settings-about`. */
+    public val settingsAbout: ImageVector get() = `info`
     /** Concept `settings-account`. */
     public val settingsAccount: ImageVector get() = `circle-user`
     /** Concept `settings-agents`. */
@@ -5989,6 +5991,8 @@ public object ExpIcons {
     public val settingsGeneral: ImageVector get() = `building-2`
     /** Concept `settings-labels`. */
     public val settingsLabels: ImageVector get() = `tag`
+    /** Concept `settings-licenses`. */
+    public val settingsLicenses: ImageVector get() = `scale`
     /** Concept `settings-local-repos`. */
     public val settingsLocalRepos: ImageVector get() = `hard-drive`
     /** Concept `settings-members`. */

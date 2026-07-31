@@ -427,6 +427,8 @@ public enum AppIcons {
     public static let priorityNone: String = "minus"
     /// Concept `priority-urgent`.
     public static let priorityUrgent: String = "triangle-alert"
+    /// Concept `settings-about`.
+    public static let settingsAbout: String = "info"
     /// Concept `settings-account`.
     public static let settingsAccount: String = "circle-user"
     /// Concept `settings-agents`.
@@ -439,6 +441,8 @@ public enum AppIcons {
     public static let settingsGeneral: String = "building-2"
     /// Concept `settings-labels`.
     public static let settingsLabels: String = "tag"
+    /// Concept `settings-licenses`.
+    public static let settingsLicenses: String = "scale"
     /// Concept `settings-local-repos`.
     public static let settingsLocalRepos: String = "hard-drive"
     /// Concept `settings-members`.

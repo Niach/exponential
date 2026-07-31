@@ -7,17 +7,19 @@
 /// The header every request to the instance server carries.
 pub const CLIENT_VERSION_HEADER: &str = "x-client-version";
 
-/// The header value: `desktop/<compiled version>`. Release CI injects the real
-/// tag version via `EXP_DESKTOP_VERSION`; the `CARGO_PKG_VERSION` fallback
+/// The version this binary was compiled at. Release CI injects the real tag
+/// version via `EXP_DESKTOP_VERSION`; the `CARGO_PKG_VERSION` fallback
 /// resolves to the shared team version (every crate inherits
-/// `version.team = true`, so it matches the update-check's own
-/// `current_version()` in `ui::update` regardless of which crate this compiles
-/// into).
+/// `version.team = true`, so it reads the same everywhere this compiles
+/// into). Shared by the header below, the update check (`ui::update`) and the
+/// About screen (EXP-262).
+pub fn current_version() -> &'static str {
+    option_env!("EXP_DESKTOP_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
+/// The header value: `desktop/<compiled version>`.
 pub fn client_version_header_value() -> String {
-    format!(
-        "desktop/{}",
-        option_env!("EXP_DESKTOP_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
-    )
+    format!("desktop/{}", current_version())
 }
 
 #[cfg(test)]

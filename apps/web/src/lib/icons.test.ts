@@ -312,7 +312,8 @@ describe(`icon call sites`, () => {
     // Every icon on both screens comes from the registry — no stragglers.
     expect(web).not.toMatch(/icon: [A-Z]\w+,/)
     expect(webNav.size).toBe(9)
-    expect(desktopNav.size).toBe(10)
+    // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
+    expect(desktopNav.size).toBe(11)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [

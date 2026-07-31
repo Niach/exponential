@@ -98,6 +98,29 @@ describe(`notice generation`, () => {
     }
   })
 
+  it(`headings are 78-column rule sandwiches — the mobile splitters' contract`, () => {
+    // EXP-262: iOS (ExpCore/Sources/ThirdPartyNotices.swift) and Android
+    // (domain/ThirdPartyNotices.kt) split the notice into sections on exactly
+    // this shape: a 78-char `=`/`-` rule, one or two title lines, a matching
+    // closing rule. If render.ts's WIDTH ever changes, this fails loudly
+    // instead of the mobile licence screens quietly collapsing into one blob.
+    const rule = (char: string) => char.repeat(78)
+    for (const [client, contents] of Object.entries(notices)) {
+      const lines = contents.split(`\n`)
+      // The file header: rule, product title, client title, closing rule.
+      expect(lines[0], client).toBe(rule(`=`))
+      expect(lines[3], client).toBe(rule(`=`))
+      // At least one licence-group `-` sandwich (rule, SPDX id, rule).
+      const hasGroup = lines.some(
+        (line, i) =>
+          line === rule(`-`) &&
+          lines[i + 1]?.trim() &&
+          lines[i + 2] === rule(`-`)
+      )
+      expect(hasGroup, `${client} has no licence-group heading`).toBe(true)
+    }
+  })
+
   it(`notices carry nothing host-specific`, () => {
     // A generated file that embeds a path, a hostname or a build date can never
     // be byte-stable across two machines, and the drift gate above would then

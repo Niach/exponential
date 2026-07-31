@@ -38,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.AppConstants
 import com.exponential.app.PlayStore
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
@@ -95,6 +96,7 @@ fun SettingsScreen(
     onOpenServerDetail: (accountId: String) -> Unit,
     onOpenTeamSettings: () -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
+    onOpenAbout: () -> Unit,
     onAddServer: () -> Unit,
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -209,6 +211,14 @@ fun SettingsScreen(
                                     }
                                 }
                             },
+                        )
+                        CardDivider()
+                        // EXP-262: version + third-party licence notices.
+                        SettingsRow(
+                            icon = ExpIcons.settingsAbout,
+                            title = "About",
+                            subtitle = "Version ${AppConstants.VERSION_NAME}",
+                            onClick = onOpenAbout,
                         )
                     }
                 }
