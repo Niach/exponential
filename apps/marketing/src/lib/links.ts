@@ -1,5 +1,4 @@
-/* Single source of truth for every external URL on the marketing site.
-   Swap the download placeholders for real store / release-asset URLs at launch. */
+/* Single source of truth for every external URL on the marketing site. */
 
 const APP = `https://app.exponential.at`
 const REPO = `https://github.com/Niach/exponential`

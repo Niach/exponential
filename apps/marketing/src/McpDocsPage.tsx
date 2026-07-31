@@ -49,8 +49,10 @@ const TOOL_GROUPS: {
       { name: `exponential_issues_create`, desc: `Create an issue.` },
       { name: `exponential_issues_update`, desc: `Update an issue's fields — pass only what changes.` },
       { name: `exponential_issues_delete`, desc: `Permanently delete an issue and everything attached to it.` },
-      { name: `exponential_issues_update_status`, desc: `Set status during a coding run — in_progress or done (pr_open handles in_review).` },
+      { name: `exponential_issues_update_status`, desc: `Set status during a coding run (PR events move it to the team's configured statuses).` },
       { name: `exponential_pr_open`, desc: `Open + link the pull request server-side — one issue, or a whole batch via issueIds + head.` },
+      { name: `exponential_pr_merge`, desc: `Squash-merge an issue's linked PR (or a whole batch) through the GitHub App — no gh, no token.` },
+      { name: `exponential_pr_retarget`, desc: `Repoint an open PR's base branch — the fix for a stacked PR whose parent already merged.` },
       { name: `exponential_issues_pr_files`, desc: `List the linked PR's changed files with patches and add/delete counts.` },
     ],
   },
@@ -115,6 +117,7 @@ const TOOL_GROUPS: {
     tools: [
       { name: `exponential_attachments_get`, desc: `Fetch an image attachment so the client can view it.` },
       { name: `exponential_attachments_upload`, desc: `Upload an image and get its embeddable markdown form back.` },
+      { name: `exponential_attachments_delete`, desc: `Delete an attachment; embeds in descriptions and comments are rewritten in the same transaction.` },
     ],
   },
 ]

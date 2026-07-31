@@ -20,8 +20,13 @@ export const DOCS_NAV: DocsNavEntry[] = [
   },
   {
     path: `/docs/coding/`,
-    label: `Coding with Claude`,
-    blurb: `Hand issues to Claude from the desktop IDE — single runs, batch runs, steer, review, merge.`,
+    label: `Coding agents`,
+    blurb: `Hand issues to Claude Code, Codex or pi from the desktop IDE — single runs, batch runs, steer, review, merge.`,
+  },
+  {
+    path: `/docs/actions/`,
+    label: `Actions`,
+    blurb: `Reusable team prompts your agents run on demand — from the desktop, the web, or your phone.`,
   },
   {
     path: `/docs/feedback/`,
@@ -36,7 +41,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/mcp/`,
     label: `MCP & API`,
-    blurb: `Connect Claude, ChatGPT, Cursor, or any MCP client to your issues.`,
+    blurb: `Connect Claude, ChatGPT, Codex, Cursor, or any MCP client to your issues.`,
   },
   {
     path: `/docs/apps/`,

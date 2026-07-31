@@ -1,4 +1,6 @@
-/* ─── Source Control: branch-flow lanes sidebar + center tab (changes, commit box, history, diff) ─── */
+/* ─── Source Control: branch lanes sidebar + center tab (commit history +
+   diff). The IDE is view-only — it neither stages, commits nor pushes; the
+   one write affordance is discard & reset (EXP-253/258). ─── */
 import { useState } from "react"
 import { LANES, type Change, type Lane } from "./data"
 import { useIde } from "./state"
@@ -50,87 +52,39 @@ export function ScPanel() {
   )
 }
 
-function ChangeRow({ change, checked }: { change: Change; checked: boolean }) {
-  const { toggleStaged, interactive } = useIde()
+/* The trunk is expected clean, so a dirty tree is an ANOMALY (EXP-258):
+   a slim count strip with the one write affordance — discard & reset. */
+function DirtyStrip({ changes }: { changes: Change[] }) {
+  if (changes.length === 0) return null
   return (
-    <div
-      className={`ide-change${interactive ? ` is-click` : ``}`}
-      onClick={interactive ? () => toggleStaged(change.path) : undefined}
-    >
-      <span className={`ide-checkbox${checked ? ` is-on` : ``}`}>
-        {checked && <IcCheck size={10} />}
+    <div className="ide-sc-dirty">
+      <span className="ide-sc-dirty-count">
+        {`${changes.length} local change${changes.length === 1 ? `` : `s`}`}
       </span>
-      <span className={`ide-git-letter ide-change-letter ide-git-${change.status}`}>
-        {change.status}
-      </span>
-      <span className="ide-change-path">{change.path}</span>
+      <div className="ide-flex1" />
+      <button className="ide-btn-sm ide-btn-plain" type="button">
+        Discard
+      </button>
     </div>
   )
 }
 
 export function ScTab() {
-  const { changes, staged, commits, commitAll, interactive } = useIde()
-  const [message, setMessage] = useState(``)
-  const stagedList = changes.filter((c) => staged.has(c.path))
-  const unstagedList = changes.filter((c) => !staged.has(c.path))
-  const canCommit = interactive && changes.length > 0 && message.trim().length > 0
-
-  const doCommit = (push: boolean) => {
-    if (!canCommit) return
-    commitAll(message.trim(), push)
-    setMessage(``)
-  }
+  const { changes, commits } = useIde()
+  const [selected, setSelected] = useState(0)
 
   return (
     <div className="ide-sc">
       <div className="ide-sc-left">
-        <div className="ide-sc-changes">
-          {stagedList.length > 0 && (
-            <>
-              <div className="ide-sc-label">{`Staged (${stagedList.length})`}</div>
-              {stagedList.map((c) => (
-                <ChangeRow key={c.path} change={c} checked />
-              ))}
-            </>
-          )}
-          <div className="ide-sc-label">{`Changes (${unstagedList.length})`}</div>
-          {unstagedList.map((c) => (
-            <ChangeRow key={c.path} change={c} checked={false} />
-          ))}
-          {changes.length === 0 && <div className="ide-sc-clean">No local changes</div>}
-        </div>
-        <div className="ide-commitbox">
-          <textarea
-            className="ide-commitmsg"
-            rows={3}
-            placeholder="Commit message…"
-            value={message}
-            readOnly={!interactive}
-            onChange={(e) => setMessage(e.target.value)}
-          />
-          <div className="ide-commit-actions">
-            <button
-              className={`ide-btn-sm ide-btn-plain${canCommit ? ` is-click` : ``}`}
-              type="button"
-              disabled={!canCommit}
-              onClick={interactive ? () => doCommit(false) : undefined}
-            >
-              Commit
-            </button>
-            <button
-              className={`ide-btn-sm ide-btn-primary${canCommit ? ` is-click` : ``}`}
-              type="button"
-              disabled={!canCommit}
-              onClick={interactive ? () => doCommit(true) : undefined}
-            >
-              Commit &amp; Push
-            </button>
-          </div>
-        </div>
+        <DirtyStrip changes={changes} />
         <div className="ide-sc-history">
           <div className="ide-sc-label">History</div>
           {commits.map((c, i) => (
-            <div key={i} className="ide-commit">
+            <div
+              key={i}
+              className={`ide-commit${i === selected ? ` is-viewing` : ``}`}
+              onClick={() => setSelected(i)}
+            >
               <div className="ide-commit-subject">{c.subject}</div>
               <div className="ide-commit-meta">{c.meta}</div>
             </div>
@@ -141,11 +95,7 @@ export function ScTab() {
         </div>
       </div>
       <div className="ide-diffpane">
-        {changes.length > 0 ? (
-          <DiffView />
-        ) : (
-          <div className="ide-diff-empty">No local changes</div>
-        )}
+        <DiffView />
       </div>
     </div>
   )

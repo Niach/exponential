@@ -74,42 +74,39 @@ export function IssuesDocsPage() {
               Need to move many issues at once? <strong>Bulk select</strong>
               {` `}
               rows and change status or priority, add labels — or hand the
-              whole selection to Claude as a{` `}
+              whole selection to an agent as a{` `}
               <a href="/docs/coding/#batch-runs">batch coding run</a>.
+            </p>
+            <p>
+              Deleting a board is a <strong>48-hour soft delete</strong> — an
+              owner can restore it from the trash until the purge sweep runs.
             </p>
           </DocsSection>
 
           {/* ── 02 Statuses & priorities ── */}
           <DocsSection id="statuses" num="02" label="Statuses & priorities">
             <h2>Statuses &amp; priorities</h2>
-            <p>Issues move through seven statuses:</p>
-            <ul>
-              <li>
-                <strong>Backlog</strong> — captured, not yet planned.
-              </li>
-              <li>
-                <strong>Todo</strong> — planned, ready to pick up.
-              </li>
-              <li>
-                <strong>In Progress</strong> — someone (or Claude) is on it.
-              </li>
-              <li>
-                <strong>In Review</strong> — set <em>automatically</em> when a
-                pull request opens for the issue. Merging the PR completes the
-                issue to Done; you never park it here by hand.
-              </li>
-              <li>
-                <strong>Done</strong> — shipped. The completion timestamp is
-                managed for you.
-              </li>
-              <li>
-                <strong>Cancelled</strong> — deliberately not happening.
-              </li>
-              <li>
-                <strong>Duplicate</strong> — points at the issue it
-                duplicates.
-              </li>
-            </ul>
+            <p>
+              Every team starts with seven built-in statuses —{` `}
+              <strong>Backlog</strong>, <strong>Todo</strong>,{` `}
+              <strong>In Progress</strong>, <strong>In Review</strong>,{` `}
+              <strong>Done</strong>, <strong>Cancelled</strong>,{` `}
+              <strong>Duplicate</strong> — and adds its own under{` `}
+              <strong>Team settings → Statuses</strong>. Any member manages
+              them; the seven builtins are locked (never renamed, recolored or
+              deleted) but can be reordered.
+            </p>
+            <p>
+              Every status sits in one of six <strong>categories</strong> —{` `}
+              <code>backlog</code>, <code>unstarted</code>,{` `}
+              <code>started</code>, <code>completed</code>,{` `}
+              <code>cancelled</code>, <code>duplicate</code> — and the category
+              is what the clients reason about: the board groups by it,{` `}
+              <code>completed</code> stamps the completion timestamp, and{` `}
+              <code>duplicate</code> points at the issue it duplicates. A custom
+              status needs a name, a color and a category;{` `}
+              <code>started</code> caps at four.
+            </p>
             <p>
               Priorities are <strong>Urgent</strong>, <strong>High</strong>,
               {` `}
@@ -213,18 +210,19 @@ export function IssuesDocsPage() {
               On iOS and Android the same events arrive as{` `}
               <strong>push notifications</strong> the moment they happen.
             </p>
-            <h3>The hourly email digest</h3>
+            <h3>The daily email digest</h3>
             <p>
-              Email is deliberately not a firehose: there are no per-event
-              notification emails. Instead, a notification that is{` `}
-              <strong>still unread about an hour later</strong> lands in a
-              single bundled digest email — one email per sweep, no matter how
-              much happened. Read it in the app and no email ever comes.
+              Email is push-first, never a firehose: there are no per-event
+              notification emails. Notifications still unread bundle into{` `}
+              <strong>one digest a day</strong>, sent at a local hour you
+              choose (08:00 by default). Read them in the app and no email ever
+              comes.
             </p>
             <p>
-              Tune it under <strong>Account → Notifications</strong>:
-              per-type preferences and the digest cadence live there, and
-              every digest carries a one-click unsubscribe.
+              Tune it under <strong>Account → Notifications</strong> — per-type
+              preferences, the send hour, and an <strong>hourly</strong>{` `}
+              cadence if once a day is too slow. Every digest carries a
+              one-click unsubscribe.
             </p>
           </DocsSection>
 
@@ -235,9 +233,18 @@ export function IssuesDocsPage() {
               An issue that gets coded maps to one branch —{` `}
               <code>exp/&lt;IDENTIFIER&gt;</code>, e.g.{` `}
               <code>exp/EXP-42</code> — and one linked pull request. The PR
-              state (open, merged) is tracked on the issue automatically:
-              opening the PR moves the issue to <strong>In Review</strong>,
-              merging it completes the issue to <strong>Done</strong>.
+              state (open, merged) is tracked on the issue automatically.
+            </p>
+            <h3>PR automation</h3>
+            <p>
+              What a PR event does to the issue is a per-team setting —{` `}
+              <strong>Team settings → Statuses → PR automation</strong>. Out of
+              the box, opening the PR moves the issue to{` `}
+              <strong>In Review</strong> and merging it completes the issue to
+              {` `}
+              <strong>Done</strong>. Point either event at any of your
+              team&apos;s statuses instead, or set it to{` `}
+              <strong>Do nothing</strong> and move issues by hand.
             </p>
             <p>
               The one exception:{` `}

@@ -5,7 +5,7 @@
 // is never fetched (EXP-268 removed the per-device trust gate entirely; these
 // are product-shipped prompts, not team-owner ones). Two builtins exist
 // today: "Create action", which runs the
-// MCP-enabled Claude action-creator prompt as a normal, steer-visible action
+// MCP-enabled action-creator prompt as a normal, steer-visible action
 // run (it replaced every manual action-creation UI), and "Fix merge
 // conflicts" (EXP-259), which takes a `pr` input (an issue-linked open PR),
 // rebases its branch onto the default branch in a worktree, resolves the
@@ -81,7 +81,7 @@ export function builtinCreateAction(teamId: string): BuiltinAction {
     teamId,
     repositoryId: null,
     name: BUILTIN_CREATE_ACTION_NAME,
-    description: `Describe a new action and let Claude author it for the team`,
+    description: `Describe a new action and let your agent author it for the team`,
     icon: `sparkles`,
     body: ``,
     inputs: CREATE_ACTION_INPUTS,
@@ -102,7 +102,7 @@ export function builtinFixConflictsAction(teamId: string): BuiltinAction {
     teamId,
     repositoryId: null,
     name: BUILTIN_FIX_CONFLICTS_NAME,
-    description: `Pick a conflicted pull request and let Claude rebase, resolve, and merge it`,
+    description: `Pick a conflicted pull request and let your agent rebase, resolve, and merge it`,
     icon: `git-branch`,
     body: ``,
     inputs: FIX_CONFLICTS_INPUTS,

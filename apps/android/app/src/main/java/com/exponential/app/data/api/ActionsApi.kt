@@ -59,14 +59,14 @@ data class ActionDto(
 
 /**
  * The virtual builtin "Create action" row (EXP-257): describe a new action in
- * a text input and let Claude author it for the team. Synced rows can't carry
+ * a text input and let your agent author it for the team. Synced rows can't carry
  * it, so every consumer PREPENDS this factory's row to the local-flow list.
  */
 fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
     id = DomainContract.builtinCreateActionId,
     teamId = teamId,
     name = "Create action",
-    description = "Describe a new action and let Claude author it for the team",
+    description = "Describe a new action and let your agent author it for the team",
     icon = "sparkles",
     inputs = listOf(
         ActionInputDto(
@@ -105,7 +105,7 @@ fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
     id = DomainContract.builtinFixConflictsId,
     teamId = teamId,
     name = "Fix merge conflicts",
-    description = "Pick a conflicted pull request and let Claude rebase, resolve, and merge it",
+    description = "Pick a conflicted pull request and let your agent rebase, resolve, and merge it",
     icon = "git-branch",
     inputs = listOf(
         ActionInputDto(

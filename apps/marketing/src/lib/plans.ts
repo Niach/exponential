@@ -104,12 +104,12 @@ export const PLANS: Plan[] = [
     selfHost: true,
     features: [
       `Free forever, unlimited users`,
-      `Every feature unlocked`,
+      `No plan limits`,
       `Unlimited storage`,
       `One docker compose`,
       `Open source (Apache-2.0)`,
     ],
-    caveat: `No push notifications`,
+    caveat: `No mobile push`,
     cta: { label: `Read self-host docs`, href: `/docs/self-host/` },
   },
 ]

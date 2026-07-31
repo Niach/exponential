@@ -67,11 +67,9 @@ export function PricingPage() {
             </p>
             <EnterpriseSupportCard />
             <p className="plan-footnote">
-              📱 Push notifications require App Store distribution. Self-hosted
-              instances can use the web and desktop apps with full
-              functionality; the mobile apps work (build from source) but
-              won&apos;t receive push notifications. Enterprise push relay
-              coming soon.
+              📱 Mobile push is cloud-only — the store apps are built against
+              the first-party Firebase project. Web and desktop notifications
+              work fully on self-hosted.
             </p>
           </motion.div>
         </section>

@@ -47,7 +47,7 @@ export function HomePage() {
             </motion.h1>
             <motion.p className={`hero-sub`} variants={heroChild}>
               Issues, customer support and coding agents in one realtime
-              workspace. Agents run locally on your machines, on your
+              tracker. Agents run locally on your machines, on your
               subscription — unlimited sessions, flat price.
             </motion.p>
             <motion.div className={`hero-cta`} variants={heroChild}>

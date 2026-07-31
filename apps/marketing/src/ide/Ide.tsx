@@ -156,10 +156,8 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([`apps`]))
   const [selectedFile, setSelectedFile] = useState<string | null>(init.selectedFile)
   const [viewedBranch, setViewedBranch] = useState(`master`)
-  const [changes, setChanges] = useState<Change[]>(CHANGES)
-  const [staged, setStaged] = useState<Set<string>>(new Set())
-  const [commits, setCommits] = useState<Commit[]>(COMMITS)
-  const [ahead, setAhead] = useState(0)
+  const [changes] = useState<Change[]>(CHANGES)
+  const [commits] = useState<Commit[]>(COMMITS)
   const [coding, setCoding] = useState<CodingState>(`idle`)
   const [codingTarget, setCodingTarget] = useState<CodingTarget | null>(null)
   const [pendingCoding, setPendingCoding] = useState<CodingTarget | null>(null)
@@ -271,18 +269,7 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     viewedBranch,
     viewBranch: setViewedBranch,
     changes,
-    staged,
-    toggleStaged: (path) => setStaged((prev) => toggledSet(prev, path)),
     commits,
-    commitAll: (message, push) => {
-      if (changes.length === 0 || message.length === 0) return
-      setCommits((prev) => [{ subject: message, meta: `niach · just now` }, ...prev])
-      setChanges([])
-      setStaged(new Set())
-      setAhead(push ? 0 : ahead + 1)
-    },
-    ahead,
-    push: () => setAhead(0),
     inboxRead,
     markInboxRead: (id) => setInboxRead((prev) => new Set(prev).add(id)),
     markAllInboxRead: () =>

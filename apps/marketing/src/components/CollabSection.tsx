@@ -102,8 +102,7 @@ export function CollabSection() {
             A support request from the feedback widget lands in your
             team&rsquo;s shared Support inbox as an email conversation. Reply
             from there, drop internal notes the reporter never sees, and turn
-            tickets into board issues your agents can pick up &mdash; everything
-            updates live for the whole team.
+            tickets into board issues your agents can pick up.
           </p>
           <span className={`co-pro`}>
             <span className={`co-pro-badge`}>Team</span> Helpdesk is included in
