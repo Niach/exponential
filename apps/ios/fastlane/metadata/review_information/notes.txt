@@ -2,7 +2,7 @@ There are two ways to sign in — either works, and all functionality is availab
 
 1) Recommended (no credentials needed): tap "Continue with Apple" and use your own Apple ID. The account is created automatically; there is no password step. You then land on a short wizard: "Set up your team" (type any name and tap "Create team"; you become its owner), then "Create your first board" (enter a name, e.g. "Inbox"; connecting a GitHub repository is optional — skip it). You are then in the app: create an issue with "+", open it to set status, priority, labels, and due date, and add comments.
 
-2) Optional, to see a fully populated workspace on the paid tier: tap "Continue with Google" and sign in with the demo account below. It opens the pre-seeded "Acme" team with boards, issues, comments, and the Support/helpdesk surface. If Google shows a "verify it's you" challenge on your device, simply use path (1) instead — nothing is gated behind the demo account.
+2) Optional, to see a fully populated team: tap "Continue with Google" and sign in with the demo account below. It opens the pre-seeded "Acme" team with boards, issues, comments, and the Support/helpdesk surface. If Google shows a "verify it's you" challenge on your device, simply use path (1) instead — nothing is gated behind the demo account.
 
 Notes:
 - The instance URL field on the first screen exists because Exponential is source-available and can be self-hosted — the cloud is the default and needs no input.
