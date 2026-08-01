@@ -10,8 +10,8 @@ import Foundation
 
 /// One typed action input (EXP-257): filled in the run dialog and injected
 /// into the prompt by the desktop. `type` is a contract value
-/// (`DomainContract.actionInputTypeValues` — text / repo / board); tolerate
-/// unknown future types by gating the run, never by silently degrading.
+/// (`DomainContract.actionInputTypeValues` — text / repo / board / pr / icon);
+/// tolerate unknown future types by gating the run, never by silently degrading.
 /// `required` absent = optional (the wire omits the default-false flag).
 public struct ActionInputDto: Decodable, Sendable, Equatable {
     public let key: String

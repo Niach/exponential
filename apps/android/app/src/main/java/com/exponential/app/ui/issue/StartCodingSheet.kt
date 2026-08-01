@@ -66,7 +66,9 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.IconSwatchGrid
 import com.exponential.app.ui.components.PriorityIcon
+import com.exponential.app.ui.components.pickableIconName
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AccentIndigo
@@ -90,7 +92,7 @@ import com.exponential.app.ui.theme.glassButton
 // EXP-257 adds a top-level Issues | Actions subject switch: the Actions tab is
 // a searchable single-select action list (the server-appended virtual builtin
 // "Create action" pinned first by its flag) plus typed input fields for the
-// selected action (text / repo / board), sharing the SAME desktop / agent /
+// selected action (text / repo / board / pr / icon), sharing the SAME desktop / agent /
 // model / effort / toggle sections; devices there are filtered to the
 // `actions` cap (+ `action-inputs` for builtin/inputs-carrying runs).
 // Last-used options persist via SharedPreferences; stored values are validated
@@ -1063,9 +1065,11 @@ private fun ActionSelectRow(
 
 // One typed input field (EXP-257): text → outlined field with the def's
 // placeholder; repo/board/pr → a grouped picker row over the team registry /
-// synced boards / the team's open pull requests. The stored value is the raw
-// text or the picked id; a cleared optional picker stores "" which the submit
-// path drops.
+// synced boards / the team's open pull requests; icon (EXP-273) → the curated
+// swatch grid shared with the create-board form, whose value is a registry
+// NAME rather than an id. The stored value is the raw text, the picked id or
+// the glyph name; a cleared optional picker stores "" which the submit path
+// drops.
 @Composable
 private fun ActionInputField(
     def: ActionInputDto,
@@ -1141,6 +1145,44 @@ private fun ActionInputField(
                         }
                     },
                     onSelect = onValueChange,
+                )
+            }
+        }
+        // EXP-273: the curated icon set. Unlike the pickers above the value is
+        // a glyph NAME, so there is nothing team-scoped to look up — the grid
+        // is the same one the create-board form draws. Optional inputs start
+        // with nothing highlighted and keep a "No icon" reset.
+        "icon" -> OptionGroup {
+            val picked = pickableIconName(value)
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (picked != null && !def.required) {
+                        TextButton(onClick = { onValueChange("") }) { Text("No icon") }
+                    } else {
+                        Text(
+                            picked ?: "None",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Secondary,
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                IconSwatchGrid(
+                    selected = picked,
+                    onSelect = onValueChange,
+                    accentColor = AccentIndigo,
                 )
             }
         }

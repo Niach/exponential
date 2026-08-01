@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -38,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
+import com.exponential.app.ui.components.IconSwatchGrid
 import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
@@ -157,38 +157,13 @@ fun CreateBoardForm(
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Icon", style = MaterialTheme.typography.labelMedium, color = secondary)
-            // The registry's full pickable set (EXP-273), deliberately
-            // unfiltered: 60 glyphs scan faster than they search (EXP-390
-            // dropped the query field on every platform).
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ExpIcons.pickable.forEach { glyphName ->
-                    val glyph = ExpIcons.byName(glyphName) ?: return@forEach
-                    val selected = glyphName == iconName
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .border(
-                                if (selected) 2.dp else 1.dp,
-                                if (selected) parseColor(color)
-                                else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
-                                RoundedCornerShape(10.dp),
-                            )
-                            .clickable { iconName = glyphName },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            glyph,
-                            contentDescription = glyphName,
-                            tint = if (selected) parseColor(color)
-                            else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-            }
+            // The shared curated grid (EXP-273) — the same swatches an `icon`
+            // action input picks from in the Start-coding sheet.
+            IconSwatchGrid(
+                selected = iconName,
+                onSelect = { iconName = it },
+                accentColor = parseColor(color),
+            )
         }
 
         // Repository is ALWAYS optional on every board.

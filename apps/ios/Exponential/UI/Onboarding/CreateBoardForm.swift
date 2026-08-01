@@ -83,10 +83,12 @@ struct CreateBoardForm: View {
                 }
             }
 
-            // Icon (curated glyphs) — the shared registry's pickable set.
+            // Icon (curated glyphs) — the shared registry's pickable set. The
+            // grid itself lives in ExpUI so the Start-coding sheet's `icon`
+            // action input picks from the exact same swatches (EXP-273).
             VStack(alignment: .leading, spacing: 8) {
                 fieldLabel("Icon")
-                iconGrid
+                IconSwatchGrid(selection: $icon)
             }
 
             // Repository (always optional) — the selector renders its own label.
@@ -143,34 +145,6 @@ struct CreateBoardForm: View {
         Text(text)
             .font(.caption.weight(.medium))
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
-    }
-
-    // Grid of the registry's pickable glyphs (AppIcons.pickable — byte-equal to
-    // DomainContract.boardIconValues, so every name here is a storable
-    // `boards.icon`). Deliberately unfiltered: 60 glyphs scan faster than they
-    // search (EXP-390 dropped the query field on every platform).
-    private var iconGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 8), spacing: 8) {
-            ForEach(AppIcons.pickable, id: \.self) { name in
-                let selected = icon == name
-                Button {
-                    icon = name
-                } label: {
-                    AppIcon(name, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(selected ? 1 : TextOpacity.secondary))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .background(Color.white.opacity(selected ? 0.12 : 0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(selected ? Accent.indigo.opacity(0.6) : Color.white.opacity(0.08), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(name)
-            }
-        }
     }
 
     // MARK: - Editing

@@ -17,8 +17,8 @@ import SwiftUI
 // EXP-257: hosts that pass `teamId` + `onRunAction` get a top segmented
 // Issues | Actions control. Actions mode is a searchable single-select action
 // list (the server-appended "Create action" builtin pinned FIRST by its
-// `builtin` flag) over the selected action's typed input fields (text /
-// repo / board) — the SAME agent/model/effort/toggle options apply, action
+// `builtin` flag) over the selected action's typed input fields (text / repo /
+// board / pr / icon) — the SAME agent/model/effort/toggle options apply, action
 // runs are no longer Claude-only. Device candidates in Actions mode need the
 // `actions` capability, plus `action-inputs` when the selected action is
 // builtin or declares inputs.
@@ -687,6 +687,17 @@ struct StartCodingSheet: View {
                     Text(board.name).tag(board.id)
                 }
             }
+        case "icon":
+            // EXP-273: the value is a curated registry NAME (e.g. `rocket`) —
+            // the same string a board stores — picked from the same swatch grid
+            // as the create-board form. Optional inputs start at none and can
+            // be cleared again (the desktop's popover behaves identically).
+            VStack(alignment: .leading, spacing: 6) {
+                Text(inputLabel(def))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                IconSwatchGrid(selection: inputBinding(def.key), allowsNone: !def.isRequired)
+            }
         case "pr":
             // EXP-259: the value is the REPRESENTATIVE issue id of an open
             // issue-linked PR (batch PRs dedupe by prUrl, so one row can list
@@ -807,24 +818,19 @@ struct StartCodingSheet: View {
         return "No compatible desktop online. Update the Exponential desktop app to run this action."
     }
 
+    // The three run gates and the wire mapping live in ExpCore
+    // (`ActionInputValues`) so they are unit-testable and stay in step with the
+    // web helper.
     private var hasUnknownInputType: Bool {
-        selectedActionInputs.contains { !DomainContract.actionInputTypeValues.contains($0.type) }
+        ActionInputValues.hasUnsupportedType(selectedActionInputs)
     }
 
     private var requiredInputsFilled: Bool {
-        selectedActionInputs.allSatisfy { def in
-            guard def.isRequired else { return true }
-            return !(inputValues[def.key] ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty
-        }
+        ActionInputValues.requiredFilled(selectedActionInputs, values: inputValues)
     }
 
     private var textInputsWithinLimit: Bool {
-        selectedActionInputs.allSatisfy { def in
-            def.type != "text"
-                || (inputValues[def.key] ?? "").count <= DomainContract.actionInputTextMax
-        }
+        ActionInputValues.textsWithinLimit(selectedActionInputs, values: inputValues)
     }
 
     private var canRunAction: Bool {
@@ -1113,16 +1119,7 @@ struct StartCodingSheet: View {
         let options = buildOptions()
         // Values in wire form: text trimmed, blank optionals dropped (a
         // required blank can't get here — `canRunAction` gates it).
-        var values: [String: String] = [:]
-        for def in selectedActionInputs {
-            let raw = inputValues[def.key] ?? ""
-            let value = def.type == "text"
-                ? raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                : raw
-            if !value.isEmpty {
-                values[def.key] = value
-            }
-        }
+        let values = ActionInputValues.wireValues(selectedActionInputs, values: inputValues)
         persistOptionPrefs(persistClaudeToggles: true)
         dismiss()
         onRunAction(device, action, options, values)
