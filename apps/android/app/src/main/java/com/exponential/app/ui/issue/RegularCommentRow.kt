@@ -2,6 +2,7 @@ package com.exponential.app.ui.issue
 
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,8 +47,8 @@ import com.exponential.app.ui.theme.glassCard
 // One human comment in the thread: a rounded glass card (author + relative
 // time + markdown body) with the avatar sitting in the timeline gutter
 // (EXP-240), rail segments above/below keeping the line continuous like the
-// event rows; the author/admin edit/delete overflow and inline editor are
-// unchanged.
+// event rows. The edit/delete overflow is AUTHOR-ONLY (EXP-398) — matching the
+// server, which no longer lets a global admin touch someone else's comment.
 @Composable
 internal fun RegularCommentRow(
     comment: CommentEntity,
@@ -56,7 +56,6 @@ internal fun RegularCommentRow(
     lineBelow: Boolean,
     author: UserEntity?,
     isAuthor: Boolean,
-    isAdmin: Boolean,
     isEditing: Boolean,
     onEdit: () -> Unit,
     onCancelEdit: () -> Unit,
@@ -66,7 +65,6 @@ internal fun RegularCommentRow(
     mentionMembers: List<MentionMember>,
     mentionEnabled: Boolean = true,
 ) {
-    val canModify = isAuthor || isAdmin
     val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
     var draft by remember(comment.id, isEditing) { mutableStateOf(bodyText) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -132,16 +130,23 @@ internal fun RegularCommentRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = CommentMeta,
                 )
-                if (canModify && !isEditing) {
+                if (isAuthor && !isEditing) {
                     Spacer(Modifier.weight(1f))
                     Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(
-                                ExpIcons.uiMoreVertical,
-                                contentDescription = "Comment actions",
-                                tint = CommentMeta,
-                            )
-                        }
+                        // A plain clickable icon, not an IconButton: M3's 48dp
+                        // minimum touch target made the header row three times
+                        // the height of its text and read as stray padding at
+                        // the top of the card (EXP-398).
+                        Icon(
+                            ExpIcons.uiMoreVertical,
+                            contentDescription = "Comment actions",
+                            tint = CommentMeta,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(percent = 50))
+                                .clickable { menuOpen = true }
+                                .padding(4.dp)
+                                .size(16.dp),
+                        )
                         GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             GlassMenuItem(
                                 text = { Text("Edit") },

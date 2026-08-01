@@ -1273,7 +1273,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_delete`,
     {
-      description: `Permanently delete a comment (by its UUID). Only the comment's author or an admin can delete it.`,
+      description: `Permanently delete a comment (by its UUID). Only the comment's author can delete it.`,
       inputSchema: { id: uuidString },
     },
     async ({ id }) => {

@@ -178,7 +178,6 @@ fun CommentThread(
                                 lineBelow = lineBelow,
                                 author = state.usersById[comment.authorId],
                                 isAuthor = state.currentUserId != null && comment.authorId == state.currentUserId,
-                                isAdmin = state.isAdmin,
                                 isEditing = editingId == comment.id,
                                 onEdit = { editingId = comment.id },
                                 onCancelEdit = { editingId = null },

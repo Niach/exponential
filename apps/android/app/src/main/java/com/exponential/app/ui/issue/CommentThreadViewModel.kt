@@ -35,7 +35,6 @@ data class CommentThreadState(
     val usersById: Map<String, UserEntity> = emptyMap(),
     val labelsById: Map<String, LabelEntity> = emptyMap(),
     val currentUserId: String? = null,
-    val isAdmin: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -86,8 +85,7 @@ class CommentThreadViewModel @Inject constructor(
         commentsEventsLabels,
         dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
         auth.userId,
-        auth.isAdmin,
-    ) { issue, (comments, events, labels), users, userId, isAdmin ->
+    ) { issue, (comments, events, labels), users, userId ->
         CommentThreadState(
             issue = issue,
             comments = comments,
@@ -95,7 +93,6 @@ class CommentThreadViewModel @Inject constructor(
             usersById = users.associateBy { it.id },
             labelsById = labels.associateBy { it.id },
             currentUserId = userId,
-            isAdmin = isAdmin,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
 
