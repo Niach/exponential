@@ -24,7 +24,6 @@ import { RegularCommentRow } from "@/components/comment-rows/regular"
 interface IssueTimelineProps {
   issue: Issue
   currentUserId: string
-  isAdmin?: boolean
   users: User[]
 }
 
@@ -33,7 +32,6 @@ interface IssueTimelineProps {
 export function IssueTimeline({
   issue,
   currentUserId,
-  isAdmin = false,
   users,
 }: IssueTimelineProps) {
   const { data: comments } = useLiveQuery(
@@ -158,7 +156,10 @@ export function IssueTimeline({
           }
           const comment = item.comment
           const author = userMap.get(comment.authorId)
-          const canModify = comment.authorId === currentUserId || isAdmin
+          // Author-only, no global-admin bypass (EXP-398): the server refuses
+          // the mutation for anyone else, so offering the menu would only ever
+          // be a lie.
+          const canModify = comment.authorId === currentUserId
           return (
             <RegularCommentRow
               key={comment.id}

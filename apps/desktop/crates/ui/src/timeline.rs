@@ -387,7 +387,6 @@ impl Render for IssueTimeline {
 
         let account = queries::active_account(cx);
         let current_user_id = account.as_ref().map(|a| a.user_id.clone());
-        let is_admin = account.as_ref().map(|a| a.is_admin).unwrap_or(false);
         let now_epoch = now_epoch();
 
         let header_label = if items.is_empty() {
@@ -440,9 +439,10 @@ impl Render for IssueTimeline {
                         .author_id
                         .as_deref()
                         .and_then(|id| user_map.get(id));
-                    let can_modify = is_admin
-                        || (current_user_id.is_some()
-                            && comment.author_id == current_user_id);
+                    // Author-only, no global-admin bypass (EXP-398) — the
+                    // server refuses the mutation for anyone else.
+                    let can_modify =
+                        current_user_id.is_some() && comment.author_id == current_user_id;
                     let (editing, saving) = match self.editing.as_ref() {
                         Some(edit) if edit.comment_id == comment.id => {
                             (Some(&edit.mention), edit.saving)

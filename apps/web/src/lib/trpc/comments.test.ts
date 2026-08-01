@@ -7,7 +7,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // not a new comment, so subscribers must not get an issue_comment ping.
 
 const h = vi.hoisted(() => ({
-  isUserAdmin: vi.fn(async () => false),
   resolveTeamAccess: vi.fn(async () => ({ kind: `member` }) as unknown),
   getIssueTeamContext: vi.fn(async () => ({
     issueId: `issue-1`,
@@ -20,15 +19,11 @@ const h = vi.hoisted(() => ({
   fireAndForgetIssueMentionNotify: vi.fn(),
 }))
 
-// lib/trpc.ts + lib/admin.ts import db/auth at module scope; runtime here only
-// needs the exports to exist.
+// lib/trpc.ts imports db/auth at module scope; runtime here only needs the
+// exports to exist.
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-vi.mock(`@/lib/admin`, () => ({
-  isUserAdmin: h.isUserAdmin,
-  assertAdmin: vi.fn(),
-}))
 vi.mock(`@/lib/team-membership`, () => ({
   resolveTeamAccess: h.resolveTeamAccess,
   getIssueTeamContext: h.getIssueTeamContext,
@@ -60,6 +55,8 @@ const MEMBER_IDS: Record<string, string> = {
 const state = {
   // Body the comment row holds BEFORE the edit.
   previousBody: ``,
+  // Author of the stored comment row (the caller is `actor`).
+  authorId: `actor`,
 }
 
 const fakeTx = {
@@ -83,6 +80,7 @@ const fakeTx = {
       returning: async () => [{ id: COMMENT_ID, ...values }],
     }),
   }),
+  delete: () => ({ where: async () => undefined }),
 }
 
 const fakeDb = {
@@ -93,7 +91,7 @@ const fakeDb = {
         limit: async () => [
           {
             id: COMMENT_ID,
-            authorId: `actor`,
+            authorId: state.authorId,
             issueId: ISSUE_ID,
             teamId: `ws-1`,
           },
@@ -113,6 +111,7 @@ const caller = commentsRouter.createCaller({
 describe(`comments.update mention resolution (REV2-26)`, () => {
   beforeEach(() => {
     state.previousBody = ``
+    state.authorId = `actor`
     h.resolveMentions.mockReset()
     h.resolveMentions.mockImplementation(async (...args: unknown[]) =>
       extractMentionEmails(args[1] as string)
@@ -200,5 +199,35 @@ describe(`comments.update mention resolution (REV2-26)`, () => {
       })
     )
     expect(h.fireAndForgetIssueMentionNotify).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-398: editing or deleting someone else's words is nobody's business —
+// not even a global admin's. The router asks about authorship ONLY; there is
+// no admin lookup left to bypass it, and the clients hide the menu to match.
+describe(`comments are author-only`, () => {
+  beforeEach(() => {
+    state.previousBody = `someone else's words`
+    state.authorId = `not-actor`
+    h.resolveTeamAccess.mockClear()
+  })
+
+  it(`refuses an update by a non-author`, async () => {
+    await expect(
+      caller.update({ id: COMMENT_ID, body: `rewritten` })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+  })
+
+  it(`refuses a delete by a non-author`, async () => {
+    await expect(caller.delete({ id: COMMENT_ID })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+  })
+
+  it(`still requires the author to be a current team member`, async () => {
+    state.authorId = `actor`
+    await caller.delete({ id: COMMENT_ID })
+
+    expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, `ws-1`, `comment`)
   })
 })

@@ -25,7 +25,6 @@ import {
   uploadIssueImageFile,
 } from "@/lib/storage/issue-image-upload"
 import { useSession } from "@/hooks/use-session"
-import { isAdminUser } from "@/lib/auth/app-user"
 import { parseLocalDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
@@ -146,7 +145,6 @@ export function IssueDetailView({
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
-  const isAdmin = isAdminUser(session?.user)
   const isMobile = useIsMobile()
   const navigate = useNavigate()
 
@@ -795,7 +793,6 @@ export function IssueDetailView({
     <IssueTimeline
       issue={issue}
       currentUserId={currentUserId}
-      isAdmin={isAdmin}
       users={users}
     />
   ) : null

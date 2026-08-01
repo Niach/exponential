@@ -207,7 +207,6 @@ struct CommentThreadView: View {
                 author: users[comment.authorId],
                 authorId: comment.authorId,
                 isAuthor: comment.authorId == deps.auth.userId,
-                isAdmin: deps.auth.isAdmin,
                 isEditing: editingCommentId == comment.id,
                 editEditor: editEditor,
                 singleMemberTeam: singleMemberTeam,
@@ -404,7 +403,6 @@ private struct RegularCommentRow: View {
     // instead of the generic fallback.
     let authorId: String
     let isAuthor: Bool
-    let isAdmin: Bool
     let isEditing: Bool
     let editEditor: IssueEditorModel
     let singleMemberTeam: Bool
@@ -426,7 +424,9 @@ private struct RegularCommentRow: View {
     @State private var displayModel = IssueEditorModel()
     @State private var displayedBody: String?
 
-    private var canModify: Bool { isAuthor || isAdmin }
+    // Author-only, no global-admin bypass (EXP-398) — the server refuses the
+    // mutation for anyone else, so the menu would only ever be a dead end.
+    private var canModify: Bool { isAuthor }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {

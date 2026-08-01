@@ -5,7 +5,6 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { comments } from "@/db/schema"
 import { commentBodySchema, getCommentBodyText } from "@/lib/domain"
 import { resolveTeamAccess, getIssueTeamContext } from "@/lib/team-membership"
-import { isUserAdmin } from "@/lib/admin"
 import {
   fireAndForgetCommentNotify,
   fireAndForgetIssueMentionNotify,
@@ -109,20 +108,17 @@ export const commentsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const existing = await loadCommentForMutation(ctx.db, input.id)
-      const isAuthor = existing.authorId === ctx.session.user.id
-      const isAdmin = await isUserAdmin(ctx.session.user.id)
-      if (!isAuthor && !isAdmin) {
+      if (existing.authorId !== ctx.session.user.id) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the author can edit this comment`,
         })
       }
-      if (!isAdmin) {
-        // Authorship alone isn't enough: the author must still be a member
-        // of the team. Blocks edits by authors who have since left.
-        // Global admins keep their bypass.
-        await resolveTeamAccess(ctx.session.user.id, existing.teamId, `comment`)
-      }
+      // Authorship alone isn't enough: the author must still be a member of
+      // the team. Blocks edits by authors who have since left. Global admins
+      // have NO bypass here (EXP-398) — nobody rewrites or deletes someone
+      // else's words, and every client hides the menu to match.
+      await resolveTeamAccess(ctx.session.user.id, existing.teamId, `comment`)
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -186,19 +182,15 @@ export const commentsRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await loadCommentForMutation(ctx.db, input.id)
-      const isAuthor = existing.authorId === ctx.session.user.id
-      const isAdmin = await isUserAdmin(ctx.session.user.id)
-      if (!isAuthor && !isAdmin) {
+      if (existing.authorId !== ctx.session.user.id) {
         throw new TRPCError({
           code: `FORBIDDEN`,
-          message: `Only the author or an admin can delete this comment`,
+          message: `Only the author can delete this comment`,
         })
       }
-      if (!isAdmin) {
-        // Same team-access gate as update (see comment there); global
-        // admins keep their bypass.
-        await resolveTeamAccess(ctx.session.user.id, existing.teamId, `comment`)
-      }
+      // Same author-only + still-a-member gate as update, no admin bypass
+      // (see the comment there).
+      await resolveTeamAccess(ctx.session.user.id, existing.teamId, `comment`)
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
