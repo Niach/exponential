@@ -115,11 +115,23 @@ platform :android do
     end
   end
 
-  desc "Promote the current closed-testing build to the production track (no new binary)."
-  lane :production do
+  # Newest committed changelogs/<versionCode>.txt. supply's metadata push needs an
+  # explicit version code to anchor per-locale changelogs — without one it aborts on
+  # the first localized listing (cs-CZ et al.) that has no changelogs dir.
+  def newest_changelog_version_code
+    Dir.glob(File.expand_path("metadata/android/en-US/changelogs/[0-9]*.txt"))
+       .map { |f| File.basename(f, ".txt").to_i }.max
+  end
+
+  desc "Promote the current closed-testing build to the production track (no new binary). " \
+       "Defaults version_code to the newest changelogs/<vc>.txt; override with version_code:NN."
+  lane :production do |options|
+    version_code = options[:version_code] || newest_changelog_version_code
+    UI.user_error!("No changelogs/<versionCode>.txt found — pass version_code:NN.") unless version_code
     upload_to_play_store(
       track: CLOSED_TRACK,
       track_promote_to: "production",
+      version_code: version_code,
       json_key: ENV.fetch("SUPPLY_JSON_KEY"),
       skip_upload_aab: true,
       skip_upload_apk: true,
@@ -144,9 +156,7 @@ platform :android do
     screenshot_dir = File.expand_path("metadata/android/en-US/images/phoneScreenshots")
     shots = Dir.glob("#{screenshot_dir}/*.png")
     UI.user_error!("No screenshots in #{screenshot_dir} — run `fastlane screenshots` first.") if shots.empty?
-    version_code = options[:version_code] ||
-      Dir.glob(File.expand_path("metadata/android/en-US/changelogs/[0-9]*.txt"))
-         .map { |f| File.basename(f, ".txt").to_i }.max
+    version_code = options[:version_code] || newest_changelog_version_code
     UI.user_error!("No changelogs/<versionCode>.txt found — pass version_code:NN.") unless version_code
     UI.message("Uploading #{shots.length} phone screenshots + listing metadata (anchor release #{version_code} on #{CLOSED_TRACK}).")
     upload_to_play_store(
