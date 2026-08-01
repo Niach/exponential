@@ -1,0 +1,1 @@
+Het tabblad Agents toont nu alleen de codeersessies van het geselecteerde team.

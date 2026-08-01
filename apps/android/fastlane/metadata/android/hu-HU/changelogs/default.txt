@@ -1,0 +1,6 @@
+Vibecode together. Az Exponential folyamatosan fejlődik.
+
+• Valós idejű issue-követés, élő szinkronban a webes, asztali és iOS-klienssel.
+• Kezdj kódolni a telefonodról: az agentek valódi branchen dolgoznak és megnyitják a PR-t.
+• Irányítsd a munkameneteket élőben, és válaszolj az agent kérdéseire bárhonnan.
+• Közös támogatási beérkező, push-értesítések és Markdown mindenhol.

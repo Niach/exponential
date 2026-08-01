@@ -1,0 +1,1 @@
+O separador Agentes mostra agora apenas as sessões de programação da equipa selecionada.

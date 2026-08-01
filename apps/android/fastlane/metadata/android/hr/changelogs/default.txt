@@ -1,0 +1,6 @@
+Vibecode together. Exponential je sve bolji.
+
+• Praćenje zadataka u stvarnom vremenu, uživo sinkronizirano s webom, desktopom i iOS-om.
+• Počnite kodirati s mobitela: agenti rade na pravoj grani i otvaraju PR.
+• Usmjeravajte sesije uživo i odgovarajte na pitanja svog agenta bilo gdje.
+• Zajednički sandučić podrške, push obavijesti i Markdown posvuda.

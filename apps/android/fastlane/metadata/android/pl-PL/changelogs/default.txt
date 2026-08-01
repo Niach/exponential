@@ -1,0 +1,6 @@
+Vibecode together. Exponential wciąż się rozwija.
+
+• Śledzenie zadań w czasie rzeczywistym, synchronizowane na żywo z klientami web, desktop i iOS.
+• Zacznij kodować z telefonu: agenci pracują na prawdziwej gałęzi i otwierają PR.
+• Steruj sesjami na żywo i odpowiadaj na pytania agenta z dowolnego miejsca.
+• Wspólna skrzynka wsparcia, powiadomienia push i Markdown wszędzie.

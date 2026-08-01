@@ -1,0 +1,6 @@
+Vibecode together. Exponential mejora sin parar.
+
+• Seguimiento de issues en tiempo real, sincronizado en vivo con web, escritorio e iOS.
+• Empieza a programar desde el móvil: los agentes trabajan en una rama real y abren el PR.
+• Dirige las sesiones en vivo y responde a las preguntas de tu agente desde cualquier lugar.
+• Bandeja de soporte compartida, notificaciones push y Markdown en todas partes.
