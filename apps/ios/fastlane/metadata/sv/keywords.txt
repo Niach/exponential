@@ -1,1 +1,1 @@
-issue tracker,bugg,feedback,kanban,board,uppgifter,utvecklare,git,pull request,ai agent,vibe coding
+issue tracker,bugg,feedback,claude,board,uppgifter,utvecklare,git,pull request,ai agent,vibe coding

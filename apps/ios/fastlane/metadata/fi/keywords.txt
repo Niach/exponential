@@ -1,1 +1,1 @@
-issue tracker,bugi,palaute,kanban,board,tehtävät,kehittäjä,git,pull request,ai agentti,vibe coding
+issue tracker,bugi,palaute,claude,board,tehtävät,kehittäjä,git,pull request,ai agentti,vibe coding

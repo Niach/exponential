@@ -1,1 +1,1 @@
-tracker zadań,bug,feedback,kanban,tablica,zadania,programista,git,pull request,agent ai,vibe coding
+tracker zadań,bug,feedback,claude,tablica,zadania,programista,git,pull request,agent ai,vibe coding

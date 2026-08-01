@@ -1,1 +1,1 @@
-issue tracker,bug,feedback,kanban,board,úkoly,vývojář,git,pull request,ai agent,vibe coding,tým
+issue tracker,bug,feedback,claude,board,úkoly,vývojář,git,pull request,ai agent,vibe coding,tým

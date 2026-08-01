@@ -1,1 +1,1 @@
-hibakövető,bug,feedback,kanban,board,feladatok,fejlesztő,git,pull request,ai ügynök,csapat
+hibakövető,bug,feedback,claude,board,feladatok,fejlesztő,git,pull request,ai ügynök,csapat

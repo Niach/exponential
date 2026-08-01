@@ -1,1 +1,1 @@
-gestor de incidencias,bug,feedback,kanban,tareas,dev,git,pull request,agente ia,vibe coding,equipo
+gestor de incidencias,bug,feedback,claude,tareas,dev,git,pull request,agente ia,vibe coding,equipo

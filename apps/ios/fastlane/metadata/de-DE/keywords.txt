@@ -1,1 +1,1 @@
-issue tracker,bug,feedback,kanban,aufgaben,entwickler,git,pull request,ki-agent,vibe coding,team
+issue tracker,bug,feedback,claude,aufgaben,entwickler,git,pull request,ki-agent,vibe coding,team

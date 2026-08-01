@@ -1,1 +1,1 @@
-sakssporing,bug,feedback,kanban,tavle,oppgaver,utvikler,git,pull request,ai-agent,vibe coding,team
+sakssporing,bug,feedback,claude,tavle,oppgaver,utvikler,git,pull request,ai-agent,vibe coding,team

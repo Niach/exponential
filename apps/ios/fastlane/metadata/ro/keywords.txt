@@ -1,1 +1,1 @@
-issue tracker,bug,feedback,kanban,board,taskuri,dezvoltator,git,pull request,agent ai,echipă
+issue tracker,bug,feedback,claude,board,taskuri,dezvoltator,git,pull request,agent ai,echipă
