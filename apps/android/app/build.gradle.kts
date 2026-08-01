@@ -81,7 +81,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // EXP-395: without R8 the three classes.dex files total ~33MB
+            // uncompressed — that IS the install size users see. Shrinking
+            // cuts dex to roughly a third; the R8 mapping rides the AAB
+            // metadata so Play retraces crashes automatically.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (releaseStoreFile != null) {
                 signingConfig = signingConfigs.getByName("release")
