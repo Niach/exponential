@@ -1,0 +1,1 @@
+Smaller app download, a curated icon picker for action inputs, smoother board switching, and cleaner comment rows.

@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-digest-schedule-mobile-polish`,
+    date: `2026-08-01`,
+    title: `Email digests keep to your schedule`,
+    summary: `Notification emails now wait for your chosen digest hour, comment editing is author-only everywhere, and the Agents surface shows just your own sessions.`,
+    body: `- **Digest timing fixed**: notification emails no longer go out minutes after a notification arrives; the daily digest waits for your chosen hour and bundles everything still unread.
+- **Author-only comments**: editing and deleting a comment is now reserved for its author on every client.
+- **Your agents only**: the Agents list, tab dots, and counts show only your own coding sessions; the coding-now badge on issues still covers the whole team.
+- **Mobile polish**: switching boards refreshes instantly, action icon inputs use the curated icon picker, comment rows lost their stray padding, and the Android app is a smaller download.`,
+  },
+  {
     id: `2026-08-mobile-session-recovery`,
     date: `2026-08-01`,
     title: `Mobile apps recover from a signed-out session`,
