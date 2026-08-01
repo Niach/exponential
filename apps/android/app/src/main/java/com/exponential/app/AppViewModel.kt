@@ -248,7 +248,12 @@ class AppViewModel @Inject constructor(
                 db.codingSessionDao()
                     .observeByStatuses(CodingSessionLiveness.liveStatuses),
                 CodingSessionLiveness.minuteTicker(),
-            ) { sessions, now -> sessions.any { CodingSessionLiveness.isLive(it, now) } }
+                auth.userId,
+                // Own sessions only, matching the owner-only Agents list: a
+                // teammate's session must not light a dot over an empty screen.
+            ) { sessions, now, me ->
+                me != null && sessions.any { it.userId == me && CodingSessionLiveness.isLive(it, now) }
+            }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -263,8 +268,11 @@ class AppViewModel @Inject constructor(
                 db.codingSessionDao()
                     .observeByStatuses(CodingSessionLiveness.liveStatuses),
                 CodingSessionLiveness.minuteTicker(),
-            ) { sessions, now ->
-                sessions.any { CodingSessionLiveness.isLive(it, now) && it.needsInput }
+                auth.userId,
+            ) { sessions, now, me ->
+                me != null && sessions.any {
+                    it.userId == me && CodingSessionLiveness.isLive(it, now) && it.needsInput
+                }
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)

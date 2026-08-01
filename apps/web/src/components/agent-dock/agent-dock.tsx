@@ -47,13 +47,10 @@ export function AgentDock({
   currentUserId: string
 }) {
   const dock = useAgentDock()
-  const { running: allRunning } = useAgentsData(teamId)
-  // EXP-312: only the caller's own sessions get dock tabs — a teammate's
-  // session can't be opened live (the ticket mint refuses non-owners).
-  const running = useMemo(
-    () => allRunning.filter((row) => row.session.userId === currentUserId),
-    [allRunning, currentUserId]
-  )
+  // EXP-312: only the caller's own sessions get dock tabs (a teammate's
+  // session can't be opened live, the ticket mint refuses non-owners), and
+  // useAgentsData already scopes its rows to the caller.
+  const { running } = useAgentsData(teamId, currentUserId)
   const boards = useTeamBoards(teamId)
   const isMobile = useIsMobile()
 

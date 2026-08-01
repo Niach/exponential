@@ -3,6 +3,7 @@ import { conceptIcon } from "@/lib/icons.generated"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
+import { useSession } from "@/hooks/use-session"
 import {
   useUnreadNotificationCount,
   useUnreadSupportCount,
@@ -89,7 +90,8 @@ function ReviewsDot({ boards }: { boards: Board[] | undefined }) {
 // Amber while any live session waits on a plan approval / question
 // (EXP-214), live green otherwise.
 function AgentsDot({ teamId }: { teamId?: string }) {
-  const { count, needsInput } = useAgentsRunningCount(teamId)
+  const { data: session } = useSession()
+  const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
   if (count === 0) return null
   return <TabDot className={needsInput ? `bg-amber-500` : `bg-emerald-500`} />
 }

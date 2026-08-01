@@ -3,9 +3,10 @@ import ExpCore
 import SwiftUI
 
 /// The Agents tab: the caller's online desktops (with a per-device "Start
-/// coding" launcher) above the currently running coding sessions for the active
-/// account. Session rows open the live agent session view directly when the
-/// relay is configured (the same viewer AgentPrCard presents from an issue),
+/// coding" launcher) above the caller's OWN running coding sessions in the
+/// active account (EXP-312 — teammates' runs are owner-only, so they are not
+/// listed at all). Session rows open the live agent session view directly when
+/// the relay is configured (the same viewer AgentPrCard presents from an issue),
 /// else fall back to the issue detail; the trailing info affordance always goes
 /// to the issue detail. When the relay is off the desktops section is absent and
 /// the tab shows the full-screen empty state until a session appears.
@@ -79,7 +80,9 @@ struct AgentsView: View {
         }
         .onAppear {
             if viewModel == nil {
-                viewModel = AgentsViewModel(accountId: accountId, db: deps.db)
+                viewModel = AgentsViewModel(
+                    accountId: accountId, userId: deps.auth.userId, db: deps.db
+                )
             }
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
@@ -307,12 +310,12 @@ struct AgentsView: View {
     @ViewBuilder
     private func sessionRowBody(_ row: AgentsViewModel.Row) -> some View {
         HStack(spacing: 12) {
-            // With the relay configured, YOUR OWN row jumps straight into the
-            // live agent session (EXP-312: live sessions are owner-only);
-            // otherwise it opens the issue detail, where the card shows
-            // whatever is available.
+            // Every listed row is the caller's own (EXP-312: live sessions are
+            // owner-only), so with the relay configured the row jumps straight
+            // into the live agent session; without it, into the issue detail,
+            // where the card shows whatever is available.
             Group {
-                if steerEnabled, row.session.userId == deps.auth.userId {
+                if steerEnabled {
                     NavigationLink(value: AppRoute.agentSession(
                         accountId: accountId, sessionId: row.session.id
                     )) {

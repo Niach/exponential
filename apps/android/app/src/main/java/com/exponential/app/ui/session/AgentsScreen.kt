@@ -62,11 +62,11 @@ import com.exponential.app.ui.theme.glassSection
 
 /**
  * The Agents tab: a remote-start launcher over the caller's online desktops
- * (EXP-156) plus the coding sessions currently running across the active
- * account. Tapping YOUR OWN running row jumps straight into the live steer
- * viewer when the relay is configured (EXP-312: live sessions are owner-only);
- * anything else falls back to the issue detail. The trailing info button
- * always opens the issue detail.
+ * (EXP-156) plus the caller's OWN coding sessions currently running (EXP-312:
+ * live sessions are owner-only, so a teammate's session never lists here).
+ * Tapping a running row jumps straight into the live steer viewer when the
+ * relay is configured; otherwise it falls back to the issue detail. The
+ * trailing info button always opens the issue detail.
  */
 @Composable
 fun AgentsScreen(
@@ -76,7 +76,6 @@ fun AgentsScreen(
     viewModel: AgentsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
@@ -175,12 +174,10 @@ fun AgentsScreen(
                                 merging = row.issue?.id in merging,
                                 errorMessage = row.issue?.id?.let(mergeErrors::get),
                                 onClick = {
-                                    // EXP-312: only YOUR OWN session opens the
-                                    // live viewer; teammates' rows fall back to
-                                    // the issue detail.
-                                    if (state.steerEnabled == true &&
-                                        row.session.userId == currentUserId
-                                    ) {
+                                    // Every listed row is the caller's own
+                                    // (EXP-312), so steer availability alone
+                                    // decides the live viewer.
+                                    if (state.steerEnabled == true) {
                                         onOpenSteer(row.session.id)
                                     } else {
                                         // Batch multi-issue sessions carry no issue.

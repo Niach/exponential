@@ -2,10 +2,11 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// Backs the Agents tab: every live coding session in the active account
-/// (the synced `coding_sessions` shape) — running AND in_review (EXP-194),
-/// joined to its issue for display. Desktop is the only session runner — this
-/// list is the mobile window into what is coding right now.
+/// Backs the Agents tab: the signed-in user's own live coding sessions in the
+/// active account (the synced `coding_sessions` shape) — running AND in_review
+/// (EXP-194), joined to their issues for display. Desktop is the only session
+/// runner — this list is the mobile window into what YOU are coding right now;
+/// teammates' runs are owner-only (EXP-312) and never listed here.
 @MainActor @Observable
 final class AgentsViewModel {
     struct Row: Identifiable {
@@ -17,6 +18,7 @@ final class AgentsViewModel {
     var rows: [Row] = []
 
     private let accountId: String
+    private let userId: String?
     private let db: DatabaseManager
     // Stored and cancelled individually — a single wrapper task would not
     // propagate cancellation into unstructured inner loops, and the view
@@ -32,8 +34,9 @@ final class AgentsViewModel {
     // (EXP-156) — not used by the running-session list itself.
     private var boards: [BoardEntity] = []
 
-    init(accountId: String, db: DatabaseManager) {
+    init(accountId: String, userId: String?, db: DatabaseManager) {
         self.accountId = accountId
+        self.userId = userId
         self.db = db
     }
 
@@ -154,6 +157,9 @@ final class AgentsViewModel {
     private func rebuild() {
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         rows = sessions
+            // Own runs only (EXP-312): a teammate's session can't be opened or
+            // steered, so listing it only read as "computer not online".
+            .filter { CodingSessionOwnership.isOwn($0, userId: userId) }
             // Heartbeat-stale rows render as absent (EXP-153).
             .filter { CodingSessionLiveness.isLive($0) }
             .sorted { $0.startedAt > $1.startedAt }

@@ -687,6 +687,10 @@ struct MainNavigator: View {
         // Live coding sessions drive the Agents tab's dot — running AND in_review
         // (the "agent finished, look at it" signal counts too, EXP-194) AND
         // merged (a merge parks the session, it no longer ends it, EXP-358).
+        // OWN sessions only, matching the owner-only Agents list: a teammate's
+        // session must not light a dot over a screen that shows nothing.
+        // Captured here because startObserving() re-runs on account switch.
+        let ownUserId = deps.auth.userId
         let sessionObs = ValueObservation.tracking { db in
             try CodingSessionEntity
                 .filter([
@@ -699,10 +703,10 @@ struct MainNavigator: View {
         let sessionTask = Task { @MainActor in
             do {
                 for try await sessions in sessionObs.values(in: pool) {
-                    observedSessions = sessions
+                    observedSessions = CodingSessionOwnership.own(sessions, userId: ownUserId)
                     // Heartbeat-stale rows don't light the dot (EXP-153).
-                    agentsRunning = sessions.contains { CodingSessionLiveness.isLive($0) }
-                    agentsNeedInput = sessions.contains {
+                    agentsRunning = observedSessions.contains { CodingSessionLiveness.isLive($0) }
+                    agentsNeedInput = observedSessions.contains {
                         CodingSessionLiveness.isLive($0) && $0.needsInput
                     }
                 }

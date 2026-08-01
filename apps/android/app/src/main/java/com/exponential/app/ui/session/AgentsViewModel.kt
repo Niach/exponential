@@ -31,11 +31,11 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// The Agents tab: every coding session currently running on the active
-// account (synced coding_sessions shape joined to its issue), plus a
-// remote-start launcher against the user's online desktops (EXP-156). The
-// desktop remains the only session runner — this tab lists live sessions and
-// kicks off new (single or batch) runs on a picked desktop.
+// The Agents tab: the signed-in user's OWN coding sessions currently running
+// (synced coding_sessions shape joined to its issue), plus a remote-start
+// launcher against the user's online desktops (EXP-156). The desktop remains
+// the only session runner — this tab lists live sessions and kicks off new
+// (single or batch) runs on a picked desktop.
 
 data class AgentRow(
     val session: CodingSessionEntity,
@@ -71,10 +71,6 @@ class AgentsViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
-    /** EXP-312: live sessions are owner-only — the screen only opens the
-     *  live viewer for rows whose userId matches this. */
-    val currentUserId: StateFlow<String?> = auth.userId
-
     val state: StateFlow<AgentsState> = combine(
         dbFlow.scopedQuery(emptyList()) {
             it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
@@ -84,14 +80,10 @@ class AgentsViewModel @Inject constructor(
         // Heartbeat-stale rows render as absent (EXP-153); the ticker clears
         // them once the liveness window elapses without a sync delta.
         CodingSessionLiveness.minuteTicker(),
-    ) { sessions, issues, steerEnabled, now ->
-        val issuesById = issues.associateBy { it.id }
+        auth.userId,
+    ) { sessions, issues, steerEnabled, now, userId ->
         AgentsState(
-            // issueId is null for batch multi-issue sessions — those rows
-            // render without an issue link.
-            rows = sessions
-                .filter { CodingSessionLiveness.isLive(it, now) }
-                .map { AgentRow(session = it, issue = it.issueId?.let(issuesById::get)) },
+            rows = agentRows(sessions, issues, userId, now),
             steerEnabled = steerEnabled,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
@@ -277,6 +269,28 @@ class AgentsViewModel @Inject constructor(
             _merging.value = _merging.value - issueId
         }
     }
+}
+
+/**
+ * The Agents list: the signed-in user's OWN live sessions only. A teammate's
+ * live session is neither viewable nor steerable (EXP-312), so listing it just
+ * read as "computer not online" — the rows stay SYNCED for the issue-detail
+ * badges and Reviews, they only leave this list. Signed out (null
+ * [currentUserId]) lists nothing.
+ */
+fun agentRows(
+    sessions: List<CodingSessionEntity>,
+    issues: List<IssueEntity>,
+    currentUserId: String?,
+    nowMs: Long,
+): List<AgentRow> {
+    if (currentUserId == null) return emptyList()
+    val issuesById = issues.associateBy { it.id }
+    return sessions
+        .filter { it.userId == currentUserId && CodingSessionLiveness.isLive(it, nowMs) }
+        // issueId is null for batch multi-issue sessions — those rows render
+        // without an issue link.
+        .map { AgentRow(session = it, issue = it.issueId?.let(issuesById::get)) }
 }
 
 // Terminal issue statuses ineligible to start a new coding run.

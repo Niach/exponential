@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import type { CodingSession, Issue, Board, User } from "@/db/schema"
@@ -15,7 +15,7 @@ export interface AgentSessionRow {
   user: User | undefined
 }
 
-// Team Agents page + dock data: the LIVE coding sessions in the
+// Team Agents page + dock data: the caller's OWN live coding sessions in the
 // team (synced coding_sessions shape, team-scoped by the denormalized
 // team_id), joined client-side to their issue / board / driving user,
 // newest-first. Live = `running` OR `in_review` OR `merged` (EXP-194: the
@@ -24,15 +24,29 @@ export interface AgentSessionRow {
 // "Ready for review" vs "Merged" vs "Coding now"). Ended
 // sessions dropped out with the redesign — the live trail lives on each
 // issue, and the dock/Agents page only surface live work.
-export function useAgentsData(teamId?: string) {
+// EXP-312 follow-up: a live session is viewable/steerable only by its owner,
+// so a teammate's row in these lists could only ever read as "unavailable".
+// Such rows are filtered out here entirely; they still sync, and still
+// surface as status badges on issue detail and in the Reviews queue.
+// Both params stay REQUIRED (optional-typed, not optional-arity) so no future
+// caller can silently ask for the whole team's sessions again.
+export function useAgentsData(
+  teamId: string | undefined,
+  currentUserId: string | undefined
+) {
   const { data: sessionRows, isReady } = useLiveQuery(
     (query) =>
-      teamId
+      teamId && currentUserId
         ? query
             .from({ sessions: codingSessionCollection })
-            .where(({ sessions }) => eq(sessions.teamId, teamId))
+            .where(({ sessions }) =>
+              and(
+                eq(sessions.teamId, teamId),
+                eq(sessions.userId, currentUserId)
+              )
+            )
         : undefined,
-    [teamId]
+    [teamId, currentUserId]
   )
   const sessions = useMemo(
     () => (sessionRows ?? []) as CodingSession[],
@@ -96,9 +110,10 @@ export function useAgentsData(teamId?: string) {
 
     return {
       running,
-      // Without a team id the query is skipped and can never deliver a
-      // snapshot — treat that as ready-empty instead of loading forever.
-      isLoading: !isReady && Boolean(teamId),
+      // Without a team id or a signed-in user the query is skipped and can
+      // never deliver a snapshot — treat that as ready-empty instead of
+      // loading forever.
+      isLoading: !isReady && Boolean(teamId && currentUserId),
     }
-  }, [sessions, issueRows, boards, userMap, isReady, teamId, now])
+  }, [sessions, issueRows, boards, userMap, isReady, teamId, currentUserId, now])
 }

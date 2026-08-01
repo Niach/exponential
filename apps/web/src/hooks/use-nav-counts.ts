@@ -44,30 +44,35 @@ export function useReviewsOpenPrCount(
   }, [data])
 }
 
-// Live count of live coding sessions in the team (team-scoped by the
-// denormalized team_id) — running, in_review AND merged (EXP-194: an agent
-// awaiting review is exactly what the dot should pull attention to;
-// EXP-358: a session surviving its merge is still live). Staleness guard
-// (EXP-153): heartbeat-dead rows don't count. `needsInput` (EXP-214) is true
-// while any live session sits on a plan-approval / AskUserQuestion picker —
-// the badges escalate to amber for it.
-export function useAgentsRunningCount(teamId?: string): {
+// Live count of the signed-in user's OWN live coding sessions in the team —
+// running, in_review AND merged (EXP-194: an agent awaiting review is exactly
+// what the dot should pull attention to; EXP-358: a session surviving its
+// merge is still live). Own-only to match the owner-only Agents list: a
+// teammate's session must not light a badge over a list that shows nothing.
+// Staleness guard (EXP-153): heartbeat-dead rows don't count. `needsInput`
+// (EXP-214) is true while any live session sits on a plan-approval /
+// AskUserQuestion picker — the badges escalate to amber for it.
+export function useAgentsRunningCount(
+  teamId?: string,
+  currentUserId?: string
+): {
   count: number
   needsInput: boolean
 } {
   const { data } = useLiveQuery(
     (query) =>
-      teamId
+      teamId && currentUserId
         ? query
             .from({ sessions: codingSessionCollection })
             .where(({ sessions }) =>
               and(
                 eq(sessions.teamId, teamId),
+                eq(sessions.userId, currentUserId),
                 inArray(sessions.status, [`running`, `in_review`, `merged`])
               )
             )
         : undefined,
-    [teamId]
+    [teamId, currentUserId]
   )
   const now = useNow()
   const live = ((data ?? []) as CodingSession[]).filter(

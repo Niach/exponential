@@ -237,7 +237,6 @@ function AgentsPage() {
   const { teamSlug } = Route.useParams()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
-  const { running, isLoading } = useAgentsData(team?.id)
   const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const dock = useAgentDock()
@@ -245,6 +244,9 @@ function AgentsPage() {
 
   const currentUserId = session?.user?.id
   const teamId = team?.id
+  // Own sessions only (EXP-312 follow-up): a teammate's live session can
+  // never be watched from here, so listing it only read as "not online".
+  const { running, isLoading } = useAgentsData(teamId, currentUserId)
   // Steer tickets require team membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the
   // interactive affordances render.
@@ -416,7 +418,8 @@ function AgentsPage() {
         )}
 
         {/* Mobile mirrors the native apps' Running section; on desktop the
-            AgentDock bottom strip already surfaces every live session. */}
+            AgentDock bottom strip already surfaces the caller's live
+            sessions. */}
         {isMobile &&
           (isLoading ? (
             <div className="text-muted-foreground p-6 text-sm">Loading…</div>
@@ -427,9 +430,9 @@ function AgentsPage() {
                 <SessionRow
                   key={row.session.id}
                   row={row}
-                  // EXP-312: live sessions are owner-only — Watch renders
-                  // only on the caller's own rows.
-                  canWatch={steerEnabled && row.session.userId === currentUserId}
+                  // EXP-312: live sessions are owner-only, and every row in
+                  // this list is already the caller's own.
+                  canWatch={steerEnabled}
                   teamSlug={teamSlug}
                   onOpen={() => dock?.openDock(row.session.id)}
                 />
