@@ -1,15 +1,15 @@
 name: build-ios
 
-# App Store upload for ios-v* tags. Exists because App Store review requires
-# the LATEST released iOS SDK (ITMS-90111 — e.g. build 76 was rejected for
-# SDK 26.5 after the re-released Xcode 26.6 shipped the 26.6 SDK), and the
-# local build Mac tracks the macOS beta, which the current release Xcode
-# won't launch on. Apple re-releases Xcode under the SAME marketing version
-# with a newer SDK, so the guard below checks the bundled SDK, never just
-# the Xcode version. Signing is cloud-managed via the ASC API key (repo
-# secrets ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_CONTENT); the fastlane lane
-# uploads the build and metadata but never submits for review — that tap
-# stays manual in App Store Connect.
+# App Store upload for ios-v* tags. Exists because App Store review REJECTS
+# binaries built on a beta-macOS host (ITMS-90111 — build 76 carried the
+# current release Xcode 26.6 + iOS 26.5 SDK but a beta BuildMachineOSBuild,
+# and the local build Mac tracks the macOS beta). This runner is the
+# release-OS build environment. NB the "iOS X.Y SDK comes bundled with
+# Xcode X.Y" line in Apple's point-release notes is boilerplate — no 26.6
+# SDK is downloadable anywhere; 26.5 is current. Signing is cloud-managed
+# via the ASC API key (repo secrets ASC_KEY_ID / ASC_ISSUER_ID /
+# ASC_KEY_CONTENT); the fastlane lane uploads the build and metadata but
+# never submits for review — that tap stays manual in App Store Connect.
 
 on:
   push:
@@ -34,15 +34,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Select a release Xcode carrying the iOS 26.6 SDK
+      - name: Select the newest RELEASE Xcode 26.x
         run: |
           for app in /Applications/Xcode*.app; do
             sdk="$(ls "$app"/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/ 2>/dev/null | tr '\n' ' ')"
             echo "$app: $sdk"
           done
           XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
-          if [ -z "$XCODE_APP" ] || [ ! -d "$XCODE_APP/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.6.sdk" ]; then
-            echo "::error::No release Xcode with the iOS 26.6 SDK on this image — uploading with an older SDK gets rejected (ITMS-90111). Wait for the runner image to pick up the re-released Xcode 26.6." >&2
+          if [ -z "$XCODE_APP" ]; then
+            echo "::error::No release Xcode 26.x on this image" >&2
             exit 1
           fi
           sudo xcode-select -s "$XCODE_APP"
