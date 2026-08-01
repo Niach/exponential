@@ -164,8 +164,14 @@ class HomeViewModel @Inject constructor(
         }
         selection.rememberLastBoard(accountId, boardId)
         viewModelScope.launch {
-            holder.database(forAccountId = accountId).boardDao().getActiveById(boardId)
-                ?.let { selection.select(it.teamId) }
+            val board = holder.database(forAccountId = accountId).boardDao().getActiveById(boardId)
+            // The account guard closes the tail of the switch race (same rule as
+            // AppViewModel's default-team resolve): this lookup can land after a
+            // concurrent account switch, and a team id from the previous
+            // account's database must never win.
+            if (board != null && auth.activeAccountId.value == accountId) {
+                selection.select(board.teamId)
+            }
         }
     }
 }
