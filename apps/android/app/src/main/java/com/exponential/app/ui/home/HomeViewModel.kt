@@ -148,10 +148,24 @@ class HomeViewModel @Inject constructor(
     /// active (a no-op for same-server picks) and records it as last-used —
     /// the Issues root's current-board resolution reacts to both, so the
     /// list swaps in place with no navigation.
+    ///
+    /// A pick also re-points the app-wide TEAM selection at the picked
+    /// board's team (EXP-400): Support/Reviews/Agents and Team settings are
+    /// team-scoped and key off it, so without this a cross-team board switch
+    /// left them all serving the previous team until restart. Cross-server
+    /// picks skip the explicit select — the account switch clears the
+    /// selection and AppViewModel's default-team bootstrap re-resolves it
+    /// from the just-written last-used board (the same team).
     fun selectBoard(accountId: String, boardId: String) {
         if (accountId != auth.activeAccountId.value) {
             auth.switchAccount(accountId)
+            selection.rememberLastBoard(accountId, boardId)
+            return
         }
         selection.rememberLastBoard(accountId, boardId)
+        viewModelScope.launch {
+            holder.database(forAccountId = accountId).boardDao().getActiveById(boardId)
+                ?.let { selection.select(it.teamId) }
+        }
     }
 }
