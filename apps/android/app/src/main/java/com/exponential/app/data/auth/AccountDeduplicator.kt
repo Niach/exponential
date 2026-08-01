@@ -25,13 +25,17 @@ class AccountDeduplicator @Inject constructor(
         val ids = duplicateSignedOutAccountIds(auth.accounts.value, auth.activeAccountId.value)
         for (id in ids) {
             Log.i(TAG, "removing signed-out duplicate account $id")
-            // The local half of Settings' "Remove server": drop the row, then
-            // wipe its per-account Room files. The other two steps of that path
-            // (push-token unregister, server-side session revoke) are authed
-            // calls a tokenless row cannot make — and it holds no push
+            // The local half of Settings' "Remove server": wipe the per-account
+            // Room files FIRST, then drop the row. The other two steps of that
+            // path (push-token unregister, server-side session revoke) are
+            // authed calls a tokenless row cannot make — and it holds no push
             // registration, since registration is gated on a live token.
-            auth.removeAccount(id)
+            // Order matters if the process dies mid-prune: a row whose id is
+            // already gone leaves its .db files orphaned forever (nothing
+            // sweeps them), while a tokenless row whose DB was deleted is
+            // harmless — it reopens empty and is pruned again next launch.
             databaseHolder.deleteFiles(id)
+            auth.removeAccount(id)
         }
     }
 

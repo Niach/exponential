@@ -116,13 +116,19 @@ public final class AuthRepository: @unchecked Sendable {
     /// Drops signed-out records for instances that already have a signed-in one.
     /// Called after every login and once at startup (`SyncManager.start`), so a
     /// device that already carries the duplicate heals without a fresh login.
-    /// See `AccountStore.removeDuplicateSignedOutAccounts` for the exact rule.
+    /// See `AccountStore.duplicateSignedOutAccountIds` for the exact rule.
+    /// Reclaims each cache BEFORE persisting the removal: if the process dies
+    /// mid-prune, a row whose id is already gone leaves its DB files orphaned
+    /// forever (nothing sweeps them), while a tokenless row whose cache was
+    /// reclaimed is harmless — it is re-pruned (cache recreated empty) next
+    /// launch.
     @discardableResult
     public func pruneDuplicateSignedOutAccounts() -> [String] {
-        let removed = accountStore.removeDuplicateSignedOutAccounts()
+        let removed = accountStore.duplicateSignedOutAccountIds()
         for accountId in removed {
             reclaimLocalCache?(accountId)
         }
+        accountStore.removeAccounts(ids: removed)
         republish()
         return removed
     }

@@ -160,6 +160,32 @@ final class AuthRepositoryTests: XCTestCase {
         XCTAssertEqual(reclaimed, [oldId], "the dropped record's local cache is reclaimed")
     }
 
+    // Ordering guard: the cache is reclaimed BEFORE the removal is persisted. The
+    // reverse orphans the account's DB files forever if the app dies mid-prune —
+    // the id is gone from the store, so nothing sweeps them.
+    func testPruneReclaimsTheCacheBeforePersistingTheRemoval() {
+        let keychain = FakeKeychain()
+        let auth = AuthRepository(accountStore: AccountStore(keychain: keychain))
+        signIn(auth, url: cloud, userId: "old", token: "tOld")
+        signIn(auth, url: cloud, userId: "new", token: "tNew")
+        let oldId = ServerAccount.makeId(instanceUrl: cloud, userId: "old")
+        auth.signOutLocally(accountId: oldId)
+        var persistedAtReclaim: [String] = []
+        auth.reclaimLocalCache = { _ in persistedAtReclaim.append(keychain.get("accounts") ?? "") }
+
+        XCTAssertEqual(auth.pruneDuplicateSignedOutAccounts(), [oldId])
+
+        XCTAssertEqual(persistedAtReclaim.count, 1)
+        XCTAssertTrue(
+            persistedAtReclaim.first?.contains(oldId) ?? false,
+            "the row is still on disk while its cache is reclaimed"
+        )
+        XCTAssertFalse(
+            keychain.get("accounts")?.contains(oldId) ?? true,
+            "and gone once the prune persists"
+        )
+    }
+
     // A lone signed-out row IS the re-login entry point — it must survive, and so
     // must a signed-out row whose only signed-in sibling is another instance.
     func testPruneKeepsSignedOutRowsWithoutASignedInSibling() {

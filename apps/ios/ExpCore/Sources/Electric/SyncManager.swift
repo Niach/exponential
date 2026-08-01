@@ -78,9 +78,12 @@ public final class SyncManager: @unchecked Sendable {
 
     public func signOut(accountId: String) async {
         // With per-account DBs and per-account pipelines, signing out just
-        // cancels that one account's shape tasks. The local cache stays so the
-        // user can resume offline browsing if they sign back in. Full deletion
-        // happens via DatabaseManager.deleteFiles(forAccountId:) from Settings.
+        // cancels that one account's shape tasks. The local cache outlives the
+        // sign-out only for a row that is still the instance's re-login target:
+        // a signed-out DUPLICATE (same instance already has a signed-in row) is
+        // dropped together with its cache by the launch prune below. Full
+        // deletion on demand: DatabaseManager.deleteFiles(forAccountId:) from
+        // Settings.
         let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
         for task in tasks { task.cancel() }
     }

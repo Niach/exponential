@@ -193,20 +193,21 @@ public final class AccountStore: @unchecked Sendable {
         persistLocked()
     }
 
-    /// Collapses duplicate rows for one instance down to the signed-in one: every
-    /// TOKENLESS record whose instance URL already has a token-holding record is
-    /// dropped. A server-side account deletion makes the next signup mint a NEW
-    /// userId, so the re-login resolves a fresh per-user record and the
-    /// dead-session record it came from would linger as a second "Signed out"
-    /// entry for the same server.
-    /// Never removes a record that holds a token (a second USER on the same
+    /// The duplicate rows for one instance, i.e. everything that must go so only
+    /// the signed-in record survives: every TOKENLESS record whose instance URL
+    /// already has a token-holding record. A server-side account deletion makes
+    /// the next signup mint a NEW userId, so the re-login resolves a fresh
+    /// per-user record and the dead-session record it came from would linger as
+    /// a second "Signed out" entry for the same server.
+    /// Never reports a record that holds a token (a second USER on the same
     /// server is a supported account, not a duplicate), and never the ACTIVE
     /// record — a tokenless active record is the re-login target of an
     /// in-progress sign-out / add-server flow. A LONE tokenless record also
     /// survives: it is what lets LoginView name the server to re-authenticate
-    /// against. Returns the removed ids so the caller can reclaim their caches.
-    @discardableResult
-    public func removeDuplicateSignedOutAccounts() -> [String] {
+    /// against. Pure: the caller reclaims each id's local cache first, then
+    /// drops the rows via `removeAccounts(ids:)` (Android parity —
+    /// `duplicateSignedOutAccountIds` + `AccountDeduplicator`).
+    public func duplicateSignedOutAccountIds() -> [String] {
         lock.lock()
         defer { lock.unlock() }
         let signedInUrls = Set(
@@ -214,18 +215,28 @@ public final class AccountStore: @unchecked Sendable {
                 .filter { $0.token != nil }
                 .compactMap { WebLinks.normalizedBase($0.instanceUrl) }
         )
-        let removed = cached.filter { account in
+        return cached.filter { account in
             guard account.token == nil, account.id != cachedActiveId,
                   let url = WebLinks.normalizedBase(account.instanceUrl)
             else { return false }
             return signedInUrls.contains(url)
         }.map(\.id)
-        guard !removed.isEmpty else { return [] }
-        // The active record is never in `removed`, so `cachedActiveId` stands.
-        let ids = Set(removed)
+    }
+
+    /// Drops several records in one persisted pass. Like `remove(id:)`, a removed
+    /// ACTIVE record hands the active slot to the most-recent survivor (the
+    /// duplicate prune never reports the active record, so in practice
+    /// `cachedActiveId` stands).
+    public func removeAccounts(ids: [String]) {
+        guard !ids.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        let ids = Set(ids)
         cached.removeAll { ids.contains($0.id) }
+        if let activeId = cachedActiveId, ids.contains(activeId) {
+            cachedActiveId = cached.max(by: { $0.lastUsedAt < $1.lastUsedAt })?.id
+        }
         persistLocked()
-        return removed
     }
 
     /// Switches the active account to the given id. No-op if id is unknown.

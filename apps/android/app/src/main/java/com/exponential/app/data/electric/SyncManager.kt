@@ -288,10 +288,12 @@ class SyncManager @Inject constructor(
         } != null
     }
 
-    /// Sign out a specific account: cancel its pipeline. The Room cache stays
-    /// so the user can resume offline browsing if they sign back in. Full
-    /// deletion happens via `DatabaseHolder.deleteFiles(accountId)` from
-    /// Settings.
+    /// Sign out a specific account: cancel its pipeline. The Room cache
+    /// outlives the sign-out only for a row that is still the instance's
+    /// re-login target: a signed-out DUPLICATE (same instance already has a
+    /// signed-in row) is dropped together with its files by the launch prune
+    /// (`AccountDeduplicator`). Full deletion on demand:
+    /// `DatabaseHolder.deleteFiles(accountId)` from Settings.
     suspend fun signOut(accountId: String) {
         cancelPipeline(accountId)
         stats.clearAccount(accountId)
