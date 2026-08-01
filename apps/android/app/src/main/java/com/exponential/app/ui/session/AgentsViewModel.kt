@@ -71,19 +71,26 @@ class AgentsViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
-    val state: StateFlow<AgentsState> = combine(
+    // Paired up front: the typed `combine` overloads stop at five flows, and
+    // the state below already needs six.
+    private val liveSessionsAndIssues = combine(
         dbFlow.scopedQuery(emptyList()) {
             it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
         },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+    ) { sessions, issues -> sessions to issues }
+
+    val state: StateFlow<AgentsState> = combine(
+        liveSessionsAndIssues,
         _steerEnabled,
         // Heartbeat-stale rows render as absent (EXP-153); the ticker clears
         // them once the liveness window elapses without a sync delta.
         CodingSessionLiveness.minuteTicker(),
         auth.userId,
-    ) { sessions, issues, steerEnabled, now, userId ->
+        selection.selectedId,
+    ) { (sessions, issues), steerEnabled, now, userId, teamId ->
         AgentsState(
-            rows = agentRows(sessions, issues, userId, now),
+            rows = agentRows(sessions, issues, userId, teamId, now),
             steerEnabled = steerEnabled,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
@@ -272,22 +279,31 @@ class AgentsViewModel @Inject constructor(
 }
 
 /**
- * The Agents list: the signed-in user's OWN live sessions only. A teammate's
- * live session is neither viewable nor steerable (EXP-312), so listing it just
- * read as "computer not online" — the rows stay SYNCED for the issue-detail
- * badges and Reviews, they only leave this list. Signed out (null
- * [currentUserId]) lists nothing.
+ * The Agents list: the signed-in user's OWN live sessions in the SELECTED team
+ * only. A teammate's live session is neither viewable nor steerable (EXP-312),
+ * so listing it just read as "computer not online" — and a session in another
+ * team belongs under that team, matching web's `use-agents-data.ts`. The rows
+ * stay SYNCED for the issue-detail badges and Reviews, they only leave this
+ * list. Every session row carries a non-null synced `team_id` (denormalized by
+ * trigger for issue rows, explicit on batch/action rows), so the scoping holds
+ * for issueless runs too. Signed out (null [currentUserId]) or no team
+ * selected (null [teamId]) lists nothing.
  */
 fun agentRows(
     sessions: List<CodingSessionEntity>,
     issues: List<IssueEntity>,
     currentUserId: String?,
+    teamId: String?,
     nowMs: Long,
 ): List<AgentRow> {
-    if (currentUserId == null) return emptyList()
+    if (currentUserId == null || teamId == null) return emptyList()
     val issuesById = issues.associateBy { it.id }
     return sessions
-        .filter { it.userId == currentUserId && CodingSessionLiveness.isLive(it, nowMs) }
+        .filter {
+            it.userId == currentUserId &&
+                it.teamId == teamId &&
+                CodingSessionLiveness.isLive(it, nowMs)
+        }
         // issueId is null for batch multi-issue sessions — those rows render
         // without an issue link.
         .map { AgentRow(session = it, issue = it.issueId?.let(issuesById::get)) }

@@ -18,4 +18,24 @@ public enum CodingSessionOwnership {
     ) -> [CodingSessionEntity] {
         sessions.filter { isOwn($0, userId: userId) }
     }
+
+    /// The Agents surface is scoped to the ACTIVE team as well as the caller,
+    /// matching web's `use-agents-data.ts` (`team_id = active AND user_id =
+    /// me`): an own run in another team belongs under THAT team, not under
+    /// whichever one happens to be open. Every session row carries a non-null
+    /// synced `team_id` (trigger-denormalized for issue rows, explicit on
+    /// batch/action rows), so this also holds for issueless runs. No active
+    /// team resolved yet shows nothing, like no resolved userId.
+    public static func isOwn(
+        _ session: CodingSessionEntity, userId: String?, teamId: String?
+    ) -> Bool {
+        guard let teamId, !teamId.isEmpty else { return false }
+        return isOwn(session, userId: userId) && session.teamId == teamId
+    }
+
+    public static func own(
+        _ sessions: [CodingSessionEntity], userId: String?, teamId: String?
+    ) -> [CodingSessionEntity] {
+        sessions.filter { isOwn($0, userId: userId, teamId: teamId) }
+    }
 }

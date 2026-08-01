@@ -6,12 +6,14 @@ import XCTest
 // sessions only — a teammate's live run is neither viewable nor steerable, so
 // it must not appear in the list at all.
 final class CodingSessionOwnershipTests: XCTestCase {
-    private func session(id: String, userId: String) -> CodingSessionEntity {
+    private func session(
+        id: String, userId: String, teamId: String = "team-1"
+    ) -> CodingSessionEntity {
         CodingSessionEntity(
             id: id,
             issueId: "issue-1",
             boardId: nil,
-            teamId: "team-1",
+            teamId: teamId,
             userId: userId,
             deviceLabel: nil,
             status: "running",
@@ -53,5 +55,56 @@ final class CodingSessionOwnershipTests: XCTestCase {
     func testOwnIsEmptyWhenOnlyTeammatesAreRunning() {
         let sessions = [session(id: "theirs-1", userId: "you")]
         XCTAssertTrue(CodingSessionOwnership.own(sessions, userId: "me").isEmpty)
+    }
+
+    // Team scoping (web parity, `use-agents-data.ts`): the Agents surface lists
+    // the ACTIVE team's own sessions — a run in another team belongs there.
+
+    func testOwnSessionInTheActiveTeamIsOwn() {
+        XCTAssertTrue(
+            CodingSessionOwnership.isOwn(
+                session(id: "s1", userId: "me"), userId: "me", teamId: "team-1"
+            )
+        )
+    }
+
+    func testOwnSessionInAnotherTeamIsExcluded() {
+        XCTAssertFalse(
+            CodingSessionOwnership.isOwn(
+                session(id: "s1", userId: "me", teamId: "team-2"),
+                userId: "me",
+                teamId: "team-1"
+            )
+        )
+    }
+
+    func testNoActiveTeamShowsNothing() {
+        // No team resolved yet: the empty state, never every team's sessions.
+        XCTAssertFalse(
+            CodingSessionOwnership.isOwn(
+                session(id: "s1", userId: "me"), userId: "me", teamId: nil
+            )
+        )
+        XCTAssertFalse(
+            CodingSessionOwnership.isOwn(
+                session(id: "s1", userId: "me"), userId: "me", teamId: ""
+            )
+        )
+    }
+
+    func testTeamScopedOwnKeepsOnlyTheActiveTeamsCallerSessions() {
+        let sessions = [
+            session(id: "mine-1", userId: "me"),
+            session(id: "mine-elsewhere", userId: "me", teamId: "team-2"),
+            session(id: "theirs-1", userId: "you"),
+            session(id: "mine-2", userId: "me"),
+        ]
+        XCTAssertEqual(
+            CodingSessionOwnership.own(sessions, userId: "me", teamId: "team-1").map(\.id),
+            ["mine-1", "mine-2"]
+        )
+        XCTAssertTrue(
+            CodingSessionOwnership.own(sessions, userId: "me", teamId: nil).isEmpty
+        )
     }
 }

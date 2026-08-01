@@ -234,12 +234,12 @@ class AppViewModel @Inject constructor(
             .map { it > 0 }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // True while at least one coding session is live on the active account —
-    // drives the bottom bar's Agents dot. A live session is `running` or the
-    // `in_review` PR-open parking spot (EXP-194 — the dot counts in_review as
-    // the "agent finished, look at it" signal). Heartbeat-stale rows count as
-    // absent (EXP-153); the minute ticker clears the dot once the liveness
-    // window elapses without any sync delta.
+    // True while at least one coding session is live in the SELECTED team on
+    // the active account — drives the bottom bar's Agents dot. A live session
+    // is `running` or the `in_review` PR-open parking spot (EXP-194 — the dot
+    // counts in_review as the "agent finished, look at it" signal).
+    // Heartbeat-stale rows count as absent (EXP-153); the minute ticker clears
+    // the dot once the liveness window elapses without any sync delta.
     @OptIn(ExperimentalCoroutinesApi::class)
     val agentsRunning: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
         .flatMapLatest { db ->
@@ -249,17 +249,25 @@ class AppViewModel @Inject constructor(
                     .observeByStatuses(CodingSessionLiveness.liveStatuses),
                 CodingSessionLiveness.minuteTicker(),
                 auth.userId,
-                // Own sessions only, matching the owner-only Agents list: a
-                // teammate's session must not light a dot over an empty screen.
-            ) { sessions, now, me ->
-                me != null && sessions.any { it.userId == me && CodingSessionLiveness.isLive(it, now) }
+                teamSelection.selectedId,
+                // Own sessions in the selected team only, matching the list the
+                // dot points at (and web's `useAgentsRunningCount`): neither a
+                // teammate's session nor one of the caller's own runs in
+                // ANOTHER team may light a dot over an empty screen.
+            ) { sessions, now, me, teamId ->
+                me != null && teamId != null && sessions.any {
+                    it.userId == me &&
+                        it.teamId == teamId &&
+                        CodingSessionLiveness.isLive(it, now)
+                }
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // True while any LIVE session carries the desktop-written `needs_input`
-    // attention flag (EXP-214: agent parked on a plan-approval / question
-    // picker) — escalates the Agents dot to amber.
+    // True while any LIVE session of the caller's in the selected team carries
+    // the desktop-written `needs_input` attention flag (EXP-214: agent parked
+    // on a plan-approval / question picker) — escalates the Agents dot to
+    // amber. Same own + selected-team scoping as [agentsRunning].
     @OptIn(ExperimentalCoroutinesApi::class)
     val agentsNeedInput: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
         .flatMapLatest { db ->
@@ -269,9 +277,13 @@ class AppViewModel @Inject constructor(
                     .observeByStatuses(CodingSessionLiveness.liveStatuses),
                 CodingSessionLiveness.minuteTicker(),
                 auth.userId,
-            ) { sessions, now, me ->
-                me != null && sessions.any {
-                    it.userId == me && CodingSessionLiveness.isLive(it, now) && it.needsInput
+                teamSelection.selectedId,
+            ) { sessions, now, me, teamId ->
+                me != null && teamId != null && sessions.any {
+                    it.userId == me &&
+                        it.teamId == teamId &&
+                        CodingSessionLiveness.isLive(it, now) &&
+                        it.needsInput
                 }
             }
         }

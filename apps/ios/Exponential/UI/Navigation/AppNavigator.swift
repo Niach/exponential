@@ -328,6 +328,12 @@ struct MainNavigator: View {
         .onChange(of: availableBoardKeys) { _, _ in
             resolveCurrentBoard()
         }
+        // The Agents dots are team-scoped like the Support and Reviews ones,
+        // but they're cached @State (the liveness ticker needs the raw rows)
+        // rather than computed — so a team switch has to re-filter them here.
+        .onChange(of: teamState.activeTeamId) { _, _ in
+            recomputeAgentDots()
+        }
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
             if let issueId {
@@ -710,12 +716,10 @@ struct MainNavigator: View {
         let sessionTask = Task { @MainActor in
             do {
                 for try await sessions in sessionObs.values(in: pool) {
+                    // Cached own-only (not team-filtered): a team switch
+                    // re-filters these without waiting for a sync delta.
                     observedSessions = CodingSessionOwnership.own(sessions, userId: ownUserId)
-                    // Heartbeat-stale rows don't light the dot (EXP-153).
-                    agentsRunning = observedSessions.contains { CodingSessionLiveness.isLive($0) }
-                    agentsNeedInput = observedSessions.contains {
-                        CodingSessionLiveness.isLive($0) && $0.needsInput
-                    }
+                    recomputeAgentDots()
                 }
             } catch {}
         }
@@ -725,10 +729,7 @@ struct MainNavigator: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
-                agentsRunning = observedSessions.contains { CodingSessionLiveness.isLive($0) }
-                agentsNeedInput = observedSessions.contains {
-                    CodingSessionLiveness.isLive($0) && $0.needsInput
-                }
+                recomputeAgentDots()
             }
         }
         // Open PRs light the Reviews tab's green dot (EXP-214) — mirrors the
@@ -746,6 +747,25 @@ struct MainNavigator: View {
             } catch {}
         }
         observationTasks = [wsTask, projTask, notifTask, sessionTask, livenessTask, openPrTask]
+    }
+
+    /// The Agents tab's dots, from the cached own sessions: live in the ACTIVE
+    /// team only — the surface they point at is team-scoped (web parity,
+    /// `useAgentsRunningCount`), so a run of the caller's in another team must
+    /// not light a dot over a screen that shows nothing, no more than a
+    /// teammate's may. Heartbeat-stale rows don't light it either (EXP-153).
+    /// Re-run on every session emission, on the liveness tick, and whenever the
+    /// active team changes.
+    private func recomputeAgentDots() {
+        let mine = observedSessions.filter {
+            CodingSessionOwnership.isOwn(
+                $0, userId: deps.auth.userId, teamId: teamState.activeTeamId
+            )
+        }
+        agentsRunning = mine.contains { CodingSessionLiveness.isLive($0) }
+        agentsNeedInput = mine.contains {
+            CodingSessionLiveness.isLive($0) && $0.needsInput
+        }
     }
 
     // MARK: - Current board (Issues tab)

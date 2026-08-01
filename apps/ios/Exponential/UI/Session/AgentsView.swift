@@ -84,12 +84,18 @@ struct AgentsView: View {
                     accountId: accountId, userId: deps.auth.userId, db: deps.db
                 )
             }
+            // The list is scoped to the active team like web's Agents page —
+            // the VM observes the account's sessions, the view owns the team.
+            viewModel?.activeTeamId = teamState.activeTeam?.id
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
             // Refresh presence on every appear (the .task doesn't re-run on
             // pop-back). A no-op until steering resolves enabled.
             Task { await refreshDevices() }
+        }
+        .onChange(of: teamState.activeTeam?.id) { _, teamId in
+            viewModel?.activeTeamId = teamId
         }
         .onDisappear {
             viewModel?.stopObserving()

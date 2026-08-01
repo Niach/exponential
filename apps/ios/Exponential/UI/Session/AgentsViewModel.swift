@@ -3,10 +3,11 @@ import Foundation
 import GRDB
 
 /// Backs the Agents tab: the signed-in user's own live coding sessions in the
-/// active account (the synced `coding_sessions` shape) — running AND in_review
-/// (EXP-194), joined to their issues for display. Desktop is the only session
-/// runner — this list is the mobile window into what YOU are coding right now;
-/// teammates' runs are owner-only (EXP-312) and never listed here.
+/// ACTIVE TEAM of the active account (the synced `coding_sessions` shape) —
+/// running AND in_review (EXP-194), joined to their issues for display. Desktop
+/// is the only session runner — this list is the mobile window into what YOU are
+/// coding right now; teammates' runs are owner-only (EXP-312) and never listed
+/// here, and the team scoping mirrors web's `use-agents-data.ts`.
 @MainActor @Observable
 final class AgentsViewModel {
     struct Row: Identifiable {
@@ -16,6 +17,16 @@ final class AgentsViewModel {
     }
 
     var rows: [Row] = []
+
+    /// The team the surrounding view currently shows — kept current by
+    /// `AgentsView` (the sessions observation is account-wide, the list is
+    /// team-scoped). nil until the team state resolves: no rows.
+    var activeTeamId: String? {
+        didSet {
+            guard oldValue != activeTeamId else { return }
+            rebuild()
+        }
+    }
 
     private let accountId: String
     private let userId: String?
@@ -157,9 +168,13 @@ final class AgentsViewModel {
     private func rebuild() {
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         rows = sessions
-            // Own runs only (EXP-312): a teammate's session can't be opened or
-            // steered, so listing it only read as "computer not online".
-            .filter { CodingSessionOwnership.isOwn($0, userId: userId) }
+            // Own runs in the active team only: a teammate's session can't be
+            // opened or steered (EXP-312), so listing it only read as "computer
+            // not online" — and an own run in another team belongs under that
+            // team (web parity, `use-agents-data.ts`).
+            .filter {
+                CodingSessionOwnership.isOwn($0, userId: userId, teamId: activeTeamId)
+            }
             // Heartbeat-stale rows render as absent (EXP-153).
             .filter { CodingSessionLiveness.isLive($0) }
             .sorted { $0.startedAt > $1.startedAt }
