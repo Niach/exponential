@@ -466,21 +466,82 @@ describe(`isDigestRetryDue`, () => {
 })
 
 describe(`planEmailDigest`, () => {
-  // EXP-369: the daily cadence has NO minimum unread age — the send hour is
-  // the delay, so everything still unread at that moment is bundled.
-  it(`daily bundles every still-unread row, however fresh`, () => {
+  // NOW is 12:00Z and the default daily prefs read hour 8 in UTC, so the
+  // current send point in these tests is today 08:00Z.
+
+  // EXP-369/EXP-399: the daily cadence has NO minimum unread age — the send
+  // hour is the delay: everything created at or before the send point and
+  // still unread is bundled; rows created after it ride the next day's.
+  it(`daily bundles every still-unread row created by the send point`, () => {
     const result = plan([
-      candidate({ id: `n-old`, userId: `u1`, ageMinutes: 90 }),
-      candidate({ id: `n-fresh`, userId: `u1`, ageMinutes: 2 }),
-      candidate({ id: `n-read`, userId: `u1`, ageMinutes: 90, readAt: NOW }),
+      candidate({ id: `n-old`, userId: `u1`, ageMinutes: 60 * 11 }),
+      candidate({ id: `n-just-in-time`, userId: `u1`, ageMinutes: 245 }),
+      candidate({ id: `n-after-point`, userId: `u1`, ageMinutes: 90 }),
+      candidate({
+        id: `n-read`,
+        userId: `u1`,
+        ageMinutes: 60 * 11,
+        readAt: NOW,
+      }),
     ])
     expect(result.batches).toHaveLength(1)
     expect(result.batches[0].items.map((i) => i.notificationId)).toEqual([
       `n-old`,
-      `n-fresh`,
+      `n-just-in-time`,
     ])
-    // Read rows are dropped, never claimed:
+    // Post-send-point and read rows are dropped, never claimed:
     expect(result.claimOnly).toHaveLength(0)
+  })
+
+  // EXP-399 regression: a fresh notification must NOT email at the next sweep
+  // just because the user's cadence gate says "due" — which it always did for
+  // a never-sent user, and in the steady state too (digests only go out when
+  // something is pending, so the last send usually predates today's point).
+  it(`daily defers rows created after the send point — no instant email`, () => {
+    const row = () => [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })]
+
+    // Never-sent user: due per the cadence gate, but the row waits.
+    const neverSent = plan(row())
+    expect(neverSent.batches).toHaveLength(0)
+    expect(neverSent.claimOnly).toHaveLength(0)
+
+    // Last digest before today's send point (the steady state): same.
+    const stale = plan(row(), {
+      lastDigestByUser: new Map([[`u1`, minutesAgo(60 * 26)]]),
+    })
+    expect(stale.batches).toHaveLength(0)
+    expect(stale.claimOnly).toHaveLength(0)
+
+    // The row rides the NEXT send point: at tomorrow's 08:00Z sweep it goes.
+    const due = plan(row(), { now: new Date(`2026-07-08T08:05:00Z`) })
+    expect(due.batches).toHaveLength(1)
+    expect(due.batches[0].items.map((i) => i.notificationId)).toEqual([`n1`])
+  })
+
+  // The EXP-369 quirk survives: created five minutes before the send hour
+  // still means push and email near-simultaneously.
+  it(`daily sends a row created just before the send hour the same day`, () => {
+    // Row created 07:55Z, sweep at 08:05Z.
+    const result = plan(
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 245 })],
+      { now: new Date(`2026-07-07T08:05:00Z`) }
+    )
+    expect(result.batches).toHaveLength(1)
+  })
+
+  it(`the daily send-point filter reads the user's OWN timezone`, () => {
+    // Row created 10:30Z. In New York (hour 8 local = 12:00Z) the current
+    // send point at 13:00Z is 12:00Z — AFTER the row's creation — so the row
+    // goes out; in UTC the point is 08:00Z and the row defers.
+    const now = new Date(`2026-07-07T13:00:00Z`)
+    const row = () => [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })]
+    const newYork = plan(row(), {
+      now,
+      timezoneByUser: new Map([[`u1`, `America/New_York`]]),
+    })
+    expect(newYork.batches).toHaveLength(1)
+    const utc = plan(row(), { now })
+    expect(utc.batches).toHaveLength(0)
   })
 
   it(`the legacy hourly cadence keeps the 1h unread floor`, () => {
@@ -522,9 +583,9 @@ describe(`planEmailDigest`, () => {
 
   it(`groups into ONE batch per user, items oldest-first, batches by userId`, () => {
     const result = plan([
-      candidate({ id: `b-newer`, userId: `u2`, ageMinutes: 70 }),
-      candidate({ id: `a-1`, userId: `u1`, ageMinutes: 90 }),
-      candidate({ id: `b-older`, userId: `u2`, ageMinutes: 120 }),
+      candidate({ id: `b-newer`, userId: `u2`, ageMinutes: 250 }),
+      candidate({ id: `a-1`, userId: `u1`, ageMinutes: 270 }),
+      candidate({ id: `b-older`, userId: `u2`, ageMinutes: 300 }),
     ])
     expect(result.batches.map((b) => b.userId)).toEqual([`u1`, `u2`])
     expect(result.batches[1].items.map((i) => i.notificationId)).toEqual([
@@ -534,15 +595,17 @@ describe(`planEmailDigest`, () => {
   })
 
   it(`missing prefs row means defaults: emailed`, () => {
-    const result = plan([candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })])
+    const result = plan([
+      candidate({ id: `n1`, userId: `u1`, ageMinutes: 300 }),
+    ])
     expect(result.batches).toHaveLength(1)
   })
 
   it(`master email switch off → rows are claimed without an email`, () => {
     const result = plan(
       [
-        candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 }),
-        candidate({ id: `n2`, userId: `u1`, ageMinutes: 120 }),
+        candidate({ id: `n1`, userId: `u1`, ageMinutes: 250 }),
+        candidate({ id: `n2`, userId: `u1`, ageMinutes: 300 }),
       ],
       {
         prefsByUser: new Map([
@@ -563,13 +626,13 @@ describe(`planEmailDigest`, () => {
         candidate({
           id: `n-status`,
           userId: `u1`,
-          ageMinutes: 90,
+          ageMinutes: 300,
           type: `issue_status_changed`,
         }),
         candidate({
           id: `n-mention`,
           userId: `u1`,
-          ageMinutes: 90,
+          ageMinutes: 300,
           type: `issue_mention`,
         }),
       ],
@@ -594,7 +657,7 @@ describe(`planEmailDigest`, () => {
 
   it(`cadence gate defers (does NOT claim) rows for users not yet due`, () => {
     const result = plan(
-      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 300 })],
       { lastDigestByUser: new Map([[`u1`, minutesAgo(10)]]) }
     )
     // Deferred entirely — the next sweep reconsiders it once the user is due.
@@ -607,14 +670,14 @@ describe(`planEmailDigest`, () => {
     // failed attempt — the user must NOT retry at the next sweep tick, or
     // even the next hour: at most one retry per day (EXP-227).
     const deferred = plan(
-      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 300 })],
       { lastFailedByUser: new Map([[`u1`, minutesAgo(10)]]) }
     )
     expect(deferred.batches).toHaveLength(0)
     expect(deferred.claimOnly).toHaveLength(0)
 
     const stillDeferred = plan(
-      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 300 })],
       { lastFailedByUser: new Map([[`u1`, minutesAgo(60 * 12)]]) }
     )
     expect(stillDeferred.batches).toHaveLength(0)
@@ -622,7 +685,7 @@ describe(`planEmailDigest`, () => {
 
   it(`retries a day after a failed attempt`, () => {
     const result = plan(
-      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 300 })],
       { lastFailedByUser: new Map([[`u1`, minutesAgo(60 * 23)]]) }
     )
     expect(result.batches).toHaveLength(1)
@@ -650,7 +713,7 @@ describe(`planEmailDigest`, () => {
       [`u1`, { ...defaultEmailPrefs(), digest: `daily` }],
     ])
     const notDue = plan(
-      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 300 })],
       {
         prefsByUser: prefs,
         lastDigestByUser: new Map([[`u1`, minutesAgo(60 * 3)]]),
@@ -660,7 +723,7 @@ describe(`planEmailDigest`, () => {
 
     const due = plan(
       [
-        candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 }),
+        candidate({ id: `n1`, userId: `u1`, ageMinutes: 300 }),
         candidate({ id: `n2`, userId: `u1`, ageMinutes: 60 * 12 }),
       ],
       {
