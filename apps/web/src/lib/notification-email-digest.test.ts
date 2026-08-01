@@ -116,7 +116,9 @@ import { runEmailDigestSweep } from "@/lib/notification-email-digest"
 import { emailDeliveries, notifications } from "@/db/schema"
 
 const NOW = new Date(`2026-07-20T12:00:00.000Z`)
-const TWO_HOURS_AGO = new Date(NOW.getTime() - 2 * 60 * 60 * 1000)
+// Predates the 08:00Z send point (the prefs mock reads hour 8 in UTC) — a row
+// created AFTER the send point rides the next day's digest (EXP-399).
+const SIX_HOURS_AGO = new Date(NOW.getTime() - 6 * 60 * 60 * 1000)
 
 const row = (over: Partial<Record<string, unknown>> = {}) => ({
   notificationId: `n-1`,
@@ -124,7 +126,7 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
   type: `issue_comment`,
   title: `A comment`,
   body: `hello`,
-  createdAt: TWO_HOURS_AGO,
+  createdAt: SIX_HOURS_AGO,
   readAt: null,
   email: `user-1@example.com`,
   emailVerified: true,
@@ -190,6 +192,24 @@ describe(`daily send point (EXP-369)`, () => {
 
     expect(sendNotificationDigestEmail).not.toHaveBeenCalled()
     expect(result.emailsSent).toBe(0)
+  })
+
+  it(`defers a row created after today's send point (EXP-399 — no instant email)`, async () => {
+    // 12:00Z sweep, row created 10:00Z — after the 08:00Z send point — and a
+    // never-emailed user (no delivery aggregate). Before EXP-399 this sent
+    // instantly; the row must wait for tomorrow's send point instead.
+    selectResults.push(
+      [row({ createdAt: new Date(`2026-07-20T10:00:00Z`) })],
+      []
+    )
+    updateReturning.push([])
+
+    const result = await runEmailDigestSweep(NOW)
+
+    expect(sendNotificationDigestEmail).not.toHaveBeenCalled()
+    expect(result).toEqual({ emailsSent: 0, notificationsClaimed: 0 })
+    // Deferred, not claimed — the next sweep reconsiders it.
+    expect(ops.some((op) => op.kind === `update`)).toBe(false)
   })
 
   it(`sends for the same instant when the account has no timezone (UTC)`, async () => {

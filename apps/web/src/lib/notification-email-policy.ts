@@ -67,13 +67,17 @@ export function normalizeDigestHour(hour: number | null | undefined): number {
 // bundles notifications that are still UNREAD into ONE digest email per user
 // — reading them in time (the push did its job) means no email at all, which
 // keeps transactional volume low. `daily` (the default) fires at the user's
-// chosen local hour and bundles everything still unread at that moment;
-// `off` is the legacy hourly cadence, which keeps the old "unread an hour
-// after the push" floor.
+// chosen local hour and bundles everything created at or before that send
+// point and still unread — rows created after it ride the next day's
+// (EXP-399); `off` is the legacy hourly cadence, which keeps the old "unread
+// an hour after the push" floor.
 
 // How long a notification must have stayed unread before it qualifies, BY
-// CADENCE. Daily has no floor (EXP-369): the send hour itself is the delay,
-// so a row created five minutes before it belongs in today's digest.
+// CADENCE. Daily has no age floor (EXP-369) — its delay is the send hour
+// itself: a row qualifies only once a send point has passed since its
+// creation (EXP-399, enforced per-row in planEmailDigest), so a row created
+// five minutes before the send hour belongs in today's digest and one created
+// five minutes after waits for tomorrow's.
 export const DIGEST_MIN_UNREAD_AGE_MS: Record<DigestCadence, number> = {
   off: 60 * 60 * 1000,
   daily: 0,
@@ -261,11 +265,15 @@ export function lastDailySendPoint(
 }
 
 // Is this user due a digest email now, given when their last one was sent?
-// Accepted quirks of the send-hour model (deliberate, not bugs): a
-// notification created a minute before the send hour gets push and email
-// near-simultaneously; moving digestHour later in the same day can produce a
-// second digest that day; and a failed-send retry lands at whatever hour the
-// backoff expires rather than the chosen one.
+// The daily arm gates only on the LAST SEND vs the send point — "no send
+// point has passed since a row was created" is the per-row filter in
+// planEmailDigest (EXP-399), which is also what keeps the never-sent
+// `!lastDigestSentAt → true` arm from firing instantly. Accepted quirks of
+// the send-hour model (deliberate, not bugs): a notification created a
+// minute before the send hour gets push and email near-simultaneously;
+// moving digestHour later in the same day can produce a second digest that
+// day; and a failed-send retry lands at whatever hour the backoff expires
+// rather than the chosen one.
 export function isDigestDue(
   prefs: EmailPrefsLike | null | undefined,
   timezone: string | null | undefined,
@@ -447,12 +455,28 @@ export function planEmailDigest<T extends DigestCandidate>(args: {
     const cadence = digestCadence(prefs)
     const minAge = DIGEST_MIN_UNREAD_AGE_MS[cadence]
     const maxAge = DIGEST_MAX_AGE_MS[cadence]
+    // Daily rows ride the NEXT send point after their creation (EXP-399): a
+    // row created after today's send point defers to tomorrow's. Without this
+    // per-row gate the cadence check alone made any fresh notification email
+    // instantly whenever the user's last digest predated today's send point —
+    // the steady state, since digests only go out when something is pending
+    // (and a never-sent user was due at every sweep).
+    const sendPoint =
+      cadence === `daily`
+        ? lastDailySendPoint(
+            timezoneByUser.get(userId) ?? null,
+            prefs?.digestHour,
+            now
+          )
+        : null
     const allowed: T[] = []
     for (const row of byUser.get(userId)!) {
-      // Too fresh → wait for the next sweep. Past the backstop → never
-      // emailed. Both stay UNCLAIMED (deferred), like before.
+      // Too fresh (hourly floor / no daily send point passed yet) → wait for
+      // a later sweep. Past the backstop → never emailed. Both stay
+      // UNCLAIMED (deferred), like before.
       const age = now.getTime() - row.createdAt.getTime()
       if (age < minAge || age > maxAge) continue
+      if (sendPoint && row.createdAt.getTime() > sendPoint.getTime()) continue
       // The master switch no longer gates the per-type toggles (EXP-369) —
       // it silences the digest, so its rows are claimed here rather than
       // rescanned until they age out.
