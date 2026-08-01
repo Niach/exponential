@@ -1,0 +1,1 @@
+La scheda Agenti ora mostra solo le sessioni di programmazione del team selezionato.

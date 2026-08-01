@@ -1,0 +1,1 @@
+Fila Agenți afișează acum doar sesiunile de codare ale echipei selectate.

@@ -1,0 +1,1 @@
+Karta Agenci pokazuje teraz tylko sesje kodowania wybranego zespołu.

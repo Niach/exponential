@@ -1,0 +1,1 @@
+L'onglet Agents n'affiche désormais que les sessions de code de l'équipe sélectionnée.

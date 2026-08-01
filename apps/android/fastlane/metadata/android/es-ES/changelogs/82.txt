@@ -1,0 +1,1 @@
+La pestaña Agentes ahora muestra solo las sesiones de programación del equipo seleccionado.

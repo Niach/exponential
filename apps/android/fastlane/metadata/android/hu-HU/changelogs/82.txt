@@ -1,0 +1,1 @@
+Az Agents lap mostantól csak a kiválasztott csapat kódolási munkameneteit mutatja.

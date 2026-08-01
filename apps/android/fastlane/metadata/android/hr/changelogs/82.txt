@@ -1,0 +1,1 @@
+Kartica Agenti sada prikazuje samo sesije kodiranja odabranog tima.

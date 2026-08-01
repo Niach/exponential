@@ -1,0 +1,6 @@
+Vibecode together. Exponential sa neustále zlepšuje.
+
+• Sledovanie úloh v reálnom čase, naživo synchronizované s webom, desktopom aj iOS.
+• Začnite kódovať z telefónu: agenti pracujú na skutočnej vetve a otvoria PR.
+• Riaďte relácie naživo a odpovedajte agentovi na otázky odkiaľkoľvek.
+• Zdieľaná schránka podpory, push notifikácie a Markdown všade.

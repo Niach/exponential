@@ -1,0 +1,1 @@
+Der Agents-Tab zeigt jetzt nur noch die Coding-Sessions des ausgewählten Teams.
