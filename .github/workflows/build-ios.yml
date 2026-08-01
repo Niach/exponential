@@ -66,17 +66,27 @@ jobs:
       - name: Resolve SPM dependencies
         run: tuist install
 
-      - name: Write the ASC API key
-        run: printf '%s' "$ASC_KEY_CONTENT" | base64 -d > "$RUNNER_TEMP/asc.p8"
-        env:
-          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+      # UNSIGNED archive: cloud-managed signing on the runner keychain
+      # produces signatures altool rejects on the nested frameworks/appex
+      # (tried 2026-08-01, with and without setup_ci). The archive is signed
+      # and uploaded from a trusted Mac instead — xcodebuild -exportArchive
+      # re-signs everything and never touches the release-host
+      # BuildMachineOSBuild stamps this runner exists to provide.
+      - name: Archive (unsigned)
+        run: |
+          tuist generate --no-open
+          set -o pipefail
+          xcodebuild -workspace Exponential.xcworkspace -scheme Exponential \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Exponential.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO clean archive | tail -40
 
-      - name: Build and upload to App Store Connect
-        run: fastlane release
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_PATH: ${{ runner.temp }}/asc.p8
-          LANG: en_US.UTF-8
-          LANGUAGE: en_US.UTF-8
-          LC_ALL: en_US.UTF-8
+      - name: Zip the archive
+        run: ditto -c -k --keepParent "$RUNNER_TEMP/Exponential.xcarchive" "$RUNNER_TEMP/Exponential.xcarchive.zip"
+
+      - name: Upload the archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcarchive
+          path: ${{ runner.temp }}/Exponential.xcarchive.zip
+          retention-days: 3
