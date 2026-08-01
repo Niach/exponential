@@ -29,6 +29,10 @@ end
 platform :ios do
   desc "Regenerate the Tuist project and build a signed App Store archive (.ipa)."
   lane :build do
+    # On CI (build-ios.yml) the cloud-managed signing cert must land in an
+    # unlocked temp keychain — without this the upload fails with altool's
+    # "Invalid Signature. Code failed to satisfy specified code requirement(s)".
+    setup_ci if ENV["CI"]
     # `sh` runs from the fastlane/ dir, so step up to apps/ios to regenerate the project.
     sh("cd .. && tuist generate --no-open")
 
