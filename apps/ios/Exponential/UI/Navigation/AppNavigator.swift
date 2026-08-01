@@ -45,7 +45,9 @@ enum AppRoute: Hashable {
 }
 
 /// The board the Issues tab is currently showing. May belong to a
-/// non-active account — the switcher sheet spans every signed-in server.
+/// non-active account while the fallback resolve crosses servers — but a
+/// switcher pick of another server's board activates that account
+/// (EXP-400, Android parity), so the two normally coincide.
 struct CurrentBoardRef: Hashable {
     let accountId: String
     let boardId: String
@@ -257,6 +259,10 @@ struct MainNavigator: View {
     // recompute `agentsRunning` between sync deltas (EXP-153).
     @State private var observedSessions: [CodingSessionEntity] = []
     @State private var currentBoard: CurrentBoardRef?
+    // EXP-400: the current board resolved before the boards observation
+    // delivered rows, so the active-team alignment couldn't look up its
+    // team yet — re-run it on the next boards emission.
+    @State private var pendingTeamAlign = false
     @State private var composeTarget: ComposeTarget?
 
     private struct ComposeTarget: Identifiable {
@@ -669,6 +675,7 @@ struct MainNavigator: View {
             do {
                 for try await proj in projObs.values(in: pool) {
                     teamState.boards = proj
+                    if pendingTeamAlign { alignActiveTeam() }
                 }
             } catch {}
         }
@@ -757,7 +764,8 @@ struct MainNavigator: View {
 
     /// Resolution order: keep a still-valid selection → last-used board →
     /// first board of the first team (active account sorts first) →
-    /// none (empty state, switcher disabled).
+    /// none (empty state, switcher disabled). A changed resolution also
+    /// re-points the active team at the board's team (EXP-400).
     private func resolveCurrentBoard() {
         let available = Set(availableBoardKeys)
         if let current = currentBoard,
@@ -767,11 +775,13 @@ struct MainNavigator: View {
         if let last = SharedBoardMirror.readLastUsed(),
            available.contains("\(last.accountId)/\(last.boardId)") {
             currentBoard = CurrentBoardRef(accountId: last.accountId, boardId: last.boardId)
+            alignActiveTeam()
             return
         }
         if let group = boardLoader?.groups.first,
            let board = group.teamBlocks.first?.boards.first {
             currentBoard = CurrentBoardRef(accountId: group.accountId, boardId: board.id)
+            alignActiveTeam()
             return
         }
         currentBoard = nil
@@ -782,6 +792,42 @@ struct MainNavigator: View {
         // and the next launch lands back in it.
         SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
         currentBoard = CurrentBoardRef(accountId: accountId, boardId: boardId)
+        // EXP-400: the tab bar's team-scoped surfaces (Support, Reviews, the
+        // Agents start pool, Actions) key off the active team — without a
+        // re-point here a cross-team pick left them all serving the previous
+        // team. A cross-server pick activates the picked account instead
+        // (Android parity): `.id(activeAccountId)` recreates this navigator
+        // and the fresh resolve lands on the just-written last-used board,
+        // aligning the team on the way.
+        if accountId != (deps.auth.activeAccountId ?? "") {
+            deps.auth.switchAccount(id: accountId)
+            return
+        }
+        alignActiveTeam()
+    }
+
+    /// Points the active team at the current board's team (EXP-400). Called
+    /// only when the current board actually CHANGES — an inbox Support-group
+    /// tap deliberately selects a team other than the current board's, and
+    /// that choice must survive unrelated re-renders and sync deltas.
+    private func alignActiveTeam() {
+        guard let current = currentBoard,
+              current.accountId == (deps.auth.activeAccountId ?? "") else {
+            // A foreign-account board can't be looked up in the active
+            // account's pool — nothing to align (and nothing pending).
+            pendingTeamAlign = false
+            return
+        }
+        guard let teamId = teamState.boards.first(where: { $0.id == current.boardId })?.teamId else {
+            // Boards not observed yet (cold start / fresh account switch) —
+            // retry on the next boards emission.
+            pendingTeamAlign = true
+            return
+        }
+        pendingTeamAlign = false
+        if teamState.activeTeamId != teamId {
+            teamState.activeTeamId = teamId
+        }
     }
 
     /// Push the issue detail from a deep-link/push tap. Shared by both drain
