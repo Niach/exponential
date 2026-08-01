@@ -1,0 +1,70 @@
+name: build-ios
+
+# App Store upload for ios-v* tags. Exists because App Store review REJECTS
+# binaries whose BuildMachineOSBuild stamp is a beta macOS (ITMS-90111), and
+# the local build Mac tracks the macOS beta — this runner is the release-OS
+# build environment. Signing is cloud-managed via the ASC API key (repo
+# secrets ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_CONTENT); the fastlane lane
+# uploads the build and metadata but never submits for review — that tap
+# stays manual in App Store Connect.
+
+on:
+  push:
+    tags:
+      - 'ios-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    # Xcode 26.x requires macOS Tahoe 26.2+, so this must be a macos-26 image
+    # (a RELEASE macOS — the whole point of building here).
+    runs-on: macos-26
+
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select the newest RELEASE Xcode 26.x
+        run: |
+          ls /Applications | grep -i '^xcode' || true
+          XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$XCODE_APP" ]; then
+            echo "No release Xcode 26.x on this image" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+          sw_vers
+
+      - name: Install tuist
+        run: |
+          curl -fsSL https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
+
+      - name: Pin tuist
+        run: |
+          mise use -g tuist@4.202.6
+          tuist version
+
+      - name: Write the ASC API key
+        run: printf '%s' "$ASC_KEY_CONTENT" | base64 -d > "$RUNNER_TEMP/asc.p8"
+        env:
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+
+      - name: Build and upload to App Store Connect
+        run: fastlane release
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc.p8
+          LANG: en_US.UTF-8
+          LANGUAGE: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
