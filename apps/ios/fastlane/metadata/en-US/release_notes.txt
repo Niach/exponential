@@ -1,4 +1,4 @@
+- The Agents tab now shows only the selected team's coding sessions, matching the web app
 - Switching boards now refreshes the app immediately, including when the board lives on another server
 - Actions with icon inputs use the same curated icon picker as boards
 - Signed-out duplicate server entries are cleaned up automatically
-- Visual polish: the Delete issue row has its trash icon and the GitHub connect buttons match Android
