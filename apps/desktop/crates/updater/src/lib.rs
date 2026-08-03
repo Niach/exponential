@@ -197,6 +197,24 @@ pub fn expected_asset_name(strategy: &Strategy) -> String {
     }
 }
 
+/// The `cli-v*` release asset for this machine (EXP-403): a bare binary
+/// named `exponential-<target triple>`, matching build-cli.yml's matrix.
+/// Unsupported OS/arch combinations still produce a name — it simply never
+/// matches an asset and the update check degrades to "no update found".
+pub fn cli_asset_name() -> String {
+    format!("exponential-{}", cli_target_triple())
+}
+
+/// The build-cli.yml target triple for the running host.
+pub fn cli_target_triple() -> String {
+    let arch = std::env::consts::ARCH;
+    match std::env::consts::OS {
+        "linux" => format!("{arch}-unknown-linux-gnu"),
+        "macos" => format!("{arch}-apple-darwin"),
+        other => format!("{arch}-{other}"),
+    }
+}
+
 /// Where downloads are staged: `<data_local>/exponential/updates` (the app's
 /// per-user data dir, incl. the macOS casing).
 pub fn staging_dir() -> Option<PathBuf> {

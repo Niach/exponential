@@ -14,29 +14,42 @@
 //! grid/escape output. `element` is the gpui glue (the grid `Element` + the
 //! `TerminalView` entity).
 //!
+//! The default-on `gpui` cargo feature (EXP-403) gates the UI half
+//! (`element`/`manager`/`tab`'s view types/`keys`/`mouse`) so the headless
+//! `exponential` CLI can consume the core without pulling gpui.
+//!
 //! Licensing boundary (§3.8): alacritty_terminal UPSTREAM (Apache-2.0) only —
 //! never Zed's GPL `terminal`/`terminal_view` code.
 
+#[cfg(feature = "gpui")]
 pub mod element;
 pub mod emulator;
+#[cfg(feature = "gpui")]
 pub mod keys;
+#[cfg(feature = "gpui")]
 pub mod manager;
+#[cfg(feature = "gpui")]
 pub mod mouse;
 pub mod pty;
 pub mod read_loop;
 pub mod session;
 pub mod tab;
 
+#[cfg(feature = "gpui")]
 pub use element::{init, GridGeometry, TerminalElement, TerminalView, TerminalViewEvent};
 pub use emulator::{
     bracketed_paste_enabled, display_offset, grid_size, screen_lines, Emulator, EmulatorSignal,
     EventProxy, GridSize, TermHandle,
 };
+#[cfg(feature = "gpui")]
 pub use keys::to_esc_str;
+#[cfg(feature = "gpui")]
 pub use manager::{TerminalManager, TerminalManagerEvent};
 pub use pty::{
     build_command, login_path, open, prewarm_login_path, ChildExit, ExitSlot, Pty, SpawnSpec,
 };
 pub use read_loop::{spawn_read_loop, Wake};
 pub use session::Terminal;
-pub use tab::{ExitHook, TabId, TabKind, TabStatus, TerminalTab};
+#[cfg(feature = "gpui")]
+pub use tab::{ExitHook, TerminalTab};
+pub use tab::{TabId, TabKind, TabStatus};

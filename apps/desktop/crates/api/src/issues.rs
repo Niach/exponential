@@ -496,6 +496,53 @@ pub fn search(
 }
 
 // ---------------------------------------------------------------------------
+// issues.get (EXP-403 — the CLI's identifier→row resolver)
+// ---------------------------------------------------------------------------
+
+/// The `issues.get` row (the synced issues-shape allowlist, camelCase over
+/// tRPC). Only the fields the CLI launcher consumes are typed; everything
+/// else is tolerant so server-side additions never break the decode.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchedIssue {
+    pub id: String,
+    /// `EXP-42`.
+    pub identifier: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The dual-written ANCHOR enum (`backlog`/`todo`/…).
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub pr_url: Option<String>,
+    #[serde(default)]
+    pub pr_state: Option<String>,
+}
+
+/// `issues.get` output: the row plus its team (top-level, not a row field).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueGetResult {
+    pub issue: FetchedIssue,
+    pub team_id: String,
+}
+
+#[derive(Serialize)]
+struct IssueGetInput<'a> {
+    id: &'a str,
+}
+
+/// `issues.get` — query. Accepts a UUID or a human identifier (`EXP-42`,
+/// case-insensitive server-side — the same semantics as the MCP layer's
+/// resolveIssueId). NOT_FOUND (404) for unknown/trashed issues.
+pub fn issues_get(client: &TrpcClient, id: &str) -> Result<IssueGetResult, ApiError> {
+    client.query_with_input("issues.get", &IssueGetInput { id })
+}
+
+// ---------------------------------------------------------------------------
 // issues.prFiles (§7.8)
 // ---------------------------------------------------------------------------
 

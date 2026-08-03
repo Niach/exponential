@@ -196,12 +196,18 @@ fun StartCodingSheet(
     val poolIds = remember(issues) { issues.mapTo(HashSet()) { it.id } }
     val initialInPoolCount = remember { preselectedIds.count { it in poolIds } }
 
+    // Only ONLINE machines can take a start — the relay refuses the rest with
+    // device_offline. The Agents tab feeds this sheet the whole EXP-403
+    // registry (offline rows included), so the filter lives here, once, for
+    // every host rather than at each call site.
+    val startable = remember(devices) { devices.filter { it.online } }
+
     // The initially selected desktop decides which agents are on offer before
     // any state exists — a stored agent the device can't run falls back to the
     // device's first available agent, with that agent's model/effort defaults.
     val initialAgent = remember {
-        val initialDevice = devices.firstOrNull { it.deviceId == preferredDeviceId }
-            ?: devices.firstOrNull()
+        val initialDevice = startable.firstOrNull { it.deviceId == preferredDeviceId }
+            ?: startable.firstOrNull()
         storedAgent.takeIf { it in availableAgentsFor(initialDevice) }
             ?: availableAgentsFor(initialDevice).first()
     }
@@ -302,8 +308,8 @@ fun StartCodingSheet(
 
     var deviceId by remember {
         mutableStateOf(
-            devices.firstOrNull { it.deviceId == preferredDeviceId }?.deviceId
-                ?: devices.firstOrNull()?.deviceId,
+            startable.firstOrNull { it.deviceId == preferredDeviceId }?.deviceId
+                ?: startable.firstOrNull()?.deviceId,
         )
     }
     // Per-tab device candidates: issues take any desktop; actions need the
@@ -312,13 +318,13 @@ fun StartCodingSheet(
     // candidates re-settles on the first one without clobbering the stored
     // choice for the other tab.
     val deviceCandidates = if (subjectTab == SubjectTab.Actions) {
-        devices.filter {
+        startable.filter {
             it.canRunActions &&
                 (!needsInputCap || it.canRunActionInputs) &&
                 (!needsFixConflictsCap || it.canFixConflicts)
         }
     } else {
-        devices
+        startable
     }
     val device = deviceCandidates.firstOrNull { it.deviceId == deviceId }
         ?: deviceCandidates.firstOrNull()

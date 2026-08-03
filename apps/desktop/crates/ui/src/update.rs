@@ -552,8 +552,9 @@ fn build_plan(assets: &[ReleaseAsset]) -> Option<UpdatePlan> {
 }
 
 /// Numeric `major.minor.patch` compare (pre-release/build metadata ignored —
-/// good enough for a "download available" nudge; the human decides).
-fn is_newer(candidate: &str, current: &str) -> bool {
+/// good enough for a "download available" nudge; the human decides). Shared
+/// with the "My machines" rows, which nudge on `CLIENT_LATEST_VERSION_*`.
+pub(crate) fn is_newer(candidate: &str, current: &str) -> bool {
     parse_semver(candidate) > parse_semver(current)
 }
 

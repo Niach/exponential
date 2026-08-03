@@ -13,6 +13,9 @@ export type AuthConfig = {
   googleLoginEnabled: boolean
   appleLoginEnabled: boolean
   githubEnabled: boolean
+  // RFC 8628 device-code login is available (EXP-403) — the CLI feature-detects
+  // this and falls back to password login against older self-hosted instances.
+  deviceFlowEnabled: boolean
 }
 
 // Public password sign-up: historically OFF in production (invite/OAuth
@@ -49,6 +52,7 @@ export function buildAuthConfig(): AuthConfig {
     githubEnabled: Boolean(
       process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY
     ),
+    deviceFlowEnabled: true,
   }
 }
 

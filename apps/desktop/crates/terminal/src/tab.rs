@@ -10,9 +10,13 @@
 //!   name, shell basename) and the live OSC title (`AlacTermEvent::Title`,
 //!   §6.6) so a title *reset* falls back to the default instead of blanking.
 
+#[cfg(feature = "gpui")]
 use crate::element::TerminalView;
+#[cfg(feature = "gpui")]
 use crate::pty::ChildExit;
+#[cfg(feature = "gpui")]
 use gpui::{App, Entity, SharedString, Subscription};
+#[cfg(feature = "gpui")]
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -21,6 +25,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub struct TabId(u64);
 
 impl TabId {
+    #[cfg_attr(not(feature = "gpui"), allow(dead_code))]
     pub(crate) fn next() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self(NEXT.fetch_add(1, Ordering::Relaxed))
@@ -66,9 +71,11 @@ pub enum TabStatus {
 /// idempotent server-side); Phase 5 also flips the run-bar play→stop off the
 /// same edge. **Deferred wiring:** until the `coding` crate lands, nothing
 /// installs a hook — plain shell tabs pass `None`.
+#[cfg(feature = "gpui")]
 pub type ExitHook = Box<dyn FnOnce(TabId, &ChildExit, &mut App) + 'static>;
 
 /// One tab in the bottom-dock strip (§6.13).
+#[cfg(feature = "gpui")]
 pub struct TerminalTab {
     pub id: TabId,
     pub kind: TabKind,
@@ -92,6 +99,7 @@ pub struct TerminalTab {
     pub(crate) _subscription: Subscription,
 }
 
+#[cfg(feature = "gpui")]
 impl TerminalTab {
     /// Effective strip title: live OSC title, else the kind default.
     pub fn title(&self) -> &SharedString {
@@ -125,6 +133,7 @@ impl TerminalTab {
 }
 
 /// [`TerminalTab::decorate_osc_title`]'s pure core (testable without a view).
+#[cfg(feature = "gpui")]
 fn decorate_osc_title(prefix: Option<&str>, title: SharedString) -> SharedString {
     match prefix {
         Some(prefix) if !title.contains(prefix) => format!("{prefix} · {title}").into(),
@@ -144,6 +153,7 @@ mod tests {
         assert!(b.0 > a.0);
     }
 
+    #[cfg(feature = "gpui")]
     #[test]
     fn osc_title_gets_the_issue_prefix() {
         // EXP-145: claude's OSC title is its task description — the tab must
@@ -154,6 +164,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "gpui")]
     #[test]
     fn osc_title_prefix_never_doubles() {
         // An OSC title already naming the issue stays as-is.
@@ -163,6 +174,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "gpui")]
     #[test]
     fn osc_title_without_prefix_passes_through() {
         // Shell tabs carry no prefix — OSC titles land verbatim.

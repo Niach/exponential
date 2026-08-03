@@ -171,6 +171,37 @@ export const oauthConsents = pgTable(`oauth_consents`, {
 // The Better Auth adapter still receives it via the `@/db/auth-schema`
 // re-export in the web app.
 
+// Table for the better-auth `deviceAuthorization` plugin (EXP-403 CLI
+// login, RFC 8628). With `usePlural: true` on the drizzle adapter, Better
+// Auth looks up schema export `deviceCodes` for the `deviceCode` model.
+// Field list mirrors the plugin schema exactly (no timestamps there);
+// `pollingInterval` is stored in milliseconds. Rows are short-lived — the
+// plugin deletes them on token issue / deny / expiry-poll.
+export const deviceCodes = pgTable(
+  `device_codes`,
+  {
+    id: text(`id`).primaryKey(),
+    deviceCode: text(`device_code`).notNull(),
+    userCode: text(`user_code`).notNull(),
+    // Claimed by the verifying session's user; null until claimed. Cascade
+    // like every other user-linked auth table (REV2-16).
+    userId: text(`user_id`).references(() => users.id, {
+      onDelete: `cascade`,
+    }),
+    expiresAt: timestamp(`expires_at`).notNull(),
+    status: text(`status`).notNull(),
+    lastPolledAt: timestamp(`last_polled_at`),
+    pollingInterval: integer(`polling_interval`),
+    clientId: text(`client_id`),
+    scope: text(`scope`),
+  },
+  (table) => [
+    index(`device_codes_device_code_idx`).on(table.deviceCode),
+    index(`device_codes_user_code_idx`).on(table.userCode),
+    index(`device_codes_user_id_idx`).on(table.userId),
+  ]
+)
+
 // Table for the better-auth `@better-auth/api-key` plugin. With
 // `usePlural: true` on the drizzle adapter, Better Auth looks up
 // schema export `apikeys` for the `apikey` model.

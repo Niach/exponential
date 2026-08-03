@@ -23,6 +23,7 @@ import { repositoriesRouter } from "@/lib/trpc/repositories"
 import { actionsRouter } from "@/lib/trpc/actions"
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { steerRouter } from "@/lib/trpc/steer"
+import { devicesRouter } from "@/lib/trpc/devices"
 import { billingRouter } from "@/lib/trpc/billing"
 import { onboardingRouter } from "@/lib/trpc/onboarding"
 import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
@@ -44,6 +45,7 @@ export const appRouter = router({
   actions: actionsRouter,
   codingSessions: codingSessionsRouter,
   steer: steerRouter,
+  devices: devicesRouter,
   teamInvites: teamInvitesRouter,
   teamMembers: teamMembersRouter,
   users: usersRouter,

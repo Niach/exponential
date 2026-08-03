@@ -208,6 +208,19 @@ export const PAGES: PageSeo[] = [
     ]),
   },
   {
+    path: `/docs/cli/`,
+    htmlFile: `docs/cli/index.html`,
+    sources: [`src/CliDocsPage.tsx`],
+    title: `CLI & daemon · Exponential docs`,
+    description: `Install the exponential CLI, sign in with a device code, and start coding sessions and actions from any terminal. Run the daemon to register a Linux or macOS server as an always-on agent machine, startable and steerable from the web.`,
+    ogImage: `/og/og-docs.png`,
+    jsonLd: breadcrumb([
+      { name: `Home`, path: `/` },
+      { name: `Docs`, path: `/docs/` },
+      { name: `CLI & daemon`, path: `/docs/cli/` },
+    ]),
+  },
+  {
     path: `/docs/feedback/`,
     htmlFile: `docs/feedback/index.html`,
     sources: [`src/FeedbackDocsPage.tsx`],

@@ -94,6 +94,11 @@ pub struct AuthConfig {
     pub apple_login_enabled: bool,
     #[serde(default)]
     pub github_enabled: bool,
+    /// RFC 8628 device-code login (EXP-403). Defaults FALSE: an older
+    /// self-hosted instance without the field lacks the endpoints — the CLI
+    /// then falls back to password login.
+    #[serde(default)]
+    pub device_flow_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -128,6 +133,46 @@ pub struct AuthUser {
 pub struct SignInSuccess {
     pub token: String,
     pub user: AuthUser,
+}
+
+/// The OAuth `client_id` the CLI presents on the device-code grant
+/// (EXP-403). The server does not restrict client ids today; the value
+/// exists for auditability and future `validateClient` policy.
+pub const DEVICE_CLIENT_ID: &str = "exponential-cli";
+
+/// `POST /api/auth/device/code` response (RFC 8628 §3.2, snake_case wire).
+#[derive(Clone, Debug, Deserialize)]
+pub struct DeviceCodeGrant {
+    pub device_code: String,
+    /// What the user types on `/auth/device` (charset excludes 0/1/I/O).
+    pub user_code: String,
+    pub verification_uri: String,
+    #[serde(default)]
+    pub verification_uri_complete: Option<String>,
+    /// Seconds until the codes expire.
+    pub expires_in: u64,
+    /// Minimum poll spacing in seconds — polling faster answers `slow_down`.
+    #[serde(default = "default_device_interval")]
+    pub interval: u64,
+}
+
+fn default_device_interval() -> u64 {
+    5
+}
+
+/// One `POST /api/auth/device/token` poll outcome.
+#[derive(Clone, Debug)]
+pub enum DevicePoll {
+    /// Approved: `token` is a regular Better Auth session token.
+    Authorized { token: String },
+    /// Still waiting for the user — poll again after `interval`.
+    Pending,
+    /// Polled too fast — back off (the server does not bump the interval).
+    SlowDown,
+    /// The codes expired — restart the flow.
+    Expired,
+    /// The user denied the request.
+    Denied,
 }
 
 #[derive(Deserialize)]
@@ -223,6 +268,82 @@ impl AuthClient {
                 "sign-in succeeded but no user returned".to_string(),
             )),
         }
+    }
+
+    /// `POST /api/auth/device/code` — start the RFC 8628 device-code grant
+    /// (EXP-403 CLI login). Unauthenticated. The caller shows
+    /// `verification_uri` + `user_code`, then polls [`Self::poll_device_token`]
+    /// every `interval` seconds until the user approves on `/auth/device`.
+    pub fn request_device_code(&self, instance_url: &str) -> Result<DeviceCodeGrant, ApiError> {
+        let base = normalize_instance_url(instance_url);
+        let payload = serde_json::json!({ "client_id": DEVICE_CLIENT_ID });
+        let response = send(
+            versioned(self.client.post(format!("{base}/api/auth/device/code")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("Origin", &base)
+                .body(payload.to_string()),
+        )?
+        .ok_or_status()?;
+        serde_json::from_str(&response.body)
+            .map_err(|e| ApiError::Decode(format!("device/code: {e}")))
+    }
+
+    /// `POST /api/auth/device/token` — one poll of the device-code grant.
+    /// The RFC error vocabulary (`authorization_pending` / `slow_down` /
+    /// `expired_token` / `access_denied`) comes back as HTTP 400 and is a
+    /// RESULT here, never an `Err`; only transport/decode/unexpected-status
+    /// failures error. On approval the `access_token` is a regular Better
+    /// Auth session token (usable exactly like a password sign-in's).
+    pub fn poll_device_token(
+        &self,
+        instance_url: &str,
+        device_code: &str,
+    ) -> Result<DevicePoll, ApiError> {
+        let base = normalize_instance_url(instance_url);
+        let payload = serde_json::json!({
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "device_code": device_code,
+            "client_id": DEVICE_CLIENT_ID,
+        });
+        let response = send(
+            versioned(self.client.post(format!("{base}/api/auth/device/token")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("Origin", &base)
+                .body(payload.to_string()),
+        )?;
+        if response.status == 400 {
+            #[derive(Deserialize)]
+            struct OauthError {
+                #[serde(default)]
+                error: String,
+            }
+            let parsed: OauthError = serde_json::from_str(&response.body)
+                .map_err(|e| ApiError::Decode(format!("device/token error body: {e}")))?;
+            return Ok(match parsed.error.as_str() {
+                "authorization_pending" => DevicePoll::Pending,
+                "slow_down" => DevicePoll::SlowDown,
+                "expired_token" => DevicePoll::Expired,
+                "access_denied" => DevicePoll::Denied,
+                other => {
+                    return Err(ApiError::Http {
+                        status: 400,
+                        message: format!("device/token: {other}"),
+                    })
+                }
+            });
+        }
+        let response = response.ok_or_status()?;
+        #[derive(Deserialize)]
+        struct TokenBody {
+            access_token: String,
+        }
+        let parsed: TokenBody = serde_json::from_str(&response.body)
+            .map_err(|e| ApiError::Decode(format!("device/token: {e}")))?;
+        Ok(DevicePoll::Authorized {
+            token: parsed.access_token,
+        })
     }
 
     /// `GET /api/auth/get-session` with the bearer. `Ok(Some(user))` = the

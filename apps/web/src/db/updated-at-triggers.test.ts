@@ -40,6 +40,10 @@ const APP_STAMPED: Record<string, string> = {
   // Single writer (the SES webhook), which stamps updatedAt on both the upsert
   // and the auto-suppress write.
   email_bounces: `ses webhook stamps it on every write`,
+  // EXP-403: the devices router is the ONLY writer and stamps updatedAt on
+  // register/heartbeat/rename explicitly (last_seen_at is the liveness
+  // column; updated_at just mirrors the same writes).
+  devices: `devices router stamps it on every write`,
 }
 
 function tablesWithUpdatedAt(): string[] {

@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react"
 import {
+  deviceAuthorizationClient,
   genericOAuthClient,
   inferAdditionalFields,
 } from "better-auth/client/plugins"
@@ -15,6 +16,8 @@ export const authClient = createAuthClient({
     genericOAuthClient(),
     inferAdditionalFields<typeof auth>(),
     creemClient(),
+    // /auth/device verification page (EXP-403 CLI device-code login).
+    deviceAuthorizationClient(),
   ],
 })
 

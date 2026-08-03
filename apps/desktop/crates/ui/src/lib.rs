@@ -51,6 +51,7 @@ mod issue_list;
 mod join_team;
 pub mod licenses;
 mod login;
+mod machines;
 #[cfg(target_os = "macos")]
 pub mod macos_blur;
 pub mod markdown;

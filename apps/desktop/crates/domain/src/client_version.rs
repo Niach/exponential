@@ -7,6 +7,19 @@
 /// The header every request to the instance server carries.
 pub const CLIENT_VERSION_HEADER: &str = "x-client-version";
 
+/// EXP-403: the `exponential` CLI shares `api`/`sync` with the desktop but
+/// must identify as its OWN platform (`cli/<version>`, its own
+/// `CLIENT_MIN_VERSION_CLI` gate). Set ONCE at process start (before any
+/// request) by the CLI's main; the desktop never calls this and keeps the
+/// `desktop/<version>` default.
+static IDENTITY_OVERRIDE: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+
+/// Override the `<platform>/<version>` identity this process sends. Later
+/// calls are ignored (first write wins).
+pub fn set_client_identity(platform: &str, version: &str) {
+    let _ = IDENTITY_OVERRIDE.set((platform.to_string(), version.to_string()));
+}
+
 /// The version this binary was compiled at. Release CI injects the real tag
 /// version via `EXP_DESKTOP_VERSION`; the `CARGO_PKG_VERSION` fallback
 /// resolves to the shared team version (every crate inherits
@@ -17,9 +30,13 @@ pub fn current_version() -> &'static str {
     option_env!("EXP_DESKTOP_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
 }
 
-/// The header value: `desktop/<compiled version>`.
+/// The header value: `desktop/<compiled version>` — or the process identity
+/// installed via [`set_client_identity`] (the CLI's `cli/<version>`).
 pub fn client_version_header_value() -> String {
-    format!("desktop/{}", current_version())
+    match IDENTITY_OVERRIDE.get() {
+        Some((platform, version)) => format!("{platform}/{version}"),
+        None => format!("desktop/{}", current_version()),
+    }
 }
 
 #[cfg(test)]

@@ -32,6 +32,7 @@ import {
   deviceCanFixConflicts,
   deviceCanRunActionInputs,
   deviceCanRunActions,
+  deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
 import type { RemoteStartAction } from "@/hooks/use-remote-start"
@@ -391,18 +392,19 @@ export function LaunchDialog({
   // The "Fix merge conflicts" builtin needs its own cap on top (EXP-259) —
   // filter here so an outdated desktop can't be picked and fail after submit.
   const needsFixConflictsCap = selectedAction?.id === BUILTIN_FIX_CONFLICTS_ID
-  const candidateDevices = useMemo(
-    () =>
-      tab === `issues`
-        ? devices
-        : devices.filter(
-            (candidate) =>
-              deviceCanRunActions(candidate) &&
-              (!needsInputsCap || deviceCanRunActionInputs(candidate)) &&
-              (!needsFixConflictsCap || deviceCanFixConflicts(candidate))
-          ),
-    [devices, tab, needsInputsCap, needsFixConflictsCap]
-  )
+  const candidateDevices = useMemo(() => {
+    // EXP-403: the registry lists offline machines too — only online ones
+    // are startable (the relay would 404 the rest with device_offline).
+    const online = devices.filter(deviceIsOnline)
+    return tab === `issues`
+      ? online
+      : online.filter(
+          (candidate) =>
+            deviceCanRunActions(candidate) &&
+            (!needsInputsCap || deviceCanRunActionInputs(candidate)) &&
+            (!needsFixConflictsCap || deviceCanFixConflicts(candidate))
+        )
+  }, [devices, tab, needsInputsCap, needsFixConflictsCap])
 
   // Settle the device on open + whenever the candidate list changes (tab
   // switch, action selection, a desktop connecting mid-dialog); a still-valid

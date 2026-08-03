@@ -29,6 +29,11 @@ export const DOCS_NAV: DocsNavEntry[] = [
     blurb: `Reusable team prompts your agents run on demand from the desktop, the web, or your phone.`,
   },
   {
+    path: `/docs/cli/`,
+    label: `CLI & daemon`,
+    blurb: `Run coding sessions and actions from your terminal, or leave a server running as an always-on agent machine.`,
+  },
+  {
     path: `/docs/feedback/`,
     label: `Feedback & helpdesk`,
     blurb: `The feedback widget, the team helpdesk, and the shared support inbox.`,

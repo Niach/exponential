@@ -34,6 +34,7 @@ import { GettingStartedDocsPage } from "../src/GettingStartedDocsPage"
 import { IssuesDocsPage } from "../src/IssuesDocsPage"
 import { CodingDocsPage } from "../src/CodingDocsPage"
 import { ActionsDocsPage } from "../src/ActionsDocsPage"
+import { CliDocsPage } from "../src/CliDocsPage"
 import { FeedbackDocsPage } from "../src/FeedbackDocsPage"
 import { WidgetDocsPage } from "../src/WidgetDocsPage"
 import { McpDocsPage } from "../src/McpDocsPage"
@@ -58,6 +59,7 @@ const COMPONENTS: Record<string, ComponentType> = {
   "/docs/issues/": IssuesDocsPage,
   "/docs/coding/": CodingDocsPage,
   "/docs/actions/": ActionsDocsPage,
+  "/docs/cli/": CliDocsPage,
   "/docs/feedback/": FeedbackDocsPage,
   "/docs/widget/": WidgetDocsPage,
   "/docs/mcp/": McpDocsPage,
@@ -212,6 +214,7 @@ function writeLlmsTxt(): void {
         `/docs/issues/`,
         `/docs/coding/`,
         `/docs/actions/`,
+        `/docs/cli/`,
         `/docs/feedback/`,
         `/docs/widget/`,
         `/docs/mcp/`,

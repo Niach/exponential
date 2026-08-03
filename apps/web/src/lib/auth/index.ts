@@ -1,6 +1,12 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { bearer, customSession, genericOAuth, mcp } from "better-auth/plugins"
+import {
+  bearer,
+  customSession,
+  deviceAuthorization,
+  genericOAuth,
+  mcp,
+} from "better-auth/plugins"
 import { apiKey } from "@better-auth/api-key"
 import { creem } from "@creem_io/better-auth"
 import { createAuthMiddleware } from "better-auth/api"
@@ -396,6 +402,20 @@ export const auth = betterAuth({
         const match = authz.match(/^Bearer\s+(expu_[^\s]+)$/i)
         return match ? match[1] : null
       },
+    }),
+    // RFC 8628 device-code login for the `exponential` CLI (EXP-403): the CLI
+    // POSTs /api/auth/device/code, the user approves on /auth/device, and the
+    // CLI's token poll yields a regular Better Auth session token (accepted
+    // everywhere via the bearer plugin). The default verification URI is
+    // `/device` — point it at our route.
+    deviceAuthorization({
+      expiresIn: `10m`,
+      interval: `5s`,
+      verificationUri: `/auth/device`,
+      // The plugin's option schema (zod 4) rejects an ABSENT `schema` key —
+      // `z.custom(() => true)` without `.optional()`. An empty object is a
+      // no-op for its mergeSchema and satisfies the parse.
+      schema: {},
     }),
     mcp({
       loginPage: `/auth/login`,

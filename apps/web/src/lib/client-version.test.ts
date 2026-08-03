@@ -16,9 +16,11 @@ const ENV_KEYS = [
   `CLIENT_MIN_VERSION_ANDROID`,
   `CLIENT_MIN_VERSION_IOS`,
   `CLIENT_MIN_VERSION_DESKTOP`,
+  `CLIENT_MIN_VERSION_CLI`,
   `CLIENT_LATEST_VERSION_ANDROID`,
   `CLIENT_LATEST_VERSION_IOS`,
   `CLIENT_LATEST_VERSION_DESKTOP`,
+  `CLIENT_LATEST_VERSION_CLI`,
 ]
 
 afterEach(() => {
@@ -104,6 +106,14 @@ describe(`checkClientVersion`, () => {
     expect(checkClientVersion(req(`ios/0.10.0`))).toBe(null)
   })
 
+  it(`gates the cli platform (EXP-403)`, async () => {
+    process.env.CLIENT_MIN_VERSION_CLI = `0.9.0`
+    expect(checkClientVersion(req(`cli/0.9.0`))).toBeNull()
+    const res = checkClientVersion(req(`cli/0.8.52`))
+    expect(res?.status).toBe(426)
+    expect(await res?.json()).toMatchObject({ platform: `cli`, min: `0.9.0` })
+  })
+
   it(`ignores a -staging suffix on the client version`, () => {
     process.env.CLIENT_MIN_VERSION_ANDROID = `0.14.0`
     expect(checkClientVersion(req(`android/0.14.0-staging`))).toBeNull()
@@ -139,6 +149,7 @@ describe(`versionPayload`, () => {
       android: { min: null, latest: null },
       ios: { min: null, latest: null },
       desktop: { min: null, latest: null },
+      cli: { min: null, latest: null },
     })
   })
 
@@ -149,6 +160,7 @@ describe(`versionPayload`, () => {
       android: { min: `0.14.0`, latest: null },
       ios: { min: null, latest: null },
       desktop: { min: null, latest: `0.9.0` },
+      cli: { min: null, latest: null },
     })
   })
 })

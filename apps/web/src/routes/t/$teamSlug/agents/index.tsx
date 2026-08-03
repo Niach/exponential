@@ -10,15 +10,13 @@ import {
   Bot,
   Github,
   LoaderCircle,
-  Monitor,
-  MonitorOff,
-  MonitorUp,
   Ellipsis,
   Pencil,
   Play,
   Trash2,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { MyMachines } from "@/components/my-machines"
 import { SectionLabel, SessionRow } from "@/components/agent-session-row"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
@@ -369,52 +367,14 @@ function AgentsPage() {
 
       <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
         {isMember && steerConfig?.enabled && (
-          <div className="mb-4">
-            <SectionLabel
-              label="My desktops"
-              count={remote.devices?.length ?? 0}
-            />
-            {remote.devices === null ? (
-              <div className="px-3 py-3 text-sm text-muted-foreground">
-                Loading…
-              </div>
-            ) : remote.devices.length === 0 ? (
-              <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
-                <MonitorOff className="size-3.5 shrink-0" />
-                No desktop online. Open the Exponential desktop app to start
-                coding.
-              </div>
-            ) : (
-              remote.devices.map((device) => (
-                <div
-                  key={device.deviceId}
-                  className="flex items-center gap-2 border-b border-border/30 px-3 py-2"
-                >
-                  <Monitor className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate text-sm">
-                    {device.deviceLabel || device.deviceId}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={runBusy}
-                    onClick={() =>
-                      setLaunch({ tab: `issues`, deviceId: device.deviceId })
-                    }
-                  >
-                    <MonitorUp />
-                    Start coding
-                  </Button>
-                </div>
-              ))
-            )}
-            {remote.sentTo && (
-              <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
-                <LoaderCircle className="size-3 animate-spin" />
-                Start sent to {remote.sentTo}. Waiting for the desktop…
-              </div>
-            )}
-          </div>
+          <MyMachines
+            devices={remote.devices}
+            runBusy={runBusy}
+            sentTo={remote.sentTo}
+            onStartCoding={(deviceId) => setLaunch({ tab: `issues`, deviceId })}
+            onChanged={remote.refresh}
+            latestVersions={remote.latestVersions}
+          />
         )}
 
         {/* Mobile mirrors the native apps' Running section; on desktop the

@@ -6143,6 +6143,8 @@ public object ExpIcons {
     public val uiSelector: ImageVector get() = `chevrons-up-down`
     /** Concept `ui-send`. */
     public val uiSend: ImageVector get() = `send`
+    /** Concept `ui-server`. */
+    public val uiServer: ImageVector get() = `server`
     /** Concept `ui-share`. */
     public val uiShare: ImageVector get() = `share-2`
     /** Concept `ui-sign-in`. */

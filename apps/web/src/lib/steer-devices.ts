@@ -1,18 +1,37 @@
 import { contract } from "@exp/domain-contract"
 
-// The caller's online desktops as `steer.myDevices` returns them — extracted
-// from the Start-coding dialog (EXP-257) so the launch dialog, hooks, and the
-// Agents page share one shape + capability vocabulary.
+// The caller's machines as `devices.list` returns them (EXP-403: the durable
+// registry merged with live relay presence) — the launch dialog, hooks, and
+// the Agents page share one shape + capability vocabulary. Rows straight off
+// the relay (`steer.myDevices`) still fit: the registry fields are optional
+// and absent-`online` reads as online.
 
 export interface SteerDevice {
   deviceId: string
   deviceLabel: string
-  connectedAt: number
+  /** Relay presence timestamp — absent on registry-only (offline) rows. */
+  connectedAt?: number
   /** EXP-201: agent CLIs installed on the device; absent = claude-only. */
   agents?: string[]
   /** EXP-253: launch capabilities beyond issue coding (e.g. `actions`);
    * absent = an older desktop with none. */
   caps?: string[]
+  /** EXP-403 registry fields (devices.list). */
+  kind?: `desktop` | `server`
+  online?: boolean
+  /** ISO timestamp of the last register/heartbeat; null for relay-only rows. */
+  lastSeenAt?: string | null
+  registered?: boolean
+  /** Marketing version as of the last register; null for old builds. */
+  version?: string | null
+  /** A web "Update" click is pending on the device. */
+  updateRequested?: boolean
+}
+
+/** Whether the device is startable right now. Rows without the field come
+ * straight off the relay presence map and are online by construction. */
+export function deviceIsOnline(device: SteerDevice): boolean {
+  return device.online !== false
 }
 
 /** Agents the device can run — absent advertisement means claude-only. */

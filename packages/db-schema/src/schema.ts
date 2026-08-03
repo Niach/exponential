@@ -681,6 +681,49 @@ export const fcmTokens = pgTable(
   ]
 )
 
+// EXP-403 registered devices (server-only, tRPC-polled — deliberately NOT an
+// Electric shape: per-user machine state, not team product data). One row per
+// (user, deviceId): desktops and headless `exponential` daemon servers
+// register on control-channel start and heartbeat `last_seen_at`; the devices
+// router merges rows with live relay presence for online/offline display.
+// `kind` is a documented varchar (`desktop` | `server`), no contract enum.
+export const devices = pgTable(
+  `devices`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // The steer deviceId (settings.json `deviceId`, ≤128 chars on the relay).
+    deviceId: varchar(`device_id`, { length: 128 }).notNull(),
+    label: varchar({ length: 255 }).notNull(),
+    kind: varchar({ length: 32 }).notNull(),
+    platform: varchar({ length: 64 }),
+    // The client's marketing version (`0.8.52`), refreshed on every register.
+    version: varchar({ length: 32 }),
+    // Web "Update" button (EXP-403): set by devices.requestUpdate, surfaced
+    // to the daemon via the heartbeat response, cleared by the next register
+    // (the daemon re-registers after acting on the request).
+    updateRequestedAt: timestamp(`update_requested_at`, { withTimezone: true }),
+    agents: jsonb()
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    caps: jsonb()
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.userId, table.deviceId),
+    index(`idx_devices_user`).on(table.userId),
+  ]
+)
+
 // GitHub App installations (server-only, not synced). Mirrored from the setup
 // redirect, the OAuth claim callback, and installation webhooks; token
 // resolution itself is storage-free (the App JWT looks up a repo's installation
@@ -1509,3 +1552,4 @@ export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
 export type SupportThread = InferSelectModel<typeof supportThreads>
 export type SupportMessage = InferSelectModel<typeof supportMessages>
 export type McpGrant = InferSelectModel<typeof mcpGrants>
+export type Device = InferSelectModel<typeof devices>

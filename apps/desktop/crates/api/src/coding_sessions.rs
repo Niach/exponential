@@ -130,6 +130,59 @@ struct HeartbeatEnvelope {
     alive: bool,
 }
 
+#[derive(Deserialize)]
+struct MaybeSessionEnvelope {
+    #[serde(default)]
+    session: Option<CodingSession>,
+}
+
+/// `codingSessions.get` — query (EXP-403): own-row status probe for the
+/// headless CLI's kill-switch poll (no Electric sync there). `Ok(None)` =
+/// row swept/foreign — like the desktop kill-watch's vanished-row rule this
+/// must NOT read as a kill; only an explicit `status == "ended"` does.
+pub fn get(trpc: &TrpcClient, id: &str) -> Result<Option<CodingSession>, ApiError> {
+    let envelope: MaybeSessionEnvelope =
+        trpc.query_with_input("codingSessions.get", &SessionIdInput { id })?;
+    Ok(envelope.session)
+}
+
+/// A live session on an issue as `codingSessions.liveForIssue` reports it —
+/// the CLI daemon's REV2-24 one-session-per-issue probe (the desktop reads
+/// its synced collection for this instead).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveSessionInfo {
+    pub id: String,
+    #[serde(default)]
+    pub device_label: Option<String>,
+    #[serde(default)]
+    pub user_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct MaybeLiveEnvelope {
+    #[serde(default)]
+    session: Option<LiveSessionInfo>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LiveForIssueInput<'a> {
+    issue_id: &'a str,
+}
+
+/// `codingSessions.liveForIssue` — query. `Ok(None)` = no live session.
+/// Best-effort at call sites: an older server without the procedure must
+/// degrade to "no guard", never block the start.
+pub fn live_for_issue(
+    trpc: &TrpcClient,
+    issue_id: &str,
+) -> Result<Option<LiveSessionInfo>, ApiError> {
+    let envelope: MaybeLiveEnvelope =
+        trpc.query_with_input("codingSessions.liveForIssue", &LiveForIssueInput { issue_id })?;
+    Ok(envelope.session)
+}
+
 /// `codingSessions.start` — mutation. A 412 (`PRECONDITION_FAILED`) is the
 /// plan's concurrent-session cap; the launcher maps it to its `SessionLimit`
 /// disabled state with the server's upgrade copy.

@@ -88,10 +88,13 @@ pub use trunk_state::TrunkState;
 pub use git_worktree::{
     branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,
 };
+#[cfg(feature = "gpui")]
+pub use launcher::{spawn_prepared, spawn_prepared_with, ExitNotify};
+pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
     default_device_label, end_session_best_effort, prepare, prepare_agent_shell,
-    prepare_with_hooks, spawn_prepared, spawn_prepared_with, ActionLaunchRequest, ActionRunKind,
-    AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason, ExitNotify,
+    prepare_with_hooks, ActionLaunchRequest, ActionRunKind,
+    AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
     ObserverSetup,
     Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,

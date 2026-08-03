@@ -382,6 +382,35 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 "fix-conflicts".to_string(),
             ]
         };
+        // EXP-403: record this machine in the per-user devices registry so the
+        // agents UI can show it with an offline "last seen" state (relay
+        // presence alone empties on every relay restart). Best-effort — an
+        // older server without the devices router must never break
+        // control-channel start — and registered even with no agents so the
+        // UI can explain WHY the machine is not startable.
+        {
+            let trpc = Arc::clone(&trpc);
+            let device_id = device_id.clone();
+            let device_label = device_label.clone();
+            let agents = agents.clone();
+            let caps = caps.clone();
+            cx.background_executor()
+                .spawn(async move {
+                    let _ = api::devices::register(
+                        &trpc,
+                        &api::devices::RegisterDevice {
+                            device_id: &device_id,
+                            label: &device_label,
+                            kind: "desktop",
+                            platform: Some(std::env::consts::OS),
+                            agents: &agents,
+                            caps: &caps,
+                            version: Some(domain::client_version::current_version()),
+                        },
+                    );
+                })
+                .detach();
+        }
         let _ = cx.update(|cx| {
             // The probe raced a sign-out/switch: starting a socket for a
             // no-longer-active account would leak it past its stop call.

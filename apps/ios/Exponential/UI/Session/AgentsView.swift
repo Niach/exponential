@@ -2,13 +2,16 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The Agents tab: the caller's online desktops (with a per-device "Start
-/// coding" launcher) above the caller's OWN running coding sessions in the
-/// active account (EXP-312 — teammates' runs are owner-only, so they are not
-/// listed at all). Session rows open the live agent session view directly when
-/// the relay is configured (the same viewer AgentPrCard presents from an issue),
-/// else fall back to the issue detail; the trailing info affordance always goes
-/// to the issue detail. When the relay is off the desktops section is absent and
+/// The Agents tab: "My machines" — the caller's registered devices (EXP-403:
+/// desktops AND headless `exponential` daemon servers, online or not, polled
+/// from `devices.list`) with a per-machine "Start coding" launcher, rename /
+/// remove / self-update row actions — above the caller's OWN running coding
+/// sessions in the active account (EXP-312 — teammates' runs are owner-only, so
+/// they are not listed at all). Session rows open the live agent session view
+/// directly when the relay is configured (the same viewer AgentPrCard presents
+/// from an issue), else fall back to the issue detail; the trailing info
+/// affordance always goes to the issue detail. When the relay is off the
+/// machines section is absent (web parity — nothing here can be started) and
 /// the tab shows the full-screen empty state until a session appears.
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
@@ -17,7 +20,18 @@ struct AgentsView: View {
     @State private var viewModel: AgentsViewModel?
     @State private var steerEnabled = false
     @State private var devices: [SteerDevice]?
+    /// Re-polls `devices.list` while the tab is visible, so a machine coming
+    /// online (or a daemon finishing its self-update) appears on its own.
+    @State private var devicePollTask: Task<Void, Never>?
     @State private var startSheetDevice: SteerDevice?
+    // Machine row actions (EXP-403): the rename/remove alert targets, the
+    // optimistic "Updating…" ids (the flag itself only lands on the next
+    // poll), and the shared failure caption.
+    @State private var renameTarget: SteerDevice?
+    @State private var renameText = ""
+    @State private var removeTarget: SteerDevice?
+    @State private var updatingIds: Set<String> = []
+    @State private var deviceError: String?
     // Success feedback (informational, tertiary) vs. failure (red) are kept
     // separate: a start error must read as an error and not persist forever.
     @State private var sentCaption: String?
@@ -44,7 +58,7 @@ struct AgentsView: View {
 
             if let vm = viewModel {
                 if steerEnabled {
-                    // Desktops section present — no full-screen empty state.
+                    // Machines section present — no full-screen empty state.
                     agentsContent(vm)
                 } else if vm.rows.isEmpty {
                     emptyState
@@ -76,7 +90,7 @@ struct AgentsView: View {
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
-            await refreshDevices()
+            startDevicePolling()
         }
         .onAppear {
             if viewModel == nil {
@@ -90,22 +104,25 @@ struct AgentsView: View {
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
-            // Refresh presence on every appear (the .task doesn't re-run on
+            // Re-arm the poll on every appear (the .task doesn't re-run on
             // pop-back). A no-op until steering resolves enabled.
-            Task { await refreshDevices() }
+            startDevicePolling()
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
             viewModel?.activeTeamId = teamId
         }
         .onDisappear {
             viewModel?.stopObserving()
+            stopDevicePolling()
         }
         .sheet(item: $startSheetDevice) { device in
             // EXP-257: wiring teamId + onRunAction gives the sheet its
             // Issues | Actions segmented control — actions launch from the
             // same unified dialog.
             StartCodingSheet(
-                devices: devices ?? [],
+                // Offline machines are listed but can't be started on — the
+                // picker's pool (and its caps gating) stays online-only.
+                devices: onlineDevices,
                 issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
                 preselectedIds: [],
                 preferredDeviceId: device.deviceId,
@@ -133,12 +150,43 @@ struct AgentsView: View {
         }
     }
 
+    // MARK: - My machines
+
+    /// The machines a run can actually be sent to (EXP-403: the list itself
+    /// includes offline rows).
+    private var onlineDevices: [SteerDevice] {
+        (devices ?? []).filter(\.isOnline)
+    }
+
+    /// Poll `devices.list` while the tab is visible — restartable, so the
+    /// appear/disappear cycle owns exactly one loop. The first pass runs
+    /// immediately; the relay-off case keeps the section absent (web parity:
+    /// nothing listed here could be started).
+    private func startDevicePolling() {
+        stopDevicePolling()
+        guard steerEnabled else {
+            devices = nil
+            return
+        }
+        devicePollTask = Task {
+            while !Task.isCancelled {
+                await refreshDevices()
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
+    }
+
+    private func stopDevicePolling() {
+        devicePollTask?.cancel()
+        devicePollTask = nil
+    }
+
     private func refreshDevices() async {
         guard steerEnabled else {
             devices = nil
             return
         }
-        devices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
+        devices = (try? await deps.devicesApi.list(accountId: accountId)) ?? devices ?? []
     }
 
     private var emptyState: some View {
@@ -162,7 +210,7 @@ struct AgentsView: View {
     private func agentsContent(_ vm: AgentsViewModel) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
-                sectionHeader("My desktops")
+                sectionHeader("My machines")
                 if let devices {
                     if devices.isEmpty {
                         deviceHintRow
@@ -171,6 +219,13 @@ struct AgentsView: View {
                     }
                 } else {
                     deviceLoadingRow
+                }
+                if let deviceError {
+                    Text(deviceError)
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                        .padding(.horizontal, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if let sentCaption {
                     Text(sentCaption)
@@ -198,6 +253,35 @@ struct AgentsView: View {
         }
         // Clearance for the floating tab bar (EXP-36).
         .tabBarBottomInset()
+        // The machine alerts hang off THIS view, not the body's ZStack: that
+        // one already owns the merge-and-close alert, and stacking three
+        // `.alert`s on one node is where SwiftUI starts dropping presentations.
+        .alert(
+            "Rename machine",
+            isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            )
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+            Button("Save") { rename() }
+        } message: {
+            Text("The name shows on every client, whether the machine is online or not.")
+        }
+        .alert(
+            "Remove machine?",
+            isPresented: Binding(
+                get: { removeTarget != nil },
+                set: { if !$0 { removeTarget = nil } }
+            ),
+            presenting: removeTarget
+        ) { device in
+            Button("Cancel", role: .cancel) { removeTarget = nil }
+            Button("Remove", role: .destructive) { remove(device) }
+        } message: { device in
+            Text("Remove “\(deviceName(device))” from your machines? A machine with the daemon still running re-registers itself on its next heartbeat.")
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -210,38 +294,141 @@ struct AgentsView: View {
         .padding(.top, 4)
     }
 
+    /// One machine: kind glyph, label + version, live/last-seen state, the
+    /// launcher for online ones, and an overflow menu. The menu is an explicit
+    /// trailing control rather than a long-press context menu (EXP-331: the
+    /// same reason the label rows grew one) and it only appears on registered
+    /// rows — a desktop build predating the registry shows up from relay
+    /// presence alone and has nothing to rename or remove.
     private func deviceRow(_ device: SteerDevice) -> some View {
         HStack(spacing: 12) {
-            AppIcon(AppIcons.uiDevice, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            Button {
-                startSheetDevice = device
-            } label: {
-                Text("Start coding")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .glassButton()
+            AppIcon(
+                device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                size: AppIcon.Size.medium
+            )
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(deviceName(device))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if let version = device.version, !version.isEmpty {
+                        Text("v\(version)")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                }
+                deviceStatusLine(device)
             }
-            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            // Offline machines keep their row (rename/remove still apply) but
+            // offer no launcher — a start would be rejected server-side.
+            if device.isOnline {
+                Button {
+                    startSheetDevice = device
+                } label: {
+                    Text("Start coding")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .glassButton()
+                }
+                .buttonStyle(.plain)
+            }
+
+            if device.isRegistered {
+                Menu {
+                    deviceMenu(device)
+                } label: {
+                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .padding(6)
+                }
+                .accessibilityLabel("Machine actions")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .glassRow()
     }
 
+    /// A requested self-update REPLACES the live state: the daemon is about to
+    /// restart, so "Online" would only read as a lie.
+    @ViewBuilder
+    private func deviceStatusLine(_ device: SteerDevice) -> some View {
+        HStack(spacing: 5) {
+            if isUpdating(device) {
+                ProgressView().controlSize(.mini).tint(.white)
+                Text("Updating…")
+            } else if device.isOnline {
+                Circle()
+                    .fill(DesignTokens.Semantic.green)
+                    .frame(width: 6, height: 6)
+                Text("Online")
+            } else {
+                Text(lastSeenCaption(device))
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    }
+
+    /// Row actions for a registered machine. Self-update is a daemon-server
+    /// affordance only (the desktop app updates itself), and it needs the
+    /// machine online to pick the request up.
+    @ViewBuilder
+    private func deviceMenu(_ device: SteerDevice) -> some View {
+        Button {
+            renameText = device.deviceLabel
+            renameTarget = device
+        } label: {
+            Label("Rename", appIcon: AppIcons.uiEdit)
+        }
+        if device.isServer, device.isOnline, !isUpdating(device) {
+            Button {
+                requestUpdate(device)
+            } label: {
+                Label("Update", appIcon: AppIcons.uiUpdate)
+            }
+        }
+        Button(role: .destructive) {
+            removeTarget = device
+        } label: {
+            Label("Remove", appIcon: AppIcons.uiDelete)
+        }
+    }
+
+    private func deviceName(_ device: SteerDevice) -> String {
+        device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
+    }
+
+    /// The pending flag rides the server row until the daemon re-registers;
+    /// the local set covers the gap until the next poll returns it.
+    private func isUpdating(_ device: SteerDevice) -> Bool {
+        device.updateRequested == true || updatingIds.contains(device.deviceId)
+    }
+
+    private func lastSeenCaption(_ device: SteerDevice) -> String {
+        guard let lastSeenAt = device.lastSeenAt else { return "Offline" }
+        let relative = relativeDate(lastSeenAt)
+        return relative.isEmpty ? "Offline" : "Last seen \(relative)"
+    }
+
     private var deviceHintRow: some View {
         HStack(spacing: 8) {
-            // EXP-317: the same glyph the web draws next to this exact copy
+            // EXP-317: the same glyph the web draws on its empty machines row
             // (`ui-device-offline`); `ui-offline` stays the network indicator.
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            Text("No desktop online. Open the Exponential desktop app to run here.")
+            // Web puts its install one-liner behind this row; a phone can't
+            // run it, so mobile points at the surface that can (Android says
+            // the same thing, word for word).
+            Text("No machines yet. Open the Exponential desktop app, or add a server with the install one-liner on the web.")
                 .font(.caption)
             Spacer(minLength: 0)
         }
@@ -254,7 +441,7 @@ struct AgentsView: View {
     private var deviceLoadingRow: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small).tint(.white)
-            Text("Checking for desktops…")
+            Text("Checking for machines…")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Spacer(minLength: 0)
@@ -274,6 +461,61 @@ struct AgentsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .glassRow()
+    }
+
+    // MARK: - Machine actions
+
+    /// Rename through the registry (the label is authoritative there, so it
+    /// shows on every client at once). Refreshes immediately instead of
+    /// waiting out the poll tick.
+    private func rename() {
+        guard let device = renameTarget else { return }
+        renameTarget = nil
+        let label = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, label != device.deviceLabel else { return }
+        deviceError = nil
+        Task {
+            do {
+                try await deps.devicesApi.rename(
+                    accountId: accountId, deviceId: device.deviceId, label: label
+                )
+            } catch {
+                deviceError = error.localizedDescription
+            }
+            await refreshDevices()
+        }
+    }
+
+    private func remove(_ device: SteerDevice) {
+        removeTarget = nil
+        deviceError = nil
+        Task {
+            do {
+                try await deps.devicesApi.remove(accountId: accountId, deviceId: device.deviceId)
+            } catch {
+                deviceError = error.localizedDescription
+            }
+            await refreshDevices()
+        }
+    }
+
+    /// Ask a daemon server to self-update. The row keeps its "Updating…" state
+    /// until the daemon re-registers (which clears the flag server-side),
+    /// which the poll picks up.
+    private func requestUpdate(_ device: SteerDevice) {
+        deviceError = nil
+        updatingIds.insert(device.deviceId)
+        Task {
+            do {
+                try await deps.devicesApi.requestUpdate(
+                    accountId: accountId, deviceId: device.deviceId
+                )
+            } catch {
+                deviceError = error.localizedDescription
+            }
+            await refreshDevices()
+            updatingIds.remove(device.deviceId)
+        }
     }
 
     // MARK: - Session list (relay off, sessions present)

@@ -211,6 +211,7 @@
     "ui-private": "lock",
     "ui-device": "monitor",
     "ui-device-offline": "monitor-off",
+    "ui-server": "server",
     "ui-offline": "wifi-off",
     "ui-update": "circle-arrow-up",
     "ui-github": "github",

@@ -74,6 +74,7 @@ pub mod opener;
 pub mod patch;
 pub mod boards;
 pub mod device_identity;
+pub mod devices;
 pub mod repositories;
 pub mod statuses;
 pub mod steer;
