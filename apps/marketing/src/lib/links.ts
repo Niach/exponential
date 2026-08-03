@@ -26,8 +26,8 @@ export const LINKS = {
     macos: `${REPO}/releases/latest/download/Exponential-production.dmg`,
     windows: `${REPO}/releases/latest/download/Exponential-production-x86_64-windows.exe`,
     linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
-    // Mobile ships as public betas until the store listings are approved.
-    // iOS: TestFlight external beta; Android: Google Play open (beta) track.
+    // Android is live on Google Play (production); iOS still ships as a
+    // TestFlight external beta until the App Store listing is approved.
     ios: `https://testflight.apple.com/join/JMpJKZEB`,
     android: `https://play.google.com/store/apps/details?id=at.exponential`,
   },

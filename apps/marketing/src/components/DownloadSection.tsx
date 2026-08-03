@@ -150,8 +150,8 @@ export const PLATFORMS: Platform[] = [
     id: `android`,
     name: `Android`,
     logo: AndroidLogo,
-    requirement: `Open beta · Google Play`,
-    cta: `Join the Play Store beta`,
+    requirement: `Android 8+ · Google Play`,
+    cta: `Get it on Google Play`,
     href: LINKS.downloads.android,
   },
 ]
