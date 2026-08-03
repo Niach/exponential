@@ -31,9 +31,11 @@ use api::error::ApiError;
 use api::token_store::TokenStore;
 use api::trpc::TrpcClient;
 use api::{coding_sessions, issues, repositories, users};
+#[cfg(feature = "gpui")]
 use gpui::App;
 use terminal::pty::SpawnSpec;
 use terminal::tab::{TabId, TabKind};
+#[cfg(feature = "gpui")]
 use terminal::TerminalManager;
 
 use crate::agent::CodingAgent;
@@ -62,7 +64,7 @@ use crate::settings::Settings;
 /// (`CODING_SESSION_STALE_HOURS` = 2h in `@exp/db-schema/domain`, measured
 /// from the row's `updated_at`) so that several pings would have to fail
 /// back-to-back before a live session's row could be swept.
-const SESSION_HEARTBEAT_INTERVAL: std::time::Duration =
+pub const SESSION_HEARTBEAT_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(30 * 60);
 
 /// Where the launch came from (§7.1). Both origins run the SAME sequence —
@@ -1559,6 +1561,7 @@ fn agent_shell_tab_title(agent: CodingAgent, req: &AgentShellRequest, cwd: &Path
 /// gpui foreground AFTER the idempotent `codingSessions.end` fire-and-forget
 /// thread is spawned. The `coding` crate itself never needs it —
 /// [`spawn_prepared`] passes `None`.
+#[cfg(feature = "gpui")]
 pub type ExitNotify = Box<dyn FnOnce(&terminal::pty::ChildExit, &mut App) + 'static>;
 
 /// Steps 7–8 of §7.1 (foreground; needs `&mut App`):
@@ -1571,6 +1574,7 @@ pub type ExitNotify = Box<dyn FnOnce(&terminal::pty::ChildExit, &mut App) + 'sta
 ///    `codingSessions.end` fires from a plain thread (idempotent server-side,
 ///    so a relay-side kill that already ended the row is safe). The tab
 ///    itself stays open with the final scrollback + exit-code strip (§7.5).
+#[cfg(feature = "gpui")]
 pub fn spawn_prepared(
     prepared: PreparedLaunch,
     manager: &gpui::Entity<TerminalManager>,
@@ -1583,6 +1587,7 @@ pub fn spawn_prepared(
 /// [`spawn_prepared`] with the optional foreground [`ExitNotify`] — the seam
 /// the §7.5 play/stop UI consumes (the hook itself stays owned here so both
 /// entry points share ONE exit path).
+#[cfg(feature = "gpui")]
 pub fn spawn_prepared_with(
     prepared: PreparedLaunch,
     manager: &gpui::Entity<TerminalManager>,

@@ -13,6 +13,21 @@ use std::path::Path;
 /// JSON object so keys owned by other subsystems (`claudePath`, `reposRoot`,
 /// …) survive.
 pub fn device_id(data_dir: &Path) -> String {
+    stable_id(data_dir, "deviceId")
+}
+
+/// The CLI daemon's OWN device identity (EXP-403): `cliDeviceId` in the same
+/// settings.json. Deliberately DISTINCT from [`device_id`] — the relay keys
+/// presence by (user, deviceId) and evicts a same-id reconnect with
+/// CLOSE_REPLACED, so a desktop app and a CLI daemon sharing one machine
+/// (and one settings.json) would evict each other in a loop if they shared
+/// an id. Two ids ⇒ two registry rows ⇒ two independently startable
+/// machines, which is also what the UI should show.
+pub fn cli_device_id(data_dir: &Path) -> String {
+    stable_id(data_dir, "cliDeviceId")
+}
+
+fn stable_id(data_dir: &Path, key: &str) -> String {
     let path = data_dir.join("settings.json");
     let mut root = fs::read_to_string(&path)
         .ok()
@@ -21,7 +36,7 @@ pub fn device_id(data_dir: &Path) -> String {
         .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
 
     if let Some(existing) = root
-        .get("deviceId")
+        .get(key)
         .and_then(|value| value.as_str())
         .filter(|value| !value.trim().is_empty())
     {
@@ -30,10 +45,7 @@ pub fn device_id(data_dir: &Path) -> String {
 
     let generated = uuid::Uuid::new_v4().to_string();
     if let Some(object) = root.as_object_mut() {
-        object.insert(
-            "deviceId".to_string(),
-            serde_json::Value::String(generated.clone()),
-        );
+        object.insert(key.to_string(), serde_json::Value::String(generated.clone()));
     }
     let persist = || -> std::io::Result<()> {
         fs::create_dir_all(data_dir)?;
@@ -110,5 +122,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(device_id(&dir.0), "pre-existing-id");
+    }
+
+    #[test]
+    fn cli_device_id_is_distinct_from_the_desktop_id() {
+        // One machine, one settings.json, TWO relay identities — a shared id
+        // would make the desktop app and the daemon evict each other's
+        // control socket in a CLOSE_REPLACED loop (EXP-403 review finding).
+        let dir = TempDir::new("device-cli");
+        let desktop = device_id(&dir.0);
+        let cli = cli_device_id(&dir.0);
+        assert_ne!(desktop, cli);
+        assert_eq!(cli, cli_device_id(&dir.0), "stable across calls");
+        assert_eq!(desktop, device_id(&dir.0), "desktop id untouched");
     }
 }

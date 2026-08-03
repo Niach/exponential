@@ -77,6 +77,8 @@ If you want the admin console (instance-wide users and teams), set `INITIAL_ADMI
 
 Native apps (iOS, Android, desktop IDE) connect to a self-hosted instance: enter `https://issues.example.com` as the instance URL on first launch.
 
+The headless `exponential` CLI installs against a self-hosted instance with `curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=https://issues.example.com sh` (the script is always served from the cloud site; the instance rides `EXP_INSTANCE`).
+
 ## 6. Optional subsystems
 
 All configured by appending vars to `.env` (the whole file reaches the web container) and re-running `docker compose up -d`. Full reference: [`.env.example`](https://github.com/Niach/exponential/blob/master/.env.example) at the repo root; deeper walkthroughs: [self-host docs](https://exponential.at/docs/self-host/).

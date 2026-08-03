@@ -9,7 +9,7 @@
 
 export const CLIENT_VERSION_HEADER = `x-client-version`
 
-const PLATFORMS = [`android`, `ios`, `desktop`] as const
+const PLATFORMS = [`android`, `ios`, `desktop`, `cli`] as const
 export type ClientPlatform = (typeof PLATFORMS)[number]
 
 // Strips pre-release/build suffixes (`0.13.2-staging`, `1.0.0+abc`) and

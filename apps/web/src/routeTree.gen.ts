@@ -19,6 +19,7 @@ import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-passw
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-password'
+import { Route as AuthDeviceRouteImport } from './routes/auth/device'
 import { Route as AuthConsentRouteImport } from './routes/auth/consent'
 import { Route as ApiVersionRouteImport } from './routes/api/version'
 import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oauth-start'
@@ -143,6 +144,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
   id: '/auth/forgot-password',
   path: '/auth/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthDeviceRoute = AuthDeviceRouteImport.update({
+  id: '/auth/device',
+  path: '/auth/device',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthConsentRoute = AuthConsentRouteImport.update({
@@ -569,6 +575,7 @@ export interface FileRoutesByFullPath {
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/api/version': typeof ApiVersionRoute
   '/auth/consent': typeof AuthConsentRoute
+  '/auth/device': typeof AuthDeviceRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -654,6 +661,7 @@ export interface FileRoutesByTo {
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/api/version': typeof ApiVersionRoute
   '/auth/consent': typeof AuthConsentRoute
+  '/auth/device': typeof AuthDeviceRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -742,6 +750,7 @@ export interface FileRoutesById {
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/api/version': typeof ApiVersionRoute
   '/auth/consent': typeof AuthConsentRoute
+  '/auth/device': typeof AuthDeviceRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -831,6 +840,7 @@ export interface FileRouteTypes {
     | '/api/mobile-oauth-start'
     | '/api/version'
     | '/auth/consent'
+    | '/auth/device'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -916,6 +926,7 @@ export interface FileRouteTypes {
     | '/api/mobile-oauth-start'
     | '/api/version'
     | '/auth/consent'
+    | '/auth/device'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -1003,6 +1014,7 @@ export interface FileRouteTypes {
     | '/api/mobile-oauth-start'
     | '/api/version'
     | '/auth/consent'
+    | '/auth/device'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -1090,6 +1102,7 @@ export interface RootRouteChildren {
   ApiMobileOauthStartRoute: typeof ApiMobileOauthStartRoute
   ApiVersionRoute: typeof ApiVersionRoute
   AuthConsentRoute: typeof AuthConsentRoute
+  AuthDeviceRoute: typeof AuthDeviceRoute
   AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
@@ -1199,6 +1212,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/forgot-password'
       fullPath: '/auth/forgot-password'
       preLoaderRoute: typeof AuthForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/device': {
+      id: '/auth/device'
+      path: '/auth/device'
+      fullPath: '/auth/device'
+      preLoaderRoute: typeof AuthDeviceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/consent': {
@@ -1869,6 +1889,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMobileOauthStartRoute: ApiMobileOauthStartRoute,
   ApiVersionRoute: ApiVersionRoute,
   AuthConsentRoute: AuthConsentRoute,
+  AuthDeviceRoute: AuthDeviceRoute,
   AuthForgotPasswordRoute: AuthForgotPasswordRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,

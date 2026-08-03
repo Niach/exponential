@@ -40,6 +40,7 @@ import { hasWebSocket } from "#nitro-internal-virtual/feature-flags"
 import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
+import { startDeviceCodeSweepScheduler } from "@/lib/device-code-sweep"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
@@ -77,6 +78,11 @@ startCodingSessionSweepScheduler()
 // staleness window — the server-side backstop for sign-outs whose best-effort
 // unregister never landed and for old client builds that never unregister.
 startFcmTokenSweepScheduler()
+
+// Device codes (EXP-403): periodic sweep deleting abandoned CLI-login rows —
+// the plugin only deletes rows whose grant resolves, and /device/code is
+// unauthenticated, so unpolled leftovers would accumulate unboundedly.
+startDeviceCodeSweepScheduler()
 
 // REV2-6 warn-only boot check — see the header comment. Bun read
 // BUN_CONFIG_MAX_HTTP_REQUESTS before this code ran, so a bad value can only

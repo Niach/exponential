@@ -1,0 +1,35 @@
+# The headless `exponential` CLI (EXP-403): login, doctor, one-shot coding
+# sessions/action runs, and the registered-device daemon — sharing the
+# desktop's crates with terminal/coding built WITHOUT their gpui halves
+# (the default-on `gpui` feature stays off here). Ships as its own
+# `cli-v*` release asset; NEVER bundled inside desktop artifacts.
+[package]
+name = "exp-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "exponential"
+path = "src/main.rs"
+
+[dependencies]
+api = { path = "../api" }
+domain = { path = "../domain" }
+coding = { path = "../coding", default-features = false }
+steer = { path = "../steer" }
+terminal = { path = "../terminal", default-features = false }
+updater = { path = "../updater" }
+
+anyhow = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+flume = { workspace = true }
+open = { workspace = true }
+uuid = { workspace = true }
+# Raw-mode termios for the interactive PTY attach + signal handling + the
+# registry's pid liveness probe (kill(pid, 0)) — already in the tree.
+libc = { workspace = true }
+log = "0.4"

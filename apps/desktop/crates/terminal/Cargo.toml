@@ -26,8 +26,14 @@ log = "0.4"
 # come from the theme crate's terminal palette (§6.8). gpui-component is
 # deliberately NOT a dependency — nothing in the grid element needs it
 # (tab.rs/manager.rs may add it in the next P4 step).
-gpui = { workspace = true }
-theme = { path = "../theme" }
+# Optional behind the default-on `gpui` feature (EXP-403): the headless CLI
+# consumes only the core pty/emulator/read_loop/session surface.
+gpui = { workspace = true, optional = true }
+theme = { path = "../theme", optional = true }
+
+[features]
+default = ["gpui"]
+gpui = ["dep:gpui", "dep:theme"]
 
 [dev-dependencies]
 # tests/exit_hook.rs only: a real (headless) gpui platform to drive the
@@ -43,3 +49,4 @@ gpui_platform = { workspace = true }
 [[test]]
 name = "exit_hook"
 harness = false
+required-features = ["gpui"]

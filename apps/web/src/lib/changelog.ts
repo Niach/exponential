@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-exponential-cli-servers`,
+    date: `2026-08-03`,
+    title: `Run coding agents on your own servers`,
+    summary: `The new exponential CLI turns any Linux or macOS machine into a registered agent runner: install with one command, sign in with a device code, and start sessions on it from the web.`,
+    body: `- **The exponential CLI**: a headless companion to the desktop app. Install it with one command, sign in with a device code from any browser, and run coding sessions and actions from your terminal with the same three agents.
+- **Registered machines**: the Agents page now shows all of your machines, desktops and servers alike, with live online state and a last-seen time when offline. Rename or remove them from the overflow menu.
+- **Add server**: a copyable one-liner installs the CLI on a server and registers it to your account; the daemon picks up remote starts exactly like the desktop app, including live steering and activity.
+- **Stays current**: exponential update self-updates the CLI from the latest release, and the server can ask outdated CLIs to update before they reconnect.`,
+  },
+  {
     id: `2026-08-digest-schedule-mobile-polish`,
     date: `2026-08-01`,
     title: `Email digests keep to your schedule`,

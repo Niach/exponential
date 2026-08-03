@@ -436,6 +436,7 @@ export const SEMANTIC_ICONS = {
   "ui-selected": `circle-check`,
   "ui-selector": `chevrons-up-down`,
   "ui-send": `send`,
+  "ui-server": `server`,
   "ui-share": `share-2`,
   "ui-sign-in": `log-in`,
   "ui-staging": `flask-conical`,

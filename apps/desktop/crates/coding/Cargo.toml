@@ -12,7 +12,10 @@ publish = false
 api = { path = "../api" }
 # Typed issue-status snapshots for the launcher's in_progress flip (EXP-194).
 domain = { path = "../domain" }
-terminal = { path = "../terminal" }
+# default-features = false: the core only needs the gpui-free terminal surface
+# (SpawnSpec, login_path, the TabId/TabKind data types); the `gpui` feature
+# below re-enables the UI half for the desktop's spawn_prepared* tail.
+terminal = { path = "../terminal", default-features = false }
 
 serde = { workspace = true }
 # EXP-389: parse-check ~/.codex/config.toml before appending trust entries —
@@ -31,8 +34,14 @@ libc = { workspace = true }
 log = "0.4"
 # Only the thin gpui-facing driver (launcher::spawn_prepared) touches gpui —
 # the core (git/mcp/prompt/doctor/settings + prepare_launch) is gpui-free and
-# headless-testable (§7.1 "gpui-free-at-its-core state machine").
-gpui = { workspace = true }
+# headless-testable (§7.1 "gpui-free-at-its-core state machine"). Optional
+# behind the default-on `gpui` feature (EXP-403) so the headless CLI links
+# the core without gpui.
+gpui = { workspace = true, optional = true }
+
+[features]
+default = ["gpui"]
+gpui = ["dep:gpui", "terminal/gpui"]
 
 [dev-dependencies]
 # tests/dry_run.rs only: a real (headless) gpui platform to drive
@@ -48,6 +57,7 @@ gpui_platform = { workspace = true }
 [[test]]
 name = "dry_run"
 harness = false
+required-features = ["gpui"]
 
 # §7.6 / §11.4 Phase-5 gate #6: two concurrent coding sessions across two
 # TerminalManagers (the two-window scenario) — same harness rules as dry_run;
@@ -55,3 +65,4 @@ harness = false
 [[test]]
 name = "concurrent"
 harness = false
+required-features = ["gpui"]

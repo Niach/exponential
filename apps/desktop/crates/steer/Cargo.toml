@@ -6,7 +6,10 @@ license.workspace = true
 publish = false
 
 [dependencies]
-terminal = { path = "../terminal" }
+# default-features = false (EXP-403): steer only reads the gpui-free emulator
+# surface (TermHandle/screen_lines) — this keeps the crate linkable from the
+# headless CLI. The desktop re-enables terminal's gpui half via ui/app.
+terminal = { path = "../terminal", default-features = false }
 api = { path = "../api" }
 # The ONLY tokio in the desktop workspace (§3.5/§8): tokio-tungstenite needs a
 # reactor, and it runs on its own runtime, isolated from gpui's executors and

@@ -33,7 +33,8 @@ export interface RemoteStartAction {
 }
 
 export interface RemoteStart {
-  /** The caller's online desktops; null while the presence lookup is in flight. */
+  /** The caller's registered machines (online AND offline — EXP-403);
+   * null while the first lookup is in flight. */
   devices: SteerDevice[] | null
   starting: boolean
   /** Device label a start was just delivered to — cleared once an action
@@ -52,6 +53,9 @@ export interface RemoteStart {
     options: StartCodingOptions,
     inputs?: Record<string, string>
   ) => Promise<void>
+  /** Re-fetch the device list now (after a rename/remove) instead of
+   * waiting for the next poll tick. */
+  refresh: () => void
 }
 
 export function useRemoteStart({
@@ -74,17 +78,26 @@ export function useRemoteStart({
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dock = useAgentDock()
 
+  // Poll the devices registry (EXP-403: durable rows + live relay presence
+  // merged server-side) — an interval, not the old one-shot `steer.myDevices`
+  // mount query, so a daemon coming online appears without a page reload.
+  const [refreshTick, setRefreshTick] = useState(0)
   useEffect(() => {
     if (!enabled) return
     let active = true
-    trpc.steer.myDevices
-      .query()
-      .then((res) => active && setDevices(res.devices))
-      .catch(() => active && setDevices([]))
+    const fetchDevices = () => {
+      trpc.devices.list
+        .query()
+        .then((res) => active && setDevices(res.devices))
+        .catch(() => active && setDevices((previous) => previous ?? []))
+    }
+    fetchDevices()
+    const interval = setInterval(fetchDevices, 15_000)
     return () => {
       active = false
+      clearInterval(interval)
     }
-  }, [enabled])
+  }, [enabled, refreshTick])
 
   useEffect(
     () => () => {
@@ -201,5 +214,6 @@ export function useRemoteStart({
     sentTo: pending?.deviceLabel ?? null,
     startIssues,
     runAction,
+    refresh: () => setRefreshTick((tick) => tick + 1),
   }
 }

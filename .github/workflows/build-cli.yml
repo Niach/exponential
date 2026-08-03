@@ -1,0 +1,134 @@
+# The `exponential` CLI release train (EXP-403): bare binaries per target,
+# published on cli-v* tags. Deliberately independent of desktop-v* — the
+# desktop MUST keep owning `releases/latest` (its update check + the
+# marketing download links resolve it), so this release sets
+# make_latest: false and the CLI's own update check lists releases and
+# filters by tag prefix.
+name: build-cli
+
+on:
+  push:
+    tags: ["cli-v*"]
+  workflow_dispatch:
+
+jobs:
+  license-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: apps/desktop/Cargo.toml
+          command: check licenses
+
+  build:
+    needs: [license-audit]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: cli-${{ matrix.target }}
+      # Version from the cli-v* tag (0.0.0 on workflow_dispatch) — compiled
+      # in via EXP_CLI_VERSION so `exponential version`, the x-client-version
+      # header (`cli/<version>`) and the self-update compare all agree.
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          ref="${GITHUB_REF_NAME:-}"
+          version="${ref#cli-v}"
+          [ "$version" = "$ref" ] && version="0.0.0"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build
+        env:
+          EXP_CLI_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          cargo build --release --manifest-path apps/desktop/Cargo.toml \
+            -p exp-cli --target ${{ matrix.target }}
+      - name: Stage asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="apps/desktop/target/${{ matrix.target }}/release/exponential"
+          strip "$bin" || true
+          # arm64 macOS refuses to exec unsigned binaries; re-apply the
+          # ad-hoc signature strip may have invalidated.
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            codesign -s - -f "$bin"
+          fi
+          mkdir -p dist
+          cp "$bin" "dist/exponential-${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exp-cli-${{ matrix.target }}
+          path: dist/exponential-${{ matrix.target }}
+          if-no-files-found: error
+
+  release:
+    needs: [build]
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/cli-v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: exp-cli-*
+          path: dist
+          merge-multiple: true
+      - name: Require every target
+        run: |
+          set -euo pipefail
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu aarch64-apple-darwin; do
+            [ -f "dist/exponential-$target" ] || { echo "missing exponential-$target" >&2; exit 1; }
+          done
+      # Apache-2.0 section 4: a bare binary has no bundle to carry the
+      # licence text — put LICENSE + NOTICE on the release page (and in the
+      # checksums), mirroring the desktop release (EXP-376).
+      - name: Check out the licence files
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          sparse-checkout: |
+            LICENSE
+            NOTICE
+          sparse-checkout-cone-mode: false
+      - name: Add LICENSE and NOTICE to the release
+        run: |
+          set -euo pipefail
+          cp repo/LICENSE repo/NOTICE dist/
+          rm -rf repo
+      - name: Checksums
+        working-directory: dist
+        run: |
+          ls -la
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # NEVER latest — desktop owns releases/latest (see header comment).
+          make_latest: false
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

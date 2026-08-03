@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, gte, inArray } from "drizzle-orm"
+import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
 import { router, authedProcedure } from "@/lib/trpc"
 import { actions, codingSessions, issues } from "@/db/schema"
 import {
@@ -35,6 +36,60 @@ const actionIdInput = z
 // No generateTxId — native callers don't need the Electric tx-wait, and the
 // row's own synced propagation carries the badge.
 export const codingSessionsRouter = router({
+  // Own-row status probe (EXP-403): the headless CLI daemon has no Electric
+  // sync, so it polls this for the →ended kill-switch edge the desktop's
+  // kill-watch reads off the synced collection. Owner-only by the where
+  // clause; a swept (deleted) row returns { session: null }, which — like
+  // the desktop's vanished-row rule — deliberately does NOT read as a kill.
+  get: authedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [session] = await ctx.db
+        .select()
+        .from(codingSessions)
+        .where(
+          and(
+            eq(codingSessions.id, input.id),
+            eq(codingSessions.userId, ctx.session.user.id)
+          )
+        )
+        .limit(1)
+      return { session: session ?? null }
+    }),
+
+  // EXP-403: the CLI daemon's REV2-24 one-session-per-issue probe — the
+  // desktop reads its synced coding_sessions collection for this; the
+  // headless daemon has no sync and asks the server instead. "Live" mirrors
+  // the client predicate: status still alive (EXP-358 keeps in_review/merged
+  // sessions steerable) AND updated_at within the staleness window.
+  // Member-scoped via the issue's team.
+  liveForIssue: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const issueCtx = await getIssueTeamContext(input.issueId)
+      await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
+      const [session] = await ctx.db
+        .select({
+          id: codingSessions.id,
+          deviceLabel: codingSessions.deviceLabel,
+          userId: codingSessions.userId,
+        })
+        .from(codingSessions)
+        .where(
+          and(
+            eq(codingSessions.issueId, input.issueId),
+            inArray(codingSessions.status, [`running`, `in_review`, `merged`]),
+            gte(
+              codingSessions.updatedAt,
+              new Date(Date.now() - CODING_SESSION_STALE_MS)
+            )
+          )
+        )
+        .orderBy(desc(codingSessions.updatedAt))
+        .limit(1)
+      return { session: session ?? null }
+    }),
+
   start: authedProcedure
     .input(
       z

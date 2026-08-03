@@ -593,6 +593,8 @@ public enum AppIcons {
     public static let uiSelector: String = "chevrons-up-down"
     /// Concept `ui-send`.
     public static let uiSend: String = "send"
+    /// Concept `ui-server`.
+    public static let uiServer: String = "server"
     /// Concept `ui-share`.
     public static let uiShare: String = "share-2"
     /// Concept `ui-sign-in`.

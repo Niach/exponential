@@ -595,6 +595,8 @@ pub const UI_SELECTED: ExpIcon = ExpIcon::CircleCheck;
 pub const UI_SELECTOR: ExpIcon = ExpIcon::ChevronsUpDown;
 /// Registry concept `ui-send` -> Lucide `send`.
 pub const UI_SEND: ExpIcon = ExpIcon::Send;
+/// Registry concept `ui-server` -> Lucide `server`.
+pub const UI_SERVER: ExpIcon = ExpIcon::Server;
 /// Registry concept `ui-share` -> Lucide `share-2`.
 pub const UI_SHARE: ExpIcon = ExpIcon::Share2;
 /// Registry concept `ui-sign-in` -> Lucide `log-in`.
