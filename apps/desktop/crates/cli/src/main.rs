@@ -11,6 +11,7 @@
 mod commands;
 mod context;
 mod launch;
+mod prefs;
 mod registry;
 mod session_host;
 mod sidecars;
@@ -77,6 +78,25 @@ Environment:
   EXP_INSTANCE, EXP_EMAIL, EXP_PASSWORD, EXP_TOKEN (non-interactive login), EXP_LOG=debug
 ";
 
+fn maybe_prompt_auto_update() {
+    if !term::stdin_is_tty() {
+        return;
+    }
+    let data_dir = context::data_dir();
+    if prefs::auto_update(&data_dir).is_some() {
+        return;
+    }
+    let answer = term::prompt_line("Keep the exponential CLI up to date automatically? [Y/n] ")
+        .unwrap_or_default();
+    let enabled = !matches!(answer.trim().to_lowercase().as_str(), "n" | "no");
+    prefs::set_auto_update(&data_dir, enabled);
+    if enabled {
+        println!("Auto-update enabled (cliAutoUpdate in settings.json turns it off).");
+    } else {
+        println!("Auto-update off — `exponential update` updates manually.");
+    }
+}
+
 fn main() -> ExitCode {
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(max_level());
@@ -89,6 +109,19 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = args.first().map(String::as_str).unwrap_or("");
     let rest = &args[1.min(args.len())..];
+
+    // First interactive run: ask once whether to keep the CLI current
+    // automatically (stored as `cliAutoUpdate` in settings.json; the daemon
+    // and every later run honor it). Never prompts without a tty.
+    if matches!(command, "login" | "code" | "run" | "doctor" | "status" | "whoami" | "daemon") {
+        maybe_prompt_auto_update();
+    }
+    // One-shot commands: a throttled quiet check; a fresh install re-execs
+    // this same invocation on the new binary. The daemon runs its own
+    // cadence (and the web Update button) inside its loop instead.
+    if matches!(command, "login" | "code" | "run" | "doctor" | "status") {
+        commands::update::maybe_auto_update_and_reexec();
+    }
 
     let result = match command {
         "login" => commands::login::run(rest),

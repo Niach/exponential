@@ -373,6 +373,7 @@ function AgentsPage() {
             sentTo={remote.sentTo}
             onStartCoding={(deviceId) => setLaunch({ tab: `issues`, deviceId })}
             onChanged={remote.refresh}
+            latestVersions={remote.latestVersions}
           />
         )}
 

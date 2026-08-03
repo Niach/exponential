@@ -435,6 +435,13 @@
       "when": 1785785202176,
       "tag": "0061_vengeful_mach_iv",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1785794109233,
+      "tag": "0062_premium_proteus",
+      "breakpoints": true
     }
   ]
 }

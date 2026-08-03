@@ -48,11 +48,17 @@ public struct SteerTicket: Decodable, Sendable {
     }
 }
 
-/// One online desktop of the current user (relay presence, no DB row).
+/// One machine of the current user: a registry row from `devices.list`
+/// (EXP-403 — desktops and headless `exponential` daemon servers, online or
+/// not) or a bare relay-presence row from `steer.myDevices`. ONE shape for
+/// both, mirroring apps/web/src/lib/steer-devices.ts: the registry fields are
+/// optional and an absent `online` reads as online, because a presence row is
+/// alive by construction.
 public struct SteerDevice: Decodable, Sendable, Identifiable {
     public let deviceId: String
     public let deviceLabel: String
-    public let connectedAt: Double
+    /// Relay presence timestamp — absent on registry rows.
+    public let connectedAt: Double?
     /// Coding agents this desktop can launch (contract `codingAgentValues`).
     /// Absent = an older desktop that only runs claude.
     public let agents: [String]?
@@ -60,22 +66,61 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// Absent (old desktop/relay) = none — action starts are strictly gated
     /// on this, unlike the lenient agents fallback.
     public let caps: [String]?
+    /// EXP-403 registry fields (`devices.list` only).
+    /// `desktop` | `server`; absent on relay-only rows (always a desktop).
+    public let kind: String?
+    public let platform: String?
+    public let online: Bool?
+    /// ISO timestamp of the last register/heartbeat; nil for relay-only rows.
+    public let lastSeenAt: String?
+    /// Whether a durable registry row backs this machine — an old desktop
+    /// build shows up from relay presence alone and can't be renamed/removed.
+    public let registered: Bool?
+    /// Marketing version as of the last register; nil for old builds.
+    public let version: String?
+    /// An Update request is pending; the daemon consumes it by re-registering.
+    public let updateRequested: Bool?
 
     public var id: String { deviceId }
 
     public init(
         deviceId: String,
         deviceLabel: String,
-        connectedAt: Double,
+        connectedAt: Double? = nil,
         agents: [String]? = nil,
-        caps: [String]? = nil
+        caps: [String]? = nil,
+        kind: String? = nil,
+        platform: String? = nil,
+        online: Bool? = nil,
+        lastSeenAt: String? = nil,
+        registered: Bool? = nil,
+        version: String? = nil,
+        updateRequested: Bool? = nil
     ) {
         self.deviceId = deviceId
         self.deviceLabel = deviceLabel
         self.connectedAt = connectedAt
         self.agents = agents
         self.caps = caps
+        self.kind = kind
+        self.platform = platform
+        self.online = online
+        self.lastSeenAt = lastSeenAt
+        self.registered = registered
+        self.version = version
+        self.updateRequested = updateRequested
     }
+
+    /// Whether the machine is startable right now. Rows straight off the relay
+    /// carry no `online` field and are online by construction.
+    public var isOnline: Bool { online != false }
+
+    /// A headless `exponential` daemon server rather than the desktop app —
+    /// the only kind the self-update request applies to.
+    public var isServer: Bool { kind == "server" }
+
+    /// Whether a registry row backs it (the rename/remove targets).
+    public var isRegistered: Bool { registered == true }
 
     /// Whether this desktop can run team actions (EXP-253).
     public var canRunActions: Bool { caps?.contains("actions") == true }
@@ -92,6 +137,9 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public var canFixConflicts: Bool { caps?.contains("fix-conflicts") == true }
 }
 
+/// Server envelope for both device lists: `steer.myDevices` returns exactly
+/// `{ devices }`, `devices.list` (EXP-403) adds an informational
+/// `latestVersions` mobile ignores — unknown keys decode away.
 public struct SteerDevicesResult: Decodable, Sendable {
     public let devices: [SteerDevice]
 

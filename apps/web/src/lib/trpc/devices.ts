@@ -8,6 +8,7 @@ import { z } from "zod"
 import { and, desc, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { devices } from "@/db/schema"
+import { versionPayload } from "@/lib/client-version"
 import {
   getSteerRelayConfig,
   relayGetDevices,
@@ -32,6 +33,12 @@ export type DeviceListEntry = {
   // device that predates the registry (old desktop build).
   lastSeenAt: string | null
   registered: boolean
+  // The client's marketing version as of its last register; null for old
+  // builds that don't send one.
+  version: string | null
+  // An Update click is pending (set by requestUpdate, consumed when the
+  // device re-registers after acting on it).
+  updateRequested: boolean
 }
 
 export const devicesRouter = router({
@@ -49,6 +56,7 @@ export const devicesRouter = router({
         platform: z.string().min(1).max(64).optional(),
         agents: agentsInput.optional(),
         caps: capsInput.optional(),
+        version: z.string().min(1).max(32).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -63,6 +71,7 @@ export const devicesRouter = router({
           platform: input.platform ?? null,
           agents: input.agents ?? [],
           caps: input.caps ?? [],
+          version: input.version ?? null,
           lastSeenAt: now,
         })
         .onConflictDoUpdate({
@@ -72,6 +81,11 @@ export const devicesRouter = router({
             platform: input.platform ?? null,
             agents: input.agents ?? [],
             caps: input.caps ?? [],
+            version: input.version ?? null,
+            // Registering CONSUMES a pending Update click: the daemon
+            // re-registers after acting on the request (whether or not a
+            // newer build actually existed).
+            updateRequestedAt: null,
             lastSeenAt: now,
             updatedAt: now,
           },
@@ -81,6 +95,9 @@ export const devicesRouter = router({
 
   // Liveness bump. `ok: false` means the row is gone (removed from the UI
   // while the daemon ran) — the caller should re-register.
+  // `updateRequested` piggybacks the web "Update" button to the daemon: it
+  // checks for a new release, updates + restarts when one exists, and its
+  // next register consumes the flag either way.
   heartbeat: authedProcedure
     .input(z.object({ deviceId: deviceIdInput }))
     .mutation(async ({ ctx, input }) => {
@@ -94,12 +111,40 @@ export const devicesRouter = router({
             eq(devices.deviceId, input.deviceId)
           )
         )
+        .returning({
+          id: devices.id,
+          updateRequestedAt: devices.updateRequestedAt,
+        })
+      return {
+        ok: updated.length > 0,
+        updateRequested: Boolean(updated[0]?.updateRequestedAt),
+      }
+    }),
+
+  // The web "Update" button (EXP-403): flag the device; its next heartbeat
+  // picks the request up. Own-user only via the where clause.
+  requestUpdate: authedProcedure
+    .input(z.object({ deviceId: deviceIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date()
+      const updated = await ctx.db
+        .update(devices)
+        .set({ updateRequestedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(devices.userId, ctx.session.user.id),
+            eq(devices.deviceId, input.deviceId)
+          )
+        )
         .returning({ id: devices.id })
       return { ok: updated.length > 0 }
     }),
 
   list: authedProcedure.query(async ({ ctx }): Promise<{
     devices: DeviceListEntry[]
+    // Informational CLIENT_LATEST_VERSION_* values (null when unset) — the
+    // UI hints "update available" when a row's version compares below.
+    latestVersions: { desktop: string | null; cli: string | null }
   }> => {
     const rows = await ctx.db
       .select()
@@ -157,6 +202,8 @@ export const devicesRouter = router({
         online: Boolean(online),
         lastSeenAt: row.lastSeenAt.toISOString(),
         registered: true,
+        version: row.version,
+        updateRequested: Boolean(row.updateRequestedAt),
       }
     })
 
@@ -173,10 +220,22 @@ export const devicesRouter = router({
         online: true,
         lastSeenAt: null,
         registered: false,
+        version: null,
+        updateRequested: false,
       })
     }
 
-    return { devices: entries }
+    const payload = versionPayload() as Record<
+      string,
+      { latest: string | null }
+    >
+    return {
+      devices: entries,
+      latestVersions: {
+        desktop: payload.desktop?.latest ?? null,
+        cli: payload.cli?.latest ?? null,
+      },
+    }
   }),
 
   rename: authedProcedure

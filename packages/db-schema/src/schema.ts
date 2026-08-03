@@ -699,6 +699,12 @@ export const devices = pgTable(
     label: varchar({ length: 255 }).notNull(),
     kind: varchar({ length: 32 }).notNull(),
     platform: varchar({ length: 64 }),
+    // The client's marketing version (`0.8.52`), refreshed on every register.
+    version: varchar({ length: 32 }),
+    // Web "Update" button (EXP-403): set by devices.requestUpdate, surfaced
+    // to the daemon via the heartbeat response, cleared by the next register
+    // (the daemon re-registers after acting on the request).
+    updateRequestedAt: timestamp(`update_requested_at`, { withTimezone: true }),
     agents: jsonb()
       .$type<string[]>()
       .notNull()

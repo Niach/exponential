@@ -21,8 +21,13 @@ data class SteerConfigResult(
 )
 
 /**
- * One of the caller's online desktops (relay presence, no DB table).
- * [agents] lists the coding agents the desktop can launch (EXP-201) — an
+ * One of the caller's machines, in the shape BOTH sources return (mirrors
+ * web's `lib/steer-devices.ts`): `steer.myDevices` hands back live relay
+ * presence only, `devices.list` (EXP-403) the durable per-user registry
+ * merged with that presence. The registry fields are all defaulted, so a
+ * relay-only row decodes unchanged and reads as an online desktop.
+ *
+ * [agents] lists the coding agents the machine can launch (EXP-201) — an
  * absent/empty list means an older desktop that only runs claude. [caps]
  * lists feature capabilities (EXP-253: `actions`; EXP-257: `action-inputs`)
  * — absent (old desktop/relay) means none: action starts are strictly gated
@@ -35,7 +40,24 @@ data class SteerDevice(
     @SerialName("connectedAt") val connectedAt: Long = 0,
     @SerialName("agents") val agents: List<String> = emptyList(),
     @SerialName("caps") val caps: List<String>? = null,
+    // ── devices.list registry fields (EXP-403) ───────────────────────────────
+    /** `desktop` (the IDE) or `server` (a headless `exponential` daemon). */
+    @SerialName("kind") val kind: String = KIND_DESKTOP,
+    @SerialName("platform") val platform: String? = null,
+    /** Connected to the relay right now. Relay-only rows omit it and ARE online. */
+    @SerialName("online") val online: Boolean = true,
+    /** ISO timestamp of the last register/heartbeat; null on a relay-only row. */
+    @SerialName("lastSeenAt") val lastSeenAt: String? = null,
+    /** Backed by a registry row — rename/remove only exist for those. */
+    @SerialName("registered") val registered: Boolean = false,
+    /** Marketing version as of the last register; null for old builds. */
+    @SerialName("version") val version: String? = null,
+    /** An Update request is pending on the daemon (cleared when it re-registers). */
+    @SerialName("updateRequested") val updateRequested: Boolean = false,
 ) {
+    /** A headless `exponential` daemon rather than the desktop IDE. */
+    val isServer: Boolean get() = kind == KIND_SERVER
+
     /** Whether this desktop can run team actions (EXP-253). */
     val canRunActions: Boolean get() = caps?.contains("actions") == true
 
@@ -52,6 +74,11 @@ data class SteerDevice(
      * filter such desktops out instead of failing after submit (EXP-323).
      */
     val canFixConflicts: Boolean get() = caps?.contains("fix-conflicts") == true
+
+    companion object {
+        const val KIND_DESKTOP = "desktop"
+        const val KIND_SERVER = "server"
+    }
 }
 
 @Serializable

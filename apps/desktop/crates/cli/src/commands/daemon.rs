@@ -85,6 +85,16 @@ pub fn run(args: &[String]) -> CommandResult {
 // The daemon loop
 // ---------------------------------------------------------------------------
 
+/// Why an update is parked for the next idle moment.
+#[derive(Clone, Copy, Debug)]
+enum UpdateTrigger {
+    /// The settings-gated periodic check came due.
+    Scheduled,
+    /// The web "Update" button (heartbeat `updateRequested`) — acts even
+    /// with auto-update off, and consumes the request either way.
+    Requested,
+}
+
 /// One live session the daemon supervises (the desktop's `LocalSessions`).
 struct LiveSession {
     issue_id: Option<String>,
@@ -119,7 +129,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
     let ctx = Arc::new(context::load()?);
     if let Some(pid) = daemon_pid(&ctx.data_dir) {
-        bail!("A daemon is already running (pid {pid}).");
+        // Same pid = US, after an auto-update re-exec (exec keeps the pid
+        // and the pidfile) — that's a restart, not a second daemon.
+        if pid != std::process::id() {
+            bail!("A daemon is already running (pid {pid}).");
+        }
     }
     std::fs::write(pidfile(&ctx.data_dir), std::process::id().to_string())
         .context("write the daemon pidfile")?;
@@ -171,6 +185,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
     let mut last_heartbeat = Instant::now();
     let mut last_doctor = Instant::now();
+    // Auto-update (EXP-403): a due check (own cadence, or the web "Update"
+    // button via the heartbeat) parks here until NO session is live — a
+    // restart must never kill a running agent. `Requested` acts even with
+    // auto-update off (an explicit click is an explicit instruction).
+    let mut pending_update: Option<UpdateTrigger> = None;
+    let mut last_update_poll = Instant::now();
     while !shutdown_requested() {
         match inbox_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(start) => {
@@ -201,10 +221,60 @@ fn run_daemon(args: &[String]) -> CommandResult {
         if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
             last_heartbeat = Instant::now();
             match api::devices::heartbeat(&ctx.trpc, &device_id) {
-                // Row removed in the UI while we run — re-register.
-                Ok(false) => register_device(&ctx, &device_id, &device_label, &advertised),
-                Ok(true) => {}
+                Ok(result) => {
+                    // Row removed in the UI while we run — re-register.
+                    if !result.ok {
+                        register_device(&ctx, &device_id, &device_label, &advertised);
+                    }
+                    if result.update_requested && pending_update.is_none() {
+                        log::info!("update requested from the web");
+                        pending_update = Some(UpdateTrigger::Requested);
+                    }
+                }
                 Err(err) => log::debug!("devices.heartbeat failed: {err}"),
+            }
+        }
+
+        // Scheduled auto-update check (settings-gated + persisted throttle).
+        if pending_update.is_none() && last_update_poll.elapsed() >= Duration::from_secs(60) {
+            last_update_poll = Instant::now();
+            if super::update::auto_check_due(
+                &ctx.data_dir,
+                super::update::DAEMON_CHECK_INTERVAL_SECS,
+            ) {
+                pending_update = Some(UpdateTrigger::Scheduled);
+            }
+        }
+        if let Some(trigger) = pending_update {
+            let idle = lock_sessions(&sessions).is_empty();
+            if idle {
+                pending_update = None;
+                match super::update::check_and_install() {
+                    Ok(super::update::UpdateOutcome::Updated { version }) => {
+                        log::info!("updated to {version} — restarting the daemon");
+                        if let Some(handle) = control.take() {
+                            handle.stop();
+                        }
+                        // exec keeps the pid: the pidfile stays valid and the
+                        // new binary's startup sees its own pid there.
+                        super::update::exec_self();
+                        // exec only returns on failure — keep running.
+                    }
+                    Ok(other) => {
+                        log::info!("update check: {other:?}");
+                        if matches!(trigger, UpdateTrigger::Requested) {
+                            // Consume the web request even when there was
+                            // nothing to install.
+                            register_device(&ctx, &device_id, &device_label, &advertised);
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("update failed: {err:#}");
+                        if matches!(trigger, UpdateTrigger::Requested) {
+                            register_device(&ctx, &device_id, &device_label, &advertised);
+                        }
+                    }
+                }
             }
         }
 
@@ -282,6 +352,7 @@ fn register_device(ctx: &Ctx, device_id: &str, device_label: &str, agents: &[Str
             platform: Some(std::env::consts::OS),
             agents,
             caps: &caps,
+            version: Some(crate::cli_version()),
         },
     );
     if let Err(err) = result {

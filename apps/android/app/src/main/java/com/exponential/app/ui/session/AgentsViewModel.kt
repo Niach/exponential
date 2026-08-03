@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.DeviceLatestVersions
+import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -33,9 +35,15 @@ import kotlinx.coroutines.launch
 
 // The Agents tab: the signed-in user's OWN coding sessions currently running
 // (synced coding_sessions shape joined to its issue), plus a remote-start
-// launcher against the user's online desktops (EXP-156). The desktop remains
-// the only session runner — this tab lists live sessions and kicks off new
-// (single or batch) runs on a picked desktop.
+// launcher against the user's machines (EXP-156). The desktop remains the only
+// session runner — this tab lists live sessions and kicks off new (single or
+// batch) runs on a picked machine.
+//
+// The machine list is the EXP-403 registry (`devices.list`, polled while the
+// tab is visible), not the relay's presence map: it carries offline machines,
+// their kind (desktop IDE vs headless `exponential` server), their version and
+// the rename/remove/update affordances. Every OTHER surface in the app only
+// needs a picker, so those still read the presence-only `steer.myDevices`.
 
 data class AgentRow(
     val session: CodingSessionEntity,
@@ -55,6 +63,7 @@ class AgentsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val steerApi: SteerApi,
+    private val devicesApi: DevicesApi,
     private val issuesApi: IssuesApi,
     private val selection: TeamSelection,
 ) : ViewModel() {
@@ -64,9 +73,19 @@ class AgentsViewModel @Inject constructor(
 
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)
 
-    // The caller's online desktops (relay presence). null = not loaded yet.
+    // The caller's registered machines, online AND offline. null = not loaded yet.
     private val _devices = MutableStateFlow<List<SteerDevice>?>(null)
     val devices: StateFlow<List<SteerDevice>?> = _devices
+
+    // Informational CLIENT_LATEST_VERSION_* values behind the "update
+    // available" hint on a machine row; both null until the first list lands.
+    private val _latestVersions = MutableStateFlow(DeviceLatestVersions())
+    val latestVersions: StateFlow<DeviceLatestVersions> = _latestVersions
+
+    // Machine ids with a rename/remove/update mutation in flight — the row's
+    // menu stays put but its actions disable until the refetch lands.
+    private val _deviceBusy = MutableStateFlow<Set<String>>(emptySet())
+    val deviceBusy: StateFlow<Set<String>> = _deviceBusy
 
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
@@ -134,12 +153,13 @@ class AgentsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
-        // Steer availability + device presence, re-fetched on account switch
-        // (mirrors the issue detail's check).
+        // Steer availability + the machine registry, re-fetched on account
+        // switch (mirrors the issue detail's check).
         viewModelScope.launch {
             auth.activeAccountId.collectLatest { accountId ->
                 _steerEnabled.value = null
                 _devices.value = null
+                _latestVersions.value = DeviceLatestVersions()
                 _startState.value = SteerStartState.Idle
                 if (accountId == null) {
                     _steerEnabled.value = false
@@ -149,22 +169,63 @@ class AgentsViewModel @Inject constructor(
                 val enabled = runCatching { steerApi.config(accountId).enabled }
                     .getOrDefault(false)
                 _steerEnabled.value = enabled
-                _devices.value = if (enabled) {
-                    runCatching { steerApi.myDevices(accountId).devices }.getOrDefault(emptyList())
+                if (enabled) {
+                    loadDevices(accountId)
                 } else {
-                    emptyList()
+                    _devices.value = emptyList()
                 }
             }
         }
     }
 
-    /** Re-poll device presence (on tab resume) — no-op until steer resolves on. */
+    private suspend fun loadDevices(accountId: String) {
+        runCatching { devicesApi.list(accountId) }
+            .onSuccess {
+                _devices.value = it.devices
+                _latestVersions.value = it.latestVersions
+            }
+            // A failed poll must not blank a list the user is reading; only the
+            // very first failure resolves the loading state (to empty).
+            .onFailure { _devices.value = _devices.value ?: emptyList() }
+    }
+
+    /**
+     * Re-read the machine registry — the tab polls this while visible, and
+     * every row mutation calls it straight after. No-op until steer resolves
+     * on (the machines section is hidden without a relay, exactly like web).
+     */
     fun refreshDevices() {
         if (_steerEnabled.value != true) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching { steerApi.myDevices(accountId).devices }
-                .onSuccess { _devices.value = it }
+            loadDevices(accountId)
+        }
+    }
+
+    /** Rename a machine (its registry label wins over the relay's). */
+    fun renameDevice(deviceId: String, label: String) =
+        mutateDevice(deviceId) { accountId -> devicesApi.rename(accountId, deviceId, label.trim()) }
+
+    /**
+     * Drop the registry row. A machine whose daemon still runs re-registers
+     * itself on its next heartbeat — the confirm dialog says so.
+     */
+    fun removeDevice(deviceId: String) =
+        mutateDevice(deviceId) { accountId -> devicesApi.remove(accountId, deviceId) }
+
+    /** Ask a server daemon to self-update; it restarts when idle. */
+    fun requestDeviceUpdate(deviceId: String) =
+        mutateDevice(deviceId) { accountId -> devicesApi.requestUpdate(accountId, deviceId) }
+
+    // Every row mutation follows the same shape: mark the row busy, run, then
+    // refetch so the list reflects the change without waiting for the poll.
+    private fun mutateDevice(deviceId: String, block: suspend (String) -> Unit) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _deviceBusy.value = _deviceBusy.value + deviceId
+            runCatching { block(accountId) }
+            loadDevices(accountId)
+            _deviceBusy.value = _deviceBusy.value - deviceId
         }
     }
 

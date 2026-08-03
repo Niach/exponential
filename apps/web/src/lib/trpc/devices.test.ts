@@ -60,6 +60,14 @@ vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayGetDevices: h.relayGetDevices,
 }))
+vi.mock(`@/lib/client-version`, () => ({
+  versionPayload: () => ({
+    android: { min: null, latest: null },
+    ios: { min: null, latest: null },
+    desktop: { min: null, latest: `0.9.0` },
+    cli: { min: null, latest: `0.9.0` },
+  }),
+}))
 
 import { devicesRouter } from "@/lib/trpc/devices"
 
@@ -78,6 +86,8 @@ const registryRow = (over: Record<string, unknown> = {}) => ({
   platform: `linux`,
   agents: [`claude`],
   caps: [`actions`],
+  version: `0.8.52`,
+  updateRequestedAt: null,
   lastSeenAt: new Date(`2026-08-01T10:00:00Z`),
   createdAt: new Date(`2026-07-01T10:00:00Z`),
   updatedAt: new Date(`2026-08-01T10:00:00Z`),
@@ -132,18 +142,46 @@ describe(`devices.register`, () => {
     expect(upsert.set.label).toBeUndefined()
     expect(upsert.set).toMatchObject({ kind: `server` })
   })
+
+  it(`carries the version and consumes a pending update request`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `buildbox`,
+      kind: `server`,
+      version: `0.9.0`,
+    })
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set.version).toBe(`0.9.0`)
+    expect(upsert.set.updateRequestedAt).toBeNull()
+  })
+})
+
+describe(`devices.requestUpdate + heartbeat`, () => {
+  it(`flags the row and the next heartbeat reports it`, async () => {
+    h.state.updateReturning = [
+      [{ id: `row-1` }],
+      [{ id: `row-1`, updateRequestedAt: new Date() }],
+    ]
+    expect(await caller.requestUpdate({ deviceId: `dev-1` })).toEqual({
+      ok: true,
+    })
+    expect(await caller.heartbeat({ deviceId: `dev-1` })).toEqual({
+      ok: true,
+      updateRequested: true,
+    })
+  })
 })
 
 describe(`devices.heartbeat`, () => {
   it(`reports ok: false when the row was removed, so the daemon re-registers`, async () => {
     h.state.updateReturning = [[]]
     const result = await caller.heartbeat({ deviceId: `dev-gone` })
-    expect(result).toEqual({ ok: false })
+    expect(result).toEqual({ ok: false, updateRequested: false })
   })
 
   it(`bumps last_seen_at for a live row`, async () => {
     const result = await caller.heartbeat({ deviceId: `dev-1` })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, updateRequested: false })
     expect(h.state.updates[0]?.set).toMatchObject({
       lastSeenAt: expect.any(Date),
     })

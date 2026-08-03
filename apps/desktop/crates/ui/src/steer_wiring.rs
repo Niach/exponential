@@ -405,6 +405,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                             platform: Some(std::env::consts::OS),
                             agents: &agents,
                             caps: &caps,
+                            version: Some(domain::client_version::current_version()),
                         },
                     );
                 })

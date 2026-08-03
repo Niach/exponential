@@ -21,7 +21,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, ClickEvent, Entity, InteractiveElement, IntoElement,
+    div, App, AppContext as _, ClickEvent, Entity, InteractiveElement, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
@@ -43,12 +43,18 @@ use crate::queries;
 pub struct ActionsPanel {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
+    /// EXP-403: "My machines" rides under the action rows — the same
+    /// per-user device registry web/iOS/Android show. It owns its own
+    /// `devices.list` poll (tRPC, no Electric echo) and only polls while it
+    /// is on screen, i.e. while this tool window is open.
+    machines: Entity<crate::machines::MachinesSection>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl ActionsPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
+        let machines = cx.new(|cx| crate::machines::MachinesSection::new(window, cx));
         // Live list: re-render on any synced actions change (EXP-268) and on
         // navigation (team switch re-scopes the read).
         let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
@@ -60,6 +66,7 @@ impl ActionsPanel {
         Self {
             nav,
             scroll: ScrollHandle::new(),
+            machines,
             _subscriptions: subscriptions,
         }
     }
@@ -318,7 +325,13 @@ impl Render for ActionsPanel {
                                 .text_color(muted)
                                 .child("Loading actions…"),
                         )
-                    }),
+                    })
+                    // EXP-403: machines sit BELOW the actions (web's Agents
+                    // page order inverted — this tool window's header already
+                    // says "Actions", so the primary list leads) and share the
+                    // one scroll pane; there is no second scroll region to
+                    // starve the list at narrow heights.
+                    .child(self.machines.clone()),
             ))
     }
 }

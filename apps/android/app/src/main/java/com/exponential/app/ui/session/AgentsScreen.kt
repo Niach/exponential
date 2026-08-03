@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,13 +17,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,15 +40,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuDefaults
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
@@ -59,14 +70,24 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
+import kotlinx.coroutines.delay
+
+// How often the visible tab re-reads the machine registry — the web "My
+// machines" list polls on the same cadence.
+private const val DEVICE_POLL_INTERVAL_MS = 15_000L
+
+/** `devices.rename` caps the label at 255 chars server-side. */
+private const val MAX_DEVICE_LABEL = 255
 
 /**
- * The Agents tab: a remote-start launcher over the caller's online desktops
- * (EXP-156) plus the caller's OWN coding sessions currently running (EXP-312:
- * live sessions are owner-only, so a teammate's session never lists here).
- * Tapping a running row jumps straight into the live steer viewer when the
- * relay is configured; otherwise it falls back to the issue detail. The
- * trailing info button always opens the issue detail.
+ * The Agents tab: "My machines" — the caller's registered devices (EXP-403:
+ * desktop IDEs and headless `exponential` servers, online and offline) doubling
+ * as the remote-start launcher (EXP-156) — plus the caller's OWN coding
+ * sessions currently running (EXP-312: live sessions are owner-only, so a
+ * teammate's session never lists here). Tapping a running row jumps straight
+ * into the live steer viewer when the relay is configured; otherwise it falls
+ * back to the issue detail. The trailing info button always opens the issue
+ * detail.
  */
 @Composable
 fun AgentsScreen(
@@ -77,6 +98,8 @@ fun AgentsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val devices by viewModel.devices.collectAsStateWithLifecycle()
+    val latestVersions by viewModel.latestVersions.collectAsStateWithLifecycle()
+    val deviceBusy by viewModel.deviceBusy.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     val merging by viewModel.merging.collectAsStateWithLifecycle()
@@ -85,13 +108,24 @@ fun AgentsScreen(
     // The device the launcher sheet was opened from (non-null = sheet open).
     var sheetDevice by remember { mutableStateOf<SteerDevice?>(null) }
 
+    // The machine rows whose Rename / Remove dialog is open (EXP-403).
+    var renameTarget by remember { mutableStateOf<SteerDevice?>(null) }
+    var removeTarget by remember { mutableStateOf<SteerDevice?>(null) }
+
     // The row whose "Merge and close" is awaiting confirmation (EXP-358).
     var mergeTarget by remember { mutableStateOf<AgentRow?>(null) }
 
-    // Re-poll device presence each time the tab comes to the foreground.
-    LifecycleResumeEffect(Unit) {
-        viewModel.refreshDevices()
-        onPauseOrDispose { }
+    // Poll the machine registry while the tab is on screen: a desktop
+    // connecting, a daemon going offline or an update finishing must land
+    // without a navigation, and the loop dies with the foreground.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                viewModel.refreshDevices()
+                delay(DEVICE_POLL_INTERVAL_MS)
+            }
+        }
     }
 
     val steerOn = state.steerEnabled == true
@@ -121,7 +155,7 @@ fun AgentsScreen(
                     modifier = Modifier.testTag("open-actions"),
                 )
             }
-            // No steer and nothing running → the full empty state (no devices
+            // No steer and nothing running → the full empty state (no machines
             // section to anchor a compact caption).
             if (!steerOn && state.rows.isEmpty()) {
                 AgentsEmptyState()
@@ -132,16 +166,27 @@ fun AgentsScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (steerOn) {
-                        item(key = "__desktops_header__") { SectionHeader("My desktops") }
+                        item(key = "__machines_header__") { SectionHeader("My machines") }
                         val devs = devices
                         when {
                             // null = still loading; render nothing under the header.
                             devs == null -> Unit
-                            devs.isEmpty() -> item(key = "__no_desktop__") {
-                                HintRow("No desktop online. Open the Exponential desktop app to run here.")
+                            devs.isEmpty() -> item(key = "__no_machine__") {
+                                HintRow(
+                                    "No machines yet. Open the Exponential desktop app, or add a " +
+                                        "server with the install one-liner on the web.",
+                                )
                             }
                             else -> items(devs, key = { "dev_${it.deviceId}" }) { device ->
-                                DeviceRow(device = device, onStart = { sheetDevice = device })
+                                MachineRow(
+                                    device = device,
+                                    latestVersions = latestVersions,
+                                    busy = device.deviceId in deviceBusy,
+                                    onStart = { sheetDevice = device },
+                                    onRename = { renameTarget = device },
+                                    onRemove = { removeTarget = device },
+                                    onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
+                                )
                             }
                         }
                         val caption = startStateCaption(startState)
@@ -207,6 +252,43 @@ fun AgentsScreen(
         )
     }
 
+    renameTarget?.let { device ->
+        RenameMachineDialog(
+            device = device,
+            onRename = { label ->
+                viewModel.renameDevice(device.deviceId, label)
+                renameTarget = null
+            },
+            onDismiss = { renameTarget = null },
+        )
+    }
+
+    // Removing drops the registry row only — say so, or an owner who removes a
+    // machine that is still running the daemon reads its return as a bug.
+    removeTarget?.let { device ->
+        AlertDialog(
+            onDismissRequest = { removeTarget = null },
+            title = { Text("Remove machine?") },
+            text = {
+                Text(
+                    "Removes “${device.displayLabel}” from your machines. A machine with the " +
+                        "daemon still running re-registers itself on its next heartbeat.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.removeDevice(device.deviceId)
+                        removeTarget = null
+                    },
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { removeTarget = null }) { Text("Cancel") }
+            },
+        )
+    }
+
     // EXP-358: merging alone parks the session on `merged`, so the destructive
     // half ("and close") is confirm-gated — same shape as the Reviews dialog.
     mergeTarget?.let { row ->
@@ -242,41 +324,193 @@ private fun SectionHeader(text: String) {
     )
 }
 
-// One online desktop: a computer glyph + label, with a trailing "Start coding"
-// pill that opens the launcher sheet pre-targeted at this device.
+/** Never render a bare blank row: a label-less machine falls back to its id. */
+private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { deviceId }
+
+/**
+ * One registered machine (EXP-403): kind glyph + label with a hair-small
+ * version, a status line (green dot Online / "Last seen …" / Offline), the
+ * "Start coding" pill for ONLINE machines only, and the row menu — Rename and
+ * Remove for registered rows, plus Update for an online server daemon. A row
+ * that predates the registry (`registered == false`, live off relay presence)
+ * has nothing to rename or remove, so it carries no menu.
+ */
 @Composable
-private fun DeviceRow(device: SteerDevice, onStart: () -> Unit) {
+private fun MachineRow(
+    device: SteerDevice,
+    latestVersions: DeviceLatestVersions,
+    busy: Boolean,
+    onStart: () -> Unit,
+    onRename: () -> Unit,
+    onRemove: () -> Unit,
+    onUpdate: () -> Unit,
+) {
+    val online = device.online
+    // A server runs the CLI, a desktop the IDE — each compares against its own
+    // channel's advertised latest.
+    val outdated = deviceUpdateAvailable(
+        device.version,
+        if (device.isServer) latestVersions.cli else latestVersions.desktop,
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .glassRow()
-            .clickable(onClick = onStart)
+            .clickable(enabled = online, onClick = onStart)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            ExpIcons.uiDevice,
+            if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            tint = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (online) TextEmphasis.Secondary else TextEmphasis.Tertiary,
+            ),
         )
         Spacer(Modifier.width(12.dp))
-        Text(
-            device.deviceLabel.ifBlank { device.deviceId },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    device.displayLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (device.version != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "v${device.version}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (outdated) {
+                            NeedsInputAmber
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                        },
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                // A pending update outranks the presence caption: the daemon is
+                // about to restart, so "Online" would only read as a lie.
+                if (device.updateRequested) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(10.dp),
+                        strokeWidth = 1.5.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                } else if (online) {
+                    StaticDot(ReviewGreen, size = 6.dp)
+                }
+                Text(
+                    when {
+                        device.updateRequested -> "Updating…"
+                        online -> "Online"
+                        device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
+                        else -> "Offline"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         // Text-only glass chip, matching the iOS AgentsView "Start coding"
-        // button (EXP-331 — no play glyph).
-        GlassPillButton(
-            label = "Start coding",
-            onClick = onStart,
-            modifier = Modifier.padding(start = 8.dp),
-        )
+        // button (EXP-331 — no play glyph). Offline machines can't take a
+        // start (the relay refuses it), so the affordance is simply absent.
+        if (online) {
+            GlassPillButton(
+                label = "Start coding",
+                onClick = onStart,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        if (device.registered) {
+            var rowMenu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { rowMenu = true }) {
+                    Icon(
+                        ExpIcons.uiMoreVertical,
+                        contentDescription = "Machine actions",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+                GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
+                    GlassMenuItem(
+                        text = { Text("Rename") },
+                        leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                        enabled = !busy,
+                        onClick = {
+                            rowMenu = false
+                            onRename()
+                        },
+                    )
+                    // Self-update is a server-daemon capability: the desktop
+                    // app updates itself through its own channel, and an
+                    // offline machine has nothing listening for the request.
+                    if (device.isServer && online && !device.updateRequested) {
+                        GlassMenuItem(
+                            text = { Text("Update") },
+                            leadingIcon = { Icon(ExpIcons.uiUpdate, contentDescription = null) },
+                            enabled = !busy,
+                            onClick = {
+                                rowMenu = false
+                                onUpdate()
+                            },
+                        )
+                    }
+                    HorizontalDivider(color = GlassMenuDefaults.DividerColor)
+                    GlassMenuItem(
+                        text = { Text("Remove") },
+                        leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                        enabled = !busy,
+                        destructive = true,
+                        onClick = {
+                            rowMenu = false
+                            onRemove()
+                        },
+                    )
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun RenameMachineDialog(
+    device: SteerDevice,
+    onRename: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var label by remember { mutableStateOf(device.deviceLabel) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename machine") },
+        text = {
+            OutlinedTextField(
+                value = label,
+                onValueChange = { label = it.take(MAX_DEVICE_LABEL) },
+                singleLine = true,
+                label = { Text("Name") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onRename(label) }, enabled = label.isNotBlank()) {
+                Text("Save")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

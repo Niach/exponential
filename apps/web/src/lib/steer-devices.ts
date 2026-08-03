@@ -22,6 +22,10 @@ export interface SteerDevice {
   /** ISO timestamp of the last register/heartbeat; null for relay-only rows. */
   lastSeenAt?: string | null
   registered?: boolean
+  /** Marketing version as of the last register; null for old builds. */
+  version?: string | null
+  /** A web "Update" click is pending on the device. */
+  updateRequested?: boolean
 }
 
 /** Whether the device is startable right now. Rows without the field come

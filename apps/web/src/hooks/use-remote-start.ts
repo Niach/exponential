@@ -56,6 +56,9 @@ export interface RemoteStart {
   /** Re-fetch the device list now (after a rename/remove) instead of
    * waiting for the next poll tick. */
   refresh: () => void
+  /** Informational CLIENT_LATEST_VERSION_* values — null until loaded or
+   * when unset server-side. */
+  latestVersions: { desktop: string | null; cli: string | null } | null
 }
 
 export function useRemoteStart({
@@ -68,6 +71,10 @@ export function useRemoteStart({
   currentUserId?: string
 } = {}): RemoteStart {
   const [devices, setDevices] = useState<SteerDevice[] | null>(null)
+  const [latestVersions, setLatestVersions] = useState<{
+    desktop: string | null
+    cli: string | null
+  } | null>(null)
   const [starting, setStarting] = useState(false)
   const [pending, setPending] = useState<{
     deviceLabel: string
@@ -88,7 +95,11 @@ export function useRemoteStart({
     const fetchDevices = () => {
       trpc.devices.list
         .query()
-        .then((res) => active && setDevices(res.devices))
+        .then((res) => {
+          if (!active) return
+          setDevices(res.devices)
+          setLatestVersions(res.latestVersions ?? null)
+        })
         .catch(() => active && setDevices((previous) => previous ?? []))
     }
     fetchDevices()
@@ -215,5 +226,6 @@ export function useRemoteStart({
     startIssues,
     runAction,
     refresh: () => setRefreshTick((tick) => tick + 1),
+    latestVersions,
   }
 }

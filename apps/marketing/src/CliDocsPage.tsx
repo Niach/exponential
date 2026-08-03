@@ -223,6 +223,17 @@ exponential update
               you&apos;re on, every command says so and points here.
             </p>
             <p>
+              You rarely need it, though: on its first run the CLI asks
+              whether to keep itself up to date automatically. With
+              auto-update on, commands check once a day and restart
+              themselves on the new build, and the daemon updates on its own
+              schedule, waiting until no session is running before it
+              restarts. Each machine&apos;s row on the Agents page also shows
+              its version with an Update button that asks the daemon to
+              update right away. The stored choice is{` `}
+              <code>cliAutoUpdate</code> in settings.json.
+            </p>
+            <p>
               Release notes for the CLI and everything else live on{` `}
               <a href={LINKS.github.releases}>GitHub Releases</a>.
             </p>

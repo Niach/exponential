@@ -3,8 +3,9 @@
 // fallback, rename/remove, and the "Add server" install one-liner. Fed by
 // `devices.list` via useRemoteStart's poll; per-user, never team state.
 import { useMemo, useState } from "react"
-import { LoaderCircle, MonitorUp, Ellipsis, Pencil, Plus, Trash2 } from "lucide-react"
+import { LoaderCircle, MonitorUp } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
+import { parseVersionTuple } from "@/lib/client-version"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import { deviceIsOnline, type SteerDevice } from "@/lib/steer-devices"
@@ -27,9 +28,17 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 
+// This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
+// — concepts, never raw lucide glyphs (CLAUDE.md icon rule). MonitorUp and
+// the LoaderCircle spinner mirror the agents page's existing raw usage.
 const DesktopIcon = conceptIcon(`ui-device`)
 const ServerIcon = conceptIcon(`ui-server`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
+const AddIcon = conceptIcon(`ui-add`)
+const UpdateIcon = conceptIcon(`ui-update`)
+const RenameIcon = conceptIcon(`ui-edit`)
+const RemoveIcon = conceptIcon(`ui-delete`)
+const MoreIcon = conceptIcon(`ui-more`)
 
 // The install script is served by the CLOUD marketing site for every
 // instance — self-hosted deployments ship only the web app (no marketing
@@ -39,24 +48,53 @@ export function buildServerInstallSnippet(origin: string): string {
   return `curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=${origin} sh`
 }
 
+/// Version compares below the platform's CLIENT_LATEST_VERSION_* value.
+function updateAvailable(
+  version: string | null | undefined,
+  latest: string | null | undefined
+): boolean {
+  if (!version || !latest) return false
+  const have = parseVersionTuple(version)
+  const want = parseVersionTuple(latest)
+  if (!have || !want) return false
+  for (let i = 0; i < 3; i++) {
+    if (have[i] !== want[i]) return have[i] < want[i]
+  }
+  return false
+}
+
 export function MyMachines({
   devices,
   runBusy,
   sentTo,
   onStartCoding,
   onChanged,
+  latestVersions,
 }: {
   devices: SteerDevice[] | null
   runBusy: boolean
   sentTo: string | null
   onStartCoding: (deviceId: string) => void
   onChanged: () => void
+  latestVersions: { desktop: string | null; cli: string | null } | null
 }) {
   const [addServerOpen, setAddServerOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<SteerDevice | null>(null)
   const [renameValue, setRenameValue] = useState(``)
   const [removeTarget, setRemoveTarget] = useState<SteerDevice | null>(null)
   const [busy, setBusy] = useState(false)
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
+
+  const requestUpdate = async (device: SteerDevice) => {
+    if (updatingId) return
+    setUpdatingId(device.deviceId)
+    try {
+      await trpc.devices.requestUpdate.mutate({ deviceId: device.deviceId })
+      onChanged()
+    } finally {
+      setUpdatingId(null)
+    }
+  }
 
   const snippet = useMemo(
     () =>
@@ -105,7 +143,7 @@ export function MyMachines({
           className="text-muted-foreground"
           onClick={() => setAddServerOpen(true)}
         >
-          <Plus />
+          <AddIcon />
           Add server
         </Button>
       </div>
@@ -122,14 +160,35 @@ export function MyMachines({
         devices.map((device) => {
           const online = deviceIsOnline(device)
           const KindIcon = device.kind === `server` ? ServerIcon : DesktopIcon
+          const latest =
+            device.kind === `server`
+              ? latestVersions?.cli
+              : latestVersions?.desktop
+          const outdated = updateAvailable(device.version, latest)
           return (
             <div
               key={device.deviceId}
               className="flex items-center gap-2 border-b border-border/30 px-3 py-2"
             >
               <KindIcon className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-sm">
-                {device.deviceLabel || device.deviceId}
+              <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                <span className="min-w-0 truncate text-sm">
+                  {device.deviceLabel || device.deviceId}
+                </span>
+                {device.version && (
+                  <span
+                    className={`shrink-0 text-[10px] ${
+                      outdated
+                        ? `text-amber-500`
+                        : `text-muted-foreground/60`
+                    }`}
+                    title={
+                      outdated ? `Update available: ${latest}` : undefined
+                    }
+                  >
+                    v{device.version}
+                  </span>
+                )}
               </span>
               {online ? (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -142,6 +201,28 @@ export function MyMachines({
                     ? `Last seen ${relativeTime(device.lastSeenAt)}`
                     : `Offline`}
                 </span>
+              )}
+              {device.kind === `server` && online && device.registered && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={outdated ? `text-amber-500` : `text-muted-foreground`}
+                  disabled={device.updateRequested || updatingId === device.deviceId}
+                  title="Ask the daemon to self-update (it restarts when idle)"
+                  onClick={() => void requestUpdate(device)}
+                >
+                  {device.updateRequested || updatingId === device.deviceId ? (
+                    <>
+                      <LoaderCircle className="animate-spin" />
+                      Updating…
+                    </>
+                  ) : (
+                    <>
+                      <UpdateIcon />
+                      Update
+                    </>
+                  )}
+                </Button>
               )}
               <Button
                 variant="outline"
@@ -156,7 +237,7 @@ export function MyMachines({
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" className="h-5 w-5 p-0">
-                      <Ellipsis className="size-4" />
+                      <MoreIcon className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -166,14 +247,14 @@ export function MyMachines({
                         setRenameTarget(device)
                       }}
                     >
-                      <Pencil />
+                      <RenameIcon />
                       Rename
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"
                       onSelect={() => setRemoveTarget(device)}
                     >
-                      <Trash2 />
+                      <RemoveIcon />
                       Remove
                     </DropdownMenuItem>
                   </DropdownMenuContent>
