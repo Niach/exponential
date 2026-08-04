@@ -10,9 +10,11 @@ import {
 
 interface AuthFormShellProps {
   children: ReactNode
-  description: string
+  // Optional so a flow can drop the header once it settles (the device
+  // page hides "Enter the code…" after the device connects).
+  description?: string
   footer: ReactNode
-  title: string
+  title?: string
 }
 
 export function AuthFormShell({
@@ -29,10 +31,12 @@ export function AuthFormShell({
           <span className="text-xl font-semibold">Exponential</span>
         </div>
         <Card>
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">{title}</CardTitle>
-            <CardDescription>{description}</CardDescription>
-          </CardHeader>
+          {(title || description) && (
+            <CardHeader className="text-center">
+              {title && <CardTitle className="text-2xl">{title}</CardTitle>}
+              {description && <CardDescription>{description}</CardDescription>}
+            </CardHeader>
+          )}
           <CardContent>
             {children}
             {footer}
