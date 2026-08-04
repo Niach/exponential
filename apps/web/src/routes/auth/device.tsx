@@ -56,16 +56,27 @@ function deviceErrorMessage(error: { error?: string; message?: string } | null):
   return error?.message || `Something went wrong. Try again.`
 }
 
-// The user types the code as printed (XXXX-XXXX); the server strips dashes
-// and the generated charset is uppercase-only.
+// Codes are always 8 chars (printed XXXX-XXXX); the server strips dashes
+// and the generated charset is uppercase-only. Auto-insert the dash while
+// typing — but only once a 5th char exists, so backspacing over it deletes
+// instead of fighting the formatter — and pasting a dashed code stays
+// stable because the dash is stripped before re-inserting.
 export function normalizeUserCode(input: string): string {
-  return input.toUpperCase().replace(/[^A-Z0-9-]/g, ``)
+  const bare = input
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, ``)
+    .slice(0, 8)
+  return bare.length >= 5 ? `${bare.slice(0, 4)}-${bare.slice(4)}` : bare
 }
 
 export function DeviceVerificationView({
   initialCode,
+  onSettled,
 }: {
   initialCode?: string
+  /** Fires when the flow reaches a terminal step (approved or denied) so
+   *  the page can drop the "Connect a device" header above the outcome. */
+  onSettled?: () => void
 }) {
   const [step, setStep] = useState<Step>(`enter`)
   const [code, setCode] = useState(() => normalizeUserCode(initialCode ?? ``))
@@ -108,6 +119,7 @@ export function DeviceVerificationView({
       return
     }
     setStep(approve ? `approved` : `denied`)
+    onSettled?.()
   }
 
   if (step === `approved`) {
@@ -174,6 +186,7 @@ export function DeviceVerificationView({
           value={code}
           onChange={(e) => setCode(normalizeUserCode(e.target.value))}
           placeholder="XXXX-XXXX"
+          maxLength={9}
           autoFocus
           autoComplete="off"
           spellCheck={false}
@@ -190,13 +203,20 @@ export function DeviceVerificationView({
 
 function DeviceVerificationPage() {
   const { user_code: userCode } = Route.useSearch()
+  // Once the flow settles the outcome copy stands alone — keeping "Enter
+  // the code shown in your terminal" above "Device connected." reads like
+  // a further instruction.
+  const [settled, setSettled] = useState(false)
   return (
     <AuthFormShell
-      title="Connect a device"
-      description="Enter the code shown in your terminal"
+      title={settled ? undefined : `Connect a device`}
+      description={settled ? undefined : `Enter the code shown in your terminal`}
       footer={null}
     >
-      <DeviceVerificationView initialCode={userCode} />
+      <DeviceVerificationView
+        initialCode={userCode}
+        onSettled={() => setSettled(true)}
+      />
     </AuthFormShell>
   )
 }

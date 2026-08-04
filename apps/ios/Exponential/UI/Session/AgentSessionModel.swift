@@ -364,16 +364,31 @@ final class AgentSessionModel {
             try CodingSessionEntity.filter(Column("id") == id).fetchOne(db)
         }
         sessionObservationTask = Task { [weak self] in
-            do {
-                for try await row in observation.values(in: pool) {
-                    guard let self else { continue }
-                    // A nil row is published (not swallowed): the row is gone,
-                    // which `sessionEnded` reads as ended. Holding the last
-                    // known copy instead left the retry loops waiting for an
-                    // `ended` status a deleted row can never report.
-                    self.session = row
+            // The GRDB stream is one-shot: any error (a busy database, a
+            // reclaimed pool) ends the async sequence for good. Re-subscribe
+            // instead of dying silently — a dead observation freezes
+            // `session` at its last value, so a row that flips to `ended`
+            // server-side never lands and "Working…" stays up forever
+            // (EXP-410; Android's Room flow re-subscribes on its own).
+            while !Task.isCancelled {
+                do {
+                    for try await row in observation.values(in: pool) {
+                        guard let self else { return }
+                        // A nil row is published (not swallowed): the row is
+                        // gone, which `sessionEnded` reads as ended. Holding
+                        // the last known copy instead left the retry loops
+                        // waiting for an `ended` status a deleted row can
+                        // never report.
+                        self.session = row
+                    }
+                    // The sequence only finishes cleanly on cancellation.
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
                 }
-            } catch {}
+            }
         }
     }
 

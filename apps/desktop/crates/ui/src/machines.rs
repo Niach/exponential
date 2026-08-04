@@ -287,6 +287,9 @@ impl MachinesSection {
         };
         let outdated = update_available(device.version.as_deref(), latest);
         let updating = device.update_requested || self.updating.as_deref() == Some(&device.device_id);
+        // EXP-411: the request is parked behind live sessions on the machine —
+        // "Update queued" instead of an indefinite "Updating…".
+        let queued = device.update_requested && device.update_blocked;
         // A relay-only row (a build predating the registry) has nothing to
         // rename, remove or update — it carries no registry row.
         let menu = device.registered.then(|| {
@@ -323,7 +326,13 @@ impl MachinesSection {
                     )
                     .when(can_update, |menu| {
                         menu.item(
-                            PopupMenuItem::new(if updating { "Updating…" } else { "Update" })
+                            PopupMenuItem::new(if queued {
+                                "Update queued"
+                            } else if updating {
+                                "Updating…"
+                            } else {
+                                "Update"
+                            })
                                 .icon(Icon::new(registry::UI_UPDATE))
                                 .disabled(updating)
                                 .on_click(move |_, _window, cx| {
@@ -441,7 +450,11 @@ impl MachinesSection {
                             .child(SharedString::from(status_line(device))),
                     )
                     .when(updating, |this| {
-                        this.child(div().flex_shrink_0().child("Updating…"))
+                        this.child(div().flex_shrink_0().child(if queued {
+                            "Update queued"
+                        } else {
+                            "Updating…"
+                        }))
                     }),
             )
             .into_any_element()

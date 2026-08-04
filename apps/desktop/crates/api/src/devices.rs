@@ -57,12 +57,21 @@ pub fn register(trpc: &TrpcClient, input: &RegisterDevice) -> Result<(), ApiErro
     Ok(())
 }
 
-/// The `{deviceId}` body shared by `heartbeat`, `remove` and
-/// `requestUpdate`.
+/// The `{deviceId}` body shared by `remove` and `requestUpdate`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DeviceIdInput<'a> {
     device_id: &'a str,
+}
+
+/// `devices.heartbeat` input (EXP-411): the live-session count rides every
+/// beat so a pending update request can read "queued behind sessions"
+/// instead of spinning forever. Older servers' zod strips the extra key.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HeartbeatInput<'a> {
+    device_id: &'a str,
+    active_sessions: u32,
 }
 
 /// `devices.heartbeat` output: `ok: false` = the row is gone (removed from
@@ -78,9 +87,20 @@ pub struct HeartbeatResult {
     pub update_requested: bool,
 }
 
-/// `devices.heartbeat` — bump `last_seen_at`.
-pub fn heartbeat(trpc: &TrpcClient, device_id: &str) -> Result<HeartbeatResult, ApiError> {
-    trpc.mutation("devices.heartbeat", &DeviceIdInput { device_id })
+/// `devices.heartbeat` — bump `last_seen_at` and report the live-session
+/// count (EXP-411).
+pub fn heartbeat(
+    trpc: &TrpcClient,
+    device_id: &str,
+    active_sessions: u32,
+) -> Result<HeartbeatResult, ApiError> {
+    trpc.mutation(
+        "devices.heartbeat",
+        &HeartbeatInput {
+            device_id,
+            active_sessions,
+        },
+    )
 }
 
 #[derive(Serialize)]
@@ -138,6 +158,10 @@ pub struct DeviceEntry {
     /// register.
     #[serde(default)]
     pub update_requested: bool,
+    /// EXP-411: the pending request is parked behind live coding sessions on
+    /// the machine — render "Update queued", not an endless spinner.
+    #[serde(default)]
+    pub update_blocked: bool,
 }
 
 impl DeviceEntry {
@@ -207,7 +231,7 @@ mod tests {
     fn list_decodes_rows_and_latest_versions() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"devices":[{"deviceId":"dev-1","deviceLabel":"tower","kind":"server","platform":"linux","agents":["claude"],"caps":["actions"],"online":true,"lastSeenAt":"2026-08-03T10:11:12.000Z","registered":true,"version":"0.4.1","updateRequested":true}],"latestVersions":{"desktop":"0.9.0","cli":"0.5.0"}}}}"#,
+            r#"{"result":{"data":{"devices":[{"deviceId":"dev-1","deviceLabel":"tower","kind":"server","platform":"linux","agents":["claude"],"caps":["actions"],"online":true,"lastSeenAt":"2026-08-03T10:11:12.000Z","registered":true,"version":"0.4.1","updateRequested":true,"updateBlocked":true}],"latestVersions":{"desktop":"0.9.0","cli":"0.5.0"}}}}"#,
         );
         let list = list(&client(&base)).unwrap();
         assert_eq!(list.devices.len(), 1);
@@ -222,6 +246,7 @@ mod tests {
         assert!(device.registered);
         assert_eq!(device.version.as_deref(), Some("0.4.1"));
         assert!(device.update_requested);
+        assert!(device.update_blocked);
         assert_eq!(list.latest_versions.desktop.as_deref(), Some("0.9.0"));
         assert_eq!(list.latest_versions.cli.as_deref(), Some("0.5.0"));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -242,7 +267,22 @@ mod tests {
         assert!(device.agents.is_empty());
         assert_eq!(device.version, None);
         assert!(!device.update_requested);
+        assert!(!device.update_blocked);
         assert_eq!(list.latest_versions.cli, None);
+    }
+
+    #[test]
+    fn heartbeat_posts_device_id_and_active_sessions() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"ok":true,"updateRequested":false}}}"#,
+        );
+        let result = heartbeat(&client(&base), "dev-1", 2).unwrap();
+        assert!(result.ok);
+        assert!(!result.update_requested);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/devices.heartbeat HTTP/1.1"));
+        assert!(request.ends_with(r#"{"deviceId":"dev-1","activeSessions":2}"#));
     }
 
     #[test]

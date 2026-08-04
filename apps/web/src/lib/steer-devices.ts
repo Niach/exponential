@@ -31,6 +31,9 @@ export interface SteerDevice {
   version?: string | null
   /** A web "Update" click is pending on the device. */
   updateRequested?: boolean
+  /** EXP-411: the pending update is parked behind live coding sessions —
+   * the daemon applies it once they close. */
+  updateBlocked?: boolean
 }
 
 /** Whether the device is startable right now. Rows without the field come

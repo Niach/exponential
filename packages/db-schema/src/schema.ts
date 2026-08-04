@@ -705,6 +705,12 @@ export const devices = pgTable(
     // to the daemon via the heartbeat response, cleared by the next register
     // (the daemon re-registers after acting on the request).
     updateRequestedAt: timestamp(`update_requested_at`, { withTimezone: true }),
+    // EXP-411: live coding sessions the daemon supervises, refreshed on every
+    // heartbeat (off-cadence whenever the count changes). Heartbeat-owned —
+    // register never touches it. A pending update request parks until this
+    // reaches 0, and the machine rows say "Update queued" instead of spinning
+    // forever. Stays 0 for desktops and pre-EXP-411 daemons omitting the field.
+    activeSessions: integer(`active_sessions`).notNull().default(0),
     agents: jsonb()
       .$type<string[]>()
       .notNull()

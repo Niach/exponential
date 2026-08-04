@@ -193,9 +193,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // Auto-update (EXP-403): a due check (own cadence, or the web "Update"
     // button via the heartbeat) parks here until NO session is live — a
     // restart must never kill a running agent. `Requested` acts even with
-    // auto-update off (an explicit click is an explicit instruction).
+    // auto-update off (an explicit click is an explicit instruction). The
+    // deferral is visible remotely: every heartbeat carries the live-session
+    // count, so the machine rows read "Update queued" instead of spinning
+    // (EXP-411).
     let mut pending_update: Option<UpdateTrigger> = None;
     let mut last_update_poll = Instant::now();
+    // EXP-411: the live-session count last reported over the heartbeat. A
+    // change forces an off-cadence beat so a session starting or ending
+    // converges in ~1s (and a restarted daemon corrects a stale count on its
+    // first tick) instead of up to a full heartbeat interval.
+    let mut reported_sessions: Option<usize> = None;
     while !shutdown_requested() {
         match inbox_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(start) => {
@@ -223,16 +231,26 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
         lock_sessions(&sessions).retain(|live| !live.session.is_done());
 
-        if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
+        let live_now = lock_sessions(&sessions).len();
+        if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL || reported_sessions != Some(live_now) {
             last_heartbeat = Instant::now();
-            match api::devices::heartbeat(&ctx.trpc, &device_id) {
+            // Optimistic: a failed beat just waits for the next scheduled
+            // tick instead of retrying at 1Hz while the network is down.
+            reported_sessions = Some(live_now);
+            match api::devices::heartbeat(&ctx.trpc, &device_id, live_now as u32) {
                 Ok(result) => {
                     // Row removed in the UI while we run — re-register.
                     if !result.ok {
                         register_device(&ctx, &device_id, &device_label, &advertised);
                     }
                     if result.update_requested && pending_update.is_none() {
-                        log::info!("update requested from the web");
+                        if live_now > 0 {
+                            log::info!(
+                                "update requested from the web — parked until {live_now} live session(s) close"
+                            );
+                        } else {
+                            log::info!("update requested from the web");
+                        }
                         pending_update = Some(UpdateTrigger::Requested);
                     }
                 }
