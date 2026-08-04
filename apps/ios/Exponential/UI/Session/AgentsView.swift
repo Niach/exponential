@@ -446,7 +446,7 @@ struct AgentsView: View {
             // Web puts its install one-liner behind this row; a phone can't
             // run it, so mobile points at the surface that can (Android says
             // the same thing, word for word).
-            Text("No machines yet. Open the Exponential desktop app, or add a server with the install one-liner on the web.")
+            Text("No machines yet. Open the Exponential desktop app, or add a server on the web.")
                 .font(.caption)
             Spacer(minLength: 0)
         }

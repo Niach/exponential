@@ -158,8 +158,7 @@ export function MyMachines({
       ) : devices.length === 0 ? (
         <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
           <OfflineIcon className="size-3.5 shrink-0" />
-          No machines yet. Open the Exponential desktop app, or add a server
-          with the install one-liner.
+          No machines yet. Open the Exponential desktop app, or add a server.
         </div>
       ) : (
         devices.map((device) => {
@@ -179,7 +178,7 @@ export function MyMachines({
           return (
             <div
               key={device.deviceId}
-              className={`flex items-center gap-2 border-b border-border/30 px-3 py-2 ${
+              className={`flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/30 px-3 py-2 ${
                 signInNeeded ? `opacity-60` : ``
               }`}
             >
@@ -204,7 +203,7 @@ export function MyMachines({
                 )}
               </span>
               {online ? (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
                   <span
                     className={`size-1.5 rounded-full ${
                       signInNeeded ? `bg-amber-500` : `bg-emerald-500`
@@ -220,78 +219,82 @@ export function MyMachines({
                   )}
                 </span>
               ) : (
-                <span className="text-xs text-muted-foreground">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {device.lastSeenAt
                     ? `Last seen ${relativeTime(device.lastSeenAt)}`
                     : `Offline`}
                 </span>
               )}
-              {device.kind === `server` && online && device.registered && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={outdated ? `text-amber-500` : `text-muted-foreground`}
-                  disabled={device.updateRequested || updatingId === device.deviceId}
-                  title="Ask the daemon to self-update (it restarts when idle)"
-                  onClick={() => void requestUpdate(device)}
+              {/* On phones the controls drop to their own right-aligned
+                  line (the row wraps); ≥sm they stay inline. */}
+              <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+                {device.kind === `server` && online && device.registered && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={outdated ? `text-amber-500` : `text-muted-foreground`}
+                    disabled={device.updateRequested || updatingId === device.deviceId}
+                    title="Ask the daemon to self-update (it restarts when idle)"
+                    onClick={() => void requestUpdate(device)}
+                  >
+                    {device.updateRequested || updatingId === device.deviceId ? (
+                      <>
+                        <LoaderCircle className="animate-spin" />
+                        Updating…
+                      </>
+                    ) : (
+                      <>
+                        <UpdateIcon />
+                        Update
+                      </>
+                    )}
+                  </Button>
+                )}
+                <span
+                  title={
+                    signInNeeded
+                      ? `No agent is signed in on this machine — sign in on the machine first (e.g. run \`${unauthed[0]}\` there).`
+                      : undefined
+                  }
                 >
-                  {device.updateRequested || updatingId === device.deviceId ? (
-                    <>
-                      <LoaderCircle className="animate-spin" />
-                      Updating…
-                    </>
-                  ) : (
-                    <>
-                      <UpdateIcon />
-                      Update
-                    </>
-                  )}
-                </Button>
-              )}
-              <span
-                title={
-                  signInNeeded
-                    ? `No agent is signed in on this machine — sign in on the machine first (e.g. run \`${unauthed[0]}\` there).`
-                    : undefined
-                }
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={runBusy || !online || signInNeeded}
-                  onClick={() => onStartCoding(device.deviceId)}
-                >
-                  <MonitorUp />
-                  Start coding
-                </Button>
-              </span>
-              {device.registered && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-5 w-5 p-0">
-                      <MoreIcon className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        setRenameValue(device.deviceLabel || ``)
-                        setRenameTarget(device)
-                      }}
-                    >
-                      <RenameIcon />
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => setRemoveTarget(device)}
-                    >
-                      <RemoveIcon />
-                      Remove
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={runBusy || !online || signInNeeded}
+                    onClick={() => onStartCoding(device.deviceId)}
+                  >
+                    <MonitorUp />
+                    Start coding
+                  </Button>
+                </span>
+                {device.registered && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="h-5 w-5 p-0">
+                        <MoreIcon className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setRenameValue(device.deviceLabel || ``)
+                          setRenameTarget(device)
+                        }}
+                      >
+                        <RenameIcon />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => setRemoveTarget(device)}
+                      >
+                        <RemoveIcon />
+                        Remove
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
             </div>
           )
         })
@@ -310,8 +313,7 @@ export function MyMachines({
             <DialogDescription>
               Run this on any Linux or macOS machine. It installs the
               `exponential` CLI, signs you in with a device code, and
-              registers the machine here — remote starts and steering work
-              exactly like on the desktop app.
+              registers the machine here.
             </DialogDescription>
           </DialogHeader>
           <pre className="overflow-auto rounded-md border bg-muted/30 p-3 text-left text-xs">
