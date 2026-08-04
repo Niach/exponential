@@ -30,23 +30,29 @@ public protocol KeychainStoring: Sendable {
 /// Keychain-backed string store, shared between the app and the Share Extension
 /// via a keychain access group ([SharedAppGroup.keychainAccessGroup]).
 ///
-/// Existing installs wrote items WITHOUT an access group (they landed in the
-/// app's default group, which the extension can't read). To migrate without
-/// logging anyone out, reads fall back to the legacy (no-group) item and
-/// promote it into the shared group; the legacy copy is deleted only AFTER the
-/// shared-group write is confirmed. Writes are update-or-add — never
-/// delete-then-add, which loses the credential whenever the add fails — and
-/// every non-success OSStatus is logged so a broken keychain names itself in
-/// Console instead of silently signing the user out (EXP-405).
+/// Existing installs wrote items into the app's default group (which the
+/// extension can't read). To migrate without logging anyone out, reads fall
+/// back to that legacy group and promote the item into the shared group; the
+/// legacy copy is deleted only AFTER the shared-group write is confirmed.
+/// Writes are update-or-add — never delete-then-add, which loses the credential
+/// whenever the add fails — and every non-success OSStatus is logged so a
+/// broken keychain names itself in Console instead of silently signing the
+/// user out (EXP-405).
+///
+/// EVERY query here names its access group explicitly. A query without
+/// `kSecAttrAccessGroup` matches items in ALL groups the process can access,
+/// so an "ungrouped" legacy delete after a shared-group write erases the item
+/// just written — that was the 0.14.0(80) logout-on-relaunch bug.
 public final class KeychainStore: KeychainStoring, Sendable {
     private let service = "at.exponential"
-    private let accessGroup: String? = SharedAppGroup.keychainAccessGroup
+    private let sharedGroup = SharedAppGroup.keychainAccessGroup
+    private let legacyGroup = SharedAppGroup.keychainLegacyAccessGroup
 
     public init() {}
 
     public func get(_ key: String) throws -> String? {
         // Prefer the shared-group item.
-        let shared = read(key, useAccessGroup: true)
+        let shared = read(key, group: sharedGroup)
         if let value = shared.value {
             return value
         }
@@ -55,7 +61,7 @@ public final class KeychainStore: KeychainStoring, Sendable {
             throw KeychainReadError(status: shared.status)
         }
         // Legacy fallback: an item written before the shared group existed.
-        let legacy = read(key, useAccessGroup: false)
+        let legacy = read(key, group: legacyGroup)
         if let value = legacy.value {
             // Promote it into the shared group so the extension can see it next
             // time. set() clears the legacy copy only on a CONFIRMED write.
@@ -75,12 +81,12 @@ public final class KeychainStore: KeychainStoring, Sendable {
             delete(key)
             return true
         }
-        var query: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
+            kSecAttrAccessGroup as String: sharedGroup,
         ]
-        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
 
         // Update-or-add against the shared-group item. Never delete first: a
         // delete-then-add loses the stored value the moment the add fails.
@@ -95,43 +101,44 @@ public final class KeychainStore: KeychainStoring, Sendable {
             logger.error("set(\(key, privacy: .public)) write failed: \(status)")
             return false
         }
-        // Only now is it safe to drop the pre-group legacy copy.
-        deleteItem(key, useAccessGroup: false)
+        // Only now is it safe to drop the legacy copy — and ONLY from the
+        // legacy group, never via an ungrouped (all-groups) query.
+        deleteItem(key, group: legacyGroup)
         return true
     }
 
     public func delete(_ key: String) {
-        deleteItem(key, useAccessGroup: true)
-        deleteItem(key, useAccessGroup: false)
+        deleteItem(key, group: sharedGroup)
+        deleteItem(key, group: legacyGroup)
     }
 
     // MARK: - Private
 
-    private func read(_ key: String, useAccessGroup: Bool) -> (status: OSStatus, value: String?) {
-        var query: [String: Any] = [
+    private func read(_ key: String, group: String) -> (status: OSStatus, value: String?) {
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
+            kSecAttrAccessGroup as String: group,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        if useAccessGroup, let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else { return (status, nil) }
         return (status, String(data: data, encoding: .utf8))
     }
 
-    private func deleteItem(_ key: String, useAccessGroup: Bool) {
-        var query: [String: Any] = [
+    private func deleteItem(_ key: String, group: String) {
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
+            kSecAttrAccessGroup as String: group,
         ]
-        if useAccessGroup, let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         let status = SecItemDelete(query as CFDictionary)
         if status != errSecSuccess && status != errSecItemNotFound {
-            logger.error("delete(\(key, privacy: .public)) failed: \(status)")
+            logger.error("delete(\(key, privacy: .public)) in \(group, privacy: .public) failed: \(status)")
         }
     }
 }

@@ -32,6 +32,16 @@ public enum SharedAppGroup {
             : "\(teamPrefix).at.exponential.shared"
     }
 
+    /// The pre-shared-group ("legacy") keychain group: items written before the
+    /// shared group existed landed in the app's DEFAULT group, the team-prefixed
+    /// bundle id. A `SecItem` query WITHOUT `kSecAttrAccessGroup` spans EVERY
+    /// group the process can access — including [keychainAccessGroup] — so
+    /// legacy reads/deletes must name this group explicitly or they hit (and
+    /// can destroy) the shared item too.
+    public static var keychainLegacyAccessGroup: String {
+        "\(teamPrefix).\(Bundle.main.bundleIdentifier ?? "at.exponential")"
+    }
+
     /// Shared defaults backed by the app-group container. Nil only if the
     /// entitlement is missing (e.g. an unsigned simulator build).
     public static var defaults: UserDefaults? { UserDefaults(suiteName: suiteName) }
