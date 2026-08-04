@@ -100,7 +100,13 @@ jobs:
         env:
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
         run: |
-          printf '%s' "$ASC_KEY_CONTENT" > "$RUNNER_TEMP/asc.p8"
+          # The secret may be raw PEM or base64-wrapped PEM — accept both.
+          if [[ "$ASC_KEY_CONTENT" == *"BEGIN PRIVATE KEY"* ]]; then
+            printf '%s' "$ASC_KEY_CONTENT" > "$RUNNER_TEMP/asc.p8"
+          else
+            echo "$ASC_KEY_CONTENT" | base64 -d > "$RUNNER_TEMP/asc.p8"
+          fi
+          grep -q "BEGIN PRIVATE KEY" "$RUNNER_TEMP/asc.p8" || { echo "::error::ASC key is not valid PEM"; exit 1; }
 
       - name: Archive (signed)
         env:
