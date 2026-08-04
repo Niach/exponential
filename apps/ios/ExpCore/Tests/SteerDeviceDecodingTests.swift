@@ -45,6 +45,53 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.lastSeenAt)
     }
 
+    /// EXP-409: `agents` means RUNNABLE (installed AND signed in), so the
+    /// absent-vs-empty distinction is load-bearing — an ABSENT list is a
+    /// pre-EXP-201 claude-only sender, an EMPTY one a machine that can run
+    /// nothing right now. `unauthedAgents` carries the signed-out installs.
+    func testDecodesRunnableAndSignedOutAgents() throws {
+        let result = try decode("""
+        {"devices":[{"deviceId":"d4","deviceLabel":"macbook","agents":[],
+        "unauthedAgents":["claude"],"caps":[],"online":true},
+        {"deviceId":"d5","deviceLabel":"mini","agents":["codex"],
+        "unauthedAgents":["claude","bogus"],"caps":[],"online":true},
+        {"deviceId":"d6","deviceLabel":"old","caps":[],"online":true}]}
+        """)
+        let signedOut = try XCTUnwrap(result.devices.first)
+        XCTAssertEqual(signedOut.agentIds, [])
+        XCTAssertFalse(signedOut.hasRunnableAgent)
+        XCTAssertTrue(signedOut.needsAgentSignIn)
+        XCTAssertEqual(signedOut.unauthedAgentIds, ["claude"])
+
+        let partly = result.devices[1]
+        XCTAssertEqual(partly.agentIds, ["codex"])
+        XCTAssertTrue(partly.hasRunnableAgent)
+        XCTAssertFalse(partly.needsAgentSignIn)
+        // Values outside the contract never reach the UI copy.
+        XCTAssertEqual(partly.unauthedAgentIds, ["claude"])
+
+        // Absent `agents` keeps the legacy claude-only fallback; absent
+        // `unauthedAgents` is simply nothing signed out.
+        let legacy = result.devices[2]
+        XCTAssertEqual(legacy.agentIds, ["claude"])
+        XCTAssertTrue(legacy.hasRunnableAgent)
+        XCTAssertFalse(legacy.needsAgentSignIn)
+        XCTAssertEqual(legacy.unauthedAgentIds, [])
+    }
+
+    /// An OFFLINE machine is never the sign-in case — it already reads as
+    /// offline, and the row keeps its last-seen caption.
+    func testOfflineMachineIsNotTheSignInCase() throws {
+        let result = try decode("""
+        {"devices":[{"deviceId":"d7","deviceLabel":"box","agents":[],
+        "unauthedAgents":["claude"],"caps":[],"online":false,
+        "lastSeenAt":"2026-08-03T10:00:00.000Z"}]}
+        """)
+        let device = try XCTUnwrap(result.devices.first)
+        XCTAssertFalse(device.isOnline)
+        XCTAssertFalse(device.needsAgentSignIn)
+    }
+
     func testDecodesExplicitNullRegistryFields() throws {
         // The entry `devices.list` appends for a relay-connected device that
         // never registered: present keys, JSON nulls.

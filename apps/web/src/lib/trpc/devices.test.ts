@@ -217,6 +217,37 @@ describe(`devices.list`, () => {
     })
   })
 
+  it(`passes signed-out agents through from live presence (EXP-409)`, async () => {
+    h.state.selectRows = [registryRow()]
+    h.relayGetDevices.mockResolvedValue({
+      devices: [
+        {
+          deviceId: `dev-1`,
+          deviceLabel: `buildbox`,
+          connectedAt: 1,
+          // The daemon's only agent is signed out: runnable list explicitly
+          // empty, the unauthed list names it.
+          agents: [],
+          unauthedAgents: [`claude`],
+          caps: [],
+        },
+      ],
+    })
+    const { devices } = await caller.list()
+    expect(devices[0]).toMatchObject({
+      online: true,
+      agents: [],
+      unauthedAgents: [`claude`],
+    })
+  })
+
+  it(`defaults unauthedAgents to empty for offline registry rows`, async () => {
+    h.state.selectRows = [registryRow()]
+    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
+    const { devices } = await caller.list()
+    expect(devices[0]?.unauthedAgents).toEqual([])
+  })
+
   it(`shows the renamed registry label even while the relay holds the old one`, async () => {
     h.state.selectRows = [registryRow({ label: `renamed-box` })]
     h.relayGetDevices.mockResolvedValue({

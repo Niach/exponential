@@ -179,8 +179,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let mut control = runtime.as_ref().and_then(|runtime| {
         dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx)
     });
-    if advertised.is_empty() {
+    if advertised.nothing_installed() {
         log::info!("no agent CLI installed — registered offline; install claude/codex/pi to accept remote starts");
+    } else if advertised.agents.is_empty() {
+        log::info!(
+            "no agent CLI signed in ({} installed but signed out) — remote starts will be refused until one is",
+            advertised.unauthed_agents.join(", ")
+        );
     }
 
     let mut last_heartbeat = Instant::now();
@@ -281,12 +286,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // Re-advertise on toolchain changes (the desktop's
         // `restart_control_channel_if_needed`): installing the first agent
         // brings remote start online without a restart; removing the last
-        // hangs up.
+        // hangs up. Sign-in state rides the same probe (EXP-409): logging
+        // into claude over ssh flips the machine runnable without a restart.
         if last_doctor.elapsed() >= DOCTOR_RECHECK {
             last_doctor = Instant::now();
             let agents = probe_agents(&ctx);
             if agents != advertised {
-                log::info!("installed agents changed: {advertised:?} -> {agents:?}");
+                log::info!("agent advertisement changed: {advertised:?} -> {agents:?}");
                 advertised = agents;
                 if let Some(handle) = control.take() {
                     handle.stop();
@@ -325,20 +331,23 @@ fn run_daemon(args: &[String]) -> CommandResult {
     Ok(ExitCode::SUCCESS)
 }
 
-fn probe_agents(ctx: &Ctx) -> Vec<String> {
+fn probe_agents(ctx: &Ctx) -> coding::AgentAdvertisement {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-    coding::run_doctor(&settings)
-        .installed_agents()
-        .into_iter()
-        .map(|agent| agent.id().to_string())
-        .collect()
+    coding::run_doctor(&settings).agent_advertisement()
 }
 
 /// Best-effort `devices.register` — registered even with no agents so the
 /// UI can show the machine offline with a reason; an older server without
 /// the router must never break the daemon.
-fn register_device(ctx: &Ctx, device_id: &str, device_label: &str, agents: &[String]) {
-    let caps: Vec<String> = if agents.is_empty() {
+fn register_device(
+    ctx: &Ctx,
+    device_id: &str,
+    device_label: &str,
+    advertised: &coding::AgentAdvertisement,
+) {
+    // Caps follow the RUNNABLE set (EXP-409): a machine whose only agents
+    // are signed out cannot run actions either.
+    let caps: Vec<String> = if advertised.agents.is_empty() {
         Vec::new()
     } else {
         DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect()
@@ -350,7 +359,8 @@ fn register_device(ctx: &Ctx, device_id: &str, device_label: &str, agents: &[Str
             label: device_label,
             kind: "server",
             platform: Some(std::env::consts::OS),
-            agents,
+            agents: &advertised.agents,
+            unauthed_agents: &advertised.unauthed_agents,
             caps: &caps,
             version: Some(crate::cli_version()),
         },
@@ -360,24 +370,31 @@ fn register_device(ctx: &Ctx, device_id: &str, device_label: &str, agents: &[Str
     }
 }
 
-/// EXP-367: never dial with an empty agents advertisement (the relay
-/// defaults an absent list to ["claude"]).
+/// EXP-367: never dial with NOTHING installed (the relay defaults an absent
+/// agents list to ["claude"]). An installed-but-signed-out agent (EXP-409)
+/// still dials — with an EXPLICIT empty runnable list — so the machine list
+/// can say "sign in on that machine" instead of showing it offline.
 fn dial_control(
     runtime: &Arc<steer::SteerRuntime>,
     ctx: &Ctx,
     device_id: &str,
     device_label: &str,
-    agents: &[String],
+    advertised: &coding::AgentAdvertisement,
     inbox: &flume::Sender<RemoteStart>,
 ) -> Option<steer::ControlChannelHandle> {
-    if agents.is_empty() {
+    if advertised.nothing_installed() {
         return None;
     }
-    let caps: Vec<String> = DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect();
+    let caps: Vec<String> = if advertised.agents.is_empty() {
+        Vec::new()
+    } else {
+        DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect()
+    };
     let device = DeviceIdentity {
         device_id: device_id.to_string(),
         device_label: device_label.to_string(),
-        agents: agents.to_vec(),
+        agents: advertised.agents.clone(),
+        unauthed_agents: advertised.unauthed_agents.clone(),
         caps,
     };
     let inbox = inbox.clone();

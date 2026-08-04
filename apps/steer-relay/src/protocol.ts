@@ -23,8 +23,14 @@ export const onlineFrame = z.object({
   // EXP-201: the agent CLIs installed on the device (`claude`/`codex`/`pi`).
   // The relay is a dumb pipe — plain bounded strings here; the WEB SERVER
   // validates the vocabulary when a start names one. Absent (old desktop) ⇒
-  // the hub defaults to ["claude"].
+  // the hub defaults to ["claude"]. Since EXP-409 this list means RUNNABLE
+  // (installed AND signed in); senders with signed-out agents send it
+  // explicitly, even empty.
   agents: z.array(z.string().min(1).max(32)).max(16).optional(),
+  // EXP-409: agents installed but SIGNED OUT — unusable (never in `agents`),
+  // surfaced so machine lists can say "sign in on that machine". Same
+  // dumb-pipe stance.
+  unauthedAgents: z.array(z.string().min(1).max(32)).max(16).optional(),
   // EXP-253: feature capabilities (`actions`). Same dumb-pipe stance — the
   // web server interprets them. Absent (old desktop) ⇒ the hub defaults to
   // [] and action starts to that device are refused server-side.

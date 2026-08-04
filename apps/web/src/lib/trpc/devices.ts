@@ -26,7 +26,11 @@ export type DeviceListEntry = {
   deviceLabel: string
   kind: `desktop` | `server`
   platform: string | null
+  // Runnable agents (installed AND signed in since EXP-409).
   agents: string[]
+  // EXP-409: agents installed but signed out on the machine — live relay
+  // presence only (not persisted: an offline row reads offline regardless).
+  unauthedAgents: string[]
   caps: string[]
   online: boolean
   // ISO timestamp of the last register/heartbeat; null for a relay-only
@@ -198,6 +202,7 @@ export const devicesRouter = router({
         // The live advertisement is fresher than the registered snapshot —
         // startSession gates on exactly what the relay holds.
         agents: online?.agents ?? row.agents,
+        unauthedAgents: online?.unauthedAgents ?? [],
         caps: online?.caps ?? row.caps,
         online: Boolean(online),
         lastSeenAt: row.lastSeenAt.toISOString(),
@@ -216,6 +221,7 @@ export const devicesRouter = router({
         kind: `desktop`,
         platform: null,
         agents: d.agents ?? [`claude`],
+        unauthedAgents: d.unauthedAgents ?? [],
         caps: d.caps ?? [],
         online: true,
         lastSeenAt: null,

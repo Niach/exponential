@@ -59,9 +59,13 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public let deviceLabel: String
     /// Relay presence timestamp — absent on registry rows.
     public let connectedAt: Double?
-    /// Coding agents this desktop can launch (contract `codingAgentValues`).
-    /// Absent = an older desktop that only runs claude.
+    /// Coding agents this desktop can RUN — installed AND signed in since
+    /// EXP-409 (contract `codingAgentValues`). Absent = an older desktop that
+    /// only runs claude; explicitly EMPTY = nothing runnable right now.
     public let agents: [String]?
+    /// EXP-409: agents installed on the machine but SIGNED OUT, so unusable.
+    /// Never offered in a picker — surfaced as a "not signed in" reason.
+    public let unauthedAgents: [String]?
     /// Feature capabilities the desktop advertised (EXP-253: `actions`).
     /// Absent (old desktop/relay) = none — action starts are strictly gated
     /// on this, unlike the lenient agents fallback.
@@ -88,6 +92,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         deviceLabel: String,
         connectedAt: Double? = nil,
         agents: [String]? = nil,
+        unauthedAgents: [String]? = nil,
         caps: [String]? = nil,
         kind: String? = nil,
         platform: String? = nil,
@@ -101,6 +106,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.deviceLabel = deviceLabel
         self.connectedAt = connectedAt
         self.agents = agents
+        self.unauthedAgents = unauthedAgents
         self.caps = caps
         self.kind = kind
         self.platform = platform
@@ -114,6 +120,32 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// Whether the machine is startable right now. Rows straight off the relay
     /// carry no `online` field and are online by construction.
     public var isOnline: Bool { online != false }
+
+    /// The agents the machine can run right now, in the reported order. An
+    /// ABSENT advertisement means claude-only (a pre-EXP-201 sender), but an
+    /// explicitly EMPTY one means nothing is runnable (EXP-409: every
+    /// installed agent is signed out) — the absent/empty distinction is the
+    /// whole point, so never collapse it with `agents ?? []`.
+    public var agentIds: [String] {
+        guard let agents else { return ["claude"] }
+        return agents.filter { DomainContract.codingAgentValues.contains($0) }
+    }
+
+    /// EXP-409: agents installed on the machine but signed out.
+    public var unauthedAgentIds: [String] {
+        (unauthedAgents ?? []).filter { DomainContract.codingAgentValues.contains($0) }
+    }
+
+    /// Whether anything can be launched here at all (EXP-409). A machine that
+    /// is online with nothing runnable is as unstartable as an offline one —
+    /// pickers drop it and the machines list shows the sign-in reason.
+    public var hasRunnableAgent: Bool { !agentIds.isEmpty }
+
+    /// Online, yet nothing runnable because every installed agent is signed
+    /// out — the state the machines row greys out and explains.
+    public var needsAgentSignIn: Bool {
+        isOnline && !hasRunnableAgent && !unauthedAgentIds.isEmpty
+    }
 
     /// A headless `exponential` daemon server rather than the desktop app —
     /// the only kind the self-update request applies to.

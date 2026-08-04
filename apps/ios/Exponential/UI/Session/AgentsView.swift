@@ -152,8 +152,9 @@ struct AgentsView: View {
 
     // MARK: - My machines
 
-    /// The machines a run can actually be sent to (EXP-403: the list itself
-    /// includes offline rows).
+    /// The machines a run can be sent to (EXP-403: the list itself includes
+    /// offline rows). The sheet narrows this further — EXP-409 drops machines
+    /// whose every installed agent is signed out.
     private var onlineDevices: [SteerDevice] {
         (devices ?? []).filter(\.isOnline)
     }
@@ -327,8 +328,10 @@ struct AgentsView: View {
             Spacer(minLength: 0)
 
             // Offline machines keep their row (rename/remove still apply) but
-            // offer no launcher — a start would be rejected server-side.
-            if device.isOnline {
+            // offer no launcher — a start would be rejected server-side. Same
+            // for a machine with nothing runnable (EXP-409: every installed
+            // agent signed out); its status line carries the reason.
+            if device.isOnline, device.hasRunnableAgent {
                 Button {
                     startSheetDevice = device
                 } label: {
@@ -356,21 +359,36 @@ struct AgentsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .glassRow()
+        // EXP-409: a machine that can run nothing reads like an offline one.
+        .opacity(device.needsAgentSignIn ? 0.6 : 1)
     }
 
     /// A requested self-update REPLACES the live state: the daemon is about to
-    /// restart, so "Online" would only read as a lie.
+    /// restart, so "Online" would only read as a lie. EXP-409: signed-out
+    /// agents replace "Online" when nothing is runnable (amber dot, web +
+    /// desktop parity) and annotate it when a runnable sibling exists.
     @ViewBuilder
     private func deviceStatusLine(_ device: SteerDevice) -> some View {
+        let signedOut = device.unauthedAgentIds.joined(separator: ", ")
+        let signInNeeded = device.needsAgentSignIn
         HStack(spacing: 5) {
             if isUpdating(device) {
                 ProgressView().controlSize(.mini).tint(.white)
                 Text("Updating…")
             } else if device.isOnline {
                 Circle()
-                    .fill(DesignTokens.Semantic.green)
+                    .fill(signInNeeded ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green)
                     .frame(width: 6, height: 6)
-                Text("Online")
+                if signInNeeded {
+                    Text("\(signedOut) not signed in")
+                } else {
+                    Text("Online")
+                    if !signedOut.isEmpty {
+                        Text("· \(signedOut) not signed in")
+                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                            .lineLimit(1)
+                    }
+                }
             } else {
                 Text(lastSeenCaption(device))
             }

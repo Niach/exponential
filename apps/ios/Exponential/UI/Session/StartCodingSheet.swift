@@ -28,6 +28,9 @@ import SwiftUI
 // desktop dialog's agent_tabs — shows only the SELECTED device's agents (an
 // old desktop reports none = claude-only, hiding it); model/effort lists, the
 // claude-only toggles, and the skip-permissions toggle all follow the agent.
+// EXP-409: an advertised agent is RUNNABLE (installed and signed in), so a
+// machine reporting an explicitly EMPTY list can run nothing and drops out of
+// the device pool exactly like an offline one.
 //
 // Last-used Agent/Model/Effort persist on every submit; ultracode/plan-mode
 // persist ONLY on single-issue claude submits (batch seeding — flipping
@@ -213,9 +216,16 @@ struct StartCodingSheet: View {
         teamId != nil && onRunAction != nil
     }
 
+    /// The machines a run can actually be sent to: EXP-403 lists offline rows
+    /// too, and EXP-409 makes a machine whose every installed agent is signed
+    /// out just as unstartable — the My machines list carries the reason.
+    private var startableDevices: [SteerDevice] {
+        devices.filter { $0.isOnline && $0.hasRunnableAgent }
+    }
+
     /// Mode-aware device pool: Actions mode only offers capable desktops.
     private var candidateDevices: [SteerDevice] {
-        subjectTab == .actions ? actionDeviceCandidates : devices
+        subjectTab == .actions ? actionDeviceCandidates : startableDevices
     }
 
     private var device: SteerDevice? {
@@ -253,11 +263,12 @@ struct StartCodingSheet: View {
                     }
                 }
 
-                if subjectTab == .actions, candidateDevices.isEmpty {
-                    // The Actions-mode "no capable desktop" hint (EXP-257) —
-                    // distinguishes offline from an outdated desktop app.
+                if candidateDevices.isEmpty {
+                    // The "no capable desktop" hint (EXP-257) — distinguishes
+                    // offline from an outdated desktop app, and (EXP-409) from
+                    // one whose agents are all signed out.
                     Section {
-                        Text(noActionDeviceNote)
+                        Text(noDeviceNote)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -797,7 +808,7 @@ struct StartCodingSheet: View {
     }
 
     private var actionDeviceCandidates: [SteerDevice] {
-        devices.filter { device in
+        startableDevices.filter { device in
             guard device.canRunActions else { return false }
             if selectedActionNeedsInputsCap, !device.canRunActionInputs { return false }
             if selectedActionNeedsFixConflictsCap, !device.canFixConflicts { return false }
@@ -805,17 +816,31 @@ struct StartCodingSheet: View {
         }
     }
 
-    /// The Actions-mode "no capable desktop" hint (EXP-257) — distinguishes
-    /// offline from an outdated desktop app, and calls out the fix-conflicts
-    /// cap by name so the fix is obvious (EXP-323).
-    private var noActionDeviceNote: String {
-        if devices.isEmpty {
-            return "No desktop online. Open the Exponential desktop app to run here."
+    /// The "nothing to start on" hint (EXP-257) — distinguishes offline from
+    /// an outdated desktop app, calls out the fix-conflicts cap by name so the
+    /// fix is obvious (EXP-323), and names the signed-out agents when a
+    /// machine is online but can run nothing (EXP-409).
+    private var noDeviceNote: String {
+        if startableDevices.isEmpty {
+            let signedOut = signedOutAgentNames.joined(separator: ", ")
+            if !signedOut.isEmpty {
+                return "\(signedOut) not signed in on your machines. Sign in on the machine first."
+            }
+            return subjectTab == .actions
+                ? "No desktop online. Open the Exponential desktop app to run here."
+                : "No desktop online. Open the Exponential desktop app to start coding."
         }
         if selectedActionNeedsFixConflictsCap {
             return "No desktop can fix merge conflicts yet. Update the Exponential desktop app."
         }
         return "No compatible desktop online. Update the Exponential desktop app to run this action."
+    }
+
+    /// The agents installed-but-signed-out across the caller's ONLINE machines
+    /// (EXP-409), in contract order.
+    private var signedOutAgentNames: [String] {
+        let reported = Set(devices.filter(\.isOnline).flatMap(\.unauthedAgentIds))
+        return DomainContract.codingAgentValues.filter { reported.contains($0) }
     }
 
     // The three run gates and the wire mapping live in ExpCore
@@ -985,11 +1010,13 @@ struct StartCodingSheet: View {
 
     // MARK: - Agent-dependent option lists (EXP-201)
 
-    /// The selected device's agents (absent/empty = an old claude-only
-    /// desktop), in contract order.
+    /// The selected device's RUNNABLE agents, in contract order. An ABSENT
+    /// advertisement is an old claude-only desktop, but an explicitly empty
+    /// one means the machine can run nothing (EXP-409) — such devices never
+    /// reach `candidateDevices`, so the picker keeps its claude fallback only
+    /// for the no-device case (it renders nothing when there is one entry).
     private var availableAgents: [String] {
-        let reported = device?.agents ?? []
-        let supported = reported.isEmpty ? ["claude"] : reported
+        let supported = device?.agentIds ?? ["claude"]
         let ordered = DomainContract.codingAgentValues.filter { supported.contains($0) }
         return ordered.isEmpty ? ["claude"] : ordered
     }

@@ -4,7 +4,9 @@ import Foundation
 // registry. Desktops and headless `exponential` daemon servers register
 // themselves and heartbeat; `list` merges those durable rows with live
 // steer-relay presence, so one row carries both identity (label, kind, last
-// seen, version) and the live advertisement (online, agents, caps).
+// seen, version) and the live advertisement (online, agents, unauthedAgents,
+// caps — EXP-409: `agents` is what the machine can RUN, `unauthedAgents` what
+// it has installed but signed out of).
 // Deliberately tRPC and NOT an Electric shape — per-user machine state, not
 // team product data — so the surfaces that show machines POLL it.
 //

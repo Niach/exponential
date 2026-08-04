@@ -199,8 +199,10 @@ fun StartCodingSheet(
     // Only ONLINE machines can take a start — the relay refuses the rest with
     // device_offline. The Agents tab feeds this sheet the whole EXP-403
     // registry (offline rows included), so the filter lives here, once, for
-    // every host rather than at each call site.
-    val startable = remember(devices) { devices.filter { it.online } }
+    // every host rather than at each call site. EXP-409: a machine whose every
+    // installed agent is signed out is just as unstartable — it drops out here
+    // too, and the My machines list carries the "sign in" reason.
+    val startable = remember(devices) { devices.filter { it.online && it.hasRunnableAgent } }
 
     // The initially selected desktop decides which agents are on offer before
     // any state exists — a stored agent the device can't run falls back to the
@@ -209,7 +211,7 @@ fun StartCodingSheet(
         val initialDevice = startable.firstOrNull { it.deviceId == preferredDeviceId }
             ?: startable.firstOrNull()
         storedAgent.takeIf { it in availableAgentsFor(initialDevice) }
-            ?: availableAgentsFor(initialDevice).first()
+            ?: availableAgentsFor(initialDevice).firstOrNull() ?: DEFAULT_AGENT
     }
 
     var agent by remember { mutableStateOf(initialAgent) }
@@ -348,7 +350,7 @@ fun StartCodingSheet(
     // device can actually run.
     LaunchedEffect(device?.deviceId) {
         if (device != null && agent !in availableAgentsFor(device)) {
-            selectAgent(availableAgentsFor(device).first())
+            selectAgent(availableAgentsFor(device).firstOrNull() ?: DEFAULT_AGENT)
         }
     }
 
@@ -810,7 +812,9 @@ fun StartCodingSheet(
                                 // — fall back to its first available one.
                                 val candidate = deviceCandidates.firstOrNull { it.deviceId == id }
                                 val available = availableAgentsFor(candidate)
-                                if (agent !in available) selectAgent(available.first())
+                                if (agent !in available) {
+                                    selectAgent(available.firstOrNull() ?: DEFAULT_AGENT)
+                                }
                             },
                         )
                     }
@@ -1358,14 +1362,12 @@ private fun SwitchRow(
     }
 }
 
-// The agents a desktop can launch, in contract order. An absent/empty list is
-// an older desktop that only runs claude; an unrecognized-only list degrades
-// to claude too (the desktop would refuse anything else anyway).
-private fun availableAgentsFor(device: SteerDevice?): List<String> {
-    val reported = device?.agents?.takeIf { it.isNotEmpty() } ?: listOf(DEFAULT_AGENT)
-    return DomainContract.codingAgentValues.filter { it in reported }
-        .ifEmpty { listOf(DEFAULT_AGENT) }
-}
+// The agents a desktop can launch, in contract order. No device settled yet
+// means the pre-EXP-201 default (claude); a device answers for itself, and
+// EXP-409 lets that answer be EMPTY — a machine whose agents are all signed
+// out runs nothing, so it never becomes a candidate in the first place.
+private fun availableAgentsFor(device: SteerDevice?): List<String> =
+    device?.runnableAgents ?: listOf(DEFAULT_AGENT)
 
 private fun modelValuesFor(agent: String): List<String> = when (agent) {
     "codex" -> DomainContract.codexModelValues

@@ -37,7 +37,16 @@ pub fn run(args: &[String]) -> CommandResult {
 fn print_check(name: &str, check: &ToolCheck) {
     if check.ok {
         let version = check.version.as_deref().unwrap_or("ok");
-        println!("  ✓ {name:<8} {version}");
+        match check.authed {
+            Some(true) => println!("  ✓ {name:<8} {version} — signed in"),
+            _ => println!("  ✓ {name:<8} {version}"),
+        }
+    } else if check.signed_out() {
+        // Installed but signed out (EXP-409): show the version so it reads
+        // as "sign in", not "install".
+        let version = check.version.as_deref().unwrap_or("installed");
+        let error = check.error.as_deref().unwrap_or("not signed in");
+        println!("  ✗ {name:<8} {version} — {error}");
     } else {
         let error = check.error.as_deref().unwrap_or("not found");
         println!("  ✗ {name:<8} {error}");

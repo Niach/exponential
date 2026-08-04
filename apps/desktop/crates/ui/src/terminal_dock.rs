@@ -772,8 +772,16 @@ impl TerminalDockPanel {
                 // EXP-367: a REPORTED empty agent set gets a disabled hint
                 // item (a bare "New shell" menu otherwise reads like the
                 // agent launches vanished for no reason); a missing report
-                // stays silent — the probe is still running.
-                if installed.is_empty() && hub.read(cx).doctor.report.is_some() {
+                // stays silent — the probe is still running. Signed-out
+                // agents (EXP-409) get their own disabled rows below, so the
+                // "nothing installed" copy only shows when that is true.
+                let has_unauthed = hub
+                    .read(cx)
+                    .doctor
+                    .report
+                    .as_ref()
+                    .is_some_and(|report| !report.unauthed_agents().is_empty());
+                if installed.is_empty() && !has_unauthed && hub.read(cx).doctor.report.is_some() {
                     menu = menu.item(
                         PopupMenuItem::new(crate::coding_flow::NO_AGENT_COPY).disabled(true),
                     );
@@ -860,6 +868,27 @@ impl TerminalDockPanel {
                             menu = menu.item(PopupMenuItem::new(label).icon(icon).disabled(true));
                         }
                     }
+                }
+                // EXP-409: installed-but-signed-out agents stay visible as
+                // disabled rows with the fix, instead of silently vanishing
+                // from the menu.
+                let unauthed = hub
+                    .read(cx)
+                    .doctor
+                    .report
+                    .as_ref()
+                    .map(|report| report.unauthed_agents())
+                    .unwrap_or_default();
+                for agent in unauthed {
+                    let icon = Icon::from(crate::coding_selects::agent_icon(agent));
+                    menu = menu.item(
+                        PopupMenuItem::new(SharedString::from(format!(
+                            "{} — not signed in",
+                            agent.label()
+                        )))
+                        .icon(icon)
+                        .disabled(true),
+                    );
                 }
                 // `separator` no-ops on an empty menu — no leading rule when
                 // there are no agent items.

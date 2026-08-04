@@ -919,30 +919,46 @@ impl StartCodingDialogView {
         self.resume && self.resume_candidate().is_some()
     }
 
-    /// The agents the tab strip offers (EXP-206): only the ones the doctor
-    /// found installed. While the report is pending — or when NOTHING is
-    /// installed — every agent stays visible, so the strip never goes empty
-    /// and the footer blocker can name the selected agent's failure.
+    /// The agents the tab strip offers (EXP-206): the ones the doctor found
+    /// installed — including installed-but-signed-out ones (EXP-409), which
+    /// render greyed out so "sign in" never reads as "not installed". While
+    /// the report is pending — or when NOTHING is installed — every agent
+    /// stays visible, so the strip never goes empty and the footer blocker
+    /// can name the selected agent's failure.
     fn pickable_agents(report: Option<&coding::DoctorReport>) -> Vec<CodingAgent> {
-        let installed = report
-            .map(|report| report.installed_agents())
-            .unwrap_or_default();
-        if installed.is_empty() {
-            CodingAgent::ALL.to_vec()
-        } else {
-            installed
+        let Some(report) = report else {
+            return CodingAgent::ALL.to_vec();
+        };
+        let runnable = report.installed_agents();
+        let unauthed = report.unauthed_agents();
+        if runnable.is_empty() && unauthed.is_empty() {
+            return CodingAgent::ALL.to_vec();
         }
+        // Keep the canonical ALL order regardless of auth state.
+        CodingAgent::ALL
+            .into_iter()
+            .filter(|agent| runnable.contains(agent) || unauthed.contains(agent))
+            .collect()
     }
 
-    /// Keep the selection inside the pickable set: when the doctor report
-    /// (re)lands and the selected agent has no tab anymore, hop to the first
-    /// installed agent (mirrors the remote pickers, which only offer the
-    /// device's advertised agents).
+    /// Keep the selection on a RUNNABLE agent: when the doctor report
+    /// (re)lands and the selected agent has no tab anymore — or turned out
+    /// signed out (EXP-409) while a runnable sibling exists — hop to the
+    /// first runnable agent (mirrors the remote pickers, which only offer
+    /// the device's advertised agents).
     fn reconcile_agent(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let report = CodingHub::global(cx).read(cx).doctor.report.clone();
-        let pickable = Self::pickable_agents(report.as_ref());
-        if !pickable.contains(&self.agent) {
-            if let Some(&first) = pickable.first() {
+        let runnable = report
+            .as_ref()
+            .map(|report| report.installed_agents())
+            .unwrap_or_default();
+        let preferred = if runnable.is_empty() {
+            Self::pickable_agents(report.as_ref())
+        } else {
+            runnable
+        };
+        if !preferred.contains(&self.agent) {
+            if let Some(&first) = preferred.first() {
                 self.set_agent(first, window, cx);
             }
         }
@@ -1456,13 +1472,21 @@ impl StartCodingDialogView {
     fn agent_tabs(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let report = CodingHub::global(cx).read(cx).doctor.report.clone();
         let pickable = Self::pickable_agents(report.as_ref());
+        let unauthed: Vec<CodingAgent> = report
+            .as_ref()
+            .map(|report| report.unauthed_agents())
+            .unwrap_or_default();
         let active_ix = pickable
             .iter()
             .position(|agent| *agent == self.agent)
             .unwrap_or(0);
         let click_agents = pickable.clone();
+        let muted = cx.theme().muted_foreground;
         // Centered pill tabs with each agent's brand mark + name (EXP-206;
         // icon and text ride one custom child — `Tab::icon` drops the label).
+        // A signed-out agent's tab is greyed out (EXP-409) but stays
+        // clickable: selecting it puts the sign-in fix in the footer blocker
+        // instead of dead UI.
         h_flex().w_full().justify_center().child(
             TabBar::new("sc-agent-tabs")
                 .with_variant(TabVariant::Pill)
@@ -1474,12 +1498,19 @@ impl StartCodingDialogView {
                     }
                 }))
                 .children(pickable.iter().map(|agent| {
+                    let signed_out = unauthed.contains(agent);
                     Tab::new().child(
                         h_flex()
                             .gap_1p5()
                             .items_center()
+                            .when(signed_out, |this| this.opacity(0.45))
                             .child(Icon::from(agent_icon(*agent)).size_3p5())
-                            .child(SharedString::from(agent.label())),
+                            .child(SharedString::from(agent.label()))
+                            .when(signed_out, |this| {
+                                this.child(
+                                    div().text_xs().text_color(muted).child("not signed in"),
+                                )
+                            }),
                     )
                 })),
         )

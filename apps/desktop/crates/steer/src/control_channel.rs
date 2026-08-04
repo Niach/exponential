@@ -49,9 +49,15 @@ pub struct DeviceIdentity {
     pub device_label: String,
     /// EXP-201: the agent CLIs installed on this device (contract
     /// `codingAgent` ids, from the coding doctor) — advertised in the
-    /// `online` frame so remote pickers only offer them. Empty = omit the
-    /// field (the relay then defaults to `["claude"]`).
+    /// `online` frame so remote pickers only offer them. Since EXP-409 this
+    /// means RUNNABLE (installed AND signed in). Empty AND no unauthed
+    /// agents = omit the field (the relay then defaults to `["claude"]`);
+    /// with unauthed agents present the empty list is sent explicitly so
+    /// that legacy default can't mislabel the machine.
     pub agents: Vec<String>,
+    /// EXP-409: agents installed but SIGNED OUT — unusable, advertised so
+    /// machine lists can say "sign in on that machine". Empty = omit.
+    pub unauthed_agents: Vec<String>,
     /// EXP-253/EXP-257: feature capabilities (`actions`, `action-inputs`) —
     /// advertised in the `online` frame; remote Run-action pickers strictly
     /// gate on `actions`, and the server additionally requires
@@ -406,11 +412,16 @@ async fn connect_and_listen(
 
     // §8.3 #3 — announce presence immediately on open (EXP-201: including
     // the installed-agent advertisement; empty = omit, relay defaults to
-    // claude-only).
+    // claude-only — UNLESS a signed-out agent exists (EXP-409), where the
+    // empty runnable list must be explicit so the default can't mislabel
+    // the machine as claude-capable).
+    let send_agents = !device.agents.is_empty() || !device.unauthed_agents.is_empty();
     let online = ClientFrame::Online {
         device_id: &device.device_id,
         device_label: Some(&device.device_label),
-        agents: (!device.agents.is_empty()).then_some(device.agents.as_slice()),
+        agents: send_agents.then_some(device.agents.as_slice()),
+        unauthed_agents: (!device.unauthed_agents.is_empty())
+            .then_some(device.unauthed_agents.as_slice()),
         caps: (!device.caps.is_empty()).then_some(device.caps.as_slice()),
     }
     .to_json();

@@ -11,8 +11,13 @@ export interface SteerDevice {
   deviceLabel: string
   /** Relay presence timestamp — absent on registry-only (offline) rows. */
   connectedAt?: number
-  /** EXP-201: agent CLIs installed on the device; absent = claude-only. */
+  /** EXP-201: agent CLIs installed on the device; absent = claude-only.
+   * Since EXP-409: RUNNABLE (installed AND signed in) — explicitly empty
+   * means the machine can run nothing right now. */
   agents?: string[]
+  /** EXP-409: agents installed but signed out on the machine — never
+   * offered in pickers; shown with a "sign in" hint instead. */
+  unauthedAgents?: string[]
   /** EXP-253: launch capabilities beyond issue coding (e.g. `actions`);
    * absent = an older desktop with none. */
   caps?: string[]
@@ -34,11 +39,26 @@ export function deviceIsOnline(device: SteerDevice): boolean {
   return device.online !== false
 }
 
-/** Agents the device can run — absent advertisement means claude-only. */
+/** Agents the device can run — an ABSENT advertisement means claude-only
+ * (pre-EXP-201 sender), but an explicitly EMPTY one means the machine can
+ * run nothing right now (EXP-409: every installed agent is signed out). */
 export function deviceAgentIds(device: SteerDevice | undefined): string[] {
-  return device?.agents && device.agents.length > 0
-    ? device.agents.filter((a) => contract.codingAgent.values.includes(a))
-    : [`claude`]
+  if (!device?.agents) return [`claude`]
+  return device.agents.filter((a) => contract.codingAgent.values.includes(a))
+}
+
+/** EXP-409: agents installed but signed out on the device. */
+export function deviceUnauthedAgentIds(device: SteerDevice | undefined): string[] {
+  return (device?.unauthedAgents ?? []).filter((a) =>
+    contract.codingAgent.values.includes(a)
+  )
+}
+
+/** EXP-409: online but with nothing runnable — every installed agent is
+ * signed out. Such a machine renders greyed out with a "sign in on that
+ * machine" reason instead of an agent picker. */
+export function deviceHasRunnableAgent(device: SteerDevice): boolean {
+  return deviceAgentIds(device).length > 0
 }
 
 /** Only desktops advertising this capability have an action launch path —

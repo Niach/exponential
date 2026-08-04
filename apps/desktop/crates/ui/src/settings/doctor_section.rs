@@ -88,6 +88,22 @@ pub(crate) fn install_hint(tool: Tool) -> (&'static str, &'static str) {
     }
 }
 
+/// EXP-409: guidance for an INSTALLED agent that is signed out — the fix is
+/// a login, not an install, so the install hint would mislead.
+pub(crate) fn sign_in_hint(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Claude => {
+            "Sign in: run `claude` in a terminal and complete the login (works over ssh too)."
+        }
+        Tool::Codex => "Sign in: run `codex login` in a terminal.",
+        Tool::Pi => {
+            "Give pi a credential: run `pi` and sign in with /login, or set a provider \
+             API key (e.g. ANTHROPIC_API_KEY)."
+        }
+        Tool::Git => "",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Panel
 // ---------------------------------------------------------------------------
@@ -239,10 +255,20 @@ impl DoctorPanel {
 
     /// The guidance block under a failing row: install hint + link, plus the
     /// inline path input for agent tools (git has no path setting — it must
-    /// be on PATH).
-    fn guidance(&self, tool: Tool, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let (hint, url) = install_hint(tool);
+    /// be on PATH). An installed-but-signed-out agent (EXP-409) instead gets
+    /// the sign-in hint alone — its binary and path are fine.
+    fn guidance(&self, check: &ToolCheck, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let tool = check.tool;
         let muted = cx.theme().muted_foreground;
+        if check.signed_out() {
+            return v_flex().pl_7().gap_1p5().child(
+                div()
+                    .text_xs()
+                    .text_color(muted.opacity(0.9))
+                    .child(sign_in_hint(tool)),
+            );
+        }
+        let (hint, url) = install_hint(tool);
         let mut block = v_flex()
             .pl_7()
             .gap_1p5()
@@ -313,14 +339,14 @@ impl Render for DoctorPanel {
                     let severity = row_severity(&check, report);
                     body = body.child(Self::tool_row(&check, severity, cx));
                     if severity != RowSeverity::Ok {
-                        body = body.child(self.guidance(check.tool, cx));
+                        body = body.child(self.guidance(&check, cx));
                     }
                 }
                 let git = report.git.clone();
                 let severity = row_severity(&git, report);
                 body = body.child(Self::tool_row(&git, severity, cx));
                 if severity != RowSeverity::Ok {
-                    body = body.child(self.guidance(Tool::Git, cx));
+                    body = body.child(self.guidance(&git, cx));
                 }
             }
         }
@@ -351,6 +377,7 @@ mod tests {
             ok: true,
             version: Some("1.0.0".to_string()),
             error: None,
+            authed: None,
         }
     }
 
@@ -360,6 +387,7 @@ mod tests {
             ok: false,
             version: None,
             error: Some(format!("{} not found on PATH", tool.label())),
+            authed: None,
         }
     }
 
@@ -407,6 +435,38 @@ mod tests {
             let (hint, url) = install_hint(tool);
             assert!(!hint.is_empty());
             assert!(url.starts_with("https://"), "{url}");
+        }
+    }
+
+    /// EXP-409: a signed-out agent follows the same severity rules as a
+    /// missing one (muted while a sibling covers coding, danger when none
+    /// does), and every agent has a non-empty sign-in hint.
+    #[test]
+    fn signed_out_rows_share_the_severity_rules_and_have_hints() {
+        let signed_out = |tool: Tool| ToolCheck {
+            authed: Some(false),
+            ok: false,
+            version: Some("1.0.0".to_string()),
+            error: Some("signed out".to_string()),
+            tool,
+        };
+        let one_ok = DoctorReport {
+            claude: green(Tool::Claude),
+            codex: signed_out(Tool::Codex),
+            pi: red(Tool::Pi),
+            git: green(Tool::Git),
+        };
+        assert_eq!(row_severity(&one_ok.codex, &one_ok), RowSeverity::Muted);
+        let none_ok = DoctorReport {
+            claude: signed_out(Tool::Claude),
+            codex: signed_out(Tool::Codex),
+            pi: red(Tool::Pi),
+            git: green(Tool::Git),
+        };
+        assert_eq!(row_severity(&none_ok.claude, &none_ok), RowSeverity::Danger);
+
+        for tool in [Tool::Claude, Tool::Codex, Tool::Pi] {
+            assert!(!sign_in_hint(tool).is_empty());
         }
     }
 }

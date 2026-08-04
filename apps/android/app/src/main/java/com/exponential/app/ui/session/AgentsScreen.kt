@@ -330,10 +330,15 @@ private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { devic
 /**
  * One registered machine (EXP-403): kind glyph + label with a hair-small
  * version, a status line (green dot Online / "Last seen …" / Offline), the
- * "Start coding" pill for ONLINE machines only, and the row menu — Rename and
- * Remove for registered rows, plus Update for an online server daemon. A row
- * that predates the registry (`registered == false`, live off relay presence)
- * has nothing to rename or remove, so it carries no menu.
+ * "Start coding" pill for STARTABLE machines only, and the row menu — Rename
+ * and Remove for registered rows, plus Update for an online server daemon. A
+ * row that predates the registry (`registered == false`, live off relay
+ * presence) has nothing to rename or remove, so it carries no menu.
+ *
+ * EXP-409: an online machine whose every installed agent is signed out can
+ * take no start, so it reads like an offline row (dimmed glyph, no pill) with
+ * an amber "<agents> not signed in" status instead of "Online"; a machine that
+ * CAN run something but has signed-out agents left over just gets a quiet note.
  */
 @Composable
 private fun MachineRow(
@@ -346,6 +351,11 @@ private fun MachineRow(
     onUpdate: () -> Unit,
 ) {
     val online = device.online
+    // Installed-but-signed-out agents (EXP-409): they block a start outright
+    // when nothing else is runnable, and are worth a note when something is.
+    val unauthed = device.unauthedAgentIds
+    val signInNeeded = online && !device.hasRunnableAgent && unauthed.isNotEmpty()
+    val startable = online && !signInNeeded
     // A server runs the CLI, a desktop the IDE — each compares against its own
     // channel's advertised latest.
     val outdated = deviceUpdateAvailable(
@@ -356,7 +366,7 @@ private fun MachineRow(
         modifier = Modifier
             .fillMaxWidth()
             .glassRow()
-            .clickable(enabled = online, onClick = onStart)
+            .clickable(enabled = startable, onClick = onStart)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -365,7 +375,7 @@ private fun MachineRow(
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (online) TextEmphasis.Secondary else TextEmphasis.Tertiary,
+                alpha = if (startable) TextEmphasis.Secondary else TextEmphasis.Tertiary,
             ),
         )
         Spacer(Modifier.width(12.dp))
@@ -374,7 +384,13 @@ private fun MachineRow(
                 Text(
                     device.displayLabel,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    // A signed-out machine greys out: it looks present but can
+                    // take nothing, so it must not read as fully available.
+                    color = if (signInNeeded) {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -407,26 +423,45 @@ private fun MachineRow(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     )
                 } else if (online) {
-                    StaticDot(ReviewGreen, size = 6.dp)
+                    StaticDot(if (signInNeeded) NeedsInputAmber else ReviewGreen, size = 6.dp)
                 }
+                val signedOutCaption = "${unauthed.joinToString(", ")} not signed in"
                 Text(
                     when {
                         device.updateRequested -> "Updating…"
+                        signInNeeded -> signedOutCaption
                         online -> "Online"
                         device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
                         else -> "Offline"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    color = if (signInNeeded && !device.updateRequested) {
+                        NeedsInputAmber
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
+                // Runnable, but something installed is signed out: a footnote
+                // next to Online, never the headline.
+                if (online && !signInNeeded && !device.updateRequested && unauthed.isNotEmpty()) {
+                    Text(
+                        "· $signedOutCaption",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
         // Text-only glass chip, matching the iOS AgentsView "Start coding"
         // button (EXP-331 — no play glyph). Offline machines can't take a
-        // start (the relay refuses it), so the affordance is simply absent.
-        if (online) {
+        // start (the relay refuses it), nor can ones with every agent signed
+        // out (EXP-409), so the affordance is simply absent.
+        if (startable) {
             GlassPillButton(
                 label = "Start coding",
                 onClick = onStart,

@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.domain.DomainContract
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
@@ -27,18 +28,23 @@ data class SteerConfigResult(
  * merged with that presence. The registry fields are all defaulted, so a
  * relay-only row decodes unchanged and reads as an online desktop.
  *
- * [agents] lists the coding agents the machine can launch (EXP-201) — an
- * absent/empty list means an older desktop that only runs claude. [caps]
- * lists feature capabilities (EXP-253: `actions`; EXP-257: `action-inputs`)
- * — absent (old desktop/relay) means none: action starts are strictly gated
- * on it, unlike the lenient agents fallback.
+ * [agents] lists the coding agents the machine can RUN (EXP-201; since
+ * EXP-409 that means installed AND signed in) — an ABSENT list is an older
+ * sender that only runs claude, but an explicitly EMPTY one means the machine
+ * can run nothing right now, so the fallback must never fire on it (see
+ * [runnableAgents]). [unauthedAgents] carries the agents installed but SIGNED
+ * OUT — never startable, only shown as the reason. [caps] lists feature
+ * capabilities (EXP-253: `actions`; EXP-257: `action-inputs`) — absent (old
+ * desktop/relay) means none: action starts are strictly gated on it, unlike
+ * the lenient agents fallback.
  */
 @Serializable
 data class SteerDevice(
     @SerialName("deviceId") val deviceId: String,
     @SerialName("deviceLabel") val deviceLabel: String = "",
     @SerialName("connectedAt") val connectedAt: Long = 0,
-    @SerialName("agents") val agents: List<String> = emptyList(),
+    @SerialName("agents") val agents: List<String>? = null,
+    @SerialName("unauthedAgents") val unauthedAgents: List<String> = emptyList(),
     @SerialName("caps") val caps: List<String>? = null,
     // ── devices.list registry fields (EXP-403) ───────────────────────────────
     /** `desktop` (the IDE) or `server` (a headless `exponential` daemon). */
@@ -57,6 +63,29 @@ data class SteerDevice(
 ) {
     /** A headless `exponential` daemon rather than the desktop IDE. */
     val isServer: Boolean get() = kind == KIND_SERVER
+
+    /**
+     * The agents this machine can launch right now, in contract order. An
+     * ABSENT advertisement is a pre-EXP-201 sender that runs exactly claude;
+     * an explicitly EMPTY one is a machine with nothing runnable (EXP-409 —
+     * every installed agent is signed out), and stays empty. Mirrors web's
+     * `deviceAgentIds`.
+     */
+    val runnableAgents: List<String>
+        get() = agents?.let { advertised ->
+            DomainContract.codingAgentValues.filter { it in advertised }
+        } ?: listOf(FALLBACK_AGENT)
+
+    /** EXP-409: agents installed but signed out — displayed, never offered. */
+    val unauthedAgentIds: List<String>
+        get() = DomainContract.codingAgentValues.filter { it in unauthedAgents }
+
+    /**
+     * Whether the machine can take a start at all (EXP-409) — an online
+     * desktop whose every installed agent is signed out is as unstartable as
+     * an offline one, so pickers drop it and the machines list explains why.
+     */
+    val hasRunnableAgent: Boolean get() = runnableAgents.isNotEmpty()
 
     /** Whether this desktop can run team actions (EXP-253). */
     val canRunActions: Boolean get() = caps?.contains("actions") == true
@@ -78,6 +107,9 @@ data class SteerDevice(
     companion object {
         const val KIND_DESKTOP = "desktop"
         const val KIND_SERVER = "server"
+
+        /** What a sender that advertises no agents at all can run. */
+        private const val FALLBACK_AGENT = "claude"
     }
 }
 

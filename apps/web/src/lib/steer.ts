@@ -160,8 +160,14 @@ export interface SteerDevice {
   deviceLabel: string
   connectedAt: number
   /** EXP-201: agent CLIs the device advertised (`claude`/`codex`/`pi`).
-   * Absent from an old relay ⇒ treat as claude-only. */
+   * Absent from an old relay ⇒ treat as claude-only. Since EXP-409:
+   * RUNNABLE (installed AND signed in) — explicitly empty means the
+   * machine can run nothing right now. */
   agents?: string[]
+  /** EXP-409: agents installed but SIGNED OUT on the device — unusable;
+   * surfaced so UIs can say "sign in on that machine". Absent (old
+   * relay/sender) ⇒ none known. */
+  unauthedAgents?: string[]
   /** EXP-253: feature capabilities the device advertised (`actions`, and
    * since EXP-257 `action-inputs` — required for builtin or inputs-carrying
    * action starts). Absent (old desktop/relay) ⇒ none — action starts are

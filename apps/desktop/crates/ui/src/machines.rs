@@ -418,12 +418,19 @@ impl MachinesSection {
                     .text_xs()
                     .text_color(muted)
                     .when(device.online, |this| {
+                        // EXP-409: online but nothing runnable (every
+                        // installed agent signed out) shows amber, not green.
+                        let dot = if sign_in_needed(device) {
+                            theme::tokens::YELLOW.to_hsla()
+                        } else {
+                            theme::tokens::GREEN.to_hsla()
+                        };
                         this.child(
                             div()
                                 .size_1p5()
                                 .flex_shrink_0()
                                 .rounded_full()
-                                .bg(theme::tokens::GREEN.to_hsla()),
+                                .bg(dot),
                         )
                     })
                     .child(
@@ -441,10 +448,25 @@ impl MachinesSection {
     }
 }
 
+/// EXP-409: online with NOTHING runnable — every installed agent is signed
+/// out, so the row reads amber with the sign-in reason instead of "Online".
+fn sign_in_needed(device: &api::devices::DeviceEntry) -> bool {
+    device.online && device.agents.is_empty() && !device.unauthed_agents.is_empty()
+}
+
 /// `Online` / `Last seen 5m` / `Offline` — the web row's caption, in the
-/// desktop's relative-time wording.
+/// desktop's relative-time wording. Signed-out agents (EXP-409) annotate the
+/// online state ("claude not signed in" replaces it when nothing is
+/// runnable).
 fn status_line(device: &api::devices::DeviceEntry) -> String {
     if device.online {
+        let unauthed = device.unauthed_agents.join(", ");
+        if sign_in_needed(device) {
+            return format!("{unauthed} not signed in");
+        }
+        if !unauthed.is_empty() {
+            return format!("Online · {unauthed} not signed in");
+        }
         return "Online".to_string();
     }
     match device.last_seen_at.as_deref().map(crate::inbox::relative_time) {
@@ -483,6 +505,28 @@ mod tests {
         // A timestamp the parser rejects must never render a dangling
         // "Last seen " with no time after it.
         assert_eq!(status_line(&device(false, Some("garbage"))), "Offline");
+    }
+
+    /// EXP-409: signed-out agents replace "Online" when nothing is runnable
+    /// and annotate it when a runnable sibling exists; offline rows are
+    /// untouched.
+    #[test]
+    fn status_line_names_signed_out_agents() {
+        let mut nothing_runnable = device(true, None);
+        nothing_runnable.unauthed_agents = vec!["claude".to_string()];
+        assert!(sign_in_needed(&nothing_runnable));
+        assert_eq!(status_line(&nothing_runnable), "claude not signed in");
+
+        let mut partly = device(true, None);
+        partly.agents = vec!["codex".to_string()];
+        partly.unauthed_agents = vec!["claude".to_string()];
+        assert!(!sign_in_needed(&partly));
+        assert_eq!(status_line(&partly), "Online · claude not signed in");
+
+        let mut offline = device(false, None);
+        offline.unauthed_agents = vec!["claude".to_string()];
+        assert!(!sign_in_needed(&offline));
+        assert_eq!(status_line(&offline), "Offline");
     }
 
     #[test]

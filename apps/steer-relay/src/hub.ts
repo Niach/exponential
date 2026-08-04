@@ -55,8 +55,12 @@ interface DeviceEntry {
   deviceLabel: string
   connectedAt: number
   /** EXP-201: agent CLIs the device advertised in its `online` frame.
-   * Absent on old desktops ⇒ defaulted to ["claude"] at store time. */
+   * Absent on old desktops ⇒ defaulted to ["claude"] at store time.
+   * Since EXP-409: runnable (installed AND signed in). */
   agents: string[]
+  /** EXP-409: agents installed but signed out on the device — unusable,
+   * passed through so the web can explain instead of hiding them. */
+  unauthedAgents: string[]
   /** EXP-253: feature capabilities (`actions`) the device advertised.
    * Absent on old desktops ⇒ [] — the web server strictly gates action
    * starts on this. */
@@ -250,6 +254,8 @@ export class Hub {
           // Absent = old desktop that predates the advertisement — it can
           // run exactly what every desktop could before EXP-201: claude.
           agents: msg.agents ?? [`claude`],
+          // Absent = old sender that predates EXP-409.
+          unauthedAgents: msg.unauthedAgents ?? [],
           // Absent = old desktop with no action launch path (EXP-253).
           caps: msg.caps ?? [],
         })
@@ -407,6 +413,7 @@ export class Hub {
       deviceLabel: entry.deviceLabel,
       connectedAt: entry.connectedAt,
       agents: entry.agents,
+      unauthedAgents: entry.unauthedAgents,
       caps: entry.caps,
     }))
   }

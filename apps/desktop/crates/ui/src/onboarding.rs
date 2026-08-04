@@ -173,9 +173,26 @@ impl OnboardingView {
     }
 
     fn tools_pending(&self, cx: &App) -> bool {
-        !self.tools_step_done
-            && CodingHub::global_ref(cx)
-                .is_some_and(|hub| !hub.read(cx).settings.tools_setup_seen)
+        if self.tools_step_done {
+            return false;
+        }
+        let Some(hub) = CodingHub::global_ref(cx) else {
+            return false;
+        };
+        let hub = hub.read(cx);
+        if !hub.settings.tools_setup_seen {
+            return true;
+        }
+        // EXP-409: even after the first-run latch, the tools step comes BACK
+        // at startup while coding is fully unusable — no git, or no runnable
+        // agent (not installed OR installed-but-signed-out both count).
+        // Gated on a LANDED report so the wizard never flashes while the
+        // first probe is still running; "Set up later" dismisses it for the
+        // session.
+        hub.doctor
+            .report
+            .as_ref()
+            .is_some_and(|report| !report.git.ok || !report.any_agent_ok())
     }
 
     fn desired_step(&self, cx: &App) -> Option<WizardStep> {

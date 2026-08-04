@@ -613,16 +613,21 @@ export const steerRouter = router({
 
       // EXP-201: the target device advertised which agent CLIs it can run —
       // refuse a start naming one it didn't (an old desktop advertises
-      // nothing ⇒ claude-only, exactly what it can do).
+      // nothing ⇒ claude-only, exactly what it can do). An EXPLICITLY empty
+      // list (EXP-409) means nothing is runnable — the claude fallback only
+      // covers the absent-advertisement legacy case. A signed-out agent gets
+      // the sign-in message, not "not installed".
       const agent = input.agent ?? `claude`
       const devices = await fetchDevices()
       const device = devices.find((d) => d.deviceId === input.deviceId)
-      const deviceAgentIds =
-        device?.agents && device.agents.length > 0 ? device.agents : [`claude`]
+      const deviceAgentIds = device?.agents ?? [`claude`]
       if (device && !deviceAgentIds.includes(agent)) {
+        const signedOut = (device.unauthedAgents ?? []).includes(agent)
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `${agent} is not installed on that device`,
+          message: signedOut
+            ? `${agent} is installed on that device but not signed in — sign in on the machine first`
+            : `${agent} is not installed on that device`,
         })
       }
 

@@ -32,6 +32,7 @@ import {
   deviceCanFixConflicts,
   deviceCanRunActionInputs,
   deviceCanRunActions,
+  deviceHasRunnableAgent,
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
@@ -395,7 +396,11 @@ export function LaunchDialog({
   const candidateDevices = useMemo(() => {
     // EXP-403: the registry lists offline machines too — only online ones
     // are startable (the relay would 404 the rest with device_offline).
-    const online = devices.filter(deviceIsOnline)
+    // EXP-409: a machine whose every agent is signed out is equally
+    // unstartable — the My machines list carries the "sign in" reason.
+    const online = devices
+      .filter(deviceIsOnline)
+      .filter(deviceHasRunnableAgent)
     return tab === `issues`
       ? online
       : online.filter(

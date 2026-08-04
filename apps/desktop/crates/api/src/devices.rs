@@ -31,7 +31,12 @@ pub struct RegisterDevice<'a> {
     pub kind: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub platform: Option<&'a str>,
+    /// Runnable agents (installed AND signed in since EXP-409).
     pub agents: &'a [String],
+    /// EXP-409: installed but signed out. Skipped when empty so older
+    /// servers with a strict input schema never see the field.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    pub unauthed_agents: &'a [String],
     pub caps: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<&'a str>,
@@ -110,6 +115,10 @@ pub struct DeviceEntry {
     pub platform: Option<String>,
     #[serde(default)]
     pub agents: Vec<String>,
+    /// EXP-409: installed-but-signed-out agents — shown with a "sign in"
+    /// hint, never offered in pickers.
+    #[serde(default)]
+    pub unauthed_agents: Vec<String>,
     #[serde(default)]
     pub caps: Vec<String>,
     /// Connected to the steer relay right now.

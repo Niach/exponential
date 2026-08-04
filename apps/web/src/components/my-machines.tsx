@@ -8,7 +8,12 @@ import { conceptIcon } from "@/lib/icons.generated"
 import { parseVersionTuple } from "@/lib/client-version"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
-import { deviceIsOnline, type SteerDevice } from "@/lib/steer-devices"
+import {
+  deviceHasRunnableAgent,
+  deviceIsOnline,
+  deviceUnauthedAgentIds,
+  type SteerDevice,
+} from "@/lib/steer-devices"
 import { CopySnippetButton } from "@/components/getting-started/mcp-setup-tabs"
 import { SectionLabel } from "@/components/agent-session-row"
 import { Button } from "@/components/ui/button"
@@ -159,6 +164,12 @@ export function MyMachines({
       ) : (
         devices.map((device) => {
           const online = deviceIsOnline(device)
+          // EXP-409: installed-but-signed-out agents grey the machine out
+          // (online but nothing runnable) or annotate it (a runnable
+          // sibling still covers coding).
+          const unauthed = deviceUnauthedAgentIds(device)
+          const runnable = deviceHasRunnableAgent(device)
+          const signInNeeded = online && !runnable && unauthed.length > 0
           const KindIcon = device.kind === `server` ? ServerIcon : DesktopIcon
           const latest =
             device.kind === `server`
@@ -168,7 +179,9 @@ export function MyMachines({
           return (
             <div
               key={device.deviceId}
-              className="flex items-center gap-2 border-b border-border/30 px-3 py-2"
+              className={`flex items-center gap-2 border-b border-border/30 px-3 py-2 ${
+                signInNeeded ? `opacity-60` : ``
+              }`}
             >
               <KindIcon className="size-4 shrink-0 text-muted-foreground" />
               <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
@@ -192,8 +205,19 @@ export function MyMachines({
               </span>
               {online ? (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="size-1.5 rounded-full bg-emerald-500" />
-                  Online
+                  <span
+                    className={`size-1.5 rounded-full ${
+                      signInNeeded ? `bg-amber-500` : `bg-emerald-500`
+                    }`}
+                  />
+                  {signInNeeded
+                    ? `${unauthed.join(`, `)} not signed in`
+                    : `Online`}
+                  {!signInNeeded && unauthed.length > 0 && (
+                    <span className="text-muted-foreground/60">
+                      · {unauthed.join(`, `)} not signed in
+                    </span>
+                  )}
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground">
@@ -224,15 +248,23 @@ export function MyMachines({
                   )}
                 </Button>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={runBusy || !online}
-                onClick={() => onStartCoding(device.deviceId)}
+              <span
+                title={
+                  signInNeeded
+                    ? `No agent is signed in on this machine — sign in on the machine first (e.g. run \`${unauthed[0]}\` there).`
+                    : undefined
+                }
               >
-                <MonitorUp />
-                Start coding
-              </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={runBusy || !online || signInNeeded}
+                  onClick={() => onStartCoding(device.deviceId)}
+                >
+                  <MonitorUp />
+                  Start coding
+                </Button>
+              </span>
               {device.registered && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

@@ -52,9 +52,18 @@ pub enum ClientFrame<'a> {
         /// EXP-201: the agent CLIs installed on this device (contract
         /// `codingAgent` ids) — remote Start-coding pickers only offer
         /// these. Absent (old desktop) = the relay defaults to
-        /// `["claude"]`.
+        /// `["claude"]`. Since EXP-409 this means RUNNABLE (installed AND
+        /// signed in); senders with a signed-out agent MUST send the list
+        /// explicitly (even empty) so the legacy default can't mislabel an
+        /// unauthed machine as claude-capable.
         #[serde(skip_serializing_if = "Option::is_none")]
         agents: Option<&'a [String]>,
+        /// EXP-409: agents that are INSTALLED but signed out — unusable
+        /// (never in `agents`), advertised so machine lists can say "sign
+        /// in on that machine" instead of pretending the CLI is missing.
+        /// Old relays strip the field (non-strict zod).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        unauthed_agents: Option<&'a [String]>,
         /// EXP-253/EXP-257: feature capabilities (`actions`,
         /// `action-inputs`) — remote Run-action pickers strictly gate on
         /// them (absent = no action launch path).
@@ -441,6 +450,7 @@ mod tests {
                 device_id: "dev-1",
                 device_label: Some("MacBook"),
                 agents: None,
+                unauthed_agents: None,
                 caps: None,
             }
             .to_json(),
@@ -451,6 +461,7 @@ mod tests {
                 device_id: "dev-1",
                 device_label: None,
                 agents: None,
+                unauthed_agents: None,
                 caps: None,
             }
             .to_json(),
@@ -463,6 +474,7 @@ mod tests {
                 device_id: "dev-1",
                 device_label: Some("MacBook"),
                 agents: Some(&agents),
+                unauthed_agents: None,
                 caps: None,
             }
             .to_json(),
@@ -475,10 +487,27 @@ mod tests {
                 device_id: "dev-1",
                 device_label: Some("MacBook"),
                 agents: Some(&agents),
+                unauthed_agents: None,
                 caps: Some(&caps),
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","pi"],"caps":["actions"]}"#
+        );
+        // EXP-409: signed-out agents ride `unauthedAgents`, and the runnable
+        // list goes on the wire EXPLICITLY (even empty) alongside them so the
+        // relay's legacy ["claude"] default can't apply.
+        let none: Vec<String> = vec![];
+        let unauthed = vec!["claude".to_string()];
+        assert_eq!(
+            ClientFrame::Online {
+                device_id: "dev-1",
+                device_label: Some("MacBook"),
+                agents: Some(&none),
+                unauthed_agents: Some(&unauthed),
+                caps: None,
+            }
+            .to_json(),
+            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":[],"unauthedAgents":["claude"]}"#
         );
     }
 
@@ -898,6 +927,7 @@ mod tests {
                     device_id: "d",
                     device_label: None,
                     agents: None,
+                    unauthed_agents: None,
                     caps: None,
                 },
                 "online",

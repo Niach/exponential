@@ -217,7 +217,26 @@ describe(`device presence + remote start`, () => {
       })
     )
     expect(hub.devicesFor(`owner`)).toMatchObject([
-      { deviceId: `dev-1`, agents: [`claude`, `pi`] },
+      { deviceId: `dev-1`, agents: [`claude`, `pi`], unauthedAgents: [] },
+    ])
+  })
+
+  test(`online passes signed-out agents through, and an explicit empty agents list defeats the claude default (EXP-409)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(
+      desktop,
+      JSON.stringify({
+        t: `online`,
+        deviceId: `dev-1`,
+        deviceLabel: `Homelab`,
+        agents: [],
+        unauthedAgents: [`claude`],
+      })
+    )
+    expect(hub.devicesFor(`owner`)).toMatchObject([
+      { deviceId: `dev-1`, agents: [], unauthedAgents: [`claude`] },
     ])
   })
 

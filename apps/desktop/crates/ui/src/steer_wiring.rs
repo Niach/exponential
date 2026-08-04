@@ -306,11 +306,12 @@ pub fn observer_setup(cx: &App) -> Option<coding::ObserverSetup> {
 #[derive(Default)]
 struct ControlChannels {
     by_account: HashMap<String, ControlChannelHandle>,
-    /// The installed-agent set the account's presence currently advertises —
-    /// including the DELIBERATE absence (`[]` = no agent CLI → offline,
-    /// EXP-367). [`restart_control_channel_if_needed`] compares against it
-    /// so a doctor refresh only re-dials when the set actually changed.
-    advertised: HashMap<String, Vec<String>>,
+    /// The agent advertisement the account's presence currently carries —
+    /// runnable + signed-out sets (EXP-409), including the DELIBERATE
+    /// absence (nothing installed → offline, EXP-367).
+    /// [`restart_control_channel_if_needed`] compares against it so a doctor
+    /// refresh only re-dials when the sets actually changed.
+    advertised: HashMap<String, coding::AgentAdvertisement>,
 }
 struct ControlChannelsGlobal(Entity<ControlChannels>);
 impl Global for ControlChannelsGlobal {}
@@ -355,16 +356,11 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let inbox = cx.global::<RemoteStartGlobal>().0.clone();
     let account_id = account.id.clone();
     cx.spawn(async move |cx| {
-        let agents: Vec<String> = cx
+        let advertisement: coding::AgentAdvertisement = cx
             .background_executor()
-            .spawn(async move {
-                coding::run_doctor(&settings)
-                    .installed_agents()
-                    .into_iter()
-                    .map(|agent| agent.id().to_string())
-                    .collect()
-            })
+            .spawn(async move { coding::run_doctor(&settings).agent_advertisement() })
             .await;
+        let agents = advertisement.agents.clone();
         // EXP-253/EXP-257: the actions capabilities — advertised when ANY
         // agent is usable (action runs stopped being Claude-only), plus
         // `action-inputs` (this build understands builtin + inputs-carrying
@@ -392,7 +388,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let trpc = Arc::clone(&trpc);
             let device_id = device_id.clone();
             let device_label = device_label.clone();
-            let agents = agents.clone();
+            let advertisement = advertisement.clone();
             let caps = caps.clone();
             cx.background_executor()
                 .spawn(async move {
@@ -403,7 +399,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                             label: &device_label,
                             kind: "desktop",
                             platform: Some(std::env::consts::OS),
-                            agents: &agents,
+                            agents: &advertisement.agents,
+                            unauthed_agents: &advertisement.unauthed_agents,
                             caps: &caps,
                             version: Some(domain::client_version::current_version()),
                         },
@@ -419,20 +416,23 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             {
                 return;
             }
-            // EXP-367: NO agent CLI installed → this device cannot run
-            // anything remotely, so it goes fully OFFLINE for remote start:
-            // don't dial at all (the relay treats an absent `agents` list as
-            // ["claude"], so an empty advertisement must never reach it) and
-            // hang up any live socket from before the last agent vanished.
-            // A later doctor refresh that finds an agent re-dials via
-            // `restart_control_channel_if_needed`.
-            if agents.is_empty() {
+            // EXP-367: NO agent CLI installed at all → this device cannot
+            // run anything remotely, so it goes fully OFFLINE for remote
+            // start: don't dial at all and hang up any live socket from
+            // before the last agent vanished. An installed-but-signed-out
+            // agent (EXP-409) still dials — with an EXPLICIT empty runnable
+            // list — so the machine list can say "sign in" instead of
+            // showing the device offline. A later doctor refresh re-dials
+            // via `restart_control_channel_if_needed`.
+            if advertisement.nothing_installed() {
                 let channels = ControlChannels::global(cx);
                 channels.update(cx, |channels, _| {
                     if let Some(previous) = channels.by_account.remove(&account_id) {
                         previous.stop();
                     }
-                    channels.advertised.insert(account_id, Vec::new());
+                    channels
+                        .advertised
+                        .insert(account_id, coding::AgentAdvertisement::default());
                 });
                 return;
             }
@@ -440,6 +440,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 device_id,
                 device_label,
                 agents: agents.clone(),
+                unauthed_agents: advertisement.unauthed_agents.clone(),
                 caps,
             };
             let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
@@ -450,7 +451,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
 
             let channels = ControlChannels::global(cx);
             channels.update(cx, |channels, _| {
-                channels.advertised.insert(account_id.clone(), agents);
+                channels.advertised.insert(account_id.clone(), advertisement);
                 if let Some(previous) = channels.by_account.insert(account_id, handle) {
                     previous.stop(); // never accumulate two sockets for one account
                 }
@@ -493,14 +494,10 @@ pub fn restart_control_channel_if_needed(cx: &mut App) {
     let Some(report) = hub.read(cx).doctor.report.clone() else {
         return;
     };
-    let desired: Vec<String> = report
-        .installed_agents()
-        .into_iter()
-        .map(|agent| agent.id().to_string())
-        .collect();
+    let desired = report.agent_advertisement();
     let current = ControlChannels::global_ref(cx)
         .and_then(|channels| channels.read(cx).advertised.get(&account.id).cloned());
-    if current.as_deref() != Some(desired.as_slice()) {
+    if current.as_ref() != Some(&desired) {
         start_control_channel(&account, cx);
     }
 }

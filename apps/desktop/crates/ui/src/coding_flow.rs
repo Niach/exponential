@@ -1230,7 +1230,11 @@ impl StartCodingControl {
                     );
                 }
                 if !report.any_agent_ok() {
-                    return Some(NO_AGENT_COPY.into());
+                    return Some(if report.unauthed_agents().is_empty() {
+                        NO_AGENT_COPY.into()
+                    } else {
+                        NO_AGENT_SIGNED_IN_COPY.into()
+                    });
                 }
             }
         }
@@ -1261,6 +1265,11 @@ impl CodingHub {
 pub(crate) const NO_AGENT_COPY: &str =
     "No coding agent CLI found (claude, codex, or pi). Install one in Settings → Tools.";
 
+/// EXP-409 variant: agents ARE installed, but every one of them is signed
+/// out — the fix is a login, not an install.
+pub(crate) const NO_AGENT_SIGNED_IN_COPY: &str =
+    "No coding agent is signed in. Sign in to claude, codex, or pi (see Settings → Tools).";
+
 /// `Some(reason)` when the doctor has REPORTED and no agent CLI is usable —
 /// the shared gate for every Start-coding entry point (EXP-367: buttons
 /// disable with this tooltip, never hide). `None` while the probe is still
@@ -1268,7 +1277,14 @@ pub(crate) const NO_AGENT_COPY: &str =
 pub(crate) fn no_agent_reason(cx: &App) -> Option<SharedString> {
     let hub = CodingHub::global_ref(cx)?;
     let report = hub.read(cx).doctor.report.clone()?;
-    (!report.any_agent_ok()).then(|| NO_AGENT_COPY.into())
+    if report.any_agent_ok() {
+        return None;
+    }
+    // Installed-but-signed-out (EXP-409) reads as "sign in", not "install".
+    if !report.unauthed_agents().is_empty() {
+        return Some(NO_AGENT_SIGNED_IN_COPY.into());
+    }
+    Some(NO_AGENT_COPY.into())
 }
 
 impl Render for StartCodingControl {
