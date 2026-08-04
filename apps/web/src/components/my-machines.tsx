@@ -234,10 +234,22 @@ export function MyMachines({
                     size="sm"
                     className={outdated ? `text-amber-500` : `text-muted-foreground`}
                     disabled={device.updateRequested || updatingId === device.deviceId}
-                    title="Ask the daemon to self-update (it restarts when idle)"
+                    title={
+                      device.updateRequested && device.updateBlocked
+                        ? `A coding session is running — this machine updates itself once all sessions are closed.`
+                        : `Ask the daemon to self-update (it restarts when idle)`
+                    }
                     onClick={() => void requestUpdate(device)}
                   >
-                    {device.updateRequested || updatingId === device.deviceId ? (
+                    {device.updateRequested && device.updateBlocked ? (
+                      // EXP-411: parked behind live sessions — say so instead
+                      // of spinning until the last one closes.
+                      <>
+                        <UpdateIcon />
+                        Queued
+                      </>
+                    ) : device.updateRequested ||
+                      updatingId === device.deviceId ? (
                       <>
                         <LoaderCircle className="animate-spin" />
                         Updating…

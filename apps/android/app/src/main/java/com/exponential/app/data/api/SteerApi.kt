@@ -60,9 +60,17 @@ data class SteerDevice(
     @SerialName("version") val version: String? = null,
     /** An Update request is pending on the daemon (cleared when it re-registers). */
     @SerialName("updateRequested") val updateRequested: Boolean = false,
+    /**
+     * EXP-411: the pending update is parked behind live coding sessions —
+     * the daemon applies it once they close ("Update queued", no spinner).
+     */
+    @SerialName("updateBlocked") val updateBlocked: Boolean = false,
 ) {
     /** A headless `exponential` daemon rather than the desktop IDE. */
     val isServer: Boolean get() = kind == KIND_SERVER
+
+    /** EXP-411: the pending update waits for live sessions to close. */
+    val updateQueued: Boolean get() = updateRequested && updateBlocked
 
     /**
      * The agents this machine can launch right now, in contract order. An

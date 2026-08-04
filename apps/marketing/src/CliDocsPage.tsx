@@ -231,7 +231,9 @@ exponential update
               schedule, waiting until no session is running before it
               restarts. Each machine&apos;s row on the Agents page also shows
               its version with an Update button that asks the daemon to
-              update right away. The stored choice is{` `}
+              update right away — while sessions are still running the row
+              reads &quot;Update queued&quot; and the update applies as soon
+              as the last one closes. The stored choice is{` `}
               <code>cliAutoUpdate</code> in settings.json.
             </p>
             <p>

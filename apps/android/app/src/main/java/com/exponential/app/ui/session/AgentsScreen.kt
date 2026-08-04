@@ -415,19 +415,22 @@ private fun MachineRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 // A pending update outranks the presence caption: the daemon is
-                // about to restart, so "Online" would only read as a lie.
-                if (device.updateRequested) {
+                // about to restart, so "Online" would only read as a lie. But a
+                // request parked behind live sessions (EXP-411) reads "Update
+                // queued" without a spinner — it applies once they close.
+                if (device.updateRequested && !device.updateBlocked) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(10.dp),
                         strokeWidth = 1.5.dp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     )
-                } else if (online) {
+                } else if (online && !device.updateQueued) {
                     StaticDot(if (signInNeeded) NeedsInputAmber else ReviewGreen, size = 6.dp)
                 }
                 val signedOutCaption = "${unauthed.joinToString(", ")} not signed in"
                 Text(
                     when {
+                        device.updateQueued -> "Update queued"
                         device.updateRequested -> "Updating…"
                         signInNeeded -> signedOutCaption
                         online -> "Online"

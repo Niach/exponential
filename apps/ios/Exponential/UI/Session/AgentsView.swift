@@ -364,15 +364,20 @@ struct AgentsView: View {
     }
 
     /// A requested self-update REPLACES the live state: the daemon is about to
-    /// restart, so "Online" would only read as a lie. EXP-409: signed-out
-    /// agents replace "Online" when nothing is runnable (amber dot, web +
-    /// desktop parity) and annotate it when a runnable sibling exists.
+    /// restart, so "Online" would only read as a lie — unless the update is
+    /// parked behind live coding sessions (EXP-411): then the row says
+    /// "Update queued" without a spinner instead of "Updating…" forever.
+    /// EXP-409: signed-out agents replace "Online" when nothing is runnable
+    /// (amber dot, web + desktop parity) and annotate it when a runnable
+    /// sibling exists.
     @ViewBuilder
     private func deviceStatusLine(_ device: SteerDevice) -> some View {
         let signedOut = device.unauthedAgentIds.joined(separator: ", ")
         let signInNeeded = device.needsAgentSignIn
         HStack(spacing: 5) {
-            if isUpdating(device) {
+            if isUpdateQueued(device) {
+                Text("Update queued")
+            } else if isUpdating(device) {
                 ProgressView().controlSize(.mini).tint(.white)
                 Text("Updating…")
             } else if device.isOnline {
@@ -430,6 +435,12 @@ struct AgentsView: View {
     /// the local set covers the gap until the next poll returns it.
     private func isUpdating(_ device: SteerDevice) -> Bool {
         device.updateRequested == true || updatingIds.contains(device.deviceId)
+    }
+
+    /// EXP-411: the pending update is parked behind live coding sessions on
+    /// the machine — the daemon applies it once they close.
+    private func isUpdateQueued(_ device: SteerDevice) -> Bool {
+        device.updateRequested == true && device.updateBlocked == true
     }
 
     private func lastSeenCaption(_ device: SteerDevice) -> String {

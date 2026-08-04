@@ -88,6 +88,7 @@ const registryRow = (over: Record<string, unknown> = {}) => ({
   caps: [`actions`],
   version: `0.8.52`,
   updateRequestedAt: null,
+  activeSessions: 0,
   lastSeenAt: new Date(`2026-08-01T10:00:00Z`),
   createdAt: new Date(`2026-07-01T10:00:00Z`),
   updatedAt: new Date(`2026-08-01T10:00:00Z`),
@@ -185,6 +186,17 @@ describe(`devices.heartbeat`, () => {
     expect(h.state.updates[0]?.set).toMatchObject({
       lastSeenAt: expect.any(Date),
     })
+  })
+
+  it(`stores the reported live-session count (EXP-411)`, async () => {
+    await caller.heartbeat({ deviceId: `dev-1`, activeSessions: 2 })
+    expect(h.state.updates[0]?.set).toMatchObject({ activeSessions: 2 })
+  })
+
+  it(`leaves the stored count alone when a pre-EXP-411 daemon omits it`, async () => {
+    await caller.heartbeat({ deviceId: `dev-1` })
+    const set = h.state.updates[0]?.set as Record<string, unknown>
+    expect(`activeSessions` in set).toBe(false)
   })
 })
 
@@ -288,6 +300,36 @@ describe(`devices.list`, () => {
       lastSeenAt: null,
       agents: [`claude`],
       caps: [],
+    })
+  })
+
+  it(`marks a pending update blocked while the daemon reports live sessions (EXP-411)`, async () => {
+    h.state.selectRows = [
+      registryRow({
+        updateRequestedAt: new Date(`2026-08-03T10:00:00Z`),
+        activeSessions: 1,
+      }),
+    ]
+    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
+    const { devices } = await caller.list()
+    expect(devices[0]).toMatchObject({
+      updateRequested: true,
+      updateBlocked: true,
+    })
+  })
+
+  it(`clears the blocked state once the machine reads idle`, async () => {
+    h.state.selectRows = [
+      registryRow({
+        updateRequestedAt: new Date(`2026-08-03T10:00:00Z`),
+        activeSessions: 0,
+      }),
+    ]
+    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
+    const { devices } = await caller.list()
+    expect(devices[0]).toMatchObject({
+      updateRequested: true,
+      updateBlocked: false,
     })
   })
 

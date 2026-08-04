@@ -18,7 +18,8 @@ final class SteerDeviceDecodingTests: XCTestCase {
         {"devices":[{"deviceId":"d1","deviceLabel":"build-box","kind":"server",
         "platform":"linux","agents":["claude"],"caps":["actions"],"online":false,
         "lastSeenAt":"2026-08-03T10:00:00.000Z","registered":true,"version":"0.8.52",
-        "updateRequested":true}],"latestVersions":{"desktop":"1.2.3","cli":"0.8.53"}}
+        "updateRequested":true,"updateBlocked":true}],
+        "latestVersions":{"desktop":"1.2.3","cli":"0.8.53"}}
         """)
         let device = try XCTUnwrap(result.devices.first)
         XCTAssertEqual(device.deviceId, "d1")
@@ -28,6 +29,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertTrue(device.isRegistered)
         XCTAssertEqual(device.version, "0.8.52")
         XCTAssertTrue(device.updateRequested == true)
+        XCTAssertTrue(device.updateBlocked == true)
         XCTAssertEqual(device.lastSeenAt, "2026-08-03T10:00:00.000Z")
         XCTAssertTrue(device.canRunActions)
     }
@@ -43,6 +45,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertFalse(device.isRegistered)  // nothing to rename or remove
         XCTAssertNil(device.version)
         XCTAssertNil(device.lastSeenAt)
+        XCTAssertNil(device.updateBlocked)   // pre-EXP-411 server: no field
     }
 
     /// EXP-409: `agents` means RUNNABLE (installed AND signed in), so the

@@ -9,6 +9,9 @@
 //! themselves after an install (same pid, same argv — the new binary picks
 //! the work up from the start); the daemon checks on its own cadence and
 //! on the web "Update" button, restarting only while no session is live.
+//! The deferral is visible remotely (EXP-411): heartbeats carry the
+//! live-session count, so a parked request reads "Update queued" in the
+//! machine rows instead of spinning until the last session closes.
 
 use std::process::ExitCode;
 

@@ -1,0 +1,1 @@
+ALTER TABLE "devices" ADD COLUMN "active_sessions" integer DEFAULT 0 NOT NULL;

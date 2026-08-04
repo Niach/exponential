@@ -84,6 +84,9 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public let version: String?
     /// An Update request is pending; the daemon consumes it by re-registering.
     public let updateRequested: Bool?
+    /// EXP-411: the pending update is parked behind live coding sessions —
+    /// the daemon applies it once they close ("Update queued", no spinner).
+    public let updateBlocked: Bool?
 
     public var id: String { deviceId }
 
@@ -100,7 +103,8 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         lastSeenAt: String? = nil,
         registered: Bool? = nil,
         version: String? = nil,
-        updateRequested: Bool? = nil
+        updateRequested: Bool? = nil,
+        updateBlocked: Bool? = nil
     ) {
         self.deviceId = deviceId
         self.deviceLabel = deviceLabel
@@ -115,6 +119,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.registered = registered
         self.version = version
         self.updateRequested = updateRequested
+        self.updateBlocked = updateBlocked
     }
 
     /// Whether the machine is startable right now. Rows straight off the relay

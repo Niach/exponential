@@ -43,6 +43,10 @@ export type DeviceListEntry = {
   // An Update click is pending (set by requestUpdate, consumed when the
   // device re-registers after acting on it).
   updateRequested: boolean
+  // EXP-411: the pending request is parked behind live coding sessions on
+  // the machine — it applies once they close, and the rows say "Update
+  // queued" instead of spinning forever.
+  updateBlocked: boolean
 }
 
 export const devicesRouter = router({
@@ -88,7 +92,9 @@ export const devicesRouter = router({
             version: input.version ?? null,
             // Registering CONSUMES a pending Update click: the daemon
             // re-registers after acting on the request (whether or not a
-            // newer build actually existed).
+            // newer build actually existed). `active_sessions` stays
+            // heartbeat-owned — a doctor-driven re-register can fire while
+            // sessions are live, and zeroing it here would lie (EXP-411).
             updateRequestedAt: null,
             lastSeenAt: now,
             updatedAt: now,
@@ -101,14 +107,29 @@ export const devicesRouter = router({
   // while the daemon ran) — the caller should re-register.
   // `updateRequested` piggybacks the web "Update" button to the daemon: it
   // checks for a new release, updates + restarts when one exists, and its
-  // next register consumes the flag either way.
+  // next register consumes the flag either way. While sessions are live the
+  // daemon defers the update and reports the count back here
+  // (`activeSessions`, EXP-411) so `list` can say "queued" instead of
+  // letting the spinner run forever; pre-EXP-411 daemons omit the field and
+  // the stored count stays untouched.
   heartbeat: authedProcedure
-    .input(z.object({ deviceId: deviceIdInput }))
+    .input(
+      z.object({
+        deviceId: deviceIdInput,
+        activeSessions: z.number().int().min(0).max(1000).optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const now = new Date()
       const updated = await ctx.db
         .update(devices)
-        .set({ lastSeenAt: now, updatedAt: now })
+        .set({
+          lastSeenAt: now,
+          updatedAt: now,
+          ...(input.activeSessions === undefined
+            ? {}
+            : { activeSessions: input.activeSessions }),
+        })
         .where(
           and(
             eq(devices.userId, ctx.session.user.id),
@@ -209,6 +230,7 @@ export const devicesRouter = router({
         registered: true,
         version: row.version,
         updateRequested: Boolean(row.updateRequestedAt),
+        updateBlocked: Boolean(row.updateRequestedAt) && row.activeSessions > 0,
       }
     })
 
@@ -228,6 +250,7 @@ export const devicesRouter = router({
         registered: false,
         version: null,
         updateRequested: false,
+        updateBlocked: false,
       })
     }
 
