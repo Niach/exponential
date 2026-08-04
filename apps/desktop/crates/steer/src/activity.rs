@@ -1395,47 +1395,100 @@ enum Attention {
 #[derive(Default)]
 struct Subagents {
     /// Dispatched `tool_use_id`s awaiting a `SubagentStart` to bind to.
+    /// Bounded transitively: entries are card ids, and eviction purges them.
     unbound: VecDeque<String>,
-    /// `agent_id` → the id the card was published under.
+    /// `agent_id` → the id the card was published under. Every value points
+    /// at a live `meta` card (eviction purges dead aliases), so this stays
+    /// bounded at a few entries per card without its own cap.
     alias: HashMap<String, String>,
     /// Card id → what the card was published with. `SubagentStop` carries no
     /// `agent_type`, so the completion edge re-states these (EXP-350: clients
     /// that render the LAST marker were degrading the label to "agent").
     meta: HashMap<String, CardMeta>,
-    /// Card ids whose completion edge already published (EXP-360): a
-    /// background agent's end can be seen twice (task-notification + a late
-    /// hook stop, or repeat notifications when the agent is resumed) — the
-    /// card completes ONCE.
-    completed: HashSet<String>,
+    /// Card ids in publish order — the eviction queue (EXP-404: eviction
+    /// used to pick a RANDOM HashMap key, dropping live cards whose
+    /// completion could then never publish).
+    order: VecDeque<String>,
+    /// Completion edges the cap eviction owes the wire: a LIVE evictee's
+    /// Started is already published, and nothing else can ever complete it.
+    forced: Vec<(String, String, Option<String>)>,
 }
 
 /// What a subagent card was published with (already redacted/truncated).
 struct CardMeta {
     agent_type: String,
     detail: Option<String>,
+    /// The completion edge already published (EXP-360): a background agent's
+    /// end can be seen twice (task-notification + a late hook stop, or repeat
+    /// notifications when the agent is resumed) — the card completes ONCE.
+    completed: bool,
+    /// EXP-360 async-launched: its end arrives as a task-notification turns
+    /// after the launch, so the turn-end sweep must spare it (EXP-404).
+    background: bool,
 }
 
 /// Live subagent cap — a wide fan-out must not grow these maps without bound.
-const SUBAGENTS_CAP: usize = 32;
+/// Beyond it the oldest finished card is dropped first, and an evicted LIVE
+/// card is force-completed on the wire, never silently orphaned (EXP-404: a
+/// dynamic-workflow fan-out of 60+ agents left every evicted card's tab
+/// spinning forever on all clients).
+const SUBAGENTS_CAP: usize = 128;
 
 impl Subagents {
     fn dispatch(&mut self, tool_use_id: String, agent_type: String, detail: Option<String>) {
         self.remember(tool_use_id.clone(), agent_type, detail);
         self.unbound.push_back(tool_use_id);
-        while self.unbound.len() > SUBAGENTS_CAP {
-            self.unbound.pop_front();
-        }
     }
 
     /// Record a card's published metadata (dispatch, or an unbound start).
     fn remember(&mut self, card_id: String, agent_type: String, detail: Option<String>) {
-        self.meta.insert(card_id, CardMeta { agent_type, detail });
-        while self.meta.len() > SUBAGENTS_CAP {
-            let Some(stale) = self.meta.keys().next().cloned() else {
-                break;
-            };
-            self.meta.remove(&stale);
+        if let Some(meta) = self.meta.get_mut(&card_id) {
+            meta.agent_type = agent_type;
+            meta.detail = detail;
+        } else {
+            self.order.push_back(card_id.clone());
+            self.meta.insert(
+                card_id,
+                CardMeta {
+                    agent_type,
+                    detail,
+                    completed: false,
+                    background: false,
+                },
+            );
         }
+        self.enforce_cap();
+    }
+
+    /// EXP-404: evict beyond the cap — oldest FINISHED card first; only when
+    /// every card is still live does the oldest live one go, and its owed
+    /// completion edge is queued (`forced`) before the bookkeeping drops.
+    /// Random (HashMap-order) eviction used to drop live cards, whose
+    /// Started frame then dangled on every client forever.
+    fn enforce_cap(&mut self) {
+        while self.meta.len() > SUBAGENTS_CAP {
+            let evictee = self
+                .order
+                .iter()
+                .find(|id| self.meta.get(*id).is_some_and(|m| m.completed))
+                .cloned()
+                .or_else(|| self.order.front().cloned());
+            let Some(evictee) = evictee else { break };
+            if let Some(meta) = self.meta.remove(&evictee) {
+                if !meta.completed {
+                    self.forced
+                        .push((evictee.clone(), meta.agent_type, meta.detail));
+                }
+            }
+            self.order.retain(|id| id != &evictee);
+            self.alias.retain(|_, card| card != &evictee);
+            self.unbound.retain(|id| id != &evictee);
+        }
+    }
+
+    /// Drain the completion edges the cap eviction owes the wire (EXP-404).
+    fn take_forced_completions(&mut self) -> Vec<(String, String, Option<String>)> {
+        std::mem::take(&mut self.forced)
     }
 
     /// Bind a starting agent to an unbound dispatch — preferring one whose
@@ -1476,12 +1529,6 @@ impl Subagents {
             }
         }
         self.alias.insert(agent_id.to_string(), dispatched.clone());
-        while self.alias.len() > SUBAGENTS_CAP {
-            let Some(stale) = self.alias.keys().next().cloned() else {
-                break;
-            };
-            self.alias.remove(&stale);
-        }
         Some(dispatched)
     }
 
@@ -1547,12 +1594,6 @@ impl Subagents {
             self.remember(card_id.clone(), agent_type.clone(), detail.clone());
         }
         self.alias.insert(agent_id.to_string(), card_id.clone());
-        while self.alias.len() > SUBAGENTS_CAP {
-            let Some(stale) = self.alias.keys().next().cloned() else {
-                break;
-            };
-            self.alias.remove(&stale);
-        }
         (!known).then_some((card_id, agent_type, detail))
     }
 
@@ -1568,18 +1609,16 @@ impl Subagents {
     /// keep implying "a card was published" (the sidechain meta cards and
     /// binds hookless dispatches on its own).
     fn bind_launch(&mut self, agent_id: &str, tool_use_id: &str) {
-        if !self.meta.contains_key(tool_use_id) {
+        let Some(meta) = self.meta.get_mut(tool_use_id) else {
             return;
-        }
+        };
+        // Its end arrives as a task-notification turns later (SubagentStop
+        // never fires for background agents) — the turn-end sweep must
+        // spare it (EXP-404).
+        meta.background = true;
         self.unbound.retain(|id| id != tool_use_id);
         self.alias
             .insert(agent_id.to_string(), tool_use_id.to_string());
-        while self.alias.len() > SUBAGENTS_CAP {
-            let Some(stale) = self.alias.keys().next().cloned() else {
-                break;
-            };
-            self.alias.remove(&stale);
-        }
     }
 
     /// EXP-360: resolve an end signal — a `SubagentStop` hook, a
@@ -1603,22 +1642,40 @@ impl Subagents {
                 .filter(|id| self.meta.contains_key(*id))
                 .map(str::to_string)
         })?;
-        if !self.completed.insert(card_id.clone()) {
+        // An evicted card resolves to nothing — its forced completion edge
+        // already went out with the eviction (EXP-404).
+        let meta = self.meta.get_mut(&card_id)?;
+        if meta.completed {
             return None;
         }
-        while self.completed.len() > SUBAGENTS_CAP * 2 {
-            let Some(stale) = self.completed.iter().next().cloned() else {
-                break;
-            };
-            self.completed.remove(&stale);
-        }
-        let meta = self.card_meta(&card_id);
+        meta.completed = true;
         Some((
             card_id.clone(),
-            meta.map(|m| m.agent_type.clone())
-                .unwrap_or_else(|| SUBAGENT_TYPE_FALLBACK.to_string()),
-            meta.and_then(|m| m.detail.clone()),
+            meta.agent_type.clone(),
+            meta.detail.clone(),
         ))
+    }
+
+    /// EXP-404: complete every still-open card — the turn/session-end safety
+    /// net for stop signals that never arrive (a dynamic workflow's agents
+    /// fire SubagentStart, but their stops can be lost wholesale). A turn-end
+    /// sweep spares background agents: their end legitimately arrives turns
+    /// later as a task-notification (EXP-360). The mis-fire mode is benign by
+    /// design — an agent swept early shows "completed" a moment before it
+    /// truly is, instead of spinning forever.
+    fn sweep_open(&mut self, include_background: bool) -> Vec<(String, String, Option<String>)> {
+        let mut swept = Vec::new();
+        for id in &self.order {
+            let Some(meta) = self.meta.get_mut(id) else {
+                continue;
+            };
+            if meta.completed || (!include_background && meta.background) {
+                continue;
+            }
+            meta.completed = true;
+            swept.push((id.clone(), meta.agent_type.clone(), meta.detail.clone()));
+        }
+        swept
     }
 }
 
@@ -1647,6 +1704,21 @@ struct SteerState {
     /// grid-picker flag on it instead of waiting for the next grid tick
     /// (which never comes while the viewport is scrolled).
     resolution_seen: bool,
+    /// EXP-404: a Stop/SessionEnd hook landed since the last
+    /// [`Self::take_subagent_sweep`] — the emitter completes every still-open
+    /// subagent card AFTER the transcript drain (deferred so a same-tick
+    /// launch ack still marks its card background first).
+    subagent_sweep: Option<SubagentSweep>,
+}
+
+/// How wide a deferred subagent sweep reaches (EXP-404).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SubagentSweep {
+    /// The turn is over — foreground/workflow agents cannot still be
+    /// running; background agents (EXP-360) are spared.
+    TurnEnd,
+    /// The session is over — no signal can ever complete a card again.
+    SessionEnd,
 }
 
 /// One question about to go on the wire.
@@ -1672,6 +1744,11 @@ impl SteerState {
     /// consuming read (`false` until the next resolution).
     fn take_resolution(&mut self) -> bool {
         std::mem::take(&mut self.resolution_seen)
+    }
+
+    /// EXP-404: the sweep a Stop/SessionEnd hook armed — a consuming read.
+    fn take_subagent_sweep(&mut self) -> Option<SubagentSweep> {
+        self.subagent_sweep.take()
     }
 
     /// EXP-355: evidence a turn is in flight — claude cannot be parked on the
@@ -1822,6 +1899,7 @@ impl SteerState {
                     detail,
                     at: None,
                 });
+                flush_forced_subagent_completions(&mut self.subagents, sender);
             }
             HookEventKind::SubagentStarted {
                 agent_id,
@@ -1860,6 +1938,7 @@ impl SteerState {
                     detail: None,
                     at: None,
                 });
+                flush_forced_subagent_completions(&mut self.subagents, sender);
             }
             HookEventKind::SubagentStopped {
                 agent_id,
@@ -1923,7 +2002,18 @@ impl SteerState {
             // A normally-answered ask is already gone here, so this is a
             // silent safety net; the transcript's enriched resolution (with
             // the collected answers) still follows when it does land.
-            HookEventKind::Stop | HookEventKind::SessionEnd { .. } => {
+            kind @ (HookEventKind::Stop | HookEventKind::SessionEnd { .. }) => {
+                // EXP-404: arm the deferred sweep that completes still-open
+                // subagent cards (the emitter runs it after this tick's
+                // transcript drain). A SessionEnd never downgrades to a
+                // TurnEnd sweep when both land in one drain.
+                let sweep = match kind {
+                    HookEventKind::SessionEnd { .. } => SubagentSweep::SessionEnd,
+                    _ => SubagentSweep::TurnEnd,
+                };
+                if self.subagent_sweep != Some(SubagentSweep::SessionEnd) {
+                    self.subagent_sweep = Some(sweep);
+                }
                 self.attention = None;
                 // The turn is over ⇒ no picker can be on the grid, whatever
                 // the (possibly scroll-stuck) watcher last saw (EXP-347).
@@ -2341,6 +2431,23 @@ fn hook_options(question: &HookQuestion, redactor: &Redactor) -> Vec<QuestionOpt
 }
 
 /// The picker's REAL rows, with their real keys.
+/// EXP-404: publish the completion edges the subagent cap eviction owes —
+/// a live card dropped from the bookkeeping already has its Started on the
+/// wire, and nothing else can ever complete it. Called after every path
+/// that can card a new subagent (dispatch, unbound start, sidechain
+/// absorb), so the eviction and its owed edge publish in the same tick.
+fn flush_forced_subagent_completions(subagents: &mut Subagents, sender: &ActivitySender) {
+    for (id, agent_type, detail) in subagents.take_forced_completions() {
+        sender.send(ActivityEvent::Subagent {
+            id,
+            agent_type,
+            status: SubagentStatus::Completed,
+            detail,
+            at: None,
+        });
+    }
+}
+
 fn grid_options(snapshot: &QuestionSnapshot, redactor: &Redactor) -> Vec<QuestionOption> {
     snapshot
         .options
@@ -2748,6 +2855,27 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
 
+        // 4a-bis) EXP-404: a turn/session end sweeps every still-open
+        //     subagent card — the safety net for stop signals that never
+        //     arrive (a dynamic workflow's fan-out can lose them wholesale).
+        //     Runs after the transcript drain so a same-tick launch ack has
+        //     already marked its card background; a TurnEnd sweep spares
+        //     those (their end arrives as a task-notification turns later,
+        //     EXP-360), a SessionEnd sweep takes everything — nothing can
+        //     ever complete a card again.
+        if let Some(sweep) = steer.take_subagent_sweep() {
+            let include_background = sweep == SubagentSweep::SessionEnd;
+            for (id, agent_type, detail) in steer.subagents.sweep_open(include_background) {
+                sender.send(ActivityEvent::Subagent {
+                    id,
+                    agent_type,
+                    status: SubagentStatus::Completed,
+                    detail,
+                    at: None,
+                });
+            }
+        }
+
         // 4b) EXP-347: a resolution learned this tick — from the hooks (Stop /
         //     SessionEnd, step 0), the grid (plan Transition::Resolved, step
         //     1), or the transcript flush just tailed (a QuestionResolved or
@@ -2809,6 +2937,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                             at: None,
                         });
                     }
+                    flush_forced_subagent_completions(&mut steer.subagents, &sender);
                 }
             }
             for path in &sidechains {
@@ -4590,6 +4719,153 @@ mod tests {
         // implying "a card exists").
         subagents.bind_launch("agent_9", "toolu_unknown");
         assert!(!subagents.knows_agent("agent_9"));
+    }
+
+    #[test]
+    fn eviction_beyond_cap_force_completes_the_oldest_live_card() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        // A dynamic-workflow fan-out: three more dispatches than the cap.
+        for i in 0..SUBAGENTS_CAP + 3 {
+            steer.apply_hook(
+                hook(HookEventKind::SubagentDispatched {
+                    tool_use_id: Some(format!("toolu_{i}")),
+                    description: Some(format!("task {i}")),
+                    subagent_type: Some("workflow-subagent".to_string()),
+                }),
+                &sender,
+                &redactor,
+                &mut transcript,
+            );
+        }
+        let events = drained(&rx);
+        let completed: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ActivityEvent::Subagent {
+                    id,
+                    agent_type,
+                    status: SubagentStatus::Completed,
+                    detail,
+                    ..
+                } => Some((id.clone(), agent_type.clone(), detail.clone())),
+                _ => None,
+            })
+            .collect();
+        // Exactly the three oldest live cards were evicted, oldest first, and
+        // each got its owed completion edge restating type and detail — a
+        // silently dropped card left its tab spinning forever on every client.
+        assert_eq!(
+            completed,
+            (0..3)
+                .map(|i| {
+                    (
+                        format!("toolu_{i}"),
+                        "workflow-subagent".to_string(),
+                        Some(format!("task {i}")),
+                    )
+                })
+                .collect::<Vec<_>>()
+        );
+        // The forced edge publishes after its card's Started, never before.
+        let pos = |want_status: SubagentStatus| {
+            events.iter().position(|e| {
+                matches!(e, ActivityEvent::Subagent { id, status, .. }
+                    if id == "toolu_0" && *status == want_status)
+            })
+        };
+        assert!(pos(SubagentStatus::Started) < pos(SubagentStatus::Completed));
+        // A late end signal for an evicted card stays silent — its edge is
+        // already on the wire.
+        assert!(steer.subagents.complete(None, Some("toolu_0")).is_none());
+    }
+
+    #[test]
+    fn eviction_prefers_completed_cards_over_live_ones() {
+        let mut subagents = Subagents::default();
+        for i in 0..SUBAGENTS_CAP {
+            subagents.dispatch(format!("toolu_{i}"), "explore".to_string(), None);
+        }
+        // Bind the two oldest, finish the first, then overflow by one.
+        subagents.started("agent_0", Some("explore"));
+        subagents.started("agent_1", Some("explore"));
+        assert!(subagents.complete(Some("agent_0"), None).is_some());
+        subagents.dispatch("toolu_new".to_string(), "explore".to_string(), None);
+        // The finished card was reclaimed — no live card owes a forced edge —
+        // and its alias died with it.
+        assert!(subagents.take_forced_completions().is_empty());
+        assert!(!subagents.knows_agent("agent_0"));
+        // Surviving cards keep their alias and complete normally.
+        let (id, ..) = subagents
+            .complete(Some("agent_1"), None)
+            .expect("a live card's alias survives the eviction");
+        assert_eq!(id, "toolu_1");
+        let (id, ..) = subagents
+            .complete(None, Some("toolu_new"))
+            .expect("the overflowing card is carded");
+        assert_eq!(id, "toolu_new");
+    }
+
+    #[test]
+    fn a_turn_end_sweep_completes_orphans_but_spares_background_agents() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        // (a) The workflow path: an unbound typed start whose stop never
+        // arrives.
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStarted {
+                agent_id: Some("agent_wf".to_string()),
+                agent_type: Some("workflow-subagent".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        // (b) A dispatched card whose launch ack marks it background
+        // (EXP-360) — its end arrives turns later as a task-notification.
+        steer.apply_hook(
+            hook(HookEventKind::SubagentDispatched {
+                tool_use_id: Some("toolu_bg".to_string()),
+                description: None,
+                subagent_type: Some("Explore".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.subagents.bind_launch("agent_bg", "toolu_bg");
+        let _ = drained(&rx);
+        // The turn ends: the hook arms the sweep, the emitter drives it
+        // after the transcript drain.
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        let sweep = steer.take_subagent_sweep().expect("stop arms a sweep");
+        assert!(sweep == SubagentSweep::TurnEnd);
+        let swept = steer.subagents.sweep_open(sweep == SubagentSweep::SessionEnd);
+        // Only the orphan completes; the background card keeps spinning.
+        match &swept[..] {
+            [(id, agent_type, None)] => {
+                assert_eq!(id, "agent_wf");
+                assert_eq!(agent_type, "workflow-subagent");
+            }
+            other => panic!("expected just the orphan, got {other:?}"),
+        }
+        // The armed sweep was consumed, and a repeat sweep owes nothing.
+        assert!(steer.take_subagent_sweep().is_none());
+        assert!(steer.subagents.sweep_open(false).is_empty());
+        // A SessionEnd sweep takes the background card too…
+        match &steer.subagents.sweep_open(true)[..] {
+            [(id, agent_type, None)] => {
+                assert_eq!(id, "toolu_bg");
+                assert_eq!(agent_type, "Explore");
+            }
+            other => panic!("expected the background card, got {other:?}"),
+        }
+        // …after which its late task-notification stays silent.
+        assert!(steer.subagents.complete(Some("agent_bg"), None).is_none());
     }
 
     #[test]
