@@ -2099,6 +2099,10 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.pi_path = "git".to_string(); // runnable stub
+        // EXP-409: the pi auth gate checks credential presence (auth.json or
+        // a provider env key) — CI runners have neither, so satisfy the real
+        // probe the way a real pi setup would.
+        std::env::set_var("ANTHROPIC_API_KEY", "test-pi-credential");
         let mut req = action_request();
         req.options = LaunchOptions {
             agent: CodingAgent::Pi,
@@ -3129,6 +3133,10 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.pi_path = "git".to_string(); // runnable stub
+        // EXP-409: the pi auth gate checks credential presence (auth.json or
+        // a provider env key) — CI runners have neither, so satisfy the real
+        // probe the way a real pi setup would.
+        std::env::set_var("ANTHROPIC_API_KEY", "test-pi-credential");
         let mut req = request("EXP-42");
         req.options = LaunchOptions {
             agent: CodingAgent::Pi,
@@ -3200,6 +3208,10 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.pi_path = "git".to_string(); // runnable stub
+        // EXP-409: the pi auth gate checks credential presence (auth.json or
+        // a provider env key) — CI runners have neither, so satisfy the real
+        // probe the way a real pi setup would.
+        std::env::set_var("ANTHROPIC_API_KEY", "test-pi-credential");
         let mut req = request("EXP-42");
         req.options.agent = CodingAgent::Pi;
 
