@@ -255,71 +255,6 @@ fun IssueListScreen(
                 )
             }
 
-            // In-flow start feedback + selection bar, pinned above the list
-            // in the space the removed tab-preset row used to occupy
-            // (EXP-251 — sticky at the top, no longer a floating bottom
-            // overlay).
-            val startNoticeVisible =
-                startState is SteerStartState.Sent || startState is SteerStartState.Failed
-            if (startNoticeVisible || noDesktopHint || selectionActive) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    when (val sent = startState) {
-                        is SteerStartState.Sent -> NoticeChip(
-                            text = (if (sent.isBatch) "Batch start sent to " else "Start sent to ") +
-                                sent.deviceLabel.ifEmpty { "your desktop" } +
-                                ". Watch it in Agents.",
-                            isError = false,
-                            onClick = null,
-                        )
-                        is SteerStartState.Failed -> NoticeChip(
-                            text = sent.message,
-                            isError = true,
-                            onClick = viewModel::dismissStartState,
-                        )
-                        else -> {}
-                    }
-                    if (noDesktopHint) {
-                        NoticeChip(
-                            text = "No desktop online. Open the Exponential desktop app to run here.",
-                            isError = true,
-                            onClick = { noDesktopHint = false },
-                        )
-                    }
-                    if (selectionActive) {
-                        SelectionBar(
-                            count = selectedIds.size,
-                            sharedStatus = sharedStatus,
-                            sharedPriority = sharedPriority,
-                            // Assignee is meaningless in a solo team (one member).
-                            showAssignee = soloMemberId == null,
-                            // Only repo-backed boards can code, and only while the
-                            // relay isn't known-off.
-                            showStartCoding = state.board?.repositoryId != null && steerEnabled != false,
-                            devicesLoading = steerDevices == null,
-                            onClear = { selectedIds = emptySet() },
-                            onStatus = { bulkSheet = BulkSheet.Status },
-                            onPriority = { bulkSheet = BulkSheet.Priority },
-                            onAssignee = { bulkSheet = BulkSheet.Assignee },
-                            onLabels = { bulkSheet = BulkSheet.Labels },
-                            onStartCoding = {
-                                val online = steerDevices
-                                when {
-                                    online == null -> {} // presence still resolving
-                                    online.isEmpty() -> noDesktopHint = true
-                                    else -> showStartSheet = true
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-
             SyncBannerRow(syncBanner, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
             if (mode == IssueListMode.Root && boardId.isNullOrBlank()) {
@@ -410,6 +345,71 @@ fun IssueListScreen(
                         if (state.board?.repositoryId != null) viewModel.ensureSteerLoaded()
                     },
                 )
+            }
+        }
+
+        // Floating selection bar + transient start feedback, above the app's
+        // bottom bar zone (EXP-405 — back to the bottom overlay so entering
+        // multi-select never reflows the list; mirrors GatedServersBanner).
+        val startNoticeVisible =
+            startState is SteerStartState.Sent || startState is SteerStartState.Failed
+        if (startNoticeVisible || noDesktopHint || selectionActive) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = BottomBarInset),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                when (val sent = startState) {
+                    is SteerStartState.Sent -> NoticeChip(
+                        text = (if (sent.isBatch) "Batch start sent to " else "Start sent to ") +
+                            sent.deviceLabel.ifEmpty { "your desktop" } +
+                            ". Watch it in Agents.",
+                        isError = false,
+                        onClick = null,
+                    )
+                    is SteerStartState.Failed -> NoticeChip(
+                        text = sent.message,
+                        isError = true,
+                        onClick = viewModel::dismissStartState,
+                    )
+                    else -> {}
+                }
+                if (noDesktopHint) {
+                    NoticeChip(
+                        text = "No desktop online. Open the Exponential desktop app to run here.",
+                        isError = true,
+                        onClick = { noDesktopHint = false },
+                    )
+                }
+                if (selectionActive) {
+                    SelectionBar(
+                        count = selectedIds.size,
+                        sharedStatus = sharedStatus,
+                        sharedPriority = sharedPriority,
+                        // Assignee is meaningless in a solo team (one member).
+                        showAssignee = soloMemberId == null,
+                        // Only repo-backed boards can code, and only while the
+                        // relay isn't known-off.
+                        showStartCoding = state.board?.repositoryId != null && steerEnabled != false,
+                        devicesLoading = steerDevices == null,
+                        onClear = { selectedIds = emptySet() },
+                        onStatus = { bulkSheet = BulkSheet.Status },
+                        onPriority = { bulkSheet = BulkSheet.Priority },
+                        onAssignee = { bulkSheet = BulkSheet.Assignee },
+                        onLabels = { bulkSheet = BulkSheet.Labels },
+                        onStartCoding = {
+                            val online = steerDevices
+                            when {
+                                online == null -> {} // presence still resolving
+                                online.isEmpty() -> noDesktopHint = true
+                                else -> showStartSheet = true
+                            }
+                        },
+                    )
+                }
             }
         }
 

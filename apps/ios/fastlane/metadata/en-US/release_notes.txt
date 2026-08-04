@@ -1,4 +1,4 @@
-- The Agents tab now shows only the selected team's coding sessions, matching the web app
-- Switching boards now refreshes the app immediately, including when the board lives on another server
-- Actions with icon inputs use the same curated icon picker as boards
-- Signed-out duplicate server entries are cleaned up automatically
+- Staying signed in is fixed: the app no longer loses your session when it restarts
+- The multi-select bar now floats above the bottom menu instead of pushing the list down
+- The welcome screen signs you in with Apple or Google directly, no extra step
+- Sharing into the app while signed out no longer shows two Cancel buttons

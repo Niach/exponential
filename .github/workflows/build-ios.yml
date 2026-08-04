@@ -1,15 +1,25 @@
 name: build-ios
 
-# App Store upload for ios-v* tags. Exists because App Store review REJECTS
-# binaries built on a beta-macOS host (ITMS-90111 — build 76 carried the
-# current release Xcode 26.6 + iOS 26.5 SDK but a beta BuildMachineOSBuild,
-# and the local build Mac tracks the macOS beta). This runner is the
-# release-OS build environment. NB the "iOS X.Y SDK comes bundled with
-# Xcode X.Y" line in Apple's point-release notes is boilerplate — no 26.6
-# SDK is downloadable anywhere; 26.5 is current. Signing is cloud-managed
-# via the ASC API key (repo secrets ASC_KEY_ID / ASC_ISSUER_ID /
-# ASC_KEY_CONTENT); the fastlane lane uploads the build and metadata but
-# never submits for review — that tap stays manual in App Store Connect.
+# App Store build + upload for ios-v* tags. Exists because App Store review
+# REJECTS binaries built on a beta-macOS host (ITMS-90111 — the local build
+# Mac tracks the macOS beta), so the archive MUST be produced on a release-OS
+# runner.
+#
+# The archive is SIGNED here, entitlements and all. EXP-405 hard lesson: an
+# unsigned archive (CODE_SIGNING_ALLOWED=NO) has NO entitlements — they exist
+# only inside code signatures — so a later `-exportArchive` re-sign stamps the
+# bare profile minimum and ships an app without keychain-access-groups, app
+# groups, push, SIWA, or universal links. Build 77 shipped that way and logged
+# every user out on every restart. The entitlement gate below makes that
+# failure mode impossible to ship again.
+#
+# Signing uses the LOCAL Apple Development + Distribution certs imported from
+# the IOS_DIST_CERT_P12 secret — never Apple's cloud signer, whose
+# NFD-decomposed designated requirement (umlaut in the team name) fails
+# validation on nested frameworks (error 90035). Profiles are still
+# cloud-managed via the ASC API key (-allowProvisioningUpdates).
+# The pilot upload goes to TestFlight INTERNAL; the App Store "Submit for
+# Review" tap stays manual in App Store Connect.
 
 on:
   push:
@@ -62,31 +72,135 @@ jobs:
           tuist version
 
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
-      # (run inside the fastlane lane) fails without this.
+      # fails without this.
       - name: Resolve SPM dependencies
         run: tuist install
 
-      # UNSIGNED archive: cloud-managed signing on the runner keychain
-      # produces signatures altool rejects on the nested frameworks/appex
-      # (tried 2026-08-01, with and without setup_ci). The archive is signed
-      # and uploaded from a trusted Mac instead — xcodebuild -exportArchive
-      # re-signs everything and never touches the release-host
-      # BuildMachineOSBuild stamps this runner exists to provide.
-      - name: Archive (unsigned)
+      # Local signing identities (Apple Development for the archive, Apple
+      # Distribution for the export) in an unlocked temp keychain.
+      - name: Import signing certificates
+        env:
+          IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/ci.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          echo "$IOS_DIST_CERT_P12" | base64 -d > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" \
+            -P "$IOS_DIST_CERT_PASSWORD" -A -t cert -f pkcs12
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Write ASC API key
+        env:
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+        run: |
+          printf '%s' "$ASC_KEY_CONTENT" > "$RUNNER_TEMP/asc.p8"
+
+      - name: Archive (signed)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           tuist generate --no-open
           set -o pipefail
           xcodebuild -workspace Exponential.xcworkspace -scheme Exponential \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Exponential.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO clean archive | tail -40
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            clean archive | tail -40
 
-      - name: Zip the archive
-        run: ditto -c -k --keepParent "$RUNNER_TEMP/Exponential.xcarchive" "$RUNNER_TEMP/Exponential.xcarchive.zip"
+      - name: Export the App Store ipa
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          cat > "$RUNNER_TEMP/exportOptions.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>V6W7BVCSM8</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>destination</key><string>export</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Exponential.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/exportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          ls -la "$RUNNER_TEMP/export"
+
+      # The gate that makes EXP-405 unshippable: the signed ipa MUST carry the
+      # app's real entitlements. codesign requirements-checking on the final
+      # artifact — not on intermediate build state.
+      - name: Verify entitlements
+        run: |
+          cd "$RUNNER_TEMP"
+          rm -rf ipa-check && mkdir ipa-check && cd ipa-check
+          unzip -q ../export/Exponential.ipa
+          APP="$(ls -d Payload/*.app)"
+          fail=0
+          check() {
+            local target="$1"; shift
+            local ents
+            ents="$(codesign -d --entitlements :- "$target" 2>/dev/null)"
+            for key in "$@"; do
+              if ! grep -q "$key" <<<"$ents"; then
+                echo "::error::$target is missing entitlement $key"
+                fail=1
+              fi
+            done
+            echo "--- $target entitlements OK for: $*"
+          }
+          check "$APP" \
+            keychain-access-groups \
+            com.apple.security.application-groups \
+            aps-environment \
+            com.apple.developer.applesignin \
+            com.apple.developer.associated-domains
+          check "$APP"/PlugIns/*.appex \
+            keychain-access-groups \
+            com.apple.security.application-groups
+          # aps-environment must be production in an App Store build.
+          codesign -d --entitlements :- "$APP" 2>/dev/null | grep -A1 aps-environment | grep -q production \
+            || { echo "::error::aps-environment is not production"; fail=1; }
+          codesign --verify --deep --strict -v "$APP"
+          exit $fail
+
+      - name: Upload to TestFlight (internal)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          jq -n --arg key_id "$ASC_KEY_ID" --arg issuer_id "$ASC_ISSUER_ID" \
+            --rawfile key "$RUNNER_TEMP/asc.p8" \
+            '{key_id: $key_id, issuer_id: $issuer_id, key: $key, in_house: false}' \
+            > "$RUNNER_TEMP/asc_key.json"
+          fastlane pilot upload \
+            --ipa "$RUNNER_TEMP/export/Exponential.ipa" \
+            --api_key_path "$RUNNER_TEMP/asc_key.json" \
+            --skip_waiting_for_build_processing true \
+            --distribute_external false
 
       - name: Upload the archive artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xcarchive
-          path: ${{ runner.temp }}/Exponential.xcarchive.zip
+          path: ${{ runner.temp }}/Exponential.xcarchive
           retention-days: 3
