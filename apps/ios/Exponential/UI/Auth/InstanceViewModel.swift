@@ -6,13 +6,14 @@ import os
 
 private let logger = Logger(subsystem: "at.exponential", category: "InstanceViewModel")
 
-/// Backs the welcome / instance-picker screen. Cloud is the primary path
-/// (EXP-14): this fetches the CLOUD instance's auth-config so the screen can
-/// show "Continue with Google/Apple" directly — gated on which providers the
-/// cloud actually enables, never hardcoded — and owns the OAuth session for
-/// those buttons. Because the instance URL is only committed once the token
-/// comes back, `InstanceView` stays mounted (and this view model alive, so the
-/// web-auth session survives) for the whole cloud sign-in flow.
+/// Backs the welcome screen. Cloud is the primary path (EXP-14): the screen
+/// shows "Continue with Apple/Google" for the cloud IMMEDIATELY — availability
+/// is OPTIMISTIC until the cloud's auth-config probe lands and refines it
+/// (EXP-405: the old probe-gated rendering flashed a generic chooser on every
+/// fresh launch). This VM owns the OAuth session for those buttons. Because
+/// the instance URL is only committed once the token comes back,
+/// `InstanceView` stays mounted (and this view model alive, so the web-auth
+/// session survives) for the whole cloud sign-in flow.
 @MainActor @Observable
 final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextProviding {
     var cloudConfig: AuthConfig?
@@ -31,8 +32,12 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
         super.init()
     }
 
-    var googleAvailable: Bool { cloudConfig?.googleLoginEnabled == true }
-    var appleAvailable: Bool { cloudConfig?.appleLoginEnabled == true }
+    // Optimistic until probed: our cloud enables both providers, so nil
+    // config (first render, offline) means "show the buttons" — a tap-time
+    // failure surfaces through the normal OAuth error path. Only an explicit
+    // "disabled" from the probe hides a button.
+    var googleAvailable: Bool { cloudConfig?.googleLoginEnabled != false }
+    var appleAvailable: Bool { cloudConfig?.appleLoginEnabled ?? true }
     var hasDirectOAuth: Bool { googleAvailable || appleAvailable }
 
     // MARK: - Cloud auth config

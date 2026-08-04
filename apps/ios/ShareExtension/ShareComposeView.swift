@@ -76,28 +76,10 @@ struct ShareComposeView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("New Issue")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel", action: onCancel)
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        if submitting {
-                            ProgressView()
-                        } else {
-                            Button("Post", action: post)
-                                .disabled(!canPost)
-                        }
-                    }
-                }
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
+        // The guidance states render OUTSIDE the compose NavigationStack:
+        // ShareMessageView brings its own stack + Cancel, and nesting it under
+        // the compose chrome doubled the Cancel button and showed a disabled
+        // Post on a screen with nothing to post (EXP-405).
         // Any signed-in account can receive a share (the same rule the app's nav
         // gate uses); the ACTIVE account is routinely tokenless after a
         // per-server sign-out and says nothing about the others.
@@ -112,46 +94,68 @@ struct ShareComposeView: View {
                 onCancel: onCancel
             )
         } else {
-            Form {
-                // Destination first (EXP-60): choosing where the share lands
-                // leads the form, matching the Android share composer.
-                Section("Share to") {
-                    Picker("Board", selection: $selectedBoardKey) {
-                        ForEach(boards) { board in
-                            Text("\(board.teamName) / \(board.boardName)")
-                                .tag(Optional(board.id))
+            NavigationStack {
+                content
+                    .navigationTitle("New Issue")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel", action: onCancel)
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            if submitting {
+                                ProgressView()
+                            } else {
+                                Button("Post", action: post)
+                                    .disabled(!canPost)
+                            }
                         }
                     }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        Form {
+            // Destination first (EXP-60): choosing where the share lands
+            // leads the form, matching the Android share composer.
+            Section("Share to") {
+                Picker("Board", selection: $selectedBoardKey) {
+                    ForEach(boards) { board in
+                        Text("\(board.teamName) / \(board.boardName)")
+                            .tag(Optional(board.id))
+                    }
                 }
-                Section("Title") {
-                    TextField("Issue title", text: $title)
-                }
-                Section("Description") {
-                    TextField("Description", text: $descriptionText, axis: .vertical)
-                        .lineLimit(2...8)
-                }
-                if !payload.images.isEmpty {
-                    Section("Images") {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(Array(payload.images.enumerated()), id: \.offset) { _, image in
-                                    if let uiImage = UIImage(data: image.data) {
-                                        Image(uiImage: uiImage)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 64, height: 64)
-                                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    }
+            }
+            Section("Title") {
+                TextField("Issue title", text: $title)
+            }
+            Section("Description") {
+                TextField("Description", text: $descriptionText, axis: .vertical)
+                    .lineLimit(2...8)
+            }
+            if !payload.images.isEmpty {
+                Section("Images") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(payload.images.enumerated()), id: \.offset) { _, image in
+                                if let uiImage = UIImage(data: image.data) {
+                                    Image(uiImage: uiImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 64, height: 64)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
                                 }
                             }
-                            .padding(.vertical, 4)
                         }
+                        .padding(.vertical, 4)
                     }
                 }
-                if let error {
-                    Section {
-                        Text(error).foregroundStyle(.red).font(.footnote)
-                    }
+            }
+            if let error {
+                Section {
+                    Text(error).foregroundStyle(.red).font(.footnote)
                 }
             }
         }

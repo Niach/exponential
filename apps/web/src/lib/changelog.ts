@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-mobile-login-and-batch-bar`,
+    date: `2026-08-04`,
+    title: `Mobile stays signed in`,
+    summary: `The iOS app no longer loses your session on restart, the mobile multi-select bar floats above the bottom menu, and the welcome screen signs you in directly.`,
+    body: `- **Staying signed in**: the iOS app could lose its session on every restart. The cause is fixed and the release pipeline now verifies every build before upload.
+- **Floating multi-select**: selecting issues on iOS and Android no longer pushes the list down; the action bar floats above the bottom menu.
+- **Direct sign-in**: the mobile welcome screen shows Continue with Apple and Google immediately, with self-hosted servers one tap away.
+- **Share sheet polish**: sharing into the app while signed out no longer shows two Cancel buttons.`,
+  },
+  {
     id: `2026-08-exponential-cli-servers`,
     date: `2026-08-03`,
     title: `Run coding agents on your own servers`,

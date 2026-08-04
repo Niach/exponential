@@ -19,7 +19,7 @@ struct IssueListView: View {
     @State private var viewModel: IssueListViewModel?
     @State private var showFilterSheet = false
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
-    // and the selection bar (in-flow at the top of the list, EXP-251) acts on
+    // and the selection bar (floating above the tab bar, EXP-405) acts on
     // the whole selection. The steer state backing the bar's Start coding
     // action (relay enabled + online desktops) resolves lazily on entry,
     // mirroring AgentsView.
@@ -71,6 +71,21 @@ struct IssueListView: View {
                     issueListContent(vm)
                 }
             }
+        }
+        // Floating selection bar + transient start feedback, above the
+        // floating tab bar's zone (EXP-405 — back to the bottom overlay so
+        // entering multi-select never reflows the list).
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 8) {
+                if let notice = startNotice {
+                    noticeCapsule(notice)
+                }
+                if selectionActive, let vm = viewModel {
+                    selectionBar(vm)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, showsTabBarClearance ? 92 : 16)
         }
         // Haptic tick when multi-select engages (long-press confirmation).
         .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
@@ -144,20 +159,6 @@ struct IssueListView: View {
         VStack(spacing: 0) {
             if vm.permissionsPending {
                 syncingBanner
-            }
-
-            // In-flow start feedback + selection bar, pinned above the list
-            // in the space the removed filter tabs used to occupy (EXP-251 —
-            // sticky at the top, no longer a floating bottom overlay).
-            if let notice = startNotice {
-                noticeCapsule(notice)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-            }
-            if selectionActive {
-                selectionBar(vm)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
             }
 
             if !vm.filters.isEmpty {
@@ -733,7 +734,7 @@ struct IssueListView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .glassCard(cornerRadius: 24)
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     /// One 32pt property button in the selection bar (EXP-247).
@@ -914,7 +915,7 @@ struct IssueListView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .glassCard(cornerRadius: 14)
-            .transition(.move(edge: .top).combined(with: .opacity))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private func startCodingTapped() {

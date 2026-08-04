@@ -65,11 +65,13 @@ fun InstanceScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     val cloudConfig = state.cloudConfig
-    // The cloud's real provider set (never hardcoded). Direct OAuth buttons
-    // only render once the cloud auth-config has confirmed a provider is on.
-    val directGoogle = cloudConfig?.googleLoginEnabled == true
-    val directApple = cloudConfig?.appleLoginEnabled == true
-    val hasDirectOauth = directGoogle || directApple
+    // Optimistic until probed (EXP-405): our cloud enables both providers, so
+    // a missing config (first render, offline) means "show the buttons" — the
+    // old probe-gated rendering flashed a generic "Use Exponential Cloud"
+    // chooser on every fresh launch. Only an explicit "disabled" from the
+    // probe hides a button.
+    val directGoogle = cloudConfig?.googleLoginEnabled != false
+    val directApple = cloudConfig?.appleLoginEnabled != false
 
     // Set the instance to the cloud, then hand off to a Custom Tab preselecting
     // the provider (mobile-oauth-start honors ?provider=). onContinue also
@@ -97,52 +99,40 @@ fun InstanceScreen(
         Spacer(Modifier.height(24.dp))
 
         if (!cloudAlreadyAdded) {
-            if (hasDirectOauth) {
-                // Cloud is the primary path: sign in directly with the
-                // provider, no intermediate screen.
-                if (directApple) {
-                    OutlinedButton(
-                        onClick = { startCloudOAuth("apple") },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_apple),
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = LocalContentColor.current,
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text("Continue with Apple")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                if (directGoogle) {
-                    OutlinedButton(
-                        onClick = { startCloudOAuth("google") },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        // Official multi-color "G" — tint stays Unspecified so
-                        // the brand colors aren't overridden.
-                        Icon(
-                            painter = painterResource(R.drawable.ic_google),
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = Color.Unspecified,
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text("Continue with Google")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-            } else {
-                // Offline / cloud config not yet loaded (or password-only
-                // cloud): fall back to the generic cloud button, which routes
-                // to the full login screen and its own config fetch + retry.
-                Button(
-                    onClick = { onContinue(AppConstants.PUBLIC_CLOUD_URL) },
+            // Cloud is the primary path: sign in directly with the provider,
+            // no intermediate screen, rendered immediately (EXP-405 — the
+            // welcome screen IS the login; the generic chooser is gone).
+            if (directApple) {
+                OutlinedButton(
+                    onClick = { startCloudOAuth("apple") },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (AppConstants.IS_STAGING) "Use Staging Cloud" else "Use Exponential Cloud")
+                    Icon(
+                        painter = painterResource(R.drawable.ic_apple),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = LocalContentColor.current,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("Continue with Apple")
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            if (directGoogle) {
+                OutlinedButton(
+                    onClick = { startCloudOAuth("google") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    // Official multi-color "G" — tint stays Unspecified so
+                    // the brand colors aren't overridden.
+                    Icon(
+                        painter = painterResource(R.drawable.ic_google),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = Color.Unspecified,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("Continue with Google")
                 }
                 Spacer(Modifier.height(8.dp))
             }

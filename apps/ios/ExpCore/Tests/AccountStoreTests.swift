@@ -17,9 +17,28 @@ final class AccountStoreTests: XCTestCase {
     private final class FakeKeychain: KeychainStoring, @unchecked Sendable {
         private let lock = NSLock()
         private var storage: [String: String] = [:]
-        func get(_ key: String) -> String? { lock.withLock { storage[key] } }
-        func set(_ key: String, value: String?) { lock.withLock { storage[key] = value } }
+        // Failure knobs (EXP-405): a throwing read models a locked/entitlement-
+        // broken keychain; a failing write models errSecMissingEntitlement on
+        // SecItemAdd. A failed write must leave the stored value intact.
+        var readsFail = false
+        var writesFail = false
+        private(set) var writeCount = 0
+
+        func get(_ key: String) throws -> String? {
+            if readsFail { throw KeychainReadError(status: -34018) }
+            return lock.withLock { storage[key] }
+        }
+        @discardableResult
+        func set(_ key: String, value: String?) -> Bool {
+            lock.withLock {
+                writeCount += 1
+                if writesFail { return false }
+                storage[key] = value
+                return true
+            }
+        }
         func delete(_ key: String) { lock.withLock { storage[key] = nil } }
+        func raw(_ key: String) -> String? { lock.withLock { storage[key] } }
     }
 
     private let url = "https://exp.example.com"
@@ -193,5 +212,83 @@ final class AccountStoreTests: XCTestCase {
         XCTAssertEqual(store.accounts.count, 1)
         XCTAssertEqual(store.accounts.first?.id, widened)
         XCTAssertEqual(store.activeAccountId, widened)
+    }
+
+    // MARK: - Destructive-persistence regressions (EXP-405)
+
+    // An unreadable keychain means state is UNKNOWN: init must start degraded
+    // and must NOT overwrite the stored blob with an empty list. This is the
+    // exact mechanism that destroyed sessions when a build shipped without the
+    // keychain-access-groups entitlement.
+    func testFailedReadDoesNotOverwriteStoredAccounts() throws {
+        let fake = FakeKeychain()
+        let account = ServerAccount(
+            id: ServerAccount.makeId(instanceUrl: url, userId: "A"), instanceUrl: url,
+            token: "tok", userEmail: "a@x.com", userName: "A", userId: "A",
+            isAdmin: false, lastUsedAt: Date()
+        )
+        let blob = String(data: try JSONEncoder().encode([account]), encoding: .utf8)
+        fake.set(keyAccounts, value: blob)
+        fake.set(keyActiveAccountId, value: account.id)
+
+        fake.readsFail = true
+        let store = AccountStore(keychain: fake)
+        XCTAssertTrue(store.accounts.isEmpty, "degraded start: nothing readable")
+
+        fake.readsFail = false
+        XCTAssertEqual(fake.raw(keyAccounts), blob, "stored accounts must survive a failed read")
+        XCTAssertEqual(fake.raw(keyActiveAccountId), account.id)
+
+        // A later launch with a healthy keychain sees the original account.
+        let recovered = AccountStore(keychain: fake)
+        XCTAssertEqual(recovered.accounts.first?.token, "tok")
+    }
+
+    // A clean load with nothing to migrate must not rewrite the keychain at
+    // all — every write is exposure to write-path failures, and the share
+    // extension runs this init on every share-sheet invocation.
+    func testCleanInitPerformsNoWrites() throws {
+        let fake = FakeKeychain()
+        let account = ServerAccount(
+            id: ServerAccount.makeId(instanceUrl: url, userId: "A"), instanceUrl: url,
+            token: "tok", userEmail: "a@x.com", userName: "A", userId: "A",
+            isAdmin: false, lastUsedAt: Date()
+        )
+        fake.set(keyAccounts, value: String(data: try JSONEncoder().encode([account]), encoding: .utf8))
+        fake.set(keyActiveAccountId, value: account.id)
+        fake.set(keyMigrationV1, value: "true")
+        fake.set(keyMigrationV2, value: "true")
+
+        let before = fake.writeCount
+        let store = AccountStore(keychain: fake)
+        XCTAssertEqual(store.accounts.count, 1)
+        XCTAssertEqual(fake.writeCount, before, "no-op init must not touch the keychain")
+    }
+
+    // A corrupt (undecodable) blob is unreadable state, not empty state — init
+    // must leave it in place for a build that can parse it.
+    func testCorruptBlobIsNotOverwritten() {
+        let fake = FakeKeychain()
+        fake.set(keyAccounts, value: "{not json[")
+
+        let store = AccountStore(keychain: fake)
+        XCTAssertTrue(store.accounts.isEmpty)
+        XCTAssertEqual(fake.raw(keyAccounts), "{not json[", "corrupt blob must survive init")
+    }
+
+    // Failed writes must never lose the previously stored value (the real
+    // store is update-or-add, never delete-then-add).
+    func testFailedWriteKeepsPreviousValue() throws {
+        let fake = FakeKeychain()
+        let store = AccountStore(keychain: fake)
+        store.upsertAndActivate(instanceUrl: url)
+        resolve(store, userId: "A", token: "t1")
+        let blob = fake.raw(keyAccounts)
+        XCTAssertNotNil(blob)
+
+        fake.writesFail = true
+        resolve(store, userId: "A", token: "t2")
+        XCTAssertEqual(store.activeAccount?.token, "t2", "memory reflects the login")
+        XCTAssertEqual(fake.raw(keyAccounts), blob, "failed write must not destroy the stored blob")
     }
 }

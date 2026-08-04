@@ -23,12 +23,29 @@ public final class AccountStore: @unchecked Sendable {
 
     public init(keychain: any KeychainStoring) {
         self.store = keychain
-        self.cached = AccountStore.loadAccounts(from: keychain)
-        self.cachedActiveId = keychain.get(keyActiveAccountId)
-        AccountStore.migrateLegacyIfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
-        AccountStore.migratePerUserIdsIfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
-        AccountStore.migratePerUserIdsV2IfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
-        persist()
+        do {
+            let loadedAccounts = try AccountStore.loadAccounts(from: keychain)
+            let loadedActiveId = try keychain.get(keyActiveAccountId)
+            self.cached = loadedAccounts
+            self.cachedActiveId = loadedActiveId
+            AccountStore.migrateLegacyIfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
+            AccountStore.migratePerUserIdsIfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
+            AccountStore.migratePerUserIdsV2IfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
+            // Persist ONLY when the migrations/legacy promotion actually changed
+            // something — the old unconditional persist rewrote the blob on
+            // every process launch (app AND share extension), and after any
+            // failed read it overwrote the real accounts with "[]" (EXP-405).
+            if self.cached != loadedAccounts || self.cachedActiveId != loadedActiveId {
+                persist()
+            }
+        } catch {
+            // The keychain is unreadable (locked, entitlement broken) — state
+            // is UNKNOWN, not empty. Start degraded with no accounts in memory
+            // and touch nothing on disk; an explicit later login may persist,
+            // which is user-intended.
+            self.cached = []
+            self.cachedActiveId = nil
+        }
     }
 
     public var accounts: [ServerAccount] {
@@ -278,12 +295,16 @@ public final class AccountStore: @unchecked Sendable {
         store.set(keyActiveAccountId, value: cachedActiveId)
     }
 
-    private static func loadAccounts(from keychain: any KeychainStoring) -> [ServerAccount] {
+    private static func loadAccounts(from keychain: any KeychainStoring) throws -> [ServerAccount] {
+        guard let json = try keychain.get(keyAccounts) else { return [] }
         guard
-            let json = keychain.get(keyAccounts),
             let data = json.data(using: .utf8),
             let accounts = try? JSONDecoder().decode([ServerAccount].self, from: data)
-        else { return [] }
+        else {
+            // A blob exists but doesn't decode: treat as unreadable, not empty —
+            // overwriting it would destroy data a fixed build might still parse.
+            throw KeychainReadError(status: errSecDecode)
+        }
         return accounts
     }
 
@@ -294,16 +315,16 @@ public final class AccountStore: @unchecked Sendable {
     ) {
         // If we already have any accounts, skip migration.
         guard accounts.isEmpty else { return }
-        guard let legacyUrl = store.get(legacyKeyInstanceUrl) else { return }
+        guard let legacyUrl = try? store.get(legacyKeyInstanceUrl) else { return }
         let id = ServerAccount.makeId(for: legacyUrl)
         let account = ServerAccount(
             id: id,
             instanceUrl: legacyUrl,
-            token: store.get(legacyKeyToken),
-            userEmail: store.get(legacyKeyUserEmail),
-            userName: store.get(legacyKeyUserName),
-            userId: store.get(legacyKeyUserId),
-            isAdmin: store.get(legacyKeyIsAdmin) == "true",
+            token: (try? store.get(legacyKeyToken)) ?? nil,
+            userEmail: (try? store.get(legacyKeyUserEmail)) ?? nil,
+            userName: (try? store.get(legacyKeyUserName)) ?? nil,
+            userId: (try? store.get(legacyKeyUserId)) ?? nil,
+            isAdmin: (try? store.get(legacyKeyIsAdmin)) == "true",
             lastUsedAt: Date()
         )
         accounts = [account]
@@ -329,7 +350,7 @@ public final class AccountStore: @unchecked Sendable {
         accounts: inout [ServerAccount],
         activeId: inout String?
     ) {
-        guard store.get(keyPerUserMigrationDone) != "true" else { return }
+        guard (try? store.get(keyPerUserMigrationDone)) != "true" else { return }
         for idx in accounts.indices {
             let account = accounts[idx]
             // Only touch legacy URL-keyed records; per-user ids already differ.
@@ -363,7 +384,7 @@ public final class AccountStore: @unchecked Sendable {
         accounts: inout [ServerAccount],
         activeId: inout String?
     ) {
-        guard store.get(keyPerUserMigrationV2Done) != "true" else { return }
+        guard (try? store.get(keyPerUserMigrationV2Done)) != "true" else { return }
         for idx in accounts.indices {
             let account = accounts[idx]
             // Widened ids are 16 hex chars; only touch shorter (legacy) ids.

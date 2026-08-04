@@ -12,8 +12,12 @@ final class AuthRepositoryTests: XCTestCase {
     private final class FakeKeychain: KeychainStoring, @unchecked Sendable {
         private let lock = NSLock()
         private var storage: [String: String] = [:]
-        func get(_ key: String) -> String? { lock.withLock { storage[key] } }
-        func set(_ key: String, value: String?) { lock.withLock { storage[key] = value } }
+        func get(_ key: String) throws -> String? { lock.withLock { storage[key] } }
+        @discardableResult
+        func set(_ key: String, value: String?) -> Bool {
+            lock.withLock { storage[key] = value }
+            return true
+        }
         func delete(_ key: String) { lock.withLock { storage[key] = nil } }
     }
 
@@ -171,7 +175,7 @@ final class AuthRepositoryTests: XCTestCase {
         let oldId = ServerAccount.makeId(instanceUrl: cloud, userId: "old")
         auth.signOutLocally(accountId: oldId)
         var persistedAtReclaim: [String] = []
-        auth.reclaimLocalCache = { _ in persistedAtReclaim.append(keychain.get("accounts") ?? "") }
+        auth.reclaimLocalCache = { _ in persistedAtReclaim.append((try? keychain.get("accounts")) ?? "") }
 
         XCTAssertEqual(auth.pruneDuplicateSignedOutAccounts(), [oldId])
 
@@ -181,7 +185,7 @@ final class AuthRepositoryTests: XCTestCase {
             "the row is still on disk while its cache is reclaimed"
         )
         XCTAssertFalse(
-            keychain.get("accounts")?.contains(oldId) ?? true,
+            (try? keychain.get("accounts"))?.contains(oldId) ?? true,
             "and gone once the prune persists"
         )
     }

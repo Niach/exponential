@@ -96,9 +96,24 @@ struct InstanceView: View {
 
     @ViewBuilder
     private var cloudSection: some View {
-        if let vm = viewModel, vm.hasDirectOAuth {
-            // Sign in with the cloud provider directly — no intermediate screen.
-            // Apple leads (App Store guideline 4.8 / HIG prominence).
+        // The cloud login renders IMMEDIATELY (EXP-405): availability is
+        // optimistic until the config probe lands and refines it. The old
+        // probe-gated "Use Exponential Cloud" fallback flashed a chooser on
+        // every fresh launch — it is gone; the welcome screen IS the login.
+        // Apple leads (App Store guideline 4.8 / HIG prominence).
+        if AppConstants.isStaging {
+            // The deleted fallback button carried the "Use Staging Cloud"
+            // label — keep a small marker so testers can tell builds apart.
+            HStack(spacing: 6) {
+                AppIcon(AppIcons.uiStaging, size: AppIcon.Size.small)
+                    .foregroundStyle(.orange)
+                Text("Staging · \(URL(string: AppConstants.defaultCloudUrl)?.host ?? AppConstants.defaultCloudUrl)")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            .padding(.horizontal, 4)
+        }
+        if let vm = viewModel {
             if vm.appleAvailable {
                 oauthButton(label: "Continue with Apple", action: { vm.startCloudApple() }) {
                     // Apple's brand mark, not a registry glyph (see LoginView).
@@ -114,41 +129,6 @@ struct InstanceView: View {
                         .frame(width: 17, height: 17)
                 }
             }
-        } else {
-            // Offline / cloud config not yet loaded (or a password-only cloud):
-            // fall back to the generic cloud button, which routes to the full
-            // login screen and its own config fetch + retry.
-            Button {
-                deps.auth.setInstanceUrl(AppConstants.defaultCloudUrl)
-            } label: {
-                HStack(spacing: 8) {
-                    if AppConstants.isStaging {
-                        AppIcon(AppIcons.uiStaging, size: AppIcon.Size.medium)
-                            .foregroundStyle(.orange)
-                        Text("Use Staging Cloud")
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.white)
-                    } else {
-                        AppIcon(AppIcons.uiCloud, size: AppIcon.Size.medium)
-                            .foregroundStyle(.white)
-                        Text("Use Exponential Cloud")
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.white)
-                    }
-                    Spacer()
-                    AppIcon(AppIcons.uiArrowRight, size: AppIcon.Size.small, weight: .semibold)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .padding(.horizontal, 14)
-            }
-            .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-            )
         }
 
         if !showSelfHost {

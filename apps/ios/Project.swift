@@ -97,8 +97,12 @@ let shareExtensionResources: ResourceFileElements = [
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.13.45"
-let appBuildVersion = "77"
+let appMarketingVersion = "0.14.0"
+let appBuildVersion = "80"
+// Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
+// their own store namespaces, so an equal number silently uploads and then
+// masquerades as prod's build in ASC. Derived, so one bump covers all targets.
+let stagingBuildVersion = String(Int(appBuildVersion)! + 1)
 
 let shareExtensionInfoPlist: [String: Plist.Value] = [
     // Must match the parent app's version (CFBundleVersion mismatch trips
@@ -217,6 +221,7 @@ let project = Project(
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: sharedInfoPlist.merging([
                 "CFBundleDisplayName": "Exp Staging",
+                "CFBundleVersion": .string(stagingBuildVersion),
             ]) { _, new in new }),
             sources: sharedSources,
             resources: stagingResources,
@@ -264,6 +269,7 @@ let project = Project(
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: shareExtensionInfoPlist.merging([
                 "CFBundleDisplayName": "Exp Staging",
+                "CFBundleVersion": .string(stagingBuildVersion),
             ]) { _, new in new }),
             sources: shareExtensionSources,
             resources: shareExtensionResources,

@@ -1,0 +1,1 @@
+The multi-select bar now floats above the bottom menu, and the welcome screen signs you in directly.
