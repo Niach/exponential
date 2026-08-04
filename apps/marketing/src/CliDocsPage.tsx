@@ -29,6 +29,7 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the remote-start daemon in this terminal.` },
   { name: `exponential daemon install | uninstall | status`, desc: `Manage the systemd user unit (Linux) or launchd agent (macOS).` },
   { name: `exponential update`, desc: `Self-update from the latest CLI release.` },
+  { name: `exponential uninstall [--yes]`, desc: `Remove the daemon service and delete the binary. Signed-in accounts are kept — the data dir is shared with the desktop app.` },
   { name: `exponential version`, desc: `Print the CLI version.` },
 ]
 

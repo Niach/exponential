@@ -69,6 +69,7 @@ Commands:
   daemon [--foreground] [--label <name>]  Run the remote-start daemon
   daemon install|uninstall|status         Manage the systemd/launchd service
   update                                  Self-update from the latest cli release
+  uninstall [--yes]                       Remove the daemon service and delete this binary
   version                                 Print the CLI version
 
 Options for code/run:
@@ -133,6 +134,7 @@ fn main() -> ExitCode {
         "run" => commands::run::run(rest),
         "daemon" => commands::daemon::run(rest),
         "update" => commands::update::run(rest),
+        "uninstall" => commands::uninstall::run(rest),
         "version" | "--version" | "-V" => {
             println!("exponential {}", cli_version());
             Ok(ExitCode::SUCCESS)

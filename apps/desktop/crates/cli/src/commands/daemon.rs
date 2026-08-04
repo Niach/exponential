@@ -804,6 +804,13 @@ fn install(args: &[String]) -> CommandResult {
 
 fn uninstall(args: &[String]) -> CommandResult {
     reject_unknown_flags(args)?;
+    remove_service()?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Stop and remove the launchd agent / systemd user unit. Shared with the
+/// top-level `uninstall`, which removes the service before the binary.
+pub fn remove_service() -> anyhow::Result<()> {
     if cfg!(target_os = "macos") {
         let plist = dirs::home_dir()
             .context("resolve home")?
@@ -832,7 +839,7 @@ fn uninstall(args: &[String]) -> CommandResult {
             println!("No systemd unit installed.");
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
 fn status(args: &[String]) -> CommandResult {

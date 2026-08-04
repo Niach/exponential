@@ -4,6 +4,7 @@ pub mod daemon;
 pub mod doctor;
 pub mod login;
 pub mod run;
+pub mod uninstall;
 pub mod update;
 
 use std::process::ExitCode;
