@@ -80,8 +80,8 @@ impl ReferenceDecorator for WysiwygReferenceDecorator {
 }
 
 /// Refresh the snapshot from the synced store (team-scoped). Cheap: two
-/// collection scans over already-synced rows (status resolution is a
-/// per-issue read against the team's cached status rows).
+/// collection scans over already-synced rows, plus ONE status scan the whole
+/// issue loop resolves against.
 pub(crate) fn refresh_ref_state(state: &SharedRefState, team_id: &str, cx: &App) {
     let collections = Store::global(cx).collections();
 
@@ -97,13 +97,20 @@ pub(crate) fn refresh_ref_state(state: &SharedRefState, team_id: &str, cx: &App)
         *slot = emails;
     }
 
+    // The team's status rows, scanned and sorted ONCE. `resolve_issue_status`
+    // re-derived them per issue (a full `issue_statuses` scan + clone + sort
+    // for every row), which made this refresh O(issues × statuses) on the UI
+    // thread. `issues_in_team` only yields issues whose board is synced INTO
+    // this team, so resolving them all against this team's rows is exactly
+    // what the per-issue call did.
+    let statuses = crate::queries::team_statuses(cx, team_id);
     let issues: HashMap<String, IssueChipSnapshot> = collections
         .issues_in_team(team_id, cx)
         .iter()
         .map(|issue| {
             // EXP-423: resolve status → glyph + tint once per refresh, so
             // the Send+Sync decorator never touches the store.
-            let status = crate::queries::resolve_issue_status(cx, issue);
+            let status = domain::statuses::resolve_status_sorted(issue, &statuses);
             (
                 issue.identifier.to_uppercase(),
                 IssueChipSnapshot {

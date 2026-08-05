@@ -79,6 +79,9 @@ pub struct WysiwygDescription {
     shared: Arc<SharedImageState>,
     /// Member/issue snapshot behind the reference-pill decorator.
     refs: Arc<SharedRefState>,
+    /// EXP-423: a coalesced `sync_refs` is already queued for the end of this
+    /// effect cycle, so further collection notifications skip scheduling.
+    refs_refresh_scheduled: bool,
     completion_source: Option<Rc<dyn CompletionSource>>,
     completion: Option<ActiveCompletion>,
     /// Images staged in create-dialog mode (`draft://` URLs; resolved at
@@ -293,26 +296,16 @@ impl WysiwygDescription {
             subscriptions.push(cx.observe(&attachments, |this, _, cx| {
                 this.sync_images(cx);
             }));
-            subscriptions.push(cx.observe(&issues, |this, _, cx| {
-                this.sync_refs(cx);
-                cx.notify();
-            }));
-            subscriptions.push(cx.observe(&issue_statuses, |this, _, cx| {
-                this.sync_refs(cx);
-                cx.notify();
-            }));
-            subscriptions.push(cx.observe(&boards, |this, _, cx| {
-                this.sync_refs(cx);
-                cx.notify();
-            }));
-            subscriptions.push(cx.observe(&team_members, |this, _, cx| {
-                this.sync_refs(cx);
-                cx.notify();
-            }));
-            subscriptions.push(cx.observe(&users, |this, _, cx| {
-                this.sync_refs(cx);
-                cx.notify();
-            }));
+            // All five feed the SAME snapshot and one sync tick commonly
+            // touches several, so they only mark it stale — the scan itself
+            // runs once per effect cycle (`schedule_ref_refresh`).
+            subscriptions.push(cx.observe(&issues, |this, _, cx| this.schedule_ref_refresh(cx)));
+            subscriptions
+                .push(cx.observe(&issue_statuses, |this, _, cx| this.schedule_ref_refresh(cx)));
+            subscriptions.push(cx.observe(&boards, |this, _, cx| this.schedule_ref_refresh(cx)));
+            subscriptions
+                .push(cx.observe(&team_members, |this, _, cx| this.schedule_ref_refresh(cx)));
+            subscriptions.push(cx.observe(&users, |this, _, cx| this.schedule_ref_refresh(cx)));
         }
 
         // Presentation-only theme refresh on light/dark switches.
@@ -338,6 +331,7 @@ impl WysiwygDescription {
             link_input: None,
             clean_revision,
             refs,
+            refs_refresh_scheduled: false,
             completion_source,
             completion: None,
             probed_sizes: HashMap::new(),
@@ -488,6 +482,27 @@ impl WysiwygDescription {
         if let Some(team_id) = self.team_id.clone() {
             refresh_ref_state(&self.refs, &team_id, cx);
         }
+    }
+
+    /// EXP-423: queue ONE `sync_refs` for the end of the current effect
+    /// cycle. The five collections behind the chip snapshot each notify
+    /// separately, and a single Electric tick routinely touches more than
+    /// one — refreshing per notification re-ran the whole team scan several
+    /// times over for one tick's worth of change.
+    fn schedule_ref_refresh(&mut self, cx: &mut Context<Self>) {
+        if self.refs_refresh_scheduled {
+            return;
+        }
+        self.refs_refresh_scheduled = true;
+        let this = cx.weak_entity();
+        cx.defer(move |cx| {
+            this.update(cx, |this, cx| {
+                this.refs_refresh_scheduled = false;
+                this.sync_refs(cx);
+                cx.notify();
+            })
+            .ok();
+        });
     }
 
     fn spawn_upload(&mut self, staged: StagedImage, window: &mut Window, cx: &mut Context<Self>) {
