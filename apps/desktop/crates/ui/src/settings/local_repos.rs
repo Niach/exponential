@@ -1103,7 +1103,7 @@ fn remove_local_copy(clone: &Path) -> Result<(), String> {
 /// A local, network-free `git -C <cwd>` command (no token, no credential
 /// prompt) — the maintenance ops here never touch a remote.
 fn base_git(cwd: &Path) -> Command {
-    let mut command = Command::new("git");
+    let mut command = terminal::process::background_command("git");
     command.arg("-C").arg(cwd);
     command.env("GIT_TERMINAL_PROMPT", "0");
     command

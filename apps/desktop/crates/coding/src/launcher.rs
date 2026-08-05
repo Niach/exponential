@@ -89,7 +89,7 @@ pub fn default_device_label() -> String {
             }
         }
     }
-    if let Ok(output) = std::process::Command::new("hostname").output() {
+    if let Ok(output) = terminal::process::background_command("hostname").output() {
         let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !name.is_empty() {
             return name;

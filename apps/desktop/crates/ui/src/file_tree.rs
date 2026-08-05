@@ -873,7 +873,7 @@ fn read_status(root: &Path) -> HashMap<String, char> {
 /// --directory` (ignored dirs collapse to one `dir/` entry). argv git only
 /// (DNR L5). Empty on any failure — nothing gets dimmed.
 fn list_ignored(root: &Path) -> Vec<String> {
-    let output = Command::new("git")
+    let output = terminal::process::background_command("git")
         .args([
             "ls-files",
             "-o",

@@ -30,6 +30,7 @@ pub mod keys;
 pub mod manager;
 #[cfg(feature = "gpui")]
 pub mod mouse;
+pub mod process;
 pub mod pty;
 pub mod read_loop;
 pub mod session;
@@ -45,6 +46,7 @@ pub use emulator::{
 pub use keys::to_esc_str;
 #[cfg(feature = "gpui")]
 pub use manager::{TerminalManager, TerminalManagerEvent};
+pub use process::{background_command, refresh_windows_path};
 pub use pty::{
     build_command, login_path, open, prewarm_login_path, ChildExit, ExitSlot, Pty, SpawnSpec,
 };

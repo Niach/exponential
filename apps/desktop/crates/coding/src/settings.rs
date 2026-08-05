@@ -378,17 +378,34 @@ pub fn resolve_program(
         return raw.to_string();
     }
     if let Some(home) = home {
-        for segments in candidates {
-            let mut candidate = home.clone();
-            for segment in *segments {
-                candidate.push(segment);
-            }
+        for candidate in candidate_paths(&home, candidates, cfg!(windows)) {
             if candidate.is_file() {
                 return candidate.to_string_lossy().into_owned();
             }
         }
     }
     raw.to_string()
+}
+
+/// The concrete probe paths for the home-relative candidate segment lists.
+/// On Windows the native installers ship `<name>.exe` (EXP-419 — the
+/// extensionless probe always missed there), so each candidate is probed
+/// with `.exe` appended first, then bare.
+fn candidate_paths(home: &Path, candidates: &[&[&str]], windows: bool) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for segments in candidates {
+        let mut candidate = home.to_path_buf();
+        for segment in *segments {
+            candidate.push(segment);
+        }
+        if windows {
+            let mut exe = candidate.clone().into_os_string();
+            exe.push(".exe");
+            paths.push(PathBuf::from(exe));
+        }
+        paths.push(candidate);
+    }
+    paths
 }
 
 /// `~` / `~/…` → `home`-rooted path; anything else passes through. (Only the
@@ -471,6 +488,24 @@ mod tests {
         assert_eq!(
             resolve_claude_program("/opt/homebrew/bin/claude", Some(dir.0.clone())),
             "/opt/homebrew/bin/claude"
+        );
+    }
+
+    #[test]
+    fn windows_candidates_probe_exe_first() {
+        let home = Path::new("/home/x");
+        let candidates: &[&[&str]] = &[&[".local", "bin", "claude"]];
+        let unix = candidate_paths(home, candidates, false);
+        assert_eq!(unix, vec![home.join(".local/bin/claude")]);
+        // EXP-419: the native Windows installer ships claude.exe — it must be
+        // probed (before the bare name, which can't execute there anyway).
+        let windows = candidate_paths(home, candidates, true);
+        assert_eq!(
+            windows,
+            vec![
+                PathBuf::from(format!("{}.exe", home.join(".local/bin/claude").display())),
+                home.join(".local/bin/claude"),
+            ]
         );
     }
 

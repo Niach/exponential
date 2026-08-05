@@ -18,7 +18,9 @@ use portable_pty::{
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
+#[cfg(not(windows))]
+use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -224,17 +226,29 @@ pub fn build_command(spec: &SpawnSpec) -> CommandBuilder {
     cmd
 }
 
-/// The user's REAL interactive PATH, resolved once and cached for the process
-/// lifetime (§6.12). Reused for the `claude`, run-config, and shell spawns.
+/// The user's REAL interactive PATH (§6.12). Reused for the `claude`,
+/// run-config, and shell spawns.
 ///
-/// Resolution shells out (`$SHELL -lic`, `npm config get prefix`) and is
-/// therefore **bounded** ([`run_captured`]) — a pathological rc file must
-/// never wedge the `OnceLock` and with it every future spawn. Call
+/// Unix: resolved once and cached for the process lifetime — resolution
+/// shells out (`$SHELL -lic`, `npm config get prefix`) and is therefore
+/// **bounded** ([`run_captured`]); a pathological rc file must never wedge
+/// the `OnceLock` and with it every future spawn. Call
 /// [`prewarm_login_path`] at app init so the one-time cost lands on a
 /// background thread instead of the first spawn on the gpui foreground.
-pub fn login_path() -> &'static str {
+///
+/// Windows: read LIVE from the process env on every call (there is no
+/// login-shell split to probe, and caching would defeat EXP-419's
+/// [`crate::process::refresh_windows_path`] — a doctor re-check must see a
+/// just-installed tool without an app restart).
+#[cfg(not(windows))]
+pub fn login_path() -> String {
     static PATH: OnceLock<String> = OnceLock::new();
-    PATH.get_or_init(resolve_login_path)
+    PATH.get_or_init(resolve_login_path).clone()
+}
+
+#[cfg(windows)]
+pub fn login_path() -> String {
+    resolve_login_path()
 }
 
 /// Kick the one-time [`login_path`] resolution on a background thread (called

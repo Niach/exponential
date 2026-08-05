@@ -56,7 +56,6 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -287,7 +286,7 @@ pub fn secrets_from_worktree(worktree: &Path) -> Vec<String> {
 /// clone's file; the output is relative for a non-linked checkout (`.git`)
 /// and absolute for a linked worktree — both are handled.
 fn credential_file_token(worktree: &Path) -> Option<String> {
-    let output = Command::new("git")
+    let output = terminal::process::background_command("git")
         .arg("-C")
         .arg(worktree)
         .args(["rev-parse", "--git-common-dir"])
@@ -318,7 +317,7 @@ fn credential_file_token(worktree: &Path) -> Option<String> {
 /// (`https://x-access-token:<token>@github.com/<full>.git`) — the pre-EXP-73
 /// scheme; only a not-yet-healed clone still matches.
 fn git_remote_token(worktree: &Path) -> Option<String> {
-    let output = Command::new("git")
+    let output = terminal::process::background_command("git")
         .arg("-C")
         .arg(worktree)
         .args(["remote", "get-url", "origin"])
@@ -1239,7 +1238,7 @@ pub(crate) fn worktree_diff(worktree: &Path) -> String {
 }
 
 fn git_diff(worktree: &Path, cached: bool) -> String {
-    let mut cmd = Command::new("git");
+    let mut cmd = terminal::process::background_command("git");
     cmd.arg("-C").arg(worktree).arg("diff");
     if cached {
         cmd.arg("--cached");
@@ -3079,6 +3078,7 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     #[test]
     fn redactor_masks_exact_launcher_secrets() {

@@ -25,7 +25,6 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// The token-embedded remote URL. Construct once per launch from the freshly
 /// minted installation token; `Display`/`Debug` NEVER show the token.
@@ -572,7 +571,8 @@ pub(crate) fn run_git(
     url: Option<&TokenUrl>,
     op: &str,
 ) -> Result<String, GitError> {
-    let mut command = Command::new("git");
+    // EXP-419: hidden on Windows — a visible conhost would flash per git op.
+    let mut command = terminal::process::background_command("git");
     command.args(args);
     command.env("GIT_TERMINAL_PROMPT", "0");
     // C-locale messages: error-text classification (and stable test
@@ -613,6 +613,7 @@ pub(crate) fn run_git(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     use std::fs;
 
     // ---- pure composition ----

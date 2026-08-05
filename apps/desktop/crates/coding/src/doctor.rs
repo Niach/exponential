@@ -42,7 +42,7 @@
 use crate::agent::CodingAgent;
 use crate::settings::Settings;
 use std::fmt;
-use std::process::Command;
+use terminal::process::background_command;
 
 /// The minimum supported Claude Code version: `--permission-mode auto`
 /// (EXP-201's default posture) is verified on 2.1.215; `--effort ultracode`
@@ -238,6 +238,10 @@ impl AgentAdvertisement {
 /// [`MIN_CLAUDE_VERSION`], every agent sign-in-gated (EXP-409) — and plain
 /// `git` from PATH.
 pub fn run_doctor(settings: &Settings) -> DoctorReport {
+    // EXP-419: a Windows installer edits the registry PATH, which a running
+    // process never sees — re-read it so "Check tools" (and every later
+    // spawn) finds a just-installed git/agent without an app restart.
+    terminal::process::refresh_windows_path();
     let claude_program = settings.resolved_path_for(CodingAgent::Claude);
     let codex_program = settings.resolved_path_for(CodingAgent::Codex);
     let pi_program = settings.resolved_path_for(CodingAgent::Pi);
@@ -259,6 +263,7 @@ pub fn run_doctor(settings: &Settings) -> DoctorReport {
 /// The check for ONE agent (launch step 0 re-checks only the selected agent
 /// + git via [`run_doctor`]'s full report; presence probes use the full one).
 pub fn check_agent(settings: &Settings, agent: CodingAgent) -> ToolCheck {
+    terminal::process::refresh_windows_path();
     let program = settings.resolved_path_for(agent);
     let mut check = check_tool(Tool::for_agent(agent), &program);
     if agent == CodingAgent::Claude {
@@ -293,7 +298,7 @@ fn apply_version_gate(check: &mut ToolCheck) {
 /// the agent is provably signed out. Runs AFTER the version gate (an old
 /// claude may predate `auth status`); skips already-failed checks and git.
 fn apply_auth_gate(check: &mut ToolCheck, program: &str) {
-    apply_auth_gate_with_path(check, program, terminal::pty::login_path())
+    apply_auth_gate_with_path(check, program, &terminal::pty::login_path())
 }
 
 /// [`apply_auth_gate`] with the PATH injected — split out so tests can probe
@@ -319,7 +324,7 @@ fn apply_auth_gate_with_path(check: &mut ToolCheck, program: &str, path_env: &st
 /// 2.1.220; [`MIN_CLAUDE_VERSION`] builds carry it). Any spawn failure or
 /// unrecognisable output fails open to `None`.
 fn probe_claude_auth(program: &str, path_env: &str) -> Option<bool> {
-    let output = Command::new(program)
+    let output = background_command(program)
         .env("PATH", path_env)
         .args(["auth", "status"])
         .output()
@@ -338,7 +343,7 @@ pub fn parse_claude_auth_status(stdout: &str) -> Option<bool> {
 /// `codex login status`: exit 0 = logged in; a "not logged in" answer = signed
 /// out; anything else (no such subcommand on an old build) fails open.
 fn probe_codex_auth(program: &str, path_env: &str) -> Option<bool> {
-    let output = Command::new(program)
+    let output = background_command(program)
         .env("PATH", path_env)
         .args(["login", "status"])
         .output()
@@ -435,13 +440,13 @@ pub fn parse_claude_version(line: &str) -> Option<(u32, u32, u32)> {
 /// `program` against the augmented login PATH (§6.12), matching the PTY
 /// spawn environment the agent will actually run in.
 pub fn check_tool(tool: Tool, program: &str) -> ToolCheck {
-    check_tool_with_path(tool, program, terminal::pty::login_path())
+    check_tool_with_path(tool, program, &terminal::pty::login_path())
 }
 
 /// [`check_tool`] with the PATH injected — split out so tests can probe a
 /// stub-only directory deterministically.
 fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck {
-    match Command::new(program)
+    match background_command(program)
         .env("PATH", path_env)
         .arg("--version")
         .output()
@@ -913,7 +918,7 @@ mod tests {
             let program = program.to_string_lossy();
             for _ in 0..20 {
                 let mut check = check_tool(tool, &program);
-                apply_auth_gate_with_path(&mut check, &program, terminal::pty::login_path());
+                apply_auth_gate_with_path(&mut check, &program, &terminal::pty::login_path());
                 let busy = check
                     .error
                     .as_deref()
