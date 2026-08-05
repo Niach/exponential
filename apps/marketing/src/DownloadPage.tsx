@@ -2,7 +2,7 @@ import { motion } from "motion/react"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { PLATFORMS } from "./components/DownloadSection"
 import { LINKS } from "./lib/links"
-import { IcArrow, IcGithub } from "./components/icons"
+import { IcArrow, IcGithub, IcShield } from "./components/icons"
 import {
   cardReveal,
   heroChild,
@@ -70,6 +70,15 @@ export function DownloadPage() {
               <span>
                 Checksums and every past version live on{` `}
                 <a href={LINKS.github.releases}>GitHub Releases</a>.
+              </span>
+            </p>
+
+            <p className="dl-releases" style={{ marginTop: `0.5rem` }}>
+              <IcShield size={14} />
+              <span>
+                Free code signing on Windows provided by{` `}
+                <a href={LINKS.signpath.io}>SignPath.io</a>, certificate by{` `}
+                <a href={LINKS.signpath.foundation}>SignPath Foundation</a>.
               </span>
             </p>
           </div>
