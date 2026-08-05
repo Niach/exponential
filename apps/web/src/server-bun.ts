@@ -45,6 +45,7 @@ import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
 import { captureLanding } from "@/lib/conversion/capture"
+import { MAX_REQUEST_BODY_BYTES } from "@/lib/request-body-limit"
 
 // Fire-and-forget: seed the bootstrap feedback team and promote initial admins.
 // Idempotent; errors are logged inside bootstrapCloud(). Calling from
@@ -251,12 +252,6 @@ if (hasWebSocket && ws) {
   }
 }
 
-// Hard cap on request bodies, enforced by Bun BEFORE any handler buffers the
-// stream — the per-route Content-Length checks are only fast-path rejects and
-// are trivially bypassed by chunked transfer encoding. 16MB covers the
-// largest legitimate request (widget submit allows ~12MB, issue image uploads
-// similar) while shutting the door on Bun's ~128MB default.
-const MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
 
 serve({
   port,
