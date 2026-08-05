@@ -1049,12 +1049,98 @@ pub fn munge_claude_project_dir(path: &Path) -> String {
         .collect()
 }
 
+/// EXP-429: the ownership pin for cwd-keyed transcript discovery. The
+/// project dir is shared by EVERY claude running in the same cwd — an action
+/// run on the trunk clone and a plain "+" agent-shell tab both write into
+/// `~/.claude/projects/<munged cwd>/`, and picking the newest file there let
+/// the foreign tab's transcript hijack this session's steer feed. Real
+/// coding sessions run with the hooks sidecar (EXP-249), whose every payload
+/// carries claude's own session id — exactly the transcript's file stem
+/// (`<id>.jsonl`; nested sidechains under `<id>/subagents/**`) — while the
+/// plain tab gets no settings file and can never enter the pin. An empty pin
+/// (no sidecar, an old claude, the window before the first hook lands) keeps
+/// the legacy newest-file behavior as the degraded fallback.
+#[derive(Default)]
+struct TranscriptPin {
+    /// Claude session ids seen on this emitter's hook stream. Grows on
+    /// /clear (the new session's hooks route back here by cwd) — never
+    /// capped or truncated: entries must compare byte-equal to file stems,
+    /// and a full set would silently kill the feed after a /clear.
+    sessions: HashSet<String>,
+    /// Subagent ids from SubagentStart/Stop — the owners of the flat legacy
+    /// `agent-<id>.jsonl` layout (claude ≤2.1.21x), whose path carries no
+    /// session id to match against.
+    agents: HashSet<String>,
+}
+
+impl TranscriptPin {
+    /// Absorb the identity a hook delivery carries. The `transcript_path`
+    /// stem is a supplementary session-id source, so the pin survives a
+    /// claude build that drops `session_id` from the payload.
+    fn observe(&mut self, event: &HookEvent) {
+        if let Some(id) = &event.context.session_id {
+            self.sessions.insert(id.clone());
+        }
+        if let Some(path) = &event.context.transcript_path {
+            if let Some(stem) = Path::new(path).file_stem().and_then(|s| s.to_str()) {
+                if !stem.is_empty() && !stem.starts_with("agent-") {
+                    self.sessions.insert(stem.to_string());
+                }
+            }
+        }
+        if let HookEventKind::SubagentStarted {
+            agent_id: Some(id), ..
+        }
+        | HookEventKind::SubagentStopped {
+            agent_id: Some(id), ..
+        } = &event.kind
+        {
+            self.agents.insert(id.clone());
+        }
+    }
+
+    /// Whether discovery is pinned at all — false until the first hook lands.
+    fn pinned(&self) -> bool {
+        !self.sessions.is_empty()
+    }
+
+    /// A main transcript is ours iff its stem is a pinned session id.
+    fn owns_main(&self, path: &Path) -> bool {
+        if !self.pinned() {
+            return true;
+        }
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|stem| self.sessions.contains(stem))
+    }
+
+    /// A sidechain is ours iff it nests under a pinned session's dir
+    /// (`<dir>/<session-id>/subagents/**`, claude ≥2.1.220) or its flat
+    /// `agent-<id>` id was announced by a SubagentStart/Stop hook.
+    fn owns_sidechain(&self, dir: &Path, path: &Path) -> bool {
+        if !self.pinned() {
+            return true;
+        }
+        let nested_owner = path
+            .strip_prefix(dir)
+            .ok()
+            .and_then(|rel| rel.components().next())
+            .and_then(|first| first.as_os_str().to_str());
+        if nested_owner.is_some_and(|owner| self.sessions.contains(owner)) {
+            return true;
+        }
+        sidechain_agent_id(path).is_some_and(|id| self.agents.contains(&id))
+    }
+}
+
 /// The newest non-sidechain session transcript in `dir` modified at/after
 /// `after` (the spawn time — so a previous session's stale transcript in a
-/// reused worktree is never picked). Sub-agent files (`agent-*.jsonl`) are
-/// excluded so tailing never flip-flops between the main session and a
-/// sidechain; [`sidechain_transcripts`] streams those separately.
-fn newest_transcript(dir: &Path, after: SystemTime) -> Option<PathBuf> {
+/// reused worktree is never picked) and owned by `pin` (EXP-429 — so a
+/// concurrent foreign claude in the same cwd never supersedes ours).
+/// Sub-agent files (`agent-*.jsonl`) are excluded so tailing never
+/// flip-flops between the main session and a sidechain;
+/// [`sidechain_transcripts`] streams those separately.
+fn newest_transcript(dir: &Path, after: SystemTime, pin: &TranscriptPin) -> Option<PathBuf> {
     let mut best: Option<(SystemTime, PathBuf)> = None;
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
         let path = entry.path();
@@ -1063,6 +1149,9 @@ fn newest_transcript(dir: &Path, after: SystemTime) -> Option<PathBuf> {
         }
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if name.starts_with("agent-") {
+            continue;
+        }
+        if !pin.owns_main(&path) {
             continue;
         }
         let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else {
@@ -1082,8 +1171,11 @@ fn newest_transcript(dir: &Path, after: SystemTime) -> Option<PathBuf> {
 /// (EXP-249), newest first, capped at [`SIDECHAIN_TAIL_MAX`]. claude wrote
 /// these flat as `agent-<id>.jsonl` through v2.1.21x and nests them under
 /// `<session>/subagents/**` since v2.1.220 — both layouts are walked, with a
-/// hard visit budget so a huge tree can never stall the poll loop.
-fn sidechain_transcripts(dir: &Path, after: SystemTime) -> Vec<PathBuf> {
+/// hard visit budget so a huge tree can never stall the poll loop. Files a
+/// pinned emitter does not own are dropped (EXP-429) — at the FILE level, not
+/// by pruning the BFS: a foreign session's tree still costs walk budget, but
+/// a future layout under a non-session dir can never silently vanish.
+fn sidechain_transcripts(dir: &Path, after: SystemTime, pin: &TranscriptPin) -> Vec<PathBuf> {
     let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();
     let mut queue: VecDeque<PathBuf> = VecDeque::from([dir.to_path_buf()]);
     let mut visited = 0usize;
@@ -1104,6 +1196,9 @@ fn sidechain_transcripts(dir: &Path, after: SystemTime) -> Vec<PathBuf> {
             }
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if !name.starts_with("agent-") || !name.ends_with(".jsonl") {
+                continue;
+            }
+            if !pin.owns_sidechain(dir, &path) {
                 continue;
             }
             let Ok(modified) = meta.modified() else {
@@ -1708,6 +1803,9 @@ struct SteerState {
     /// subagent card AFTER the transcript drain (deferred so a same-tick
     /// launch ack still marks its card background first).
     subagent_sweep: Option<SubagentSweep>,
+    /// EXP-429: the transcript-discovery ownership pin, fed from every hook
+    /// delivery (see [`TranscriptPin`]).
+    pin: TranscriptPin,
 }
 
 /// How wide a deferred subagent sweep reaches (EXP-404).
@@ -1799,6 +1897,9 @@ impl SteerState {
         redactor: &Redactor,
         transcript: &mut TranscriptState,
     ) {
+        // EXP-429: every delivery carries session identity — pin transcript
+        // discovery to it before the kind is consumed.
+        self.pin.observe(&event);
         // Tool dispatches and subagent lifecycle edges disprove "parked on
         // the input box" (EXP-355).
         if matches!(
@@ -2790,21 +2891,33 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
         // 3) Resolve / re-resolve the transcript file (a newer session file in
         //    the same dir supersedes; reset the read offset when it changes).
+        //    Discovery is pinned to the session ids the hooks announced
+        //    (EXP-429) — the project dir is cwd-keyed, so without the pin a
+        //    plain "+" agent-shell tab sharing the trunk cwd would hijack the
+        //    feed of a completed run.
         if let Some(dir) = &transcript_dir {
-            if let Some(newest) = newest_transcript(dir, spawn_time) {
+            if let Some(newest) = newest_transcript(dir, spawn_time, &steer.pin) {
                 if current.as_deref() != Some(newest.as_path()) {
                     current = Some(newest);
                     offset = 0;
                 }
                 transcript_deadline = None;
-            } else if let Some(deadline) = transcript_deadline {
-                if Instant::now() >= deadline {
-                    log::info!(
-                        "activity: no transcript in {} within {}s — diffs only",
-                        dir.display(),
-                        TRANSCRIPT_WAIT.as_secs()
-                    );
-                    transcript_deadline = None;
+            } else {
+                // EXP-429: a pinned emitter never keeps tailing an unpinned
+                // file — a foreign transcript grabbed in the pre-first-hook
+                // window self-heals here.
+                if steer.pin.pinned() && current.take().is_some() {
+                    offset = 0;
+                }
+                if let Some(deadline) = transcript_deadline {
+                    if Instant::now() >= deadline {
+                        log::info!(
+                            "activity: no transcript in {} within {}s — diffs only",
+                            dir.display(),
+                            TRANSCRIPT_WAIT.as_secs()
+                        );
+                        transcript_deadline = None;
+                    }
                 }
             }
         }
@@ -2899,7 +3012,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         if let Some(dir) = &transcript_dir {
             if sidechain_scan_at.is_none_or(|at| at.elapsed() >= SIDECHAIN_SCAN_INTERVAL) {
                 sidechain_scan_at = Some(Instant::now());
-                sidechains = sidechain_transcripts(dir, spawn_time);
+                sidechains = sidechain_transcripts(dir, spawn_time, &steer.pin);
                 sidechain_offsets.retain(|path, _| sidechains.contains(path));
                 // EXP-356: absorb each sidechain's `.meta.json` identity once
                 // — deterministic agent→card correlation and the real
@@ -5931,7 +6044,8 @@ mod tests {
         std::fs::write(nested.join("agent-nested.jsonl"), "{}\n").unwrap();
 
         let after = SystemTime::now() - Duration::from_secs(60);
-        let found = sidechain_transcripts(&dir, after);
+        // An empty pin (no sidecar / old claude) keeps the legacy behavior.
+        let found = sidechain_transcripts(&dir, after, &TranscriptPin::default());
         let names: HashSet<String> = found
             .iter()
             .filter_map(|path| sidechain_agent_id(path))
@@ -5941,10 +6055,166 @@ mod tests {
             HashSet::from(["flat".to_string(), "nested".to_string()])
         );
         assert_eq!(
-            newest_transcript(&dir, after),
+            newest_transcript(&dir, after, &TranscriptPin::default()),
             Some(dir.join("sess-1.jsonl"))
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ── EXP-429: the transcript ownership pin ──────────────────────────────
+
+    fn pin_of(sessions: &[&str], agents: &[&str]) -> TranscriptPin {
+        TranscriptPin {
+            sessions: sessions.iter().map(|s| s.to_string()).collect(),
+            agents: agents.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn pinned_newest_transcript_ignores_foreign_sessions() {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-pin-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let now = SystemTime::now();
+        // The foreign session's transcript is strictly newer (mtimes set
+        // explicitly — same-second writes would tie on `modified >= best`).
+        std::fs::write(dir.join("ours.jsonl"), "{}\n").unwrap();
+        std::fs::File::options()
+            .append(true)
+            .open(dir.join("ours.jsonl"))
+            .unwrap()
+            .set_modified(now - Duration::from_secs(30))
+            .unwrap();
+        std::fs::write(dir.join("foreign.jsonl"), "{}\n").unwrap();
+        std::fs::File::options()
+            .append(true)
+            .open(dir.join("foreign.jsonl"))
+            .unwrap()
+            .set_modified(now)
+            .unwrap();
+
+        let after = now - Duration::from_secs(60);
+        // Unpinned = legacy behavior: the newest file wins (this is the very
+        // hijack the pin exists to prevent — the degraded fallback).
+        assert_eq!(
+            newest_transcript(&dir, after, &TranscriptPin::default()),
+            Some(dir.join("foreign.jsonl"))
+        );
+        // Pinned: ours wins despite being older.
+        assert_eq!(
+            newest_transcript(&dir, after, &pin_of(&["ours"], &[])),
+            Some(dir.join("ours.jsonl"))
+        );
+        // The /clear shape — both ids are ours — still supersedes to the
+        // newest pinned file.
+        assert_eq!(
+            newest_transcript(&dir, after, &pin_of(&["ours", "foreign"], &[])),
+            Some(dir.join("foreign.jsonl"))
+        );
+        // A pin that matches nothing yields nothing (never the foreign file).
+        assert_eq!(newest_transcript(&dir, after, &pin_of(&["gone"], &[])), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn pinned_sidechain_discovery_filters_foreign_agents() {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-pin-side-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let ours_nested = dir.join("ours-sess").join("subagents");
+        let foreign_nested = dir.join("foreign-sess").join("subagents");
+        std::fs::create_dir_all(&ours_nested).unwrap();
+        std::fs::create_dir_all(&foreign_nested).unwrap();
+        std::fs::write(dir.join("agent-mine.jsonl"), "{}\n").unwrap();
+        std::fs::write(dir.join("agent-theirs.jsonl"), "{}\n").unwrap();
+        std::fs::write(ours_nested.join("agent-nested.jsonl"), "{}\n").unwrap();
+        std::fs::write(foreign_nested.join("agent-far.jsonl"), "{}\n").unwrap();
+
+        let after = SystemTime::now() - Duration::from_secs(60);
+        let names = |pin: &TranscriptPin| -> HashSet<String> {
+            sidechain_transcripts(&dir, after, pin)
+                .iter()
+                .filter_map(|path| sidechain_agent_id(path))
+                .collect()
+        };
+        // Unpinned: everything (legacy).
+        assert_eq!(
+            names(&TranscriptPin::default()),
+            HashSet::from([
+                "mine".to_string(),
+                "theirs".to_string(),
+                "nested".to_string(),
+                "far".to_string(),
+            ])
+        );
+        // Pinned: nested files under our session dir plus hook-announced
+        // flat agents — the foreign session's files stay out.
+        assert_eq!(
+            names(&pin_of(&["ours-sess"], &["mine"])),
+            HashSet::from(["mine".to_string(), "nested".to_string()])
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn apply_hook_feeds_the_transcript_pin() {
+        let (sender, _rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        let redactor = Redactor::new(vec![]);
+
+        // A context-less delivery pins nothing.
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        assert!(!steer.pin.pinned());
+
+        // session_id + transcript_path stem both land in the pin; an
+        // `agent-*` stem never does (a sidechain path is not a session id).
+        steer.apply_hook(
+            HookEvent {
+                context: crate::hooks::HookContext {
+                    session_id: Some("s1".to_string()),
+                    transcript_path: Some("/x/projects/p/s2.jsonl".to_string()),
+                    cwd: None,
+                },
+                kind: HookEventKind::Stop,
+            },
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.apply_hook(
+            HookEvent {
+                context: crate::hooks::HookContext {
+                    session_id: None,
+                    transcript_path: Some("/x/projects/p/agent-a1.jsonl".to_string()),
+                    cwd: None,
+                },
+                kind: HookEventKind::SubagentStarted {
+                    agent_id: Some("a1".to_string()),
+                    agent_type: Some("explore".to_string()),
+                },
+            },
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(steer.pin.pinned());
+        assert_eq!(
+            steer.pin.sessions,
+            HashSet::from(["s1".to_string(), "s2".to_string()])
+        );
+        assert_eq!(steer.pin.agents, HashSet::from(["a1".to_string()]));
     }
 
     #[test]
