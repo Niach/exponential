@@ -2,12 +2,13 @@ import type { ReactNode } from "react"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
-import type { Issue, Label, User } from "@/db/schema"
+import type { Board, Issue, Label, User } from "@/db/schema"
 
 const mockState = vi.hoisted(() => ({
   addLabelMutate: vi.fn(),
   clipboardWriteText: vi.fn(),
   deleteMutate: vi.fn(),
+  moveMutate: vi.fn(),
   removeLabelMutate: vi.fn(),
   updateMutate: vi.fn(),
 }))
@@ -25,6 +26,9 @@ vi.mock(`@/lib/trpc-client`, () => ({
     issues: {
       delete: {
         mutate: mockState.deleteMutate,
+      },
+      move: {
+        mutate: mockState.moveMutate,
       },
       update: {
         mutate: mockState.updateMutate,
@@ -192,6 +196,37 @@ const users: User[] = [
   },
 ]
 
+const boards: Board[] = [
+  {
+    id: `board-1`,
+    teamId: `team-1`,
+    name: `App`,
+    slug: `app`,
+    prefix: `APP`,
+    color: `#6366f1`,
+    icon: null,
+    repositoryId: null,
+    sortOrder: 0,
+    deletedAt: null,
+    createdAt: new Date(`2026-03-01T00:00:00Z`),
+    updatedAt: new Date(`2026-03-01T00:00:00Z`),
+  },
+  {
+    id: `board-2`,
+    teamId: `team-1`,
+    name: `Platform`,
+    slug: `platform`,
+    prefix: `PLT`,
+    color: `#22c55e`,
+    icon: null,
+    repositoryId: null,
+    sortOrder: 1,
+    deletedAt: null,
+    createdAt: new Date(`2026-03-01T00:00:00Z`),
+    updatedAt: new Date(`2026-03-01T00:00:00Z`),
+  },
+]
+
 const labels: Label[] = [
   {
     id: `label-1`,
@@ -220,11 +255,13 @@ describe(`IssueRowContextMenu`, () => {
     mockState.addLabelMutate.mockReset()
     mockState.clipboardWriteText.mockReset()
     mockState.deleteMutate.mockReset()
+    mockState.moveMutate.mockReset()
     mockState.removeLabelMutate.mockReset()
     mockState.updateMutate.mockReset()
     mockState.addLabelMutate.mockResolvedValue({})
     mockState.clipboardWriteText.mockResolvedValue(undefined)
     mockState.deleteMutate.mockResolvedValue({})
+    mockState.moveMutate.mockResolvedValue({})
     mockState.removeLabelMutate.mockResolvedValue({})
     mockState.updateMutate.mockResolvedValue({})
 
@@ -393,6 +430,51 @@ describe(`IssueRowContextMenu`, () => {
 
     expect(screen.getByText(`Unmark duplicate`)).not.toBeNull()
     expect(screen.queryByText(`Mark as duplicate…`)).toBeNull()
+  })
+
+  it(`confirms before moving the issue to another board (EXP-428)`, async () => {
+    render(
+      <IssueRowContextMenu
+        issue={buildIssue()}
+        issueLabels={[]}
+        labels={labels}
+        users={users}
+        userMap={new Map(users.map((user) => [user.id, user]))}
+        boards={boards}
+        onOpenIssue={vi.fn()}
+      >
+        <div>Issue row</div>
+      </IssueRowContextMenu>
+    )
+
+    expect(screen.queryByTestId(`issue-move-board-confirm`)).toBeNull()
+
+    fireEvent.click(screen.getByText(`Platform`))
+    // Confirm opens on a deferred tick (past the menu's focus restore).
+    await act(async () => {
+      vi.runAllTimers()
+    })
+
+    // No move fired yet — the pick lands in the confirmation dialog first,
+    // worded byte-identically to the detail sidebar and the native clients.
+    expect(mockState.moveMutate).not.toHaveBeenCalled()
+    expect(screen.getByTestId(`issue-move-board-confirm`)).not.toBeNull()
+    expect(
+      screen.getByText(
+        `Move APP-1 to "Platform"? The issue will get a new identifier in that board.`
+      )
+    ).not.toBeNull()
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Move` }))
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(mockState.moveMutate).toHaveBeenCalledTimes(1)
+    expect(mockState.moveMutate).toHaveBeenCalledWith({
+      id: `issue-1`,
+      boardId: `board-2`,
+    })
   })
 
   it(`deletes the issue when confirm delete is selected`, async () => {
