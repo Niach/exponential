@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-desktop-windows-tools`,
+    date: `2026-08-05`,
+    title: `The desktop app finds your tools on Windows`,
+    summary: `Windows now picks up a freshly installed git or Claude without a restart, background git calls no longer flash console windows, and sign-in shows the right methods immediately.`,
+    body: `- **Windows tool detection**: Check tools now sees a just-installed git or Claude without restarting the app, and the native Claude installer's claude.exe is found reliably.
+- **No more console flashes**: background git and probe commands on Windows run hidden instead of flashing terminal windows.
+- **Sign-in without the flash**: the desktop login no longer shows a password form briefly before the real sign-in methods load.
+- **Search dialog**: the desktop search dialog is dismissable by clicking outside and keeps a sensible height on long result lists.`,
+  },
+  {
     id: `2026-08-mobile-login-and-batch-bar`,
     date: `2026-08-04`,
     title: `Mobile stays signed in`,
