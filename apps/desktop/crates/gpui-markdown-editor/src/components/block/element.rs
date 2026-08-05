@@ -2226,6 +2226,7 @@ mod chip_tests {
                     range: start..start + "#EXP-1".len(),
                     kind: ReferenceKind::IssueRef,
                     display_suffix: Some(SharedString::from(TITLE)),
+                    icon: None,
                 }],
                 None => Vec::new(),
             }
