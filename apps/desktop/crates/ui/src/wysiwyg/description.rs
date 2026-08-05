@@ -15,7 +15,9 @@ use gpui::{
     Pixels, Point, Render, SharedString, Styled as _, Subscription, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
-use gpui_component::{notification::Notification, v_flex, ActiveTheme as _, WindowExt as _};
+use gpui_component::{
+    h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, WindowExt as _,
+};
 use gpui_markdown_editor::{
     DismissTransientUi, FocusNext, FocusPrev, FormatCommand, ImageSourceResolution, IndentBlock,
     MarkdownEditor as VendoredEditor, MarkdownEditorEvent, MarkdownEditorMode,
@@ -1073,16 +1075,32 @@ impl WysiwygDescription {
         let own_attachment = key.starts_with("/api/attachments/");
         let theme = cx.theme();
 
-        let item = |id: &'static str, label: &'static str| {
-            div()
+        // EXP-421: parity with the web image menu — icons per row and a
+        // destructive "Remove from description" (Copy link is gone on both).
+        let item = |id: &'static str,
+                    label: &'static str,
+                    icon: crate::icons::ExpIcon,
+                    destructive: bool| {
+            let (icon_color, label_color) = if destructive {
+                (theme.danger, theme.danger)
+            } else {
+                (theme.muted_foreground, theme.popover_foreground)
+            };
+            h_flex()
                 .id(id)
                 .px_3()
                 .py_1()
+                .gap_2()
                 .text_sm()
                 .rounded_sm()
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.muted))
-                .child(SharedString::from(label))
+                .child(Icon::from(icon).size_4().text_color(icon_color))
+                .child(
+                    div()
+                        .text_color(label_color)
+                        .child(SharedString::from(label)),
+                )
         };
 
         let images_entity = self.images.clone();
@@ -1097,7 +1115,13 @@ impl WysiwygDescription {
             .bg(theme.popover)
             .shadow_md()
             .child(
-                item("wysiwyg-image-view", "View image").on_mouse_down(MouseButton::Left, {
+                item(
+                    "wysiwyg-image-view",
+                    "View image",
+                    crate::icons::registry::UI_WATCH,
+                    false,
+                )
+                .on_mouse_down(MouseButton::Left, {
                     let key = key.clone();
                     let images = images_entity.clone();
                     cx.listener(move |this, _event, window, cx| {
@@ -1114,9 +1138,14 @@ impl WysiwygDescription {
                 }),
             );
         if own_attachment {
-            list = list.child(item("wysiwyg-image-download", "Download").on_mouse_down(
-                MouseButton::Left,
-                {
+            list = list.child(
+                item(
+                    "wysiwyg-image-download",
+                    "Download",
+                    crate::icons::registry::UI_DOWNLOAD,
+                    false,
+                )
+                .on_mouse_down(MouseButton::Left, {
                     let key = key.clone();
                     let images = images_entity.clone();
                     cx.listener(move |this, _event, window, cx| {
@@ -1124,12 +1153,21 @@ impl WysiwygDescription {
                         download_image(key.clone(), &images, window, cx);
                         cx.notify();
                     })
-                },
-            ));
-            if cfg!(target_os = "macos") {
-                list = list.child(item("wysiwyg-image-copy", "Copy image").on_mouse_down(
-                    MouseButton::Left,
-                    {
+                }),
+            );
+            // Linux clipboard backends are text-only at pin 1d217ee (Wayland
+            // offers only TEXT_MIME_TYPES; X11 routes write_to_clipboard
+            // through set_text — its set_image exists but is unwired), so
+            // Copy image ships on macOS/Windows only.
+            if cfg!(any(target_os = "macos", target_os = "windows")) {
+                list = list.child(
+                    item(
+                        "wysiwyg-image-copy",
+                        "Copy image",
+                        crate::icons::registry::UI_COPY,
+                        false,
+                    )
+                    .on_mouse_down(MouseButton::Left, {
                         let key = key.clone();
                         let images = images_entity.clone();
                         cx.listener(move |this, _event, _window, cx| {
@@ -1139,34 +1177,28 @@ impl WysiwygDescription {
                             }
                             cx.notify();
                         })
-                    },
-                ));
+                    }),
+                );
             }
-            list = list.child(item("wysiwyg-image-copy-link", "Copy link").on_mouse_down(
-                MouseButton::Left,
-                {
-                    let key = key.clone();
-                    cx.listener(move |this, _event, _window, cx| {
+        }
+        list = list
+            .child(div().my_1().h(px(1.)).bg(theme.border))
+            .child(
+                item(
+                    "wysiwyg-image-delete",
+                    "Remove from description",
+                    crate::icons::registry::UI_DELETE,
+                    true,
+                )
+                .on_mouse_down(MouseButton::Left, {
+                    let src = src.clone();
+                    cx.listener(move |this, _event, window, cx| {
                         this.image_menu = None;
-                        if let Some(absolute) = queries::absolute_api_url(cx, &key) {
-                            cx.write_to_clipboard(ClipboardItem::new_string(absolute));
-                        }
+                        this.delete_image(&src, window, cx);
                         cx.notify();
                     })
-                },
-            ));
-        }
-        list = list.child(item("wysiwyg-image-delete", "Delete").on_mouse_down(
-            MouseButton::Left,
-            {
-                let src = src.clone();
-                cx.listener(move |this, _event, window, cx| {
-                    this.image_menu = None;
-                    this.delete_image(&src, window, cx);
-                    cx.notify();
-                })
-            },
-        ));
+                }),
+            );
 
         Some(
             deferred(

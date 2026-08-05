@@ -587,8 +587,8 @@ fn render_image_resize_handle(
 }
 
 /// The right-click menu (web's image node "…" menu): View image · Download ·
-/// Copy image (macOS — the pinned Linux clipboard backends write text mime
-/// types only) · Copy link · Delete (editor blocks only).
+/// Copy image (macOS/Windows — Linux clipboard backends are text-only at pin
+/// 1d217ee) · Remove from description (editor blocks only, destructive).
 fn attach_image_context_menu(
     wrapper: gpui::Stateful<gpui::Div>,
     images: &Entity<ImageCache>,
@@ -621,51 +621,70 @@ fn attach_image_context_menu(
                 cx.notify();
             });
         }
-        let mut menu = menu.item(PopupMenuItem::new("View image").on_click({
-            let images = images.clone();
-            let url = url.clone();
-            let alt = alt.clone();
-            move |_, window, cx| {
-                crate::image_preview::open_image_preview(
-                    url.clone(),
-                    alt.clone(),
-                    Some(images.clone()),
-                    window,
-                    cx,
-                );
-            }
-        }));
-        if own_attachment {
-            menu = menu.item(PopupMenuItem::new("Download").on_click({
-                let images = images.clone();
-                let url = url.clone();
-                move |_, window, cx| {
-                    download_image(url.clone(), &images, window, cx);
-                }
-            }));
-            if cfg!(target_os = "macos") {
-                menu = menu.item(PopupMenuItem::new("Copy image").on_click({
+        // EXP-421: parity with the WYSIWYG host menu and the web image menu —
+        // icons per row, destructive "Remove from description", no Copy link.
+        let mut menu = menu.item(
+            PopupMenuItem::new("View image")
+                .icon(Icon::from(crate::icons::registry::UI_WATCH))
+                .on_click({
                     let images = images.clone();
                     let url = url.clone();
-                    move |_, _, cx| {
-                        if let Some(image) = images.read(cx).ready_image(&url) {
-                            cx.write_to_clipboard(ClipboardItem::new_image(&image));
+                    let alt = alt.clone();
+                    move |_, window, cx| {
+                        crate::image_preview::open_image_preview(
+                            url.clone(),
+                            alt.clone(),
+                            Some(images.clone()),
+                            window,
+                            cx,
+                        );
+                    }
+                }),
+        );
+        if own_attachment {
+            menu = menu.item(
+                PopupMenuItem::new("Download")
+                    .icon(Icon::from(crate::icons::registry::UI_DOWNLOAD))
+                    .on_click({
+                        let images = images.clone();
+                        let url = url.clone();
+                        move |_, window, cx| {
+                            download_image(url.clone(), &images, window, cx);
                         }
-                    }
-                }));
+                    }),
+            );
+            // Linux clipboard backends are text-only at pin 1d217ee (Wayland
+            // offers only TEXT_MIME_TYPES; X11 routes write_to_clipboard
+            // through set_text — its set_image exists but is unwired), so
+            // Copy image ships on macOS/Windows only.
+            if cfg!(any(target_os = "macos", target_os = "windows")) {
+                menu = menu.item(
+                    PopupMenuItem::new("Copy image")
+                        .icon(Icon::from(crate::icons::registry::UI_COPY))
+                        .on_click({
+                            let images = images.clone();
+                            let url = url.clone();
+                            move |_, _, cx| {
+                                if let Some(image) = images.read(cx).ready_image(&url) {
+                                    cx.write_to_clipboard(ClipboardItem::new_image(&image));
+                                }
+                            }
+                        }),
+                );
             }
-            menu = menu.item(PopupMenuItem::new("Copy link").on_click({
-                let url = url.clone();
-                move |_, _, cx| {
-                    if let Some(absolute) = crate::queries::absolute_api_url(cx, &url) {
-                        cx.write_to_clipboard(ClipboardItem::new_string(absolute));
-                    }
-                }
-            }));
         }
         if let Some((editor, block_id)) = editor.clone() {
-            menu = menu.separator().item(PopupMenuItem::new("Delete").on_click(
-                move |_, window, cx| {
+            menu = menu.separator().item(
+                PopupMenuItem::element(|_, cx| {
+                    div()
+                        .text_color(cx.theme().danger)
+                        .child("Remove from description")
+                })
+                .icon(
+                    Icon::from(crate::icons::registry::UI_DELETE)
+                        .text_color(menu_cx.theme().danger),
+                )
+                .on_click(move |_, window, cx| {
                     let _ = editor.update(cx, |this, cx| {
                         let Some(index) = this.blocks.iter().position(|b| b.id() == block_id)
                         else {
@@ -673,8 +692,8 @@ fn attach_image_context_menu(
                         };
                         this.remove_image_at(index, window, cx);
                     });
-                },
-            ));
+                }),
+            );
         }
         menu
     })
