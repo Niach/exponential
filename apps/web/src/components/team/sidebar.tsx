@@ -20,6 +20,8 @@ import {
 import { useShowTeamChrome, useTeamMemberships } from "@/hooks/use-team-data"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
+import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { FeedbackButton } from "@/components/feedback-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
@@ -42,6 +44,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -116,6 +119,12 @@ export function TeamSidebar({
   const navigate = useNavigate()
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
+  // FEED-3: hover gear on a board row → the board-settings dialog (rename,
+  // icon, color, repo). Owner-gated like the settings Boards pages; the
+  // dialog receives the LIVE row so a concurrent trash closes it.
+  const [editBoardId, setEditBoardId] = useState<string | null>(null)
+  const editBoard = boards?.find((board) => board.id === editBoardId) ?? null
+  const { isOwner } = useTeamPermissions(team)
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const { myTeams } = useTeamMemberships(session?.user?.id)
   // Solo users never see the "team" concept: no switcher, no name. The
@@ -301,6 +310,16 @@ export function TeamSidebar({
                             <span>{board.name}</span>
                           </Link>
                         </SidebarMenuButton>
+                        {isOwner && (
+                          <SidebarMenuAction
+                            showOnHover
+                            title="Board settings"
+                            aria-label={`Settings for ${board.name}`}
+                            onClick={() => setEditBoardId(board.id)}
+                          >
+                            <NavSettingsIcon />
+                          </SidebarMenuAction>
+                        )}
                       </SidebarMenuItem>
                     )
                   })
@@ -400,6 +419,16 @@ export function TeamSidebar({
           open={createBoardOpen}
           onOpenChange={setCreateBoardOpen}
           team={team}
+        />
+      )}
+      {team && (
+        <BoardSettingsDialog
+          board={editBoard}
+          team={team}
+          onOpenChange={(open) => {
+            if (!open) setEditBoardId(null)
+          }}
+          onRepoChanged={() => {}}
         />
       )}
       <CreateTeamDialog
