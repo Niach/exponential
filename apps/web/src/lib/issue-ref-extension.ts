@@ -2,7 +2,9 @@ import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import type { IconName } from "@exp/icons"
 import { createIssueRefRegExp } from "@/lib/issue-refs"
+import { statusIconDataUri } from "@/lib/status-icon-svg"
 
 // Renders `#IDENTIFIER` issue references as clickable pills via inline
 // decorations — the document text stays the plain token, so the GFM markdown
@@ -17,7 +19,11 @@ import { createIssueRefRegExp } from "@/lib/issue-refs"
 export interface IssueRefOptions {
   /** Resolve an identifier to display info, or null when unknown. Called on
    *  every decoration pass — must be cheap (a Map lookup). */
-  getResolved: (identifier: string) => { title: string } | null
+  getResolved: (identifier: string) => {
+    title: string
+    statusIcon: IconName
+    statusColor: string
+  } | null
   /** Navigate to the referenced issue. */
   onOpen: (identifier: string) => void
 }
@@ -55,6 +61,10 @@ function buildDecorations(
           "data-issue-ref": identifier,
           "data-issue-title": chipTitle(resolved.title),
           title: resolved.title,
+          // EXP-423: the status glyph is a `::before` mask on the pill, fed
+          // its shape and tint from here. Nothing about the document text
+          // changes — same guarantee as the `::after` title.
+          style: `--issue-ref-status-color: ${resolved.statusColor}; --issue-ref-status-icon: ${statusIconDataUri(resolved.statusIcon)}`,
         })
       )
     }

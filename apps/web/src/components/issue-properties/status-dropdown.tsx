@@ -30,6 +30,30 @@ export function statusColorStyle(
   return option.builtinKey ? undefined : { color: option.colorHex }
 }
 
+/**
+ * The same color as a CONCRETE CSS value, for the surfaces that cannot take a
+ * Tailwind class — today the `#IDENTIFIER` pill, whose glyph is a `::before`
+ * mask tinted through a custom property (EXP-423).
+ *
+ * Builtin rows derive from their token class rather than a second color table:
+ * `text-foreground`/`text-muted-foreground` are theme vars, everything else is
+ * a Tailwind palette var (`text-yellow-500` → `var(--color-yellow-500)`).
+ * Tailwind v4 only emits palette vars for palette utilities in use — the three
+ * builtin status colors (yellow-500, green-500, blue-500) all are, via the
+ * status pickers, and the pill's CSS carries a `--muted-foreground` fallback
+ * either way.
+ */
+export function statusColorCssValue(option: StatusRowOption): string {
+  if (!option.builtinKey) return option.colorHex
+  const token = getIssueStatusConfig(option.builtinKey).color.replace(
+    /^text-/,
+    ``
+  )
+  return token === `foreground` || token === `muted-foreground`
+    ? `var(--${token})`
+    : `var(--color-${token})`
+}
+
 /** The glyph for an already-resolved status row. */
 export function StatusIcon({
   option,
@@ -132,7 +156,9 @@ export function StatusDropdown({
             >
               <Icon
                 className={`h-3.5 w-3.5 ${selected.color}`}
-                style={selected.colorHex ? { color: selected.colorHex } : undefined}
+                style={
+                  selected.colorHex ? { color: selected.colorHex } : undefined
+                }
               />
             </Button>
           )
