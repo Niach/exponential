@@ -604,6 +604,7 @@ impl CreateIssueDialogView {
                         let origin = TabOrigin {
                             tool: crate::sidebar::ToolWindow::BoardIssues,
                             board_id: Some(this.board_id.clone()),
+                            inbox_tab: None,
                         };
                         native_dialog::close_then(window, cx, move |window, cx| {
                             navigate_from(window, cx, Screen::IssueDetail { issue_id }, origin);
@@ -641,7 +642,7 @@ impl CreateIssueDialogView {
         let view = cx.entity().clone();
         chip_button("create-status-chip", cx)
             .icon(crate::icons::resolved_status_icon(&resolved, cx))
-            .label(SharedString::from(resolved.name.clone()))
+            .child(crate::pickers::chip_label(resolved.name.clone(), false, cx))
             .dropdown_menu(move |menu, _window, cx| {
                 let view = view.clone();
                 let statuses = crate::queries::team_status_options(cx, &view.read(cx).team_id);
@@ -669,7 +670,7 @@ impl CreateIssueDialogView {
         let view = cx.entity().clone();
         chip_button("create-priority-chip", cx)
             .icon(option_icon(config, cx))
-            .label(SharedString::from(config.label))
+            .child(crate::pickers::chip_label(config.label, false, cx))
             .dropdown_menu(move |menu, _window, cx| {
                 let view = view.clone();
                 crate::pickers::priority_menu(
@@ -706,7 +707,7 @@ impl CreateIssueDialogView {
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
             )
-            .label(label)
+            .child(crate::pickers::chip_label(label, selected.is_none(), cx))
             .dropdown_menu(move |menu, _window, _cx| {
                 let view = view.clone();
                 crate::pickers::assignee_menu(
@@ -732,7 +733,8 @@ impl CreateIssueDialogView {
             .iter()
             .filter(|label| self.selected_label_ids.contains(&label.id))
             .collect();
-        let label: SharedString = if selected.is_empty() {
+        let unset = selected.is_empty();
+        let label: SharedString = if unset {
             "Label".into()
         } else {
             selected
@@ -750,7 +752,7 @@ impl CreateIssueDialogView {
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
             )
-            .label(label);
+            .child(crate::pickers::chip_label(label, unset, cx));
         crate::pickers::label_picker_popover(
             "create-labels-popover",
             trigger,
@@ -792,7 +794,11 @@ impl CreateIssueDialogView {
                         .xsmall()
                         .text_color(cx.theme().muted_foreground),
                 )
-                .label(label),
+                .child(crate::pickers::chip_label(
+                    label,
+                    self.due_date.is_none(),
+                    cx,
+                )),
             self.due_calendar.clone(),
             Some(px(280.)),
             None,

@@ -80,13 +80,16 @@ export function IssueRefProvider({
   // The team's status rows are already live-queried one level up (the layout
   // nests this provider inside TeamStatusesProvider), so a rename/recolor/
   // reorder rotates this context value and every consumer that reads a ref
-  // during render repaints immediately.
+  // during render repaints immediately — open tiptap editors included.
   //
-  // The tiptap editors are the exception: they read `getResolved` through a
-  // ref, and the pill decorations are only rebuilt when ProseMirror updates
-  // its view. An open editor therefore keeps the old glyph and tint until its
-  // next transaction (a keystroke, a selection move). Deliberate — forcing a
-  // dispatch from here to repaint a chip is not worth the churn.
+  // That last part is worth spelling out, because the editors read
+  // `getResolved` through a ref and their pill decorations only rebuild when
+  // ProseMirror updates its view. The chain that closes the gap: an in-place
+  // row update makes useLiveQuery hand back a fresh `data` array (its snapshot
+  // is version-counted, not value-compared), which rotates `resolveStatus`,
+  // then the `refs` memo and the context value below — and markdown-editor.tsx
+  // watches that value to dispatch a no-op transaction, which re-runs the
+  // decoration pass against the new glyph and tint.
   const { resolve: resolveStatus } = useTeamStatusesContext()
 
   const refs = useMemo(() => {

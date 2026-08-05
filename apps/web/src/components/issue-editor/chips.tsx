@@ -5,6 +5,7 @@ import { ISSUE_PRIORITY_FALLBACK, type IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   creatableStatusOptions,
+  sortStatusesForPicker,
   type StatusRowOption,
 } from "@/lib/team-statuses"
 import { formatDate } from "@/lib/utils"
@@ -73,7 +74,7 @@ export function IssueEditorChips({
   onDueDateSelect,
 }: IssueEditorChipsProps) {
   const { options, byId } = useTeamStatusesContext()
-  const statusOptions = creatableStatusOptions(options)
+  const statusOptions = sortStatusesForPicker(creatableStatusOptions(options))
 
   return (
     <>

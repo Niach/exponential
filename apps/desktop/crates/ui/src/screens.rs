@@ -68,6 +68,17 @@ pub(crate) fn screens_for_window(window: &Window, cx: &App) -> Option<Entity<Scr
         .and_then(|registry| registry.by_window.get(&window.window_handle().window_id()).cloned())
 }
 
+/// [`screens_for_window`] by id — for callers that hold a `WindowId` instead
+/// of a live `&Window` (the issue header's switcher). `None` in windows
+/// without a panel (undocked screens).
+pub(crate) fn screens_for_window_id(
+    window_id: WindowId,
+    cx: &App,
+) -> Option<Entity<ScreensPanel>> {
+    cx.try_global::<ScreensRegistry>()
+        .and_then(|registry| registry.by_window.get(&window_id).cloned())
+}
+
 /// Drop a closed window's entry (called from the `Shell` release hook,
 /// mirroring `sidebar::remove_window`).
 pub(crate) fn remove_window(window_id: WindowId, cx: &mut App) {
@@ -235,12 +246,37 @@ fn partition_tabs(
 /// Non-issue tabs (and issue rows not yet synced) keep the plain
 /// `screen_title`.
 struct ChipContent {
+    lead: ChipLead,
+    identifier: Option<gpui::SharedString>,
+    title: Option<gpui::SharedString>,
+}
+
+/// A chip's leading glyph (EXP-426). Cloneable — the overflow dropdown
+/// collects entries up front and builds `Icon`s (not `Clone` at the pinned
+/// gpui-component rev) only at menu-build time.
+#[derive(Clone)]
+enum ChipLead {
+    None,
     /// EXP-314: the issue's RESOLVED status (custom rows included).
     /// Resolution is per-issue, so it stays correct on this cross-team strip
     /// — only GROUPING is team-scoped.
-    status: Option<domain::statuses::ResolvedStatus>,
-    identifier: Option<gpui::SharedString>,
-    title: Option<gpui::SharedString>,
+    Status(domain::statuses::ResolvedStatus),
+    /// The action's curated icon name (`None` name = the Zap default —
+    /// `icons::action_icon` handles the fallback).
+    Action(Option<String>),
+}
+
+impl ChipLead {
+    fn icon(&self, cx: &App) -> Option<gpui_component::Icon> {
+        match self {
+            ChipLead::None => None,
+            ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
+            ChipLead::Action(name) => Some(
+                crate::icons::action_icon(name.as_deref())
+                    .text_color(cx.theme().muted_foreground),
+            ),
+        }
+    }
 }
 
 fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
@@ -261,14 +297,33 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
             };
             let resolved = crate::queries::resolve_issue_status(cx, issue);
             return ChipContent {
-                status: Some(resolved),
+                lead: ChipLead::Status(resolved),
                 identifier: Some(gpui::SharedString::from(issue.identifier.clone())),
                 title,
             };
         }
     }
+    // EXP-426: action tabs carry the action's curated glyph — the builtin
+    // constants first (no synced row), then the synced row's icon (the same
+    // two-source shape as `screen_title`).
+    if let Screen::ActionDetail { action_id } = screen {
+        let icon = match api::actions::builtin_action_icon(action_id) {
+            Some(name) => Some(name.to_string()),
+            None => Store::global(cx)
+                .collections()
+                .actions
+                .read(cx)
+                .get(action_id)
+                .and_then(|action| action.icon.clone()),
+        };
+        return ChipContent {
+            lead: ChipLead::Action(icon),
+            identifier: None,
+            title: Some(screen_title(screen, cx)),
+        };
+    }
     ChipContent {
-        status: None,
+        lead: ChipLead::None,
         identifier: None,
         title: Some(screen_title(screen, cx)),
     }
@@ -461,11 +516,13 @@ impl ScreensPanel {
         // ran with its tool already active). `None` (go-back / tab
         // reactivation of a closed tab) falls back to Capture too.
         let captured = {
-            let tool = self.rail.read(cx).tool();
+            let rail = self.rail.read(cx);
+            let tool = rail.tool();
             TabOrigin {
                 board_id: (tool == ToolWindow::BoardIssues)
                     .then(|| active_board_id(&self.nav, cx))
                     .flatten(),
+                inbox_tab: (tool == ToolWindow::Inbox).then(|| rail.inbox_tab()),
                 tool,
             }
         };
@@ -543,7 +600,26 @@ impl ScreensPanel {
                 crate::navigation::set_active_board(window, cx, board_id);
             }
         }
+        if entry.origin.tool == ToolWindow::Inbox {
+            if let Some(tab) = entry.origin.inbox_tab {
+                // EXP-426: restore the Inbox tab the detail came from (the
+                // tab-only setter — `activate_tool` would close this tab).
+                crate::sidebar::select_inbox_tab_for_tab(window, cx, tab);
+            }
+        }
         set_screen(window, cx, Some(entry.screen));
+    }
+
+    /// The ACTIVE tab's remembered origin (EXP-426): the issue header's
+    /// prev/next switcher steps the list the tab was opened from, not
+    /// whatever the rail happens to show now. `None` when the active screen
+    /// has no tab (or no screen is active).
+    pub(crate) fn active_tab_origin(&self, cx: &App) -> Option<TabOrigin> {
+        let active = resolved_screen(&self.nav, cx)?;
+        self.tabs
+            .iter()
+            .find(|tab| tab.screen == active)
+            .map(|tab| tab.origin.clone())
     }
 
     /// Close the tab at `ix`. Closing the active tab activates its right
@@ -658,8 +734,9 @@ impl ScreensPanel {
     fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
         /// `tab_chip`'s `px_2`, both sides.
         const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
-        /// `Icon::xsmall()` — `size_3`.
-        const STATUS_ICON_REMS: f32 = 0.75;
+        /// `Icon::xsmall()` — `size_3` (status AND action leads render
+        /// xsmall, so one constant covers both — EXP-426).
+        const LEAD_ICON_REMS: f32 = 0.75;
         /// An icon-only xsmall `Button` — `size_5`.
         const XSMALL_BUTTON_REMS: f32 = 1.25;
         /// The trailing button cluster's own `gap_0p5`.
@@ -672,8 +749,8 @@ impl ScreensPanel {
         let content = chip_content(&entry.screen, cx);
         let base_font = window.text_style().font();
         let mut children: Vec<f32> = Vec::with_capacity(4);
-        if content.status.is_some() {
-            children.push(STATUS_ICON_REMS * rem);
+        if !matches!(content.lead, ChipLead::None) {
+            children.push(LEAD_ICON_REMS * rem);
         }
         if let Some(identifier) = content.identifier.as_ref() {
             // EXP-310: the shortcode renders `text_xs` in the terminal mono
@@ -802,11 +879,11 @@ impl ScreensPanel {
                             ))
                         }
                     })
-                    // EXP-310: status icon + identifier shortcode ahead of
-                    // the title (issue-backed tabs only), mirroring the issue
-                    // list row's glyph/mono-identifier treatment.
-                    .when_some(content.status, |chip, status| {
-                        chip.child(crate::icons::resolved_status_icon(&status, cx).xsmall())
+                    // EXP-310: lead glyph (status icon / action glyph) +
+                    // identifier shortcode ahead of the title, mirroring the
+                    // issue list row's glyph/mono-identifier treatment.
+                    .when_some(content.lead.icon(cx), |chip, icon| {
+                        chip.child(icon.xsmall())
                     })
                     .when_some(content.identifier, |chip, identifier| {
                         chip.child(
@@ -869,15 +946,11 @@ impl ScreensPanel {
             // on a visible chip, a team switch) shifts every index after it,
             // which would activate the wrong tab. Tabs are deduped by screen,
             // so it is a stable identity.
-            let hidden_entries: Vec<(
-                Screen,
-                Option<domain::statuses::ResolvedStatus>,
-                gpui::SharedString,
-            )> = hidden
+            let hidden_entries: Vec<(Screen, ChipLead, gpui::SharedString)> = hidden
                 .iter()
                 .map(|&ix| {
                     let screen = self.tabs[ix].screen.clone();
-                    // EXP-310: the menu rows carry the same status icon +
+                    // EXP-310: the menu rows carry the same lead glyph +
                     // shortcode as the chips (composed into the label —
                     // menu items are plain icon + text).
                     let content = chip_content(&screen, cx);
@@ -890,7 +963,7 @@ impl ScreensPanel {
                             .title
                             .unwrap_or_else(|| screen_title(&screen, cx)),
                     };
-                    (screen, content.status, label)
+                    (screen, content.lead, label)
                 })
                 .collect();
             let panel = panel.clone();
@@ -902,12 +975,12 @@ impl ScreensPanel {
                     .tooltip("More tabs")
                     .dropdown_menu(move |mut menu, _window, cx| {
                         menu = menu.scrollable(true).max_h(px(320.));
-                        for (screen, status, title) in &hidden_entries {
+                        for (screen, lead, title) in &hidden_entries {
                             let panel = panel.clone();
                             let screen = screen.clone();
                             let mut item = PopupMenuItem::new(title.clone());
-                            if let Some(status) = status {
-                                item = item.icon(crate::icons::resolved_status_icon(status, cx));
+                            if let Some(icon) = lead.icon(cx) {
+                                item = item.icon(icon);
                             }
                             menu = menu.item(item.on_click(
                                 move |_, window, cx| {

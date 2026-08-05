@@ -129,6 +129,18 @@ pub fn user_avatar(
     }
 }
 
+/// One avatar + name row (EXP-426): the ONE shape every user-listing surface
+/// shares — the assignee picker menus (via `pickers::user_menu_item`) and
+/// the `@` autocomplete rows.
+pub(crate) fn user_row(label: &str, image_url: Option<&str>, cx: &mut App) -> gpui::Div {
+    use gpui::{ParentElement as _, Styled as _};
+    gpui_component::h_flex()
+        .gap_2()
+        .items_center()
+        .child(user_avatar(label, image_url, gpui_component::Size::XSmall, cx))
+        .child(gpui::SharedString::from(label.to_string()))
+}
+
 /// Chrome surfaces (rail button — web-sidebar parity, EXP-311) show only the
 /// first name; the full name + email live in account settings.
 pub fn first_name(name: &str) -> &str {

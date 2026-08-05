@@ -116,6 +116,19 @@ impl IssueStatusCategory {
             .unwrap_or(Self::DISPLAY_ORDER.len())
     }
 
+    /// Position in [`Self::SETTINGS_ORDER`]; `Unknown` sorts after
+    /// everything. EXP-426: the set-status PICKERS re-sort by this (workflow
+    /// order — Backlog and Todo first) while board GROUPING keeps
+    /// [`Self::display_rank`]. A STABLE sort over already-resolved rows is
+    /// required: the positional pie-clock glyphs are baked in at resolution
+    /// time, so only whole category blocks may move.
+    pub fn settings_rank(&self) -> usize {
+        Self::SETTINGS_ORDER
+            .iter()
+            .position(|category| category == self)
+            .unwrap_or(Self::SETTINGS_ORDER.len())
+    }
+
     /// The enum ANCHOR a status of this category writes (server
     /// `CATEGORY_ANCHOR`). The anchor is what enum-only writers (swipes,
     /// toggles, the coding launcher's parking) and every legacy client see.

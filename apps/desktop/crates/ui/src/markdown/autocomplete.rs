@@ -35,6 +35,60 @@ pub struct CompletionItem {
     pub label: SharedString,
     /// Secondary muted label (member email / issue title).
     pub detail: SharedString,
+    /// Visual identity ahead of the label (EXP-426): the issue's resolved
+    /// status glyph for `#`, the member's avatar for `@`.
+    pub decoration: Option<CompletionDecoration>,
+}
+
+/// See [`CompletionItem::decoration`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum CompletionDecoration {
+    /// The issue's RESOLVED status (custom rows included) — resolution is
+    /// per-issue, so the glyph/tint stay correct in cross-team composers.
+    Status(domain::statuses::ResolvedStatus),
+    /// The member's profile image URL (`None` = initials fallback).
+    User { image_url: Option<String> },
+}
+
+/// The shared row body every completion popover renders (EXP-426):
+/// decoration · label · muted truncating detail. The hosts keep their own
+/// container/hover/selection chrome and anchoring.
+pub fn completion_row_content(item: &CompletionItem, cx: &mut App) -> gpui::AnyElement {
+    use gpui::{div, IntoElement as _, ParentElement as _, Styled as _};
+    use gpui_component::{ActiveTheme as _, Sizable as _};
+    let mut row = gpui_component::h_flex().flex_1().min_w_0().gap_2().items_center();
+    match &item.decoration {
+        Some(CompletionDecoration::Status(status)) => {
+            row = row.child(crate::icons::resolved_status_icon(status, cx).xsmall());
+        }
+        Some(CompletionDecoration::User { image_url }) => {
+            row = row.child(crate::user_avatar::user_avatar(
+                &item.label,
+                image_url.as_deref(),
+                gpui_component::Size::XSmall,
+                cx,
+            ));
+        }
+        None => {}
+    }
+    row.child(
+        div()
+            .text_sm()
+            .whitespace_nowrap()
+            .child(item.label.clone()),
+    )
+    .child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .whitespace_nowrap()
+            .overflow_hidden()
+            .text_ellipsis()
+            .child(item.detail.clone()),
+    )
+    .into_any_element()
 }
 
 /// A `@`/`#` token being typed behind the caret.
@@ -134,6 +188,9 @@ impl CompletionSource for StoreCompletionSource {
                             insert: format!("@{email}"),
                             label: name.into(),
                             detail: email.into(),
+                            decoration: Some(CompletionDecoration::User {
+                                image_url: user.image.clone(),
+                            }),
                         })
                     })
                     .collect();
@@ -148,11 +205,15 @@ impl CompletionSource for StoreCompletionSource {
                 issues.truncate(MAX_ITEMS);
                 issues
                     .into_iter()
-                    .map(|issue| CompletionItem {
-                        trigger,
-                        insert: format!("#{}", issue.identifier),
-                        label: issue.identifier.clone().into(),
-                        detail: issue.title.clone().into(),
+                    .map(|issue| {
+                        let resolved = crate::queries::resolve_issue_status(cx, &issue);
+                        CompletionItem {
+                            trigger,
+                            insert: format!("#{}", issue.identifier),
+                            label: issue.identifier.clone().into(),
+                            detail: issue.title.clone().into(),
+                            decoration: Some(CompletionDecoration::Status(resolved)),
+                        }
                     })
                     .collect()
             }

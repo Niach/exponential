@@ -477,6 +477,11 @@ export const MarkdownEditor = forwardRef<
     onChangeRef.current = onChange
     const imageUploadRef = useRef(imageUpload)
     imageUploadRef.current = imageUpload
+    // useEditor captures editorProps once, so the drop/paste handlers below
+    // must not close over `editable` — it flips false→true when team_members
+    // syncs in and the permission check flips.
+    const editableRef = useRef(editable)
+    editableRef.current = editable
 
     // Optional team contexts (null outside a team layout) that
     // resolve `#IDENTIFIER` tokens to issues and `@email` tokens to members
@@ -502,7 +507,7 @@ export const MarkdownEditor = forwardRef<
     const willHandleDroppedFiles = (fileList: FileList | null | undefined) => {
       const upload = imageUploadRef.current
       const { images, others } = partitionUploadFiles(fileList)
-      if (!editable || !upload) return false
+      if (!editableRef.current || !upload) return false
       return (
         images.length > 0 || (others.length > 0 && Boolean(upload.onOtherFiles))
       )
@@ -519,7 +524,7 @@ export const MarkdownEditor = forwardRef<
       const hasImages = images.length > 0
       const hasOthers = others.length > 0 && Boolean(upload?.onOtherFiles)
 
-      if (!editable || !upload || (!hasImages && !hasOthers)) {
+      if (!editableRef.current || !upload || (!hasImages && !hasOthers)) {
         return false
       }
 

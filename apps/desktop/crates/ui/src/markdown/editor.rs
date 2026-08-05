@@ -440,6 +440,7 @@ fn render_image_slot(
                         crate::image_preview::open_image_preview(
                             url.clone(),
                             alt.clone(),
+                            None,
                             Some(images.clone()),
                             window,
                             cx,
@@ -654,6 +655,7 @@ fn attach_image_context_menu(
                         crate::image_preview::open_image_preview(
                             url.clone(),
                             alt.clone(),
+                            None,
                             Some(images.clone()),
                             window,
                             cx,
@@ -1662,7 +1664,11 @@ impl MarkdownEditor {
 
     // -- Rendering -------------------------------------------------------------
 
-    fn render_completion(&self, window: &Window, cx: &Context<Self>) -> Option<gpui::AnyElement> {
+    fn render_completion(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         let completion = self.completion.as_ref()?;
         let (input, bounds) = self.blocks.iter().find_map(|block| match block {
             EditorBlock::Text {
@@ -1708,33 +1714,30 @@ impl MarkdownEditor {
             origin.y + scroll.y + line_height * (position.line as f32 + 1.) + px(8.),
         );
 
-        let theme = cx.theme();
         let items = completion.items.clone();
         let selected = completion.selected;
-        let menu = v_flex()
-            .id("md-completion")
-            .occlude()
-            .min_w(px(260.))
-            .max_w(px(380.))
-            .p_1()
-            .gap_0p5()
-            .bg(theme.popover)
-            .text_color(theme.popover_foreground)
-            .border_1()
-            .border_color(theme.border)
-            .rounded(px(6.))
-            .shadow_md()
-            .children(items.iter().enumerate().map(|(index, item)| {
+        let (popover, popover_foreground, border, accent) = {
+            let theme = cx.theme();
+            (
+                theme.popover,
+                theme.popover_foreground,
+                theme.border,
+                theme.accent,
+            )
+        };
+        let rows: Vec<gpui::AnyElement> = items
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| {
                 let is_selected = index == selected;
                 h_flex()
                     .id(ElementId::from(("md-completion-item", index)))
                     .w_full()
-                    .gap_2()
                     .px_2()
                     .py_1()
                     .rounded(px(4.))
-                    .when(is_selected, |el| el.bg(theme.accent))
-                    .hover(|el| el.bg(theme.accent))
+                    .when(is_selected, |el| el.bg(accent))
+                    .hover(move |el| el.bg(accent))
                     .cursor_pointer()
                     .on_mouse_down(
                         gpui::MouseButton::Left,
@@ -1745,21 +1748,26 @@ impl MarkdownEditor {
                             this.accept_completion(window, cx);
                         }),
                     )
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(item.label.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .truncate()
-                            .child(item.detail.clone()),
-                    )
+                    // EXP-426: the shared decorated row — status glyph for
+                    // `#`, avatar for `@`.
+                    .child(super::completion_row_content(&item, cx))
                     .into_any_element()
-            }));
+            })
+            .collect();
+        let menu = v_flex()
+            .id("md-completion")
+            .occlude()
+            .min_w(px(260.))
+            .max_w(px(380.))
+            .p_1()
+            .gap_0p5()
+            .bg(popover)
+            .text_color(popover_foreground)
+            .border_1()
+            .border_color(border)
+            .rounded(px(6.))
+            .shadow_md()
+            .children(rows);
 
         Some(
             deferred(

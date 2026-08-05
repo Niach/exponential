@@ -339,6 +339,7 @@ impl StoragePane {
                         attachment_url.clone(),
                         label.clone(),
                         None,
+                        None,
                         window,
                         cx,
                     );

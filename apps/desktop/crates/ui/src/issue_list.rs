@@ -52,7 +52,7 @@ use domain::{IssueFilters, IssueStatus};
 use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_detail::{apply_status_selection, set_duplicate_of};
 use crate::pickers::{option_item, status_menu, StatusMenuScope, StatusPick};
-use crate::navigation::{navigate, Screen};
+use crate::navigation::{nav_for_window, navigate, resolved_screen, Navigation, Screen};
 use crate::issue_header::toggle_label;
 use crate::queries::{self, BoardData};
 
@@ -146,6 +146,11 @@ pub struct IssueListView {
     solo_team: bool,
     /// Focus target of the [`KEY_CONTEXT`] bindings (terminal-dock pattern).
     focus_handle: FocusHandle,
+    /// This window's navigation — the rows highlight the issue whose detail
+    /// is open (EXP-426, the inbox rows' treatment).
+    nav: gpui::Entity<Navigation>,
+    /// The open detail's issue id for the CURRENT render (from `nav`).
+    active_issue_id: Option<String>,
     /// Rows of the CURRENT render — rebuilt in `render`, read by the
     /// virtual-list range closure afterwards.
     rows: Rc<Vec<ListRow>>,
@@ -158,10 +163,11 @@ pub struct IssueListView {
 }
 
 impl IssueListView {
-    pub fn new(cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         // §4.1 reactivity: observe exactly the collections the board query
         // reads; an Electric echo re-renders the list automatically.
         let collections = Store::global(cx).collections().clone();
+        let nav = nav_for_window(window, cx);
         let subscriptions = vec![
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
@@ -169,9 +175,13 @@ impl IssueListView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // EXP-314: the group vocabulary itself is synced data now.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
+            // EXP-426: the active-row highlight follows navigation.
+            cx.observe(&nav, |_, _, cx| cx.notify()),
         ];
 
         Self {
+            nav,
+            active_issue_id: None,
             query: IssueQuery::None,
             filters: IssueFilters::empty(),
             collapsed: HashSet::new(),
@@ -413,6 +423,9 @@ impl IssueListView {
         let menu_issue = issue.clone();
         let menu_statuses = self.team_statuses.clone();
         let is_selected = self.selected.contains(&issue.id);
+        // The open detail's row keeps the same active fill as a bulk-selected
+        // one — both mean "this row is where you are" (EXP-426).
+        let is_active = self.active_issue_id.as_deref() == Some(issue.id.as_str());
         let any_selected = !self.selected.is_empty();
         let solo_team = self.solo_team;
 
@@ -426,10 +439,13 @@ impl IssueListView {
             .px_3()
             .flex()
             .items_center()
+            // Bounded clip at the extreme-narrow floor — cells carry min
+            // widths, so past their sum the row clips instead of overflowing.
+            .overflow_hidden()
             .cursor_pointer()
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.3))
-            .when(is_selected, |style| {
+            .when(is_selected || is_active, |style| {
                 style.bg(cx.theme().colors.list_active)
             })
             .hover(|style| style.bg(cx.theme().colors.list_hover))
@@ -481,11 +497,13 @@ impl IssueListView {
                     .w_6()
                     .child(priority_dropdown(issue, cx)),
             )
-            // 72px identifier.
+            // 72px identifier — SHRINKABLE down to 44px (EXP-426): under
+            // narrow-panel pressure the column gives up its trailing air
+            // before the title cell (min_w 88 below) starts truncating.
             .child(
                 div()
                     .w(px(72.))
-                    .flex_shrink_0()
+                    .min_w(px(44.))
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .font_family(theme::terminal::FONT_FAMILY)
@@ -500,11 +518,12 @@ impl IssueListView {
                     .w_6()
                     .child(status_dropdown(issue, &self.team_statuses, cx)),
             )
-            // 1fr title (truncating).
+            // 1fr title (truncating; the 88px floor hands further shrink
+            // pressure to the identifier column — EXP-426).
             .child(
                 h_flex()
                     .flex_1()
-                    .min_w_0()
+                    .min_w(px(88.))
                     .ml_2()
                     .gap_1p5()
                     .items_center()
@@ -520,7 +539,7 @@ impl IssueListView {
             // auto labels (web rounded-full chips with the color dot).
             .child(
                 h_flex()
-                    .ml_4()
+                    .ml_2()
                     .gap_1p5()
                     .flex_shrink_0()
                     .children(labels.iter().map(|label| label_chip(label, cx))),
@@ -553,8 +572,9 @@ impl IssueListView {
     /// EXP-289: the bar is NOT rendered by this view anymore. Entering
     /// multiselect used to prepend an in-flow row, which pushed the whole list
     /// down by its height — the list "jumped". [`crate::board::BoardView`]
-    /// now floats the element this returns over the filter bar's title row
-    /// instead, so the rows never move. `BoardView` observes this entity, so a
+    /// now hands the element this returns to the filter bar, which swaps its
+    /// own fixed-height control row for it (EXP-426 made the swap in-flow —
+    /// the rows still never move). `BoardView` observes this entity, so a
     /// selection change re-renders it; the ids are recomputed here off the
     /// CURRENT query data (never a snapshot taken during this view's own
     /// render, which runs AFTER its parent's and would lag a frame), in
@@ -916,25 +936,15 @@ impl IssueListView {
                 })
         };
 
-        // EXP-289: a FLOATING pill — the caller (`BoardView`) positions this
-        // over the filter bar's title row, so it no longer takes layout space.
-        // Padding is `py_1` (was `py_2`) so the pill stays inside the title
-        // row's height, and the fill went back from the EXP-282 glass card to
-        // the opaque popover surface: an overlay has to MASK the title behind
-        // it, which a 6% white wash cannot. `occlude` keeps the clicks it
-        // covers off the row underneath.
+        // EXP-426: an INLINE row — the filter bar swaps its Filter/New-Issue
+        // cluster for this element while a selection exists (its row keeps a
+        // fixed min-height, so the list rows still never move — the EXP-289
+        // no-jump invariant, without the old floating-overlay masking).
         h_flex()
             .id("bulk-action-bar")
-            .occlude()
+            .w_full()
             .gap_2()
-            .px_3()
-            .py_1()
             .items_center()
-            .rounded(px(t::radius::XL))
-            .border_1()
-            .border_color(t::glass::STROKE_CARD.to_hsla())
-            .bg(cx.theme().popover)
-            .shadow_md()
             .child(
                 div()
                     .px_1()
@@ -1025,6 +1035,12 @@ impl Render for IssueListView {
         // Solo teams drop the per-row assignee cell — resolved once per frame
         // (the whole list is one team) so no per-row membership query runs.
         self.solo_team = self.is_solo_team(cx);
+        // EXP-426: the row whose detail is open highlights (inbox parity) —
+        // resolved once per frame off this window's navigation.
+        self.active_issue_id = match resolved_screen(&self.nav, cx) {
+            Some(Screen::IssueDetail { issue_id }) => Some(issue_id),
+            _ => None,
+        };
         // EXP-314: same once-per-frame treatment for the status vocabulary —
         // the whole list is one team, and every row dropdown + the context
         // menu read this snapshot.
@@ -1364,16 +1380,18 @@ fn assignee_menu(
         let name = crate::comments::author_label(Some(&user));
         let issue_id = issue_id.to_string();
         let user_id = user.id.clone();
-        menu = menu.item(
-            PopupMenuItem::new(SharedString::from(name))
-                .icon(Icon::new(registry::UI_ASSIGNEE))
-                .checked(checked)
-                .on_click(move |_, _, cx| {
-                    let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                    input.assignee_id = api::Patch::Set(user_id.clone());
-                    spawn_issue_update(cx, input);
-                }),
-        );
+        // EXP-426: the real avatar replaced the generic person glyph — the
+        // shared row shape.
+        menu = menu.item(crate::pickers::user_menu_item(
+            name,
+            user.image.clone(),
+            checked,
+            move |_window, cx| {
+                let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                input.assignee_id = api::Patch::Set(user_id.clone());
+                spawn_issue_update(cx, input);
+            },
+        ));
     }
     menu
 }

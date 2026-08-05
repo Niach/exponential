@@ -1074,8 +1074,46 @@ impl WysiwygDescription {
     ) -> Option<impl IntoElement + use<>> {
         let completion = self.completion.as_ref()?;
         let caret = self.editor.read(cx).caret_viewport_bounds(window, cx)?;
-        let theme = cx.theme();
         let selected = completion.selected;
+        // Owned copies: the shared row body needs `&mut App` (avatar cache),
+        // which cannot coexist with a live `self.completion`/theme borrow.
+        let items: Vec<crate::markdown::CompletionItem> = completion.items.clone();
+        let (border, popover, popover_foreground, accent) = {
+            let theme = cx.theme();
+            (
+                theme.border,
+                theme.popover,
+                theme.popover_foreground,
+                theme.accent,
+            )
+        };
+        let rows: Vec<gpui::AnyElement> = items
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let is_selected = index == selected;
+                div()
+                    .id(gpui::ElementId::from(("wysiwyg-completion-item", index)))
+                    .w_full()
+                    .flex()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .when(is_selected, |el| el.bg(accent))
+                    .hover(move |el| el.bg(accent))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _event, window, cx| {
+                            this.accept_completion(index, window, cx);
+                        }),
+                    )
+                    // EXP-426: the shared decorated row — status glyph for
+                    // `#`, avatar for `@`.
+                    .child(crate::markdown::completion_row_content(&item, cx))
+                    .into_any_element()
+            })
+            .collect();
         let list = div()
             .flex()
             .flex_col()
@@ -1084,42 +1122,11 @@ impl WysiwygDescription {
             .p_1()
             .rounded_md()
             .border_1()
-            .border_color(theme.border)
-            .bg(theme.popover)
-            .text_color(theme.popover_foreground)
+            .border_color(border)
+            .bg(popover)
+            .text_color(popover_foreground)
             .shadow_md()
-            .children(completion.items.iter().enumerate().map(|(index, item)| {
-                let is_selected = index == selected;
-                div()
-                    .id(gpui::ElementId::from(("wysiwyg-completion-item", index)))
-                    .w_full()
-                    .flex()
-                    .gap_2()
-                    .px_2()
-                    .py_1()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .when(is_selected, |el| el.bg(theme.accent))
-                    .hover(|el| el.bg(theme.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _event, window, cx| {
-                            this.accept_completion(index, window, cx);
-                        }),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .child(SharedString::from(item.label.to_string())),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .overflow_hidden()
-                            .child(SharedString::from(item.detail.to_string())),
-                    )
-            }));
+            .children(rows);
         Some(
             deferred(
                 anchored()
@@ -1194,9 +1201,18 @@ impl WysiwygDescription {
                     let images = images_entity.clone();
                     cx.listener(move |this, _event, window, cx| {
                         this.image_menu = None;
+                        // The layout probe covers external URLs the synced
+                        // attachment fallback can't size.
+                        let natural = this
+                            .shared
+                            .natural_sizes
+                            .lock()
+                            .ok()
+                            .and_then(|sizes| sizes.get(&key).copied());
                         crate::image_preview::open_image_preview(
                             key.clone(),
                             String::new(),
+                            natural,
                             Some(images.clone()),
                             window,
                             cx,
@@ -1554,6 +1570,7 @@ mod tests {
                 insert: "#EXP-42".to_string(),
                 label: "EXP-42".into(),
                 detail: "Editor chip improvements".into(),
+                decoration: None,
             }]
         }
     }

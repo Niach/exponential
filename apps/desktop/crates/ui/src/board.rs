@@ -8,11 +8,12 @@
 //! `my-issues/index.tsx` renders the identical bar+list pair with
 //! `title="My Issues"` and `canCreate=false`).
 //!
-//! EXP-289: this view also hosts the list's **floating** bulk-action bar —
-//! an absolutely-positioned overlay over the title row (see `render`). It
-//! used to be an in-flow row inside the list, which shoved every issue down
-//! the moment multiselect started. One fix covers both surfaces: the Inbox
-//! tool window's *My Issues* tab is this same view.
+//! EXP-289/EXP-426: this view also routes the list's bulk-action bar into
+//! the filter bar, which swaps its fixed-height control row for it — the
+//! bar used to be an in-flow row inside the list (shoved every issue down
+//! the moment multiselect started), then a floating overlay; the row swap
+//! keeps the no-jump invariant in flow. One fix covers both surfaces: the
+//! Inbox tool window's *My Issues* tab is this same view.
 //!
 //! State ownership (§4.1): this entity owns the `IssueFilters` (the web route
 //! keeps them in the URL; the desktop keeps them per-board and resets on
@@ -25,8 +26,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, AppContext as _, Entity, IntoElement, ParentElement,
-    Render, SharedString, Styled, Subscription, Window,
+    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, Styled, Subscription,
+    Window,
 };
 use gpui_component::{input::InputState, v_flex};
 use sync::Store;
@@ -51,7 +52,7 @@ impl BoardView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let label_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels..."));
-        let issue_list = cx.new(IssueListView::new);
+        let issue_list = cx.new(|cx| IssueListView::new(window, cx));
 
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
@@ -127,15 +128,6 @@ impl BoardView {
         cx.notify();
     }
 
-    /// Bar title: the board scope is the sidebar's "All Issues" tool
-    /// window; My Issues names itself.
-    fn title(&self) -> SharedString {
-        match &self.query {
-            IssueQuery::MyIssues { .. } => "My Issues".into(),
-            _ => "All Issues".into(),
-        }
-    }
-
     /// The New Issue button shows on board scopes AND My Issues (EXP-181 —
     /// the `NewIssue` action targets the window's active board either way;
     /// web's `canCreate={false}` on My Issues is a web-only choice).
@@ -208,20 +200,15 @@ impl Render for BoardView {
             }
         });
 
-        // EXP-289: the list's bulk-action bar FLOATS over the title row
-        // instead of sitting in flow above the list — an in-flow row pushed
-        // every issue down the moment a checkbox was ticked (the list
-        // "jumped"). The overlay wrapper below pins to the root's top edge and
-        // repeats the filter bar's `px_4` inset, so the 34px pill lands on the
-        // 44px title row; the pill itself is opaque + occluding, so it masks
-        // (and swallows the clicks over) what it covers.
+        // EXP-426: the list's bulk-action bar rides INSIDE the filter bar —
+        // its fixed-min-height control row swaps Filter/New-Issue for the bar
+        // while a selection exists, so the list rows never move (the EXP-289
+        // no-jump invariant, in flow).
         let bulk_bar = self.issue_list.update(cx, |list, cx| list.bulk_bar(cx));
 
         v_flex()
             .size_full()
-            .relative()
             .child(IssueFilterBar::new(
-                self.title(),
                 self.filters.clone(),
                 labels,
                 statuses,
@@ -230,20 +217,8 @@ impl Render for BoardView {
                 on_filters_change,
                 on_view_change,
                 self.can_create(),
+                bulk_bar,
             ))
             .child(div().flex_1().min_h_0().child(self.issue_list.clone()))
-            .when_some(bulk_bar, |board, bar| {
-                board.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .right_0()
-                        .px_4()
-                        .py_1()
-                        .flex()
-                        .child(bar),
-                )
-            })
     }
 }

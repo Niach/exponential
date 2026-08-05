@@ -27,12 +27,10 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    menu::{DropdownMenu as _, PopupMenuItem},
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
-use crate::icons::{registry, ExpIcon};
-use crate::native_dialog::{self, AlertSpec};
+use crate::icons::ExpIcon;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::queries;
 
@@ -89,33 +87,16 @@ impl ActionsPanel {
         crate::start_coding_dialog::open_for_action(window, cx, team_id, action_id);
     }
 
-    /// Owner Delete, behind a confirm (destructive native actions confirm
-    /// first — the client contract). The synced collection drops the row —
-    /// no refetch needed.
-    fn prompt_delete(
-        &mut self,
-        action_id: String,
-        name: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        prompt_delete_action(window, cx, action_id, name);
-    }
-
     // -- render -------------------------------------------------------------
 
     fn render_row(
         &self,
         index: usize,
         action: &api::actions::Action,
-        owner: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let run_id = action.id.clone();
-        let menu_action = action.clone();
-        let repo_backed = action.repository_id.is_some();
-        let builtin = action.builtin;
         // EXP-298: EVERY row navigates to the detail screen — the builtins
         // included (they used to jump straight into the launch dialog). Their
         // detail is read-only and renders the shipped prompt; ▶ is still the
@@ -172,78 +153,9 @@ impl ActionsPanel {
                             .text_color(theme.foreground)
                             .child(SharedString::from(action.name.clone())),
                     )
-                    .when(repo_backed, |this| {
-                        this.child(
-                            div().flex_shrink_0().child(
-                                Icon::from(ExpIcon::GitMerge)
-                                    .xsmall()
-                                    .text_color(theme.muted_foreground),
-                            ),
-                        )
-                    })
-                    // No owner menu on the builtin — it is product-shipped,
-                    // non-editable and non-deletable (its row click still
-                    // opens the read-only detail).
-                    .when(owner && !builtin, |this| {
-                        let panel = cx.entity().downgrade();
-                        this.child(
-                            // Swallow the press so opening the menu never
-                            // also fires the row navigation (EXP-277).
-                            div()
-                                .flex_shrink_0()
-                                .on_mouse_down(
-                                    gpui::MouseButton::Left,
-                                    |_, _, cx: &mut App| cx.stop_propagation(),
-                                )
-                                .child(
-                                    Button::new(("action-menu", index))
-                                .ghost()
-                                .xsmall()
-                                .icon(registry::UI_MORE)
-                                .dropdown_menu(move |menu, _window, _cx| {
-                                    // Direct closures (the members-menu
-                                    // pattern) — never App-global dispatch
-                                    // from an overlay into an unfocused view.
-                                    // EXP-282: "Edit…" is gone with the raw
-                                    // editor dialog — editing is inline on
-                                    // the detail screen, so the menu just
-                                    // opens it (same target as a row click).
-                                    let open = menu_action.clone();
-                                    let delete = menu_action.clone();
-                                    let delete_panel = panel.clone();
-                                    menu.item(
-                                        PopupMenuItem::new("Open action").on_click(
-                                            move |_, window, cx| {
-                                                crate::navigation::navigate(
-                                                    window,
-                                                    cx,
-                                                    crate::navigation::Screen::ActionDetail {
-                                                        action_id: open.id.clone(),
-                                                    },
-                                                );
-                                            },
-                                        ),
-                                    )
-                                    .separator()
-                                    .item(
-                                        PopupMenuItem::new("Delete…").on_click(
-                                            move |_, window, cx| {
-                                                let Some(panel) = delete_panel.upgrade()
-                                                else {
-                                                    return;
-                                                };
-                                                let id = delete.id.clone();
-                                                let name = delete.name.clone();
-                                                panel.update(cx, |panel, cx| {
-                                                    panel.prompt_delete(id, name, window, cx);
-                                                });
-                                            },
-                                        ),
-                                    )
-                                }),
-                                ),
-                        )
-                    })
+                    // EXP-426: the repo mark and the owner "…" menu are gone —
+                    // the row is glyph · name · Run; delete lives on the
+                    // detail screen's visible trash button.
                     .child(
                         div().flex_shrink_0().child({
                             // EXP-367: no agent CLI → disabled with the
@@ -289,9 +201,6 @@ impl Render for ActionsPanel {
         // row-render closures' mutable cx borrow.
         let muted = cx.theme().muted_foreground;
         let team_id = self.team_id(cx);
-        let owner = team_id
-            .as_deref()
-            .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
         let (actions, ready) = match team_id.as_deref() {
             Some(team_id) => queries::team_actions(cx, team_id),
             None => (Vec::new(), true),
@@ -301,7 +210,7 @@ impl Render for ActionsPanel {
         let rows: Vec<gpui::AnyElement> = actions
             .iter()
             .enumerate()
-            .map(|(index, action)| self.render_row(index, action, owner, cx))
+            .map(|(index, action)| self.render_row(index, action, cx))
             .collect();
 
         gpui_component::v_flex()
@@ -336,38 +245,24 @@ impl Render for ActionsPanel {
     }
 }
 
-/// The owner delete confirm + `actions.delete` (shared by the tool-window
-/// menu and the action-detail sidebar — EXP-277).
-pub(crate) fn prompt_delete_action(
-    window: &mut Window,
-    cx: &mut App,
-    action_id: String,
-    name: String,
-) {
-    let spec = AlertSpec::new(
-        format!("Delete \"{name}\"?"),
-        "Team members will no longer be able to run this action. \
-         A live run keeps going and keeps its label.",
-        "Delete action",
-    )
-    .on_ok(move |_, cx| {
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return true;
-        };
-        let action_id = action_id.clone();
-        cx.spawn(async move |cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::actions::delete(&trpc, &action_id) })
-                .await;
-            let _ = cx.update(|_| {
-                if let Err(err) = result {
-                    log::warn!("actions: delete failed: {err}");
-                }
-            });
-        })
-        .detach();
-        true
-    });
-    native_dialog::open_alert(window, cx, spec);
+/// `actions.delete` over tRPC (EXP-426: the confirm moved into the detail's
+/// visible trash button — the issue-detail two-step popup pattern). The
+/// synced collection drops the row; a live run keeps going and keeps its
+/// label.
+pub(crate) fn spawn_action_delete(cx: &mut App, action_id: String) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::actions::delete(&trpc, &action_id) })
+            .await;
+        let _ = cx.update(|_| {
+            if let Err(err) = result {
+                log::warn!("actions: delete failed: {err}");
+            }
+        });
+    })
+    .detach();
 }

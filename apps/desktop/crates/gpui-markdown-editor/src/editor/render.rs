@@ -820,7 +820,7 @@ impl Render for Editor {
                 // window→content coordinate conversion, nothing re-renders
                 // because of it.
                 let _ = editor_for_origin.update(cx, |editor, _| {
-                    editor.last_content_origin = first.origin;
+                    editor.last_content_origin = Some(first.origin);
                 });
                 let width = f32::from(first.size.width);
                 let previous =
@@ -894,12 +894,17 @@ impl Render for Editor {
         };
 
         // The 2px insertion line while a drag hovers the editor. Window-space
-        // boundary Y → content-relative via the recorded content origin.
-        let content_area = if let Some((_, boundary_y)) = self.drop_indicator {
+        // boundary Y → content-relative via the recorded content origin, so it
+        // stays hidden until a prepaint has recorded one (EXP-424: a drag that
+        // begins before the first origin write used to flash the line at a
+        // stale (0, 0)-based offset).
+        let content_area = if let (Some((_, boundary_y)), Some(content_origin)) =
+            (self.drop_indicator, self.last_content_origin)
+        {
             content_area.child(
                 div()
                     .absolute()
-                    .top(boundary_y - self.last_content_origin.y - px(1.0))
+                    .top(boundary_y - content_origin.y - px(1.0))
                     .left(px(4.0))
                     .right(px(4.0))
                     .h(px(2.0))

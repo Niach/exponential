@@ -40,6 +40,17 @@ pub fn builtin_action_name(id: &str) -> Option<&'static str> {
     }
 }
 
+/// The curated icon name each builtin carries (EXP-426: the action-detail
+/// TAB shows the glyph — builtins have no synced row to read it from). Must
+/// match the constructed rows' `icon` (lock-tested).
+pub fn builtin_action_icon(id: &str) -> Option<&'static str> {
+    match id {
+        BUILTIN_CREATE_ACTION_ID => Some("sparkles"),
+        BUILTIN_FIX_CONFLICTS_ID => Some("git-branch"),
+        _ => None,
+    }
+}
+
 const BUILTIN_CREATE_ACTION_NAME: &str = "Create action";
 const BUILTIN_FIX_CONFLICTS_NAME: &str = "Fix merge conflicts";
 
@@ -560,6 +571,21 @@ mod tests {
         assert_eq!(action.inputs.len(), 1);
         assert_eq!(action.inputs[0].key, "scope");
         assert!(action.inputs[0].required);
+    }
+
+    #[test]
+    fn builtin_action_icons_stay_in_lockstep_with_the_factories() {
+        // EXP-426: the tab strip reads `builtin_action_icon`; the detail and
+        // list rows read the constructed rows — the two must never drift.
+        assert_eq!(
+            builtin_action_icon(BUILTIN_CREATE_ACTION_ID),
+            builtin_create_action("team-1").icon.as_deref()
+        );
+        assert_eq!(
+            builtin_action_icon(BUILTIN_FIX_CONFLICTS_ID),
+            builtin_fix_conflicts_action("team-1").icon.as_deref()
+        );
+        assert_eq!(builtin_action_icon("act-1"), None);
     }
 
     #[test]
