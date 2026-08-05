@@ -320,7 +320,7 @@ impl SettingsView {
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
-        let about = cx.new(|_| AboutPane);
+        let about = cx.new(|_| AboutPane::new());
 
         // The section nav + header depend on role (owner gating) and the
         // solo heuristic — re-render when membership/team data moves.
