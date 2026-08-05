@@ -175,6 +175,13 @@ export interface SteerDevice {
   caps?: string[]
 }
 
+/**
+ * EXP-414: `devices.list` calls this on every agents-page poll and paints the
+ * result raw — a wedged relay must fail fast into the caller's offline
+ * fallback, not hold the whole device list open.
+ */
+const RELAY_DEVICES_TIMEOUT_MS = 3_000
+
 /** GET /devices/:userId — online desktops for the "Start on my desktop" picker. */
 export async function relayGetDevices(
   config: SteerRelayConfig,
@@ -183,7 +190,10 @@ export async function relayGetDevices(
 ): Promise<{ devices: SteerDevice[] }> {
   const res = await fetchImpl(
     `${steerHttpBase(config.url)}/devices/${encodeURIComponent(userId)}`,
-    { headers: { "x-relay-secret": config.secret } }
+    {
+      headers: { "x-relay-secret": config.secret },
+      signal: AbortSignal.timeout(RELAY_DEVICES_TIMEOUT_MS),
+    }
   )
   if (!res.ok) {
     throw new Error(`Steer relay /devices failed (${res.status})`)

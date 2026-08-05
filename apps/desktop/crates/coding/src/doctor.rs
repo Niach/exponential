@@ -42,7 +42,14 @@
 use crate::agent::CodingAgent;
 use crate::settings::Settings;
 use std::fmt;
+use std::time::Duration;
 use terminal::process::background_command;
+
+/// EXP-414: the deadline for every probe shell-out. The CLI daemon re-runs
+/// the doctor inline on a 5-minute cadence — an agent CLI that wedges (a
+/// hung update check, a dead network filesystem) would otherwise stall that
+/// loop, and with it the device's presence, indefinitely.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The minimum supported Claude Code version: `--permission-mode auto`
 /// (EXP-201's default posture) is verified on 2.1.215; `--effort ultracode`
@@ -324,11 +331,9 @@ fn apply_auth_gate_with_path(check: &mut ToolCheck, program: &str, path_env: &st
 /// 2.1.220; [`MIN_CLAUDE_VERSION`] builds carry it). Any spawn failure or
 /// unrecognisable output fails open to `None`.
 fn probe_claude_auth(program: &str, path_env: &str) -> Option<bool> {
-    let output = background_command(program)
-        .env("PATH", path_env)
-        .args(["auth", "status"])
-        .output()
-        .ok()?;
+    let mut cmd = background_command(program);
+    cmd.env("PATH", path_env).args(["auth", "status"]);
+    let output = output_with_timeout(cmd, PROBE_TIMEOUT).ok()?;
     parse_claude_auth_status(&String::from_utf8_lossy(&output.stdout))
 }
 
@@ -343,11 +348,9 @@ pub fn parse_claude_auth_status(stdout: &str) -> Option<bool> {
 /// `codex login status`: exit 0 = logged in; a "not logged in" answer = signed
 /// out; anything else (no such subcommand on an old build) fails open.
 fn probe_codex_auth(program: &str, path_env: &str) -> Option<bool> {
-    let output = background_command(program)
-        .env("PATH", path_env)
-        .args(["login", "status"])
-        .output()
-        .ok()?;
+    let mut cmd = background_command(program);
+    cmd.env("PATH", path_env).args(["login", "status"]);
+    let output = output_with_timeout(cmd, PROBE_TIMEOUT).ok()?;
     let combined = format!(
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -446,11 +449,9 @@ pub fn check_tool(tool: Tool, program: &str) -> ToolCheck {
 /// [`check_tool`] with the PATH injected — split out so tests can probe a
 /// stub-only directory deterministically.
 fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck {
-    match background_command(program)
-        .env("PATH", path_env)
-        .arg("--version")
-        .output()
-    {
+    let mut cmd = background_command(program);
+    cmd.env("PATH", path_env).arg("--version");
+    match output_with_timeout(cmd, PROBE_TIMEOUT) {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             match parse_version_output(tool, &stdout) {
@@ -491,6 +492,68 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
             error: Some(format!("could not run {program}: {err}")),
             authed: None,
         },
+    }
+}
+
+/// `Command::output()` with a deadline (EXP-414). On timeout the child is
+/// killed and reaped and `ErrorKind::TimedOut` returns — the auth probes'
+/// `.ok()?` then fails OPEN (`authed: None`), and `check_tool_with_path`
+/// surfaces it as an ordinary "could not run" failure.
+fn output_with_timeout(
+    mut cmd: std::process::Command,
+    timeout: Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read as _;
+    use std::process::Stdio;
+    use wait_timeout::ChildExt as _;
+
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    // Own process group: a wedged probe may have children of its own (a
+    // shell wrapper's real binary, an updater it spawned) — killing just the
+    // direct child would leave them holding the pipes.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        cmd.process_group(0);
+    }
+    let mut child = cmd.spawn()?;
+    // Drain the pipes on threads: a child that fills the ~64KB pipe buffer
+    // would otherwise never exit and the wait below would never return.
+    let mut out_pipe = child.stdout.take().expect("stdout piped above");
+    let mut err_pipe = child.stderr.take().expect("stderr piped above");
+    let out = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = out_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let err = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = err_pipe.read_to_end(&mut buf);
+        buf
+    });
+    match child.wait_timeout(timeout)? {
+        Some(status) => Ok(std::process::Output {
+            status,
+            stdout: out.join().unwrap_or_default(),
+            stderr: err.join().unwrap_or_default(),
+        }),
+        None => {
+            #[cfg(unix)]
+            unsafe {
+                libc::killpg(child.id() as i32, libc::SIGKILL);
+            }
+            let _ = child.kill();
+            let _ = child.wait(); // reap the direct child
+            // Deliberately NOT joining the readers: a survivor outside the
+            // process group could still hold a pipe; the threads exit on
+            // their own once every writer is gone.
+            drop(out);
+            drop(err);
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("probe exceeded {timeout:?}"),
+            ))
+        }
     }
 }
 
@@ -978,5 +1041,34 @@ mod tests {
         assert!(report.first_failure_for(CodingAgent::Codex).is_some());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-414: a wedged probe is killed at the deadline instead of stalling
+    /// the caller (the CLI daemon runs the doctor inline every 5 minutes).
+    #[cfg(unix)]
+    #[test]
+    fn output_with_timeout_kills_a_hung_child() {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "sleep 30"]);
+        let started = std::time::Instant::now();
+        let err = output_with_timeout(cmd, Duration::from_millis(300)).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "must return at the deadline, not the child's own runtime"
+        );
+    }
+
+    /// A fast child behaves exactly like `Command::output()` — stdout,
+    /// stderr and exit status all ride through.
+    #[cfg(unix)]
+    #[test]
+    fn output_with_timeout_passes_a_fast_child_through() {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "echo out; echo err >&2; exit 3"]);
+        let output = output_with_timeout(cmd, Duration::from_secs(10)).unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "out\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "err\n");
+        assert_eq!(output.status.code(), Some(3));
     }
 }

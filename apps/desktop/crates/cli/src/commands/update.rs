@@ -112,7 +112,7 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
         .find(|asset| asset.name == updater::SUMS_ASSET)
         .context("release has no SHA256SUMS.txt")?;
 
-    let exe = std::env::current_exe().context("resolve the running binary path")?;
+    let exe = running_exe().context("resolve the running binary path")?;
     let parent = exe.parent().context("binary has no parent directory")?;
     let probe = parent.join(".exp-cli-write-probe");
     if std::fs::write(&probe, b"x").is_err() {
@@ -173,12 +173,42 @@ pub fn maybe_auto_update_and_reexec() {
 /// path, same argv. Same pid — a daemon pidfile stays valid across it.
 pub fn exec_self() {
     use std::os::unix::process::CommandExt as _;
-    let Ok(exe) = std::env::current_exe() else {
+    let Ok(exe) = running_exe() else {
         return;
     };
     let args: Vec<String> = std::env::args().skip(1).collect();
     let err = std::process::Command::new(exe).args(args).exec();
     log::warn!("re-exec after update failed: {err}");
+}
+
+/// The path this binary lives at, healed of Linux's post-replace artifact
+/// (EXP-414): once the installer renames the new binary over the running
+/// one, `/proc/self/exe` — and so `std::env::current_exe()` — reads
+/// `<path> (deleted)`. Left as-is, the re-exec after an install fails with
+/// ENOENT (the daemon keeps running the OLD version, so the update loops),
+/// and a NEXT install writes a literal `exponential (deleted)` file next to
+/// the real binary. Strip the suffix whenever the raw path is gone and the
+/// stripped sibling exists.
+pub fn running_exe() -> std::io::Result<std::path::PathBuf> {
+    Ok(heal_deleted_suffix(std::env::current_exe()?))
+}
+
+fn heal_deleted_suffix(path: std::path::PathBuf) -> std::path::PathBuf {
+    const SUFFIX: &str = " (deleted)";
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return path;
+    };
+    let Some(stripped) = name.strip_suffix(SUFFIX) else {
+        return path;
+    };
+    // Prefer the stripped sibling even when a literal `… (deleted)` file
+    // exists — a previous unfixed build may have installed one.
+    let healed = path.with_file_name(stripped);
+    if healed.exists() {
+        healed
+    } else {
+        path
+    }
 }
 
 /// Numeric `major.minor.patch` compare; pre-release/build suffixes ignored.
@@ -197,12 +227,45 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_newer;
+    use super::{heal_deleted_suffix, is_newer};
 
     #[test]
     fn numeric_not_lexicographic() {
         assert!(is_newer("0.10.0", "0.9.9"));
         assert!(!is_newer("0.9.0", "0.9.0"));
         assert!(!is_newer("0.8.52", "0.9.0"));
+    }
+
+    #[test]
+    fn deleted_suffix_heals_to_the_real_binary() {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-cli-heal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("exponential");
+        std::fs::write(&real, b"bin").unwrap();
+
+        // The /proc/self/exe post-replace reading resolves to the real path.
+        let suffixed = dir.join("exponential (deleted)");
+        assert_eq!(heal_deleted_suffix(suffixed.clone()), real);
+
+        // Even a literal stray `… (deleted)` file (from a pre-fix build)
+        // must not win over the real sibling.
+        std::fs::write(&suffixed, b"stray").unwrap();
+        assert_eq!(heal_deleted_suffix(suffixed.clone()), real);
+
+        // No real sibling → leave the path alone.
+        std::fs::remove_file(&real).unwrap();
+        assert_eq!(heal_deleted_suffix(suffixed.clone()), suffixed);
+
+        // An ordinary path passes through untouched.
+        assert_eq!(heal_deleted_suffix(real.clone()), real);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

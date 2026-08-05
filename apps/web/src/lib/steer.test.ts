@@ -225,7 +225,11 @@ describe(`relay admin HTTP`, () => {
     ).resolves.toEqual({ devices })
     expect(fetchImpl).toHaveBeenCalledWith(
       `https://steer.example.com/devices/user%201`,
-      { headers: { "x-relay-secret": `test-secret` } }
+      {
+        headers: { "x-relay-secret": `test-secret` },
+        // EXP-414: bounded — a wedged relay must not hang `devices.list`.
+        signal: expect.any(AbortSignal),
+      }
     )
   })
 
