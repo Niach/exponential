@@ -1,11 +1,9 @@
 //! Shared issue pickers (EXP-288): ONE set of status / priority / assignee /
-//! label / due-date picker components used by every host — the issue
-//! detail's properties sidebar and the create-issue dialog. Unification
-//! rules:
+//! label / due-date picker components used by every host — the issue detail's
+//! header chip row and the create-issue dialog. Unification rules:
 //!
 //! - status/priority/assignee are single-pick `PopupMenu`s (close on pick);
-//!   the TRIGGER stays caller-owned (sidebar row vs dialog chip), only the
-//!   menu body is shared.
+//!   the trigger is the shared [`chip_button`], only the content differs.
 //! - labels are a SEARCHABLE multi-toggle popover (filter input + checkbox
 //!   rows that toggle without closing) — the properties-panel recipe,
 //!   everywhere.
@@ -24,7 +22,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     calendar::{Calendar, CalendarState},
     checkbox::Checkbox,
-    h_flex,
     input::{Input, InputState},
     menu::{PopupMenu, PopupMenuItem},
     popover::Popover,
@@ -47,53 +44,24 @@ pub(crate) type OnPick<V> = Rc<dyn Fn(V, &mut Window, &mut App)>;
 pub(crate) type OnToggleLabel = Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
 
 // ---------------------------------------------------------------------------
-// Row/trigger primitives (moved out of properties_panel — EXP-288)
+// Row/trigger primitives (moved out of the properties panel — EXP-288)
 // ---------------------------------------------------------------------------
 
-/// The properties sidebar's full-width ghost picker trigger.
-pub(crate) fn picker_trigger(
-    id: &'static str,
-    icon: Option<Icon>,
-    label: SharedString,
-    muted: bool,
-    cx: &App,
-) -> Button {
-    let text_color = if muted {
-        cx.theme().muted_foreground
-    } else {
-        cx.theme().foreground
-    };
-    Button::new(id)
-        .ghost()
-        .xsmall()
-        .w_full()
-        // Release the xsmall 20px box — a full-width row reads better at the
-        // token control height.
-        .h(px(t::size::CONTROL_SM))
-        .child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1p5()
-                .items_center()
-                .children(icon.map(|icon| icon.xsmall().flex_shrink_0()))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .whitespace_nowrap()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .text_color(text_color)
-                        .child(label),
-                )
-                .child(
-                    Icon::new(registry::UI_CHEVRON_DOWN)
-                        .size_3()
-                        .flex_shrink_0()
-                        .text_color(cx.theme().muted_foreground),
-                ),
-        )
+/// Minimum width of a picker's menu/popover (EXP-417). The triggers are
+/// content-sized chips now, so their menus need a floor of their own — this
+/// replaced the sidebar-inner-width pins the full-width triggers matched.
+pub(crate) const PICKER_MENU_MIN_WIDTH: f32 = 168.;
+
+/// Width of a SEARCHABLE picker popover (labels / move-to-board): wide enough
+/// for the filter input plus a checkbox + color dot + name row.
+pub(crate) const PICKER_SEARCH_WIDTH: f32 = 260.;
+
+/// The shared chip trigger (EXP-417): `Button variant="ghost" size="xs"`,
+/// content-sized. Every picker host — the create-issue dialog's chip row and
+/// the issue/action headers — triggers through this ONE shape.
+pub(crate) fn chip_button(id: impl Into<ElementId>, cx: &App) -> Button {
+    let _ = cx;
+    Button::new(id).ghost().xsmall()
 }
 
 /// A shadcn `CommandItem`-style popover row: px-2 py-1 text-sm, glass row
@@ -196,7 +164,7 @@ impl StatusPick {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StatusMenuScope {
     /// Single-issue surfaces (row dropdown, row context submenu, the detail
-    /// properties panel): the FULL vocabulary, `duplicate`-category rows
+    /// header's status chip): the FULL vocabulary, `duplicate`-category rows
     /// INCLUDED — picking one is intercepted by `apply_status_selection` into
     /// the duplicate-canonical picker, which is the only way to mark a
     /// duplicate on desktop.

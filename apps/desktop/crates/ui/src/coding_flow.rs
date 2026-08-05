@@ -47,7 +47,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
@@ -1196,8 +1196,8 @@ impl StartCodingControl {
 
     /// Whether the control renders anything at all: an issue is set AND its
     /// board is repo-backed (or not yet synced — never hide on a sync race).
-    /// The properties panel gates its "Agent" group label on this so an empty
-    /// control never leaves an orphaned section header.
+    /// The issue header gates its whole agent row on this so an empty control
+    /// never leaves an orphaned row.
     pub fn is_visible(&self, cx: &App) -> bool {
         let Some(issue_id) = self.issue_id.as_deref() else {
             return false;
@@ -1340,11 +1340,12 @@ impl Render for StartCodingControl {
                 queries::CodingSessionDisplay::Done => (theme::tokens::BLUE, "Done"),
                 queries::CodingSessionDisplay::Running => (theme::tokens::GREEN, "Coding…"),
             };
-            // Sidebar layout (EXP-256, web "Agent" group): status line above
-            // a full-width outline Stop.
-            return v_flex()
-                .w_full()
+            // EXP-417: content-sized status dot + label beside Stop — the
+            // control is one item in the header's wrapping agent row now, not
+            // a sidebar column.
+            return h_flex()
                 .gap_2()
+                .items_center()
                 .child(
                     h_flex()
                         .gap_1p5()
@@ -1358,7 +1359,6 @@ impl Render for StartCodingControl {
                     Button::new("stop-coding")
                         .outline()
                         .small()
-                        .w_full()
                         .icon(Icon::new(registry::CODING_STOP).text_color(cx.theme().danger))
                         .label("Stop")
                         .tooltip("Stop the coding session and close its terminal")
@@ -1367,18 +1367,20 @@ impl Render for StartCodingControl {
                 .into_any_element();
         }
 
-        // Sidebar layout (EXP-256, web "Agent" group): a full-width outline
-        // button; the repo-less retry sits beside it as a compact icon.
+        // EXP-417: the primary action of the header's agent row — a solid
+        // content-sized button; the repo-less retry sits beside it as a
+        // compact icon.
         let disabled = self.disabled_reason(cx);
-        let mut row = h_flex().w_full().gap_1().items_center();
+        let mut row = h_flex().gap_1().items_center();
         let button = Button::new("start-coding")
-            .outline()
+            .primary()
             .small()
-            .flex_1()
+            // The solid variant carries the emphasis now — a green glyph on
+            // the primary fill only muddies it.
             .icon(Icon::new(registry::ACTION_RUN).text_color(if disabled.is_some() {
                 cx.theme().muted_foreground
             } else {
-                theme::tokens::GREEN.to_hsla()
+                cx.theme().primary_foreground
             }))
             .label("Start coding");
         match disabled {

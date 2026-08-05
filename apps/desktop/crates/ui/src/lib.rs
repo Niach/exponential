@@ -47,6 +47,7 @@ mod image_preview;
 mod inbox;
 pub mod issue_detail;
 mod issue_files;
+mod issue_header;
 mod issue_list;
 mod join_team;
 pub mod licenses;
@@ -64,7 +65,12 @@ mod onboarding;
 mod pickers;
 mod pr_diff;
 mod pr_merge;
-mod properties_panel;
+/// EXP-417 renamed `properties_panel` → [`issue_header`] (the sidebar became
+/// the issue detail's fixed header). This shim keeps the path alive for the
+/// three unrelated callers of its shared helpers.
+mod properties_panel {
+    pub(crate) use super::issue_header::{group_label, parse_hex_color, toggle_label};
+}
 mod queries;
 mod repo_resolver;
 mod screens;

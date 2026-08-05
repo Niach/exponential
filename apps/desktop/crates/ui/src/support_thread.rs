@@ -581,10 +581,11 @@ impl Render for SupportThreadView {
                 let view = cx.entity().clone();
                 let menu_boards = boards.clone();
                 let picked_id = picked.as_ref().map(|(id, _)| id.clone());
-                // EXP-277: stacked for the 240px sidebar.
-                v_flex()
+                // EXP-417: one cluster on the meta row (the sidebar that
+                // forced the stacked shape is gone).
+                h_flex()
                     .gap_2()
-                    .items_start()
+                    .items_center()
                     .child(
                         Button::new("support-escalate-board")
                             .xsmall()
@@ -626,10 +627,7 @@ impl Render for SupportThreadView {
             }
         };
 
-        // EXP-277: the header shrinks to the title alone (no hairline); the
-        // status/reporter/escalation controls live in the right sidebar,
-        // analogous to the issue detail's properties panel.
-        let header = div()
+        let title = div()
             .w_full()
             .flex_shrink_0()
             .px_4()
@@ -657,38 +655,38 @@ impl Render for SupportThreadView {
                     .child("Open")
             });
 
-        // EXP-282: the shared glass detail-sidebar container (was a
-        // hand-rolled 240px column) — one shape across issue detail, action
-        // detail and this thread view.
-        let sidebar = crate::surface::glass_sidebar()
-            .child(crate::properties_panel::property_group(
-                "Status",
-                v_flex()
-                    .gap_2()
-                    .items_start()
-                    .child(status_pill)
-                    .child(status_button),
-                cx,
-            ))
-            .child(crate::properties_panel::property_group(
-                "Reporter",
-                div()
+        // EXP-417: the sidebar's three property groups collapse into ONE
+        // compact meta row under the title — status · Close/Reopen · reporter
+        // · escalation, with the write error as its own row below.
+        let header = v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .child(title)
+            .child(
+                h_flex()
                     .w_full()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(reporter.clone())),
-                cx,
-            ))
-            .child(crate::properties_panel::property_group(
-                "Escalation",
-                escalate_area,
-                cx,
-            ))
+                    .flex_wrap()
+                    .gap_2()
+                    .items_center()
+                    .px_4()
+                    .pb_2()
+                    .child(status_pill)
+                    .child(status_button)
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(reporter.clone())),
+                    )
+                    .child(div().flex_1())
+                    .child(escalate_area),
+            )
             .when_some(self.error.clone(), |this, message| {
                 this.child(
                     div()
+                        .px_4()
+                        .pb_2()
                         .text_xs()
                         .text_color(danger)
                         .child(SharedString::from(message)),
@@ -838,24 +836,14 @@ impl Render for SupportThreadView {
                     ),
             );
 
-        // EXP-277: issue-detail-analogous two-pane body — left column =
-        // header + messages + composer, right = the properties-style sidebar.
-        let left = v_flex()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .min_h_0()
-            .child(header)
-            .child(messages)
-            .child(composer);
-
-        h_flex()
+        // EXP-417: ONE column — fixed header, scrolling messages, composer.
+        v_flex()
             .size_full()
             .min_h_0()
-            .items_start()
             .overflow_hidden()
-            .child(left)
-            .child(sidebar)
+            .child(header)
+            .child(messages)
+            .child(composer)
             .into_any_element()
     }
 }

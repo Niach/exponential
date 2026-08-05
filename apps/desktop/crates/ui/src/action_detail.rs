@@ -1,7 +1,7 @@
 //! Full-page action detail (EXP-277) — the Actions tool-window rows' center
-//! screen, built on the ISSUE DETAIL's shape: one centered column (title,
-//! one-line description, the markdown prompt, the typed input definitions)
-//! plus a properties-style right sidebar.
+//! screen, built on the ISSUE DETAIL's shape (EXP-417): a fixed header
+//! (title, one-line description, the Run/repository/icon controls and the
+//! typed input definitions) over the scrolling markdown prompt.
 //!
 //! Data model: the synced `actions` shape carries the body-less row (name,
 //! description, icon, inputs, repo binding); the prompt body is tRPC-only
@@ -65,11 +65,14 @@ use sync::Store;
 
 use crate::action_run::{fetch_repositories, ActionRepoRow};
 use crate::icons::{registry, ExpIcon};
-use crate::issue_detail::{centered_column, DETAIL_GUTTER, WYSIWYG_BLOCK_PADDING_X};
+use crate::issue_detail::{
+    centered_column, centered_scroll_column, DETAIL_GUTTER, WYSIWYG_BLOCK_PADDING_X,
+};
+use crate::issue_header::group_label;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
-use crate::pickers::picker_trigger;
-use crate::properties_panel::{group_label, property_group};
+use crate::pickers::chip_button;
 use crate::queries;
+use crate::surface::glass_chip;
 use crate::wysiwyg::WysiwygDescription;
 
 /// The server's `MAX_ACTION_INPUTS` cap (`@exp/db-schema/domain`). The label
@@ -378,7 +381,7 @@ impl ActionDetailView {
     // -- writes ------------------------------------------------------------
 
     /// One un-gated `actions.update` (the issue-detail contract: mutate now,
-    /// let the Electric echo re-render). Failures surface in the sidebar.
+    /// let the Electric echo re-render). Failures surface under the header.
     fn spawn_update(&mut self, input: api::actions::ActionUpdate, cx: &mut gpui::Context<Self>) {
         let Some(trpc) = queries::trpc_client(cx) else {
             self.error = Some("Not signed in.".into());
@@ -713,7 +716,12 @@ impl ActionDetailView {
             );
             // EXP-288: the detail body's scroll container follows the caret.
             let scroll = self.body_scroll.clone();
-            editor.update(cx, |editor, cx| editor.set_scroll_handle(scroll, cx));
+            editor.update(cx, |editor, cx| {
+                editor.set_scroll_handle(scroll, cx);
+                // EXP-417: the toolbar is pinned in the fixed header instead
+                // of riding the scrolling prompt.
+                editor.use_external_toolbar();
+            });
             self.body_editor = Some(editor);
             self.editor_action = Some(action.id.clone());
             return;
@@ -797,8 +805,8 @@ impl ActionDetailView {
 
     /// Inputs: editable definition rows for the owner (label field + type
     /// picker + required toggle + remove, plus "Add input"), read-only
-    /// `label · type · required` lines otherwise. EXP-298: this lives in the
-    /// CENTER column — the 192px sidebar could not fit one row on a line.
+    /// `label · type · required` lines otherwise. EXP-298: full-width rows —
+    /// the old 192px sidebar could not fit one on a line.
     fn render_inputs(
         &self,
         action: &api::actions::Action,
@@ -974,13 +982,12 @@ impl ActionDetailView {
         Some(column.into_any_element())
     }
 
-    // -- sidebar controls ---------------------------------------------------
+    // -- header controls ----------------------------------------------------
 
-    /// Icon: a full-width picker row over the curated grid for owners (the
-    /// label-color swatch popover pattern), a static glyph chip otherwise.
-    /// EXP-298: a sidebar PROPERTY, not a title ornament — the detail column's
-    /// title has to keep the one shared left edge the description, the prompt
-    /// and the section labels resolve to.
+    /// Icon: a chip picker over the curated grid for owners (the label-color
+    /// swatch popover pattern), a static glyph chip otherwise. EXP-298: a
+    /// PROPERTY, not a title ornament — the title has to keep the one shared
+    /// left edge the description, the prompt and the section labels resolve to.
     fn render_icon(
         &self,
         action: &api::actions::Action,
@@ -994,32 +1001,19 @@ impl ActionDetailView {
             .unwrap_or_else(|| "Default".to_string())
             .into();
         if !editable {
-            return h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1p5()
-                .items_center()
-                .text_xs()
-                .child(
-                    div().flex_shrink_0().child(
-                        glyph
-                            .xsmall()
-                            .text_color(cx.theme().muted_foreground),
-                    ),
-                )
-                .child(div().min_w_0().truncate().child(name))
+            return glass_chip()
+                .child(glyph.xsmall().text_color(cx.theme().muted_foreground))
+                .child(name)
                 .into_any_element();
         }
         let selected = action.icon.clone().unwrap_or_default();
         let view = cx.entity().downgrade();
         Popover::new("action-detail-icon")
-            .trigger(picker_trigger(
-                "action-detail-icon-trigger",
-                Some(glyph),
-                name,
-                action.icon.is_none(),
-                cx,
-            ))
+            .trigger(
+                chip_button("action-detail-icon-trigger", cx)
+                    .icon(glyph.xsmall())
+                    .label(name),
+            )
             .content(move |_, _, cx| {
                 let popover = cx.entity();
                 let view = view.clone();
@@ -1057,10 +1051,9 @@ impl ActionDetailView {
     ) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
         if action.builtin {
-            return div()
-                .text_xs()
+            return glass_chip()
                 .text_color(muted)
-                .child("Chosen when you run it")
+                .child("Repository chosen when you run it")
                 .into_any_element();
         }
         let current = action.repository_id.as_deref().map(|repo_id| {
@@ -1073,29 +1066,19 @@ impl ActionDetailView {
 
         if !editable || !self.repos_loaded {
             return match current {
-                Some(name) => h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .items_center()
-                    .text_xs()
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .child(Icon::from(ExpIcon::GitMerge).xsmall().text_color(muted)),
-                    )
-                    .child(div().min_w_0().truncate().child(SharedString::from(name)))
+                Some(name) => glass_chip()
+                    .child(Icon::from(ExpIcon::GitMerge).xsmall().text_color(muted))
+                    .child(SharedString::from(name))
                     .into_any_element(),
-                None => div()
-                    .text_xs()
+                None => glass_chip()
                     .text_color(muted)
                     .child("No repository (scratch run)")
                     .into_any_element(),
             };
         }
 
-        // EXP-298: the shared full-width picker row (issue-properties
-        // parity) — a hand-rolled `w_full` Button centers its own label.
+        // EXP-417: a content-sized chip in the header's controls row (the
+        // issue-header chip parity).
         let bound = current.is_some();
         let label: SharedString = match current {
             Some(name) => name.into(),
@@ -1103,14 +1086,12 @@ impl ActionDetailView {
         };
         let repos = self.repos.clone();
         let view = cx.entity().downgrade();
-        picker_trigger(
-            "action-detail-repo",
-            bound.then(|| Icon::from(ExpIcon::GitMerge)),
-            label,
-            !bound,
-            cx,
-        )
-        .dropdown_menu(move |mut menu, _window, _cx| {
+        let trigger = chip_button("action-detail-repo", cx)
+            .when(bound, |button| {
+                button.icon(Icon::from(ExpIcon::GitMerge).xsmall().text_color(muted))
+            })
+            .label(label);
+        trigger.dropdown_menu(move |mut menu, _window, _cx| {
             let none_view = view.clone();
             menu = menu.item(
                 PopupMenuItem::new("No repository (scratch run)").on_click(move |_, _, cx| {
@@ -1274,133 +1255,162 @@ impl Render for ActionDetailView {
                 })
         };
 
-        // The PROMPT label is the only cue separating the one-line
-        // description above from the markdown body below.
-        let prompt_header = v_flex()
-            .px(px(DETAIL_GUTTER))
-            .pt_3()
-            .pb_1()
-            .gap_0p5()
-            .child(group_label("Prompt", cx))
-            .when(action.builtin, |this| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("Built-in action: shipped with the app, not editable."),
-                )
-            });
-        let prompt = self.render_prompt(editable, cx);
-
-        let mut column = v_flex().w_full().pb_6().child(title);
-        if let Some(description) = description {
-            column = column.child(description);
-        }
-        column = column.child(prompt_header).child(prompt);
-        if let Some(inputs) = self.render_inputs(&action, editable, cx) {
-            column = column
-                .child(
-                    div()
-                        .px(px(DETAIL_GUTTER))
-                        .pt_4()
-                        .pb_1()
-                        .child(group_label("Inputs", cx)),
-                )
-                .child(div().px(px(DETAIL_GUTTER)).child(inputs));
-        }
-
-        // ---- sidebar --------------------------------------------------------
-        let mut sidebar = crate::surface::glass_sidebar();
-
-        // EXP-298: the destructive verb rides a compact `…` toolbar row (the
-        // issue properties panel's shape) instead of the full-width red button
-        // it used to shout with directly under Run.
-        if editable {
-            let delete_id = action.id.clone();
-            let delete_name = action.name.clone();
-            sidebar = sidebar.child(
-                h_flex()
-                    .w_full()
-                    .gap_0p5()
-                    .items_center()
-                    .min_w_0()
-                    .child(div().flex_1().min_w_0())
-                    .child(
-                        Button::new("action-detail-menu")
-                            .ghost()
-                            .xsmall()
-                            .icon(Icon::new(registry::UI_MORE).text_color(muted))
-                            .dropdown_menu(move |menu, _window, _cx| {
-                                let id = delete_id.clone();
-                                let name = delete_name.clone();
-                                menu.item(
-                                    PopupMenuItem::new("Delete action…")
-                                        .icon(Icon::new(registry::UI_DELETE))
-                                        .on_click(move |_, window, cx| {
-                                            crate::actions_panel::prompt_delete_action(
-                                                window,
-                                                cx,
-                                                id.clone(),
-                                                name.clone(),
-                                            );
-                                        }),
-                                )
-                            }),
-                    ),
-            );
-        }
-
+        // ---- controls row (EXP-417: was the right sidebar) ------------------
         let run_id = action.id.clone();
         let run_team = action.team_id.clone();
         // EXP-367: no agent CLI → disabled with the reason, never hidden.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        sidebar = sidebar.child(
-            Button::new("action-detail-run")
-                .primary()
-                .small()
-                .w_full()
-                .icon(Icon::from(ExpIcon::Play))
-                .label("Run on this device")
-                .when_some(no_agent.clone(), |button, reason| button.tooltip(reason))
-                .disabled(no_agent.is_some())
-                .on_click(move |_: &ClickEvent, window, cx| {
-                    crate::start_coding_dialog::open_for_action(
-                        window,
-                        cx,
-                        run_team.clone(),
-                        run_id.clone(),
-                    );
-                }),
-        );
-
-        let repository = self.render_repository(&action, editable, cx);
-        sidebar = sidebar.child(property_group("Repository", repository, cx));
+        let mut controls = h_flex()
+            .w_full()
+            .flex_wrap()
+            .gap_2()
+            .items_center()
+            .px(px(DETAIL_GUTTER))
+            .pt_2()
+            .child(
+                Button::new("action-detail-run")
+                    .primary()
+                    .small()
+                    .icon(Icon::from(ExpIcon::Play))
+                    .label("Run on this device")
+                    .when_some(no_agent.clone(), |button, reason| button.tooltip(reason))
+                    .disabled(no_agent.is_some())
+                    .on_click(move |_: &ClickEvent, window, cx| {
+                        crate::start_coding_dialog::open_for_action(
+                            window,
+                            cx,
+                            run_team.clone(),
+                            run_id.clone(),
+                        );
+                    }),
+            )
+            .child(self.render_repository(&action, editable, cx));
         // A builtin's glyph is product-shipped like the rest of it.
         if !action.builtin {
-            let icon = self.render_icon(&action, editable, cx);
-            sidebar = sidebar.child(property_group("Icon", icon, cx));
+            controls = controls.child(self.render_icon(&action, editable, cx));
         }
-        if let Some(error) = self.error.clone() {
-            sidebar = sidebar.child(div().text_xs().text_color(danger).child(error));
+        controls = controls.child(div().flex_1());
+        // EXP-298: the destructive verb rides a compact `…` menu instead of the
+        // full-width red button it used to shout with directly under Run.
+        if editable {
+            let delete_id = action.id.clone();
+            let delete_name = action.name.clone();
+            controls = controls.child(
+                Button::new("action-detail-menu")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::new(registry::UI_MORE).text_color(muted))
+                    .dropdown_menu(move |menu, _window, _cx| {
+                        let id = delete_id.clone();
+                        let name = delete_name.clone();
+                        menu.item(
+                            PopupMenuItem::new("Delete action…")
+                                .icon(Icon::new(registry::UI_DELETE))
+                                .on_click(move |_, window, cx| {
+                                    crate::actions_panel::prompt_delete_action(
+                                        window,
+                                        cx,
+                                        id.clone(),
+                                        name.clone(),
+                                    );
+                                }),
+                        )
+                    }),
+            );
         }
 
-        let body = h_flex()
-            .flex_1()
-            .min_h_0()
-            .items_start()
-            .overflow_hidden()
+        // ---- fixed header ---------------------------------------------------
+        let mut header = v_flex().w_full().child(title);
+        if let Some(description) = description {
+            header = header.child(description);
+        }
+        header = header.child(controls);
+        if let Some(error) = self.error.clone() {
+            header = header.child(
+                div()
+                    .px(px(DETAIL_GUTTER))
+                    .pt_1()
+                    .text_xs()
+                    .text_color(danger)
+                    .child(error),
+            );
+        }
+        if let Some(inputs) = self.render_inputs(&action, editable, cx) {
+            header = header
+                .child(
+                    div()
+                        .px(px(DETAIL_GUTTER))
+                        .pt_3()
+                        .pb_1()
+                        .child(group_label("Inputs", cx)),
+                )
+                // Ten input rows would eat the pane — the definition table
+                // scrolls inside the header instead.
+                .child(
+                    div()
+                        .id("action-inputs-scroll")
+                        .px(px(DETAIL_GUTTER))
+                        .max_h(px(260.))
+                        .overflow_y_scroll()
+                        .child(inputs),
+                );
+        }
+        // The PROMPT label is the only cue separating the one-line
+        // description above from the markdown body below.
+        header = header.child(
+            v_flex()
+                .px(px(DETAIL_GUTTER))
+                .pt_3()
+                .pb_1()
+                .gap_0p5()
+                .child(group_label("Prompt", cx))
+                .when(action.builtin, |this| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("Built-in action: shipped with the app, not editable."),
+                    )
+                }),
+        );
+        if editable {
+            // EXP-417: the formatting bar is pinned here, so a long prompt
+            // never scrolls it away. Same inset as the editor slot below.
+            header = header.child(
+                div()
+                    .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
+                    .children(self.body_editor.clone().and_then(|editor| {
+                        editor.update(cx, |editor, cx| editor.toolbar_row(window, cx))
+                    })),
+            );
+        }
+
+        v_flex()
+            .size_full()
+            .child(
+                v_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .border_b_1()
+                    .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                    .child(centered_column(header)),
+            )
             .child(
                 div()
                     .id("action-detail-scroll")
                     .flex_1()
+                    .min_h_0()
                     .min_w_0()
-                    .h_full()
                     .overflow_y_scroll()
                     .track_scroll(&self.body_scroll)
-                    .child(centered_column(column)),
+                    // EXP-421: the editor records its slot WIDTH off this
+                    // column, so it must stay definite (`w_full` + `min_w`),
+                    // and the `min_h_full` chain is what lets the editor's
+                    // trailing filler absorb the leftover height.
+                    .child(centered_scroll_column(
+                        v_flex().pb_6().child(self.render_prompt(editable, cx)),
+                    )),
             )
-            .child(sidebar);
-
-        v_flex().size_full().child(body).into_any_element()
+            .into_any_element()
     }
 }

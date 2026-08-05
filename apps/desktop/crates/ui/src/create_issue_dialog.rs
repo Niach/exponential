@@ -32,7 +32,6 @@ use gpui::{
     Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
     calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
     input::{Input, InputEvent, InputState},
@@ -51,6 +50,7 @@ use crate::icons::{option_icon, registry, ExpIcon};
 use crate::markdown::image_paste::strip_draft_images;
 use crate::markdown::{self};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
+use crate::pickers::chip_button;
 use crate::wysiwyg::WysiwygDescription;
 use crate::navigation::{active_board_id, nav_for_window, navigate_from, Screen, TabOrigin};
 use crate::queries;
@@ -769,7 +769,7 @@ impl CreateIssueDialogView {
                         cx.notify();
                     });
                 }),
-                width: Some(px(260.)),
+                width: Some(px(crate::pickers::PICKER_SEARCH_WIDTH)),
             },
         )
     }
@@ -1075,10 +1075,13 @@ impl Render for CreateIssueDialogView {
                     .overflow_y_scroll()
                     .track_scroll(&self.desc_scroll)
                     .child(
+                        // EXP-421: the filler reads as text, so it carries the
+                        // text cursor — the caret lands here on click.
                         div()
                             .min_h_full()
                             .flex()
                             .flex_col()
+                            .cursor(gpui::CursorStyle::IBeam)
                             .child(self.description.clone()),
                     ),
             )
@@ -1090,13 +1093,6 @@ impl Render for CreateIssueDialogView {
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-/// The web chip trigger: `Button variant="ghost" size="xs"` in
-/// muted-foreground.
-fn chip_button(id: &'static str, cx: &App) -> Button {
-    let _ = cx;
-    Button::new(id).ghost().xsmall()
-}
 
 /// Web `bg-indigo-600` (a literal Tailwind color on web, not a theme token).
 fn indigo_600() -> gpui::Hsla {
