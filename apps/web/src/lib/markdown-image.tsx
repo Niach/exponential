@@ -8,14 +8,7 @@ import {
   type ReactNodeViewProps,
 } from "@tiptap/react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import {
-  Copy,
-  Download,
-  Eye,
-  Link as LinkIcon,
-  Ellipsis,
-  Trash2,
-} from "lucide-react"
+import { Copy, Download, Eye, Ellipsis, Trash2 } from "lucide-react"
 import { attachmentCollection } from "@/lib/collections"
 import { Button } from "@/components/ui/button"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
@@ -229,10 +222,6 @@ function MarkdownImageNodeView({
     }
   }
 
-  const handleCopyLink = async () => {
-    await navigator.clipboard.writeText(absoluteUrl()).catch(() => {})
-  }
-
   return (
     <NodeViewWrapper
       className={cn(
@@ -267,10 +256,6 @@ function MarkdownImageNodeView({
               <DropdownMenuItem onSelect={() => void handleCopyImage()}>
                 <Copy />
                 Copy image
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void handleCopyLink()}>
-                <LinkIcon />
-                Copy link
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -321,7 +306,13 @@ function MarkdownImageNodeView({
         height={height}
         style={renderWidth ? { width: `${renderWidth}px` } : undefined}
         className={cn(`editor-image`, !editor.isEditable && `cursor-zoom-in`)}
-        draggable="false"
+        // EXP-421: while editing, the image itself is the drag handle —
+        // TipTap's node-view dragstart sees `data-drag-handle`, selects the
+        // node and hands the drag to ProseMirror, which moves the block on
+        // drop (the dropcursor draws the target line). Read mode keeps the
+        // lightbox click and no drag.
+        draggable={editor.isEditable ? `true` : `false`}
+        data-drag-handle={editor.isEditable ? `` : undefined}
         onClick={editor.isEditable ? undefined : () => setLightboxOpen(true)}
       />
       <ImagePreviewDialog

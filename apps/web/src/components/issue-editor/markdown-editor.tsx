@@ -8,6 +8,7 @@ import {
 } from "react"
 import { createPortal } from "react-dom"
 import { type Editor, useEditor, EditorContent } from "@tiptap/react"
+import { TextSelection } from "@tiptap/pm/state"
 import { StarterKit } from "@tiptap/starter-kit"
 import { Link } from "@tiptap/extension-link"
 import { Placeholder } from "@tiptap/extension-placeholder"
@@ -99,6 +100,13 @@ interface MarkdownEditorProps {
   onBlur?: () => void
   placeholder?: string
   autoFocus?: boolean
+  /**
+   * Renders the formatting toolbar into a host-provided element instead of
+   * inline above the content (EXP-422: the issue detail page parks it in a
+   * sticky band together with the title). Undefined/null keeps the inline
+   * toolbar, so every dialog host is unaffected.
+   */
+  toolbarHost?: HTMLElement | null
 }
 
 type MarkdownEditorInstance = Editor & {
@@ -453,6 +461,7 @@ export const MarkdownEditor = forwardRef<
       autoFocus,
       imageUpload,
       editable = true,
+      toolbarHost,
     },
     ref
   ) => {
@@ -480,6 +489,17 @@ export const MarkdownEditor = forwardRef<
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
     const menuRef = useRef<HTMLDivElement | null>(null)
 
+    // True when `handleUploadedFiles` below would claim this batch — the drop
+    // handler needs to know BEFORE it decides to move the caret.
+    const willHandleDroppedFiles = (fileList: FileList | null | undefined) => {
+      const upload = imageUploadRef.current
+      const { images, others } = partitionUploadFiles(fileList)
+      if (!editable || !upload) return false
+      return (
+        images.length > 0 || (others.length > 0 && Boolean(upload.onOtherFiles))
+      )
+    }
+
     // Shared paste/drop handler: inline-image types go through the markdown
     // embed pipeline, everything else to the Files-section flow (when wired).
     const handleUploadedFiles = (
@@ -505,6 +525,10 @@ export const MarkdownEditor = forwardRef<
       extensions: [
         StarterKit.configure({
           heading: { levels: [1, 2, 3] },
+          // EXP-421: the horizontal line marking where a dragged image (or a
+          // dropped file) will land — themed, and thick enough to read
+          // against a paragraph edge.
+          dropcursor: { color: `var(--ring)`, width: 2 },
           // Replaced below by CodeBlockLowlight for syntax highlighting.
           codeBlock: false,
           // Replaced below by MarkdownParagraph so intentional blank lines
@@ -565,8 +589,31 @@ export const MarkdownEditor = forwardRef<
         },
         handlePaste: (_view, event) =>
           handleUploadedFiles(event.clipboardData?.files, event),
-        handleDrop: (_view, event) =>
-          handleUploadedFiles(event.dataTransfer?.files, event),
+        // EXP-421: a dropped file belongs where it was dropped, not at
+        // whatever the caret happened to be. The upload is async, so instead
+        // of tracking a position we move the SELECTION to the drop point now
+        // — ProseMirror maps it through every intervening transaction, and
+        // the eventual `insertImage` lands there. (Accepted consequence: if
+        // the user moves the caret mid-upload, the image follows the caret.)
+        // A file-less drop is an internal node drag: leave it entirely to
+        // ProseMirror, which moves the block itself.
+        handleDrop: (view, event) => {
+          if (willHandleDroppedFiles(event.dataTransfer?.files)) {
+            const coords = view.posAtCoords({
+              left: event.clientX,
+              top: event.clientY,
+            })
+            if (coords) {
+              view.dispatch(
+                view.state.tr.setSelection(
+                  TextSelection.near(view.state.doc.resolve(coords.pos))
+                )
+              )
+              view.focus()
+            }
+          }
+          return handleUploadedFiles(event.dataTransfer?.files, event)
+        },
       },
     })
 
@@ -790,7 +837,14 @@ export const MarkdownEditor = forwardRef<
     return (
       <div className="tiptap-wrapper">
         {editable ? (
-          <StaticToolbar editor={editor} imageUpload={imageUpload} />
+          toolbarHost ? (
+            createPortal(
+              <StaticToolbar editor={editor} imageUpload={imageUpload} />,
+              toolbarHost
+            )
+          ) : (
+            <StaticToolbar editor={editor} imageUpload={imageUpload} />
+          )
         ) : null}
         <EditorContent editor={editor} />
         {editable && autocomplete && menuStyle
