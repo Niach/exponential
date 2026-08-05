@@ -1,4 +1,4 @@
-import { CalendarDays, Megaphone } from "lucide-react"
+import { CalendarDays, Megaphone, Plus, Tag } from "lucide-react"
 import type { User } from "@/db/schema"
 import {
   ISSUE_PRIORITY_FALLBACK,
@@ -54,9 +54,9 @@ export interface IssuePropertiesPanelProps {
   boardId?: string
   onBoardChange?: (boardId: string) => void | Promise<void>
   disabled?: boolean
-  // Coding "Agent" section (EXP-184) — sidebar layout only. The slot owns its
-  // own PropertyGroup (its gating lives in issue-coding-rows.tsx, so the panel
-  // can't know whether it renders anything).
+  // Coding section (EXP-184) — sidebar layout only. The slot owns its own
+  // unlabeled PropertyGroup (its gating lives in issue-coding-rows.tsx, so the
+  // panel can't know whether it renders anything).
   codingSlot?: React.ReactNode
 }
 
@@ -231,17 +231,62 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       users={users}
       selectedUserId={assigneeId}
       onSelect={onAssigneeChange}
+      triggerClassName={
+        layout === `sidebar` ? `justify-start hover:text-foreground` : undefined
+      }
     />
   )
 
-  const labelControl = (
-    <LabelPicker
-      disabled={disabled}
-      teamId={teamId}
-      selectedLabelIds={selectedLabelIds}
-      onToggle={onToggleLabel}
-    />
-  )
+  // Sidebar (EXP-427): Linear-style label chips + a "+" affordance under the
+  // Labels heading; the whole row opens the picker. Chiprow keeps the compact
+  // dots-and-names default trigger.
+  const labelControl =
+    layout === `sidebar` ? (
+      <LabelPicker
+        disabled={disabled}
+        teamId={teamId}
+        selectedLabelIds={selectedLabelIds}
+        onToggle={onToggleLabel}
+        renderTrigger={(selectedLabels) => (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="h-auto max-w-full justify-start py-1 text-muted-foreground hover:text-foreground"
+            disabled={disabled}
+          >
+            {selectedLabels.length > 0 ? (
+              <span className="flex flex-wrap items-center gap-1">
+                {selectedLabels.map((label) => (
+                  <span
+                    key={label.id}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs text-foreground"
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: label.color }}
+                    />
+                    {label.name}
+                  </span>
+                ))}
+                <Plus className="size-3" />
+              </span>
+            ) : (
+              <>
+                <Tag className="size-3" />
+                Add label
+              </>
+            )}
+          </Button>
+        )}
+      />
+    ) : (
+      <LabelPicker
+        disabled={disabled}
+        teamId={teamId}
+        selectedLabelIds={selectedLabelIds}
+        onToggle={onToggleLabel}
+      />
+    )
 
   const dueDateControl = (
     <DueDateControl
@@ -274,22 +319,20 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   // EXP-422: no left rule (the reading column's own width already reads as the
   // boundary), and the sidebar scrolls on its own so a tall property stack
   // stays reachable without moving the description.
+  // EXP-427: Linear-style grouping — one "Properties" stack without per-field
+  // titles, a Labels section, then the (unlabeled) coding slot.
   if (layout === `sidebar`) {
     return (
-      <aside className="w-72 shrink-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 text-sm">
-        <PropertyGroup label="Status">{statusControl}</PropertyGroup>
-        <PropertyGroup label="Priority">{priorityControl}</PropertyGroup>
-        {!isSolo && (
-          <PropertyGroup label="Assignee">{assigneeControl}</PropertyGroup>
-        )}
+      <aside className="w-72 shrink-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-5 text-sm">
+        <PropertyGroup label="Properties">
+          {statusControl}
+          {priorityControl}
+          {!isSolo && assigneeControl}
+          {dueDateControl}
+          {boardChip}
+          {isWidgetSourced && <SourceChip />}
+        </PropertyGroup>
         <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
-        <PropertyGroup label="Due date">{dueDateControl}</PropertyGroup>
-        <PropertyGroup label="Board">{boardChip}</PropertyGroup>
-        {isWidgetSourced && (
-          <PropertyGroup label="Source">
-            <SourceChip />
-          </PropertyGroup>
-        )}
         {props.codingSlot}
       </aside>
     )
@@ -309,19 +352,21 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   )
 }
 
+// A sidebar section (EXP-427): an optional Linear-style muted heading over a
+// stacked run of rows. No label = just the stack (the coding slot).
 export function PropertyGroup({
   label,
   children,
 }: {
-  label: string
+  label?: string
   children: React.ReactNode
 }) {
   return (
-    <div className="space-y-1">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="flex items-center">{children}</div>
+    <div className="space-y-1.5">
+      {label && (
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      )}
+      <div className="flex flex-col items-start gap-1">{children}</div>
     </div>
   )
 }

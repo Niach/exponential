@@ -16,7 +16,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { User as UserIcon, X } from "lucide-react"
 import type { User } from "@/db/schema"
-import { getInitials } from "@/lib/utils"
+import { cn, getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 
 interface AssigneePickerProps {
@@ -27,6 +27,9 @@ interface AssigneePickerProps {
   // Replaces the default chip button (the mobile create form renders the
   // picker as a full-width property row).
   trigger?: React.ReactNode
+  // Extra classes for the default trigger button (the detail sidebar passes
+  // its row styling).
+  triggerClassName?: string
 }
 
 export function AssigneePicker({
@@ -35,6 +38,7 @@ export function AssigneePicker({
   selectedUserId,
   onSelect,
   trigger,
+  triggerClassName,
 }: AssigneePickerProps) {
   const [open, setOpen] = useState(false)
 
@@ -58,7 +62,9 @@ export function AssigneePicker({
           <Button
             variant="ghost"
             size="xs"
-            className="text-muted-foreground"
+            // max-w-full instead of a fixed name cap (EXP-427): the name
+            // truncates at the container edge, not at an arbitrary width.
+            className={cn(`max-w-full text-muted-foreground`, triggerClassName)}
             disabled={disabled}
           >
             {selectedUser ? (
@@ -76,7 +82,7 @@ export function AssigneePicker({
                     )}
                   </AvatarFallback>
                 </Avatar>
-                <span className="max-w-[6.25rem] truncate">
+                <span className="truncate">
                   {displayUserName(selectedUser, selectedUser.id)}
                 </span>
               </>

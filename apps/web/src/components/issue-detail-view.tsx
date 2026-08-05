@@ -508,7 +508,7 @@ export function IssueDetailView({
 
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
 
-  // Coding "coding now" / remote-start control (EXP-184): a sidebar "Agent"
+  // Coding "coding now" / remote-start control (EXP-184): an unlabeled sidebar
   // property group on desktop, the classic full-width row on mobile. The
   // component owns the repo/membership/relay gating and focuses the global
   // dock rather than mounting the live viewer inline.

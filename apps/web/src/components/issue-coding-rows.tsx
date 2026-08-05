@@ -46,9 +46,9 @@ const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 // viewer itself), plus a PR / pushed-branch row that links to the review-detail
 // route. Repo presence + membership + relay availability gate them (the same
 // signals the server enforces); everything degrades to nothing when absent.
-// EXP-184 split them: IssueCodingControl renders as a sidebar "Agent" property
-// group on desktop (variant='sidebar') or the classic full-width row on mobile
-// (variant='row'); IssuePrRow always stays a main-column row.
+// EXP-184 split them: IssueCodingControl renders as an unlabeled sidebar
+// property group on desktop (variant='sidebar') or the classic full-width row
+// on mobile (variant='row'); IssuePrRow always stays a main-column row.
 
 /** PR-state pill — open emerald / merged purple / closed rose / draft secondary. */
 export function PrStateBadge({ state }: { state: string | null | undefined }) {
@@ -406,7 +406,7 @@ function AgentRow({
 
     if (variant === `sidebar`) {
       return (
-        <PropertyGroup label="Agent">
+        <PropertyGroup>
           <div className="w-full space-y-2">
             <div className="flex min-w-0 items-center gap-2">
               {codingBadge}
@@ -468,7 +468,7 @@ function AgentRow({
     // remote start can't render (steer off / repo-less board).
     if (isMember && variant === `sidebar` && issue.prState === `open`) {
       return (
-        <PropertyGroup label="Agent">
+        <PropertyGroup>
           <div className="w-full space-y-2">
             <IssueMergeButton issue={issue} />
           </div>
@@ -508,7 +508,7 @@ function RemoteStartRow({
   if (remote.devices.length === 0) {
     if (variant === `sidebar`) {
       return (
-        <PropertyGroup label="Agent">
+        <PropertyGroup>
           <div className="w-full space-y-2">
             <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <UiDeviceOfflineIcon className="mt-0.5 size-3.5 shrink-0" />
@@ -569,7 +569,7 @@ function RemoteStartRow({
 
   if (variant === `sidebar`) {
     return (
-      <PropertyGroup label="Agent">
+      <PropertyGroup>
         <div className="w-full space-y-2">
           {startButton}
           {issue.prState === `open` && <IssueMergeButton issue={issue} />}
