@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-issue-link-chips`,
+    date: `2026-08-05`,
+    title: `Issue links become chips`,
+    summary: `Issue references render as live status chips, the issue page gets a cleaner header with a sticky toolbar, and dropped files land right where you drop them.`,
+    body: `- **Issue link chips**: #ABC-123 references in descriptions and comments now render as chips showing the linked issue's status, on web and desktop.
+- **Cleaner issue page**: the title and formatting toolbar stay pinned while you scroll, and the desktop app folds the old right sidebar into a compact header.
+- **Drop files in place**: files dragged into the editor insert at the drop position, and images can be dragged to reorder them.
+- **Activity feed**: a "created the issue" row now leads the timeline.
+- **Desktop**: the About page's licence notices no longer freeze the app while opening.`,
+  },
+  {
     id: `2026-08-desktop-windows-tools`,
     date: `2026-08-05`,
     title: `The desktop app finds your tools on Windows`,
