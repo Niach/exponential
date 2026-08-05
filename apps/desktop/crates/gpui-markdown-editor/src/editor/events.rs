@@ -245,7 +245,7 @@ impl Editor {
         }
     }
 
-    fn pasted_image_markdown(&self, source: &PastedImageSource) -> anyhow::Result<String> {
+    pub(super) fn pasted_image_markdown(&self, source: &PastedImageSource) -> anyhow::Result<String> {
         let source = match source {
             PastedImageSource::LocalPath(path) => PastedImage::LocalPath(path.clone()),
             PastedImageSource::ClipboardImage(image) => PastedImage::Encoded {
@@ -267,7 +267,7 @@ impl Editor {
         Ok(format!("![{alt}]({source})"))
     }
 
-    fn show_image_paste_error(&self, err: anyhow::Error, cx: &mut Context<Self>) {
+    pub(super) fn show_image_paste_error(&self, err: anyhow::Error, cx: &mut Context<Self>) {
         cx.emit(MarkdownEditorEvent::Error {
             message: err.to_string(),
         });

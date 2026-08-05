@@ -45,26 +45,22 @@ pub(crate) fn tab_chip(selected: bool, cx: &App) -> Div {
     }
 }
 
-/// Width of the right detail sidebars (issue properties / action detail /
-/// support thread). EXP-282: shared here (was one const + two magic 240s)
-/// and trimmed 240 → 220; EXP-285 trimmed again 220 → 192 per feedback.
-pub(crate) const DETAIL_SIDEBAR_WIDTH: f32 = 192.;
-
-/// Right detail sidebar container (EXP-282): the shared column shape the
-/// three detail views hand-rolled identically. EXP-285: no section fill —
-/// every pane sits on the ONE page gradient (only the icon rail is tinted);
-/// a hairline marks the boundary to the center.
-pub(crate) fn glass_sidebar() -> Div {
-    v_flex()
-        .w(px(DETAIL_SIDEBAR_WIDTH))
+/// A NON-interactive chip (EXP-417): the glass fill + radius the interactive
+/// `pickers::chip_button` triggers read as, sized to its content. The detail
+/// headers' read-only properties (Origin, a single-board team's Board, an
+/// action's repository/icon when it can't be changed) wear it.
+pub(crate) fn glass_chip() -> Div {
+    div()
+        .flex()
+        .items_center()
         .flex_shrink_0()
-        .h_full()
-        .px_3()
-        .py_3()
-        .gap_3()
-        .text_sm()
-        .border_l_1()
-        .border_color(t::glass::STROKE_ROW.to_hsla())
+        .gap_1p5()
+        .px_2()
+        .py_1()
+        .rounded(px(t::radius::SM))
+        .bg(t::glass::FILL_CARD.to_hsla())
+        .text_xs()
+        .font_weight(gpui::FontWeight::MEDIUM)
 }
 
 /// Shared markdown `TextView` style (EXP-282): code blocks get a glass

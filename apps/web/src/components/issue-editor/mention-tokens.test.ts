@@ -23,7 +23,11 @@ function makeEditor(content: string) {
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       IssueRefExtension.configure({
         // Resolve everything so the pill decorations are actually active.
-        getResolved: () => ({ title: `Some issue` }),
+        getResolved: () => ({
+          title: `Some issue`,
+          statusIcon: `circle`,
+          statusColor: `var(--foreground)`,
+        }),
         onOpen: () => {},
       }),
       MentionPillExtension.configure({

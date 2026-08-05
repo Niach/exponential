@@ -1,17 +1,22 @@
-//! The issue-detail properties sidebar (masterplan-v3 §4.2; web parity
-//! target: `apps/web/src/components/issue-properties-panel.tsx` in `sidebar`
-//! layout — desktop always renders the non-mobile branch, §4.9).
+//! The issue-detail HEADER state (EXP-417 — was the right properties
+//! sidebar): everything above the scrolling body except the title input.
 //!
-//! Groups top-to-bottom exactly like web: Status · Priority · Assignee ·
-//! Labels · Due date · Board. Every
-//! control mutates immediately through tRPC (`issues.update` /
+//! It is an entity for its state (calendars, picker queries, busy flags, the
+//! ~12 collection subscriptions) but NOT a view — the detail view interleaves
+//! its rows with the title block it owns itself, so this renders through
+//! three builders called from the host's render: [`IssueHeader::top_row`]
+//! (switcher · copy-link · subscribe · `…`), [`IssueHeader::chip_row`]
+//! (Status · Priority · Assignee · Labels · Due date · Board · Origin) and
+//! [`IssueHeader::agent_row`] (coding-now pill · Start coding · Merge PR ·
+//! Fix conflicts). The host observes this entity so a builder's `cx.notify()`
+//! reaches it.
+//!
+//! Every control mutates immediately through tRPC (`issues.update` /
 //! `issueLabels.add|remove`) in the §4.1 un-gated form — the Electric echo
 //! re-renders. `completed_at` is server-managed and never set here.
 //!
-//! Due-date control (§4.2, web `DueDateControl` sidebar layout): a ghost
-//! trigger labeled **"Due date" when empty**, icon + short date once set
-//! (the icon-only-when-empty rule applies to the board ROW's
-//! `due-date-dropdown.tsx`, not this panel); the popover hosts the
+//! Due-date control (§4.2, web `DueDateControl`): a chip labeled **"Due date"
+//! when empty**, icon + short date once set; the popover hosts the
 //! gpui-component `Calendar` plus a Clear action. The due date is a DATE with
 //! no time-of-day component anywhere in the product (REV2-49 deleted the
 //! `due_time`/`end_time` columns), so there is nothing to cascade on clear.
@@ -22,7 +27,7 @@ use chrono::NaiveDate;
 
 use gpui::{
     div, px, App, AppContext as _, ClipboardItem, Entity, FontWeight, IntoElement, ParentElement,
-    Render, SharedString, Styled, Subscription, Window,
+    SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -34,7 +39,6 @@ use gpui_component::{
 };
 use serde::Serialize;
 use sync::Store;
-use theme::tokens as t;
 
 use domain::board::format_short_date;
 use domain::options::get_issue_priority_config;
@@ -42,18 +46,12 @@ use domain::rows::{Issue, Label, Board, User};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, registry, ExpIcon};
-use crate::pickers::picker_trigger;
-use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of};
+use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH};
+use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of, DETAIL_GUTTER};
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, replace_screen, Screen};
 use crate::queries;
-use crate::surface;
-
-/// Inner content width of the sidebar: [`surface::DETAIL_SIDEBAR_WIDTH`]
-/// minus `glass_sidebar`'s `px_3` (12px) gutters. EXP-282: every picker
-/// trigger spans it and every dropdown/popover is matched to it, so the panel
-/// reads as ONE stack of full-width controls instead of ragged chips.
-const SIDEBAR_INNER_WIDTH: f32 = surface::DETAIL_SIDEBAR_WIDTH - 24.;
+use crate::surface::glass_chip;
 
 /// EXP-48 switcher position: where the displayed issue sits in the active
 /// issue list's flattened visible ordering. (Moved here with the toolbar
@@ -66,7 +64,7 @@ struct SwitcherState {
     next_id: Option<String>,
 }
 
-pub struct PropertiesPanel {
+pub struct IssueHeader {
     issue_id: Option<String>,
     due_calendar: Entity<CalendarState>,
     /// Search query of the Labels popover (EXP-282 — the searchable picker
@@ -78,13 +76,13 @@ pub struct PropertiesPanel {
     board_query: Entity<InputState>,
     /// The window's shared rail state — the EXP-48 switcher reads the active
     /// issue board's query + filters from it (EXP-277: the switcher lives in
-    /// this panel's toolbar row now).
+    /// this header's top row now).
     rail_shared: Entity<crate::sidebar::RailShared>,
     /// Subscribe-toggle in-flight flag (web `busy`).
     subscribe_busy: bool,
     /// Copy-link feedback: the toolbar button shows a check for ~1.5s after a
     /// copy (web `linkCopied`). The seq guards the disarm timer against a
-    /// re-click racing an older timer (the sidebar's merge-confirm pattern).
+    /// re-click racing an older timer (the merge-confirm pattern).
     link_copied: bool,
     link_copied_seq: u64,
     /// The detail view's Start-coding control, rendered here as the "Agent"
@@ -94,7 +92,7 @@ pub struct PropertiesPanel {
     _subscriptions: Vec<Subscription>,
 }
 
-impl PropertiesPanel {
+impl IssueHeader {
     pub fn new(
         start_coding: Entity<StartCodingControl>,
         window: &mut Window,
@@ -123,7 +121,7 @@ impl PropertiesPanel {
                 this.commit_due_date(Some(*date), cx);
             },
         ));
-        // Re-render on every collection this panel reads; keep the calendars
+        // Re-render on every collection this header reads; keep the calendars
         // mirroring the synced due date (remote edits included).
         let collections = Store::global(cx).collections().clone();
         subscriptions.push(cx.observe_in(
@@ -156,7 +154,7 @@ impl PropertiesPanel {
         ] {
             subscriptions.push(subscription);
         }
-        // EXP-48 switcher (EXP-277: now in this panel's toolbar): the counter
+        // EXP-48 switcher (EXP-277: now in this header's top row): the counter
         // follows the ACTIVE issue list — tool swaps notify the shared rail
         // state, filter changes notify the boards (issue reorders already
         // ride the issues observer above).
@@ -181,7 +179,7 @@ impl PropertiesPanel {
         }
     }
 
-    /// Point the panel at another issue.
+    /// Point the header at another issue.
     pub fn set_issue(
         &mut self,
         issue_id: Option<String>,
@@ -307,21 +305,17 @@ impl PropertiesPanel {
         let current_key = resolved.group_key.clone();
         let team_id = self.team_id_of(issue, cx);
         let issue_id = issue.id.clone();
-        picker_trigger(
-            "prop-status",
-            Some(crate::icons::resolved_status_icon(&resolved, cx)),
-            SharedString::from(resolved.name.clone()),
-            false,
-            cx,
-        )
-        .dropdown_menu(move |menu, _, cx| {
+        let trigger = chip_button("prop-status", cx)
+            .icon(crate::icons::resolved_status_icon(&resolved, cx))
+            .label(SharedString::from(resolved.name.clone()));
+        trigger.dropdown_menu(move |menu, _, cx| {
             let issue_id = issue_id.clone();
             let statuses = match &team_id {
                 Some(team_id) => crate::queries::team_status_options(cx, team_id),
                 None => domain::statuses::default_resolved_statuses(),
             };
             crate::pickers::status_menu(
-                menu.min_w(px(SIDEBAR_INNER_WIDTH)),
+                menu.min_w(px(PICKER_MENU_MIN_WIDTH)),
                 &statuses,
                 &current_key,
                 // L27: a duplicate-category pick opens the picker; every other
@@ -354,17 +348,13 @@ impl PropertiesPanel {
         let config = get_issue_priority_config(issue.priority);
         let current = issue.priority;
         let issue_id = issue.id.clone();
-        picker_trigger(
-            "prop-priority",
-            Some(option_icon(config, cx)),
-            SharedString::from(config.label),
-            false,
-            cx,
-        )
-        .dropdown_menu(move |menu, _, cx| {
+        let trigger = chip_button("prop-priority", cx)
+            .icon(option_icon(config, cx))
+            .label(SharedString::from(config.label));
+        trigger.dropdown_menu(move |menu, _, cx| {
             let issue_id = issue_id.clone();
             crate::pickers::priority_menu(
-                menu.min_w(px(SIDEBAR_INNER_WIDTH)),
+                menu.min_w(px(PICKER_MENU_MIN_WIDTH)),
                 current,
                 Rc::new(move |value, _window, cx| {
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
@@ -391,32 +381,29 @@ impl PropertiesPanel {
         let trigger = match issue.assignee_id.as_deref() {
             // Assigned — render the member's name, falling back to `Member
             // <LAST4>` when the co-member's user row didn't sync.
-            Some(id) => picker_trigger(
-                "prop-assignee",
-                Some(
+            Some(id) => chip_button("prop-assignee", cx)
+                .icon(
                     Icon::new(registry::UI_ASSIGNEE)
+                        .xsmall()
                         .text_color(cx.theme().muted_foreground),
-                ),
-                SharedString::from(crate::comments::user_label(id, selected.as_ref())),
-                false,
-                cx,
-            ),
-            None => picker_trigger(
-                "prop-assignee",
-                Some(
+                )
+                .label(SharedString::from(crate::comments::user_label(
+                    id,
+                    selected.as_ref(),
+                ))),
+            None => chip_button("prop-assignee", cx)
+                .icon(
                     Icon::new(registry::UI_UNASSIGNED)
+                        .xsmall()
                         .text_color(cx.theme().muted_foreground),
-                ),
-                "Assignee".into(),
-                true,
-                cx,
-            ),
+                )
+                .label("Assignee"),
         };
 
         trigger.dropdown_menu(move |menu, _, _| {
             let issue_id = issue_id.clone();
             crate::pickers::assignee_menu(
-                menu.min_w(px(SIDEBAR_INNER_WIDTH)),
+                menu.min_w(px(PICKER_MENU_MIN_WIDTH)),
                 &users,
                 current_id.as_deref(),
                 Rc::new(move |picked, _window, cx| {
@@ -434,9 +421,8 @@ impl PropertiesPanel {
     /// Web `LabelPicker`, EXP-282 as a SEARCHABLE popover (the board filter
     /// popover's `labels_view` pattern): "Filter labels..." input on top, live
     /// `contains()` filtering, checkbox + color-dot rows that toggle
-    /// `issueLabels.add|remove` without closing, and the empty state. The
-    /// popover matches the sidebar's inner width. Label creation stays in team
-    /// settings on desktop v1.
+    /// `issueLabels.add|remove` without closing, and the empty state. Label
+    /// creation stays in team settings on desktop v1.
     fn labels_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let labels = self.team_labels(issue, cx);
         let selected = self.selected_label_ids(&issue.id, cx);
@@ -452,13 +438,13 @@ impl PropertiesPanel {
                 .collect();
             names.join(", ")
         };
-        let trigger = picker_trigger(
-            "prop-labels",
-            Some(Icon::from(ExpIcon::Tag).text_color(cx.theme().muted_foreground)),
-            SharedString::from(trigger_label),
-            selected.is_empty(),
-            cx,
-        );
+        let trigger = chip_button("prop-labels", cx)
+            .icon(
+                Icon::from(ExpIcon::Tag)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .label(SharedString::from(trigger_label));
 
         crate::pickers::label_picker_popover(
             "prop-labels-popover",
@@ -470,13 +456,13 @@ impl PropertiesPanel {
                 on_toggle: Rc::new(move |label_id, was_selected, _window, cx| {
                     toggle_label(cx, issue_id.clone(), label_id.to_string(), was_selected);
                 }),
-                width: Some(px(SIDEBAR_INNER_WIDTH)),
+                width: Some(px(PICKER_SEARCH_WIDTH)),
             },
         )
     }
 
-    /// The due-date control (web `DueDateControl`, sidebar layout): a ghost
-    /// `CalendarDays` trigger labeled with the formatted short date when set,
+    /// The due-date control (web `DueDateControl`): a `CalendarDays` chip
+    /// labeled with the formatted short date when set,
     /// or the literal "Due date" when empty (`triggerLabel = dueDate ?
     /// formatDate(dueDate) : 'Due date'`); popover = Calendar + Clear.
     fn due_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -486,18 +472,18 @@ impl PropertiesPanel {
             None => "Due date".into(),
         };
         let has_due = due.is_some();
-        let trigger = picker_trigger(
-            "prop-due",
-            Some(Icon::from(ExpIcon::CalendarDays).text_color(cx.theme().muted_foreground)),
-            label,
-            !has_due,
-            cx,
-        );
+        let trigger = chip_button("prop-due", cx)
+            .icon(
+                Icon::from(ExpIcon::CalendarDays)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .label(label);
 
         let panel = cx.entity();
         // No width pin here (unlike the other pickers): the calendar grid has
-        // its own intrinsic width, wider than the sidebar column. The Clear
-        // button rides as the shared popover's `extra` row.
+        // its own intrinsic width. The Clear button rides as the shared
+        // popover's `extra` row.
         let extra: Option<crate::pickers::DueExtra> = has_due.then(|| {
             Rc::new(move |_window: &mut Window, cx: &mut App| {
                 let panel = panel.clone();
@@ -531,18 +517,7 @@ impl PropertiesPanel {
             return None;
         }
         Some(
-            // EXP-282: full-width glass chip (was an `accent/0.4` pill sized
-            // to its text).
-            h_flex()
-                .w_full()
-                .gap_1p5()
-                .px_2()
-                .py_1()
-                .rounded(px(t::radius::SM))
-                .bg(t::glass::FILL_CARD.to_hsla())
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .items_center()
+            glass_chip()
                 .child(
                     Icon::from(ExpIcon::MessageSquare)
                         .xsmall()
@@ -552,42 +527,49 @@ impl PropertiesPanel {
         )
     }
 
-    /// The "Agent" group body (EXP-256, web `issue-coding-rows.tsx` sidebar
-    /// variant): the synced coding-now pill above the full-width
-    /// Start-coding/Stop control, plus a Merge button while the linked PR is
-    /// open (EXP-268 — sidebar merge, web parity). The pill is skipped while
-    /// a LOCAL session runs — the control already shows the live indicator,
-    /// and the synced pill would double it as soon as the Electric echo
-    /// lands.
-    fn agent_control(
-        &self,
+    /// The agent row (EXP-256/EXP-417, web `issue-coding-rows.tsx`): the
+    /// synced coding-now pill on its OWN full-width line — its EXP-309
+    /// ellipsis chain needs one — above a wrapping row of the prominent
+    /// Start-coding/Stop control, the Merge button while the linked PR is
+    /// open (EXP-268), the merge error and the fix-conflicts offer. The pill
+    /// is skipped while a LOCAL session runs — the control already shows the
+    /// live indicator, and the synced pill would double it as soon as the
+    /// Electric echo lands.
+    ///
+    /// `None` when the board has no repository: with Start coding hidden
+    /// there is no PR either, so the whole row would be empty.
+    pub(crate) fn agent_row(
+        &mut self,
         issue: &Issue,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> Option<gpui::AnyElement> {
+        if !self.start_coding.read(cx).is_visible(cx) {
+            return None;
+        }
         let local_running = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
             .unwrap_or(false);
-        let mut column = v_flex().w_full().gap_2();
+        let mut column = v_flex().w_full().gap_2().px(px(DETAIL_GUTTER)).pb_2();
         if !local_running {
             if let Some(pill) = crate::issue_detail::coding_now_pill(&issue.id, cx) {
                 column = column.child(pill);
             }
         }
-        column = column.child(self.start_coding.clone());
+
+        let mut controls = h_flex()
+            .w_full()
+            .flex_wrap()
+            .gap_2()
+            .items_center()
+            .child(self.start_coding.clone());
         if issue.pr_state.as_deref() == Some("open") {
-            column = column.child(self.merge_button(issue, cx));
+            controls = controls.child(self.merge_button(issue, cx));
             let (error, failed_op) = {
                 let state = crate::pr_merge::MergeState::global(cx);
                 let state = state.read(cx);
                 (state.error(&issue.id), state.failed_op(&issue.id))
             };
             if let Some(error) = error {
-                column = column.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(error),
-                );
                 // EXP-313: a failed merge (typically conflicts) offers the
                 // builtin fix run right here — the Reviews-rail affordance,
                 // routed through the Start-coding dialog with this PR
@@ -597,15 +579,22 @@ impl PropertiesPanel {
                 // branch (the run rebases it); parks only while a fix run
                 // already works it.
                 if failed_op == Some(crate::pr_merge::FailedOp::Merge) && issue.branch.is_some() {
-                    column = column.child(self.fix_conflicts_button(issue, cx));
+                    controls = controls.child(self.fix_conflicts_button(issue, cx));
                 }
+                controls = controls.child(
+                    div()
+                        .min_w_0()
+                        .text_xs()
+                        .text_color(cx.theme().danger)
+                        .child(error),
+                );
             }
         }
-        column
+        Some(column.child(controls).into_any_element())
     }
 
-    /// The sidebar "Fix conflicts" button (EXP-313): opens the Start-coding
-    /// dialog with the fix-conflicts builtin and this issue's PR preselected.
+    /// The "Fix conflicts" button (EXP-313): opens the Start-coding dialog
+    /// with the fix-conflicts builtin and this issue's PR preselected.
     fn fix_conflicts_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // "Fixing…" only while an ACTUAL fix run works the branch — any other
         // session still holding it is ended by the fix-run launch itself.
@@ -617,10 +606,9 @@ impl PropertiesPanel {
         let board_id = issue.board_id.clone();
         // EXP-367: no agent CLI → disabled with the reason, never hidden.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let mut button = Button::new("sidebar-fix-conflicts")
+        let mut button = Button::new("header-fix-conflicts")
             .outline()
             .small()
-            .w_full()
             .icon(Icon::from(ExpIcon::GitBranch).text_color(cx.theme().muted_foreground))
             .label(if fixing { "Fixing…" } else { "Fix conflicts" })
             .tooltip(
@@ -651,7 +639,7 @@ impl PropertiesPanel {
         button
     }
 
-    /// The sidebar Merge button (EXP-268): two-click arm ("Merge" →
+    /// The header Merge button (EXP-268): two-click arm ("Merge" →
     /// "Confirm merge", auto-disarm ~5s — the reviews-rail pattern), then
     /// `issues.mergePr` on the background executor. The spinner is held
     /// until the Electric echo flips `pr_state` away from `open` (which
@@ -663,10 +651,9 @@ impl PropertiesPanel {
         let armed = merge_state.read(cx).armed(&issue.id);
         let merging = merge_state.read(cx).merging(&issue.id);
         let issue_id = issue.id.clone();
-        let mut button = Button::new("sidebar-merge-pr")
+        let mut button = Button::new("header-merge-pr")
             .outline()
             .small()
-            .w_full()
             .icon(Icon::from(ExpIcon::GitMerge).text_color(if armed {
                 cx.theme().danger
             } else {
@@ -747,7 +734,7 @@ impl PropertiesPanel {
     }
 
     /// Where this issue sits in the ACTIVE issue list's flattened visible
-    /// ordering (the sidebar's My Issues board while that tool is active,
+    /// ordering (the rail's My Issues board while that tool is active,
     /// the active board's list otherwise) — same grouping, same EXP-38
     /// comparator, same filters the list applies. `None` (hide the switcher)
     /// when no list scope resolves or the issue isn't in the filtered list.
@@ -887,8 +874,8 @@ impl PropertiesPanel {
             }))
     }
 
-    /// Web `SubscribeToggle`, icon-only in the 240px panel (Bell/BellOff +
-    /// tooltip), live off the `issue_subscribers` shape.
+    /// Web `SubscribeToggle`, icon-only (Bell/BellOff + tooltip), live off
+    /// the `issue_subscribers` shape.
     fn render_subscribe_toggle(
         &mut self,
         issue: &Issue,
@@ -988,24 +975,68 @@ impl PropertiesPanel {
             })
     }
 
-    /// EXP-277: the panel's compact toolbar row — the former issue-detail
-    /// header cluster. Switcher left, copy-link · subscribe · actions right.
-    fn render_toolbar(&mut self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let mut row = h_flex().w_full().gap_0p5().items_center().min_w_0();
-        row = row.children(self.render_switcher(issue, cx));
-        row = row.child(div().flex_1().min_w_0());
-        row = row.child(self.render_copy_link(issue, cx));
-        row = row.child(self.render_subscribe_toggle(issue, cx));
-        row = row.child(self.render_actions_menu(issue, cx));
-        row
+    /// EXP-277/EXP-417: the header's top row — switcher left, copy-link ·
+    /// subscribe · actions right.
+    pub(crate) fn top_row(
+        &mut self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        h_flex()
+            .w_full()
+            .gap_0p5()
+            .items_center()
+            .min_w_0()
+            .px(px(DETAIL_GUTTER))
+            .pt_2()
+            .children(self.render_switcher(issue, cx))
+            .child(div().flex_1().min_w_0())
+            .child(self.render_copy_link(issue, cx))
+            .child(self.render_subscribe_toggle(issue, cx))
+            .child(self.render_actions_menu(issue, cx))
+            .into_any_element()
     }
 
-    /// The Board control (EXP-282): the board's own glyph tinted with its
-    /// color (the rail's `rail_board_icon` treatment — the anonymous color dot
-    /// is gone) + its name, as a full-width row. With another board in the
-    /// team the row becomes a PICKER over the shared move-to-board menu (the
-    /// same `issues.move` the row context menu and the `…` actions menu
-    /// already offer); a single-board team keeps a static glass chip.
+    /// EXP-417: the mobile-style chip row under the title — Status · Priority ·
+    /// Assignee · Labels · Due date · Board · Origin, property-ish chips first
+    /// and the navigation-ish Board last. Wraps inside the detail view's
+    /// `centered_column`, which supplies the definite width `flex_wrap` needs.
+    pub(crate) fn chip_row(
+        &mut self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        // EXP-50: a team with exactly one human member has no assignment
+        // choice — hide the assignee chip entirely (server-side default
+        // assignment keeps the data correct). Multi-member (and the not-yet-
+        // synced 0-member snapshot) keeps the picker.
+        let solo_team = self.member_users(issue, cx).len() == 1;
+
+        h_flex()
+            .w_full()
+            .flex_wrap()
+            .gap_1()
+            .items_center()
+            .px(px(DETAIL_GUTTER))
+            .pb_1()
+            .child(self.status_control(issue, cx))
+            .child(self.priority_control(issue, cx))
+            .when(!solo_team, |row| {
+                row.child(self.assignee_control(issue, cx))
+            })
+            .child(self.labels_control(issue, cx))
+            .child(self.due_control(issue, cx))
+            .children(self.board_chip(issue, cx))
+            .children(self.origin_chip(issue, cx))
+            .into_any_element()
+    }
+
+    /// The Board chip (EXP-282): the board's own glyph tinted with its color
+    /// (the rail's `rail_board_icon` treatment — the anonymous color dot is
+    /// gone) + its name. With another board in the team the chip becomes a
+    /// PICKER over the shared move-to-board menu (the same `issues.move` the
+    /// row context menu and the `…` actions menu already offer); a
+    /// single-board team keeps a static glass chip.
     fn board_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
         let board: Board = Store::global(cx)
             .collections()
@@ -1022,21 +1053,7 @@ impl PropertiesPanel {
         let name = SharedString::from(board.name.clone());
 
         if crate::issue_list::move_target_boards(cx, &issue.board_id).is_empty() {
-            return Some(
-                h_flex()
-                    .w_full()
-                    .gap_1p5()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(t::radius::SM))
-                    .bg(t::glass::FILL_CARD.to_hsla())
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .items_center()
-                    .child(icon.xsmall())
-                    .child(name)
-                    .into_any_element(),
-            );
+            return Some(glass_chip().child(icon.xsmall()).child(name).into_any_element());
         }
 
         // EXP-316: the web `BoardPicker` recipe — a searchable "Move to
@@ -1046,7 +1063,7 @@ impl PropertiesPanel {
         Some(
             crate::pickers::board_picker_popover(
                 "prop-board-popover",
-                picker_trigger("prop-board", Some(icon), name, false, cx),
+                chip_button("prop-board", cx).icon(icon.xsmall()).label(name),
                 crate::pickers::BoardPickerParams {
                     boards,
                     current_board_id: issue.board_id.clone(),
@@ -1054,64 +1071,11 @@ impl PropertiesPanel {
                     on_pick: Rc::new(move |board_id: String, _window, cx| {
                         crate::issue_list::spawn_issue_move(cx, issue_id.clone(), board_id);
                     }),
-                    width: Some(px(SIDEBAR_INNER_WIDTH)),
+                    width: Some(px(PICKER_SEARCH_WIDTH)),
                 },
             )
             .into_any_element(),
         )
-    }
-}
-
-impl Render for PropertiesPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-277: no left hairline — whitespace separates the sidebar from
-        // the centered detail column (blended chrome). EXP-282: the shared
-        // `glass_sidebar` shape (220px + a glass section fill) replaced the
-        // hand-rolled 240px column, so the panel reads as a distinct pane over
-        // the page gradient like the left tool column.
-        let base = surface::glass_sidebar();
-
-        let Some(issue) = self.issue(cx) else {
-            return base;
-        };
-
-        // EXP-50: a team with exactly one human member has no assignment
-        // choice — hide the assignee control entirely (server-side default
-        // assignment keeps the data correct). Multi-member (and the not-yet-
-        // synced 0-member snapshot) keeps the picker.
-        let solo_team = self.member_users(&issue, cx).len() == 1;
-
-        base.child(self.render_toolbar(&issue, cx))
-            .child(property_group("Status", self.status_control(&issue, cx), cx))
-            .child(property_group(
-                "Priority",
-                self.priority_control(&issue, cx),
-                cx,
-            ))
-            .when(!solo_team, |panel| {
-                panel.child(property_group(
-                    "Assignee",
-                    self.assignee_control(&issue, cx),
-                    cx,
-                ))
-            })
-            .child(property_group("Labels", self.labels_control(&issue, cx), cx))
-            .child(property_group(
-                "Due date",
-                self.due_control(&issue, cx),
-                cx,
-            ))
-            .when_some(self.board_chip(&issue, cx), |panel, chip| {
-                panel.child(property_group("Board", chip, cx))
-            })
-            .when_some(self.origin_chip(&issue, cx), |panel, chip| {
-                panel.child(property_group("Origin", chip, cx))
-            })
-            // Web places Agent last; gate on the control's own visibility so
-            // a repo-less board never shows an orphaned group label.
-            .when(self.start_coding.read(cx).is_visible(cx), |panel| {
-                panel.child(property_group("Agent", self.agent_control(&issue, cx), cx))
-            })
     }
 }
 
@@ -1121,31 +1085,10 @@ use gpui::prelude::FluentBuilder as _;
 // Pieces
 // ---------------------------------------------------------------------------
 
-/// Web `PropertyGroup`: UPPERCASE micro-label over the control
-/// (`text-[11px] font-medium uppercase tracking-wide text-muted-foreground`
-/// — the CSS `uppercase` transform is baked into the string here).
-/// `pub(crate)` — the support-thread and action-detail sidebars reuse it
-/// (EXP-277).
-pub(crate) fn property_group(
-    label: &'static str,
-    control: impl IntoElement,
-    cx: &App,
-) -> impl IntoElement {
-    v_flex()
-        // EXP-282: the group spans the sidebar's inner width so the
-        // full-width picker rows inside it can resolve their `w_full`.
-        .w_full()
-        .gap_1()
-        .items_start()
-        .child(group_label(label, cx))
-        .child(control)
-}
-
-/// The group's UPPERCASE micro-label on its own (EXP-298): the action
-/// detail's center-column PROMPT / INPUTS headers sit at a different
-/// horizontal inset than their content (the WYSIWYG slot subtracts its own
-/// block padding), so they can't ride [`property_group`] — but they must read
-/// identically to the sidebar groups.
+/// A section's UPPERCASE micro-label (EXP-298): the action detail's PROMPT /
+/// INPUTS headers and the machines list. Web `PropertyGroup` label styling
+/// (`text-[11px] font-medium uppercase tracking-wide text-muted-foreground` —
+/// the CSS `uppercase` transform is baked into the string here).
 pub(crate) fn group_label(label: &str, cx: &App) -> impl IntoElement {
     div()
         .text_size(px(11.))
@@ -1154,16 +1097,6 @@ pub(crate) fn group_label(label: &str, cx: &App) -> impl IntoElement {
         .child(SharedString::from(label.to_uppercase()))
 }
 
-/// EXP-282: the shared FULL-WIDTH picker trigger (status / priority /
-/// assignee / labels / due date / board).
-///
-/// gpui-component's `Button` hardwires `justify_center` on its inner label
-/// row and `refine_style` only reaches the outer box, so a `.w_full()` button
-/// built from `.icon()` + `.label()` centers its content. The row content
-/// therefore rides ONE `w_full` child that owns the layout — the established
-/// hand-rolled-row workaround — while the button keeps its ghost chrome,
-/// hover/active states and dropdown/popover plumbing. `muted` renders the
-/// placeholder ("Labels", "Assignee", "Due date") in the muted tone.
 /// Web `issueLabels.add` / `issueLabels.remove` toggle. `pub(crate)` — shared
 /// with the issue-row context menu's Labels submenu (§4.2).
 pub(crate) fn toggle_label(
@@ -1193,7 +1126,7 @@ pub(crate) fn toggle_label(
 
 /// §4.1 un-gated `issues.update` on a background thread — the Electric echo
 /// re-renders; errors log and the UI stays put (web inline behavior). Shared
-/// by the properties panel, the detail header actions and the title save.
+/// by the issue header's controls, the detail actions and the title save.
 pub(crate) fn spawn_issue_update(cx: &mut App, input: api::issues::IssuesUpdateInput) {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] issues.update skipped: no signed-in account");

@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button"
 import { MentionTextarea } from "@/components/mention-textarea"
 import { EventRow } from "@/components/comment-rows/event"
 import { RegularCommentRow } from "@/components/comment-rows/regular"
+import { relativeTime } from "@/components/comment-rows/format"
+import { displayUserName } from "@/lib/user-display"
 
 interface IssueTimelineProps {
   issue: Issue
@@ -127,83 +129,99 @@ export function IssueTimeline({
     await trpc.comments.delete.mutate({ id: commentId })
   }
 
-  // EXP-327: the rule runs the full width of the pane, not just the reading
-  // column — so the border sits on a full-width shell and the content
-  // re-centers itself inside it (the detail view mounts this OUTSIDE its own
-  // `max-w-3xl` wrapper for exactly that reason; desktop-app parity).
+  // Widget-filed issues have no creator (`creatorId` is NULL by design), so
+  // they read as filed by the widget itself — the wording every client shares.
+  const createdWho =
+    issue.source === `widget`
+      ? `Feedback widget`
+      : displayUserName(
+          issue.creatorId ? userMap.get(issue.creatorId) : undefined,
+          issue.creatorId
+        )
+  const createdTime = relativeTime(issue.createdAt)
+
+  // EXP-422 reverses EXP-327: the rule is bounded by the reading column, so
+  // the border and the centered body are ONE element (the detail view mounts
+  // this inside its `max-w-3xl` column; desktop-app parity).
   return (
-    <div className="border-t border-border">
-      <div className="mx-auto max-w-3xl px-4 py-3">
-        <div className="text-xs font-medium text-muted-foreground mb-2">
-          Activity {merged.length > 0 ? `(${merged.length})` : ``}
-        </div>
-        {merged.length === 0 && (
-          <div className="text-xs text-muted-foreground py-1">
-            No activity yet. Be the first to add a comment.
-          </div>
-        )}
-        {merged.map((item) => {
-          if (item.kind === `event`) {
-            return (
-              <EventRow
-                key={`e-${item.event.id}`}
-                event={item.event}
-                userMap={userMap}
-                labelMap={labelMap}
-                boardMap={boardMap}
-              />
-            )
-          }
-          const comment = item.comment
-          const author = userMap.get(comment.authorId)
-          // Author-only, no global-admin bypass (EXP-398): the server refuses
-          // the mutation for anyone else, so offering the menu would only ever
-          // be a lie.
-          const canModify = comment.authorId === currentUserId
+    <div className="mx-auto max-w-3xl border-t border-border px-4 py-3">
+      <div className="text-sm font-medium text-foreground mb-2">
+        Activity {merged.length > 0 ? `(${merged.length})` : ``}
+      </div>
+      {/* EXP-417: the issue's own creation, synthesized rather than stored —
+          natives already show it, and it is what makes an otherwise empty
+          timeline read as a history instead of a void. Never part of the
+          "(N)" count, which stays the count of real activity. */}
+      <div className="flex items-center gap-2 py-1 pl-1 text-xs text-muted-foreground">
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          <span className="size-1.5 rounded-full bg-current" />
+        </span>
+        <span className="truncate">
+          <span className="font-medium text-foreground">{createdWho}</span>
+          {` `}created the issue{createdTime ? ` · ${createdTime}` : ``}
+        </span>
+      </div>
+      {merged.map((item) => {
+        if (item.kind === `event`) {
           return (
-            <RegularCommentRow
-              key={comment.id}
-              author={author}
-              comment={comment}
-              canModify={canModify}
-              users={users}
-              editing={editingCommentId === comment.id}
-              onCancelEdit={() => setEditingCommentId(null)}
-              onDelete={() => void handleDelete(comment.id)}
-              onEdit={() => setEditingCommentId(comment.id)}
-              onSaveEdit={(text) => handleEditSave(comment.id, text)}
+            <EventRow
+              key={`e-${item.event.id}`}
+              event={item.event}
+              userMap={userMap}
+              labelMap={labelMap}
+              boardMap={boardMap}
             />
           )
-        })}
-        <form onSubmit={handleSubmit} className="mt-2 flex items-end gap-2">
-          <MentionTextarea
-            placeholder={composerPlaceholder}
-            value={draft}
-            onValueChange={setDraft}
+        }
+        const comment = item.comment
+        const author = userMap.get(comment.authorId)
+        // Author-only, no global-admin bypass (EXP-398): the server refuses
+        // the mutation for anyone else, so offering the menu would only ever
+        // be a lie.
+        const canModify = comment.authorId === currentUserId
+        return (
+          <RegularCommentRow
+            key={comment.id}
+            author={author}
+            comment={comment}
+            canModify={canModify}
             users={users}
-            className="min-h-16 text-sm"
-            disabled={submitting}
-            onKeyDown={(event) => {
-              if (
-                event.key === `Enter` &&
-                (event.metaKey || event.ctrlKey) &&
-                draft.trim()
-              ) {
-                event.preventDefault()
-                void handleSubmit(event)
-              }
-            }}
+            editing={editingCommentId === comment.id}
+            onCancelEdit={() => setEditingCommentId(null)}
+            onDelete={() => void handleDelete(comment.id)}
+            onEdit={() => setEditingCommentId(comment.id)}
+            onSaveEdit={(text) => handleEditSave(comment.id, text)}
           />
-          <Button
-            type="submit"
-            size="icon"
-            aria-label="Send comment"
-            disabled={submitting || !draft.trim()}
-          >
-            <Send className="size-4" />
-          </Button>
-        </form>
-      </div>
+        )
+      })}
+      <form onSubmit={handleSubmit} className="mt-2 flex items-end gap-2">
+        <MentionTextarea
+          placeholder={composerPlaceholder}
+          value={draft}
+          onValueChange={setDraft}
+          users={users}
+          className="min-h-16 text-sm"
+          disabled={submitting}
+          onKeyDown={(event) => {
+            if (
+              event.key === `Enter` &&
+              (event.metaKey || event.ctrlKey) &&
+              draft.trim()
+            ) {
+              event.preventDefault()
+              void handleSubmit(event)
+            }
+          }}
+        />
+        <Button
+          type="submit"
+          size="icon"
+          aria-label="Send comment"
+          disabled={submitting || !draft.trim()}
+        >
+          <Send className="size-4" />
+        </Button>
+      </form>
     </div>
   )
 }

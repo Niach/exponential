@@ -18,6 +18,8 @@ object MdStyle {
     val Link = Color(red = 0.42f, green = 0.64f, blue = 1.0f) // ~#6BA3FF
     val InlineCodeBg = Color.White.copy(alpha = 0.08f)
     val IssueRefBg = Color.White.copy(alpha = 0.10f) // #IDENTIFIER pill (web .issue-ref-pill)
+    val IssueRefBorder = Color.White.copy(alpha = 0.16f) // its hairline (EXP-423, Linear parity)
+    val ChipToken = Color.White.copy(alpha = 0.55f) // the muted `#IDENT` inside a chip
     val CodeBlockBg = Color.White.copy(alpha = 0.06f)
     val Blockquote = Color.White.copy(alpha = 0.6f)
     val QuoteBar = Color.White.copy(alpha = 0.2f) // blockquote left rule (EXP-246)
@@ -55,4 +57,10 @@ object MdStyle {
 
     val textInsetV = 4.dp
     val blockSpacing = 8.dp
+
+    // `#IDENTIFIER` chip geometry (EXP-423): a rounded RECT (iOS ~5pt, web 6px,
+    // desktop 4) — mention pills stay unpainted here, they keep their flat span.
+    val chipCornerRadius = 5.dp
+    val chipPadX = 2.dp
+    val chipIconSize = 13.dp
 }

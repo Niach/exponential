@@ -18,6 +18,44 @@ extension NSAttributedString.Key {
     /// The `.foregroundColor` a run had before it was chipped, so un-chipping
     /// restores the blockquote / body color instead of guessing (EXP-322).
     public static let markdownChipBaseColor = NSAttributedString.Key("exp.markdownChipBaseColor")
+
+    /// The `IssueRefStatusInfo` of a resolved `#IDENTIFIER` chip — the glyph
+    /// `MarkdownLayoutManager` paints over the token's `#` cell (EXP-423).
+    /// Render-only like every other chip attribute.
+    public static let markdownIssueRefStatus = NSAttributedString.Key("exp.markdownIssueRefStatus")
+}
+
+/// The status a resolved `#IDENTIFIER` chip shows: a shared-registry glyph name
+/// (EXP-273) plus the tint the platform's status colors resolved to (EXP-423,
+/// Linear parity). A reference type because it rides an attributed-string
+/// attribute.
+public final class IssueRefStatusInfo: NSObject {
+    public let iconName: String
+    public let color: PlatformColor
+
+    public init(iconName: String, color: PlatformColor) {
+        self.iconName = iconName
+        self.color = color
+    }
+
+    /// Equality over BOTH fields, for the same reason
+    /// `IssueRefTitleAttachment.isEqual` exists: `MarkdownChipDecorator`'s
+    /// `changed` flag IS an `NSAttributedString.isEqual`, and two freshly built
+    /// infos are otherwise never equal — the editor would rewrite its storage on
+    /// every keystroke forever. Comparing both fields (not just the name) is
+    /// what still lets a recolored status repaint.
+    public override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? IssueRefStatusInfo else { return false }
+        if other === self { return true }
+        return other.iconName == iconName && other.color == color
+    }
+
+    public override var hash: Int {
+        var hasher = Hasher()
+        hasher.combine(iconName)
+        hasher.combine(color)
+        return hasher.finalize()
+    }
 }
 
 /// The attributes every chip run carries (EXP-322). No `.backgroundColor`:
@@ -90,7 +128,8 @@ public enum IssueRefs {
     /// content is untouched, so serialization is unaffected.
     public static func decorate(
         _ attributed: NSAttributedString,
-        resolver: (String) -> String?
+        resolver: (String) -> String?,
+        statusResolver: ((String) -> IssueRefStatusInfo?)? = nil
     ) -> NSAttributedString {
         guard attributed.length > 0 else { return attributed }
         let ns = attributed.string as NSString
@@ -128,12 +167,30 @@ public enum IssueRefs {
             }
             let identifier = ns.substring(with: match.range(at: 1)).uppercased()
             guard let issueId = resolver(identifier) else { continue }
+            let status = statusResolver?(identifier)
+            var chipAttrs = expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor)
+            chipAttrs[.markdownIssueRef] = issueId
+            if let status { chipAttrs[.markdownIssueRefStatus] = status }
+            // Issue chips override the shared chip foreground to the muted
+            // token color (Linear look, EXP-423 cross-client parity) — the
+            // base color for `unchip` was captured above, BEFORE the override,
+            // so idempotence is unaffected. Mentions keep `linkColor`.
+            chipAttrs[.foregroundColor] = MarkdownStyle.chipTokenColor
             let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
-            target.addAttributes(
-                expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor)
-                    .merging([.markdownIssueRef: issueId]) { _, new in new },
-                range: match.range,
-            )
+            target.addAttributes(chipAttrs, range: match.range)
+            if status != nil {
+                // Hide the `#` UNDER the status glyph the layout manager paints
+                // in its cell: a color change, so zero characters move and the
+                // serializer, caret math and `chipAtomRange` are untouched by
+                // construction (EXP-423). Deliberate divergence — web and the
+                // desktop editor keep their `#` visible next to the icon, for
+                // edit affordance and offset-map safety.
+                target.addAttribute(
+                    .foregroundColor,
+                    value: PlatformColor.clear,
+                    range: NSRange(location: match.range.location, length: 1),
+                )
+            }
             mutable = target
         }
         return mutable ?? attributed
@@ -148,7 +205,8 @@ public enum IssueRefs {
     public static func decorateForDisplay(
         _ attributed: NSAttributedString,
         resolver: (String) -> String?,
-        titleResolver: (String) -> String?
+        titleResolver: (String) -> String?,
+        statusResolver: ((String) -> IssueRefStatusInfo?)? = nil
     ) -> NSAttributedString {
         guard attributed.length > 0 else { return attributed }
         let ns = attributed.string as NSString
@@ -192,11 +250,30 @@ public enum IssueRefs {
                 chipAttrs[key] = value
             }
             chipAttrs[.markdownIssueRef] = issueId
+            let status = statusResolver?(identifier)
+            if let status { chipAttrs[.markdownIssueRefStatus] = status }
+            // Linear look (EXP-423): muted token, foreground title — the same
+            // split web/Android/desktop ship. Mentions keep `linkColor`.
+            chipAttrs[.foregroundColor] = MarkdownStyle.chipTokenColor
+            let piece = NSMutableAttributedString(string: display, attributes: chipAttrs)
+            if !title.isEmpty {
+                let tokenLength = (token as NSString).length
+                piece.addAttribute(
+                    .foregroundColor,
+                    value: MarkdownStyle.textColor,
+                    range: NSRange(location: tokenLength, length: piece.length - tokenLength),
+                )
+            }
+            if status != nil {
+                // Same hidden `#` as the editable path (EXP-423).
+                piece.addAttribute(
+                    .foregroundColor,
+                    value: PlatformColor.clear,
+                    range: NSRange(location: 0, length: 1),
+                )
+            }
             let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
-            target.replaceCharacters(
-                in: match.range,
-                with: NSAttributedString(string: display, attributes: chipAttrs)
-            )
+            target.replaceCharacters(in: match.range, with: piece)
             mutable = target
         }
         return mutable ?? attributed

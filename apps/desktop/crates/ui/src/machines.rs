@@ -578,7 +578,7 @@ impl Render for MachinesSection {
                 div()
                     .px_3()
                     .py_1p5()
-                    .child(crate::properties_panel::group_label("My machines", cx)),
+                    .child(crate::issue_header::group_label("My machines", cx)),
             )
             .when(devices.is_none(), |this| {
                 this.child(

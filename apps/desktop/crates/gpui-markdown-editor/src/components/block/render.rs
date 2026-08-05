@@ -1002,6 +1002,35 @@ impl Block {
         )
     }
 
+    /// EXP-421 soft wrap: the widest a single mixed-inline chunk may lay out.
+    /// `inline_word_chunks` splits on whitespace only, so an unbroken run (or
+    /// a whole code span/background run, kept intact for a continuous pill)
+    /// is ONE unsplittable flex item — without a cap it claims its full
+    /// unwrapped width and inflates the row. A definite px cap derived from
+    /// the recorded slot width (mirroring `container_image_width_budget`'s
+    /// inset math) lets the over-long chunk soft-wrap INSIDE its own element.
+    /// Recorded PX, never `relative()` — a percent max_w cannot resolve in
+    /// taffy's intrinsic pass (EXP-233/EXP-261). `None` before the first
+    /// paint keeps today's behavior.
+    fn inline_chunk_width_budget(&self, d: &ThemeDimensions) -> Option<f32> {
+        let measured = f32::from_bits(
+            self.environment
+                .layout_width
+                .load(std::sync::atomic::Ordering::Relaxed),
+        );
+        (measured > 1.0).then(|| {
+            let quote_inset = d.quote_padding_left * visible_quote_guides(self) as f32;
+            let callout_inset = if self.callout_depth > 0 {
+                d.callout_padding_x * 2.0 + d.callout_border_width
+            } else {
+                0.0
+            };
+            let list_inset = d.nested_block_indent * self.render_depth as f32;
+            (measured - d.block_padding_x * 2.0 - list_inset - quote_inset - callout_inset)
+                .max(40.0)
+        })
+    }
+
     fn render_inline_tree_runs(
         &self,
         tree: &crate::components::InlineTextTree,
@@ -1011,6 +1040,7 @@ impl Block {
         font_weight: FontWeight,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let chunk_budget = self.inline_chunk_width_budget(&theme.dimensions);
         div()
             .w_full()
             .min_w(px(0.0))
@@ -1026,6 +1056,7 @@ impl Block {
                 base_color,
                 font_size,
                 font_weight,
+                chunk_budget,
                 cx,
             ))
             .into_any_element()
@@ -1038,6 +1069,7 @@ impl Block {
         base_color: Hsla,
         font_size: f32,
         font_weight: FontWeight,
+        chunk_budget: Option<f32>,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let cache = tree.render_cache();
@@ -1062,6 +1094,7 @@ impl Block {
                     base_color,
                     font_size,
                     font_weight,
+                    chunk_budget,
                     cx,
                 ));
             }
@@ -1079,6 +1112,7 @@ impl Block {
                     base_color,
                     font_size,
                     font_weight,
+                    chunk_budget,
                     cx,
                 ));
             }
@@ -1101,6 +1135,7 @@ impl Block {
                 base_color,
                 font_size,
                 font_weight,
+                chunk_budget,
                 cx,
             ));
         }
@@ -1115,6 +1150,7 @@ impl Block {
     /// per whitespace-delimited word lets the row break between words and keeps
     /// adjacent visuals on the same visual line. Inline code and background
     /// highlights stay a single element so their pill/background is continuous.
+    #[allow(clippy::too_many_arguments)]
     fn render_inline_text_word_segments(
         &self,
         text: &str,
@@ -1123,6 +1159,7 @@ impl Block {
         base_color: Hsla,
         font_size: f32,
         font_weight: FontWeight,
+        chunk_budget: Option<f32>,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let has_background = span
@@ -1137,12 +1174,14 @@ impl Block {
                 base_color,
                 font_size,
                 font_weight,
+                chunk_budget,
                 cx,
             ));
         }
         segments
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_inline_text_segment(
         &self,
         text: &str,
@@ -1151,6 +1190,7 @@ impl Block {
         base_color: Hsla,
         font_size: f32,
         font_weight: FontWeight,
+        chunk_budget: Option<f32>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         if text.is_empty() {
@@ -1181,6 +1221,10 @@ impl Block {
 
         let mut element = div()
             .min_w(px(0.0))
+            // EXP-421 soft wrap: cap every chunk at the recorded slot budget
+            // so an over-long unsplittable chunk wraps inside its own element
+            // (see `inline_chunk_width_budget`).
+            .when_some(chunk_budget, |element, budget| element.max_w(px(budget)))
             .text_size(px(display_font_size))
             .line_height(rems(theme.typography.text_line_height))
             .text_color(color)
@@ -1278,6 +1322,7 @@ impl Block {
                 base_color,
                 font_size,
                 FontWeight::NORMAL,
+                self.inline_chunk_width_budget(&theme.dimensions),
                 cx,
             ),
         }
@@ -1382,6 +1427,9 @@ impl Block {
                         theme.colors.text_default,
                         theme.typography.text_size,
                         font_weight,
+                        // Table cells manage their own definite widths — the
+                        // slot budget does not apply inside them.
+                        None,
                         cx,
                     ));
                 }
@@ -1396,6 +1444,7 @@ impl Block {
                             theme.colors.text_default,
                             theme.typography.text_size,
                             font_weight,
+                            None,
                             cx,
                         ));
                     }
@@ -2177,6 +2226,17 @@ impl Render for Block {
             let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
             let max_width = px(effective_image_width(self, viewport_width, d));
             if let Some(runtime) = self.image_runtime().cloned() {
+                // EXP-421 image hit-testing: this branch never mounts a
+                // `BlockTextElement`, so nothing wrote `last_bounds` and the
+                // selection resolvers skipped the row — clicks in the gaps
+                // around images mis-resolved. Clear the text-layout state so
+                // `index_for_mouse_position` keeps its safe 0 fallback, and
+                // record the row bounds via an IN-FLOW prepaint wrapper below
+                // (silent write, no notify — the `element.rs` paint
+                // convention; never an absolutely-positioned canvas, the
+                // documented EXP-335 layout-corruption case).
+                self.last_layout = None;
+                self.last_shaped = None;
                 // A resize may never upscale past the picture's own pixels
                 // (web parity); without a known natural size the column is the
                 // only honest bound.
@@ -2201,6 +2261,44 @@ impl Render for Block {
                     &strings,
                     overlay,
                 );
+                let entity = cx.entity().downgrade();
+                // EXP-421 DnD: the recorder wrapper doubles as the drag
+                // source for repositioning the image block. Prepaint hook
+                // FIRST (`.id()` wraps the Div Stateful, which hides it);
+                // the resize handles and the `…` menu button stop mouse-down
+                // propagation, so a handle drag never starts a block drag.
+                let ghost_label = SharedString::from(runtime.alt.clone());
+                let ghost_bg = theme.colors.editor_background;
+                let ghost_border = theme.colors.image_placeholder_border;
+                let ghost_text = theme.colors.text_default;
+                let content = div()
+                    .on_children_prepainted(move |bounds, _window, cx| {
+                        if let (Some(first), Some(entity)) =
+                            (bounds.first().copied(), entity.upgrade())
+                        {
+                            entity.update(cx, |block, _| block.last_bounds = Some(first));
+                        }
+                    })
+                    .id(ElementId::Name(
+                        format!("image-drag-{}", self.record.id).into(),
+                    ))
+                    .on_drag(
+                        crate::editor::dnd::ImageBlockDrag {
+                            entity_id: cx.entity().entity_id(),
+                        },
+                        move |_drag, _offset, _window, cx| {
+                            cx.new(|_| {
+                                crate::editor::dnd::ImageDragGhost::new(
+                                    ghost_label.clone(),
+                                    ghost_bg,
+                                    ghost_border,
+                                    ghost_text,
+                                )
+                            })
+                        },
+                    )
+                    .w_full()
+                    .child(content);
                 return focused_base
                     .group("wysiwyg-image")
                     .relative()

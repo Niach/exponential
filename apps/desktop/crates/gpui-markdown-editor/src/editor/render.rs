@@ -742,6 +742,10 @@ impl Render for Editor {
             .id("editor-scroll-inner")
             .flex()
             .flex_col()
+            // EXP-421: the whole text surface reads as text entry — margins
+            // and paddings included. Inner hitboxes (images, resize handles,
+            // the toolbar) still win with their own cursors.
+            .cursor(CursorStyle::IBeam)
             .bg(theme.colors.editor_background)
             .when(image_edge_top, |this| this.pt(px(12.0)))
             .when(image_edge_bottom, |this| this.pb(px(12.0)))
@@ -783,18 +787,25 @@ impl Render for Editor {
             scroll_content
         };
 
-        // EXP-335: record the painted content width into the shared
+        // EXP-335 / EXP-421: record the painted SLOT width into the shared
         // environment. Embedded editors fill their host slot — no
         // viewport-derived math can know that width — and standalone image
         // rows cap their width budget with it (see
         // `container_image_width_budget`). Change-gated: only a real width
         // change re-renders the image rows, so steady frames stay quiet.
+        // The listener lives on an OUTER bare wrapper whose single child is
+        // `content_area` (a `w_full().min_w(0)` div), so `bounds[0]` measures
+        // the editor's slot and never the fit-content width of the scroll
+        // column — measuring the content let a wide image row feed its own
+        // `measured - 2` budget back into next frame's measurement, shrinking
+        // the image by 2px per frame (the EXP-421 ratchet).
         // A prepaint listener, deliberately NOT an extra canvas element — an
         // absolutely-positioned recorder child measurably corrupted this
         // auto-height container's layout (the timeline below the editor
         // vanished behind a phantom scroll region).
         let width_listener = {
             let layout_width = self.environment.layout_width.clone();
+            let editor_for_origin = editor.clone();
             let blocks: Vec<Entity<crate::components::Block>> = self
                 .document
                 .flatten_visible_blocks()
@@ -802,10 +813,16 @@ impl Render for Editor {
                 .map(|visible| visible.entity.clone())
                 .collect();
             move |bounds: Vec<Bounds<Pixels>>, _window: &mut Window, cx: &mut App| {
-                let Some(width) = bounds.first().map(|bounds| f32::from(bounds.size.width))
-                else {
+                let Some(first) = bounds.first().copied() else {
                     return;
                 };
+                // Silent origin write (no notify): the drop indicator needs
+                // window→content coordinate conversion, nothing re-renders
+                // because of it.
+                let _ = editor_for_origin.update(cx, |editor, _| {
+                    editor.last_content_origin = first.origin;
+                });
+                let width = f32::from(first.size.width);
                 let previous =
                     f32::from_bits(layout_width.load(std::sync::atomic::Ordering::Relaxed));
                 if (width - previous).abs() > 0.5 {
@@ -824,9 +841,6 @@ impl Render for Editor {
         };
 
         let content_area = div()
-            // Registered on the bare `Div` — `.id()` wraps it Stateful, which
-            // no longer exposes the listener hook.
-            .on_children_prepainted(width_listener)
             .id("editor-scroll")
             .w_full()
             .when(!self.embedded, |this| this.h_full().flex_1())
@@ -834,6 +848,67 @@ impl Render for Editor {
             .bg(theme.colors.editor_background)
             .relative()
             .child(scroll_content);
+
+        // EXP-421 DnD: external file drops + internal image-block moves. The
+        // listeners ride `content_area` — the `.relative()` box the indicator
+        // line renders into. Rendered mode only (source mode is raw text).
+        let content_area = if self.view_mode == super::ViewMode::Rendered {
+            content_area
+                .on_drag_move::<ExternalPaths>(cx.listener(
+                    |this, event: &DragMoveEvent<ExternalPaths>, _window, cx| {
+                        this.update_drop_indicator(event.bounds, event.event.position, cx);
+                    },
+                ))
+                .on_drop::<ExternalPaths>(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                    let root_index = this
+                        .drop_indicator
+                        .map(|(index, _)| index)
+                        .unwrap_or_else(|| {
+                            this.drop_target_root_index(window.mouse_position().y, cx).0
+                        });
+                    this.clear_drop_indicator(cx);
+                    cx.emit(crate::api::MarkdownEditorEvent::ExternalFilesDropped {
+                        paths: paths.paths().to_vec(),
+                        root_index,
+                    });
+                }))
+                .on_drag_move::<super::dnd::ImageBlockDrag>(cx.listener(
+                    |this, event: &DragMoveEvent<super::dnd::ImageBlockDrag>, _window, cx| {
+                        this.update_drop_indicator(event.bounds, event.event.position, cx);
+                    },
+                ))
+                .on_drop::<super::dnd::ImageBlockDrag>(cx.listener(
+                    |this, drag: &super::dnd::ImageBlockDrag, window, cx| {
+                        let root_index = this
+                            .drop_indicator
+                            .map(|(index, _)| index)
+                            .unwrap_or_else(|| {
+                                this.drop_target_root_index(window.mouse_position().y, cx).0
+                            });
+                        this.clear_drop_indicator(cx);
+                        this.move_root_block(drag.entity_id, root_index, cx);
+                    },
+                ))
+        } else {
+            content_area
+        };
+
+        // The 2px insertion line while a drag hovers the editor. Window-space
+        // boundary Y → content-relative via the recorded content origin.
+        let content_area = if let Some((_, boundary_y)) = self.drop_indicator {
+            content_area.child(
+                div()
+                    .absolute()
+                    .top(boundary_y - self.last_content_origin.y - px(1.0))
+                    .left(px(4.0))
+                    .right(px(4.0))
+                    .h(px(2.0))
+                    .rounded_full()
+                    .bg(theme.colors.cursor),
+            )
+        } else {
+            content_area
+        };
 
         let content_area = if show_custom_scrollbar {
             let scrollbar_editor = editor.clone();
@@ -903,6 +978,17 @@ impl Render for Editor {
         } else {
             content_area
         };
+
+        // The slot-measuring wrapper (see the `width_listener` comment).
+        // Registered on the bare `Div` — `.id()` wraps it Stateful, which no
+        // longer exposes the listener hook. Its single child is
+        // `content_area`, so `bounds[0]` is content_area's own bounds.
+        let content_area = div()
+            .on_children_prepainted(width_listener)
+            .w_full()
+            .min_w(px(0.0))
+            .when(!self.embedded, |this| this.h_full().flex_1())
+            .child(content_area);
 
         // Repaint when the Cmd/Ctrl follow modifier toggles so a hovered link's
         // hand cursor updates without moving the pointer. `ModifiersChanged` is

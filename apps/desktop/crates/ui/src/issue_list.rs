@@ -53,7 +53,7 @@ use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_detail::{apply_status_selection, set_duplicate_of};
 use crate::pickers::{option_item, status_menu, StatusMenuScope, StatusPick};
 use crate::navigation::{navigate, Screen};
-use crate::properties_panel::toggle_label;
+use crate::issue_header::toggle_label;
 use crate::queries::{self, BoardData};
 
 /// Compact row height (§4.4: ~28px vs web's ~40px desktop row).
@@ -306,7 +306,7 @@ impl IssueListView {
     /// Exactly one, not `<= 1`: a count of 0 means team_members has not
     /// synced yet, and treating that as solo made the affordance vanish and
     /// reappear on a genuine multi-member team. Same contract as
-    /// properties_panel's solo_team and the web clients.
+    /// issue_header's solo_team and the web clients.
     fn is_solo_team(&self, cx: &App) -> bool {
         let Some(team_id) = self.bulk_team_id(cx) else {
             return false;

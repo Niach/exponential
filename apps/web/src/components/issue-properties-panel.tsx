@@ -271,9 +271,12 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
 
   const isWidgetSourced = props.source === `widget`
 
+  // EXP-422: no left rule (the reading column's own width already reads as the
+  // boundary), and the sidebar scrolls on its own so a tall property stack
+  // stays reachable without moving the description.
   if (layout === `sidebar`) {
     return (
-      <aside className="w-72 shrink-0 border-l border-border px-4 py-4 space-y-4 text-sm">
+      <aside className="w-72 shrink-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 text-sm">
         <PropertyGroup label="Status">{statusControl}</PropertyGroup>
         <PropertyGroup label="Priority">{priorityControl}</PropertyGroup>
         {!isSolo && (

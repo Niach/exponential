@@ -9,11 +9,12 @@
 //!
 //! Two properties keep this affordable and correct:
 //!
-//! - The injection is a pure SUFFIX at a token's end, never a replacement, so
-//!   offsets inside the token stay linear and the caret can still sit between
-//!   `#EXP` and `-238`.
-//! - Injected titles contain no `\n`, so the document and the shaped text have
-//!   the SAME hard-line structure. Every doc→pixel path funnels through
+//! - Every injection is CHIP-LOCAL and never a replacement: the leading icon
+//!   gutter (EXP-423) sits immediately before the token and the title suffix
+//!   immediately after it, so offsets inside the token stay linear and the
+//!   caret can still sit between `#EXP` and `-238`.
+//! - Injected pieces contain no `\n`, so the document and the shaped text
+//!   have the SAME hard-line structure. Every doc→pixel path funnels through
 //!   `hard_line_ranges` + `line_index_for_offset`, which therefore need no
 //!   changes — they just get fed shaped text and shaped offsets.
 
@@ -26,6 +27,17 @@ use crate::host::ReferenceSpan;
 /// identifier and leaves the title `normal`, which is the same effect).
 const SEPARATOR: &str = "\u{00a0}";
 
+/// EXP-423: the icon gutter injected before an icon-carrying chip's token —
+/// blank glyphs that reserve layout space for the status icon painted over
+/// them. NBSP on purpose: `char::is_whitespace('\u{00a0}') == false`, so
+/// neither `inline_word_chunks` nor gpui's line wrapper breaks inside the
+/// gutter (the title `SEPARATOR` above relies on exactly this; U+2007 would
+/// be Rust-whitespace and wrap). The `#` stays VISIBLE after the gutter —
+/// the native apps hide it under the icon, but the desktop editor keeps it
+/// for the edit affordance and the offset-map invariants (EXP-423 ruling 3;
+/// documented divergence).
+pub(crate) const ICON_GUTTER: &str = "\u{00a0}\u{00a0}\u{00a0}";
+
 /// The text actually shaped for a block, plus the map back to document offsets.
 #[derive(Clone, Debug)]
 pub(crate) struct ChipShapedText {
@@ -37,9 +49,14 @@ pub(crate) struct ChipShapedText {
     /// `(document byte offset of the insertion point, inserted byte length)`,
     /// ascending and non-overlapping.
     insertions: Vec<(usize, usize)>,
-    /// Shaped range of each chip (token + its injected suffix), parallel to
-    /// `spans`.
+    /// Shaped range of each chip (icon gutter + token + injected suffix),
+    /// parallel to `spans`.
     chip_ranges: Vec<std::ops::Range<usize>>,
+    /// Shaped range of each chip's TOKEN alone (no gutter, no suffix),
+    /// parallel to `spans`. Recorded at build time: `to_shaped_range` cannot
+    /// produce it, because it maps the token start to BEFORE the gutter
+    /// insertion (deliberately — that is the caret semantic).
+    token_ranges: Vec<std::ops::Range<usize>>,
 }
 
 impl ChipShapedText {
@@ -51,14 +68,16 @@ impl ChipShapedText {
             spans: Vec::new(),
             insertions: Vec::new(),
             chip_ranges: Vec::new(),
+            token_ranges: Vec::new(),
         }
     }
 
     /// Spans WITHOUT the injection: the shaped text stays the document byte for
     /// byte, but the chips still style and hit-test. This is what an IME
     /// composition renders through — injecting while composing would move the
-    /// marked range under the input method — and what a decorated block with
-    /// nothing to inject collapses to.
+    /// marked range under the input method (icons are skipped there too, same
+    /// as titles) — and what a decorated block with nothing to inject
+    /// collapses to.
     pub(crate) fn identity_with_spans(text: &SharedString, mut spans: Vec<ReferenceSpan>) -> Self {
         spans.sort_by_key(|span| span.range.start);
         let mut this = Self::identity(text);
@@ -74,16 +93,18 @@ impl ChipShapedText {
                 }
             })
             .collect();
+        this.token_ranges = this.chip_ranges.clone();
         this.spans = spans;
         this
     }
 
     pub(crate) fn build(doc: &SharedString, mut spans: Vec<ReferenceSpan>) -> Self {
         spans.sort_by_key(|span| span.range.start);
-        let has_suffix = spans
-            .iter()
-            .any(|span| span.display_suffix.as_ref().is_some_and(|s| !s.is_empty()));
-        if !has_suffix {
+        let has_injection = spans.iter().any(|span| {
+            span.icon.is_some()
+                || span.display_suffix.as_ref().is_some_and(|s| !s.is_empty())
+        });
+        if !has_injection {
             return Self::identity_with_spans(doc, spans);
         }
 
@@ -91,6 +112,7 @@ impl ChipShapedText {
         let mut text = String::with_capacity(source.len() + spans.len() * 24);
         let mut insertions = Vec::new();
         let mut chip_ranges = Vec::with_capacity(spans.len());
+        let mut token_ranges = Vec::with_capacity(spans.len());
         let mut last = 0usize;
         for span in &spans {
             let start = span.range.start.min(source.len());
@@ -99,10 +121,21 @@ impl ChipShapedText {
                 // Overlapping or unusable span: render it plain rather than
                 // corrupt the map.
                 chip_ranges.push(0..0);
+                token_ranges.push(0..0);
                 continue;
             }
             text.push_str(&source[last..start]);
             let chip_start = text.len();
+            // EXP-423: the leading icon gutter — blank NBSP glyphs the paint
+            // pass draws the status icon over. Inserted AT the token start:
+            // `to_shaped` is strictly-`<` there, so a caret at the token
+            // start renders before the gutter (left of the pill), and
+            // `to_doc` snaps clicks inside the gutter to the token start.
+            if span.icon.is_some() {
+                text.push_str(ICON_GUTTER);
+                insertions.push((start, ICON_GUTTER.len()));
+            }
+            let token_start = text.len();
             text.push_str(&source[start..end]);
             let token_end = text.len();
             let mut inserted = 0usize;
@@ -116,6 +149,7 @@ impl ChipShapedText {
                 insertions.push((end, inserted));
             }
             chip_ranges.push(chip_start..token_end + inserted);
+            token_ranges.push(token_start..token_end);
             last = end;
         }
         text.push_str(&source[last.min(source.len())..]);
@@ -126,6 +160,7 @@ impl ChipShapedText {
             spans,
             insertions,
             chip_ranges,
+            token_ranges,
         }
     }
 
@@ -147,8 +182,8 @@ impl ChipShapedText {
         &self.spans
     }
 
-    /// Shaped range covering a chip's token AND its title, so the pill quad and
-    /// hit-testing both treat the chip as one unit.
+    /// Shaped range covering a chip's icon gutter, token AND title, so the
+    /// pill quad and hit-testing both treat the chip as one unit.
     pub(crate) fn chip_range(&self, index: usize) -> Option<std::ops::Range<usize>> {
         self.chip_ranges
             .get(index)
@@ -157,13 +192,24 @@ impl ChipShapedText {
     }
 
     /// Shaped range of a chip's TOKEN only — the identifier, WITHOUT the
-    /// injected title. Web renders `.issue-ref-pill`'s monospace on the
-    /// identifier alone and leaves the `::after` title in the body font, so the
-    /// two halves of a chip need separate ranges.
+    /// leading icon gutter or the injected title. Web renders
+    /// `.issue-ref-pill`'s monospace on the identifier alone and leaves the
+    /// `::after` title in the body font, so the halves of a chip need
+    /// separate ranges.
     pub(crate) fn token_range(&self, index: usize) -> Option<std::ops::Range<usize>> {
-        let span = self.spans.get(index)?;
-        let range = self.to_shaped_range(span.range.clone());
-        (!range.is_empty()).then_some(range)
+        self.token_ranges
+            .get(index)
+            .filter(|range| !range.is_empty())
+            .cloned()
+    }
+
+    /// EXP-423: the shaped range of a chip's leading icon gutter — the blank
+    /// NBSP glyphs the status icon paints over. `None` when this chip had no
+    /// gutter injected (no icon, or the identity/IME path).
+    pub(crate) fn icon_gutter_range(&self, index: usize) -> Option<std::ops::Range<usize>> {
+        let chip = self.chip_ranges.get(index).filter(|r| !r.is_empty())?;
+        let token = self.token_ranges.get(index).filter(|r| !r.is_empty())?;
+        (chip.start < token.start).then(|| chip.start..token.start)
     }
 
     /// Document → shaped. Strictly `<` at an insertion point, so a caret at a
@@ -215,13 +261,25 @@ impl ChipShapedText {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::ReferenceKind;
+    use crate::host::{ChipIcon, ReferenceKind};
 
     fn span(range: std::ops::Range<usize>, suffix: Option<&str>) -> ReferenceSpan {
         ReferenceSpan {
             range,
             kind: ReferenceKind::IssueRef,
             display_suffix: suffix.map(SharedString::from),
+            icon: None,
+        }
+    }
+
+    /// EXP-423: an icon-carrying span — gets the leading NBSP gutter.
+    fn icon_span(range: std::ops::Range<usize>, suffix: Option<&str>) -> ReferenceSpan {
+        ReferenceSpan {
+            icon: Some(ChipIcon {
+                svg_path: SharedString::from("icons/circle.svg"),
+                color: gpui::Hsla::default(),
+            }),
+            ..span(range, suffix)
         }
     }
 
@@ -361,5 +419,92 @@ mod tests {
         let doc = SharedString::from("#EXP-1");
         let shaped = ChipShapedText::build(&doc, vec![span(0..6, Some("two\nlines"))]);
         assert!(!shaped.text().contains('\n'));
+    }
+
+    // ── EXP-423: the leading icon gutter ────────────────────────────────
+
+    #[test]
+    fn an_icon_span_injects_the_gutter_before_the_token() {
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
+        assert_eq!(
+            shaped.text().as_ref(),
+            &format!("see {ICON_GUTTER}#EXP-1\u{00a0}Title now")
+        );
+        // The document is untouched — serialization never sees the gutter.
+        assert_eq!(shaped.document().as_ref(), doc.as_ref());
+    }
+
+    #[test]
+    fn a_caret_at_the_token_start_maps_before_the_gutter() {
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
+        // Strictly-`<` at the insertion point: the caret renders LEFT of the
+        // pill, not between gutter and `#`.
+        assert_eq!(shaped.to_shaped(4), 4);
+        // One byte into the token is past the insertion → shifted.
+        assert_eq!(shaped.to_shaped(5), 5 + ICON_GUTTER.len());
+    }
+
+    #[test]
+    fn clicks_inside_the_gutter_snap_to_the_token_start() {
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
+        for offset in 5..=4 + ICON_GUTTER.len() {
+            assert_eq!(shaped.to_doc(offset), 4, "at shaped {offset}");
+        }
+    }
+
+    #[test]
+    fn token_range_excludes_the_gutter_and_chip_range_includes_it() {
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
+        let token = shaped.token_range(0).expect("token range");
+        assert_eq!(&shaped.text()[token.clone()], "#EXP-1");
+        let chip = shaped.chip_range(0).expect("chip range");
+        assert_eq!(
+            &shaped.text()[chip.clone()],
+            &format!("{ICON_GUTTER}#EXP-1\u{00a0}Title")
+        );
+        assert_eq!(chip.start + ICON_GUTTER.len(), token.start);
+        let gutter = shaped.icon_gutter_range(0).expect("gutter range");
+        assert_eq!(gutter, chip.start..token.start);
+    }
+
+    #[test]
+    fn gutter_and_suffix_insertions_keep_the_map_invertible() {
+        let doc = SharedString::from("a #EXP-1 b #EXP-2 c");
+        let shaped = ChipShapedText::build(
+            &doc,
+            vec![icon_span(2..8, Some("First")), icon_span(11..17, Some("Second"))],
+        );
+        let mut previous = 0usize;
+        for i in 0..=doc.len() {
+            let mapped = shaped.to_shaped(i);
+            assert!(mapped >= previous, "not monotone at {i}");
+            previous = mapped;
+            assert_eq!(shaped.to_doc(mapped), i, "round trip at {i}");
+        }
+    }
+
+    #[test]
+    fn an_icon_span_without_a_suffix_still_gets_its_gutter() {
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, None)]);
+        assert_eq!(
+            shaped.text().as_ref(),
+            &format!("see {ICON_GUTTER}#EXP-1 now")
+        );
+        assert!(shaped.icon_gutter_range(0).is_some());
+    }
+
+    #[test]
+    fn the_identity_path_never_injects_a_gutter() {
+        // IME composition path: icons are skipped, same as titles.
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::identity_with_spans(&doc, vec![icon_span(4..10, Some("T"))]);
+        assert!(shaped.is_identity());
+        assert_eq!(shaped.icon_gutter_range(0), None);
+        assert_eq!(shaped.token_range(0), Some(4..10));
     }
 }

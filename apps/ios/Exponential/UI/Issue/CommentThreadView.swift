@@ -216,6 +216,7 @@ struct CommentThreadView: View {
                 mentionMembers: users.values.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
                 resolveIssueRef: { identifier in resolveIssueRef(identifier) },
                 resolveIssueRefTitle: { identifier in resolveIssueRefTitle(identifier) },
+                resolveIssueRefStatus: { identifier in resolveIssueRefStatus(identifier) },
                 onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
                 onEdit: {
                     // Fresh model per edit, seeded from the comment's markdown — the
@@ -225,6 +226,7 @@ struct CommentThreadView: View {
                     let editor = IssueEditorModel()
                     editor.issueRefResolver = { resolveIssueRef($0) }
                     editor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
+                    editor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
                     editor.issueRefSearch = { searchIssueRefs($0) }
                     editor.load(
                         markdown: getCommentBodyText(comment.body),
@@ -279,6 +281,13 @@ struct CommentThreadView: View {
     private func resolveIssueRefTitle(_ identifier: String) -> String? {
         IssueRefChipCache.chip(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)?
             .title
+    }
+
+    /// identifier → the status glyph the chip paints over its `#` (EXP-423);
+    /// same team scoping as the resolvers above.
+    private func resolveIssueRefStatus(_ identifier: String) -> IssueRefStatusInfo? {
+        IssueRefChipCache.statusInfo(
+            identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
     }
 
     /// Issues offered by the comment editors' #-autocomplete (team-scoped;
@@ -412,6 +421,7 @@ private struct RegularCommentRow: View {
     let mentionMembers: [MentionMember]
     let resolveIssueRef: (String) -> String?
     let resolveIssueRefTitle: (String) -> String?
+    let resolveIssueRefStatus: (String) -> IssueRefStatusInfo?
     let onOpenIssue: (String) -> Void
     let onEdit: () -> Void
     let onCancelEdit: () -> Void
@@ -526,6 +536,7 @@ private struct RegularCommentRow: View {
                     model.mentionMembers = mentionMembers
                     model.issueRefResolver = resolveIssueRef
                     model.issueRefTitleResolver = resolveIssueRefTitle
+                    model.issueRefStatusResolver = resolveIssueRefStatus
                     model.load(markdown: text, baseURL: baseURL)
                     displayModel = model
                 }

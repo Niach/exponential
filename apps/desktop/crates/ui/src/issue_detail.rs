@@ -1,12 +1,12 @@
 //! Full-page issue detail (masterplan-v3 §4.2; web parity target:
 //! `apps/web/src/components/issue-detail-view.tsx` at compact density).
 //!
-//! Layout mirrors the web's desktop branch exactly: a breadcrumb header
-//! (board → identifier → title, with the subscribe toggle + `…` actions
-//! menu on the right), the duplicate-of banner, then a two-pane body — left:
-//! borderless title input (save-on-blur) + description + attachment rail +
-//! coding-now presence strip + PR section + timeline, all in one scroll;
-//! right: the [`crate::properties_panel::PropertiesPanel`].
+//! Layout (EXP-417 — the right sidebar is gone on every client): the
+//! duplicate-of banner, then a FIXED header — the
+//! [`crate::issue_header::IssueHeader`]'s top row (switcher · copy link ·
+//! subscribe · `…`), the borderless title input (save-on-blur), its chip row
+//! and agent row, and the description editor's formatting toolbar — over the
+//! ONE scrolling body: description + files rail + timeline.
 //!
 //! **Description editor seam (§4.5).** The from-scratch GFM block editor
 //! lands concurrently in `markdown_editor.rs`; this file must not depend on
@@ -57,7 +57,7 @@ use crate::issue_files::{
     is_inline_image, temp_open_path,
 };
 use crate::navigation::{navigate, Screen};
-use crate::properties_panel::{spawn_issue_update, PropertiesPanel};
+use crate::issue_header::{spawn_issue_update, IssueHeader};
 use crate::queries;
 use crate::timeline::IssueTimeline;
 use crate::comments;
@@ -97,6 +97,34 @@ pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
         .child(column.w_full().max_w(px(DETAIL_COLUMN_W)).mx_auto())
 }
 
+/// [`centered_column`] for the SOLE child of a scroll container. A percentage
+/// height only resolves against a definite one, and stacking two `min_h_full`
+/// hops through a block wrapper leaves the inner one unresolved (the wrapper's
+/// own height is auto) — so the WRAPPER is the one flex column that takes the
+/// viewport height, and the centered column rides it as a `flex_grow` item
+/// with an explicit width (`w_full` capped at [`DETAIL_COLUMN_W`], centered
+/// via `items_center` — no `mx_auto`, which under EXP-179 would drop the item
+/// to fit-content sizing). That single hop is what lets an embedded editor's
+/// trailing click-filler reach the bottom of the pane (click below the last
+/// line → caret at the end), the create-dialog recipe.
+pub(crate) fn centered_scroll_column(column: gpui::Div) -> gpui::Div {
+    div()
+        .w_full()
+        .min_h_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .child(
+            column
+                .w_full()
+                .min_w(px(0.))
+                .max_w(px(DETAIL_COLUMN_W))
+                .flex_grow(1.)
+                .flex()
+                .flex_col(),
+        )
+}
+
 // The EXP-48 bare-letter J/K switcher bindings are GONE (EXP-268): the
 // context-negation guard (`!Input && !MarkdownEditor && …`) missed the
 // EXP-261 WYSIWYG editor's renamed key context, so typing `k` in a
@@ -121,6 +149,13 @@ pub trait DescriptionEditor {
     fn is_focused(&self, window: &Window, cx: &App) -> bool;
     /// The element to mount in the description slot.
     fn element(&self, window: &mut Window, cx: &mut App) -> gpui::AnyElement;
+    /// EXP-417: the pinned formatting toolbar, for hosts that render it
+    /// OUTSIDE the editor (the fixed header) so a long description never
+    /// scrolls it away. `None` (the default) = the editor keeps its own
+    /// inline bar.
+    fn toolbar_element(&self, _window: &mut Window, _cx: &mut App) -> Option<gpui::AnyElement> {
+        None
+    }
     /// Move keyboard focus into the editor (Tab from the title lands here —
     /// web EXP-10 parity).
     fn focus(&self, window: &mut Window, cx: &mut App);
@@ -230,7 +265,7 @@ pub struct IssueDetailView {
     /// §7.1/§4.2 header affordance: the Start-coding button (play↔stop),
     /// driven by live `repositories.forIssue` + doctor state.
     start_coding: Entity<StartCodingControl>,
-    properties: Entity<PropertiesPanel>,
+    header: Entity<IssueHeader>,
     timeline: Entity<IssueTimeline>,
     /// EXP-297 files rail: in-flight picks (see [`PendingFileUpload`]).
     pending_files: Vec<PendingFileUpload>,
@@ -255,10 +290,14 @@ impl IssueDetailView {
                 .submit_on_enter(true)
         });
         let start_coding = cx.new(StartCodingControl::new);
-        let properties = cx.new(|cx| PropertiesPanel::new(start_coding.clone(), window, cx));
+        let header = cx.new(|cx| IssueHeader::new(start_coding.clone(), window, cx));
         let timeline = cx.new(|cx| IssueTimeline::new(window, cx));
 
         let mut subscriptions = Vec::new();
+        // EXP-417: the header is no longer a view of its own — this view
+        // renders its rows, so ITS notifies (copy-link flash, subscribe
+        // toggle, every collection it observes) must re-render this one.
+        subscriptions.push(cx.observe(&header, |_, _, cx| cx.notify()));
         // Title saves on blur when changed (web `handleTitleBlur`); Enter
         // commits too — in the auto-grow input it emits PressEnter instead
         // of inserting a newline.
@@ -284,7 +323,7 @@ impl IssueDetailView {
         ));
         // Body affordances (PR section, attachments, coding pill) read these
         // directly. (The former header cluster's subscribers/rail observers
-        // moved to the properties panel with the cluster — EXP-277.)
+        // moved to the issue header with the cluster — EXP-277.)
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
@@ -300,7 +339,7 @@ impl IssueDetailView {
             editor_issue: None,
             last_saved_description: Rc::new(RefCell::new(String::new())),
             start_coding,
-            properties,
+            header,
             timeline,
             pending_files: Vec::new(),
             next_pending_file_key: 1,
@@ -388,8 +427,8 @@ impl IssueDetailView {
         self.start_coding.update(cx, |control, cx| {
             control.set_issue(Some(issue_id.clone()), cx)
         });
-        self.properties.update(cx, |panel, cx| {
-            panel.set_issue(Some(issue_id.clone()), window, cx)
+        self.header.update(cx, |header, cx| {
+            header.set_issue(Some(issue_id.clone()), window, cx)
         });
         self.timeline
             .update(cx, |timeline, cx| {
@@ -1261,16 +1300,13 @@ impl IssueDetailView {
         crate::native_dialog::open_alert(window, cx, spec);
     }
 
-    fn render_left_column(
-        &mut self,
-        issue: &Issue,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        // Borderless 2xl title (web `titleField`). [`DETAIL_GUTTER`] = the one
-        // shared left edge for the detail body (title / description / activity
-        // / composer all align on it — §8.3, EXP-282).
-        let title = div()
+    /// The borderless 2xl title block (web `titleField`). [`DETAIL_GUTTER`] =
+    /// the one shared left edge for the detail body (title / description /
+    /// activity / composer all align on it — §8.3, EXP-282). It lives in the
+    /// FIXED header (EXP-417) but stays owned by this view: its Tab and
+    /// Shift+Enter captures target the description editor.
+    fn render_title(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
             .px(px(DETAIL_GUTTER))
             .pt_3()
             .pb_1()
@@ -1312,24 +1348,76 @@ impl IssueDetailView {
                     .line_height(gpui::rems(2.))
                     .px_0()
                     .h_auto(),
-            );
+            )
+    }
 
+    /// The SCROLLING body (EXP-417): description + files rail + timeline.
+    fn render_body(
+        &mut self,
+        issue: &Issue,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
         let column = v_flex()
-            .child(title)
             .child(self.render_description(issue, window, cx))
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
             .child(self.render_files_section(issue, cx));
 
-        // The timeline sits OUTSIDE the centered column and re-centers its own
-        // content to the same column width — which is what lets it carry a
-        // full-bleed top border spanning the whole pane (EXP-67, dropped by
-        // EXP-282, restored by EXP-327 so the activity section reads as its
-        // own region on every client).
+        // The timeline sits OUTSIDE this centered column and re-centers its
+        // own content to the same width — EXP-422 confined its top hairline
+        // to that reading column (the EXP-327 full-bleed rule, deliberately
+        // reversed), which is why it still centers itself.
         v_flex()
             .w_full()
             .child(centered_column(column))
             .child(self.timeline.clone())
+    }
+
+    /// The FIXED header (EXP-417): top row · title · chips · agent row ·
+    /// formatting toolbar. Only the body below it scrolls, so a long
+    /// description never scrolls the title or the toolbar away.
+    ///
+    /// The header entity's rows are built through `entity.update` from this
+    /// render (the `render_tab_strip` precedent) — they must never call back
+    /// into this view synchronously.
+    fn render_header(
+        &mut self,
+        issue: &Issue,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let header = self.header.clone();
+        let (top_row, chip_row, agent_row) = header.update(cx, |header, cx| {
+            (
+                header.top_row(issue, cx),
+                header.chip_row(issue, cx),
+                header.agent_row(issue, cx),
+            )
+        });
+        // EXP-285: the same inset as the editor slot — the toolbar's own
+        // glyph-align padding lands the first glyph on the shared 16px edge.
+        let toolbar = div()
+            .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
+            .children(
+                self.editor
+                    .clone()
+                    .and_then(|editor| editor.toolbar_element(window, cx)),
+            );
+
+        v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .border_b_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .child(centered_column(
+                v_flex()
+                    .child(top_row)
+                    .child(self.render_title(cx))
+                    .child(chip_row)
+                    .children(agent_row)
+                    .child(toolbar),
+            ))
     }
 }
 
@@ -1376,9 +1464,9 @@ impl Render for IssueDetailView {
                 .into_any_element();
         };
 
-        // EXP-277: the header row is gone — the switcher / copy-link /
-        // subscribe / actions cluster lives in the properties panel's
-        // toolbar row now; the duplicate banner is the first row.
+        // The duplicate banner is the first row — full-bleed, above the fixed
+        // header (EXP-417: the right sidebar is gone; its toolbar cluster and
+        // property controls are header rows now).
         let mut view = base;
         if let Some(duplicate_of_id) = issue.duplicate_of_id.clone() {
             if let Some(banner) = self.render_duplicate_banner(&duplicate_of_id, cx) {
@@ -1386,25 +1474,20 @@ impl Render for IssueDetailView {
             }
         }
 
-        // The two-pane body: scrolling detail column + properties panel.
-        let left = self.render_left_column(&issue, window, cx);
-        let body = h_flex()
-            .flex_1()
-            .min_h_0()
-            .items_start()
-            .overflow_hidden()
+        let header = self.render_header(&issue, window, cx);
+        let body = self.render_body(&issue, window, cx);
+        view.child(header)
             .child(
                 div()
                     .id("issue-detail-scroll")
                     .flex_1()
+                    .min_h_0()
                     .min_w_0()
-                    .h_full()
                     .overflow_y_scroll()
                     .track_scroll(&self.body_scroll)
-                    .child(left),
+                    .child(body),
             )
-            .child(self.properties.clone());
-        view.child(body).into_any_element()
+            .into_any_element()
     }
 }
 
@@ -1431,7 +1514,7 @@ pub(crate) fn set_duplicate_of(issue_id: String, canonical_id: Option<String>, c
 /// `status='duplicate'` atomically) instead of writing the status directly;
 /// every other status flows straight through to `issues.update`. Cancelling
 /// the picker writes nothing, so the control reverts to the live status. The
-/// single interception point shared by the detail properties panel, the row
+/// single interception point shared by the detail's status chip, the row
 /// status dropdown and the row context menu (web `useDuplicateInterception`).
 pub(crate) fn apply_status_selection(
     issue_id: String,
@@ -1599,7 +1682,7 @@ impl Render for DuplicatePicker {
 
 /// Live subscribe state off the `issue_subscribers` shape (web
 /// `SubscribeToggle` query: row for (issue, me) and NOT unsubscribed).
-/// `pub(crate)` — the properties panel's subscribe toggle reads it (EXP-277).
+/// `pub(crate)` — the issue header's subscribe toggle reads it (EXP-277).
 pub(crate) fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
     Store::global(cx)
         .collections()
@@ -1616,7 +1699,7 @@ pub(crate) fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
 /// The issue's full web URL — `{instance}/t/{team}/boards/{board}/issues/{id}`
 /// (the web copy-link button's exact shape). `None` while signed out or before
 /// the board/team rows (or their slugs) have synced. `pub(crate)` — the
-/// properties panel's copy-link button builds it (EXP-277).
+/// issue header's copy-link button builds it (EXP-277).
 pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
     let account = queries::active_account(cx)?;
     let collections = Store::global(cx).collections();
@@ -1684,9 +1767,9 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoEleme
         (None, None) => capitalize_first(verb),
     };
 
-    // EXP-309: the pill is a full-width sidebar row like every other EXP-282
-    // control, and its label ellipsizes. A content-sized `flex_shrink_0` pill
-    // spilled past the 220px sidebar as soon as the label carried a name AND a
+    // EXP-309: the pill owns a full-width row (EXP-417 gives it its own line
+    // in the header's agent row) and its label ellipsizes. A content-sized
+    // `flex_shrink_0` pill overflowed as soon as the label carried a name AND a
     // device ("Danny Strähhuber needs input · MacBook Pro"). Truncation needs
     // the whole width chain definite: `w_full` + `min_w_0` on the row, then
     // `flex_1 min_w_0 overflow_hidden` on the text div itself.

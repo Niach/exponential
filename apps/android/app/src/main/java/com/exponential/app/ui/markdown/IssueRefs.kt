@@ -2,6 +2,7 @@ package com.exponential.app.ui.markdown
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
+import com.exponential.app.domain.ResolvedIssueStatus
 
 // Inline `#IDENTIFIER` issue references (masterplan §5e) — the Android
 // counterpart of apps/web/src/lib/issue-refs.ts (+ the TipTap decoration in
@@ -19,6 +20,13 @@ data class IssueRefTarget(
     val issueId: String,
     val identifier: String,
     val title: String = "",
+    /**
+     * The issue's resolved status (EXP-314) — the chip paints its pie-clock
+     * glyph over the token's `#` (EXP-423). Null (a screen that only powers the
+     * #-autocomplete, or a not-yet-synced status) renders the chip without a
+     * glyph and keeps the `#` visible.
+     */
+    val resolvedStatus: ResolvedIssueStatus? = null,
 )
 
 /**
@@ -31,6 +39,13 @@ data class IssueRefTarget(
 class IssueRefHandler(
     /** Visible issues in the team, newest-first (from the Room issues table). */
     val candidates: List<IssueRefTarget>,
+    /**
+     * Whether [onOpen] actually navigates. False on screens that provide this
+     * handler for the #-autocomplete ALONE (the create screen): an editor chip
+     * must not swallow a tap there, it has to fall through and place the caret
+     * (EXP-423).
+     */
+    val canOpen: Boolean = true,
     val onOpen: (IssueRefTarget) -> Unit,
 ) {
     /** Uppercased identifier → target (last wins on duplicates, like the web Map). */

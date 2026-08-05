@@ -41,10 +41,21 @@ pub enum ReferenceKind {
     IssueRef,
 }
 
+/// EXP-423: a chip's leading status icon — an embedded SVG asset painted
+/// into the chip's NBSP gutter in the resolved status' color. Domain-free:
+/// the host resolves status → glyph → asset path.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChipIcon {
+    /// Embedded SVG asset path (e.g. `icons/progress-2-4.svg`).
+    pub svg_path: gpui::SharedString,
+    /// Pre-resolved tint (status color).
+    pub color: gpui::Hsla,
+}
+
 /// EXP-261 vendoring: a resolved reference span inside a block's visible
 /// text. The host returns only spans that RESOLVE (unknown identifiers stay
 /// plain text — the cross-client contract).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReferenceSpan {
     /// Byte range in the scanned visible text.
     pub range: std::ops::Range<usize>,
@@ -54,6 +65,9 @@ pub struct ReferenceSpan {
     /// editing (web draws the same text from a CSS `::after`). NEVER part of
     /// the document, so serialization is untouched; newlines are flattened.
     pub display_suffix: Option<gpui::SharedString>,
+    /// EXP-423: the status icon painted into the chip's leading gutter.
+    /// `None` (mentions, unresolved statuses) renders no gutter at all.
+    pub icon: Option<ChipIcon>,
 }
 
 /// EXP-261 vendoring: host hook decorating `@email` / `#IDENT` tokens as

@@ -129,8 +129,13 @@ pub struct ThemeColors {
     /// EXP-322 vendoring: pill background behind a resolved `@email` / `#IDENT`
     /// reference (web `.issue-ref-pill` uses `var(--accent)`).
     pub reference_bg: Hsla,
-    /// EXP-322 vendoring: text colour inside a reference pill.
+    /// EXP-322 vendoring: text colour inside a reference pill — since
+    /// EXP-423 the TITLE half (web draws the `::after` title in the
+    /// foreground colour).
     pub reference_text: Hsla,
+    /// EXP-423: colour of a chip's `#IDENT` token — muted, like web's
+    /// `.issue-ref-pill` identifier.
+    pub reference_token_text: Hsla,
     /// EXP-381: border colour of a reference pill (web `.issue-ref-pill` uses
     /// `1px solid var(--border)` — the border is what makes the pill legible
     /// when the accent fill sits close to the surface behind it).
@@ -329,9 +334,13 @@ pub struct ThemeDimensions {
     pub reference_pad_x: f32,
     /// EXP-322 vendoring: vertical padding around reference pill quads.
     pub reference_pad_y: f32,
-    /// EXP-322 vendoring: corner radius for reference pill quads (web uses
-    /// `border-radius: 9999px`, i.e. a full pill).
+    /// EXP-322 vendoring: corner radius for reference pill quads — since
+    /// EXP-423 the MENTION pills only (web keeps `border-radius: 9999px`
+    /// full-round mention pills).
     pub reference_radius: f32,
+    /// EXP-423: corner radius for ISSUE chips — a small Linear-style
+    /// rounded rect, not a full pill.
+    pub issue_chip_radius: f32,
     /// Width of the code-block language input.
     pub code_language_input_width: f32,
     /// Text layout height inside the code-block language input.
@@ -579,6 +588,7 @@ struct ThemeColorsDe {
     code_bg: Option<Hsla>,
     reference_bg: Option<Hsla>,
     reference_text: Option<Hsla>,
+    reference_token_text: Option<Hsla>,
     reference_border: Option<Hsla>,
     code_text: Hsla,
     code_language_input_bg: Option<Hsla>,
@@ -732,6 +742,9 @@ impl<'de> Deserialize<'de> for ThemeColors {
             reference_text: raw
                 .reference_text
                 .unwrap_or_else(|| Hsla::from(rgba(0xe5e7ebff))),
+            reference_token_text: raw
+                .reference_token_text
+                .unwrap_or_else(|| Hsla::from(rgba(0x9ca3afff))),
             reference_border: raw
                 .reference_border
                 .unwrap_or_else(|| Hsla::from(rgba(0xffffff1a))),
@@ -900,6 +913,7 @@ struct ThemeDimensionsDe {
     reference_pad_x: Option<f32>,
     reference_pad_y: Option<f32>,
     reference_radius: Option<f32>,
+    issue_chip_radius: Option<f32>,
     code_language_input_width: Option<f32>,
     code_language_input_height: Option<f32>,
     code_language_input_padding_x: Option<f32>,
@@ -1023,9 +1037,10 @@ impl<'de> Deserialize<'de> for ThemeDimensions {
             code_bg_pad_x: raw.code_bg_pad_x,
             code_bg_pad_y: raw.code_bg_pad_y,
             code_bg_radius: raw.code_bg_radius,
-            reference_pad_x: raw.reference_pad_x.unwrap_or(2.0),
+            reference_pad_x: raw.reference_pad_x.unwrap_or(3.0),
             reference_pad_y: raw.reference_pad_y.unwrap_or(1.0),
             reference_radius: raw.reference_radius.unwrap_or(999.0),
+            issue_chip_radius: raw.issue_chip_radius.unwrap_or(4.0),
             code_language_input_width: raw.code_language_input_width.unwrap_or(156.0),
             code_language_input_height: raw.code_language_input_height.unwrap_or(18.0),
             code_language_input_padding_x: raw.code_language_input_padding_x.unwrap_or(8.0),
@@ -1190,6 +1205,7 @@ impl Theme {
                 code_bg: Hsla::from(rgba(0x23272eff)),
                 reference_bg: Hsla::from(rgba(0x2f333bff)),
                 reference_text: Hsla::from(rgba(0xe6e6e6ff)),
+                reference_token_text: Hsla::from(rgba(0x9ca3afff)),
                 reference_border: Hsla::from(rgba(0xffffff1a)),
                 code_text: Hsla::from(rgba(0xe5e7ebff)),
                 code_language_input_bg: Hsla::from(rgba(0x343941ff)),
@@ -1287,9 +1303,10 @@ impl Theme {
                 code_bg_pad_x: 3.0,
                 code_bg_pad_y: 1.0,
                 code_bg_radius: 4.0,
-                reference_pad_x: 2.0,
+                reference_pad_x: 3.0,
                 reference_pad_y: 1.0,
                 reference_radius: 999.0,
+                issue_chip_radius: 4.0,
                 code_language_input_width: 156.0,
                 code_language_input_height: 18.0,
                 code_language_input_padding_x: 8.0,
@@ -1443,6 +1460,7 @@ impl Theme {
                 code_bg: Hsla::from(rgba(0xf1f5f9ff)),
                 reference_bg: Hsla::from(rgba(0xe2e8f0ff)),
                 reference_text: Hsla::from(rgba(0x0f172aff)),
+                reference_token_text: Hsla::from(rgba(0x64748bff)),
                 reference_border: Hsla::from(rgba(0x0000001a)),
                 code_text: Hsla::from(rgba(0x111827ff)),
                 code_language_input_bg: Hsla::from(rgba(0xffffffff)),
@@ -1532,14 +1550,20 @@ mod tests {
         let mut value =
             serde_json::to_value(Theme::default_theme().dimensions).expect("dimensions serialize");
         let object = value.as_object_mut().expect("dimensions object");
-        for key in ["reference_pad_x", "reference_pad_y", "reference_radius"] {
+        for key in [
+            "reference_pad_x",
+            "reference_pad_y",
+            "reference_radius",
+            "issue_chip_radius",
+        ] {
             assert!(object.remove(key).is_some(), "{key} should be serialized");
         }
 
         let dimensions: ThemeDimensions =
             serde_json::from_value(value).expect("a pre-EXP-322 theme JSON must still deserialize");
-        assert_eq!(dimensions.reference_pad_x, 2.0);
+        assert_eq!(dimensions.reference_pad_x, 3.0);
         assert_eq!(dimensions.reference_pad_y, 1.0);
         assert_eq!(dimensions.reference_radius, 999.0);
+        assert_eq!(dimensions.issue_chip_radius, 4.0);
     }
 }

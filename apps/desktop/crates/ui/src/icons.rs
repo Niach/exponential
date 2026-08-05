@@ -42,10 +42,11 @@ impl gpui::RenderOnce for ExpIcon {
     }
 }
 
-/// `domain` glyph → the bundled SVG. Exhaustive on purpose: adding a glyph to
-/// the option tables without shipping its SVG + arm fails compilation here.
-pub fn glyph_icon(glyph: IconGlyph) -> Icon {
-    let icon = match glyph {
+/// `domain` glyph → the bundled [`ExpIcon`]. Exhaustive on purpose: adding a
+/// glyph to the option tables without shipping its SVG + arm fails
+/// compilation here.
+fn glyph_expicon(glyph: IconGlyph) -> ExpIcon {
+    match glyph {
         IconGlyph::CircleDashed => ExpIcon::CircleDashed,
         IconGlyph::Circle => ExpIcon::Circle,
         IconGlyph::Timer => ExpIcon::Timer,
@@ -65,8 +66,19 @@ pub fn glyph_icon(glyph: IconGlyph) -> Icon {
         IconGlyph::SignalHigh => ExpIcon::SignalHigh,
         IconGlyph::SignalMedium => ExpIcon::SignalMedium,
         IconGlyph::SignalLow => ExpIcon::SignalLow,
-    };
-    Icon::from(icon)
+    }
+}
+
+/// `domain` glyph → the bundled SVG as an [`Icon`] element.
+pub fn glyph_icon(glyph: IconGlyph) -> Icon {
+    Icon::from(glyph_expicon(glyph))
+}
+
+/// EXP-423: `domain` glyph → the embedded SVG asset path (for paint-level
+/// consumers like the editor's chip gutter, which draw via
+/// `window.paint_svg` instead of mounting an element).
+pub fn glyph_svg_path(glyph: IconGlyph) -> SharedString {
+    glyph_expicon(glyph).path()
 }
 
 /// `domain` color role → the live theme color (§4.3: `muted_foreground` /

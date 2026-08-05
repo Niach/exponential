@@ -1,8 +1,11 @@
 import { createContext, useContext, useMemo } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
+import type { IconName } from "@exp/icons"
 import { issueCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { statusColorCssValue } from "@/components/issue-properties/status-dropdown"
 import type { Issue } from "@/db/schema"
 import type { IssueStatus } from "@/lib/domain"
 
@@ -21,6 +24,11 @@ export interface ResolvedIssueRef {
   // EXP-314: carried so the ref/autocomplete/duplicate-picker rows render the
   // team's own status glyph, not just the anchor's.
   statusId: string | null
+  // EXP-423: the resolved glyph + a concrete CSS color, precomputed here so
+  // the pill decoration (which has no React context) can render the status
+  // icon straight from a style attribute.
+  statusIcon: IconName
+  statusColor: string
   boardSlug: string
 }
 
@@ -69,17 +77,26 @@ export function IssueRefProvider({
     [boardIds.join(`,`)]
   )
 
+  // The team's status rows are already live-queried one level up (the layout
+  // nests this provider inside TeamStatusesProvider) — resolving here also
+  // means a status rename/recolor/reorder rotates the context value, which is
+  // what re-runs the editors' decoration pass.
+  const { resolve: resolveStatus } = useTeamStatusesContext()
+
   const refs = useMemo(() => {
     const list: ResolvedIssueRef[] = []
     for (const issue of (issues ?? []) as Issue[]) {
       const boardSlug = boardSlugById.get(issue.boardId)
       if (!boardSlug) continue
+      const statusOption = resolveStatus(issue)
       list.push({
         id: issue.id,
         identifier: issue.identifier,
         title: issue.title,
         status: issue.status,
         statusId: issue.statusId,
+        statusIcon: statusOption.icon,
+        statusColor: statusColorCssValue(statusOption),
         boardSlug,
       })
     }
@@ -92,7 +109,7 @@ export function IssueRefProvider({
     )
     list.sort((a, b) => (createdAt.get(b.id) ?? 0) - (createdAt.get(a.id) ?? 0))
     return list
-  }, [issues, boardSlugById])
+  }, [issues, boardSlugById, resolveStatus])
 
   const byIdentifier = useMemo(
     () => new Map(refs.map((ref) => [ref.identifier.toUpperCase(), ref])),

@@ -83,6 +83,7 @@ fn reference_spans_outside_code(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_text_runs(
     input: &Block,
     shaped: &ChipShapedText,
@@ -90,6 +91,7 @@ fn build_text_runs(
     underline_thickness: Pixels,
     link_color: Hsla,
     reference_text_color: Hsla,
+    reference_token_color: Hsla,
     code_bg: Hsla,
     show_inline_code_backgrounds: bool,
     mono_family: &SharedString,
@@ -128,6 +130,12 @@ fn build_text_runs(
     for (chip, token, _) in &reference_spans {
         boundaries.push(chip.start);
         boundaries.push(chip.end);
+        // token.start is a distinct boundary whenever the chip carries a
+        // leading icon gutter (EXP-423) — without it the gutter and the
+        // identifier merge into one run and the identifier loses its mono
+        // + muted styling. Dedup absorbs the gutter-less case where
+        // token.start == chip.start.
+        boundaries.push(token.start);
         boundaries.push(token.end);
     }
     if let Some(marked_range) = input.marked_range.as_ref() {
@@ -217,13 +225,16 @@ fn build_text_runs(
             background_color = Some(html_css_color_to_hsla(color, run_color));
         }
 
-        // EXP-261 vendoring: reference pills. EXP-322: the background is now a
-        // rounded quad painted in `prepaint` (web's `border-radius: 9999px`),
-        // so the run itself carries NO background — a flat rect here would
-        // double-paint under the pill and square its corners off. The
-        // identifier — and ONLY the identifier — renders monospace like web's
-        // `.issue-ref-pill`, over the pill's own foreground colour. Code style
-        // wins (a token inside a code span stays code).
+        // EXP-261 vendoring: reference pills. EXP-322: the background is a
+        // rounded quad painted in `prepaint`, so the run itself carries NO
+        // background — a flat rect here would double-paint under the pill
+        // and square its corners off. EXP-423 Linear look: the identifier —
+        // and ONLY the identifier — renders monospace and MUTED
+        // (`reference_token_text`); the injected title takes
+        // `reference_text` (foreground) at MEDIUM weight. Gutter glyphs sit
+        // in the chip-but-not-token band → title styling (they are blank
+        // NBSPs anyway). Code style wins (a token inside a code span stays
+        // code).
         if !inline_style.code
             && let Some((_, token, kind)) = reference_spans
                 .iter()
@@ -235,8 +246,10 @@ fn build_text_runs(
             if *kind == crate::host::ReferenceKind::IssueRef {
                 if token.start <= start && start < token.end {
                     font.family = mono_family.clone();
+                    run_color = reference_token_color;
+                } else {
+                    run_color = reference_text_color;
                 }
-                run_color = reference_text_color;
             }
         }
 
@@ -912,16 +925,17 @@ impl Element for CodeLanguageInputElement {
         } else {
             None
         };
-        let cursor = if focused && input.code_language_selected_range.is_empty() {
+        let cursor = if focused
+            && input.code_language_selected_range.is_empty()
+            && input.cursor_visible()
+        {
             let cursor_x = line.x_for_index(input.code_language_cursor_offset());
-            let mut cursor_color = theme.colors.cursor;
-            cursor_color.a *= input.cursor_opacity();
             Some(fill(
                 Bounds::new(
                     point(bounds.left() + cursor_x, bounds.top()),
                     size(px(theme.dimensions.cursor_width), line_height),
                 ),
-                cursor_color,
+                theme.colors.cursor,
             ))
         } else {
             None
@@ -1029,6 +1043,9 @@ pub struct PrepaintState {
     cursor: Option<PaintQuad>,
     selection: Vec<PaintQuad>,
     code_backgrounds: Vec<PaintQuad>,
+    /// EXP-423: status icons painted into chip gutters — `(icon box, svg
+    /// asset path, tint)`.
+    chip_icons: Vec<(Bounds<Pixels>, SharedString, Hsla)>,
     line_height: Pixels,
     hitbox: Hitbox,
     /// EXP-322 vendoring: the map the lines above were shaped with.
@@ -1149,6 +1166,7 @@ impl Element for BlockTextElement {
                     px(theme.dimensions.underline_thickness),
                     theme.colors.text_link,
                     theme.colors.reference_text,
+                    theme.colors.reference_token_text,
                     theme.colors.code_bg,
                     show_inline_code_backgrounds,
                     &SharedString::from(theme.fonts.mono_family.clone()),
@@ -1166,6 +1184,7 @@ impl Element for BlockTextElement {
 
         let shared_lines = Rc::new(RefCell::new(None));
         let shared_lines_clone = shared_lines.clone();
+        let layout_width = input.environment.layout_width.clone();
 
         let mut layout_style = Style::default();
         layout_style.size.width = relative(1.).into();
@@ -1178,7 +1197,24 @@ impl Element for BlockTextElement {
                 let wrap_width = known_dimensions.width.or(match available_space.width {
                     AvailableSpace::Definite(x) => Some(x),
                     AvailableSpace::MinContent => Some(px(1.0)),
-                    AvailableSpace::MaxContent => Some(window.viewport_size().width.max(px(1.0))),
+                    // EXP-421 soft wrap: MaxContent used to resolve to the
+                    // VIEWPORT width, so an unbroken run reported a
+                    // near-window intrinsic width and inflated every
+                    // ancestor. The recorded slot width (one frame stale;
+                    // 0 before the first paint) is the honest wrap bound —
+                    // gpui's LineWrapper force-breaks unbroken runs mid-word
+                    // once the width is honest.
+                    AvailableSpace::MaxContent => {
+                        let viewport = window.viewport_size().width.max(px(1.0));
+                        let recorded = f32::from_bits(
+                            layout_width.load(std::sync::atomic::Ordering::Relaxed),
+                        );
+                        Some(if recorded > 1.0 {
+                            px(recorded).min(viewport)
+                        } else {
+                            viewport
+                        })
+                    }
                 });
                 let text_wrap_width =
                     wrap_width.map(|width| (width - source_line_number_gutter_width).max(px(1.0)));
@@ -1275,12 +1311,10 @@ impl Element for BlockTextElement {
             Vec::new()
         };
 
-        let cursor_opacity = input.cursor_opacity();
-        let cursor_color = {
-            let mut c = theme.colors.cursor;
-            c.a *= cursor_opacity;
-            c
-        };
+        // Discrete blink: build the cursor quad only when visible, at full
+        // opacity — the blink loop notifies solely on visibility flips.
+        let cursor_visible = input.cursor_visible();
+        let cursor_color = theme.colors.cursor;
         let cursor_width = theme.dimensions.cursor_width;
         let selection_color = theme.colors.selection;
         let text_align = input.text_align();
@@ -1296,13 +1330,18 @@ impl Element for BlockTextElement {
                         .unwrap_or_default();
                     (
                         vec![],
-                        Some(fill(
-                            Bounds::new(
-                                point(origin_x + cursor_pos.x, text_bounds.top() + cursor_pos.y),
-                                size(px(cursor_width), line_height),
-                            ),
-                            cursor_color,
-                        )),
+                        cursor_visible.then(|| {
+                            fill(
+                                Bounds::new(
+                                    point(
+                                        origin_x + cursor_pos.x,
+                                        text_bounds.top() + cursor_pos.y,
+                                    ),
+                                    size(px(cursor_width), line_height),
+                                ),
+                                cursor_color,
+                            )
+                        }),
                     )
                 } else if selected_range.is_empty() {
                     // No selection: just draw the cursor
@@ -1318,6 +1357,7 @@ impl Element for BlockTextElement {
                             text_align,
                             px(cursor_width),
                         )
+                        .filter(|_| cursor_visible)
                         .map(|bounds| fill(bounds, cursor_color)),
                     )
                 } else {
@@ -1375,18 +1415,28 @@ impl Element for BlockTextElement {
         // EXP-322 vendoring: the same machinery for resolved `@email` /
         // `#IDENT` references, so a chip reads as a real pill instead of the
         // flat highlight the text run used to carry (web `.issue-ref-pill`).
+        let mut chip_icons: Vec<(Bounds<Pixels>, SharedString, Hsla)> = Vec::new();
         if !self.is_placeholder {
             let text = shaped.text().as_ref();
             let reference_color = theme.colors.reference_bg;
             let reference_border = theme.colors.reference_border;
             let pad_x = px(theme.dimensions.reference_pad_x);
             let pad_y = px(theme.dimensions.reference_pad_y);
-            let radius = px(theme.dimensions.reference_radius);
-            // The chip range spans the token AND its title, so the pill wraps
-            // both — reusing the scan the layout already did.
-            for index in 0..shaped.spans().len() {
+            // EXP-423: per-kind radius — issue chips are Linear-style small
+            // rounded rects, mention pills stay fully round (gpui clamps 999
+            // to half the smaller side, so it's "as round as it gets").
+            let mention_radius = px(theme.dimensions.reference_radius);
+            let issue_radius = px(theme.dimensions.issue_chip_radius);
+            // The chip range spans the gutter, token AND title, so the pill
+            // wraps all of it — reusing the scan the layout already did.
+            for (index, span) in shaped.spans().iter().enumerate() {
                 let Some(chip) = shaped.chip_range(index) else {
                     continue;
+                };
+                let radius = if span.kind == crate::host::ReferenceKind::IssueRef {
+                    issue_radius
+                } else {
+                    mention_radius
                 };
                 for segment in range_segment_bounds(
                     &lines,
@@ -1402,8 +1452,6 @@ impl Element for BlockTextElement {
                     );
                     code_quads.push({
                         let mut q = fill(quad_bounds, reference_color);
-                        // A full pill: gpui clamps the radius to half the
-                        // smaller side, so 999 is simply "as round as it gets".
                         q.corner_radii = Corners::all(radius);
                         // EXP-381: the border is what keeps the pill visible —
                         // the accent fill is nearly the surface colour (web
@@ -1413,6 +1461,36 @@ impl Element for BlockTextElement {
                         q.border_color = reference_border;
                         q
                     });
+                }
+                // EXP-423: the status icon — painted over the FIRST wrapped
+                // segment of the NBSP gutter (a soft-wrapped pill shows the
+                // icon only on its first row). Skipped entirely on the
+                // identity/IME path, where no gutter was injected.
+                if let (Some(icon), Some(gutter)) =
+                    (span.icon.as_ref(), shaped.icon_gutter_range(index))
+                {
+                    if let Some(segment) = range_segment_bounds(
+                        &lines,
+                        text_bounds,
+                        line_height,
+                        text,
+                        gutter,
+                        text_align,
+                    )
+                    .into_iter()
+                    .next()
+                    {
+                        let side = segment.size.height.min(px(14.0));
+                        let origin = point(
+                            segment.left() + (segment.size.width - side) / 2.0,
+                            segment.top() + (segment.size.height - side) / 2.0,
+                        );
+                        chip_icons.push((
+                            Bounds::new(origin, size(side, side)),
+                            icon.svg_path.clone(),
+                            icon.color,
+                        ));
+                    }
                 }
             }
         }
@@ -1424,6 +1502,7 @@ impl Element for BlockTextElement {
             cursor: cursor_quad,
             selection: selection_quads,
             code_backgrounds: code_quads,
+            chip_icons,
             line_height,
             hitbox,
             shaped: Some(shaped),
@@ -1494,6 +1573,22 @@ impl Element for BlockTextElement {
         // Paint code backgrounds behind text.
         for code_bg in prepaint.code_backgrounds.drain(..) {
             window.paint_quad(code_bg);
+        }
+
+        // EXP-423: chip status icons — over the pill quads, under the text
+        // (the gutter glyphs are blank NBSPs, so order vs text is cosmetic).
+        // `.ok()`: a missing asset (headless tests) must never panic paint.
+        for (icon_bounds, svg_path, color) in prepaint.chip_icons.drain(..) {
+            window
+                .paint_svg(
+                    icon_bounds,
+                    svg_path,
+                    None,
+                    gpui::TransformationMatrix::unit(),
+                    color,
+                    cx,
+                )
+                .ok();
         }
 
         for selection in prepaint.selection.drain(..) {
@@ -1829,6 +1924,7 @@ mod tests {
                 px(1.0),
                 Hsla::from(rgba(0x0066ccff)),
                 Hsla::from(rgba(0xeeeeeeff)),
+                Hsla::from(rgba(0x9999aaff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &SharedString::from(".SystemUIFont"),
@@ -2203,6 +2299,7 @@ mod chip_tests {
                     range: start..start + "#EXP-1".len(),
                     kind: ReferenceKind::IssueRef,
                     display_suffix: Some(SharedString::from(TITLE)),
+                    icon: None,
                 }],
                 None => Vec::new(),
             }
@@ -2279,6 +2376,61 @@ mod chip_tests {
                     .expect("a painted block stores its shaped map"),
             )
         })
+    }
+
+    /// EXP-423: a decorator that also carries a status icon.
+    struct IconTitleDecorator;
+
+    impl ReferenceDecorator for IconTitleDecorator {
+        fn scan(&self, text: &str) -> Vec<ReferenceSpan> {
+            let mut spans = TitleDecorator.scan(text);
+            for span in &mut spans {
+                span.icon = Some(crate::host::ChipIcon {
+                    svg_path: SharedString::from("icons/circle.svg"),
+                    color: Hsla::from(rgba(0x22cc88ff)),
+                });
+            }
+            spans
+        }
+    }
+
+    /// EXP-423: painting an icon-carrying chip in a REAL window drives the
+    /// whole path — gutter injection in `request_layout`, the gutter-segment
+    /// icon box in `prepaint`, and `paint_svg` in `paint` (the asset miss is
+    /// tolerated via `.ok()` headless).
+    #[gpui::test]
+    async fn an_icon_chip_injects_its_gutter_when_painted(cx: &mut TestAppContext) {
+        let (block, cx) = cx.add_window_view(|_window, cx| {
+            Block::with_record_and_environment(
+                cx,
+                BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown(TEXT)),
+                Arc::new(MarkdownEditorEnvironment {
+                    reference_decorator: Some(Arc::new(IconTitleDecorator)),
+                    ..MarkdownEditorEnvironment::default()
+                }),
+            )
+        });
+        for _ in 0..2 {
+            cx.update(|window, cx| {
+                window.draw(cx).clear();
+            });
+            cx.run_until_parked();
+        }
+        block.read_with(cx, |block, _cx| {
+            let shaped = block
+                .last_shaped
+                .clone()
+                .expect("a painted block stores its shaped map");
+            let gutter = shaped
+                .icon_gutter_range(0)
+                .expect("the icon chip injects a gutter");
+            assert_eq!(
+                &shaped.text()[gutter],
+                crate::components::block::shaped::ICON_GUTTER
+            );
+            // Serialization stays the raw document.
+            assert_eq!(shaped.document().as_ref(), TEXT);
+        });
     }
 
     /// D1: a code BLOCK is literal source — and `build_code_text_runs` colours
@@ -2405,6 +2557,7 @@ mod chip_tests {
                 px(1.0),
                 Hsla::from(rgba(0x0066ccff)),
                 Hsla::from(rgba(0xeeeeeeff)),
+                Hsla::from(rgba(0x9999aaff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &SharedString::from(".SystemUIFont"),
@@ -2437,6 +2590,7 @@ mod chip_tests {
             };
             let link = Hsla::from(rgba(0x0066ccff));
             let reference = Hsla::from(rgba(0x00ff00ff));
+            let token_color = Hsla::from(rgba(0x88aa88ff));
             let mono = SharedString::from("MonoTestFamily");
             let runs = build_text_runs(
                 block,
@@ -2445,6 +2599,7 @@ mod chip_tests {
                 px(1.0),
                 link,
                 reference,
+                token_color,
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &mono,
@@ -2461,7 +2616,8 @@ mod chip_tests {
                 if range.start >= token.start && range.end <= token.end {
                     saw_token = true;
                     assert_eq!(run.font.family, mono, "identifier renders monospace");
-                    assert_eq!(run.color, reference, "identifier uses the pill foreground");
+                    // EXP-423 Linear look: the identifier is MUTED.
+                    assert_eq!(run.color, token_color, "identifier uses the token colour");
                 } else if range.start >= token.end && range.end <= chip.end {
                     saw_title = true;
                     assert_eq!(
@@ -2472,6 +2628,71 @@ mod chip_tests {
                 }
             }
             assert!(saw_token && saw_title, "chip must split into token + title");
+        });
+    }
+
+    /// Same split with an ICON-carrying span: the leading NBSP gutter makes
+    /// token.start a distinct boundary (token.start != chip.start), and the
+    /// identifier must STILL render mono + muted — the production case, since
+    /// every resolved issue ref carries an icon.
+    #[gpui::test]
+    async fn the_identifier_stays_monospace_and_muted_behind_an_icon_gutter(
+        cx: &mut TestAppContext,
+    ) {
+        let block = chip_block(cx);
+        block.read_with(cx, |block, _cx| {
+            let shaped =
+                ChipShapedText::build(&SharedString::from(TEXT), IconTitleDecorator.scan(TEXT));
+            let base_run = TextRun {
+                len: shaped.text().len(),
+                font: font(".SystemUIFont"),
+                color: Hsla::from(rgba(0xffffffff)),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let reference = Hsla::from(rgba(0x00ff00ff));
+            let token_color = Hsla::from(rgba(0x88aa88ff));
+            let mono = SharedString::from("MonoTestFamily");
+            let runs = build_text_runs(
+                block,
+                &shaped,
+                &base_run,
+                px(1.0),
+                Hsla::from(rgba(0x0066ccff)),
+                reference,
+                token_color,
+                Hsla::from(rgba(0x111111ff)),
+                true,
+                &mono,
+            );
+
+            let chip = shaped.chip_range(0).expect("chip range");
+            let token = shaped.token_range(0).expect("token range");
+            assert!(
+                token.start > chip.start,
+                "an icon span must inject a leading gutter"
+            );
+            let mut offset = 0usize;
+            let mut saw_token = false;
+            for run in &runs {
+                let range = offset..offset + run.len;
+                offset = range.end;
+                if range.start >= token.start && range.end <= token.end {
+                    saw_token = true;
+                    assert_eq!(
+                        run.font.family, mono,
+                        "identifier renders monospace ({:?})",
+                        range
+                    );
+                    assert_eq!(run.color, token_color, "identifier uses the token colour");
+                }
+            }
+            assert!(saw_token, "a run must cover the identifier alone");
+            assert_eq!(
+                runs.iter().map(|run| run.len).sum::<usize>(),
+                shaped.text().len()
+            );
         });
     }
 

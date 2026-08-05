@@ -17,7 +17,8 @@ final class IssueRefChipTests: XCTestCase {
     private func decorate(
         _ markdown: String,
         selection: NSRange = NSRange(location: 0, length: 0),
-        titles: ((String) -> String?)? = nil
+        titles: ((String) -> String?)? = nil,
+        statuses: ((String) -> IssueRefStatusInfo?)? = nil
     ) -> MarkdownChipDecorator.Result {
         let blocks = MarkdownConversion.markdownToBlocks(markdown)
         guard case let .text(_, content) = blocks[0] else {
@@ -27,7 +28,8 @@ final class IssueRefChipTests: XCTestCase {
             content,
             selection: selection,
             issueRefResolver: resolver,
-            issueRefTitleResolver: titles ?? self.titles
+            issueRefTitleResolver: titles ?? self.titles,
+            issueRefStatusResolver: statuses
         )
     }
 
@@ -324,6 +326,108 @@ final class IssueRefChipTests: XCTestCase {
         let content = NSAttributedString(
             string: "| Ticket |\n| --- |\n| #EXP-42\u{FFFC} |", attributes: attrs)
         XCTAssertEqual(markdown(of: content), "| Ticket |\n| --- |\n| #EXP-42 |")
+    }
+
+    // MARK: - Status glyph (EXP-423)
+
+    private let statuses: (String) -> IssueRefStatusInfo? = {
+        $0 == "EXP-42" ? IssueRefStatusInfo(iconName: "circle-dashed", color: .systemBlue) : nil
+    }
+
+    /// The chip's status glyph is painted OVER the `#`, which is hidden by
+    /// clearing that one character's color — the zero-bytes rule holds by
+    /// construction because no character moves.
+    func testTheStatusGlyphHidesTheHashWithoutMovingACharacter() {
+        let result = decorate("Fixes #EXP-42 today", statuses: statuses)
+        let hash = (result.attributed.string as NSString).range(of: "#EXP-42").location
+        XCTAssertEqual(
+            result.attributed.attribute(.markdownIssueRefStatus, at: hash, effectiveRange: nil)
+                as? IssueRefStatusInfo,
+            statuses("EXP-42")
+        )
+        XCTAssertEqual(
+            result.attributed.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
+            PlatformColor.clear
+        )
+        // Only the `#` is hidden — the identifier keeps the muted token color
+        // (Linear look: web/Android/desktop parity).
+        XCTAssertEqual(
+            result.attributed.attribute(.foregroundColor, at: hash + 1, effectiveRange: nil) as? PlatformColor,
+            MarkdownStyle.chipTokenColor
+        )
+        XCTAssertEqual(markdown(of: result.attributed), "Fixes #EXP-42 today")
+    }
+
+    /// The decorator's `changed` flag is an `NSAttributedString.isEqual`, so a
+    /// status info that doesn't compare equal would make the editor rewrite its
+    /// storage on every keystroke forever.
+    func testASecondPassWithAStatusResolverReportsNoChange() {
+        let first = decorate("Fixes #EXP-42 today", statuses: statuses)
+        XCTAssertTrue(first.changed)
+        let second = MarkdownChipDecorator.decorate(
+            first.attributed,
+            issueRefResolver: resolver,
+            issueRefTitleResolver: titles,
+            issueRefStatusResolver: statuses
+        )
+        XCTAssertFalse(second.changed)
+        XCTAssertEqual(second.attributed.string, first.attributed.string)
+        XCTAssertEqual(attachmentCount(in: second.attributed), 1)
+        XCTAssertEqual(markdown(of: second.attributed), "Fixes #EXP-42 today")
+    }
+
+    func testAStatusInfoComparesOnBothFields() {
+        let info = IssueRefStatusInfo(iconName: "circle", color: .systemBlue)
+        XCTAssertEqual(info, IssueRefStatusInfo(iconName: "circle", color: .systemBlue))
+        XCTAssertNotEqual(info, IssueRefStatusInfo(iconName: "circle-check", color: .systemBlue))
+        XCTAssertNotEqual(info, IssueRefStatusInfo(iconName: "circle", color: .systemRed))
+    }
+
+    /// The hidden `#` splits the token's color run — the atom must still start
+    /// at the `#`, or a backspace at the chip's right edge would leave one.
+    func testAStatusChipStillDeletesAsOneAtom() {
+        let chipped = decorate("Fixes #EXP-42 today", statuses: statuses).attributed
+        let attachment = (chipped.string as NSString).range(of: "\u{FFFC}")
+        XCTAssertEqual(
+            MarkdownChipDecorator.chipAtomRange(in: chipped, endingAt: NSMaxRange(attachment)),
+            NSRange(location: 6, length: 8)
+        )
+    }
+
+    func testUnchippingRestoresTheHiddenHash() {
+        let chipped = decorate("Fixes #EXP-42 today", statuses: statuses).attributed
+        let plain = MarkdownChipDecorator.decorate(chipped, issueRefResolver: { _ in nil }).attributed
+        let hash = (plain.string as NSString).range(of: "#EXP-42").location
+        XCTAssertNil(plain.attribute(.markdownIssueRefStatus, at: hash, effectiveRange: nil))
+        XCTAssertEqual(
+            plain.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
+            MarkdownStyle.textColor
+        )
+    }
+
+    func testTheDisplayPathHidesTheHashToo() {
+        let blocks = MarkdownConversion.markdownToBlocks("Fixes #EXP-42 today")
+        guard case let .text(_, content) = blocks[0] else { return XCTFail("expected a text block") }
+        let decorated = IssueRefs.decorateForDisplay(
+            content, resolver: resolver, titleResolver: titles, statusResolver: statuses)
+        XCTAssertTrue(decorated.string.contains("#EXP-42 Fix login flow"))
+        let hash = (decorated.string as NSString).range(of: "#EXP-42").location
+        XCTAssertEqual(
+            decorated.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
+            PlatformColor.clear
+        )
+        XCTAssertNotNil(decorated.attribute(.markdownIssueRefStatus, at: hash, effectiveRange: nil))
+    }
+
+    func testStatusChipsStillRoundTripByteIdentically() {
+        let src = "Fixes #EXP-42 today\n\n- item with #EXP-42\n- plain item"
+        let model = IssueEditorModel()
+        model.issueRefResolver = resolver
+        model.issueRefTitleResolver = titles
+        model.issueRefStatusResolver = statuses
+        model.load(markdown: src, baseURL: nil)
+        XCTAssertEqual(model.currentMarkdown(), src)
+        XCTAssertFalse(model.isDirty)
     }
 
     // MARK: - Selection mapping

@@ -518,13 +518,37 @@ html {
 .tiptap-content .issue-ref-pill {
   background: var(--accent);
   border: 1px solid var(--border);
-  border-radius: 9999px;
+  /* EXP-423: a small rounded RECT, not a capsule — the shape all four clients
+     now share (desktop 4px, iOS ~5pt, Android 5dp). Mention pills stay
+     fully round. */
+  border-radius: 6px;
   padding: 0.05rem 0.4rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
-  color: var(--accent-foreground);
+  /* The identifier recedes; the title below carries the weight. */
+  color: var(--muted-foreground);
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* EXP-423: the issue's status glyph, painted as a mask so its shape can come
+   from a data URI (`--issue-ref-status-icon`) and its tint from the team's
+   status color (`--issue-ref-status-color`, e.g. var(--color-yellow-500) /
+   var(--color-green-500) / var(--color-blue-500) for the builtins). Both are
+   set by the decoration in lib/issue-ref-extension.ts.
+   The `#` stays visible after the icon — unlike the native clients, which
+   paint the glyph over it. Editors must keep every caret position on a real
+   character, and a pseudo-element cannot host one. */
+.tiptap-content .issue-ref-pill::before {
+  content: "";
+  display: inline-block;
+  width: 0.875em;
+  height: 0.875em;
+  margin-right: 0.3em;
+  vertical-align: -0.16em;
+  background-color: var(--issue-ref-status-color, var(--muted-foreground));
+  -webkit-mask: var(--issue-ref-status-icon) center / contain no-repeat;
+  mask: var(--issue-ref-status-icon) center / contain no-repeat;
 }
 
 /* The chip shows the issue title next to the identifier (EXP-307). The title
@@ -538,6 +562,7 @@ html {
   font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
   font-size: 0.8125rem;
   font-weight: 500;
+  color: var(--foreground);
   white-space: normal;
 }
 

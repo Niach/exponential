@@ -295,9 +295,8 @@ fn read_file(abs: &std::path::Path, rel: &str) -> Loaded {
 }
 
 /// Wrap `text` in a markdown code fence long enough that backtick runs inside
-/// the file can never terminate it early. `pub(crate)`: the About pane fences
-/// the third-party notice through the same path (EXP-262).
-pub(crate) fn fence_code(text: &str, lang: &str) -> String {
+/// the file can never terminate it early.
+fn fence_code(text: &str, lang: &str) -> String {
     let longest_run = text
         .split(|c| c != '`')
         .map(str::len)

@@ -8,6 +8,7 @@ import {
 } from "react"
 import { createPortal } from "react-dom"
 import { type Editor, useEditor, EditorContent } from "@tiptap/react"
+import { NodeSelection, TextSelection } from "@tiptap/pm/state"
 import { StarterKit } from "@tiptap/starter-kit"
 import { Link } from "@tiptap/extension-link"
 import { Placeholder } from "@tiptap/extension-placeholder"
@@ -99,6 +100,20 @@ interface MarkdownEditorProps {
   onBlur?: () => void
   placeholder?: string
   autoFocus?: boolean
+  /**
+   * Renders the formatting toolbar into a host-provided element instead of
+   * inline above the content (EXP-422: the issue detail page parks it in a
+   * sticky band together with the title). Undefined/null keeps the inline
+   * toolbar, so every dialog host is unaffected.
+   */
+  toolbarHost?: HTMLElement | null
+  /**
+   * Height (px) of a sticky overlay at the TOP of the scrollport the editor
+   * lives in. ProseMirror's scroll-into-view treats the region under such an
+   * overlay as visible, so the caret could sit hidden behind it; this feeds
+   * `scrollThreshold`/`scrollMargin` so edits scroll clear of the band.
+   */
+  topScrollInset?: number
 }
 
 type MarkdownEditorInstance = Editor & {
@@ -453,6 +468,8 @@ export const MarkdownEditor = forwardRef<
       autoFocus,
       imageUpload,
       editable = true,
+      toolbarHost,
+      topScrollInset,
     },
     ref
   ) => {
@@ -480,6 +497,17 @@ export const MarkdownEditor = forwardRef<
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
     const menuRef = useRef<HTMLDivElement | null>(null)
 
+    // True when `handleUploadedFiles` below would claim this batch — the drop
+    // handler needs to know BEFORE it decides to move the caret.
+    const willHandleDroppedFiles = (fileList: FileList | null | undefined) => {
+      const upload = imageUploadRef.current
+      const { images, others } = partitionUploadFiles(fileList)
+      if (!editable || !upload) return false
+      return (
+        images.length > 0 || (others.length > 0 && Boolean(upload.onOtherFiles))
+      )
+    }
+
     // Shared paste/drop handler: inline-image types go through the markdown
     // embed pipeline, everything else to the Files-section flow (when wired).
     const handleUploadedFiles = (
@@ -505,6 +533,10 @@ export const MarkdownEditor = forwardRef<
       extensions: [
         StarterKit.configure({
           heading: { levels: [1, 2, 3] },
+          // EXP-421: the horizontal line marking where a dragged image (or a
+          // dropped file) will land — themed, and thick enough to read
+          // against a paragraph edge.
+          dropcursor: { color: `var(--ring)`, width: 2 },
           // Replaced below by CodeBlockLowlight for syntax highlighting.
           codeBlock: false,
           // Replaced below by MarkdownParagraph so intentional blank lines
@@ -565,8 +597,31 @@ export const MarkdownEditor = forwardRef<
         },
         handlePaste: (_view, event) =>
           handleUploadedFiles(event.clipboardData?.files, event),
-        handleDrop: (_view, event) =>
-          handleUploadedFiles(event.dataTransfer?.files, event),
+        // EXP-421: a dropped file belongs where it was dropped, not at
+        // whatever the caret happened to be. The upload is async, so instead
+        // of tracking a position we move the SELECTION to the drop point now
+        // — ProseMirror maps it through every intervening transaction, and
+        // the eventual `insertImage` lands there. (Accepted consequence: if
+        // the user moves the caret mid-upload, the image follows the caret.)
+        // A file-less drop is an internal node drag: leave it entirely to
+        // ProseMirror, which moves the block itself.
+        handleDrop: (view, event) => {
+          if (willHandleDroppedFiles(event.dataTransfer?.files)) {
+            const coords = view.posAtCoords({
+              left: event.clientX,
+              top: event.clientY,
+            })
+            if (coords) {
+              view.dispatch(
+                view.state.tr.setSelection(
+                  TextSelection.near(view.state.doc.resolve(coords.pos))
+                )
+              )
+              view.focus()
+            }
+          }
+          return handleUploadedFiles(event.dataTransfer?.files, event)
+        },
       },
     })
 
@@ -581,7 +636,25 @@ export const MarkdownEditor = forwardRef<
         return editor ? getEditorMarkdown(editor) : null
       },
       insertImage: ({ alt, src }) => {
-        editor?.chain().focus().setImage({ alt, src }).run()
+        if (!editor) return
+        // A drop onto (or just before) an existing image leaves a
+        // NodeSelection over it — setImage would REPLACE that node. Insert
+        // after it instead, so the dropped image lands beside the existing
+        // one. Also covers the image-only doc, whose default selection is
+        // already a NodeSelection.
+        const { selection } = editor.state
+        if (selection instanceof NodeSelection) {
+          editor
+            .chain()
+            .focus()
+            .insertContentAt(selection.to, {
+              type: `image`,
+              attrs: { alt, src },
+            })
+            .run()
+          return
+        }
+        editor.chain().focus().setImage({ alt, src }).run()
       },
       appendImage: ({ alt, src }) => {
         editor?.chain().focus(`end`).setImage({ alt, src }).run()
@@ -597,6 +670,20 @@ export const MarkdownEditor = forwardRef<
     useEffect(() => {
       editor?.setEditable(editable)
     }, [editable, editor])
+
+    // Keep the caret clear of a sticky overlay at the scrollport's top.
+    // scrollThreshold decides WHETHER ProseMirror scrolls (its default 0
+    // treats the overlaid region as visible), scrollMargin how far past it —
+    // both need the band height on their top side. setProps merges partials,
+    // so the drop/paste handlers stay intact.
+    useEffect(() => {
+      if (!editor) return
+      const inset = topScrollInset ?? 0
+      editor.view.setProps({
+        scrollThreshold: { top: inset, right: 0, bottom: 0, left: 0 },
+        scrollMargin: { top: inset + 8, right: 5, bottom: 5, left: 5 },
+      })
+    }, [editor, topScrollInset])
 
     // TipTap reads `content` only at editor creation. Read-only instances
     // (e.g. comment bodies fed live from sync) have no local edits to
@@ -790,7 +877,14 @@ export const MarkdownEditor = forwardRef<
     return (
       <div className="tiptap-wrapper">
         {editable ? (
-          <StaticToolbar editor={editor} imageUpload={imageUpload} />
+          toolbarHost ? (
+            createPortal(
+              <StaticToolbar editor={editor} imageUpload={imageUpload} />,
+              toolbarHost
+            )
+          ) : (
+            <StaticToolbar editor={editor} imageUpload={imageUpload} />
+          )
         ) : null}
         <EditorContent editor={editor} />
         {editable && autocomplete && menuStyle

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.markdown
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -50,6 +51,8 @@ internal class IssueChipTransform private constructor(
         val displayStart: Int,
         val displayTokenEnd: Int,
         val displayEnd: Int,
+        /** The resolved issue — its status drives the painted glyph (EXP-423). */
+        val target: IssueRefTarget,
     ) {
         val injectedLength: Int get() = displayEnd - displayTokenEnd
     }
@@ -137,7 +140,9 @@ internal class IssueChipTransform private constructor(
                 out.append(source, match.start, match.end)
                 val displayTokenEnd = out.length
                 out.append(' ').append(title)
-                chips.add(Chip(match.start, match.end, displayStart, displayTokenEnd, out.length))
+                chips.add(
+                    Chip(match.start, match.end, displayStart, displayTokenEnd, out.length, target),
+                )
                 last = match.end
             }
             if (chips.isEmpty()) return identity(source)
@@ -178,20 +183,31 @@ internal class ChipVisualTransformation(
         val annotated = buildAnnotatedString {
             append(base)
             for (chip in transform.chips) {
-                // Flat background + link color over identifier AND title, the
-                // same treatment MarkdownView's read-mode pills use. No
+                // The same span treatment MarkdownView's read-mode pills use
+                // (EXP-423): title in the normal text color, identifier muted +
+                // monospace, and — when the issue's status resolved — a
+                // transparent `#` for the glyph BlockTextField paints over it.
+                // The background and border are painted, not spanned. No
                 // `addLink` here: a LinkAnnotation inside a BasicTextField
-                // fights the caret — navigation stays a read-mode affordance.
+                // fights the caret — tap-to-open is a pointerInput on the
+                // decoration box instead.
                 addStyle(
-                    SpanStyle(color = MdStyle.Link, background = MdStyle.IssueRefBg),
+                    SpanStyle(color = MdStyle.Text),
                     chip.displayStart,
                     chip.displayEnd,
                 )
                 addStyle(
-                    SpanStyle(fontFamily = FontFamily.Monospace),
+                    SpanStyle(fontFamily = FontFamily.Monospace, color = MdStyle.ChipToken),
                     chip.displayStart,
                     chip.displayTokenEnd,
                 )
+                if (chip.target.resolvedStatus != null) {
+                    addStyle(
+                        SpanStyle(color = Color.Transparent),
+                        chip.displayStart,
+                        (chip.displayStart + 1).coerceAtMost(chip.displayTokenEnd),
+                    )
+                }
             }
         }
         return TransformedText(annotated, transform.offsetMapping)

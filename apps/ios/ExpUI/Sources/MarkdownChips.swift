@@ -46,8 +46,11 @@ public final class IssueRefTitleAttachment: NSTextAttachment {
 
     private var titleFont: PlatformFont { MarkdownStyle.bodyFont }
 
+    // Foreground title next to the muted token (Linear look, EXP-423) —
+    // width measurement shares these attributes, so drawn and measured text
+    // stay consistent.
     private var textAttributes: [NSAttributedString.Key: Any] {
-        [.font: titleFont, .foregroundColor: MarkdownStyle.linkColor]
+        [.font: titleFont, .foregroundColor: MarkdownStyle.textColor]
     }
 
     public override func attachmentBounds(
@@ -63,7 +66,16 @@ public final class IssueRefTitleAttachment: NSTextAttachment {
         // and let `image(forBounds:)` tail-truncate. Deliberate mobile
         // divergence, documented in EXP-322.
         let available = lineFrag.width - position.x
-        let width = available > Self.gap ? min(natural, available) : natural
+        // With no usable space left on this line the attachment wraps to its
+        // own line, where the natural width can still overflow the container —
+        // TextKit then lays the whole chip out full-width. Clamp to the
+        // container's usable width so a too-long title truncates there too
+        // (EXP-423).
+        let containerWidth = (textContainer?.size.width ?? lineFrag.width)
+            - 2 * (textContainer?.lineFragmentPadding ?? 0)
+        let width = available > Self.gap
+            ? min(natural, available)
+            : min(natural, max(containerWidth, Self.gap))
         let font = titleFont
         return CGRect(x: 0, y: font.descender, width: ceil(width), height: ceil(font.lineHeight))
     }
@@ -150,6 +162,7 @@ public enum MarkdownChipDecorator {
         selection: NSRange = NSRange(location: 0, length: 0),
         issueRefResolver: ((String) -> String?)?,
         issueRefTitleResolver: ((String) -> String?)? = nil,
+        issueRefStatusResolver: ((String) -> IssueRefStatusInfo?)? = nil,
         mentionResolver: ((String) -> String?)? = nil
     ) -> Result {
         guard input.length > 0 else {
@@ -165,7 +178,8 @@ public enum MarkdownChipDecorator {
         var next: NSAttributedString = unchip(stripped)
         // 3. Re-chip.
         if let issueRefResolver {
-            next = IssueRefs.decorate(next, resolver: issueRefResolver)
+            next = IssueRefs.decorate(
+                next, resolver: issueRefResolver, statusResolver: issueRefStatusResolver)
         }
         if let mentionResolver {
             next = MentionRefs.decorate(next, resolver: mentionResolver)
@@ -193,6 +207,7 @@ public enum MarkdownChipDecorator {
         out[.markdownChipBaseColor] = nil
         out[.markdownIssueRef] = nil
         out[.markdownIssueRefTitle] = nil
+        out[.markdownIssueRefStatus] = nil
         out[.markdownMention] = nil
         out[.attachment] = nil
         out[.backgroundColor] = nil
@@ -211,8 +226,18 @@ public enum MarkdownChipDecorator {
             return nil
         }
         var tokenRange = NSRange(location: 0, length: 0)
+        // longestEffectiveRange, not effectiveRange: the hidden `#` of a chip
+        // with a status glyph carries a different `.foregroundColor` than the
+        // rest of its token (EXP-423), and an implementation-defined effective
+        // range could stop at that boundary — the atom must always start at the
+        // `#`, or a backspace would leave one behind.
         guard attachmentIndex > 0,
-              text.attribute(.markdownIssueRef, at: attachmentIndex - 1, effectiveRange: &tokenRange) != nil
+              text.attribute(
+                  .markdownIssueRef,
+                  at: attachmentIndex - 1,
+                  longestEffectiveRange: &tokenRange,
+                  in: NSRange(location: 0, length: text.length)
+              ) != nil
         else {
             return NSRange(location: attachmentIndex, length: 1)
         }
@@ -259,6 +284,10 @@ public enum MarkdownChipDecorator {
             mutable.removeAttribute(.markdownChip, range: range)
             mutable.removeAttribute(.markdownChipBaseColor, range: range)
             mutable.removeAttribute(.markdownIssueRef, range: range)
+            // The status glyph goes with the chip — and so does the CLEAR
+            // foreground it hid the `#` behind, which the base-color restore
+            // below undoes over the whole range (EXP-423).
+            mutable.removeAttribute(.markdownIssueRefStatus, range: range)
             mutable.removeAttribute(.markdownMention, range: range)
             mutable.removeAttribute(.backgroundColor, range: range)
             mutable.addAttribute(.foregroundColor, value: base ?? MarkdownStyle.textColor, range: range)
@@ -272,14 +301,28 @@ public enum MarkdownChipDecorator {
         caret: inout NSRange
     ) -> NSAttributedString {
         let ns = attributed.string as NSString
+        let full = NSRange(location: 0, length: attributed.length)
         var insertions: [(location: Int, attrs: [NSAttributedString.Key: Any], title: String)] = []
-        attributed.enumerateAttribute(
-            .markdownIssueRef,
-            in: NSRange(location: 0, length: attributed.length),
-            options: []
-        ) { value, range, _ in
-            guard value != nil, range.length > 1 else { return }
-            var attrs = attributed.attributes(at: range.location, effectiveRange: nil)
+        // Each enumerated range is expanded to the attribute's longest effective
+        // range and the ones it swallows are skipped: a chip with a status glyph
+        // hides its `#` behind a different `.foregroundColor` (EXP-423), so the
+        // token must never be read as starting after it.
+        var handledEnd = 0
+        attributed.enumerateAttribute(.markdownIssueRef, in: full, options: []) { value, enumerated, _ in
+            guard value != nil, enumerated.location >= handledEnd else { return }
+            var range = NSRange(location: 0, length: 0)
+            guard attributed.attribute(
+                .markdownIssueRef,
+                at: enumerated.location,
+                longestEffectiveRange: &range,
+                in: full
+            ) != nil else { return }
+            handledEnd = NSMaxRange(range)
+            guard range.length > 1 else { return }
+            // Inherit from the token's LAST character: the first is the `#`,
+            // whose foreground is CLEAR when a status glyph is painted over it
+            // (EXP-423) — the title must not inherit that.
+            var attrs = attributed.attributes(at: NSMaxRange(range) - 1, effectiveRange: nil)
             // Belt and braces with `IssueRefs.decorate`'s own guard: a verbatim
             // pipe-table run is re-emitted from its SOURCE STRING, so an
             // attachment character inserted into it reaches the saved markdown

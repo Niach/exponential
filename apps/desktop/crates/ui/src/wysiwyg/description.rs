@@ -15,7 +15,9 @@ use gpui::{
     Pixels, Point, Render, SharedString, Styled as _, Subscription, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
-use gpui_component::{notification::Notification, v_flex, ActiveTheme as _, WindowExt as _};
+use gpui_component::{
+    h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, WindowExt as _,
+};
 use gpui_markdown_editor::{
     DismissTransientUi, FocusNext, FocusPrev, FormatCommand, ImageSourceResolution, IndentBlock,
     MarkdownEditor as VendoredEditor, MarkdownEditorEvent, MarkdownEditorMode,
@@ -207,6 +209,27 @@ impl WysiwygDescription {
                 MarkdownEditorEvent::Error { message } => {
                     log::warn!("wysiwyg editor error: {message}");
                 }
+                // EXP-421: files dropped onto the editor — same type policy
+                // as `pick_attach`: inline images embed at the drop index
+                // (the `Changed` event then drives the upload pipeline),
+                // everything else rides the host attach hook.
+                MarkdownEditorEvent::ExternalFilesDropped { paths, root_index } => {
+                    let (images, others): (Vec<_>, Vec<_>) =
+                        paths.iter().cloned().partition(|path| {
+                            crate::markdown::image_paste::is_inline_image_path(path)
+                        });
+                    if !images.is_empty() {
+                        let root_index = *root_index;
+                        this.editor.update(cx, |editor, cx| {
+                            editor.insert_image_paths_at(root_index, images, cx);
+                        });
+                    }
+                    if !others.is_empty() {
+                        if let Some(on_attach) = this.on_attach_files.clone() {
+                            on_attach(others, window, cx);
+                        }
+                    }
+                }
                 MarkdownEditorEvent::SelectionChanged(_) => {
                     // Caret moves re-anchor or dismiss the popup, and move the
                     // toolbar's pressed-button state onto the new block.
@@ -254,9 +277,41 @@ impl WysiwygDescription {
         // when it does; the equality gates in `sync_images` keep quiet
         // updates from repainting.
         if let Some(store) = sync::Store::try_global(cx) {
-            let attachments = store.collections().attachments.clone();
+            let collections = store.collections();
+            let attachments = collections.attachments.clone();
+            // EXP-423: the chip decorator's snapshot (titles + status icons)
+            // must track the LIVE data — before these observers, refs went
+            // stale until the next keystroke re-ran `sync_refs`. Issues
+            // (titles/status), issue_statuses (color/glyph edits), boards
+            // (board→team mapping feeds resolution), team_members + users
+            // (mention emails). Cloned up front — `store` borrows `cx`.
+            let issues = collections.issues.clone();
+            let issue_statuses = collections.issue_statuses.clone();
+            let boards = collections.boards.clone();
+            let team_members = collections.team_members.clone();
+            let users = collections.users.clone();
             subscriptions.push(cx.observe(&attachments, |this, _, cx| {
                 this.sync_images(cx);
+            }));
+            subscriptions.push(cx.observe(&issues, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&issue_statuses, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&boards, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&team_members, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&users, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
             }));
         }
 
@@ -1073,16 +1128,32 @@ impl WysiwygDescription {
         let own_attachment = key.starts_with("/api/attachments/");
         let theme = cx.theme();
 
-        let item = |id: &'static str, label: &'static str| {
-            div()
+        // EXP-421: parity with the web image menu — icons per row and a
+        // destructive "Remove from description" (Copy link is gone on both).
+        let item = |id: &'static str,
+                    label: &'static str,
+                    icon: crate::icons::ExpIcon,
+                    destructive: bool| {
+            let (icon_color, label_color) = if destructive {
+                (theme.danger, theme.danger)
+            } else {
+                (theme.muted_foreground, theme.popover_foreground)
+            };
+            h_flex()
                 .id(id)
                 .px_3()
                 .py_1()
+                .gap_2()
                 .text_sm()
                 .rounded_sm()
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.muted))
-                .child(SharedString::from(label))
+                .child(Icon::from(icon).size_4().text_color(icon_color))
+                .child(
+                    div()
+                        .text_color(label_color)
+                        .child(SharedString::from(label)),
+                )
         };
 
         let images_entity = self.images.clone();
@@ -1097,7 +1168,13 @@ impl WysiwygDescription {
             .bg(theme.popover)
             .shadow_md()
             .child(
-                item("wysiwyg-image-view", "View image").on_mouse_down(MouseButton::Left, {
+                item(
+                    "wysiwyg-image-view",
+                    "View image",
+                    crate::icons::registry::UI_WATCH,
+                    false,
+                )
+                .on_mouse_down(MouseButton::Left, {
                     let key = key.clone();
                     let images = images_entity.clone();
                     cx.listener(move |this, _event, window, cx| {
@@ -1114,9 +1191,14 @@ impl WysiwygDescription {
                 }),
             );
         if own_attachment {
-            list = list.child(item("wysiwyg-image-download", "Download").on_mouse_down(
-                MouseButton::Left,
-                {
+            list = list.child(
+                item(
+                    "wysiwyg-image-download",
+                    "Download",
+                    crate::icons::registry::UI_DOWNLOAD,
+                    false,
+                )
+                .on_mouse_down(MouseButton::Left, {
                     let key = key.clone();
                     let images = images_entity.clone();
                     cx.listener(move |this, _event, window, cx| {
@@ -1124,12 +1206,21 @@ impl WysiwygDescription {
                         download_image(key.clone(), &images, window, cx);
                         cx.notify();
                     })
-                },
-            ));
-            if cfg!(target_os = "macos") {
-                list = list.child(item("wysiwyg-image-copy", "Copy image").on_mouse_down(
-                    MouseButton::Left,
-                    {
+                }),
+            );
+            // Linux clipboard backends are text-only at pin 1d217ee (Wayland
+            // offers only TEXT_MIME_TYPES; X11 routes write_to_clipboard
+            // through set_text — its set_image exists but is unwired), so
+            // Copy image ships on macOS/Windows only.
+            if cfg!(any(target_os = "macos", target_os = "windows")) {
+                list = list.child(
+                    item(
+                        "wysiwyg-image-copy",
+                        "Copy image",
+                        crate::icons::registry::UI_COPY,
+                        false,
+                    )
+                    .on_mouse_down(MouseButton::Left, {
                         let key = key.clone();
                         let images = images_entity.clone();
                         cx.listener(move |this, _event, _window, cx| {
@@ -1139,34 +1230,28 @@ impl WysiwygDescription {
                             }
                             cx.notify();
                         })
-                    },
-                ));
+                    }),
+                );
             }
-            list = list.child(item("wysiwyg-image-copy-link", "Copy link").on_mouse_down(
-                MouseButton::Left,
-                {
-                    let key = key.clone();
-                    cx.listener(move |this, _event, _window, cx| {
+        }
+        list = list
+            .child(div().my_1().h(px(1.)).bg(theme.border))
+            .child(
+                item(
+                    "wysiwyg-image-delete",
+                    "Remove from description",
+                    crate::icons::registry::UI_DELETE,
+                    true,
+                )
+                .on_mouse_down(MouseButton::Left, {
+                    let src = src.clone();
+                    cx.listener(move |this, _event, window, cx| {
                         this.image_menu = None;
-                        if let Some(absolute) = queries::absolute_api_url(cx, &key) {
-                            cx.write_to_clipboard(ClipboardItem::new_string(absolute));
-                        }
+                        this.delete_image(&src, window, cx);
                         cx.notify();
                     })
-                },
-            ));
-        }
-        list = list.child(item("wysiwyg-image-delete", "Delete").on_mouse_down(
-            MouseButton::Left,
-            {
-                let src = src.clone();
-                cx.listener(move |this, _event, window, cx| {
-                    this.image_menu = None;
-                    this.delete_image(&src, window, cx);
-                    cx.notify();
-                })
-            },
-        ));
+                }),
+            );
 
         Some(
             deferred(
@@ -1254,6 +1339,10 @@ impl Render for WysiwygDescription {
                     .w_full()
                     .flex_1()
                     .min_h(px(24.))
+                    // EXP-421: the filler is a text-entry surface (clicking
+                    // focuses the document end), so it shows the I-beam like
+                    // the editor itself.
+                    .cursor(gpui::CursorStyle::IBeam)
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, window, cx| this.focus_end(window, cx)),
