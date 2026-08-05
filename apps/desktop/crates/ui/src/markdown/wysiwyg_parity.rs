@@ -63,6 +63,7 @@ impl ReferenceDecorator for DecorateEverything {
                 range,
                 kind: ReferenceKind::Mention,
                 display_suffix: None,
+                icon: None,
             })
             .chain(scan_issue_refs(text).into_iter().map(|range| ReferenceSpan {
                 range,
@@ -70,6 +71,13 @@ impl ReferenceDecorator for DecorateEverything {
                 display_suffix: Some(SharedString::from(
                     "a deliberately long display-only chip title",
                 )),
+                // EXP-423: the icon triggers the leading NBSP gutter
+                // injection — this gate proves the gutter (like the title)
+                // never leaks into serialization.
+                icon: Some(gpui_markdown_editor::ChipIcon {
+                    svg_path: SharedString::from("icons/circle.svg"),
+                    color: gpui::Hsla::default(),
+                }),
             }))
             .collect();
         spans.sort_by_key(|span| span.range.start);
