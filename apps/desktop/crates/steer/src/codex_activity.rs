@@ -697,7 +697,11 @@ fn run_emitter_with_root(
         // 1) Resolve / re-resolve the rollout. The full-tree sweep walks every
         //    recorded session, so once bound it re-runs on a slower cadence
         //    (a newer rollout in the same cwd supersedes — a manual `codex`
-        //    restarted in the worktree).
+        //    restarted in the worktree). Unlike claude there is no ownership
+        //    pin to hang here (EXP-429): rollout meta carries only
+        //    id/cwd/originator, and an in-TUI `/new` legitimately rotates
+        //    rollouts — so a foreign codex sharing the cwd is
+        //    indistinguishable from our own restart.
         if let Some(root) = &sessions_root {
             let due = current.is_none() || rescan_at.is_none_or(|at| at.elapsed() >= REDISCOVER_INTERVAL);
             if due {
