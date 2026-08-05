@@ -172,7 +172,17 @@ pub fn hostname() -> String {
             }
         }
     }
-    if let Ok(output) = std::process::Command::new("hostname").output() {
+    // EXP-419: CREATE_NO_WINDOW so a console-subsystem child never flashes a
+    // conhost on Windows (inlined — `api` doesn't depend on the terminal
+    // crate's shared `background_command`).
+    #[allow(unused_mut)]
+    let mut command = std::process::Command::new("hostname");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    if let Ok(output) = command.output() {
         let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !name.is_empty() {
             return name;

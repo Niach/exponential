@@ -70,12 +70,14 @@ pub(crate) fn install_hint(tool: Tool) -> (&'static str, &'static str) {
     match tool {
         Tool::Git => (
             "Install Git (on Windows: winget install --id Git.Git). Just installed it? \
-             Restart Exponential so your PATH is re-read.",
+             Click Check tools again.",
             "https://git-scm.com/downloads",
         ),
         Tool::Claude => (
+            // EXP-419: link the CLI install docs, not the product page — a
+            // fresh machine needs the claude CLI, not the desktop app.
             "Install Claude Code: npm install -g @anthropic-ai/claude-code",
-            "https://claude.com/claude-code",
+            "https://code.claude.com/docs/en/quickstart#step-1-install-claude-code",
         ),
         Tool::Codex => (
             "Install the Codex CLI: npm install -g @openai/codex",

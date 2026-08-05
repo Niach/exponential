@@ -459,7 +459,9 @@ fn stream_progress<R: Read>(reader: R, on_event: CloneProgress<'_>) -> String {
 /// clone needs to build the child itself; every other op goes through
 /// [`git_worktree::run_git`].
 fn base_command_no_cwd(args: &[&str]) -> Command {
-    let mut command = Command::new("git");
+    // EXP-419: hidden on Windows — the board-open clone must not flash a
+    // conhost window.
+    let mut command = terminal::process::background_command("git");
     command.args(args);
     command.env("GIT_TERMINAL_PROMPT", "0");
     command
