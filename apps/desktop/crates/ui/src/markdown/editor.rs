@@ -62,17 +62,28 @@ use crate::icons::registry;
 
 /// `email` → member display name (None ⇒ not a known member; stays text).
 pub type MemberNameResolver = Rc<dyn Fn(&str, &App) -> Option<String>>;
-/// `IDENTIFIER` → the issue's title (None ⇒ no such issue; stays text).
-pub type IssueTitleResolver = Rc<dyn Fn(&str, &App) -> Option<String>>;
+/// `IDENTIFIER` → the issue's chip data (None ⇒ no such issue; stays text).
+pub type IssueChipResolver = Rc<dyn Fn(&str, &App) -> Option<IssueChipData>>;
+
+/// EXP-423: everything a resolved `#IDENT` chip renders in the read-only
+/// view — the title plus the pre-resolved status icon (SVG asset path +
+/// tint), mirroring the wysiwyg `IssueChipSnapshot`.
+#[derive(Clone, Debug)]
+pub struct IssueChipData {
+    pub title: String,
+    pub icon_path: SharedString,
+    pub icon_color: gpui::Hsla,
+}
 
 /// Resolves decoration tokens against the synced collections at render time.
 #[derive(Clone)]
 pub struct RefResolver {
     /// `email` → member display name (None ⇒ not a known member; stays text).
     pub member_name: MemberNameResolver,
-    /// `IDENTIFIER` → the issue's title (None ⇒ no such issue; stays text) —
-    /// EXP-307: the pill shows `#IDENT Title`, not just the short code.
-    pub issue_title: IssueTitleResolver,
+    /// `IDENTIFIER` → the issue's chip data (None ⇒ no such issue; stays
+    /// text) — EXP-307: the pill shows `#IDENT Title`, not just the short
+    /// code; EXP-423: plus the status icon in the leading gutter.
+    pub issue_chip: IssueChipResolver,
 }
 
 impl RefResolver {
@@ -99,13 +110,22 @@ impl RefResolver {
                     })
                     .map(|u| u.name.clone().unwrap_or_else(|| email.to_string()))
             }),
-            issue_title: Rc::new(move |identifier, cx| {
+            issue_chip: Rc::new(move |identifier, cx| {
                 let collections = sync::Store::global(cx).collections();
                 collections
                     .issues_in_team(&ws_issues, cx)
                     .iter()
                     .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
-                    .map(|issue| issue.title.clone())
+                    .map(|issue| {
+                        // EXP-423: resolve status → glyph + tint per render,
+                        // exactly like the wysiwyg snapshot (refs.rs).
+                        let status = crate::queries::resolve_issue_status(cx, issue);
+                        IssueChipData {
+                            title: issue.title.clone(),
+                            icon_path: crate::icons::glyph_svg_path(status.glyph),
+                            icon_color: crate::icons::status_tint_color(&status.tint, cx),
+                        }
+                    })
             }),
         }
     }
@@ -114,7 +134,7 @@ impl RefResolver {
     pub fn disabled() -> Self {
         Self {
             member_name: Rc::new(|_, _| None),
-            issue_title: Rc::new(|_, _| None),
+            issue_chip: Rc::new(|_, _| None),
         }
     }
 }
@@ -2282,13 +2302,17 @@ fn render_view_line(
     // EXP-381: real chips — rounded, bordered pill quads painted behind the
     // resolved `@email` / `#IDENT` ranges (same look as the WYSIWYG editor and
     // web's `.issue-ref-pill`).
-    let text_element: gpui::AnyElement = if display.pill_ranges.is_empty() {
+    let text_element: gpui::AnyElement = if display.mention_pill_ranges.is_empty()
+        && display.issue_pill_ranges.is_empty()
+    {
         text_element
     } else {
         PillText {
             child: text_element,
             layout: text_layout,
-            pills: display.pill_ranges,
+            mention_pills: display.mention_pill_ranges,
+            issue_pills: display.issue_pill_ranges,
+            icons: display.icon_ranges,
             background: theme.accent,
             border: theme.border,
         }
@@ -2394,8 +2418,13 @@ struct PillText {
     /// Shared handle onto the child's [`StyledText`] layout — valid (bounds +
     /// wrap data) once the child has prepainted.
     layout: gpui::TextLayout,
-    /// Chip ranges in display-string bytes.
-    pills: Vec<Range<usize>>,
+    /// Mention chip ranges in display-string bytes (full-round pills).
+    mention_pills: Vec<Range<usize>>,
+    /// EXP-423: issue chip ranges (small Linear-style rounded rects).
+    issue_pills: Vec<Range<usize>>,
+    /// EXP-423: `(gutter range, svg asset path, tint)` — the status icon
+    /// painted into each issue chip's leading NBSP gutter.
+    icons: Vec<(Range<usize>, SharedString, gpui::Hsla)>,
     background: gpui::Hsla,
     border: gpui::Hsla,
 }
@@ -2403,8 +2432,11 @@ struct PillText {
 /// Overdraw around the glyph box, mirroring the WYSIWYG theme's
 /// `reference_pad_x`/`reference_pad_y` so chips look identical in the editor
 /// and the read-only view.
-const PILL_PAD_X: f32 = 2.0;
+const PILL_PAD_X: f32 = 3.0;
 const PILL_PAD_Y: f32 = 1.0;
+/// EXP-423: issue chips are small rounded rects (the wysiwyg theme's
+/// `issue_chip_radius`); mentions keep the 999 full pill.
+const ISSUE_PILL_RADIUS: f32 = 4.0;
 
 impl IntoElement for PillText {
     type Element = Self;
@@ -2458,22 +2490,54 @@ impl gpui::Element for PillText {
         window: &mut Window,
         cx: &mut App,
     ) {
-        for range in &self.pills {
-            for segment in pill_segment_bounds(&self.layout, range.clone()) {
-                let quad_bounds = Bounds::from_corners(
-                    point(segment.left() - px(PILL_PAD_X), segment.top() - px(PILL_PAD_Y)),
-                    point(
-                        segment.right() + px(PILL_PAD_X),
-                        segment.bottom() + px(PILL_PAD_Y),
-                    ),
+        // Full pill for mentions (gpui clamps 999 to half the smaller side,
+        // so it's "as round as it gets"); small rounded rect for issue chips
+        // (EXP-423).
+        let kinds = [
+            (&self.mention_pills, px(999.)),
+            (&self.issue_pills, px(ISSUE_PILL_RADIUS)),
+        ];
+        for (pills, radius) in kinds {
+            for range in pills {
+                for segment in pill_segment_bounds(&self.layout, range.clone()) {
+                    let quad_bounds = Bounds::from_corners(
+                        point(segment.left() - px(PILL_PAD_X), segment.top() - px(PILL_PAD_Y)),
+                        point(
+                            segment.right() + px(PILL_PAD_X),
+                            segment.bottom() + px(PILL_PAD_Y),
+                        ),
+                    );
+                    let mut quad = gpui::fill(quad_bounds, self.background);
+                    quad.corner_radii = gpui::Corners::all(radius);
+                    quad.border_widths = gpui::Edges::all(px(1.));
+                    quad.border_color = self.border;
+                    window.paint_quad(quad);
+                }
+            }
+        }
+        // EXP-423: status icons — the FIRST wrapped segment of each gutter
+        // range (a wrapped chip shows its icon only on the first row).
+        // `.ok()`: a missing asset (headless tests) must never panic paint.
+        for (range, svg_path, color) in &self.icons {
+            if let Some(segment) = pill_segment_bounds(&self.layout, range.clone())
+                .into_iter()
+                .next()
+            {
+                let side = segment.size.height.min(px(14.));
+                let origin = point(
+                    segment.left() + (segment.size.width - side) / 2.0,
+                    segment.top() + (segment.size.height - side) / 2.0,
                 );
-                let mut quad = gpui::fill(quad_bounds, self.background);
-                // Full pill: gpui clamps the radius to half the smaller side,
-                // so 999 is simply "as round as it gets".
-                quad.corner_radii = gpui::Corners::all(px(999.));
-                quad.border_widths = gpui::Edges::all(px(1.));
-                quad.border_color = self.border;
-                window.paint_quad(quad);
+                window
+                    .paint_svg(
+                        Bounds::new(origin, gpui::size(side, side)),
+                        svg_path.clone(),
+                        None,
+                        gpui::TransformationMatrix::unit(),
+                        *color,
+                        cx,
+                    )
+                    .ok();
             }
         }
         self.child.paint(window, cx);
@@ -2534,13 +2598,20 @@ struct DisplayLine {
     highlights: Vec<(Range<usize>, HighlightStyle)>,
     code_ranges: Vec<Range<usize>>,
     targets: Vec<(Range<usize>, ClickTarget)>,
-    /// EXP-381: display ranges of resolved `@email` / `#IDENT` chips — each
-    /// gets a rounded, bordered pill quad painted behind it (web
+    /// EXP-381: display ranges of resolved `@email` chips — each gets a
+    /// rounded, bordered FULL-ROUND pill quad painted behind it (web
     /// `.issue-ref-pill` parity; a flat run background reads as plain text).
-    pill_ranges: Vec<Range<usize>>,
-    /// EXP-381: display ranges of `#IDENT` tokens alone (without the injected
-    /// title) — the only part of a chip that renders monospace, like web.
+    mention_pill_ranges: Vec<Range<usize>>,
+    /// EXP-423: display ranges of resolved `#IDENT` chips — same quad, but a
+    /// small Linear-style rounded rect.
+    issue_pill_ranges: Vec<Range<usize>>,
+    /// EXP-381: display ranges of `#IDENT` tokens alone (without the gutter
+    /// or the injected title) — the only part of a chip that renders
+    /// monospace, like web.
     issue_token_ranges: Vec<Range<usize>>,
+    /// EXP-423: `(gutter display range, svg asset path, tint)` of each chip's
+    /// status icon.
+    icon_ranges: Vec<(Range<usize>, SharedString, gpui::Hsla)>,
 }
 
 /// A decoration token found in the source line.
@@ -2552,8 +2623,21 @@ struct Decoration {
 
 enum DecorationStyle {
     MentionPill,
-    IssuePill(String),
+    IssuePill {
+        identifier: String,
+        /// EXP-423: `(svg asset path, tint)` of the status icon painted into
+        /// the chip's leading gutter.
+        icon: (SharedString, gpui::Hsla),
+    },
 }
+
+/// EXP-423: the icon gutter prepended to a resolved `#IDENT`'s display text —
+/// blank NBSP glyphs the status icon paints over (NBSP so the gutter never
+/// word-wraps away from the token; mirrors the wysiwyg editor's
+/// `ICON_GUTTER`). The `#` stays VISIBLE after the gutter — the native apps
+/// hide it under the icon, but desktop keeps it (EXP-423 ruling 3; documented
+/// divergence).
+const CHIP_GUTTER: &str = "\u{00a0}\u{00a0}\u{00a0}";
 
 fn build_display_line(
     line: &str,
@@ -2590,18 +2674,22 @@ fn build_display_line(
                 continue;
             }
             let identifier = line[token.start + 1..token.end].to_uppercase();
-            if let Some(title) = (resolver.issue_title)(&identifier, cx) {
+            if let Some(chip) = (resolver.issue_chip)(&identifier, cx) {
                 // EXP-307: the chip shows the whole title next to the short
                 // code (web parity — the web pill renders the same suffix
                 // via CSS). The document text stays the plain token.
+                // EXP-423: the leading gutter reserves room for the icon.
                 decorations.push(Decoration {
                     range: token.clone(),
                     display_text: format!(
-                        "{} {}",
+                        "{CHIP_GUTTER}{} {}",
                         &line[token.clone()],
-                        truncate_chip_title(&title)
+                        truncate_chip_title(&chip.title)
                     ),
-                    style: DecorationStyle::IssuePill(identifier),
+                    style: DecorationStyle::IssuePill {
+                        identifier,
+                        icon: (chip.icon_path, chip.icon_color),
+                    },
                 });
             }
         }
@@ -2665,6 +2753,8 @@ fn build_display_line(
         link: bool,
         mention: bool,
         issue: bool,
+        /// EXP-423: the `#IDENT` half of an issue chip — muted, mono.
+        issue_token: bool,
     }
     let mut ranges: Vec<(Range<usize>, Bits)> = Vec::new();
     for mark in marks {
@@ -2693,29 +2783,45 @@ fn build_display_line(
             }
         }
     }
-    let mut pill_ranges: Vec<Range<usize>> = Vec::new();
+    let mut mention_pill_ranges: Vec<Range<usize>> = Vec::new();
+    let mut issue_pill_ranges: Vec<Range<usize>> = Vec::new();
     let mut issue_token_ranges: Vec<Range<usize>> = Vec::new();
+    let mut icon_ranges: Vec<(Range<usize>, SharedString, gpui::Hsla)> = Vec::new();
     for replacement in &replacements {
         let decoration = &decorations[replacement.decoration_index];
         let mut bits = Bits::default();
         match &decoration.style {
-            DecorationStyle::MentionPill => bits.mention = true,
-            DecorationStyle::IssuePill(identifier) => {
+            DecorationStyle::MentionPill => {
+                bits.mention = true;
+                mention_pill_ranges.push(replacement.display.clone());
+            }
+            DecorationStyle::IssuePill { identifier, icon } => {
                 bits.issue = true;
                 targets.push((
                     replacement.display.clone(),
                     ClickTarget::Issue(identifier.clone()),
                 ));
-                // The display text starts with the raw `#IDENT` token, so the
-                // token's display range is just the original token's length.
-                issue_token_ranges.push(
-                    replacement.display.start
-                        ..replacement.display.start + decoration.range.len(),
-                );
+                // EXP-423: the display text is `<gutter><token> <title>`, so
+                // the token's display range starts right after the gutter.
+                let token_start = replacement.display.start + CHIP_GUTTER.len();
+                let token_range = token_start..token_start + decoration.range.len();
+                issue_token_ranges.push(token_range.clone());
+                ranges.push((
+                    token_range,
+                    Bits {
+                        issue_token: true,
+                        ..Bits::default()
+                    },
+                ));
+                icon_ranges.push((
+                    replacement.display.start..token_start,
+                    icon.0.clone(),
+                    icon.1,
+                ));
+                issue_pill_ranges.push(replacement.display.clone());
             }
         }
         if bits != Bits::default() {
-            pill_ranges.push(replacement.display.clone());
             ranges.push((replacement.display.clone(), bits));
         }
     }
@@ -2747,6 +2853,7 @@ fn build_display_line(
                 bits.link |= range_bits.link;
                 bits.mention |= range_bits.mention;
                 bits.issue |= range_bits.issue;
+                bits.issue_token |= range_bits.issue_token;
             }
         }
         if bits == Bits::default() {
@@ -2777,12 +2884,21 @@ fn build_display_line(
                 wavy: false,
             });
         }
-        if bits.mention || bits.issue {
-            // EXP-381: no flat run background here — the chip's rounded,
-            // bordered pill quad is painted behind the text by [`PillText`]
-            // (web `.issue-ref-pill`: accent fill + `1px solid var(--border)`).
+        // EXP-381: no flat run background on chips — the rounded, bordered
+        // pill quad is painted behind the text by [`PillText`] (web
+        // `.issue-ref-pill`: accent fill + `1px solid var(--border)`).
+        if bits.mention {
             style.color = Some(theme.accent_foreground);
             style.font_weight = Some(FontWeight::MEDIUM);
+        }
+        if bits.issue {
+            // EXP-423 Linear look: foreground MEDIUM title…
+            style.color = Some(theme.foreground);
+            style.font_weight = Some(FontWeight::MEDIUM);
+        }
+        if bits.issue_token {
+            // …and a muted (mono, via `issue_token_ranges`) identifier.
+            style.color = Some(theme.muted_foreground);
         }
         highlights.push((a..b, style));
     }
@@ -2792,8 +2908,10 @@ fn build_display_line(
         highlights,
         code_ranges,
         targets,
-        pill_ranges,
+        mention_pill_ranges,
+        issue_pill_ranges,
         issue_token_ranges,
+        icon_ranges,
     }
 }
 
@@ -2956,8 +3074,15 @@ mod tests {
             member_name: Rc::new(|email, _| {
                 (email == "ada@example.com").then(|| "Ada".to_string())
             }),
-            issue_title: Rc::new(|identifier, _| {
-                (identifier == "EXP-42").then(|| "Fix login flow".to_string())
+            issue_chip: Rc::new(|identifier, _| {
+                (identifier == "EXP-42").then(|| IssueChipData {
+                    title: "Fix login flow".to_string(),
+                    // A real bundled asset, so the real-window paint test
+                    // drives the paint_svg path (the asset may still be
+                    // unloadable headless — tolerated via `.ok()`).
+                    icon_path: SharedString::from("icons/circle.svg"),
+                    icon_color: gpui::Hsla::default(),
+                })
             }),
         }
     }
@@ -2973,23 +3098,34 @@ mod tests {
             let line = "Ping @ada@example.com about #EXP-42 now";
             let display = build_display_line(line, &[], Some(&test_resolver()), cx);
 
-            assert_eq!(display.text, "Ping @Ada about #EXP-42 Fix login flow now");
-            let mention = display.text.find("@Ada").expect("mention");
-            let issue = display.text.find("#EXP-42").expect("issue chip");
+            // EXP-423: the chip display text carries the leading icon gutter.
             assert_eq!(
-                display.pill_ranges,
-                vec![
-                    mention..mention + "@Ada".len(),
-                    issue..issue + "#EXP-42 Fix login flow".len(),
-                ],
-                "both chips should get a pill quad"
+                display.text,
+                format!("Ping @Ada about {CHIP_GUTTER}#EXP-42 Fix login flow now")
+            );
+            let mention = display.text.find("@Ada").expect("mention");
+            let chip = display.text.find(CHIP_GUTTER).expect("issue chip gutter");
+            let issue = display.text.find("#EXP-42").expect("issue token");
+            assert_eq!(
+                display.mention_pill_ranges,
+                vec![mention..mention + "@Ada".len()]
+            );
+            assert_eq!(
+                display.issue_pill_ranges,
+                vec![chip..issue + "#EXP-42 Fix login flow".len()],
+                "the issue pill covers gutter + token + title"
             );
             // Only the identifier renders monospace — the injected title stays
-            // in the body font (web `.issue-ref-pill::after`).
+            // in the body font (web `.issue-ref-pill::after`) — and the token
+            // range sits AFTER the gutter.
+            assert_eq!(issue, chip + CHIP_GUTTER.len());
             assert_eq!(
                 display.issue_token_ranges,
                 vec![issue..issue + "#EXP-42".len()]
             );
+            // The icon paints over the gutter band.
+            assert_eq!(display.icon_ranges.len(), 1);
+            assert_eq!(display.icon_ranges[0].0, chip..issue);
             for (range, style) in &display.highlights {
                 assert_eq!(
                     style.background_color, None,
@@ -3008,8 +3144,10 @@ mod tests {
             let line = "see #EXP-99 and @ghost@example.com";
             let display = build_display_line(line, &[], Some(&test_resolver()), cx);
             assert_eq!(display.text, line);
-            assert!(display.pill_ranges.is_empty());
+            assert!(display.mention_pill_ranges.is_empty());
+            assert!(display.issue_pill_ranges.is_empty());
             assert!(display.issue_token_ranges.is_empty());
+            assert!(display.icon_ranges.is_empty());
             assert!(display.targets.is_empty());
         });
     }

@@ -2372,6 +2372,61 @@ mod chip_tests {
         })
     }
 
+    /// EXP-423: a decorator that also carries a status icon.
+    struct IconTitleDecorator;
+
+    impl ReferenceDecorator for IconTitleDecorator {
+        fn scan(&self, text: &str) -> Vec<ReferenceSpan> {
+            let mut spans = TitleDecorator.scan(text);
+            for span in &mut spans {
+                span.icon = Some(crate::host::ChipIcon {
+                    svg_path: SharedString::from("icons/circle.svg"),
+                    color: Hsla::from(rgba(0x22cc88ff)),
+                });
+            }
+            spans
+        }
+    }
+
+    /// EXP-423: painting an icon-carrying chip in a REAL window drives the
+    /// whole path — gutter injection in `request_layout`, the gutter-segment
+    /// icon box in `prepaint`, and `paint_svg` in `paint` (the asset miss is
+    /// tolerated via `.ok()` headless).
+    #[gpui::test]
+    async fn an_icon_chip_injects_its_gutter_when_painted(cx: &mut TestAppContext) {
+        let (block, cx) = cx.add_window_view(|_window, cx| {
+            Block::with_record_and_environment(
+                cx,
+                BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown(TEXT)),
+                Arc::new(MarkdownEditorEnvironment {
+                    reference_decorator: Some(Arc::new(IconTitleDecorator)),
+                    ..MarkdownEditorEnvironment::default()
+                }),
+            )
+        });
+        for _ in 0..2 {
+            cx.update(|window, cx| {
+                window.draw(cx).clear();
+            });
+            cx.run_until_parked();
+        }
+        block.read_with(cx, |block, _cx| {
+            let shaped = block
+                .last_shaped
+                .clone()
+                .expect("a painted block stores its shaped map");
+            let gutter = shaped
+                .icon_gutter_range(0)
+                .expect("the icon chip injects a gutter");
+            assert_eq!(
+                &shaped.text()[gutter],
+                crate::components::block::shaped::ICON_GUTTER
+            );
+            // Serialization stays the raw document.
+            assert_eq!(shaped.document().as_ref(), TEXT);
+        });
+    }
+
     /// D1: a code BLOCK is literal source — and `build_code_text_runs` colours
     /// it from DOCUMENT offsets, so an injected title would shift every
     /// highlight after the first token.

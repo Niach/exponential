@@ -277,9 +277,41 @@ impl WysiwygDescription {
         // when it does; the equality gates in `sync_images` keep quiet
         // updates from repainting.
         if let Some(store) = sync::Store::try_global(cx) {
-            let attachments = store.collections().attachments.clone();
+            let collections = store.collections();
+            let attachments = collections.attachments.clone();
+            // EXP-423: the chip decorator's snapshot (titles + status icons)
+            // must track the LIVE data — before these observers, refs went
+            // stale until the next keystroke re-ran `sync_refs`. Issues
+            // (titles/status), issue_statuses (color/glyph edits), boards
+            // (board→team mapping feeds resolution), team_members + users
+            // (mention emails). Cloned up front — `store` borrows `cx`.
+            let issues = collections.issues.clone();
+            let issue_statuses = collections.issue_statuses.clone();
+            let boards = collections.boards.clone();
+            let team_members = collections.team_members.clone();
+            let users = collections.users.clone();
             subscriptions.push(cx.observe(&attachments, |this, _, cx| {
                 this.sync_images(cx);
+            }));
+            subscriptions.push(cx.observe(&issues, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&issue_statuses, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&boards, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&team_members, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
+            }));
+            subscriptions.push(cx.observe(&users, |this, _, cx| {
+                this.sync_refs(cx);
+                cx.notify();
             }));
         }
 
