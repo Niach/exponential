@@ -33,10 +33,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
@@ -562,6 +558,7 @@ export function IssueDetailView({
       boardColor={board.color}
       boardPrefix={board.prefix}
       boardId={issue.boardId}
+      issueIdentifier={issue.identifier}
       onBoardChange={async (boardId) => {
         if (readOnly) return
         // EXP-57: the server renumbers the issue in the target board, so
@@ -678,7 +675,9 @@ export function IssueDetailView({
         {currentUserId && (
           <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
         )}
-        {!readOnly && (
+        {/* EXP-426: the only remaining "…" item is the conditional duplicate
+            unmark — delete moved out to its own always-visible icon below. */}
+        {!readOnly && issue.duplicateOfId && (
           <DropdownMenu>
             <IconTooltip label="More actions">
               <DropdownMenuTrigger asChild>
@@ -693,41 +692,46 @@ export function IssueDetailView({
               </DropdownMenuTrigger>
             </IconTooltip>
             <DropdownMenuContent align="end" className="w-[13rem]">
-              {issue.duplicateOfId && (
-                <>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      void trpc.issues.update.mutate({
-                        id: issue.id,
-                        duplicateOfId: null,
-                      })
-                    }}
-                  >
-                    <Undo2 className="size-4" />
-                    Unmark duplicate
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              {/* Destructive → confirm via submenu, matching the issue-row
-                  context menu's delete pattern (EXP-59). */}
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="text-destructive focus:bg-destructive/10 focus:text-destructive data-[state=open]:bg-destructive/10 data-[state=open]:text-destructive [&_svg]:text-destructive!">
+              <DropdownMenuItem
+                onSelect={() => {
+                  void trpc.issues.update.mutate({
+                    id: issue.id,
+                    duplicateOfId: null,
+                  })
+                }}
+              >
+                <Undo2 className="size-4" />
+                Unmark duplicate
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {!readOnly && (
+          <DropdownMenu>
+            <IconTooltip label="Delete issue">
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  aria-label="Delete issue"
+                >
                   <Trash2 className="size-4" />
-                  Delete issue
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-[14rem]">
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={() => {
-                      void handleDeleteIssue()
-                    }}
-                  >
-                    <Trash2 className="size-4" />
-                    Confirm delete
-                  </DropdownMenuItem>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+                </Button>
+              </DropdownMenuTrigger>
+            </IconTooltip>
+            {/* Destructive → confirm on a second click, matching the issue-row
+                context menu's delete pattern (EXP-59). */}
+            <DropdownMenuContent align="end" className="w-[14rem]">
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => {
+                  void handleDeleteIssue()
+                }}
+              >
+                <Trash2 className="size-4" />
+                Confirm delete
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -762,6 +766,15 @@ export function IssueDetailView({
       }}
       placeholder="Issue title"
       disabled={readOnly}
+      // EXP-424: ProseMirror's image drag carries the image URL as
+      // `text/plain`, which a textarea happily accepts — an image dragged
+      // within the description would otherwise land as a URL in the title and
+      // save on blur. Refuse every drop here; the editor keeps its own.
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = `none`
+      }}
+      onDrop={(e) => e.preventDefault()}
       className="min-h-0 resize-none bg-transparent dark:bg-transparent border-none shadow-none !text-2xl font-semibold px-5 pt-4 pb-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
     />
   )

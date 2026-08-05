@@ -7,6 +7,7 @@ import {
   fallbackStatusOptions,
   isFallbackStatusOption,
   resolveIssueStatus,
+  sortStatusesForPicker,
   statusFilterToken,
   statusOptionMatchesToken,
   statusUpdatePayload,
@@ -273,6 +274,46 @@ describe(`status write payloads`, () => {
       (option) => option.builtinKey === `done`
     )!
     expect(statusUpdatePayload(fallbackDone)).toEqual({ status: `done` })
+  })
+})
+
+describe(`sortStatusesForPicker`, () => {
+  it(`leads with backlog then todo, unlike the display order`, () => {
+    const options = sortStatusesForPicker(defaultStatusOptions())
+    expect(options.map((option) => option.builtinKey).slice(0, 2)).toEqual([
+      `backlog`,
+      `todo`,
+    ])
+    expect(options.map((option) => option.category)).toEqual([
+      `backlog`,
+      `unstarted`,
+      `started`,
+      `started`,
+      `completed`,
+      `cancelled`,
+      `duplicate`,
+    ])
+  })
+
+  it(`preserves intra-category order, so the started clock glyphs stay put`, () => {
+    const built = buildStatusOptions([
+      row({ id: `backlog`, category: `backlog` }),
+      row({ id: `first`, category: `started`, sortOrder: 1 }),
+      row({ id: `second`, category: `started`, sortOrder: 2 }),
+      row({ id: `third`, category: `started`, sortOrder: 3 }),
+    ])
+    const picker = sortStatusesForPicker(built)
+
+    expect(picker.map((option) => option.id)).toEqual([
+      `backlog`,
+      `first`,
+      `second`,
+      `third`,
+    ])
+    // Same option objects, so every glyph is the one buildStatusOptions baked.
+    for (const option of built) {
+      expect(picker).toContain(option)
+    }
   })
 })
 

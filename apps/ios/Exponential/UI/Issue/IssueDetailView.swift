@@ -300,7 +300,8 @@ struct IssueDetailView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { target in
-                    Text("\(issue.identifier ?? "This issue") will move to \(target.name) and get a new identifier there.")
+                    // Byte-shared with web, desktop and Android (EXP-426).
+                    Text("Move \(issue.identifier ?? "this issue") to \"\(target.name)\"? The issue will get a new identifier in that board.")
                 }
                 // EXP-327: one `…` and nothing else — share and the subscribe
                 // toggle moved inside it (with words, so the bell's state is

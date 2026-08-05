@@ -6,7 +6,10 @@ import {
   type IssueSource,
 } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import type { StatusRowOption } from "@/lib/team-statuses"
+import {
+  sortStatusesForPicker,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
 import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/utils"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
@@ -53,6 +56,8 @@ export interface IssuePropertiesPanelProps {
   // (detail view); surfaces without a move affordance simply omit them.
   boardId?: string
   onBoardChange?: (boardId: string) => void | Promise<void>
+  // Names the issue in the move confirmation; only read alongside a picker.
+  issueIdentifier?: string | null
   disabled?: boolean
   // Coding "Agent" section (EXP-184) — sidebar layout only. The slot owns its
   // own PropertyGroup (its gating lives in issue-coding-rows.tsx, so the panel
@@ -167,7 +172,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       value={status.id}
       fallbackValue={status.id}
       disabled={disabled}
-      options={toStatusMenuOptions(teamStatusOptions)}
+      options={toStatusMenuOptions(sortStatusesForPicker(teamStatusOptions))}
       onSelect={(id) => {
         const picked = statusById.get(id)
         if (picked) void onStatusChange(picked)
@@ -258,6 +263,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
         disabled={disabled}
         teamId={teamId}
         selectedBoardId={props.boardId}
+        issueIdentifier={props.issueIdentifier}
         onSelect={props.onBoardChange}
       />
     ) : (

@@ -17,6 +17,7 @@ import type { IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   creatableStatusOptions,
+  sortStatusesForPicker,
   statusUpdatePayload,
   type StatusRowOption,
 } from "@/lib/team-statuses"
@@ -212,21 +213,23 @@ export function BulkActionBar({
               canonical-issue picker, and status='duplicate' without
               duplicateOfId breaks the pairing invariant (single-issue paths
               intercept via the picker). */}
-          {creatableStatusOptions(teamStatusOptions).map((option) => {
-            const Icon = ICON_COMPONENTS[option.icon]
-            return (
-              <DropdownMenuItem
-                key={option.id}
-                onSelect={() => void applyStatus(option)}
-              >
-                <Icon
-                  className={`size-4 ${statusColorClass(option)}`}
-                  style={statusColorStyle(option)}
-                />
-                {option.name}
-              </DropdownMenuItem>
-            )
-          })}
+          {sortStatusesForPicker(creatableStatusOptions(teamStatusOptions)).map(
+            (option) => {
+              const Icon = ICON_COMPONENTS[option.icon]
+              return (
+                <DropdownMenuItem
+                  key={option.id}
+                  onSelect={() => void applyStatus(option)}
+                >
+                  <Icon
+                    className={`size-4 ${statusColorClass(option)}`}
+                    style={statusColorStyle(option)}
+                  />
+                  {option.name}
+                </DropdownMenuItem>
+              )
+            }
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

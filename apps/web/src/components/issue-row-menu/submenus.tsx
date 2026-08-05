@@ -2,7 +2,10 @@ import { FolderInput, Tag, UserX, X } from "lucide-react"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { getIssuePriorityConfig, issuePriorityOptions } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import type { StatusRowOption } from "@/lib/team-statuses"
+import {
+  sortStatusesForPicker,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
 import {
   StatusIcon,
   statusColorClass,
@@ -50,7 +53,7 @@ export function StatusSubmenu({
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[14rem]">
         <ContextMenuRadioGroup value={status.id}>
-          {options.map((option) => {
+          {sortStatusesForPicker(options).map((option) => {
             const Icon = ICON_COMPONENTS[option.icon]
 
             return (
