@@ -264,13 +264,13 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
                 {selectedLabels.map((label) => (
                   <span
                     key={label.id}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs text-foreground"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs text-foreground"
                   >
                     <span
                       className="h-2 w-2 shrink-0 rounded-full"
                       style={{ backgroundColor: label.color }}
                     />
-                    {label.name}
+                    <span className="truncate">{label.name}</span>
                   </span>
                 ))}
                 <Plus className="size-3" />
