@@ -20,6 +20,9 @@ struct AgentsView: View {
     @State private var viewModel: AgentsViewModel?
     @State private var steerEnabled = false
     @State private var devices: [SteerDevice]?
+    /// EXP-420: `devices.list`'s advertised latest versions — gates the
+    /// server rows' Update action on an actually-newer CLI build.
+    @State private var latestVersions: LatestVersions?
     /// Re-polls `devices.list` while the tab is visible, so a machine coming
     /// online (or a daemon finishing its self-update) appears on its own.
     @State private var devicePollTask: Task<Void, Never>?
@@ -187,7 +190,9 @@ struct AgentsView: View {
             devices = nil
             return
         }
-        devices = (try? await deps.devicesApi.list(accountId: accountId)) ?? devices ?? []
+        let result = try? await deps.devicesApi.list(accountId: accountId)
+        devices = result?.devices ?? devices ?? []
+        latestVersions = result?.latestVersions ?? latestVersions
     }
 
     private var emptyState: some View {
@@ -413,7 +418,10 @@ struct AgentsView: View {
         } label: {
             Label("Rename", appIcon: AppIcons.uiEdit)
         }
-        if device.isServer, device.isOnline, !isUpdating(device) {
+        // EXP-420: offered only when a newer CLI version really exists.
+        if device.isServer, device.isOnline, !isUpdating(device),
+            device.updateAvailable(latest: latestVersions?.cli)
+        {
             Button {
                 requestUpdate(device)
             } label: {

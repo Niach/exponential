@@ -5,13 +5,14 @@
 import { useMemo, useState } from "react"
 import { LoaderCircle, MonitorUp } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import { parseVersionTuple } from "@/lib/client-version"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import {
   deviceHasRunnableAgent,
   deviceIsOnline,
   deviceUnauthedAgentIds,
+  deviceUpdateAvailable,
+  showDeviceUpdateButton,
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { CopySnippetButton } from "@/components/getting-started/mcp-setup-tabs"
@@ -51,21 +52,6 @@ const MoreIcon = conceptIcon(`ui-more`)
 // EXP_INSTANCE and the script itself is identical everywhere.
 export function buildServerInstallSnippet(origin: string): string {
   return `curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=${origin} sh`
-}
-
-/// Version compares below the platform's CLIENT_LATEST_VERSION_* value.
-function updateAvailable(
-  version: string | null | undefined,
-  latest: string | null | undefined
-): boolean {
-  if (!version || !latest) return false
-  const have = parseVersionTuple(version)
-  const want = parseVersionTuple(latest)
-  if (!have || !want) return false
-  for (let i = 0; i < 3; i++) {
-    if (have[i] !== want[i]) return have[i] < want[i]
-  }
-  return false
 }
 
 export function MyMachines({
@@ -174,7 +160,7 @@ export function MyMachines({
             device.kind === `server`
               ? latestVersions?.cli
               : latestVersions?.desktop
-          const outdated = updateAvailable(device.version, latest)
+          const outdated = deviceUpdateAvailable(device.version, latest)
           return (
             <div
               key={device.deviceId}
@@ -228,7 +214,10 @@ export function MyMachines({
               {/* On phones the controls drop to their own right-aligned
                   line (the row wraps); ≥sm they stay inline. */}
               <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
-                {device.kind === `server` && online && device.registered && (
+                {/* EXP-420: only when a newer version really exists (or an
+                    update is already in flight — keep its progress visible). */}
+                {(showDeviceUpdateButton(device, latest) ||
+                  updatingId === device.deviceId) && (
                   <Button
                     variant="ghost"
                     size="sm"

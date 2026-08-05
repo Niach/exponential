@@ -296,7 +296,9 @@ impl MachinesSection {
             let section = cx.entity().downgrade();
             let device_id = device.device_id.clone();
             let menu_label = label.clone();
-            let can_update = server && device.online;
+            // EXP-420: offer the update only when a newer CLI version really
+            // exists (or one is already in flight — keep its state visible).
+            let can_update = server && device.online && (outdated || updating);
             Button::new(("machine-menu", index))
                 .ghost()
                 .xsmall()

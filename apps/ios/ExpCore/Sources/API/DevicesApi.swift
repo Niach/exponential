@@ -31,10 +31,10 @@ public final class DevicesApi: Sendable {
 
     /// The caller's machines (`devices.list` query), most recently seen first
     /// — ONLINE AND OFFLINE, unlike `steer.myDevices`, so start affordances
-    /// must gate on `SteerDevice.isOnline` themselves.
-    public func list(accountId: String) async throws -> [SteerDevice] {
-        let result: SteerDevicesResult = try await trpc.query(accountId: accountId, path: "devices.list")
-        return result.devices
+    /// must gate on `SteerDevice.isOnline` themselves. The envelope also
+    /// carries `latestVersions` (EXP-420: gates the Update affordance).
+    public func list(accountId: String) async throws -> SteerDevicesResult {
+        try await trpc.query(accountId: accountId, path: "devices.list")
     }
 
     /// Rename a registered machine. The REGISTRY label is authoritative, so

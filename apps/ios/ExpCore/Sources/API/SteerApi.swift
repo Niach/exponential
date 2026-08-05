@@ -172,16 +172,56 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// (EXP-259). The server rejects that builtin without the cap, so pickers
     /// filter such desktops out instead of failing after submit (EXP-323).
     public var canFixConflicts: Bool { caps?.contains("fix-conflicts") == true }
+
+    /// EXP-420: whether this device's reported version compares below the
+    /// given latest. Unknown or unparsable on either side = false — the
+    /// Update affordance renders only when a newer version really exists.
+    public func updateAvailable(latest: String?) -> Bool {
+        guard let have = Self.versionTuple(version), let want = Self.versionTuple(latest) else {
+            return false
+        }
+        return have.0 != want.0 ? have.0 < want.0
+            : have.1 != want.1 ? have.1 < want.1
+            : have.2 < want.2
+    }
+
+    /// `major.minor.patch` with any `-`/`+` suffix ignored (mirrors web's
+    /// `parseVersionTuple`).
+    private static func versionTuple(_ version: String?) -> (Int, Int, Int)? {
+        guard let version,
+            let core = version.split(whereSeparator: { $0 == "-" || $0 == "+" }).first
+        else { return nil }
+        let parts = core.split(separator: ".").map { Int($0) }
+        guard parts.count == 3, let major = parts[0], let minor = parts[1],
+            let patch = parts[2]
+        else { return nil }
+        return (major, minor, patch)
+    }
+}
+
+/// `devices.list`'s advertised latest client versions per channel
+/// (`CLIENT_LATEST_VERSION_DESKTOP` / `_CLI`; null = the server doesn't
+/// know). EXP-420: gates the server rows' Update affordance.
+public struct LatestVersions: Decodable, Sendable {
+    public let desktop: String?
+    public let cli: String?
+
+    public init(desktop: String?, cli: String?) {
+        self.desktop = desktop
+        self.cli = cli
+    }
 }
 
 /// Server envelope for both device lists: `steer.myDevices` returns exactly
-/// `{ devices }`, `devices.list` (EXP-403) adds an informational
-/// `latestVersions` mobile ignores — unknown keys decode away.
+/// `{ devices }`, `devices.list` (EXP-403) adds `latestVersions` — absent on
+/// the relay path; unknown keys decode away.
 public struct SteerDevicesResult: Decodable, Sendable {
     public let devices: [SteerDevice]
+    public let latestVersions: LatestVersions?
 
-    public init(devices: [SteerDevice]) {
+    public init(devices: [SteerDevice], latestVersions: LatestVersions? = nil) {
         self.devices = devices
+        self.latestVersions = latestVersions
     }
 }
 

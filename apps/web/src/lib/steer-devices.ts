@@ -1,5 +1,7 @@
 import { contract } from "@exp/domain-contract"
 
+import { parseVersionTuple } from "./client-version"
+
 // The caller's machines as `devices.list` returns them (EXP-403: the durable
 // registry merged with live relay presence) — the launch dialog, hooks, and
 // the Agents page share one shape + capability vocabulary. Rows straight off
@@ -83,4 +85,39 @@ export function deviceCanRunActionInputs(device: SteerDevice): boolean {
  * out of the picker instead of failing after submit (EXP-323). */
 export function deviceCanFixConflicts(device: SteerDevice): boolean {
   return (device.caps ?? []).includes(`fix-conflicts`)
+}
+
+/** The device's reported version compares below the platform's
+ * `CLIENT_LATEST_VERSION_*` value. Unknown or unparsable on either side =
+ * false (EXP-420: never claim an update exists without evidence). */
+export function deviceUpdateAvailable(
+  version: string | null | undefined,
+  latest: string | null | undefined
+): boolean {
+  if (!version || !latest) return false
+  const have = parseVersionTuple(version)
+  const want = parseVersionTuple(latest)
+  if (!have || !want) return false
+  for (let i = 0; i < 3; i++) {
+    if (have[i] !== want[i]) return have[i] < want[i]
+  }
+  return false
+}
+
+/** EXP-420: the machine row's Update button renders only for an online
+ * registered server that is actually behind the known latest CLI version —
+ * or that has an update already in flight (so "Updating…"/"Queued" stays
+ * visible until the re-register carries the new version). Latest unknown
+ * (`CLIENT_LATEST_VERSION_CLI` unset) = no button. */
+export function showDeviceUpdateButton(
+  device: SteerDevice,
+  latest: string | null | undefined
+): boolean {
+  return (
+    device.kind === `server` &&
+    deviceIsOnline(device) &&
+    device.registered === true &&
+    (deviceUpdateAvailable(device.version, latest) ||
+      device.updateRequested === true)
+  )
 }
