@@ -110,7 +110,9 @@ fn parse_reg_query_value(stdout: &str) -> Option<String> {
                 }
             }
         }
-        return None;
+        // A near-miss (e.g. a PATHEXT row) must not abort the parse — the
+        // real Path row may still follow.
+        continue;
     }
     None
 }
@@ -190,6 +192,12 @@ mod tests {
             parse_reg_query_value(out).as_deref(),
             Some("C:\\Windows;C:\\Windows\\system32")
         );
+    }
+
+    #[test]
+    fn reg_parse_skips_near_miss_rows() {
+        let out = "HKEY_CURRENT_USER\\Environment\n    PATHEXT    REG_SZ    .COM;.EXE\n    Path    REG_EXPAND_SZ    C:\\tools\n";
+        assert_eq!(parse_reg_query_value(out).as_deref(), Some("C:\\tools"));
     }
 
     #[test]
