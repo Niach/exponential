@@ -783,18 +783,25 @@ impl Render for Editor {
             scroll_content
         };
 
-        // EXP-335: record the painted content width into the shared
+        // EXP-335 / EXP-421: record the painted SLOT width into the shared
         // environment. Embedded editors fill their host slot — no
         // viewport-derived math can know that width — and standalone image
         // rows cap their width budget with it (see
         // `container_image_width_budget`). Change-gated: only a real width
         // change re-renders the image rows, so steady frames stay quiet.
+        // The listener lives on an OUTER bare wrapper whose single child is
+        // `content_area` (a `w_full().min_w(0)` div), so `bounds[0]` measures
+        // the editor's slot and never the fit-content width of the scroll
+        // column — measuring the content let a wide image row feed its own
+        // `measured - 2` budget back into next frame's measurement, shrinking
+        // the image by 2px per frame (the EXP-421 ratchet).
         // A prepaint listener, deliberately NOT an extra canvas element — an
         // absolutely-positioned recorder child measurably corrupted this
         // auto-height container's layout (the timeline below the editor
         // vanished behind a phantom scroll region).
         let width_listener = {
             let layout_width = self.environment.layout_width.clone();
+            let editor_for_origin = editor.clone();
             let blocks: Vec<Entity<crate::components::Block>> = self
                 .document
                 .flatten_visible_blocks()
@@ -802,10 +809,16 @@ impl Render for Editor {
                 .map(|visible| visible.entity.clone())
                 .collect();
             move |bounds: Vec<Bounds<Pixels>>, _window: &mut Window, cx: &mut App| {
-                let Some(width) = bounds.first().map(|bounds| f32::from(bounds.size.width))
-                else {
+                let Some(first) = bounds.first().copied() else {
                     return;
                 };
+                // Silent origin write (no notify): the drop indicator needs
+                // window→content coordinate conversion, nothing re-renders
+                // because of it.
+                let _ = editor_for_origin.update(cx, |editor, _| {
+                    editor.last_content_origin = first.origin;
+                });
+                let width = f32::from(first.size.width);
                 let previous =
                     f32::from_bits(layout_width.load(std::sync::atomic::Ordering::Relaxed));
                 if (width - previous).abs() > 0.5 {
@@ -824,9 +837,6 @@ impl Render for Editor {
         };
 
         let content_area = div()
-            // Registered on the bare `Div` — `.id()` wraps it Stateful, which
-            // no longer exposes the listener hook.
-            .on_children_prepainted(width_listener)
             .id("editor-scroll")
             .w_full()
             .when(!self.embedded, |this| this.h_full().flex_1())
@@ -903,6 +913,17 @@ impl Render for Editor {
         } else {
             content_area
         };
+
+        // The slot-measuring wrapper (see the `width_listener` comment).
+        // Registered on the bare `Div` — `.id()` wraps it Stateful, which no
+        // longer exposes the listener hook. Its single child is
+        // `content_area`, so `bounds[0]` is content_area's own bounds.
+        let content_area = div()
+            .on_children_prepainted(width_listener)
+            .w_full()
+            .min_w(px(0.0))
+            .when(!self.embedded, |this| this.h_full().flex_1())
+            .child(content_area);
 
         // Repaint when the Cmd/Ctrl follow modifier toggles so a hovered link's
         // hand cursor updates without moving the pointer. `ModifiersChanged` is

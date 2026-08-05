@@ -1,8 +1,16 @@
 //! EXP-261 vendoring: embedded-mode layout regressions.
 
-use gpui::{TestAppContext, px, size};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
+use gpui::{
+    AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement as _, Styled, TestAppContext, Window, div, px, size,
+};
 
 use super::Editor;
+use crate::MarkdownEditorEnvironment;
+use crate::host::{ImageSourceResolution, ImageSourceResolver};
 
 /// Embedded rows used to be laid out at a fake `100_000px` width clamped by
 /// `max_w(relative(1.0))`. Taffy cannot resolve that percentage max against an
@@ -64,3 +72,104 @@ fn embedded_rows_reserve_room_for_their_wrapped_lines() {
         );
     }
 }
+
+/// EXP-421: a host resolver that knows a natural size far wider than the
+/// window, so the image row takes a definite `w(px(budget))` width. `resolve`
+/// falls back to the default local classification — the missing file renders
+/// the fallback placeholder, but gpui's `Img` keeps its OWN style for layout,
+/// so the definite width still applies.
+struct WideImageResolver;
+
+impl ImageSourceResolver for WideImageResolver {
+    fn resolve(&self, _src: &str) -> Option<ImageSourceResolution> {
+        None
+    }
+
+    fn natural_size(&self, _src: &str) -> Option<(f32, f32)> {
+        Some((2000.0, 800.0))
+    }
+}
+
+/// EXP-421: mimics the host mount chain (`WysiwygDescription` inside a scroll
+/// region): a fixed-width column NARROWER than the viewport (so the first
+/// frame's viewport-derived image budget overshoots the slot) → scroll
+/// container → stretched flex column → the embedded editor.
+struct EmbeddedHostHarness {
+    editor: Entity<Editor>,
+}
+
+impl Render for EmbeddedHostHarness {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().flex().flex_col().w(px(400.)).h_full().child(
+            div().id("host-scroll").flex_1().overflow_y_scroll().child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .flex_1()
+                    .child(self.editor.clone()),
+            ),
+        )
+    }
+}
+
+/// EXP-421 image shrink ratchet: under a fit-content host slot the recorded
+/// width followed the editor's CONTENT, so a wide image row fed its own
+/// `measured - 2` budget back into the next frame's measurement and shrank by
+/// 2px per frame (reproduced: 850 → 848 → 846 → …). The listener now measures
+/// the editor's SLOT (an outer `w_full().min_w(0)` wrapper), so under a
+/// width-constrained host the recorded width IS the slot width and never
+/// derives from an image child. A host that mounts the editor without a
+/// constrained width still degrades to fit-content — which is why every host
+/// slot must be `w_full().min_w(px(0.))` (EXP-417 ruling 4).
+#[test]
+fn embedded_wide_image_recorded_width_is_stable_across_frames() {
+    let mut cx = TestAppContext::single();
+    cx.update(|cx| {
+        cx.bind_keys(crate::actions::default_key_bindings());
+    });
+    let markdown = "alpha\n\n![wide](/missing/wide.png)\n\nbeta\n";
+    let (harness, cx) = cx.add_window_view(move |_window, cx| {
+        let editor = cx.new(|cx| {
+            let environment = MarkdownEditorEnvironment {
+                image_source_resolver: Some(Arc::new(WideImageResolver)),
+                ..Default::default()
+            };
+            let mut editor = Editor::with_environment(markdown.to_string(), environment, cx);
+            editor.embedded = true;
+            editor
+        });
+        EmbeddedHostHarness { editor }
+    });
+    cx.simulate_resize(size(px(900.), px(900.)));
+
+    let mut recorded = Vec::new();
+    for _ in 0..6 {
+        cx.update(|window, cx| window.draw(cx).clear());
+        cx.run_until_parked();
+        recorded.push(harness.read_with(cx, |harness, cx| {
+            let editor = harness.editor.read(cx);
+            f32::from_bits(editor.environment.layout_width.load(Ordering::Relaxed))
+        }));
+    }
+
+    let settled = recorded[2];
+    assert!(
+        settled > 1.0,
+        "the slot width was never recorded: {recorded:?}"
+    );
+    // The recorded width is the 400px SLOT, not the (initially wider)
+    // viewport-derived image width…
+    assert!(
+        (settled - 400.0).abs() <= 1.0,
+        "recorded width is not the slot width: {recorded:?}"
+    );
+    // …and frames 3..6 must agree — a monotonic decline is the ratchet.
+    for width in recorded.iter().skip(2) {
+        assert!(
+            (width - settled).abs() <= 0.5,
+            "recorded slot width ratcheted across frames: {recorded:?}"
+        );
+    }
+}
+

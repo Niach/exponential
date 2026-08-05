@@ -66,6 +66,11 @@ pub struct Editor {
     prev_visible_block_ids: Vec<EntityId>,
     row_stride_cache: HashMap<EntityId, f32>,
     prev_render_window: Option<(usize, usize)>,
+    /// Window-space origin of the editor's content area, recorded by the
+    /// slot-width prepaint listener (see `render.rs`). The drop indicator
+    /// converts window-space boundary Y coordinates into content-relative
+    /// offsets with it. Written silently every prepaint — never notified.
+    pub(super) last_content_origin: Point<Pixels>,
     context_menu: Option<ContextMenuState>,
     table_insert_dialog: Option<TableInsertDialogState>,
     context_menu_submenu_close_task: Option<Task<()>>,
@@ -274,6 +279,7 @@ impl Editor {
             prev_visible_block_ids: Vec::new(),
             row_stride_cache: HashMap::new(),
             prev_render_window: None,
+            last_content_origin: Point::default(),
             context_menu: None,
             table_insert_dialog: None,
             context_menu_submenu_close_task: None,
