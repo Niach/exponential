@@ -72,7 +72,9 @@ pub struct Editor {
     /// slot-width prepaint listener (see `render.rs`). The drop indicator
     /// converts window-space boundary Y coordinates into content-relative
     /// offsets with it. Written silently every prepaint — never notified.
-    pub(super) last_content_origin: Point<Pixels>,
+    /// `None` until the first prepaint: a zero default would place the very
+    /// first indicator frame at a window-space offset inside the content box.
+    pub(super) last_content_origin: Option<Point<Pixels>>,
     /// EXP-421: the live drop-target line — `(root insertion index,
     /// window-space boundary Y)`. Set by drag-move over the editor, cleared
     /// on drop and by any drag-less mouse move (a cancelled external drag
@@ -286,7 +288,7 @@ impl Editor {
             prev_visible_block_ids: Vec::new(),
             row_stride_cache: HashMap::new(),
             prev_render_window: None,
-            last_content_origin: Point::default(),
+            last_content_origin: None,
             drop_indicator: None,
             context_menu: None,
             table_insert_dialog: None,

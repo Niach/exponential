@@ -68,6 +68,22 @@ impl Editor {
         }
     }
 
+    /// EXP-426: is `position` inside a row that currently renders a standalone
+    /// image? Y-only, the `cross_block_endpoint_for_point` convention — some
+    /// rows record synthetic x = 0 bounds and an image row spans the column
+    /// anyway.
+    fn rendered_image_block_at_point(&self, position: Point<Pixels>, cx: &App) -> bool {
+        self.document.visible_blocks().iter().any(|visible| {
+            let block = visible.entity.read(cx);
+            let Some(bounds) = block.last_bounds else {
+                return false;
+            };
+            block.showing_rendered_image()
+                && position.y >= bounds.top()
+                && position.y <= bounds.bottom()
+        })
+    }
+
     pub(super) fn on_editor_capture_mouse_down(
         &mut self,
         event: &MouseDownEvent,
@@ -85,6 +101,19 @@ impl Editor {
         }
 
         self.rendered_select_all_cycle = None;
+
+        // EXP-426: a press on a rendered image belongs to that row's `on_drag`
+        // source (the image reposition), not to a text sweep. The image block
+        // stops propagation itself, but only in the bubble phase — by then this
+        // capture handler has already dropped an anchor, and the ensuing drag
+        // swept a cross-block selection across everything in between. Refuse
+        // the anchor instead, and keep propagating so the drag source runs.
+        if self.rendered_image_block_at_point(event.position, cx) {
+            self.clear_cross_block_selection(cx);
+            cx.propagate();
+            return;
+        }
+
         self.begin_cross_block_drag_at_point(event.position, cx);
         cx.propagate();
     }
@@ -1065,8 +1094,8 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use gpui::{
-        AppContext, Bounds, Context, Modifiers, MouseButton, MouseMoveEvent, TestAppContext, point,
-        px, size,
+        AppContext, Bounds, Context, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
+        Pixels, Point, TestAppContext, point, px, size,
     };
 
     use super::{CrossBlockDrag, CrossBlockSelection, CrossBlockSelectionEndpoint, Editor};
@@ -1105,6 +1134,16 @@ mod tests {
             },
         });
         editor.sync_cross_block_selection_visuals(cx);
+    }
+
+    fn mouse_down(position: Point<Pixels>) -> MouseDownEvent {
+        MouseDownEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Modifiers::default(),
+            click_count: 1,
+            first_mouse: false,
+        }
     }
 
     fn assign_visible_block_bounds(editor: &mut Editor, cx: &mut Context<Editor>) {
@@ -1268,6 +1307,52 @@ mod tests {
                 // A drag that never left the block must not fabricate a
                 // cross-block selection.
                 assert!(editor.cross_block_selection.is_none());
+            });
+        });
+    }
+
+    // EXP-426: pressing a rendered image starts the image's node drag, so the
+    // capture handler must not anchor a text sweep on that row.
+    #[test]
+    fn mouse_down_on_a_rendered_image_anchors_no_cross_block_drag_exp426() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let (editor, cx) = cx.add_window_view(|_window, cx| {
+            Editor::from_markdown(cx, "alpha\n\n![a](p.png)\n\nbeta".to_string(), None)
+        });
+        redraw(cx);
+
+        cx.update(|window, app| {
+            editor.update(app, |editor, cx| {
+                assign_visible_block_bounds(editor, cx);
+                let image = editor.document.visible_blocks()[1].entity.clone();
+                assert!(image.read(cx).showing_rendered_image());
+                set_selection(editor, 0, 0, 2, 2, cx);
+
+                // Row 1 (the image) spans y 32..56.
+                editor.on_editor_capture_mouse_down(
+                    &mouse_down(point(px(10.0), px(40.0))),
+                    window,
+                    cx,
+                );
+
+                assert!(editor.cross_block_drag.is_none());
+                assert!(editor.cross_block_selection.is_none());
+                assert!(
+                    editor
+                        .document
+                        .visible_blocks()
+                        .iter()
+                        .all(|visible| visible.entity.read(cx).editor_selection_range.is_none())
+                );
+
+                // A press on a text row still anchors — only images opt out.
+                editor.on_editor_capture_mouse_down(
+                    &mouse_down(point(px(10.0), px(8.0))),
+                    window,
+                    cx,
+                );
+                assert!(editor.cross_block_drag.is_some());
             });
         });
     }
