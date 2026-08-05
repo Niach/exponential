@@ -799,6 +799,15 @@ impl Render for DialogShell {
                     .child(content)
                     .into_any_element()
             }
+        } else if let Some(row) = header {
+            // EXP-415: a padless view can still wear the chromeless header
+            // (search) — the row carries its own padding, the view keeps the
+            // rest of the window.
+            v_flex()
+                .size_full()
+                .child(row)
+                .child(div().flex_1().min_h_0().child(self.content.view.clone()))
+                .into_any_element()
         } else {
             div()
                 .size_full()

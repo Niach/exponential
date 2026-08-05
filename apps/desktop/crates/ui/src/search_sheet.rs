@@ -34,7 +34,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -154,9 +154,10 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
     let repo_resolver = repo_resolver_for_window(window, cx);
     let window_id = window.window_handle().window_id();
 
-    // Web: max-h-[60vh] — the native window is that cap; the List grows into
-    // it (its `Infer` sizing keeps the empty prompt short).
-    let height = window.viewport_size().height * 0.6;
+    // Web caps at max-h-[60vh] but SHRINKS to content; a native window is a
+    // fixed box, so an uncapped 60vh reads as a mostly-empty tower on large
+    // screens (EXP-415) — bound it like the create-issue dialog does.
+    let height = (window.viewport_size().height * 0.6).min(px(420.));
     // EXP-285: chromeless — macOS traffic lights would overlap the search
     // input of a palette.
     let spec = DialogSpec::new("Search", size(px(DIALOG_WIDTH), height)).chromeless();
@@ -173,7 +174,10 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
         // starts immediately, like the web autoFocus.
         list.update(cx, |list, cx| list.focus(window, cx));
         let view = cx.new(|_| SearchSheetView { list });
-        DialogContent::new(view).padless()
+        // EXP-415: the header's ✕ (+ drag region) is the only mouse dismissal
+        // a chromeless window has — without it the palette is a dead end for
+        // anyone who doesn't reach for Escape (image_preview precedent).
+        DialogContent::new(view).padless().chromeless_header("Search")
     });
 }
 
@@ -966,7 +970,7 @@ fn split_path(path: &str) -> (&str, &str) {
 /// (`--others --exclude-standard`), so `.gitignore` is respected. `-z` for NUL
 /// separation (paths with odd bytes survive). Empty on any failure.
 fn list_repo_files(root: &Path) -> Vec<String> {
-    let output = Command::new("git")
+    let output = terminal::process::background_command("git")
         .args([
             "ls-files",
             "--cached",
@@ -1000,7 +1004,7 @@ fn list_repo_files(root: &Path) -> Vec<String> {
 /// separators (`path\0line\0content\n`), `--untracked` also searches untracked
 /// non-ignored files (still honoring `.gitignore`), `--no-color`.
 fn git_grep(root: &Path, query: &str, cap: usize) -> (Vec<ContentHit>, bool) {
-    let child = Command::new("git")
+    let child = terminal::process::background_command("git")
         .args([
             "grep",
             "--no-color",
