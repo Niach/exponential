@@ -8,7 +8,7 @@ import {
 } from "react"
 import { createPortal } from "react-dom"
 import { type Editor, useEditor, EditorContent } from "@tiptap/react"
-import { TextSelection } from "@tiptap/pm/state"
+import { NodeSelection, TextSelection } from "@tiptap/pm/state"
 import { StarterKit } from "@tiptap/starter-kit"
 import { Link } from "@tiptap/extension-link"
 import { Placeholder } from "@tiptap/extension-placeholder"
@@ -107,6 +107,13 @@ interface MarkdownEditorProps {
    * toolbar, so every dialog host is unaffected.
    */
   toolbarHost?: HTMLElement | null
+  /**
+   * Height (px) of a sticky overlay at the TOP of the scrollport the editor
+   * lives in. ProseMirror's scroll-into-view treats the region under such an
+   * overlay as visible, so the caret could sit hidden behind it; this feeds
+   * `scrollThreshold`/`scrollMargin` so edits scroll clear of the band.
+   */
+  topScrollInset?: number
 }
 
 type MarkdownEditorInstance = Editor & {
@@ -462,6 +469,7 @@ export const MarkdownEditor = forwardRef<
       imageUpload,
       editable = true,
       toolbarHost,
+      topScrollInset,
     },
     ref
   ) => {
@@ -628,7 +636,25 @@ export const MarkdownEditor = forwardRef<
         return editor ? getEditorMarkdown(editor) : null
       },
       insertImage: ({ alt, src }) => {
-        editor?.chain().focus().setImage({ alt, src }).run()
+        if (!editor) return
+        // A drop onto (or just before) an existing image leaves a
+        // NodeSelection over it — setImage would REPLACE that node. Insert
+        // after it instead, so the dropped image lands beside the existing
+        // one. Also covers the image-only doc, whose default selection is
+        // already a NodeSelection.
+        const { selection } = editor.state
+        if (selection instanceof NodeSelection) {
+          editor
+            .chain()
+            .focus()
+            .insertContentAt(selection.to, {
+              type: `image`,
+              attrs: { alt, src },
+            })
+            .run()
+          return
+        }
+        editor.chain().focus().setImage({ alt, src }).run()
       },
       appendImage: ({ alt, src }) => {
         editor?.chain().focus(`end`).setImage({ alt, src }).run()
@@ -644,6 +670,20 @@ export const MarkdownEditor = forwardRef<
     useEffect(() => {
       editor?.setEditable(editable)
     }, [editable, editor])
+
+    // Keep the caret clear of a sticky overlay at the scrollport's top.
+    // scrollThreshold decides WHETHER ProseMirror scrolls (its default 0
+    // treats the overlaid region as visible), scrollMargin how far past it —
+    // both need the band height on their top side. setProps merges partials,
+    // so the drop/paste handlers stay intact.
+    useEffect(() => {
+      if (!editor) return
+      const inset = topScrollInset ?? 0
+      editor.view.setProps({
+        scrollThreshold: { top: inset, right: 0, bottom: 0, left: 0 },
+        scrollMargin: { top: inset + 8, right: 5, bottom: 5, left: 5 },
+      })
+    }, [editor, topScrollInset])
 
     // TipTap reads `content` only at editor creation. Read-only instances
     // (e.g. comment bodies fed live from sync) have no local edits to

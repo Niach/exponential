@@ -775,9 +775,13 @@ impl ActionDetailView {
                 // keeps a short prompt reading as a text area, and the flex
                 // column lets the editor's filler strip absorb the leftover
                 // (clicking below the text places the caret at the end).
+                // `flex_1` lets the slot take the scroll column's leftover
+                // height (centered_scroll_column's single-hop chain), so the
+                // filler genuinely reaches the pane bottom.
                 return div()
                     .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
                     .min_h(px(96.))
+                    .flex_1()
                     .flex()
                     .flex_col()
                     .child(editor.clone())

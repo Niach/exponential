@@ -97,21 +97,32 @@ pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
         .child(column.w_full().max_w(px(DETAIL_COLUMN_W)).mx_auto())
 }
 
-/// [`centered_column`] for the SOLE child of a scroll container: both levels
-/// carry `min_h_full` so the column stretches to the viewport instead of to
-/// its content. A percentage height only resolves against a definite one, and
-/// a scroll container's content box is the last definite height in the chain —
-/// which is what lets an embedded editor's trailing click-filler reach the
-/// bottom of the pane (click below the last line → caret at the end).
+/// [`centered_column`] for the SOLE child of a scroll container. A percentage
+/// height only resolves against a definite one, and stacking two `min_h_full`
+/// hops through a block wrapper leaves the inner one unresolved (the wrapper's
+/// own height is auto) — so the WRAPPER is the one flex column that takes the
+/// viewport height, and the centered column rides it as a `flex_grow` item
+/// with an explicit width (`w_full` capped at [`DETAIL_COLUMN_W`], centered
+/// via `items_center` — no `mx_auto`, which under EXP-179 would drop the item
+/// to fit-content sizing). That single hop is what lets an embedded editor's
+/// trailing click-filler reach the bottom of the pane (click below the last
+/// line → caret at the end), the create-dialog recipe.
 pub(crate) fn centered_scroll_column(column: gpui::Div) -> gpui::Div {
-    div().w_full().min_h_full().child(
-        column
-            .w_full()
-            .min_w(px(0.))
-            .max_w(px(DETAIL_COLUMN_W))
-            .mx_auto()
-            .min_h_full(),
-    )
+    div()
+        .w_full()
+        .min_h_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .child(
+            column
+                .w_full()
+                .min_w(px(0.))
+                .max_w(px(DETAIL_COLUMN_W))
+                .flex_grow(1.)
+                .flex()
+                .flex_col(),
+        )
 }
 
 // The EXP-48 bare-letter J/K switcher bindings are GONE (EXP-268): the

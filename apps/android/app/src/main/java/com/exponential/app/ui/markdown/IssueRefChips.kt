@@ -99,15 +99,19 @@ private fun DrawScope.drawChip(
         val segStart = maxOf(start, result.getLineStart(line))
         val segEnd = minOf(end, result.getLineEnd(line, visibleEnd = true))
         if (segEnd <= segStart) continue
-        val first = result.getBoundingBox(segStart)
-        val last = result.getBoundingBox(segEnd - 1)
+        // The selection path, not first/last character boxes: an RTL title
+        // (or a trailing surrogate pair) puts the visually outermost glyphs
+        // at logical offsets INTERIOR to the segment, so edge sampling
+        // truncates the pill mid-chip. The path's bounds are bidi-safe.
+        val segBounds = result.getPathForRange(segStart, segEnd).getBounds()
+        if (segBounds.isEmpty) continue
         val lineTop = result.getLineTop(line)
         val lineBottom = result.getLineBottom(line)
         // The line box carries the paragraph's leading; inset proportionally so
         // the pill hugs the text at any text size / heading level.
         val inset = (lineBottom - lineTop) * 0.08f
-        val left = minOf(first.left, last.left) - padX
-        val right = maxOf(first.right, last.right) + padX
+        val left = segBounds.left - padX
+        val right = segBounds.right + padX
         val top = lineTop + inset
         val bottom = lineBottom - inset
         if (right <= left || bottom <= top) continue

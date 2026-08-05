@@ -171,6 +171,11 @@ public enum IssueRefs {
             var chipAttrs = expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor)
             chipAttrs[.markdownIssueRef] = issueId
             if let status { chipAttrs[.markdownIssueRefStatus] = status }
+            // Issue chips override the shared chip foreground to the muted
+            // token color (Linear look, EXP-423 cross-client parity) — the
+            // base color for `unchip` was captured above, BEFORE the override,
+            // so idempotence is unaffected. Mentions keep `linkColor`.
+            chipAttrs[.foregroundColor] = MarkdownStyle.chipTokenColor
             let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
             target.addAttributes(chipAttrs, range: match.range)
             if status != nil {
@@ -247,7 +252,18 @@ public enum IssueRefs {
             chipAttrs[.markdownIssueRef] = issueId
             let status = statusResolver?(identifier)
             if let status { chipAttrs[.markdownIssueRefStatus] = status }
+            // Linear look (EXP-423): muted token, foreground title — the same
+            // split web/Android/desktop ship. Mentions keep `linkColor`.
+            chipAttrs[.foregroundColor] = MarkdownStyle.chipTokenColor
             let piece = NSMutableAttributedString(string: display, attributes: chipAttrs)
+            if !title.isEmpty {
+                let tokenLength = (token as NSString).length
+                piece.addAttribute(
+                    .foregroundColor,
+                    value: MarkdownStyle.textColor,
+                    range: NSRange(location: tokenLength, length: piece.length - tokenLength),
+                )
+            }
             if status != nil {
                 // Same hidden `#` as the editable path (EXP-423).
                 piece.addAttribute(

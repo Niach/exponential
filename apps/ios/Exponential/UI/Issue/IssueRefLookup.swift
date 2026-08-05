@@ -238,7 +238,11 @@ enum IssueRefChipCache {
 
     /// The chip's status as the render info `IssueRefs` decorates with, so every
     /// editor site stays a one-liner and shares this memo with the id/title
-    /// resolvers. A status edit therefore shows within the 5s TTL (EXP-423).
+    /// resolvers. The 5s TTL bounds only how stale a RE-RUN decoration pass can
+    /// read — no pass is TRIGGERED by a referenced issue's status change, so a
+    /// painted glyph stays as-is until the user edits the text or the view
+    /// reloads (unlike desktop, whose EXP-423 collection observers re-decorate
+    /// live; the iOS half is a follow-up needing Mac-side verification).
     ///
     /// One info instance per distinct status, deliberately: the decoration
     /// pass's `changed` flag compares attribute values, and while

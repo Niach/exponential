@@ -130,6 +130,12 @@ fn build_text_runs(
     for (chip, token, _) in &reference_spans {
         boundaries.push(chip.start);
         boundaries.push(chip.end);
+        // token.start is a distinct boundary whenever the chip carries a
+        // leading icon gutter (EXP-423) — without it the gutter and the
+        // identifier merge into one run and the identifier loses its mono
+        // + muted styling. Dedup absorbs the gutter-less case where
+        // token.start == chip.start.
+        boundaries.push(token.start);
         boundaries.push(token.end);
     }
     if let Some(marked_range) = input.marked_range.as_ref() {
@@ -2622,6 +2628,71 @@ mod chip_tests {
                 }
             }
             assert!(saw_token && saw_title, "chip must split into token + title");
+        });
+    }
+
+    /// Same split with an ICON-carrying span: the leading NBSP gutter makes
+    /// token.start a distinct boundary (token.start != chip.start), and the
+    /// identifier must STILL render mono + muted — the production case, since
+    /// every resolved issue ref carries an icon.
+    #[gpui::test]
+    async fn the_identifier_stays_monospace_and_muted_behind_an_icon_gutter(
+        cx: &mut TestAppContext,
+    ) {
+        let block = chip_block(cx);
+        block.read_with(cx, |block, _cx| {
+            let shaped =
+                ChipShapedText::build(&SharedString::from(TEXT), IconTitleDecorator.scan(TEXT));
+            let base_run = TextRun {
+                len: shaped.text().len(),
+                font: font(".SystemUIFont"),
+                color: Hsla::from(rgba(0xffffffff)),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let reference = Hsla::from(rgba(0x00ff00ff));
+            let token_color = Hsla::from(rgba(0x88aa88ff));
+            let mono = SharedString::from("MonoTestFamily");
+            let runs = build_text_runs(
+                block,
+                &shaped,
+                &base_run,
+                px(1.0),
+                Hsla::from(rgba(0x0066ccff)),
+                reference,
+                token_color,
+                Hsla::from(rgba(0x111111ff)),
+                true,
+                &mono,
+            );
+
+            let chip = shaped.chip_range(0).expect("chip range");
+            let token = shaped.token_range(0).expect("token range");
+            assert!(
+                token.start > chip.start,
+                "an icon span must inject a leading gutter"
+            );
+            let mut offset = 0usize;
+            let mut saw_token = false;
+            for run in &runs {
+                let range = offset..offset + run.len;
+                offset = range.end;
+                if range.start >= token.start && range.end <= token.end {
+                    saw_token = true;
+                    assert_eq!(
+                        run.font.family, mono,
+                        "identifier renders monospace ({:?})",
+                        range
+                    );
+                    assert_eq!(run.color, token_color, "identifier uses the token colour");
+                }
+            }
+            assert!(saw_token, "a run must cover the identifier alone");
+            assert_eq!(
+                runs.iter().map(|run| run.len).sum::<usize>(),
+                shaped.text().len()
+            );
         });
     }
 

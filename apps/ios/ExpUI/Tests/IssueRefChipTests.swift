@@ -349,10 +349,11 @@ final class IssueRefChipTests: XCTestCase {
             result.attributed.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
             PlatformColor.clear
         )
-        // Only the `#` is hidden — the identifier keeps the chip color.
+        // Only the `#` is hidden — the identifier keeps the muted token color
+        // (Linear look: web/Android/desktop parity).
         XCTAssertEqual(
             result.attributed.attribute(.foregroundColor, at: hash + 1, effectiveRange: nil) as? PlatformColor,
-            MarkdownStyle.linkColor
+            MarkdownStyle.chipTokenColor
         )
         XCTAssertEqual(markdown(of: result.attributed), "Fixes #EXP-42 today")
     }

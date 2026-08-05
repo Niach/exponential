@@ -245,7 +245,8 @@ class IssueListViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
         _board,
-    ) { issues, boards, board ->
+        statusesForTeam,
+    ) { issues, boards, board, statuses ->
         if (board == null) {
             emptyList()
         } else {
@@ -256,7 +257,17 @@ class IssueListViewModel @Inject constructor(
             issues
                 .filter { it.boardId in teamBoardIds }
                 .sortedByDescending { it.createdAt }
-                .map { IssueRefTarget(it.id, it.identifier, it.title) }
+                // The create screen's editor renders display chips from this
+                // same handler, so the status glyph is precomputed here too
+                // (EXP-423) — detail-VM parity.
+                .map {
+                    IssueRefTarget(
+                        it.id,
+                        it.identifier,
+                        it.title,
+                        IssueStatusResolver.resolve(it, statuses),
+                    )
+                }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

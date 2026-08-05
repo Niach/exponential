@@ -32,6 +32,10 @@ public enum MarkdownStyle {
     /// `.backgroundColor` run.
     public nonisolated(unsafe) static let chipBackground = PlatformColor.white.withAlphaComponent(0.08)
     public nonisolated(unsafe) static let chipBorder = PlatformColor.white.withAlphaComponent(0.16)
+    /// The muted `#IDENT` identifier inside an issue chip (Linear look —
+    /// Android's `MdStyle.ChipToken`, web's `--muted-foreground`). Mention
+    /// pills keep `linkColor` via `expChipAttributes`.
+    public nonisolated(unsafe) static let chipTokenColor = PlatformColor.white.withAlphaComponent(0.55)
     /// Issue chips are rounded RECTS (web 6px / desktop 4 / Android 5dp);
     /// mention pills stay fully round on every platform.
     public static let chipCornerRadius: CGFloat = 5

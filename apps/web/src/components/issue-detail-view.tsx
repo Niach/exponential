@@ -250,6 +250,25 @@ export function IssueDetailView({
   // — a wrapping title (EXP-189) would make two stacked sticky offsets
   // measurement-dependent.
   const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null)
+  // The band's measured height feeds the editor's scroll-into-view insets so
+  // the caret never hides under it; a ResizeObserver tracks it live (the
+  // title wraps, the toolbar row wraps — the height is dynamic).
+  const [stickyBandHeight, setStickyBandHeight] = useState(0)
+  const bandObserverRef = useRef<ResizeObserver | null>(null)
+  const setStickyBand = (node: HTMLDivElement | null) => {
+    bandObserverRef.current?.disconnect()
+    bandObserverRef.current = null
+    if (!node) {
+      setStickyBandHeight(0)
+      return
+    }
+    const observer = new ResizeObserver(() => {
+      setStickyBandHeight(node.offsetHeight)
+    })
+    observer.observe(node)
+    bandObserverRef.current = observer
+    setStickyBandHeight(node.offsetHeight)
+  }
 
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const statusOption = resolveStatus(issue)
@@ -758,6 +777,7 @@ export function IssueDetailView({
         // Desktop parks the toolbar in the sticky title band below; on mobile
         // it stays inline (no sticky band — phone vertical space is scarce).
         toolbarHost={isMobile ? undefined : toolbarHost}
+        topScrollInset={isMobile ? undefined : stickyBandHeight}
         imageUpload={{
           enabled: !readOnly,
           uploading: activeUploadCount > 0,
@@ -835,7 +855,10 @@ export function IssueDetailView({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="sticky top-0 z-10 bg-background/60 backdrop-blur-xl">
+            <div
+              ref={setStickyBand}
+              className="sticky top-0 z-10 bg-background/60 backdrop-blur-xl"
+            >
               <div className="mx-auto max-w-3xl">
                 {titleField}
                 {/* The editor portals its toolbar in here; the toolbar's own

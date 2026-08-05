@@ -46,8 +46,11 @@ public final class IssueRefTitleAttachment: NSTextAttachment {
 
     private var titleFont: PlatformFont { MarkdownStyle.bodyFont }
 
+    // Foreground title next to the muted token (Linear look, EXP-423) —
+    // width measurement shares these attributes, so drawn and measured text
+    // stay consistent.
     private var textAttributes: [NSAttributedString.Key: Any] {
-        [.font: titleFont, .foregroundColor: MarkdownStyle.linkColor]
+        [.font: titleFont, .foregroundColor: MarkdownStyle.textColor]
     }
 
     public override func attachmentBounds(
