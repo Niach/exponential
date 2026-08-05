@@ -40,11 +40,12 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
+    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::{SessionPhase, Store};
 
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::session::{connect_account, AuthContext};
 
 /// The cloud instance the "Exponential Cloud" button targets (§4.2). Channel-
@@ -80,10 +81,16 @@ pub struct LoginView {
     email: Entity<InputState>,
     password: Entity<InputState>,
     /// `GET /api/auth-config` of `config_for` (§5.7 step 1 — gates which
-    /// methods render). `None` until the first fetch lands; the password
-    /// form defaults to visible meanwhile (iOS-parity tolerance).
+    /// methods render). `None` until the first fetch lands.
     auth_config: Option<api::AuthConfig>,
     config_for: Option<String>,
+    /// A fetch for `config_for` is in flight. While pending (and nothing
+    /// fetched yet) the card shows a spinner instead of guessing at the
+    /// method list — the old password-form default flashed a WRONG screen on
+    /// every cloud first start, where password auth is off (EXP-418). Once
+    /// the fetch settles, a failure still falls back to the password form
+    /// (iOS-parity tolerance) — just never *before* the answer.
+    config_pending: bool,
     /// OAuth attempt in flight (browser opened; label parity with web's
     /// "Redirecting…"). Buttons stay enabled so an abandoned browser tab
     /// never wedges the login.
@@ -179,6 +186,7 @@ impl LoginView {
             password,
             auth_config: None,
             config_for: None,
+            config_pending: false,
             pending_provider: None,
             copy_url: None,
             error: None,
@@ -216,6 +224,7 @@ impl LoginView {
         let Some(instance) = self.effective_instance(cx) else {
             self.auth_config = None;
             self.config_for = None;
+            self.config_pending = false;
             return;
         };
         if self.config_for.as_deref() == Some(instance.as_str()) {
@@ -223,6 +232,7 @@ impl LoginView {
         }
         self.config_for = Some(instance.clone());
         self.auth_config = None;
+        self.config_pending = true;
 
         let auth = cx.global::<AuthContext>().clone();
         cx.spawn(async move |this, cx| {
@@ -236,6 +246,7 @@ impl LoginView {
                 if this.config_for.as_deref() != Some(instance.as_str()) {
                     return; // instance changed while in flight
                 }
+                this.config_pending = false;
                 match result {
                     Ok(config) => this.auth_config = Some(config),
                     Err(err) => {
@@ -619,13 +630,18 @@ impl Render for LoginView {
         let signing_in = session == SessionPhase::SigningIn;
         let expired = matches!(session, SessionPhase::AuthExpired { .. });
 
-        // Defaults (password on, no OAuth) until the instance's auth-config
-        // lands — the form never blocks on the fetch.
+        // EXP-418: while the instance's auth-config fetch is in flight the
+        // card shows a spinner — the old "defaults until it lands" approach
+        // flashed the password form on every cloud first start (where
+        // password auth is off). Only a SETTLED fetch that failed falls back
+        // to the defaults (password on, no OAuth) so the form stays usable
+        // offline.
+        let config_loading = self.config_pending && self.auth_config.is_none();
         let config = self
             .auth_config
             .clone()
             .unwrap_or_else(default_auth_config);
-        let password_enabled = config.password_enabled;
+        let password_enabled = !config_loading && config.password_enabled;
 
         // -- card header (web AuthFormShell: title + description) -----------
         let mut form = v_flex()
@@ -673,7 +689,16 @@ impl Render for LoginView {
         }
 
         // -- OAuth provider buttons (per auth-config) ------------------------
-        if let Some(oauth) = self.render_oauth_buttons(&config, cx) {
+        if config_loading {
+            // Roughly the OAuth-buttons footprint, so the card doesn't jump
+            // when the real method list swaps in (iOS `configLoading` parity).
+            form = form.child(
+                h_flex()
+                    .justify_center()
+                    .py_6()
+                    .child(Spinner::new().icon(registry::UI_LOADING)),
+            );
+        } else if let Some(oauth) = self.render_oauth_buttons(&config, cx) {
             form = form.child(oauth);
         }
 

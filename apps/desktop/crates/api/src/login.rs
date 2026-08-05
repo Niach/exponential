@@ -213,7 +213,11 @@ impl AuthClient {
         let base = normalize_instance_url(instance_url);
         let response = send(
             versioned(self.client.get(format!("{base}/api/auth-config")))
-                .header("Accept", "application/json"),
+                .header("Accept", "application/json")
+                // EXP-418: the login card shows a spinner until this settles
+                // — an offline first start must fall back to the password
+                // form after seconds, not the client-wide 30s.
+                .timeout(std::time::Duration::from_secs(8)),
         )?
         .ok_or_status()?;
         serde_json::from_str(&response.body)
