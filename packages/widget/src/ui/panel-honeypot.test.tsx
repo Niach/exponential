@@ -33,6 +33,8 @@ const renderForm = (view: `feedback` | `support`) => {
       screenshot={null}
       flattening={false}
       captureFailed={false}
+      uploads={[]}
+      uploadError={null}
       identityEmail="reporter@example.com"
       emailRequired={false}
       collectEmail={true}
@@ -45,6 +47,8 @@ const renderForm = (view: `feedback` | `support`) => {
       onRetake={noop}
       onAnnotate={noop}
       onRemoveScreenshot={noop}
+      onAddImages={noop}
+      onRemoveUpload={noop}
       onSubmit={async (form) => {
         captured.feedback = form
         return null

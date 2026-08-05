@@ -120,6 +120,12 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
         mimeType: `image/png`,
         buffer: Buffer.from(tinyPngBase64, `base64`),
       },
+      // FEED-5: a reporter-attached picture rides alongside the screenshot.
+      images: {
+        name: `reference.png`,
+        mimeType: `image/png`,
+        buffer: Buffer.from(tinyPngBase64, `base64`),
+      },
     },
   })
   expect(submitted.status()).toBe(201)
@@ -161,9 +167,8 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
     page.getByText(`Rita Reporter <reporter@example.com>`)
   ).toBeVisible()
   await expect(page.getByText(`https://example.com/checkout`)).toBeVisible()
-  await expect(
-    page.locator(`img[src*="/api/attachments/"]`).first()
-  ).toBeVisible()
+  // Both the screenshot and the attached picture render from the description.
+  await expect(page.locator(`img[src*="/api/attachments/"]`)).toHaveCount(2)
 })
 
 test(`the embedded widget captures, submits, and files an issue`, async ({

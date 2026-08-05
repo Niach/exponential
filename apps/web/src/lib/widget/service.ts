@@ -25,6 +25,7 @@ import { deliveryStatus, sendSupportConfirmationEmail } from "@/lib/email"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
+  isAcceptedImageContentType,
   maxImageUploadBytes,
   sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
@@ -49,8 +50,15 @@ const screenshotContentTypes = new Set([
   `image/webp`,
 ])
 
-// Screenshot cap (10 MB) + headroom for the multipart text fields.
-export const maxSubmitRequestBytes = maxImageUploadBytes + 2 * 1024 * 1024
+// Reporter-attached pictures (FEED-5). Unlike canvas-encoded screenshots
+// these are arbitrary files, so they get the full image allowlist
+// (isAcceptedImageContentType) instead of screenshotContentTypes.
+export const maxWidgetImages = 3
+
+// Screenshot + reporter pictures (10 MB each) + headroom for the multipart
+// text fields.
+export const maxSubmitRequestBytes =
+  (1 + maxWidgetImages) * maxImageUploadBytes + 2 * 1024 * 1024
 
 export class WidgetRequestError extends Error {
   constructor(
@@ -409,8 +417,30 @@ export async function createWidgetSubmission(args: {
     }
   }
 
+  // Reporter-attached pictures (FEED-5), alongside the optional screenshot.
+  const imageEntries = formData.getAll(`images`)
+  if (imageEntries.length > maxWidgetImages) {
+    throw new WidgetRequestError(400, `Too many images`)
+  }
+  const images: File[] = []
+  for (const entry of imageEntries) {
+    if (!(entry instanceof File)) {
+      throw new WidgetRequestError(400, `Invalid image`)
+    }
+    if (!isAcceptedImageContentType(entry.type)) {
+      throw new WidgetRequestError(400, `Unsupported image type`)
+    }
+    if (entry.size > maxImageUploadBytes) {
+      throw new WidgetRequestError(413, `Image too large`)
+    }
+    images.push(entry)
+  }
+
+  const uploadBytes =
+    (screenshot?.size ?? 0) +
+    images.reduce((total, image) => total + image.size, 0)
   try {
-    await assertWithinStorageLimit(config.teamId, screenshot?.size ?? 0)
+    await assertWithinStorageLimit(config.teamId, uploadBytes)
   } catch (error) {
     if (error instanceof TRPCError) {
       throw new WidgetRequestError(403, error.message)
@@ -418,38 +448,74 @@ export async function createWidgetSubmission(args: {
     throw error
   }
 
-  // Pre-generate ids so the storage key can use the issue id and the
-  // description can embed the attachment URL inside one transaction.
+  // Pre-generate ids so the storage keys can use the issue id and the
+  // description can embed the attachment URLs inside one transaction.
+  // Screenshot first — the description embeds images in this order.
   const issueId = randomUUID()
-  const attachmentId = screenshot ? randomUUID() : null
+  const uploads = [
+    ...(screenshot
+      ? [{ file: screenshot, fallbackFilename: `screenshot.png` }]
+      : []),
+    ...images.map((file) => ({ file, fallbackFilename: `image.png` })),
+  ].map(({ file, fallbackFilename }) => {
+    const attachmentId = randomUUID()
+    const filename = sanitizeUploadFilename(file.name, fallbackFilename)
+    return {
+      file,
+      attachmentId,
+      filename,
+      storageKey: buildAttachmentStorageKey(issueId, attachmentId, filename),
+    }
+  })
+  const screenshotAttachmentId = screenshot
+    ? (uploads[0]?.attachmentId ?? null)
+    : null
 
-  let storageKey: string | null = null
-  let dimensions: { width: number; height: number } | null = null
-  if (screenshot && attachmentId) {
-    const filename = sanitizeUploadFilename(screenshot.name, `screenshot.png`)
-    storageKey = buildAttachmentStorageKey(issueId, attachmentId, filename)
-    const body = new Uint8Array(await screenshot.arrayBuffer())
-    dimensions = getImageDimensions(body)
-    await uploadObject({
-      body,
-      contentLength: screenshot.size,
-      contentType: screenshot.type,
-      key: storageKey,
-    })
-  }
-
-  // EXP-42b: user text + screenshot ONLY — reporter/page/env metadata stays in
+  // EXP-42b: user text + images ONLY — reporter/page/env metadata stays in
   // the widget_submissions row below (members-only via widgets.submissionForIssue).
   const description = buildWidgetDescription({
     userText: fields.data.description,
-    screenshotAttachmentId: attachmentId,
+    screenshotAttachmentId,
+    imageAttachmentIds: uploads
+      .filter((upload) => upload.attachmentId !== screenshotAttachmentId)
+      .map((upload) => upload.attachmentId),
   })
 
   // EXP-50: a solo team (exactly one human member) auto-assigns widget
   // feedback to that member — there is nobody else it could belong to.
   const soleMemberId = await getSoleHumanMemberId(config.teamId)
 
+  // S3 keys written so far — the catch below reclaims them when a later
+  // upload or the transaction fails.
+  const uploadedKeys: string[] = []
   try {
+    const attachmentRows: {
+      attachmentId: string
+      filename: string
+      contentType: string
+      sizeBytes: number
+      storageKey: string
+      dimensions: { width: number; height: number } | null
+    }[] = []
+    for (const upload of uploads) {
+      const body = new Uint8Array(await upload.file.arrayBuffer())
+      await uploadObject({
+        body,
+        contentLength: upload.file.size,
+        contentType: upload.file.type,
+        key: upload.storageKey,
+      })
+      uploadedKeys.push(upload.storageKey)
+      attachmentRows.push({
+        attachmentId: upload.attachmentId,
+        filename: upload.filename,
+        contentType: upload.file.type,
+        sizeBytes: upload.file.size,
+        storageKey: upload.storageKey,
+        dimensions: getImageDimensions(body),
+      })
+    }
+
     // Direct insert with the attachment row in the SAME transaction: the
     // tRPC create's "no images at create time" rule exists because client
     // uploads happen after create — here the attachment exists before commit,
@@ -480,21 +546,21 @@ export async function createWidgetSubmission(args: {
         })
         .returning({ id: issues.id, identifier: issues.identifier })
 
-      if (screenshot && attachmentId && storageKey) {
+      for (const row of attachmentRows) {
         await tx.insert(attachments).values({
-          id: attachmentId,
+          id: row.attachmentId,
           teamId: config.teamId,
           boardId,
           issueId,
-          // No synthetic uploader — widget screenshots have a null uploader.
+          // No synthetic uploader — widget images have a null uploader.
           uploaderId: null,
-          filename: sanitizeUploadFilename(screenshot.name, `screenshot.png`),
-          contentType: screenshot.type,
-          sizeBytes: screenshot.size,
-          storageKey,
-          url: buildAttachmentUrl(attachmentId),
-          width: dimensions?.width ?? null,
-          height: dimensions?.height ?? null,
+          filename: row.filename,
+          contentType: row.contentType,
+          sizeBytes: row.sizeBytes,
+          storageKey: row.storageKey,
+          url: buildAttachmentUrl(row.attachmentId),
+          width: row.dimensions?.width ?? null,
+          height: row.dimensions?.height ?? null,
         })
       }
 
@@ -558,14 +624,11 @@ export async function createWidgetSubmission(args: {
 
     return result
   } catch (error) {
-    if (storageKey) {
+    for (const key of uploadedKeys) {
       try {
-        await deleteObject(storageKey)
+        await deleteObject(key)
       } catch (deleteError) {
-        console.error(
-          `Failed to rollback widget screenshot object`,
-          deleteError
-        )
+        console.error(`Failed to rollback widget image object`, deleteError)
       }
     }
     throw error
@@ -780,7 +843,13 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
         nameRequired: toggles.nameRequired,
         customFields: sanitizeWidgetCustomFields(config.formConfig),
       },
-      limits: { maxScreenshotBytes: maxImageUploadBytes },
+      // maxImages/maxImageBytes are ADDITIVE (FEED-5) — cached pre-images
+      // widget bundles ignore them.
+      limits: {
+        maxScreenshotBytes: maxImageUploadBytes,
+        maxImageBytes: maxImageUploadBytes,
+        maxImages: maxWidgetImages,
+      },
     },
     { ...cors, "Cache-Control": `public, max-age=300` }
   )

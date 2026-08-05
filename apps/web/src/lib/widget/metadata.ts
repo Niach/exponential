@@ -10,6 +10,9 @@ import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 export function buildWidgetDescription(args: {
   userText: string
   screenshotAttachmentId: string | null
+  // Reporter-attached pictures (FEED-5), after the screenshot. The alt text
+  // is a constant — reporter filenames are not markdown-safe.
+  imageAttachmentIds?: string[]
 }): string {
   const sections: string[] = []
 
@@ -20,6 +23,10 @@ export function buildWidgetDescription(args: {
     sections.push(
       `![Screenshot](${buildAttachmentUrl(args.screenshotAttachmentId)})`
     )
+  }
+
+  for (const imageId of args.imageAttachmentIds ?? []) {
+    sections.push(`![Image](${buildAttachmentUrl(imageId)})`)
   }
 
   return sections.join(`\n\n`)

@@ -38,6 +38,9 @@ export interface ExponentialWidgetSubmitPayload {
   title?: string
   description?: string
   screenshot?: Blob
+  // Reporter-attached pictures (FEED-5) — up to 3 images, 10 MB each; extra
+  // entries and non-Blobs are dropped.
+  images?: Blob[]
   // Support mode.
   message?: string
   // Both modes; fall back to identify() values when absent.
@@ -107,7 +110,12 @@ export interface WidgetRemoteConfig {
   // Absent on older servers = feedback-only.
   modes?: WidgetMode[]
   form?: WidgetRemoteForm
-  limits?: { maxScreenshotBytes: number }
+  // maxImageBytes/maxImages absent on pre-FEED-5 servers.
+  limits?: {
+    maxScreenshotBytes: number
+    maxImageBytes?: number
+    maxImages?: number
+  }
 }
 
 // Hooks the main bundle registers on the shared runtime state so the

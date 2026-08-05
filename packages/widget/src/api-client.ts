@@ -116,6 +116,8 @@ export async function submitFeedback(args: {
   name?: string | null
   customData?: Record<string, string | number | boolean>
   screenshot: Blob | null
+  // Reporter-attached pictures (FEED-5), sent after the screenshot.
+  images?: { blob: Blob; filename: string }[]
   // See submitSupportRequest — the honeypot rides both forms.
   website?: string
   meta: EnvMeta
@@ -141,6 +143,12 @@ export async function submitFeedback(args: {
       new File([args.screenshot], screenshotFilename(args.screenshot), {
         type: args.screenshot.type,
       })
+    )
+  }
+  for (const image of args.images ?? []) {
+    formData.append(
+      `images`,
+      new File([image.blob], image.filename, { type: image.blob.type })
     )
   }
 

@@ -21,6 +21,7 @@ import {
 } from "./theme"
 import { submitFeedback, submitSupportRequest } from "./api-client"
 import { collectEnvMeta } from "./env-meta"
+import { maxUploadedImages } from "./uploads"
 
 function currentScriptSrc(): string | null {
   const current = document.currentScript
@@ -352,6 +353,16 @@ function start(): void {
                   request.screenshot instanceof Blob
                     ? request.screenshot
                     : null,
+                // Host-supplied pictures (FEED-5): drop non-Blobs, cap at the
+                // server's limit — the server re-enforces everything.
+                images: (Array.isArray(request.images) ? request.images : [])
+                  .filter((image): image is Blob => image instanceof Blob)
+                  .slice(0, maxUploadedImages)
+                  .map((blob) => ({
+                    blob,
+                    filename:
+                      blob instanceof File && blob.name ? blob.name : `image`,
+                  })),
                 meta: collectEnvMeta(),
               })
         if (result.ok) {

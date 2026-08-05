@@ -212,6 +212,84 @@
 .exp-chip:hover { background: rgba(0, 0, 0, 0.85); }
 .exp-chip:focus-visible { outline: 2px solid var(--exp-foreground); }
 
+/* Reporter-attached pictures (FEED-5): thumbnail strip + add tile. */
+.exp-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.exp-thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--exp-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--exp-background);
+}
+
+.exp-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.exp-thumb-remove {
+  all: initial;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: var(--exp-foreground);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+}
+.exp-thumb-remove:hover { background: rgba(0, 0, 0, 0.85); }
+.exp-thumb-remove:focus-visible { outline: 2px solid var(--exp-foreground); }
+
+.exp-add-image {
+  all: initial;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px dashed var(--exp-border);
+  border-radius: 8px;
+  color: var(--exp-muted-foreground);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  cursor: pointer;
+}
+/* Match the thumbnail height once pictures are attached. */
+.exp-thumb ~ .exp-add-image {
+  height: 56px;
+  align-self: auto;
+}
+.exp-add-image:hover {
+  border-color: var(--exp-accent);
+  color: var(--exp-foreground);
+}
+.exp-add-image:focus-visible { outline: 2px solid var(--exp-foreground); }
+
+/* Drop-target highlight while picture files are dragged over the form. */
+.exp-body-drag {
+  outline: 2px dashed var(--exp-accent);
+  outline-offset: -6px;
+  border-radius: 8px;
+}
+
 .exp-field {
   display: flex;
   flex-direction: column;
