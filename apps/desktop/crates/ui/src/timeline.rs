@@ -359,6 +359,92 @@ impl IssueTimeline {
         items.sort_by_key(TimelineItem::at);
         items
     }
+
+    /// EXP-417: the synthesized first activity row — "{who} created the issue
+    /// · {time}" (mobile has had it since EXP-161; this is the desktop half).
+    /// It is NOT an `issue_events` row, so it never counts toward "Activity
+    /// (N)". `None` until the issue itself has synced.
+    fn creation_row(
+        &self,
+        user_map: &HashMap<String, User>,
+        now_epoch: i64,
+        cx: &App,
+    ) -> Option<gpui::AnyElement> {
+        let issue_id = self.issue_id.as_deref()?;
+        let issue = Store::global(cx)
+            .collections()
+            .issues
+            .read(cx)
+            .get(issue_id)
+            .cloned()?;
+        // Widget rows carry a NULL creator — the origin is the author signal.
+        let who = if issue.source.as_deref() == Some(domain::contract::ISSUE_SOURCE_WIDGET) {
+            "Feedback widget".to_string()
+        } else {
+            match issue.creator_id.as_deref() {
+                Some(id) => comments::user_label(id, user_map.get(id)),
+                None => "Someone".to_string(),
+            }
+        };
+        let time = issue
+            .created_at
+            .as_deref()
+            .map(|at| comments::relative_time(at, now_epoch))
+            .unwrap_or_default();
+
+        Some(
+            h_flex()
+                .w_full()
+                .py_1()
+                .gap_2()
+                .items_center()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    Icon::from(ExpIcon::CircleDot)
+                        .xsmall()
+                        .text_color(cx.theme().muted_foreground)
+                        .flex_shrink_0(),
+                )
+                .child(
+                    // Same definite-width chain as `event_row` (EXP-175).
+                    h_flex()
+                        .gap_1()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(cx.theme().foreground)
+                                .whitespace_nowrap()
+                                .flex_shrink_0()
+                                .child(SharedString::from(who)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .whitespace_nowrap()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(SharedString::from(created_phrase(&time))),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+}
+
+/// The creation row's phrase. `relative_time` returns `""` for an unparseable
+/// or missing timestamp — the separator goes with it (iOS `time.isEmpty`
+/// parity), never leaving a dangling " · ".
+fn created_phrase(time: &str) -> String {
+    if time.is_empty() {
+        "created the issue".to_string()
+    } else {
+        format!("created the issue · {time}")
+    }
 }
 
 impl Render for IssueTimeline {
@@ -395,27 +481,33 @@ impl Render for IssueTimeline {
             format!("Activity ({})", items.len())
         };
 
-        // Content re-centers to the detail column (EXP-327 restored the
-        // full-bleed rule EXP-282 had dropped — the activity section reads as
-        // its own region again, and the line runs the whole pane width, not
-        // just the reading column). The centering must ride `centered_column` —
-        // `max_w` + `mx_auto` here made taffy size the column fit-content,
-        // mis-measuring wrapped comment text (EXP-179).
+        // Content re-centers to the detail column; the centering must ride
+        // `centered_column` — `max_w` + `mx_auto` here made taffy size the
+        // column fit-content, mis-measuring wrapped comment text (EXP-179).
         // `px_4` is the shared detail-body left edge (title / description /
         // activity all align on it — EXP-282).
         let mut body = v_flex()
             .px_4()
             .py_3()
             .child(
+                // EXP-417: a real section title (was `text_xs` muted) — the
+                // Linear reference reads it as a heading, not a caption.
                 div()
-                    .text_xs()
+                    .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().muted_foreground)
+                    .text_color(cx.theme().foreground)
                     .mb_2()
                     .child(SharedString::from(header_label)),
             );
 
-        if items.is_empty() {
+        // EXP-417: "X created the issue" goes FIRST, above every event.
+        let creation_row = self.creation_row(&user_map, now_epoch, cx);
+        let has_creation_row = creation_row.is_some();
+        body = body.children(creation_row);
+
+        // With the creation row present this is unreachable; it stays for the
+        // race where the issue itself hasn't synced yet.
+        if items.is_empty() && !has_creation_row {
             body = body.child(
                 div()
                     .text_xs()
@@ -470,16 +562,19 @@ impl Render for IssueTimeline {
         let has_draft = !self.composer.read(cx).value().trim().is_empty();
         let composer =
             comments::composer_row(&self.composer_mention, self.submitting, has_draft, cx);
-        // EXP-327: a full-bleed hairline separates the activity section from
-        // the description above. It sits OUTSIDE `centered_column` so it spans
-        // the pane rather than stopping at the reading column's edges.
+        // The hairline separating the activity section from the description
+        // above stops at the READING column (EXP-422 — a deliberate reversal
+        // of EXP-327's full-bleed rule; mobile keeps the full-bleed line).
         v_flex()
             .w_full()
-            // flex_shrink_0: a 1px main-axis child in a column is otherwise
-            // free to be squeezed to nothing (same guard the rail divider uses).
-            .child(div().w_full().h_px().flex_shrink_0().bg(cx.theme().border))
             .child(crate::issue_detail::centered_column(
-                body.child(composer),
+                v_flex()
+                    .w_full()
+                    // flex_shrink_0: a 1px main-axis child in a column is
+                    // otherwise free to be squeezed to nothing (the same guard
+                    // the rail divider uses).
+                    .child(div().w_full().h_px().flex_shrink_0().bg(cx.theme().border))
+                    .child(body.child(composer)),
             ))
     }
 }
@@ -692,6 +787,18 @@ fn event_row(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The separator must vanish with the time — `relative_time` returns `""`
+    /// for a missing/unparseable `created_at`, and a dangling " · " is what
+    /// the iOS `time.isEmpty` branch exists to prevent.
+    #[test]
+    fn created_phrase_drops_the_separator_without_a_time() {
+        assert_eq!(created_phrase(""), "created the issue");
+        assert_eq!(
+            created_phrase("2 hours ago"),
+            "created the issue · 2 hours ago"
+        );
+    }
 
     fn event(kind: &str, payload: serde_json::Value) -> IssueEvent {
         serde_json::from_value(json!({
