@@ -28,6 +28,11 @@ use crate::sidecars::Sidecars;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
 const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
+/// EXP-414: a changed agent advertisement is only ACTED on once a second
+/// probe agrees ([`advert_transition`]) — this is the shortened recheck that
+/// confirms (or clears) a pending change, so a real change still converges
+/// in ~DOCTOR_RECHECK + this instead of two full periods.
+const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 pub const DEVICE_CAPS: [&str; 3] = ["actions", "action-inputs", "fix-conflicts"];
 
 // ---------------------------------------------------------------------------
@@ -166,7 +171,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
 
     let mut advertised = probe_agents(&ctx);
-    register_device(&ctx, &device_id, &device_label, &advertised);
+    // EXP-414: a failed register (network not up yet at boot) is retried on
+    // the heartbeat cadence — otherwise the registry row goes stale (old
+    // version/agents, a never-cleared update request) until the next restart.
+    let mut registered_ok = register_device(&ctx, &device_id, &device_label, &advertised);
     // `register` only SEEDS the label (it never stomps a rename); an
     // explicit --label is an intentional write and goes through `rename`.
     if let Some(label) = &explicit_label {
@@ -199,6 +207,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // (EXP-411).
     let mut pending_update: Option<UpdateTrigger> = None;
     let mut last_update_poll = Instant::now();
+    // EXP-414: an advertisement change observed by ONE probe, awaiting a
+    // second agreeing probe before it tears the control channel down.
+    let mut pending_advert: Option<coding::AgentAdvertisement> = None;
     // EXP-411: the live-session count last reported over the heartbeat. A
     // change forces an off-cadence beat so a session starting or ending
     // converges in ~1s (and a restarted daemon corrects a stale count on its
@@ -239,9 +250,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
             reported_sessions = Some(live_now);
             match api::devices::heartbeat(&ctx.trpc, &device_id, live_now as u32) {
                 Ok(result) => {
-                    // Row removed in the UI while we run — re-register.
-                    if !result.ok {
-                        register_device(&ctx, &device_id, &device_label, &advertised);
+                    // Row removed in the UI while we run, or an earlier
+                    // register never landed (EXP-414) — re-register.
+                    if !result.ok || !registered_ok {
+                        registered_ok =
+                            register_device(&ctx, &device_id, &device_label, &advertised);
                     }
                     if result.update_requested && pending_update.is_none() {
                         if live_now > 0 {
@@ -288,13 +301,15 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         if matches!(trigger, UpdateTrigger::Requested) {
                             // Consume the web request even when there was
                             // nothing to install.
-                            register_device(&ctx, &device_id, &device_label, &advertised);
+                            registered_ok =
+                                register_device(&ctx, &device_id, &device_label, &advertised);
                         }
                     }
                     Err(err) => {
                         log::warn!("update failed: {err:#}");
                         if matches!(trigger, UpdateTrigger::Requested) {
-                            register_device(&ctx, &device_id, &device_label, &advertised);
+                            registered_ok =
+                                register_device(&ctx, &device_id, &device_label, &advertised);
                         }
                     }
                 }
@@ -306,19 +321,33 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // brings remote start online without a restart; removing the last
         // hangs up. Sign-in state rides the same probe (EXP-409): logging
         // into claude over ssh flips the machine runnable without a restart.
-        if last_doctor.elapsed() >= DOCTOR_RECHECK {
+        // EXP-414: acted on only once TWO consecutive probes agree — the
+        // stop + re-dial is a real presence gap, and a single flaky auth
+        // probe was flapping the machine offline every 5 minutes.
+        let doctor_due = if pending_advert.is_some() {
+            ADVERT_CONFIRM_RECHECK
+        } else {
+            DOCTOR_RECHECK
+        };
+        if last_doctor.elapsed() >= doctor_due {
             last_doctor = Instant::now();
             let agents = probe_agents(&ctx);
-            if agents != advertised {
-                log::info!("agent advertisement changed: {advertised:?} -> {agents:?}");
-                advertised = agents;
-                if let Some(handle) = control.take() {
-                    handle.stop();
+            match advert_transition(&advertised, &agents, &mut pending_advert) {
+                AdvertStep::Keep => {}
+                AdvertStep::AwaitConfirmation => log::info!(
+                    "agent advertisement change observed ({advertised:?} -> {agents:?}) — awaiting confirmation"
+                ),
+                AdvertStep::Apply => {
+                    log::info!("agent advertisement changed: {advertised:?} -> {agents:?}");
+                    advertised = agents;
+                    if let Some(handle) = control.take() {
+                        handle.stop();
+                    }
+                    control = runtime.as_ref().and_then(|runtime| {
+                        dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx)
+                    });
+                    registered_ok = register_device(&ctx, &device_id, &device_label, &advertised);
                 }
-                control = runtime.as_ref().and_then(|runtime| {
-                    dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx)
-                });
-                register_device(&ctx, &device_id, &device_label, &advertised);
             }
         }
     }
@@ -354,15 +383,45 @@ fn probe_agents(ctx: &Ctx) -> coding::AgentAdvertisement {
     coding::run_doctor(&settings).agent_advertisement()
 }
 
+/// What a doctor re-probe should do to the live advertisement (EXP-414).
+#[derive(Debug, PartialEq)]
+enum AdvertStep {
+    Keep,
+    AwaitConfirmation,
+    Apply,
+}
+
+/// A single disagreeing probe is treated as wobble — only two CONSECUTIVE
+/// probes agreeing on the same changed value tear the control channel down
+/// (the stop + re-dial is a real presence gap on every machine list).
+fn advert_transition(
+    current: &coding::AgentAdvertisement,
+    observed: &coding::AgentAdvertisement,
+    pending: &mut Option<coding::AgentAdvertisement>,
+) -> AdvertStep {
+    if observed == current {
+        *pending = None;
+        return AdvertStep::Keep;
+    }
+    if pending.as_ref() == Some(observed) {
+        *pending = None;
+        return AdvertStep::Apply;
+    }
+    *pending = Some(observed.clone());
+    AdvertStep::AwaitConfirmation
+}
+
 /// Best-effort `devices.register` — registered even with no agents so the
 /// UI can show the machine offline with a reason; an older server without
-/// the router must never break the daemon.
+/// the router must never break the daemon. Returns whether the register
+/// landed, so the daemon can retry a failure on the heartbeat cadence
+/// (EXP-414) instead of running on a stale row until the next restart.
 fn register_device(
     ctx: &Ctx,
     device_id: &str,
     device_label: &str,
     advertised: &coding::AgentAdvertisement,
-) {
+) -> bool {
     // Caps follow the RUNNABLE set (EXP-409): a machine whose only agents
     // are signed out cannot run actions either.
     let caps: Vec<String> = if advertised.agents.is_empty() {
@@ -383,8 +442,12 @@ fn register_device(
             version: Some(crate::cli_version()),
         },
     );
-    if let Err(err) = result {
-        log::warn!("devices.register failed (older server?): {err}");
+    match result {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!("devices.register failed (older server?): {err}");
+            false
+        }
     }
 }
 
@@ -739,7 +802,7 @@ fn spawn_prepared(
 // ---------------------------------------------------------------------------
 
 fn service_exec() -> anyhow::Result<PathBuf> {
-    std::env::current_exe().context("resolve the exponential binary path")
+    super::update::running_exe().context("resolve the exponential binary path")
 }
 
 fn install(args: &[String]) -> CommandResult {
@@ -889,5 +952,88 @@ fn status(args: &[String]) -> CommandResult {
             println!("Daemon not running.");
             Ok(ExitCode::FAILURE)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn advert(agents: &[&str]) -> coding::AgentAdvertisement {
+        coding::AgentAdvertisement {
+            agents: agents.iter().map(|agent| agent.to_string()).collect(),
+            unauthed_agents: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_matching_probe_keeps_and_clears_any_pending_change() {
+        let current = advert(&["claude"]);
+        let mut pending = Some(advert(&["claude", "codex"]));
+        assert_eq!(
+            advert_transition(&current, &current.clone(), &mut pending),
+            AdvertStep::Keep
+        );
+        assert!(pending.is_none(), "a flap back to current clears the pending change");
+    }
+
+    #[test]
+    fn a_first_disagreeing_probe_only_arms_confirmation() {
+        let current = advert(&["claude"]);
+        let observed = advert(&[]);
+        let mut pending = None;
+        assert_eq!(
+            advert_transition(&current, &observed, &mut pending),
+            AdvertStep::AwaitConfirmation
+        );
+        assert_eq!(pending, Some(observed));
+    }
+
+    #[test]
+    fn a_confirmed_change_applies_and_clears_pending() {
+        let current = advert(&["claude"]);
+        let observed = advert(&["claude", "codex"]);
+        let mut pending = Some(observed.clone());
+        assert_eq!(
+            advert_transition(&current, &observed, &mut pending),
+            AdvertStep::Apply
+        );
+        assert!(pending.is_none());
+    }
+
+    #[test]
+    fn a_wobble_never_touches_the_channel() {
+        // A → B → A: the flaky probe pattern that was flapping presence.
+        let current = advert(&["claude"]);
+        let wobble = advert(&[]);
+        let mut pending = None;
+        assert_eq!(
+            advert_transition(&current, &wobble, &mut pending),
+            AdvertStep::AwaitConfirmation
+        );
+        assert_eq!(
+            advert_transition(&current, &current.clone(), &mut pending),
+            AdvertStep::Keep
+        );
+        assert!(pending.is_none());
+        // The next wobble starts confirmation from scratch again.
+        assert_eq!(
+            advert_transition(&current, &wobble, &mut pending),
+            AdvertStep::AwaitConfirmation
+        );
+    }
+
+    #[test]
+    fn a_different_second_change_replaces_the_pending_value() {
+        let current = advert(&["claude"]);
+        let first = advert(&[]);
+        let second = advert(&["codex"]);
+        let mut pending = None;
+        advert_transition(&current, &first, &mut pending);
+        assert_eq!(
+            advert_transition(&current, &second, &mut pending),
+            AdvertStep::AwaitConfirmation
+        );
+        assert_eq!(pending, Some(second));
     }
 }

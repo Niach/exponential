@@ -32,6 +32,27 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertTrue(device.updateBlocked == true)
         XCTAssertEqual(device.lastSeenAt, "2026-08-03T10:00:00.000Z")
         XCTAssertTrue(device.canRunActions)
+        // EXP-420: the envelope's latestVersions decodes and gates Update.
+        XCTAssertEqual(result.latestVersions?.cli, "0.8.53")
+        XCTAssertEqual(result.latestVersions?.desktop, "1.2.3")
+        XCTAssertTrue(device.updateAvailable(latest: result.latestVersions?.cli))
+    }
+
+    /// EXP-420: the Update affordance may only claim a newer version exists
+    /// with evidence — unknown/unparsable on either side compares false, and
+    /// the compare is numeric, not lexicographic.
+    func testUpdateAvailableComparesNumericallyAndFailsClosed() throws {
+        let result = try decode("""
+        {"devices":[{"deviceId":"d1","deviceLabel":"box","kind":"server",
+        "online":true,"registered":true,"version":"0.9.9"}]}
+        """)
+        let device = try XCTUnwrap(result.devices.first)
+        XCTAssertNil(result.latestVersions)  // steer.myDevices has no envelope field
+        XCTAssertTrue(device.updateAvailable(latest: "0.10.0"))
+        XCTAssertFalse(device.updateAvailable(latest: "0.9.9"))
+        XCTAssertFalse(device.updateAvailable(latest: "0.9.8"))
+        XCTAssertFalse(device.updateAvailable(latest: nil))
+        XCTAssertFalse(device.updateAvailable(latest: "junk"))
     }
 
     func testDecodesPresenceRowAsOnlineDesktop() throws {

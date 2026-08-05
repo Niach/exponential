@@ -24,6 +24,10 @@
 //!    each attempt re-mints (tickets last ~60s). Backoff resets after a
 //!    connection lived ≥ [`crate::BACKOFF_RESET_AFTER`] (outliving the ticket
 //!    window proves the path — there is no `online` ack frame to key on).
+//! 6. keepalive (EXP-414): a [`PING_INTERVAL`] outbound ping plus a
+//!    [`LIVENESS_TIMEOUT`] inbound-silence watchdog — the socket would
+//!    otherwise idle silently forever and a NAT-killed path would leave the
+//!    device offline on the relay while this side still believes it's online.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -39,6 +43,19 @@ use crate::{dial, Backoff, SteerRuntime, BACKOFF_RESET_AFTER};
 
 /// §8.3 #6: the slow recheck cadence while the instance reports steer off.
 pub const DISABLED_RECHECK: Duration = Duration::from_secs(15 * 60);
+
+/// EXP-414: keepalive cadence, mirroring the publisher's. The control socket
+/// is otherwise silent for hours after its `online` frame — a NAT/idle-killed
+/// path then sits ESTABLISHED locally while the relay has long evicted the
+/// device's presence, so the machine reads offline until the dead socket
+/// happens to error. Outbound pings both keep the path alive and give the
+/// liveness watchdog below something to measure.
+const PING_INTERVAL: Duration = Duration::from_secs(30);
+
+/// EXP-414: no inbound traffic (relay pongs included) for this long means the
+/// path is dead — `send()` alone can buffer into TCP retransmit for ~15min
+/// without erroring, so a send-side check can't detect it. Reconnect instead.
+const LIVENESS_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// The stable device identity this channel announces (§8.2).
 #[derive(Clone, Debug)]
@@ -434,6 +451,12 @@ async fn connect_and_listen(
         device.device_id
     );
     let established = Instant::now();
+    let mut ping_interval = tokio::time::interval(PING_INTERVAL);
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // EXP-414: any inbound frame (the relay's pongs to our pings included —
+    // they surface through `ws.next()`) proves the path; silence past
+    // LIVENESS_TIMEOUT means it is gone.
+    let mut last_rx = Instant::now();
 
     loop {
         tokio::select! {
@@ -441,57 +464,76 @@ async fn connect_and_listen(
                 let _ = ws.close(None).await;
                 return ConnectionOutcome::Stopped;
             }
-            msg = ws.next() => match msg {
-                Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
-                    // §8.3 #4 — the one frame we act on.
-                    Some(ServerFrame::StartSession {
-                        issue_id,
-                        issue_ids,
-                        action_id,
-                        action_name,
-                        team_id,
-                        repo,
-                        inputs,
-                        agent,
-                        model,
-                        effort,
-                        ultracode,
-                        plan_mode,
-                        skip_permissions,
-                    }) => match remote_start_from_frame(
-                        issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
-                        agent, model, effort, ultracode, plan_mode, skip_permissions,
-                    ) {
-                        Some(start) => {
-                            log::info!("steer control: remote start_session ({:?})", start.subject);
-                            on_start_session(start);
+            // §8.3 #6 — keepalive: ping the relay, and reconnect when the
+            // path has been silent past the watchdog window.
+            _ = ping_interval.tick() => {
+                if last_rx.elapsed() > LIVENESS_TIMEOUT {
+                    log::debug!(
+                        "steer control: no traffic for {:?} — reconnecting",
+                        last_rx.elapsed()
+                    );
+                    return ConnectionOutcome::Dropped { lived: established.elapsed() };
+                }
+                if ws.send(Message::Ping(vec![])).await.is_err() {
+                    return ConnectionOutcome::Dropped { lived: established.elapsed() };
+                }
+            }
+            msg = ws.next() => {
+                if matches!(msg, Some(Ok(_))) {
+                    last_rx = Instant::now();
+                }
+                match msg {
+                    Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
+                        // §8.3 #4 — the one frame we act on.
+                        Some(ServerFrame::StartSession {
+                            issue_id,
+                            issue_ids,
+                            action_id,
+                            action_name,
+                            team_id,
+                            repo,
+                            inputs,
+                            agent,
+                            model,
+                            effort,
+                            ultracode,
+                            plan_mode,
+                            skip_permissions,
+                        }) => match remote_start_from_frame(
+                            issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
+                            agent, model, effort, ultracode, plan_mode, skip_permissions,
+                        ) {
+                            Some(start) => {
+                                log::info!("steer control: remote start_session ({:?})", start.subject);
+                                on_start_session(start);
+                            }
+                            None => log::warn!(
+                                "steer control: malformed start_session — need exactly one of \
+                                 issueId/issueIds/actionId; batch needs teamId+repo, action needs \
+                                 actionName+teamId — ignored"
+                            ),
+                        },
+                        Some(other) => {
+                            // bye/error/kill here: logged; kill is not
+                            // session-scoped on the control socket → no-op.
+                            log::debug!("steer control: ignoring frame {other:?}");
                         }
-                        None => log::warn!(
-                            "steer control: malformed start_session — need exactly one of \
-                             issueId/issueIds/actionId; batch needs teamId+repo, action needs \
-                             actionName+teamId — ignored"
-                        ),
+                        None => log::debug!("steer control: unparseable frame ignored"),
                     },
-                    Some(other) => {
-                        // bye/error/kill here: logged; kill is not
-                        // session-scoped on the control socket → no-op.
-                        log::debug!("steer control: ignoring frame {other:?}");
+                    Some(Ok(Message::Close(frame))) => {
+                        log::debug!("steer control: closed by relay: {frame:?}");
+                        return ConnectionOutcome::Dropped { lived: established.elapsed() };
                     }
-                    None => log::debug!("steer control: unparseable frame ignored"),
-                },
-                Some(Ok(Message::Close(frame))) => {
-                    log::debug!("steer control: closed by relay: {frame:?}");
-                    return ConnectionOutcome::Dropped { lived: established.elapsed() };
+                    Some(Ok(_binary_or_ping)) => {
+                        // Binary frames never target the control socket; tungstenite
+                        // answers pings internally.
+                    }
+                    Some(Err(err)) => {
+                        log::debug!("steer control: socket error: {err}");
+                        return ConnectionOutcome::Dropped { lived: established.elapsed() };
+                    }
+                    None => return ConnectionOutcome::Dropped { lived: established.elapsed() },
                 }
-                Some(Ok(_binary_or_ping)) => {
-                    // Binary frames never target the control socket; tungstenite
-                    // answers pings internally.
-                }
-                Some(Err(err)) => {
-                    log::debug!("steer control: socket error: {err}");
-                    return ConnectionOutcome::Dropped { lived: established.elapsed() };
-                }
-                None => return ConnectionOutcome::Dropped { lived: established.elapsed() },
             }
         }
     }

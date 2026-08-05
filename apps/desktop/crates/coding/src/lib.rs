@@ -41,6 +41,7 @@ pub mod agent;
 pub mod argv;
 pub mod batch_launcher;
 pub mod batch_prompt;
+pub mod claude_trust;
 pub mod clone_manager;
 pub mod codex_sessions;
 pub mod codex_trust;

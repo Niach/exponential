@@ -984,6 +984,14 @@ pub fn prepare_with_hooks(
     if agent == CodingAgent::Codex {
         crate::codex_trust::ensure_trusted(&clone);
     }
+    // EXP-414: same pre-accept for claude, keyed by the spawn CWD — claude's
+    // trust dialog is per-directory and every session gets a fresh worktree.
+    if agent == CodingAgent::Claude {
+        crate::claude_trust::ensure_onboarded(
+            &worktree,
+            options.skip_permissions && !options.plan_mode,
+        );
+    }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
     let args = session_args(options, &agent_mcp, hook_settings.as_deref(), tail);
     let tab_title = format!("{} · {tab_title_prefix}", agent.id());
@@ -1322,6 +1330,13 @@ fn prepare_action(
     if agent == CodingAgent::Codex {
         crate::codex_trust::ensure_trusted(trunk_clone.as_deref().unwrap_or(&cwd));
     }
+    // EXP-414: claude keys trust by the spawn cwd itself (worktree/scratch).
+    if agent == CodingAgent::Claude {
+        crate::claude_trust::ensure_onboarded(
+            &cwd,
+            options.skip_permissions && !options.plan_mode,
+        );
+    }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
     let args = session_args(
         &options,
@@ -1499,6 +1514,13 @@ pub fn prepare_agent_shell(
     // the clone anyway).
     if agent == CodingAgent::Codex {
         crate::codex_trust::ensure_trusted(&clone);
+    }
+    // EXP-414: claude keys trust by the spawn cwd itself.
+    if agent == CodingAgent::Claude {
+        crate::claude_trust::ensure_onboarded(
+            &cwd,
+            options.skip_permissions && !options.plan_mode,
+        );
     }
     let args = session_args(options, &agent_mcp, None, SessionTail::None);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);

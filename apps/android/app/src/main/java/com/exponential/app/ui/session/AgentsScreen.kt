@@ -495,7 +495,8 @@ private fun MachineRow(
                     // Self-update is a server-daemon capability: the desktop
                     // app updates itself through its own channel, and an
                     // offline machine has nothing listening for the request.
-                    if (device.isServer && online && !device.updateRequested) {
+                    // EXP-420: offered only when a newer version really exists.
+                    if (device.isServer && online && outdated && !device.updateRequested) {
                         GlassMenuItem(
                             text = { Text("Update") },
                             leadingIcon = { Icon(ExpIcons.uiUpdate, contentDescription = null) },
