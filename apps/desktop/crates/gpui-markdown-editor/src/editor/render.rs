@@ -742,6 +742,10 @@ impl Render for Editor {
             .id("editor-scroll-inner")
             .flex()
             .flex_col()
+            // EXP-421: the whole text surface reads as text entry — margins
+            // and paddings included. Inner hitboxes (images, resize handles,
+            // the toolbar) still win with their own cursors.
+            .cursor(CursorStyle::IBeam)
             .bg(theme.colors.editor_background)
             .when(image_edge_top, |this| this.pt(px(12.0)))
             .when(image_edge_bottom, |this| this.pb(px(12.0)))

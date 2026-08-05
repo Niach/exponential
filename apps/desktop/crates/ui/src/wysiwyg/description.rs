@@ -1254,6 +1254,10 @@ impl Render for WysiwygDescription {
                     .w_full()
                     .flex_1()
                     .min_h(px(24.))
+                    // EXP-421: the filler is a text-entry surface (clicking
+                    // focuses the document end), so it shows the I-beam like
+                    // the editor itself.
+                    .cursor(gpui::CursorStyle::IBeam)
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, window, cx| this.focus_end(window, cx)),
