@@ -849,6 +849,67 @@ impl Render for Editor {
             .relative()
             .child(scroll_content);
 
+        // EXP-421 DnD: external file drops + internal image-block moves. The
+        // listeners ride `content_area` — the `.relative()` box the indicator
+        // line renders into. Rendered mode only (source mode is raw text).
+        let content_area = if self.view_mode == super::ViewMode::Rendered {
+            content_area
+                .on_drag_move::<ExternalPaths>(cx.listener(
+                    |this, event: &DragMoveEvent<ExternalPaths>, _window, cx| {
+                        this.update_drop_indicator(event.bounds, event.event.position, cx);
+                    },
+                ))
+                .on_drop::<ExternalPaths>(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                    let root_index = this
+                        .drop_indicator
+                        .map(|(index, _)| index)
+                        .unwrap_or_else(|| {
+                            this.drop_target_root_index(window.mouse_position().y, cx).0
+                        });
+                    this.clear_drop_indicator(cx);
+                    cx.emit(crate::api::MarkdownEditorEvent::ExternalFilesDropped {
+                        paths: paths.paths().to_vec(),
+                        root_index,
+                    });
+                }))
+                .on_drag_move::<super::dnd::ImageBlockDrag>(cx.listener(
+                    |this, event: &DragMoveEvent<super::dnd::ImageBlockDrag>, _window, cx| {
+                        this.update_drop_indicator(event.bounds, event.event.position, cx);
+                    },
+                ))
+                .on_drop::<super::dnd::ImageBlockDrag>(cx.listener(
+                    |this, drag: &super::dnd::ImageBlockDrag, window, cx| {
+                        let root_index = this
+                            .drop_indicator
+                            .map(|(index, _)| index)
+                            .unwrap_or_else(|| {
+                                this.drop_target_root_index(window.mouse_position().y, cx).0
+                            });
+                        this.clear_drop_indicator(cx);
+                        this.move_root_block(drag.entity_id, root_index, cx);
+                    },
+                ))
+        } else {
+            content_area
+        };
+
+        // The 2px insertion line while a drag hovers the editor. Window-space
+        // boundary Y → content-relative via the recorded content origin.
+        let content_area = if let Some((_, boundary_y)) = self.drop_indicator {
+            content_area.child(
+                div()
+                    .absolute()
+                    .top(boundary_y - self.last_content_origin.y - px(1.0))
+                    .left(px(4.0))
+                    .right(px(4.0))
+                    .h(px(2.0))
+                    .rounded_full()
+                    .bg(theme.colors.cursor),
+            )
+        } else {
+            content_area
+        };
+
         let content_area = if show_custom_scrollbar {
             let scrollbar_editor = editor.clone();
             let track_origin_y = f32::from(viewport_bounds.origin.y);

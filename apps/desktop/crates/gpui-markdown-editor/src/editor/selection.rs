@@ -96,6 +96,9 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         if !event.dragging() {
+            // EXP-421: a plain (drag-less) move clears any stranded drop
+            // indicator — a cancelled external drag never delivers a drop.
+            self.clear_drop_indicator(cx);
             return;
         }
         let Some(drag) = self.cross_block_drag else {

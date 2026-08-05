@@ -138,4 +138,12 @@ pub enum MarkdownEditorEvent {
         kind: crate::host::ReferenceKind,
         value: String,
     },
+    /// EXP-421: external files dropped onto the editor at the resolved root
+    /// insertion index. The HOST owns the file-type policy (inline images →
+    /// [`crate::MarkdownEditor::insert_image_paths_at`], everything else →
+    /// its attach pipeline), mirroring the toolbar attach flow.
+    ExternalFilesDropped {
+        paths: Vec<std::path::PathBuf>,
+        root_index: usize,
+    },
 }

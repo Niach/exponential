@@ -26,6 +26,8 @@ use crate::components::{
 use crate::environment::MarkdownEditorEnvironment;
 
 mod context_menu;
+// pub(crate): the block render (components) mounts the drag source.
+pub(crate) mod dnd;
 mod document;
 mod events;
 mod history;
@@ -71,6 +73,11 @@ pub struct Editor {
     /// converts window-space boundary Y coordinates into content-relative
     /// offsets with it. Written silently every prepaint — never notified.
     pub(super) last_content_origin: Point<Pixels>,
+    /// EXP-421: the live drop-target line — `(root insertion index,
+    /// window-space boundary Y)`. Set by drag-move over the editor, cleared
+    /// on drop and by any drag-less mouse move (a cancelled external drag
+    /// must not strand it).
+    pub(super) drop_indicator: Option<(usize, Pixels)>,
     context_menu: Option<ContextMenuState>,
     table_insert_dialog: Option<TableInsertDialogState>,
     context_menu_submenu_close_task: Option<Task<()>>,
@@ -280,6 +287,7 @@ impl Editor {
             row_stride_cache: HashMap::new(),
             prev_render_window: None,
             last_content_origin: Point::default(),
+            drop_indicator: None,
             context_menu: None,
             table_insert_dialog: None,
             context_menu_submenu_close_task: None,

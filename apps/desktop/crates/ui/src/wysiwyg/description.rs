@@ -209,6 +209,27 @@ impl WysiwygDescription {
                 MarkdownEditorEvent::Error { message } => {
                     log::warn!("wysiwyg editor error: {message}");
                 }
+                // EXP-421: files dropped onto the editor — same type policy
+                // as `pick_attach`: inline images embed at the drop index
+                // (the `Changed` event then drives the upload pipeline),
+                // everything else rides the host attach hook.
+                MarkdownEditorEvent::ExternalFilesDropped { paths, root_index } => {
+                    let (images, others): (Vec<_>, Vec<_>) =
+                        paths.iter().cloned().partition(|path| {
+                            crate::markdown::image_paste::is_inline_image_path(path)
+                        });
+                    if !images.is_empty() {
+                        let root_index = *root_index;
+                        this.editor.update(cx, |editor, cx| {
+                            editor.insert_image_paths_at(root_index, images, cx);
+                        });
+                    }
+                    if !others.is_empty() {
+                        if let Some(on_attach) = this.on_attach_files.clone() {
+                            on_attach(others, window, cx);
+                        }
+                    }
+                }
                 MarkdownEditorEvent::SelectionChanged(_) => {
                     // Caret moves re-anchor or dismiss the popup, and move the
                     // toolbar's pressed-button state onto the new block.

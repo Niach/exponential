@@ -2262,6 +2262,15 @@ impl Render for Block {
                     overlay,
                 );
                 let entity = cx.entity().downgrade();
+                // EXP-421 DnD: the recorder wrapper doubles as the drag
+                // source for repositioning the image block. Prepaint hook
+                // FIRST (`.id()` wraps the Div Stateful, which hides it);
+                // the resize handles and the `…` menu button stop mouse-down
+                // propagation, so a handle drag never starts a block drag.
+                let ghost_label = SharedString::from(runtime.alt.clone());
+                let ghost_bg = theme.colors.editor_background;
+                let ghost_border = theme.colors.image_placeholder_border;
+                let ghost_text = theme.colors.text_default;
                 let content = div()
                     .on_children_prepainted(move |bounds, _window, cx| {
                         if let (Some(first), Some(entity)) =
@@ -2270,6 +2279,24 @@ impl Render for Block {
                             entity.update(cx, |block, _| block.last_bounds = Some(first));
                         }
                     })
+                    .id(ElementId::Name(
+                        format!("image-drag-{}", self.record.id).into(),
+                    ))
+                    .on_drag(
+                        crate::editor::dnd::ImageBlockDrag {
+                            entity_id: cx.entity().entity_id(),
+                        },
+                        move |_drag, _offset, _window, cx| {
+                            cx.new(|_| {
+                                crate::editor::dnd::ImageDragGhost::new(
+                                    ghost_label.clone(),
+                                    ghost_bg,
+                                    ghost_border,
+                                    ghost_text,
+                                )
+                            })
+                        },
+                    )
                     .w_full()
                     .child(content);
                 return focused_base
