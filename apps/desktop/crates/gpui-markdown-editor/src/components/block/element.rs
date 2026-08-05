@@ -1167,6 +1167,7 @@ impl Element for BlockTextElement {
 
         let shared_lines = Rc::new(RefCell::new(None));
         let shared_lines_clone = shared_lines.clone();
+        let layout_width = input.environment.layout_width.clone();
 
         let mut layout_style = Style::default();
         layout_style.size.width = relative(1.).into();
@@ -1179,7 +1180,24 @@ impl Element for BlockTextElement {
                 let wrap_width = known_dimensions.width.or(match available_space.width {
                     AvailableSpace::Definite(x) => Some(x),
                     AvailableSpace::MinContent => Some(px(1.0)),
-                    AvailableSpace::MaxContent => Some(window.viewport_size().width.max(px(1.0))),
+                    // EXP-421 soft wrap: MaxContent used to resolve to the
+                    // VIEWPORT width, so an unbroken run reported a
+                    // near-window intrinsic width and inflated every
+                    // ancestor. The recorded slot width (one frame stale;
+                    // 0 before the first paint) is the honest wrap bound —
+                    // gpui's LineWrapper force-breaks unbroken runs mid-word
+                    // once the width is honest.
+                    AvailableSpace::MaxContent => {
+                        let viewport = window.viewport_size().width.max(px(1.0));
+                        let recorded = f32::from_bits(
+                            layout_width.load(std::sync::atomic::Ordering::Relaxed),
+                        );
+                        Some(if recorded > 1.0 {
+                            px(recorded).min(viewport)
+                        } else {
+                            viewport
+                        })
+                    }
                 });
                 let text_wrap_width =
                     wrap_width.map(|width| (width - source_line_number_gutter_width).max(px(1.0)));

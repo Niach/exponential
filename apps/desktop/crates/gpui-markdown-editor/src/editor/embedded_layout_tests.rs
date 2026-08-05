@@ -173,3 +173,100 @@ fn embedded_wide_image_recorded_width_is_stable_across_frames() {
     }
 }
 
+
+/// EXP-421 soft wrap (a): an unbroken 400-char run must wrap at the slot —
+/// the measured-layout MaxContent branch now resolves to the recorded slot
+/// width instead of the viewport, so the run cannot report a near-window
+/// intrinsic width.
+#[test]
+fn embedded_unbroken_run_wraps_at_the_slot() {
+    let mut cx = TestAppContext::single();
+    cx.update(|cx| {
+        cx.bind_keys(crate::actions::default_key_bindings());
+    });
+    let markdown = format!("{}\n\nbeta\n", "x".repeat(400));
+    let (harness, cx) = cx.add_window_view(move |_window, cx| {
+        let editor = cx.new(|cx| {
+            let mut editor =
+                Editor::with_environment(markdown.clone(), MarkdownEditorEnvironment::default(), cx);
+            editor.embedded = true;
+            editor
+        });
+        EmbeddedHostHarness { editor }
+    });
+    cx.simulate_resize(size(px(900.), px(900.)));
+    for _ in 0..4 {
+        cx.update(|window, cx| window.draw(cx).clear());
+        cx.run_until_parked();
+    }
+
+    let bounds = harness.read_with(cx, |harness, cx| {
+        let editor = harness.editor.read(cx);
+        editor
+            .document
+            .visible_blocks()
+            .iter()
+            .map(|visible| visible.entity.read(cx).last_bounds.expect("painted"))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(bounds.len(), 2);
+    assert!(
+        bounds[0].size.width <= px(401.),
+        "the unbroken run claimed more than the 400px slot: {:?}",
+        bounds[0].size
+    );
+    assert!(
+        bounds[0].size.height > px(30.),
+        "the unbroken run did not wrap: {:?}",
+        bounds[0].size
+    );
+}
+
+/// EXP-421 soft wrap (b): the same unbroken run BESIDE inline math rides the
+/// mixed-inline flex_wrap path, where `inline_word_chunks` keeps it one
+/// unsplittable flex item — the recorded-px `max_w` cap makes it wrap inside
+/// its own element instead of overflowing the row as one line.
+#[test]
+fn embedded_unbroken_run_beside_inline_math_wraps_at_the_slot() {
+    let mut cx = TestAppContext::single();
+    cx.update(|cx| {
+        cx.bind_keys(crate::actions::default_key_bindings());
+    });
+    let markdown = format!("$E=mc^2$ {}\n\nbeta\n", "y".repeat(300));
+    let (harness, cx) = cx.add_window_view(move |_window, cx| {
+        let editor = cx.new(|cx| {
+            let mut editor =
+                Editor::with_environment(markdown.clone(), MarkdownEditorEnvironment::default(), cx);
+            editor.embedded = true;
+            editor
+        });
+        EmbeddedHostHarness { editor }
+    });
+    cx.simulate_resize(size(px(900.), px(900.)));
+    for _ in 0..4 {
+        cx.update(|window, cx| window.draw(cx).clear());
+        cx.run_until_parked();
+    }
+
+    // The mixed-inline block renders div runs (no BlockTextElement), so read
+    // the FOLLOWING paragraph: if the run wrapped, the mixed block is several
+    // lines tall and `beta` starts well below it.
+    let beta_bounds = harness.read_with(cx, |harness, cx| {
+        let editor = harness.editor.read(cx);
+        let blocks = editor.document.visible_blocks();
+        assert_eq!(blocks.len(), 2);
+        blocks[1]
+            .entity
+            .read(cx)
+            .last_bounds
+            .expect("beta painted")
+    });
+    assert!(
+        beta_bounds.size.width <= px(401.),
+        "beta claimed more than the 400px slot: {beta_bounds:?}"
+    );
+    assert!(
+        beta_bounds.top() > px(100.),
+        "the mixed-inline run did not wrap (beta sits too high): {beta_bounds:?}"
+    );
+}
