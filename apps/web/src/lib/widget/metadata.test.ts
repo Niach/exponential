@@ -38,6 +38,38 @@ describe(`buildWidgetDescription`, () => {
     ).toBe(``)
   })
 
+  // FEED-5: reporter-attached pictures follow the screenshot, one image line
+  // each, in submission order.
+  it(`embeds reporter pictures after the screenshot`, () => {
+    const text = buildWidgetDescription({
+      ...baseArgs,
+      screenshotAttachmentId: `123e4567-e89b-42d3-a456-426614174000`,
+      imageAttachmentIds: [
+        `223e4567-e89b-42d3-a456-426614174000`,
+        `323e4567-e89b-42d3-a456-426614174000`,
+      ],
+    })
+    expect(text).toBe(
+      [
+        `The checkout button is broken`,
+        `![Screenshot](/api/attachments/123e4567-e89b-42d3-a456-426614174000)`,
+        `![Image](/api/attachments/223e4567-e89b-42d3-a456-426614174000)`,
+        `![Image](/api/attachments/323e4567-e89b-42d3-a456-426614174000)`,
+      ].join(`\n\n`)
+    )
+  })
+
+  it(`embeds pictures without a screenshot`, () => {
+    const text = buildWidgetDescription({
+      userText: ``,
+      screenshotAttachmentId: null,
+      imageAttachmentIds: [`223e4567-e89b-42d3-a456-426614174000`],
+    })
+    expect(text).toBe(
+      `![Image](/api/attachments/223e4567-e89b-42d3-a456-426614174000)`
+    )
+  })
+
   // EXP-42b: reporter contact + env metadata is PII and must never reach the
   // (potentially public) description — it lives only in widget_submissions.
   it(`never embeds a metadata block`, () => {

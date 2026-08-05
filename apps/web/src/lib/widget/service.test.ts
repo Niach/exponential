@@ -89,10 +89,18 @@ vi.mock(`@/lib/email`, () => ({
     result.delivered ? `sent` : result.suppressed ? `suppressed` : `failed`,
 }))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
-  buildAttachmentStorageKey: vi.fn(() => `key`),
+  buildAttachmentStorageKey: vi.fn(
+    (_issueId: string, attachmentId: string) => `key-${attachmentId}`
+  ),
   buildAttachmentUrl: vi.fn(() => `/api/attachments/x`),
+  isAcceptedImageContentType: (contentType: string) =>
+    [`image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/avif`].includes(
+      contentType
+    ),
   maxImageUploadBytes: 10 * 1024 * 1024,
-  sanitizeUploadFilename: vi.fn(() => `screenshot.png`),
+  sanitizeUploadFilename: vi.fn(
+    (name: string, fallback: string) => name || fallback
+  ),
 }))
 vi.mock(`@/lib/storage/image-dimensions`, () => ({
   getImageDimensions: vi.fn(() => null),
@@ -114,11 +122,13 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 }))
 
 import {
+  attachments,
   emailDeliveries,
   issues,
   issueSubscribers,
   widgetSubmissions,
 } from "@/db/schema"
+import { uploadObject, deleteObject } from "@/lib/storage"
 import {
   createWidgetSubmission,
   createWidgetSupportSubmission,
@@ -161,6 +171,102 @@ function submitForm(): FormData {
 }
 
 const issueInsert = () => h.inserts.find((i) => i.table === issues)
+
+// FEED-5: reporter-attached pictures — per-image validation, one attachment
+// row per image, and multi-key S3 rollback when the transaction fails.
+describe(`createWidgetSubmission attached pictures`, () => {
+  beforeEach(() => {
+    h.inserts.length = 0
+    h.txShouldFail = false
+    h.getSoleHumanMemberId.mockResolvedValue(null)
+    vi.mocked(uploadObject).mockClear()
+    vi.mocked(deleteObject).mockClear()
+  })
+
+  // happy-dom's File lacks arrayBuffer(); the service needs it for the S3 body.
+  const makeFile = (name: string, type: string, size: number) => {
+    const file = new File([new Uint8Array(size)], name, { type })
+    if (typeof file.arrayBuffer !== `function`) {
+      Object.defineProperty(file, `arrayBuffer`, {
+        value: async () => new Uint8Array(size).buffer,
+      })
+    }
+    return file
+  }
+
+  const withImages = (count: number, type = `image/png`, size = 10) => {
+    const form = submitForm()
+    form.set(`screenshot`, makeFile(`shot.png`, `image/png`, 16))
+    for (let index = 0; index < count; index += 1) {
+      form.append(`images`, makeFile(`pic-${index}.png`, type, size))
+    }
+    return form
+  }
+
+  it(`stores one attachment row per image and embeds them in the description`, async () => {
+    await createWidgetSubmission({
+      config,
+      formData: withImages(2),
+      userAgent: null,
+    })
+    const rows = h.inserts.filter((insert) => insert.table === attachments)
+    expect(rows).toHaveLength(3)
+    expect(rows.map((row) => row.values.filename)).toEqual([
+      `shot.png`,
+      `pic-0.png`,
+      `pic-1.png`,
+    ])
+    expect(vi.mocked(uploadObject)).toHaveBeenCalledTimes(3)
+    const description = issueInsert()!.values.description as string
+    expect(description.match(/!\[Screenshot\]/g)).toHaveLength(1)
+    expect(description.match(/!\[Image\]/g)).toHaveLength(2)
+  })
+
+  it(`rejects more than 3 images`, async () => {
+    await expect(
+      createWidgetSubmission({
+        config,
+        formData: withImages(4),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 400, message: `Too many images` })
+  })
+
+  it(`rejects an unsupported image type`, async () => {
+    await expect(
+      createWidgetSubmission({
+        config,
+        formData: withImages(1, `application/pdf`),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 400, message: `Unsupported image type` })
+  })
+
+  it(`rejects an over-limit image`, async () => {
+    await expect(
+      createWidgetSubmission({
+        config,
+        formData: withImages(1, `image/png`, 10 * 1024 * 1024 + 1),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 413, message: `Image too large` })
+  })
+
+  it(`reclaims every uploaded object when the transaction fails`, async () => {
+    h.txShouldFail = true
+    await expect(
+      createWidgetSubmission({
+        config,
+        formData: withImages(2),
+        userAgent: null,
+      })
+    ).rejects.toThrow(`TX_FAILED`)
+    const deletedKeys = vi
+      .mocked(deleteObject)
+      .mock.calls.map((call) => call[0])
+    expect(new Set(deletedKeys).size).toBe(3)
+  })
+})
 
 describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
   beforeEach(() => {

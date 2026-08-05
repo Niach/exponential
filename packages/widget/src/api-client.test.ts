@@ -117,6 +117,44 @@ describe(`submitFeedback response parsing`, () => {
     })
   })
 
+  // FEED-5: reporter-attached pictures ride as repeated `images` parts with
+  // their original filenames and types.
+  it(`appends attached pictures as repeated images parts`, async () => {
+    const fetchMock = mockFetchJson({ ok: true, identifier: `EXP-7` })
+    await submitFeedback({
+      state: makeState(),
+      title: `Broken button`,
+      description: ``,
+      email: null,
+      screenshot: null,
+      images: [
+        { blob: new Blob([`a`], { type: `image/png` }), filename: `ref-a.png` },
+        {
+          blob: new Blob([`b`], { type: `image/jpeg` }),
+          filename: `ref-b.jpg`,
+        },
+      ],
+      meta: {
+        url: `https://host.example/page`,
+        viewportWidth: 800,
+        viewportHeight: 600,
+        screenWidth: 1600,
+        screenHeight: 900,
+        devicePixelRatio: 1,
+      },
+    })
+    const request = fetchMock.mock.calls[0] as unknown as [
+      string,
+      { body: FormData },
+    ]
+    const images = request[1].body.getAll(`images`) as File[]
+    expect(images).toHaveLength(2)
+    expect(images[0].name).toBe(`ref-a.png`)
+    expect(images[0].type).toBe(`image/png`)
+    expect(images[1].name).toBe(`ref-b.jpg`)
+    expect(images[1].type).toBe(`image/jpeg`)
+  })
+
   it(`keeps identifier and url null on an unparseable body`, async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

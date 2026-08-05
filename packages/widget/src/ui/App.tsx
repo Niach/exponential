@@ -15,6 +15,11 @@ import { Annotator } from "./Annotator"
 import { ownCustomValue } from "./custom-values"
 import { Panel } from "./Panel"
 import type { PanelView } from "./Panel"
+import {
+  isAcceptedUploadImageType,
+  maxUploadedImageBytes,
+  maxUploadedImages,
+} from "../uploads"
 
 type UiPhase =
   | { kind: `closed` }
@@ -46,6 +51,18 @@ export interface Screenshot {
   blob: Blob
   objectUrl: string
 }
+
+// A reporter-attached picture (FEED-5) — dropped, pasted, or picked. Kept
+// separate from the capture machinery: no annotation, just preview + remove.
+export interface UploadedImage {
+  id: string
+  blob: Blob
+  objectUrl: string
+  filename: string
+}
+
+// Stable keys for the thumbnail list; a counter avoids a crypto dependency.
+let nextUploadedImageId = 0
 
 // A failure that implicates the email address: the structured code from
 // current servers, or — for old self-hosted servers that predate codes — a
@@ -85,6 +102,9 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   // recropping is possible right up to submit.
   const [crop, setCrop] = useState<NormalizedRect | null>(null)
   const [captureFailed, setCaptureFailed] = useState(false)
+  // Reporter-attached pictures (FEED-5), independent of the screenshot slot.
+  const [uploads, setUploads] = useState<UploadedImage[]>([])
+  const [uploadError, setUploadError] = useState<string | null>(null)
   // True while the annotator is editing a capture the reporter never
   // confirmed (straight from "Take screenshot"): cancelling then discards the
   // image. Re-edits of an already-attached shot (the Annotate chip) keep it.
@@ -109,6 +129,8 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   phaseRef.current = phase
   const baseRef = useRef(base)
   baseRef.current = base
+  const uploadsRef = useRef(uploads)
+  uploadsRef.current = uploads
 
   const screenshot = annotated ?? base
 
@@ -150,6 +172,55 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     return false
   }, [replaceBase])
 
+  // Attach picked/dropped/pasted files, skipping anything that isn't an
+  // accepted image or is over the per-file cap. The last rejection reason (or
+  // the count cap) surfaces as the upload error; a clean add clears it.
+  const addImages = useCallback((files: File[]) => {
+    let error: string | null = null
+    const accepted: UploadedImage[] = []
+    for (const file of files) {
+      if (!isAcceptedUploadImageType(file.type)) {
+        error = `Only image files can be attached.`
+        continue
+      }
+      if (file.size > maxUploadedImageBytes) {
+        error = `Images must be 10 MB or smaller.`
+        continue
+      }
+      if (uploadsRef.current.length + accepted.length >= maxUploadedImages) {
+        error = `You can attach up to ${maxUploadedImages} images.`
+        break
+      }
+      accepted.push({
+        id: `upload-${++nextUploadedImageId}`,
+        blob: file,
+        objectUrl: URL.createObjectURL(file),
+        filename: file.name || `image`,
+      })
+    }
+    if (accepted.length > 0) {
+      setUploads([...uploadsRef.current, ...accepted])
+    }
+    setUploadError(error)
+  }, [])
+
+  const removeUpload = useCallback((id: string) => {
+    setUploads((previous) => {
+      const target = previous.find((upload) => upload.id === id)
+      if (target) URL.revokeObjectURL(target.objectUrl)
+      return previous.filter((upload) => upload.id !== id)
+    })
+    setUploadError(null)
+  }, [])
+
+  const clearUploads = useCallback(() => {
+    setUploads((previous) => {
+      for (const upload of previous) URL.revokeObjectURL(upload.objectUrl)
+      return []
+    })
+    setUploadError(null)
+  }, [])
+
   const open = useCallback(() => {
     // A board whose config resolved disabled must never open — this is the
     // single gate that also covers the openRequested auto-open below when the
@@ -169,11 +240,12 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const close = useCallback(() => {
     // The form fields die with the unmounting Panel; keeping the screenshot
     // (a snapshot of a page state that may be long gone by the next open)
-    // would be inconsistent, so it goes too.
+    // would be inconsistent, so it goes too — attached pictures likewise.
     replaceBase(null)
+    clearUploads()
     setCaptureFailed(false)
     setPhase({ kind: `closed` })
-  }, [replaceBase])
+  }, [replaceBase, clearUploads])
 
   useEffect(() => {
     state.bundle = {
@@ -370,11 +442,16 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         name: form.name || identityName,
         customData: mergedCustomData,
         screenshot: screenshotBlob,
+        images: uploads.map((upload) => ({
+          blob: upload.blob,
+          filename: upload.filename,
+        })),
         website: form.website,
         meta: collectEnvMeta(),
       })
       if (result.ok) {
         replaceBase(null)
+        clearUploads()
         setCaptureFailed(false)
         setPhase({
           kind: `success`,
@@ -410,7 +487,16 @@ export function App({ state }: { state: WidgetRuntimeState }) {
             ? `Your name is required.`
             : result.message
     },
-    [state, screenshot, replaceBase, identityEmail, identityName, mergeCustomValues]
+    [
+      state,
+      screenshot,
+      uploads,
+      replaceBase,
+      clearUploads,
+      identityEmail,
+      identityName,
+      mergeCustomValues,
+    ]
   )
 
   const submitSupport = useCallback(
@@ -584,6 +670,8 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           screenshot={screenshot}
           flattening={flattening}
           captureFailed={captureFailed}
+          uploads={uploads}
+          uploadError={uploadError}
           identityEmail={identityEmail}
           emailRequired={state.config?.form?.emailRequired === true}
           collectEmail={collectEmail}
@@ -596,6 +684,8 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           onRetake={retake}
           onAnnotate={openAnnotator}
           onRemoveScreenshot={() => replaceBase(null)}
+          onAddImages={addImages}
+          onRemoveUpload={removeUpload}
           onSubmit={submit}
           onSubmitSupport={submitSupport}
         />

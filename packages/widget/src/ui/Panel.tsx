@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks"
 import type { WidgetCustomField } from "../types"
+import { acceptedUploadImageTypes, maxUploadedImages } from "../uploads"
 import { ownCustomValue } from "./custom-values"
-import type { Screenshot } from "./App"
+import type { Screenshot, UploadedImage } from "./App"
 
 const closeIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>`
 
@@ -62,6 +63,9 @@ export function Panel(props: {
   // submit the un-annotated (uncropped) base image.
   flattening: boolean
   captureFailed: boolean
+  // Reporter-attached pictures (FEED-5) — picked, dropped, or pasted.
+  uploads: UploadedImage[]
+  uploadError: string | null
   identityEmail: string | null
   emailRequired: boolean
   // False hides the feedback form's email input (EXP-244 owner toggle) —
@@ -78,6 +82,8 @@ export function Panel(props: {
   onRetake(): void
   onAnnotate(): void
   onRemoveScreenshot(): void
+  onAddImages(files: File[]): void
+  onRemoveUpload(id: string): void
   onSubmit(form: {
     title: string
     description: string
@@ -107,9 +113,51 @@ export function Panel(props: {
   // neither see nor tab into it.
   const [website, setWebsite] = useState(``)
   const [error, setError] = useState<string | null>(null)
+  // True while picture files are dragged over the feedback form — drives the
+  // drop-target highlight.
+  const [dragActive, setDragActive] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const messageRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const feedbackFormRef = useRef<HTMLFormElement>(null)
+  const onAddImagesRef = useRef(props.onAddImages)
+  onAddImagesRef.current = props.onAddImages
+
+  // Dropping picture files anywhere on the feedback form attaches them
+  // (FEED-5); non-file drags (text selections) pass through. Wired with
+  // native listeners, not JSX props — Preact registers a drag prop under a
+  // case-sensitive fallback name on elements without an `ondrop` property
+  // (happy-dom), so this keeps tests and browsers on one code path.
+  useEffect(() => {
+    const feedbackForm = feedbackFormRef.current
+    if (!feedbackForm) return
+    const hasFiles = (event: DragEvent) =>
+      event.dataTransfer?.types.includes(`Files`) === true
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      setDragActive(true)
+    }
+    const onDragLeave = (event: DragEvent) => {
+      const next = event.relatedTarget as Node | null
+      if (!next || !feedbackForm.contains(next)) setDragActive(false)
+    }
+    const onDrop = (event: DragEvent) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      setDragActive(false)
+      onAddImagesRef.current(Array.from(event.dataTransfer?.files ?? []))
+    }
+    feedbackForm.addEventListener(`dragover`, onDragOver)
+    feedbackForm.addEventListener(`dragleave`, onDragLeave)
+    feedbackForm.addEventListener(`drop`, onDrop)
+    return () => {
+      feedbackForm.removeEventListener(`dragover`, onDragOver)
+      feedbackForm.removeEventListener(`dragleave`, onDragLeave)
+      feedbackForm.removeEventListener(`drop`, onDrop)
+    }
+  }, [props.view])
 
   useEffect(() => {
     setError(null)
@@ -427,7 +475,21 @@ export function Panel(props: {
       )}
 
       {props.view === `feedback` && (
-        <form className="exp-body" onSubmit={submit}>
+        <form
+          ref={feedbackFormRef}
+          className={`exp-body${dragActive ? ` exp-body-drag` : ``}`}
+          onSubmit={submit}
+          // Pasting picture files anywhere on the form attaches them
+          // (FEED-5); drops are wired natively in the effect above.
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData?.files ?? []).filter(
+              (file) => file.type.startsWith(`image/`)
+            )
+            if (files.length === 0) return
+            event.preventDefault()
+            props.onAddImages(files)
+          }}
+        >
           {honeypotField(`exp`)}
           <div className="exp-shot">
             {props.screenshot ? (
@@ -477,6 +539,48 @@ export function Panel(props: {
               </div>
             )}
           </div>
+
+          <div className="exp-images">
+            {props.uploads.map((upload) => (
+              <div className="exp-thumb" key={upload.id}>
+                <img src={upload.objectUrl} alt={upload.filename} />
+                <button
+                  type="button"
+                  className="exp-thumb-remove"
+                  aria-label={`Remove ${upload.filename}`}
+                  onClick={() => props.onRemoveUpload(upload.id)}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {props.uploads.length < maxUploadedImages && (
+              <button
+                type="button"
+                className="exp-add-image"
+                title="Attach pictures — you can also drop or paste them"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Add image
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={acceptedUploadImageTypes.join(`,`)}
+              multiple
+              hidden
+              onChange={(event) => {
+                const input = event.target as HTMLInputElement
+                props.onAddImages(Array.from(input.files ?? []))
+                // Reset so picking the same file again re-fires change.
+                input.value = ``
+              }}
+            />
+          </div>
+          {props.uploadError && (
+            <div className="exp-error">{props.uploadError}</div>
+          )}
 
           <div className="exp-field">
             <label htmlFor="exp-title">Title</label>

@@ -30,6 +30,8 @@ const renderSuccess = (args: {
       screenshot={null}
       flattening={false}
       captureFailed={false}
+      uploads={[]}
+      uploadError={null}
       identityEmail={null}
       emailRequired={false}
       collectEmail={true}
@@ -42,6 +44,8 @@ const renderSuccess = (args: {
       onRetake={noop}
       onAnnotate={noop}
       onRemoveScreenshot={noop}
+      onAddImages={noop}
+      onRemoveUpload={noop}
       onSubmit={async () => null}
       onSubmitSupport={async () => null}
     />,

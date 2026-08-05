@@ -141,6 +141,23 @@ describe(`headless submit`, () => {
     expect(body.get(`screenshot`)).toBeInstanceOf(File)
   })
 
+  // FEED-5: host-supplied pictures forward as `images` parts; non-Blob junk
+  // is dropped and the count is capped at the server's limit of 3.
+  it(`forwards payload images, dropping junk and capping the count`, async () => {
+    await boot(enabledConfig)
+    const plain = new Blob([`1`], { type: `image/png` })
+    const named = new File([`2`], `shot.png`, { type: `image/png` })
+    const result = await window.ExponentialWidget!.submit({
+      title: `T`,
+      images: [plain, `junk` as never, named, plain, plain],
+    })
+    expect(result.ok).toBe(true)
+    const images = submitCalls[0].body.getAll(`images`) as File[]
+    expect(images).toHaveLength(3)
+    expect(images[0].name).toBe(`image`)
+    expect(images[1].name).toBe(`shot.png`)
+  })
+
   it(`routes mode: support to the support pipeline`, async () => {
     await boot({ enabled: true, modes: [`feedback`, `support`] })
     const result = await window.ExponentialWidget!.submit({
