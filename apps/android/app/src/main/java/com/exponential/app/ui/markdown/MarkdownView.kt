@@ -16,15 +16,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -39,6 +46,7 @@ import com.exponential.app.ui.markdown.model.InlineMark
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import com.exponential.app.ui.markdown.model.RichText
+import com.exponential.app.ui.theme.resolvedStatusColor
 
 /**
  * Read-only markdown renderer — the shared display path for issue descriptions
@@ -144,11 +152,13 @@ private fun QuoteBlockView(
         Spacer(Modifier.width(MdStyle.quoteIndent))
         Column(Modifier.weight(1f)) {
             texts.forEachIndexed { index, text ->
-                Text(
-                    text = annotate(text, marks[index], issueRefs, mentions),
-                    style = MdStyle.body.copy(color = MdStyle.Blockquote),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
-                )
+                key(index) {
+                    ChipText(
+                        line = annotateLine(text, marks[index], issueRefs, mentions),
+                        style = MdStyle.body.copy(color = MdStyle.Blockquote),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                    )
+                }
             }
         }
     }
@@ -177,8 +187,8 @@ private fun LineView(
 ) {
     val mentions = LocalMentions.current
     when (a.kind) {
-        BlockKind.Heading -> Text(
-            text = annotate(text, marks, issueRefs, mentions),
+        BlockKind.Heading -> ChipText(
+            line = annotateLine(text, marks, issueRefs, mentions),
             style = MdStyle.heading(a.headingLevel),
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
@@ -199,8 +209,8 @@ private fun LineView(
             if (text.isEmpty()) {
                 Spacer(Modifier.padding(vertical = 2.dp))
             } else {
-                Text(
-                    text = annotate(text, marks, issueRefs, mentions),
+                ChipText(
+                    line = annotateLine(text, marks, issueRefs, mentions),
                     style = MdStyle.body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
@@ -241,35 +251,70 @@ private fun ListItemView(
                 modifier = Modifier.width(22.dp),
             )
         }
-        Text(
-            text = annotate(text, marks, issueRefs, mentions),
+        ChipText(
+            line = annotateLine(text, marks, issueRefs, mentions),
             style = MdStyle.body,
             modifier = Modifier.fillMaxWidth(),
         )
     }
 }
 
+/**
+ * A markdown line that can host `#IDENTIFIER` chips: it keeps its own
+ * [TextLayoutResult] so [drawIssueRefChips] can paint each chip's rounded fill,
+ * hairline and status glyph behind the text (EXP-423).
+ */
+@Composable
+private fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier = Modifier) {
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    Text(
+        text = line.text,
+        style = style,
+        onTextLayout = { layout = it },
+        modifier = modifier.drawIssueRefChips(line.chips) { layout },
+    )
+}
+
 // --- Annotated-string builder with natively-tappable links (read-only). ---
 
+/**
+ * One rendered line: its styled text plus the chip geometry the painter needs
+ * (EXP-423 — a rounded fill, a hairline and a status glyph are not expressible
+ * as spans).
+ */
+internal data class AnnotatedLine(
+    val text: AnnotatedString,
+    val chips: List<IssueRefChipSpec> = emptyList(),
+)
+
+/** [annotateLine]'s text half — the form the annotation tests assert on. */
 internal fun annotate(
     text: String,
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
     mentions: MentionResolver? = null,
-): AnnotatedString {
-    if (text.isEmpty()) return AnnotatedString("")
+): AnnotatedString = annotateLine(text, marks, issueRefs, mentions).text
+
+internal fun annotateLine(
+    text: String,
+    marks: List<InlineMark>,
+    issueRefs: IssueRefHandler?,
+    mentions: MentionResolver? = null,
+): AnnotatedLine {
+    if (text.isEmpty()) return AnnotatedLine(AnnotatedString(""))
     val refPills = if (issueRefs != null) resolvedRefPills(text, marks, issueRefs) else emptyList()
     val mentionPills =
         if (mentions != null) resolvedMentionPills(text, marks, mentions) else emptyList()
     if (marks.isEmpty() && refPills.isEmpty() && mentionPills.isEmpty()) {
-        return AnnotatedString(text)
+        return AnnotatedLine(AnnotatedString(text))
     }
+    val chipSpecs = ArrayList<IssueRefChipSpec>(refPills.size)
     // A resolved mention renders the member's NAME over the stored `@email`,
     // and a resolved `#IDENTIFIER` chip appends the issue TITLE (EXP-307, web
     // read-only parity), so the displayed string is no longer the source
     // string — every other span offset is mapped through [display].
     val display = MentionDisplay.build(text, mentionPills, refPills)
-    return buildAnnotatedString {
+    val annotated = buildAnnotatedString {
         append(display.text)
         // Compose crashes if two `LinkAnnotation`s overlap (issue-detail crash,
         // masterplan §9.3). Every `addLink` must be range-coerced into the
@@ -322,31 +367,47 @@ internal fun annotate(
         // mirroring how the web renderer decorates them and how `@email`
         // mentions pill: display-only, navigation on tap. Guarded so a pill
         // that lands on an existing link span is dropped instead of crashing.
-        // The chip covers the token PLUS the appended title (EXP-307); only
-        // the identifier part renders monospace, so the link style itself
-        // carries no font and the underlying spans decide.
+        // The chip covers the token PLUS the appended title (EXP-307).
+        //
+        // The link carries NO styles (EXP-423): the Linear chip needs a
+        // per-character span (a transparent `#`) and a painted background, and
+        // `TextLinkStyles` applies one flat style to the whole range. So the
+        // annotation is reduced to its click behaviour and the visuals become
+        // plain spans + [drawIssueRefChips].
         for ((match, target) in refPills) {
             val added = addLinkGuarded(
                 LinkAnnotation.Clickable(
                     tag = target.identifier,
-                    styles = TextLinkStyles(
-                        style = SpanStyle(
-                            color = MdStyle.Link,
-                            background = MdStyle.IssueRefBg,
-                        ),
-                    ),
                     linkInteractionListener = { issueRefs?.onOpen?.invoke(target) },
                 ),
                 match.start, match.end,
             )
-            if (added) {
-                val monoStart = display.map(match.start)
-                addStyle(
-                    SpanStyle(fontFamily = FontFamily.Monospace),
-                    monoStart,
-                    (monoStart + (match.end - match.start)).coerceAtMost(display.text.length),
-                )
+            if (!added) continue
+            val chipStart = display.map(match.start.coerceIn(0, text.length))
+            val chipEnd = display.map(match.end.coerceIn(0, text.length)).coerceAtLeast(chipStart)
+            val tokenEnd = (chipStart + (match.end - match.start)).coerceAtMost(chipEnd)
+            // Title in the normal text color, identifier muted + monospace.
+            addStyle(SpanStyle(color = MdStyle.Text), chipStart, chipEnd)
+            addStyle(
+                SpanStyle(fontFamily = FontFamily.Monospace, color = MdStyle.ChipToken),
+                chipStart,
+                tokenEnd,
+            )
+            val status = target.resolvedStatus
+            if (status != null && chipStart < chipEnd) {
+                // The status glyph is painted over the `#`; hiding it costs one
+                // transparent character span and zero offset-map changes.
+                addStyle(SpanStyle(color = Color.Transparent), chipStart, chipStart + 1)
             }
+            chipSpecs.add(
+                IssueRefChipSpec(
+                    start = chipStart,
+                    end = chipEnd,
+                    tokenStart = chipStart,
+                    iconName = status?.iconName,
+                    color = status?.let { resolvedStatusColor(it) },
+                ),
+            )
         }
         // Resolved `@email` mentions render as the member's name pill
         // (REV2-42) — display-only, not tappable (there is nothing to open),
@@ -359,6 +420,7 @@ internal fun annotate(
             )
         }
     }
+    return AnnotatedLine(annotated, chipSpecs)
 }
 
 /** Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60). */

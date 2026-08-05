@@ -259,12 +259,12 @@ fun CreateIssueScreen(
     }
 
     // #issue-ref autocomplete in the description editor (masterplan §5e):
-    // same-team candidates, newest first, from the target board's
-    // team. onOpen is a no-op — the editor shows the plain token while
-    // editing (pills are read-mode only), so a tap can never happen here.
+    // same-team candidates, newest first, from the target board's team. There is
+    // nowhere to navigate from a half-written issue, so the handler is marked
+    // non-navigable and a tap on a chip falls through to the caret (EXP-423).
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val issueRefHandler = remember(issueRefCandidates) {
-        IssueRefHandler(issueRefCandidates) { }
+        IssueRefHandler(issueRefCandidates, canOpen = false) { }
     }
 
     CompositionLocalProvider(LocalIssueRefs provides issueRefHandler) {

@@ -47,6 +47,14 @@ class IssueChipTransformTest {
         assertEquals("see #EXP-999 please", t.display)
     }
 
+    /** EXP-423: the painter needs the resolved issue behind each chip. */
+    @Test
+    fun everyChipCarriesItsTarget() {
+        val t = build("see #EXP-238 please")
+        assertEquals(1, t.chips.size)
+        assertEquals("EXP-238", t.chips[0].target.identifier)
+    }
+
     @Test
     fun nullHandlerIsIdentity() {
         assertTrue(build("see #EXP-238", handler = null).isIdentity)

@@ -575,7 +575,8 @@ class IssueDetailViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
         _board,
-    ) { issues, boards, board ->
+        teamStatuses,
+    ) { issues, boards, board, statuses ->
         if (board == null) {
             emptyList()
         } else {
@@ -586,7 +587,18 @@ class IssueDetailViewModel @Inject constructor(
             issues
                 .filter { it.boardId in teamBoardIds }
                 .sortedByDescending { it.createdAt }
-                .map { IssueRefTarget(it.id, it.identifier, it.title) }
+                // The chip's status glyph is precomputed here (EXP-423), the
+                // same way the web provider does it: a status rename/recolor or
+                // a reordered started clock produces a new candidate list, hence
+                // a new handler, hence a repaint.
+                .map {
+                    IssueRefTarget(
+                        it.id,
+                        it.identifier,
+                        it.title,
+                        IssueStatusResolver.resolve(it, statuses),
+                    )
+                }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

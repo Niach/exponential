@@ -3,6 +3,9 @@ package com.exponential.app.ui.markdown
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -43,6 +46,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
@@ -62,6 +67,7 @@ import com.exponential.app.ui.components.GlassMenuSurface
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
+import com.exponential.app.ui.theme.resolvedStatusColor
 
 // In-progress mention `@query` at the caret (after start-of-text or whitespace);
 // the query stops at whitespace. Mirrors apps/web/src/components/mention-textarea.tsx.
@@ -223,6 +229,19 @@ fun BlockTextField(
     val chipTransform = remember(value.text, marks, issueRefs, chipsEnabled) {
         IssueChipTransform.build(value.text, marks, issueRefs, chipsEnabled)
     }
+    // The painted half of the editor's chips (EXP-423) — same geometry rules as
+    // the read renderer, in the decoration box's coordinate space.
+    val chipSpecs = remember(chipTransform) {
+        chipTransform.chips.map { chip ->
+            IssueRefChipSpec(
+                start = chip.displayStart,
+                end = chip.displayEnd,
+                tokenStart = chip.displayStart,
+                iconName = chip.target.resolvedStatus?.iconName,
+                color = chip.target.resolvedStatus?.let { resolvedStatusColor(it) },
+            )
+        }
+    }
     val caretRect = remember(textLayout, value.selection.start, chipTransform) {
         val layout = textLayout ?: return@remember null
         // getCursorRect wants a TRANSFORMED offset and throws out of range;
@@ -305,7 +324,45 @@ fun BlockTextField(
                 // space getCursorRect reports in, so the menu sits at the caret
                 // and tracks scroll / IME resize for free. As a sibling of the
                 // field it used to anchor to the whole editor column (EXP-322).
-                Box {
+                Box(
+                    Modifier
+                        .drawIssueRefChips(chipSpecs) { textLayout }
+                        // Chips stay tappable while the row is NOT focused (iOS
+                        // parity — the description editor is always the editable
+                        // path on Android, so this is the only way a description
+                        // chip can navigate). A focused row always wins: the
+                        // caret must land where the user tapped.
+                        .pointerInput(chipTransform, hasOsFocus, issueRefs) {
+                            if (chipTransform.isIdentity || issueRefs?.canOpen != true) {
+                                return@pointerInput
+                            }
+                            awaitEachGesture {
+                                // The INITIAL pass, because the field's own tap
+                                // handling lives on a DESCENDANT node and the
+                                // main pass reaches children first: preempting a
+                                // chip tap is the only way it doesn't just place
+                                // the caret. Every other tap is left untouched
+                                // and falls through as before.
+                                val down = awaitFirstDown(
+                                    requireUnconsumed = false,
+                                    pass = PointerEventPass.Initial,
+                                )
+                                if (hasOsFocus) return@awaitEachGesture
+                                val layout = textLayout ?: return@awaitEachGesture
+                                val offset = runCatching {
+                                    layout.getOffsetForPosition(down.position)
+                                }.getOrNull() ?: return@awaitEachGesture
+                                val chip = chipTransform.chips.firstOrNull {
+                                    offset >= it.displayStart && offset < it.displayEnd
+                                } ?: return@awaitEachGesture
+                                down.consume()
+                                val up = waitForUpOrCancellation(PointerEventPass.Initial)
+                                    ?: return@awaitEachGesture
+                                up.consume()
+                                issueRefs.onOpen(chip.target)
+                            }
+                        },
+                ) {
                     inner()
                     if (menuOpen) {
                         AutocompleteMenu(

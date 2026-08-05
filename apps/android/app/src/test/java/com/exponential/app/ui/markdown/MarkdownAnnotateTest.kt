@@ -1,8 +1,13 @@
 package com.exponential.app.ui.markdown
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.LinkAnnotation
+import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.InlineMark
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -237,6 +242,60 @@ class MarkdownAnnotateTest {
         val links = result.getLinkAnnotations(0, result.length)
         assertEquals(1, links.size)
         assertEquals("@dev@example.com", result.text.substring(links[0].start, links[0].end))
+    }
+
+    // --- EXP-423: Linear chips — status glyph over a hidden `#`. ---
+
+    // A BUILTIN status: its color comes from the design tokens, so the JVM test
+    // never reaches `parseColor` (android.graphics is not mocked here).
+    private val inProgress =
+        IssueStatusResolver.builtinDefaults.first { it.builtinKey == IssueStatus.InProgress }
+
+    private fun refsWithStatus(id: String, title: String) = IssueRefHandler(
+        candidates = listOf(IssueRefTarget("id-$id", id, title, inProgress)),
+        onOpen = {},
+    )
+
+    @Test
+    fun aResolvedChipCarriesItsStatusGlyphAndHidesTheHash() {
+        val line = annotateLine("closes #MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"))
+        assertEquals("closes #MET-1 Fix login now", line.text.text)
+        assertEquals(1, line.chips.size)
+        val chip = line.chips[0]
+        assertEquals(inProgress.iconName, chip.iconName)
+        assertEquals(7, chip.tokenStart) // the `#`
+        assertEquals("#MET-1 Fix login", line.text.text.substring(chip.start, chip.end))
+        // Exactly one character is hidden, and no character moved.
+        assertTrue(
+            "the `#` is transparent",
+            line.text.spanStyles.any {
+                it.start == chip.tokenStart &&
+                    it.end == chip.tokenStart + 1 &&
+                    it.item.color == Color.Transparent
+            },
+        )
+    }
+
+    @Test
+    fun aChipWithoutAResolvedStatusKeepsItsHashVisible() {
+        val line = annotateLine("closes #MET-1 now", emptyList(), refsTitled("MET-1" to "Fix login"))
+        assertEquals(1, line.chips.size)
+        assertNull(line.chips[0].iconName)
+        assertTrue(line.text.spanStyles.none { it.item.color == Color.Transparent })
+    }
+
+    /** The visuals are spans + a painter now, so the link may not restyle them. */
+    @Test
+    fun theChipLinkCarriesNoStyles() {
+        val line = annotateLine("closes #MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix"))
+        val link = line.text.getLinkAnnotations(0, line.text.length).single()
+        assertNull((link.item as LinkAnnotation.Clickable).styles)
+    }
+
+    @Test
+    fun anUnresolvedTokenProducesNoChipSpec() {
+        val line = annotateLine("see #MET-9 (unknown)", emptyList(), refsWithStatus("MET-1", "Fix"))
+        assertTrue(line.chips.isEmpty())
     }
 
     @Test
