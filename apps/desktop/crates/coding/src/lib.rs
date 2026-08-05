@@ -38,6 +38,7 @@
 
 pub mod action_prompt;
 pub mod agent;
+pub mod atomic_config;
 pub mod argv;
 pub mod batch_launcher;
 pub mod batch_prompt;

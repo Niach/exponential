@@ -134,11 +134,7 @@ fn ensure_onboarded_in_config(
     // Write-then-rename: .claude.json is the user's own claude state and a
     // torn write would break every claude invocation, not just ours.
     let temp = config.with_extension("json.exp-tmp");
-    std::fs::write(&temp, serialized).map_err(|err| format!("write {}: {err}", temp.display()))?;
-    std::fs::rename(&temp, config).map_err(|err| {
-        let _ = std::fs::remove_file(&temp);
-        format!("replace {}: {err}", config.display())
-    })?;
+    crate::atomic_config::replace_preserving_mode(config, &temp, &serialized)?;
     Ok(true)
 }
 

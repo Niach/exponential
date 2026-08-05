@@ -123,11 +123,7 @@ fn ensure_trusted_in_config(config: &Path, paths: &[PathBuf]) -> Result<usize, S
     // Write-then-rename: config.toml is the user's own codex config and a
     // torn write would break every codex invocation, not just ours.
     let temp = config.with_extension("toml.exp-tmp");
-    std::fs::write(&temp, &updated).map_err(|err| format!("write {}: {err}", temp.display()))?;
-    std::fs::rename(&temp, config).map_err(|err| {
-        let _ = std::fs::remove_file(&temp);
-        format!("replace {}: {err}", config.display())
-    })?;
+    crate::atomic_config::replace_preserving_mode(config, &temp, &updated)?;
     Ok(missing.len())
 }
 
