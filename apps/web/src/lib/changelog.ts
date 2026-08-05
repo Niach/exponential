@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-board-rename-widget-pictures`,
+    date: `2026-08-05`,
+    title: `Rename boards, attach pictures to feedback`,
+    summary: `Boards can be renamed in place, the feedback widget accepts picture attachments, and machines with an outdated daemon get a one-click update button.`,
+    body: `- **Rename boards**: a gear on the sidebar board row opens board settings, so owners can rename a board without leaving the list, on web and desktop.
+- **Pictures in feedback**: the feedback widget now takes up to three picture attachments alongside the screenshot, and large submissions no longer fail with an opaque network error.
+- **Update your machines**: the machines list shows an Update button for devices running an outdated daemon, and it triggers the self-update remotely.
+- **Issue page polish**: the assignee name no longer gets cut off mid-word, long label names ellipsize in the sidebar, and status pickers list statuses in their settings order.`,
+  },
+  {
     id: `2026-08-issue-link-chips`,
     date: `2026-08-05`,
     title: `Issue links become chips`,
