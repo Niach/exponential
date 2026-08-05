@@ -270,3 +270,58 @@ fn embedded_unbroken_run_beside_inline_math_wraps_at_the_slot() {
         "the mixed-inline run did not wrap (beta sits too high): {beta_bounds:?}"
     );
 }
+
+/// EXP-421 image hit-testing: the standalone-image branch never mounts a
+/// `BlockTextElement`, so the image row painted without `last_bounds` and the
+/// selection resolvers skipped it (gap clicks around images mis-resolved).
+/// The in-flow prepaint recorder now writes the row bounds.
+#[test]
+fn embedded_image_rows_record_bounds() {
+    let mut cx = TestAppContext::single();
+    cx.update(|cx| {
+        cx.bind_keys(crate::actions::default_key_bindings());
+    });
+    let markdown = "alpha\n\n![a](/missing/p.png)\n\nbeta\n";
+    let (harness, cx) = cx.add_window_view(move |_window, cx| {
+        let editor = cx.new(|cx| {
+            let mut editor =
+                Editor::with_environment(markdown.to_string(), MarkdownEditorEnvironment::default(), cx);
+            editor.embedded = true;
+            editor
+        });
+        EmbeddedHostHarness { editor }
+    });
+    cx.simulate_resize(size(px(900.), px(900.)));
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear());
+        cx.run_until_parked();
+    }
+
+    let bounds = harness.read_with(cx, |harness, cx| {
+        let editor = harness.editor.read(cx);
+        editor
+            .document
+            .visible_blocks()
+            .iter()
+            .enumerate()
+            .map(|(index, visible)| {
+                visible
+                    .entity
+                    .read(cx)
+                    .last_bounds
+                    .unwrap_or_else(|| panic!("block {index} painted without bounds"))
+            })
+            .collect::<Vec<_>>()
+    });
+    // alpha, the image row, beta — every one has bounds…
+    assert_eq!(bounds.len(), 3);
+    // …and they are vertically ordered (the resolvers walk them top-down).
+    for pair in bounds.windows(2) {
+        assert!(
+            pair[1].top() >= pair[0].top(),
+            "rows out of order: {:?} then {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+}

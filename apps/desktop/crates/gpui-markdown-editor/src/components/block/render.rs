@@ -2226,6 +2226,17 @@ impl Render for Block {
             let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
             let max_width = px(effective_image_width(self, viewport_width, d));
             if let Some(runtime) = self.image_runtime().cloned() {
+                // EXP-421 image hit-testing: this branch never mounts a
+                // `BlockTextElement`, so nothing wrote `last_bounds` and the
+                // selection resolvers skipped the row — clicks in the gaps
+                // around images mis-resolved. Clear the text-layout state so
+                // `index_for_mouse_position` keeps its safe 0 fallback, and
+                // record the row bounds via an IN-FLOW prepaint wrapper below
+                // (silent write, no notify — the `element.rs` paint
+                // convention; never an absolutely-positioned canvas, the
+                // documented EXP-335 layout-corruption case).
+                self.last_layout = None;
+                self.last_shaped = None;
                 // A resize may never upscale past the picture's own pixels
                 // (web parity); without a known natural size the column is the
                 // only honest bound.
@@ -2250,6 +2261,17 @@ impl Render for Block {
                     &strings,
                     overlay,
                 );
+                let entity = cx.entity().downgrade();
+                let content = div()
+                    .on_children_prepainted(move |bounds, _window, cx| {
+                        if let (Some(first), Some(entity)) =
+                            (bounds.first().copied(), entity.upgrade())
+                        {
+                            entity.update(cx, |block, _| block.last_bounds = Some(first));
+                        }
+                    })
+                    .w_full()
+                    .child(content);
                 return focused_base
                     .group("wysiwyg-image")
                     .relative()
