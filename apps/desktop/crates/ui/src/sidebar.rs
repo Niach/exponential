@@ -466,6 +466,10 @@ fn board_accent(nav: &Entity<Navigation>, cx: &App) -> Hsla {
         .unwrap_or_else(|| cx.theme().primary)
 }
 
+/// FEED-3: hover-reveal group name for the expanded rail's board rows — the
+/// gear that jumps to the board's settings page shows only under the cursor.
+const BOARD_ROW_GROUP: &str = "rail-board-row";
+
 /// EXP-282: one row of the EXPANDED rail — icon + label, left-aligned, glass
 /// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
 /// inner layout with no `Styled` reach into it (the settings-nav rows set the
@@ -789,6 +793,13 @@ impl RailView {
         let icon = crate::icons::board_icon(board).text_color(tint);
         let board_id = board.id.clone();
         if expanded {
+            // FEED-3: hover gear → this board's settings page. Owner-gated
+            // like the settings nav's Boards group, so the selection never
+            // clamps away underneath a non-owner.
+            let owner = active_team_id(&self.nav, cx)
+                .map(|team_id| crate::settings::is_owner(cx, &team_id))
+                .unwrap_or(false);
+            let settings_board_id = board.id.clone();
             // EXP-282: the board's own color stays the row's accent (the
             // glyph is always tinted — `active` only adds the row fill).
             return rail_row(
@@ -800,10 +811,37 @@ impl RailView {
                 None,
                 cx,
             )
+            .group(BOARD_ROW_GROUP)
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                 crate::navigation::set_active_board(window, cx, board_id.clone());
                 activate_tool(window, cx, ToolWindow::BoardIssues);
             }))
+            .when(owner, |row| {
+                row.child(
+                    div()
+                        .invisible()
+                        .group_hover(BOARD_ROW_GROUP, |style| style.visible())
+                        .flex_shrink_0()
+                        .child(
+                            Button::new(("rail-board-settings", index))
+                                .ghost()
+                                .xsmall()
+                                .icon(Icon::from(registry::NAV_SETTINGS))
+                                .tooltip("Board settings")
+                                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    select_settings_section(
+                                        window,
+                                        cx,
+                                        crate::settings::SettingsSection::Board(
+                                            settings_board_id.clone(),
+                                        ),
+                                    );
+                                    navigate(window, cx, Screen::Settings);
+                                })),
+                        ),
+                )
+            })
             .into_any_element();
         }
         div()
