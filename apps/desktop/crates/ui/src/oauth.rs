@@ -149,6 +149,7 @@ fn open_issue_deep_link(identifier: &str, cx: &mut App) {
                 crate::navigation::TabOrigin {
                     tool: crate::sidebar::ToolWindow::BoardIssues,
                     board_id: Some(board_id),
+                    inbox_tab: None,
                 },
             );
         });

@@ -78,6 +78,9 @@ pub struct IssueHeader {
     /// issue board's query + filters from it (EXP-277: the switcher lives in
     /// this header's top row now).
     rail_shared: Entity<crate::sidebar::RailShared>,
+    /// The owning window (EXP-426) — resolves the screens panel so the
+    /// switcher can follow the ACTIVE TAB's remembered origin list.
+    window_id: gpui::WindowId,
     /// Subscribe-toggle in-flight flag (web `busy`).
     subscribe_busy: bool,
     /// Copy-link feedback: the toolbar button shows a check for ~1.5s after a
@@ -175,6 +178,7 @@ impl IssueHeader {
             link_copied: false,
             link_copied_seq: 0,
             start_coding,
+            window_id: window.window_handle().window_id(),
             _subscriptions: subscriptions,
         }
     }
@@ -307,7 +311,7 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let trigger = chip_button("prop-status", cx)
             .icon(crate::icons::resolved_status_icon(&resolved, cx))
-            .label(SharedString::from(resolved.name.clone()));
+            .child(crate::pickers::chip_label(resolved.name.clone(), false, cx));
         trigger.dropdown_menu(move |menu, _, cx| {
             let issue_id = issue_id.clone();
             let statuses = match &team_id {
@@ -350,7 +354,7 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let trigger = chip_button("prop-priority", cx)
             .icon(option_icon(config, cx))
-            .label(SharedString::from(config.label));
+            .child(crate::pickers::chip_label(config.label, false, cx));
         trigger.dropdown_menu(move |menu, _, cx| {
             let issue_id = issue_id.clone();
             crate::pickers::priority_menu(
@@ -387,17 +391,18 @@ impl IssueHeader {
                         .xsmall()
                         .text_color(cx.theme().muted_foreground),
                 )
-                .label(SharedString::from(crate::comments::user_label(
-                    id,
-                    selected.as_ref(),
-                ))),
+                .child(crate::pickers::chip_label(
+                    crate::comments::user_label(id, selected.as_ref()),
+                    false,
+                    cx,
+                )),
             None => chip_button("prop-assignee", cx)
                 .icon(
                     Icon::new(registry::UI_UNASSIGNED)
                         .xsmall()
                         .text_color(cx.theme().muted_foreground),
                 )
-                .label("Assignee"),
+                .child(crate::pickers::chip_label("Assignee", true, cx)),
         };
 
         trigger.dropdown_menu(move |menu, _, _| {
@@ -444,7 +449,11 @@ impl IssueHeader {
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
             )
-            .label(SharedString::from(trigger_label));
+            .child(crate::pickers::chip_label(
+                trigger_label,
+                selected.is_empty(),
+                cx,
+            ));
 
         crate::pickers::label_picker_popover(
             "prop-labels-popover",
@@ -478,7 +487,7 @@ impl IssueHeader {
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
             )
-            .label(label);
+            .child(crate::pickers::chip_label(label, !has_due, cx));
 
         let panel = cx.entity();
         // No width pin here (unlike the other pickers): the calendar grid has
@@ -529,15 +538,15 @@ impl IssueHeader {
 
     /// The agent row (EXP-256/EXP-417, web `issue-coding-rows.tsx`): the
     /// synced coding-now pill on its OWN full-width line — its EXP-309
-    /// ellipsis chain needs one — above a wrapping row of the prominent
-    /// Start-coding/Stop control, the Merge button while the linked PR is
-    /// open (EXP-268), the merge error and the fix-conflicts offer. The pill
-    /// is skipped while a LOCAL session runs — the control already shows the
-    /// live indicator, and the synced pill would double it as soon as the
-    /// Electric echo lands.
+    /// ellipsis chain needs one — above a wrapping row of the Merge button
+    /// while the linked PR is open (EXP-268), the merge error and the
+    /// fix-conflicts offer. The Start-coding control itself moved into the
+    /// chip row (EXP-426). The pill is skipped while a LOCAL session runs —
+    /// the control already shows the live indicator, and the synced pill
+    /// would double it as soon as the Electric echo lands.
     ///
-    /// `None` when the board has no repository: with Start coding hidden
-    /// there is no PR either, so the whole row would be empty.
+    /// `None` when the board has no repository, and when there is neither a
+    /// pill nor an open PR — an empty row would only add padding.
     pub(crate) fn agent_row(
         &mut self,
         issue: &Issue,
@@ -549,20 +558,20 @@ impl IssueHeader {
         let local_running = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
             .unwrap_or(false);
+        let pill = (!local_running)
+            .then(|| crate::issue_detail::coding_now_pill(&issue.id, cx))
+            .flatten();
+        let pr_open = issue.pr_state.as_deref() == Some("open");
+        if pill.is_none() && !pr_open {
+            return None;
+        }
         let mut column = v_flex().w_full().gap_2().px(px(DETAIL_GUTTER)).pb_2();
-        if !local_running {
-            if let Some(pill) = crate::issue_detail::coding_now_pill(&issue.id, cx) {
-                column = column.child(pill);
-            }
+        if let Some(pill) = pill {
+            column = column.child(pill);
         }
 
-        let mut controls = h_flex()
-            .w_full()
-            .flex_wrap()
-            .gap_2()
-            .items_center()
-            .child(self.start_coding.clone());
-        if issue.pr_state.as_deref() == Some("open") {
+        let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
+        if pr_open {
             controls = controls.child(self.merge_button(issue, cx));
             let (error, failed_op) = {
                 let state = crate::pr_merge::MergeState::global(cx);
@@ -590,7 +599,10 @@ impl IssueHeader {
                 );
             }
         }
-        Some(column.child(controls).into_any_element())
+        if pr_open {
+            column = column.child(controls);
+        }
+        Some(column.into_any_element())
     }
 
     /// The "Fix conflicts" button (EXP-313): opens the Start-coding dialog
@@ -733,16 +745,48 @@ impl IssueHeader {
         .detach();
     }
 
-    /// Where this issue sits in the ACTIVE issue list's flattened visible
-    /// ordering (the rail's My Issues board while that tool is active,
-    /// the active board's list otherwise) — same grouping, same EXP-38
+    /// The (query, filters) pair the switcher steps through (EXP-426): the
+    /// ACTIVE TAB's remembered origin first — an issue opened from My Issues
+    /// keeps stepping My Issues even after the rail moved elsewhere — with
+    /// the rail's current list as the fallback (undocked windows, tabs with
+    /// no usable origin, notification-opened issues).
+    fn switcher_scope(&self, cx: &App) -> (IssueQuery, domain::IssueFilters) {
+        use crate::sidebar::{InboxTab, ToolWindow};
+        let shared = self.rail_shared.read(cx);
+        let origin = crate::screens::screens_for_window_id(self.window_id, cx)
+            .and_then(|panel| panel.read(cx).active_tab_origin(cx));
+        if let Some(origin) = origin {
+            match (origin.tool, origin.inbox_tab, origin.board_id) {
+                (ToolWindow::Inbox, Some(InboxTab::MyIssues), _) => {
+                    let board = shared.board_my().read(cx);
+                    return (board.query().clone(), board.filters().clone());
+                }
+                (ToolWindow::BoardIssues, _, Some(board_id)) => {
+                    let board = shared.board_active().read(cx);
+                    let query = IssueQuery::Board { board_id };
+                    // The live filters carry over only while the active list
+                    // still IS this board; a re-pointed rail leaves the
+                    // origin board unfiltered.
+                    let filters = if board.query() == &query {
+                        board.filters().clone()
+                    } else {
+                        domain::IssueFilters::empty()
+                    };
+                    return (query, filters);
+                }
+                _ => {}
+            }
+        }
+        let board = shared.active_issue_board().read(cx);
+        (board.query().clone(), board.filters().clone())
+    }
+
+    /// Where this issue sits in the origin issue list's flattened visible
+    /// ordering (see [`Self::switcher_scope`]) — same grouping, same EXP-38
     /// comparator, same filters the list applies. `None` (hide the switcher)
     /// when no list scope resolves or the issue isn't in the filtered list.
     fn switcher_state(&self, issue: &Issue, cx: &App) -> Option<SwitcherState> {
-        let (query, filters) = {
-            let board = self.rail_shared.read(cx).active_issue_board().read(cx);
-            (board.query().clone(), board.filters().clone())
-        };
+        let (query, filters) = self.switcher_scope(cx);
         let data = match &query {
             IssueQuery::None => return None,
             IssueQuery::Board { board_id } => {
@@ -905,78 +949,67 @@ impl IssueHeader {
             .on_click(cx.listener(|this, _, window, cx| this.toggle_subscription(window, cx)))
     }
 
-    /// The `…` actions menu (web L361-398): always present (EXP-59) with the
-    /// Move-to-board submenu (EXP-57 — hidden without a move target) and the
-    /// destructive Delete-issue confirm submenu, plus Unmark duplicate for a
-    /// duplicate issue. After the delete fires, the tabbed analog of the
-    /// web's back-navigation is popping the back stack.
+    /// The `…` actions menu, now duplicate-only (EXP-426): Move-to-board
+    /// lives on the header's Board chip and Delete became the visible trash
+    /// button, so the menu renders only when it still has content — the
+    /// Unmark-duplicate entry.
     fn render_actions_menu(
+        &mut self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<impl IntoElement> {
+        if issue.duplicate_of_id.is_none() {
+            return None;
+        }
+        let issue_id = issue.id.clone();
+        Some(
+            Button::new("issue-actions")
+                .ghost()
+                .xsmall()
+                .icon(Icon::new(registry::UI_MORE).text_color(cx.theme().muted_foreground))
+                .dropdown_menu(move |menu, _window, _cx| {
+                    let issue_id = issue_id.clone();
+                    menu.item(
+                        PopupMenuItem::new("Unmark duplicate")
+                            .icon(Icon::new(registry::UI_UNDO))
+                            .on_click(move |_, _, cx| {
+                                set_duplicate_of(issue_id.clone(), None, cx);
+                            }),
+                    )
+                }),
+        )
+    }
+
+    /// The visible delete trigger (EXP-426): the trash icon opens the same
+    /// two-step "Confirm delete" popup the row context menu uses — no modal.
+    /// After the delete fires, the tabbed analog of the web's back-navigation
+    /// is popping the back stack.
+    fn render_delete_button(
         &mut self,
         issue: &Issue,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
-        let board_id = issue.board_id.clone();
-        let is_duplicate = issue.duplicate_of_id.is_some();
-        let can_move = !crate::issue_list::move_target_boards(cx, &board_id).is_empty();
-        Button::new("issue-actions")
+        Button::new("issue-delete")
             .ghost()
             .xsmall()
-            .icon(Icon::new(registry::UI_MORE).text_color(cx.theme().muted_foreground))
-            .dropdown_menu(move |mut menu, window, cx| {
-                if is_duplicate {
-                    let issue_id = issue_id.clone();
-                    menu = menu
-                        .item(
-                            PopupMenuItem::new("Unmark duplicate")
-                                .icon(Icon::new(registry::UI_UNDO))
-                                .on_click(move |_, _, cx| {
-                                    set_duplicate_of(issue_id.clone(), None, cx);
-                                }),
-                        )
-                        .separator();
-                }
-                if can_move {
-                    let issue_id = issue_id.clone();
-                    let board_id = board_id.clone();
-                    menu = menu.submenu_with_icon(
-                        Some(Icon::from(ExpIcon::SquareKanban)),
-                        "Move to board",
-                        window,
-                        cx,
-                        move |menu, _, cx| {
-                            crate::issue_list::move_to_board_menu(
-                                menu,
-                                &issue_id,
-                                &board_id,
-                                cx,
-                            )
-                        },
-                    );
-                }
+            .icon(Icon::new(registry::UI_DELETE).text_color(cx.theme().muted_foreground))
+            .tooltip("Delete issue")
+            .dropdown_menu(move |menu, _window, _cx| {
                 let issue_id = issue_id.clone();
-                menu.submenu_with_icon(
-                    Some(Icon::new(registry::UI_DELETE)),
-                    "Delete issue",
-                    window,
-                    cx,
-                    move |menu, _, _| {
-                        let issue_id = issue_id.clone();
-                        menu.item(
-                            PopupMenuItem::new("Confirm delete")
-                                .icon(Icon::new(registry::UI_DELETE))
-                                .on_click(move |_, window, cx| {
-                                    crate::issue_list::spawn_issue_delete(cx, issue_id.clone());
-                                    go_back(window, cx);
-                                }),
-                        )
-                    },
+                menu.item(
+                    PopupMenuItem::new("Confirm delete")
+                        .icon(Icon::new(registry::UI_DELETE))
+                        .on_click(move |_, window, cx| {
+                            crate::issue_list::spawn_issue_delete(cx, issue_id.clone());
+                            go_back(window, cx);
+                        }),
                 )
             })
     }
 
     /// EXP-277/EXP-417: the header's top row — switcher left, copy-link ·
-    /// subscribe · actions right.
+    /// subscribe · unmark-duplicate (when applicable) · delete right.
     pub(crate) fn top_row(
         &mut self,
         issue: &Issue,
@@ -993,13 +1026,15 @@ impl IssueHeader {
             .child(div().flex_1().min_w_0())
             .child(self.render_copy_link(issue, cx))
             .child(self.render_subscribe_toggle(issue, cx))
-            .child(self.render_actions_menu(issue, cx))
+            .children(self.render_actions_menu(issue, cx))
+            .child(self.render_delete_button(issue, cx))
             .into_any_element()
     }
 
-    /// EXP-417: the mobile-style chip row under the title — Status · Priority ·
-    /// Assignee · Labels · Due date · Board · Origin, property-ish chips first
-    /// and the navigation-ish Board last. Wraps inside the detail view's
+    /// EXP-417: the mobile-style chip row under the title — Start coding ·
+    /// Status · Priority · Assignee · Labels · Due date · Board · Origin,
+    /// the launcher first (EXP-426), property-ish chips next and the
+    /// navigation-ish Board last. Wraps inside the detail view's
     /// `centered_column`, which supplies the definite width `flex_wrap` needs.
     pub(crate) fn chip_row(
         &mut self,
@@ -1011,6 +1046,9 @@ impl IssueHeader {
         // assignment keeps the data correct). Multi-member (and the not-yet-
         // synced 0-member snapshot) keeps the picker.
         let solo_team = self.member_users(issue, cx).len() == 1;
+        // Gated: the control renders an empty div when hidden (no repo),
+        // which would still occupy a gap slot in the row.
+        let start_coding = self.start_coding.read(cx).is_visible(cx);
 
         h_flex()
             .w_full()
@@ -1019,6 +1057,7 @@ impl IssueHeader {
             .items_center()
             .px(px(DETAIL_GUTTER))
             .pb_1()
+            .when(start_coding, |row| row.child(self.start_coding.clone()))
             .child(self.status_control(issue, cx))
             .child(self.priority_control(issue, cx))
             .when(!solo_team, |row| {
@@ -1053,23 +1092,57 @@ impl IssueHeader {
         let name = SharedString::from(board.name.clone());
 
         if crate::issue_list::move_target_boards(cx, &issue.board_id).is_empty() {
-            return Some(glass_chip().child(icon.xsmall()).child(name).into_any_element());
+            return Some(
+                glass_chip()
+                    .child(icon.xsmall())
+                    .child(crate::pickers::chip_label(name, false, cx))
+                    .into_any_element(),
+            );
         }
 
         // EXP-316: the web `BoardPicker` recipe — a searchable "Move to
         // board..." popover — replaced the plain dropdown menu.
         let issue_id = issue.id.clone();
+        let identifier = issue.identifier.clone();
         let boards = crate::issue_list::move_target_boards(cx, &issue.board_id);
         Some(
             crate::pickers::board_picker_popover(
                 "prop-board-popover",
-                chip_button("prop-board", cx).icon(icon.xsmall()).label(name),
+                chip_button("prop-board", cx)
+                    .icon(icon.xsmall())
+                    .child(crate::pickers::chip_label(name, false, cx)),
                 crate::pickers::BoardPickerParams {
                     boards,
                     current_board_id: issue.board_id.clone(),
                     query: self.board_query.clone(),
-                    on_pick: Rc::new(move |board_id: String, _window, cx| {
-                        crate::issue_list::spawn_issue_move(cx, issue_id.clone(), board_id);
+                    // EXP-426: the pick confirms before moving — the canonical
+                    // cross-client wording (web/iOS/Android share it).
+                    on_pick: Rc::new(move |board_id: String, window, cx| {
+                        let target_name = Store::global(cx)
+                            .collections()
+                            .boards
+                            .read(cx)
+                            .get(&board_id)
+                            .map(|board| board.name.clone())
+                            .unwrap_or_else(|| "that board".to_string());
+                        let issue_id = issue_id.clone();
+                        let spec = crate::native_dialog::AlertSpec::new(
+                            "Move issue",
+                            format!(
+                                "Move {identifier} to \"{target_name}\"? The issue will \
+                                 get a new identifier in that board."
+                            ),
+                            "Move",
+                        )
+                        .on_ok(move |_, cx| {
+                            crate::issue_list::spawn_issue_move(
+                                cx,
+                                issue_id.clone(),
+                                board_id.clone(),
+                            );
+                            true
+                        });
+                        crate::native_dialog::open_alert(window, cx, spec);
                     }),
                     width: Some(px(PICKER_SEARCH_WIDTH)),
                 },

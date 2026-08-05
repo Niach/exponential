@@ -1359,6 +1359,9 @@ impl IssueDetailView {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let column = v_flex()
+            // EXP-426: breathing room under the pinned toolbar's border —
+            // the embedded editor deliberately carries no insets of its own.
+            .pt_2()
             .child(self.render_description(issue, window, cx))
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
@@ -1370,6 +1373,9 @@ impl IssueDetailView {
         // reversed), which is why it still centers itself.
         v_flex()
             .w_full()
+            // EXP-426: without a bottom inset the scroll container ends flush
+            // with the last line — it could never scroll fully clear.
+            .pb_6()
             .child(centered_column(column))
             .child(self.timeline.clone())
     }

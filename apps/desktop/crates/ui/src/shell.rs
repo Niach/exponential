@@ -1327,7 +1327,8 @@ impl Render for CenterPanel {
                             .size(SIDEBAR_WIDTH)
                             // Max must stay clear of the default (EXP-109: 520px)
                             // or the sidebar starts grow-locked at its own cap.
-                            .size_range(px(180.)..px(880.))
+                            // Floor = the inline bulk bar's one-line width.
+                            .size_range(px(crate::sidebar::MIN_DOCK_WIDTH)..px(880.))
                             .child(self.sidebar.clone()),
                     )
                     .child(resizable_panel().child(self.screens.clone())),

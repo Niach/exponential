@@ -76,6 +76,12 @@ pub(crate) const RAIL_EXPANDED_W: f32 = 164.;
 /// parity — the issue lists inside the tool window were too cramped).
 pub(crate) const DEFAULT_DOCK_WIDTH: f32 = 520.;
 
+/// Minimum tool-window width (EXP-426): sized to the widest single-line
+/// occupant — the issue list's inline bulk-action bar ("N selected" + clear
+/// + 6 icon controls at `gap_2`, inside the bar's `px_4` inset). Keep in
+/// step with `issue_list::render_bulk_bar`'s children.
+pub(crate) const MIN_DOCK_WIDTH: f32 = 320.;
+
 /// The rail's tool windows (JetBrains tool-window bar). One is ALWAYS active
 /// — there is deliberately no unselected/collapsed state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -197,15 +203,32 @@ impl RailShared {
         }
     }
 
-    /// The issue list whose ordering the detail's prev/next switcher follows
-    /// (EXP-48): the My Issues board while the Inbox tool window shows its
-    /// My Issues tab, the active board's list otherwise (it is the window's
-    /// persistent issue list).
+    /// The issue list the CURRENT rail state shows: the My Issues board
+    /// while the Inbox tool window shows its My Issues tab, the active
+    /// board's list otherwise. Since EXP-426 the detail's prev/next switcher
+    /// prefers the active TAB's remembered origin and uses this only as its
+    /// fallback (undocked windows, origin-less tabs).
     pub(crate) fn active_issue_board(&self) -> &Entity<BoardView> {
         match (self.tool, self.inbox_tab) {
             (ToolWindow::Inbox, InboxTab::MyIssues) => &self.board_my,
             _ => &self.board_active,
         }
+    }
+
+    /// The Inbox tool window's active tab (EXP-426 — stamped into a new
+    /// detail tab's [`crate::navigation::TabOrigin`]).
+    pub(crate) fn inbox_tab(&self) -> InboxTab {
+        self.inbox_tab
+    }
+
+    /// The two issue boards by role (EXP-426 — the switcher's origin
+    /// resolution needs a specific one, not the rail-state pick).
+    pub(crate) fn board_my(&self) -> &Entity<BoardView> {
+        &self.board_my
+    }
+
+    pub(crate) fn board_active(&self) -> &Entity<BoardView> {
+        &self.board_active
     }
 
     /// Both issue boards (the detail view observes them so the EXP-48
@@ -383,6 +406,19 @@ pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow)
 /// path: activating a tab re-selects its origin tool, then sets its screen).
 pub(crate) fn select_tool_for_tab(window: &mut Window, cx: &mut App, tool: ToolWindow) {
     set_tool_inner(window, cx, tool);
+}
+
+/// Restore the Inbox tool window's tab WITHOUT touching the center tab
+/// (EXP-426 — the tab-activation path; `activate_tool`/`open_inbox_tab`
+/// would `set_screen(None)` and close the tab being activated).
+pub(crate) fn select_inbox_tab_for_tab(window: &mut Window, cx: &mut App, tab: InboxTab) {
+    let shared = rail_shared_for_window(window, cx);
+    shared.update(cx, |shared, cx| {
+        if shared.inbox_tab != tab {
+            shared.inbox_tab = tab;
+            cx.notify();
+        }
+    });
 }
 
 /// The shared tool switch (re-selecting the active tool is a no-op — a tool

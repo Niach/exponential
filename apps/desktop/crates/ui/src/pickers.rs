@@ -15,8 +15,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, px, App, ElementId, Entity, Focusable as _, IntoElement, ParentElement, SharedString,
-    Styled, Window,
+    div, prelude::FluentBuilder as _, px, App, ElementId, Entity, Focusable as _, IntoElement,
+    ParentElement, SharedString, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -62,6 +62,31 @@ pub(crate) const PICKER_SEARCH_WIDTH: f32 = 260.;
 pub(crate) fn chip_button(id: impl Into<ElementId>, cx: &App) -> Button {
     let _ = cx;
     Button::new(id).ghost().xsmall()
+}
+
+/// Cap on a chip's label before it ellipsizes (EXP-424): wide enough for a
+/// couple of joined label names, narrow enough that one chip can never paint
+/// past the reading column at the undocked window's 480px minimum.
+pub(crate) const CHIP_LABEL_MAX_W: f32 = 260.;
+
+/// A chip trigger's text, passed to [`chip_button`] as a CHILD instead of
+/// `.label()` — Button's own label div is `flex_none` and can never shrink,
+/// so an over-long value (joined label names, a long board name) would paint
+/// past the reading column. `muted` renders unset placeholders ("Assignee",
+/// "Labels", "Due date") in `muted_foreground` so they read as placeholders,
+/// not values.
+pub(crate) fn chip_label(
+    text: impl Into<SharedString>,
+    muted: bool,
+    cx: &App,
+) -> gpui::Div {
+    div()
+        .max_w(px(CHIP_LABEL_MAX_W))
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .when(muted, |this| this.text_color(cx.theme().muted_foreground))
+        .child(text.into())
 }
 
 /// A shadcn `CommandItem`-style popover row: px-2 py-1 text-sm, glass row
@@ -187,14 +212,22 @@ impl StatusMenuScope {
 
 /// The rows a status menu of `scope` offers — the pure half of
 /// [`status_menu`], so the duplicate-visibility contract is unit-testable.
+///
+/// EXP-426: pickers re-sort the display-ordered vocabulary into SETTINGS
+/// (workflow) category order — Backlog and Todo lead, not the started rows
+/// the board grouping fronts. The sort is stable, so intra-category order
+/// (and with it the baked positional pie-clock glyphs) is preserved. Every
+/// desktop status picker funnels through here, so no call site can miss it.
 pub(crate) fn status_menu_options<'a>(
     statuses: &'a [ResolvedStatus],
     scope: StatusMenuScope,
 ) -> Vec<&'a ResolvedStatus> {
-    statuses
+    let mut options: Vec<&'a ResolvedStatus> = statuses
         .iter()
         .filter(|status| scope.allows(status))
-        .collect()
+        .collect();
+    options.sort_by_key(|status| status.category.settings_rank());
+    options
 }
 
 /// The team's statuses as menu items (EXP-314). The caller pre-configures the
@@ -268,15 +301,33 @@ pub(crate) fn assignee_menu(
         let checked = current == Some(user.id.as_str());
         let on_pick = on_pick.clone();
         let user_id = user.id.clone();
-        menu = menu.item(
-            PopupMenuItem::new(SharedString::from(name))
-                .checked(checked)
-                .on_click(move |_, window, cx| {
-                    on_pick(Some(user_id.clone()), window, cx);
-                }),
-        );
+        menu = menu.item(user_menu_item(
+            name,
+            user.image.clone(),
+            checked,
+            move |window, cx| {
+                on_pick(Some(user_id.clone()), window, cx);
+            },
+        ));
     }
     menu
+}
+
+/// One member row for an assignee menu (EXP-426): the REAL avatar + name via
+/// [`crate::user_avatar::user_row`] on the `PopupMenuItem::element` escape
+/// hatch — a plain item's `icon` slot can only carry a glyph. Shared by the
+/// detail-header picker and the issue list's row/context assignee menus.
+pub(crate) fn user_menu_item(
+    name: String,
+    image_url: Option<String>,
+    checked: bool,
+    on_select: impl Fn(&mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    PopupMenuItem::element(move |_, cx| {
+        crate::user_avatar::user_row(&name, image_url.as_deref(), cx)
+    })
+    .checked(checked)
+    .on_click(move |_, window, cx| on_select(window, cx))
 }
 
 // ---------------------------------------------------------------------------
@@ -596,6 +647,31 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(assignable, expected);
+    }
+
+    /// EXP-426: pickers lead with Backlog/Todo (settings-category order),
+    /// not the board grouping's started-first display order — and the sort
+    /// is stable, so intra-category order (the started rows' pie-clock
+    /// positions) survives.
+    #[test]
+    fn picker_options_lead_with_backlog_and_todo() {
+        let statuses = default_resolved_statuses();
+        let names: Vec<String> = status_menu_options(&statuses, StatusMenuScope::SingleIssue)
+            .into_iter()
+            .map(|status| status.name.clone())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Backlog",
+                "Todo",
+                "In Progress",
+                "In Review",
+                "Done",
+                "Cancelled",
+                "Duplicate"
+            ]
+        );
     }
 
     /// The pick a single-issue duplicate row emits must carry the duplicate

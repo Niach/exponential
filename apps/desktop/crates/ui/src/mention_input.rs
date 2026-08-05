@@ -13,7 +13,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    canvas, deferred, div, point, px, Bounds, Entity, FontWeight, InteractiveElement as _,
+    canvas, deferred, div, point, px, Bounds, Entity, InteractiveElement as _,
     IntoElement, ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription,
     TextRun, Window,
 };
@@ -174,7 +174,11 @@ impl MentionInput {
     /// Caret-anchored completion menu (same anchoring math as the markdown
     /// editor's — §4.6 "positioned at the caret pixel, rendered into the
     /// overlay layer").
-    fn render_completion(&self, window: &Window, cx: &gpui::Context<Self>) -> Option<gpui::AnyElement> {
+    fn render_completion(
+        &self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         let completion = self.completion.as_ref()?;
 
         let state = self.input.read(cx);
@@ -211,33 +215,31 @@ impl MentionInput {
             origin.y + scroll.y + line_height * (position.line as f32 + 1.) + px(8.),
         );
 
-        let theme = cx.theme();
         let items = completion.items.clone();
         let selected = completion.selected;
-        let menu = v_flex()
-            .id("mention-completion")
-            .occlude()
-            .min_w(px(260.))
-            .max_w(px(380.))
-            .p_1()
-            .gap_0p5()
-            .bg(theme.popover)
-            .text_color(theme.popover_foreground)
-            .border_1()
-            .border_color(theme.border)
-            .rounded(theme.radius)
-            .shadow_md()
-            .children(items.iter().enumerate().map(|(index, item)| {
+        let (popover, popover_foreground, border, radius, accent) = {
+            let theme = cx.theme();
+            (
+                theme.popover,
+                theme.popover_foreground,
+                theme.border,
+                theme.radius,
+                theme.accent,
+            )
+        };
+        let rows: Vec<gpui::AnyElement> = items
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| {
                 let is_selected = index == selected;
                 h_flex()
                     .id(gpui::ElementId::from(("mention-completion-item", index)))
                     .w_full()
-                    .gap_2()
                     .px_2()
                     .py_1()
                     .rounded(px(4.))
-                    .when(is_selected, |el| el.bg(theme.accent))
-                    .hover(|el| el.bg(theme.accent))
+                    .when(is_selected, |el| el.bg(accent))
+                    .hover(move |el| el.bg(accent))
                     .cursor_pointer()
                     .on_mouse_down(
                         gpui::MouseButton::Left,
@@ -248,21 +250,26 @@ impl MentionInput {
                             this.accept_completion(window, cx);
                         }),
                     )
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(item.label.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .truncate()
-                            .child(item.detail.clone()),
-                    )
+                    // EXP-426: the shared decorated row — avatars for `@`
+                    // (this composer offers no `#`).
+                    .child(crate::markdown::completion_row_content(&item, cx))
                     .into_any_element()
-            }));
+            })
+            .collect();
+        let menu = v_flex()
+            .id("mention-completion")
+            .occlude()
+            .min_w(px(260.))
+            .max_w(px(380.))
+            .p_1()
+            .gap_0p5()
+            .bg(popover)
+            .text_color(popover_foreground)
+            .border_1()
+            .border_color(border)
+            .rounded(radius)
+            .shadow_md()
+            .children(rows);
 
         Some(
             deferred(

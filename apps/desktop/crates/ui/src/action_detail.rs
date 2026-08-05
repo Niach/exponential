@@ -855,7 +855,9 @@ impl ActionDetailView {
         // rows with aligned columns — instead of the loose per-row flex that
         // read as disconnected controls.
         let border = cx.theme().border;
-        let mut column = v_flex().w_full().gap_1p5();
+        // EXP-426: one density step tighter than the EXP-313 original —
+        // the table reads as a compact manifest, not a form.
+        let mut column = v_flex().w_full().gap_1();
         if !self.input_drafts.is_empty() {
             let mut table = v_flex()
                 .w_full()
@@ -866,15 +868,15 @@ impl ActionDetailView {
                     h_flex()
                         .w_full()
                         .items_center()
-                        .gap_2()
+                        .gap_1p5()
                         .px_2()
-                        .py_1()
+                        .py_0p5()
                         .text_xs()
                         .text_color(muted)
                         .child(div().flex_1().min_w_0().child("Label"))
-                        .child(div().w(px(96.)).flex_shrink_0().child("Type"))
-                        .child(div().w(px(60.)).flex_shrink_0().child("Required"))
-                        .child(div().w(px(22.)).flex_shrink_0()),
+                        .child(div().w(px(84.)).flex_shrink_0().child("Type"))
+                        .child(div().w(px(52.)).flex_shrink_0().child("Required"))
+                        .child(div().w(px(20.)).flex_shrink_0()),
                 );
             for (ix, draft) in self.input_drafts.iter().enumerate() {
                 let Some(field) = self.input_labels.get(ix) else {
@@ -887,9 +889,9 @@ impl ActionDetailView {
                         .w_full()
                         .min_w_0()
                         .items_center()
-                        .gap_2()
+                        .gap_1p5()
                         .px_2()
-                        .py_1p5()
+                        .py_1()
                         .border_t_1()
                         .border_color(border)
                         .child(Input::new(field).xsmall().flex_1().min_w_0())
@@ -897,7 +899,7 @@ impl ActionDetailView {
                             Button::new(("action-input-type", ix))
                                 .outline()
                                 .xsmall()
-                                .w(px(96.))
+                                .w(px(84.))
                                 .child(
                                     h_flex()
                                         .w_full()
@@ -939,7 +941,7 @@ impl ActionDetailView {
                         .child(
                             // The header names the column, so the checkbox
                             // drops its inline label.
-                            div().w(px(60.)).flex_shrink_0().child(
+                            div().w(px(52.)).flex_shrink_0().child(
                                 Checkbox::new(("action-input-required", ix))
                                     .checked(required)
                                     .on_click(cx.listener(move |this, on: &bool, _, cx| {
@@ -952,7 +954,7 @@ impl ActionDetailView {
                             ),
                         )
                         .child(
-                            div().w(px(22.)).flex_shrink_0().child(
+                            div().w(px(20.)).flex_shrink_0().child(
                                 Button::new(("action-input-remove", ix))
                                     .ghost()
                                     .xsmall()
@@ -1016,7 +1018,7 @@ impl ActionDetailView {
             .trigger(
                 chip_button("action-detail-icon-trigger", cx)
                     .icon(glyph.xsmall())
-                    .label(name),
+                    .child(crate::pickers::chip_label(name, false, cx)),
             )
             .content(move |_, _, cx| {
                 let popover = cx.entity();
@@ -1072,7 +1074,7 @@ impl ActionDetailView {
             return match current {
                 Some(name) => glass_chip()
                     .child(Icon::from(ExpIcon::GitMerge).xsmall().text_color(muted))
-                    .child(SharedString::from(name))
+                    .child(crate::pickers::chip_label(name, false, cx))
                     .into_any_element(),
                 None => glass_chip()
                     .text_color(muted)
@@ -1094,7 +1096,7 @@ impl ActionDetailView {
             .when(bound, |button| {
                 button.icon(Icon::from(ExpIcon::GitMerge).xsmall().text_color(muted))
             })
-            .label(label);
+            .child(crate::pickers::chip_label(label, !bound, cx));
         trigger.dropdown_menu(move |mut menu, _window, _cx| {
             let none_view = view.clone();
             menu = menu.item(
@@ -1294,29 +1296,24 @@ impl Render for ActionDetailView {
             controls = controls.child(self.render_icon(&action, editable, cx));
         }
         controls = controls.child(div().flex_1());
-        // EXP-298: the destructive verb rides a compact `…` menu instead of the
-        // full-width red button it used to shout with directly under Run.
+        // EXP-426: the visible trash button + the issue detail's two-step
+        // "Confirm delete" popup replaced the `…` menu (and the old alert).
         if editable {
             let delete_id = action.id.clone();
-            let delete_name = action.name.clone();
             controls = controls.child(
-                Button::new("action-detail-menu")
+                Button::new("action-detail-delete")
                     .ghost()
                     .xsmall()
-                    .icon(Icon::new(registry::UI_MORE).text_color(muted))
+                    .icon(Icon::new(registry::UI_DELETE).text_color(muted))
+                    .tooltip("Delete action")
                     .dropdown_menu(move |menu, _window, _cx| {
                         let id = delete_id.clone();
-                        let name = delete_name.clone();
                         menu.item(
-                            PopupMenuItem::new("Delete action…")
+                            PopupMenuItem::new("Confirm delete")
                                 .icon(Icon::new(registry::UI_DELETE))
                                 .on_click(move |_, window, cx| {
-                                    crate::actions_panel::prompt_delete_action(
-                                        window,
-                                        cx,
-                                        id.clone(),
-                                        name.clone(),
-                                    );
+                                    crate::actions_panel::spawn_action_delete(cx, id.clone());
+                                    crate::navigation::go_back(window, cx);
                                 }),
                         )
                     }),
@@ -1354,29 +1351,24 @@ impl Render for ActionDetailView {
                     div()
                         .id("action-inputs-scroll")
                         .px(px(DETAIL_GUTTER))
-                        .max_h(px(260.))
+                        .max_h(px(208.))
                         .overflow_y_scroll()
                         .child(inputs),
                 );
         }
-        // The PROMPT label is the only cue separating the one-line
-        // description above from the markdown body below.
-        header = header.child(
-            v_flex()
-                .px(px(DETAIL_GUTTER))
-                .pt_3()
-                .pb_1()
-                .gap_0p5()
-                .child(group_label("Prompt", cx))
-                .when(action.builtin, |this| {
-                    this.child(
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("Built-in action: shipped with the app, not editable."),
-                    )
-                }),
-        );
+        // EXP-426: the PROMPT label is gone — the pinned formatting bar (or
+        // the body itself) separates the sections; only the builtin note
+        // stays.
+        if action.builtin {
+            header = header.child(
+                v_flex().px(px(DETAIL_GUTTER)).pt_3().pb_1().child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("Built-in action: shipped with the app, not editable."),
+                ),
+            );
+        }
         if editable {
             // EXP-417: the formatting bar is pinned here, so a long prompt
             // never scrolls it away. Same inset as the editor slot below.
@@ -1412,7 +1404,9 @@ impl Render for ActionDetailView {
                     // and the `min_h_full` chain is what lets the editor's
                     // trailing filler absorb the leftover height.
                     .child(centered_scroll_column(
-                        v_flex().pb_6().child(self.render_prompt(editable, cx)),
+                        // EXP-426: breathing room under the pinned toolbar —
+                        // the embedded editor carries no insets of its own.
+                        v_flex().pt_2().pb_6().child(self.render_prompt(editable, cx)),
                     )),
             )
             .into_any_element()

@@ -41,8 +41,8 @@ mod wysiwyg_input;
 mod wysiwyg_parity;
 
 pub use autocomplete::{
-    detect_trigger, store_completion_source, CompletionItem, CompletionSource, CompletionTrigger,
-    PendingToken,
+    completion_row_content, detect_trigger, store_completion_source, CompletionDecoration,
+    CompletionItem, CompletionSource, CompletionTrigger, PendingToken,
 };
 pub use blocks::{ContentBlock, RichText};
 pub(crate) use editor::{

@@ -285,6 +285,9 @@ pub(crate) struct DialogContent {
     /// [`DialogSpec::chromeless`] dialogs — see
     /// [`DialogContent::chromeless_header`].
     header: Option<SharedString>,
+    /// EXP-426: extra controls rendered in the chromeless header's right
+    /// cluster, before the ✕ (the image lightbox's "Open in browser").
+    header_actions: Option<TitleContentFn>,
     /// EXP-287: rich titlebar label for native-chrome dialogs (create-issue's
     /// board pill). `None` = plain `DialogSpec::title` text.
     title_content: Option<TitleContentFn>,
@@ -306,6 +309,7 @@ impl DialogContent {
         Self {
             view: view.into(),
             header: None,
+            header_actions: None,
             title_content: None,
             padded: true,
             self_scrolling: false,
@@ -322,6 +326,18 @@ impl DialogContent {
     /// left is the image lightbox, where the ✕ is the only mouse dismissal.
     pub(crate) fn chromeless_header(mut self, title: impl Into<SharedString>) -> Self {
         self.header = Some(title.into());
+        self
+    }
+
+    /// EXP-426: extra header controls in the chromeless header's right
+    /// cluster, next to the ✕. They render inside the shared
+    /// [`crate::app_title_bar::interactive`] wrapper, so clicks reach them
+    /// instead of starting a window drag. Requires [`Self::chromeless_header`].
+    pub(crate) fn chromeless_header_actions(
+        mut self,
+        actions: impl Fn(&mut Window, &mut App) -> AnyElement + 'static,
+    ) -> Self {
+        self.header_actions = Some(Rc::new(actions));
         self
     }
 
@@ -713,6 +729,11 @@ impl Render for DialogShell {
             }
         });
 
+        let header_actions: Option<AnyElement> = self
+            .content
+            .header_actions
+            .clone()
+            .map(|actions| actions(window, cx));
         let header = self.content.header.clone().map(|title| {
             h_flex()
                 .flex_shrink_0()
@@ -746,20 +767,26 @@ impl Render for DialogShell {
                         .child(title),
                 )
                 .child(crate::app_title_bar::interactive(
-                    Button::new("native-dialog-close")
-                        .ghost()
-                        .xsmall()
-                        .icon(
-                            Icon::new(registry::UI_CLOSE)
-                                .small()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .disabled(!closable)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if this.can_close(cx) {
-                                close_dialog_window(window, cx);
-                            }
-                        })),
+                    h_flex()
+                        .items_center()
+                        .gap_1()
+                        .children(header_actions)
+                        .child(
+                            Button::new("native-dialog-close")
+                                .ghost()
+                                .xsmall()
+                                .icon(
+                                    Icon::new(registry::UI_CLOSE)
+                                        .small()
+                                        .text_color(cx.theme().muted_foreground),
+                                )
+                                .disabled(!closable)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    if this.can_close(cx) {
+                                        close_dialog_window(window, cx);
+                                    }
+                                })),
+                        ),
                 ))
         });
 

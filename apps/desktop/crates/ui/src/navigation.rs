@@ -98,6 +98,11 @@ pub(crate) struct TabOrigin {
     /// The origin board when `tool == BoardIssues` (boards share one tool
     /// window; the board id disambiguates which list to restore).
     pub board_id: Option<String>,
+    /// The Inbox tool window's active tab when `tool == Inbox` (EXP-426 —
+    /// distinguishes "came from My Issues" from "came from a notification";
+    /// the detail's prev/next switcher follows this, and tab activation
+    /// restores it).
+    pub inbox_tab: Option<crate::sidebar::InboxTab>,
 }
 
 /// The pending origin marker a navigation leaves for the screens panel

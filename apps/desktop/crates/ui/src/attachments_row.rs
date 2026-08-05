@@ -210,6 +210,7 @@ pub(crate) fn image_chip(
                     url.clone(),
                     label.clone(),
                     None,
+                    None,
                     window,
                     cx,
                 );

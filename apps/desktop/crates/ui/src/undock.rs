@@ -404,14 +404,29 @@ impl Render for UndockedScreenWindow {
         // window paints its own chrome; under the Linux server-decoration
         // fallback the WM already provides both, so keep the plain strip
         // (Reattach must stay reachable either way).
+        // EXP-426: the title needs the full EXP-175 ellipsis chain (stretched
+        // interactive wrapper + flex_1 min_w_0 text div) — a long issue title
+        // otherwise clips behind the window controls at the 480px minimum.
+        let title_text = |title: SharedString| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_sm()
+                .child(title)
+        };
         let header: AnyElement = if crate::app_title_bar::client_chrome(window) {
             TitleBar::new()
-                .child(crate::app_title_bar::interactive(
+                .child(crate::app_title_bar::interactive_fill(
                     h_flex()
+                        .w_full()
+                        .min_w_0()
                         .items_center()
                         .gap_2()
                         .child(reattach)
-                        .child(div().text_sm().child(title)),
+                        .child(title_text(title)),
                 ))
                 .into_any_element()
         } else {
@@ -426,8 +441,7 @@ impl Render for UndockedScreenWindow {
                 .border_color(cx.theme().border)
                 .bg(cx.theme().title_bar)
                 .child(reattach)
-                .child(div().text_sm().child(title))
-                .child(div().flex_1())
+                .child(title_text(title))
                 .into_any_element()
         };
 
