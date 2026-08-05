@@ -155,6 +155,10 @@ final class IssueDetailViewModel {
         editor.issueRefTitleResolver = { [weak self] identifier in
             self?.resolveIssueRefTitle(identifier)
         }
+        // ...and its status glyph over the token's `#` (EXP-423).
+        editor.issueRefStatusResolver = { [weak self] identifier in
+            self?.resolveIssueRefStatus(identifier)
+        }
         // Typing `#` offers same-team issues; selecting one inserts the
         // plain `#IDENTIFIER` interchange token.
         editor.issueRefSearch = { [weak self] query in
@@ -174,6 +178,13 @@ final class IssueDetailViewModel {
     func resolveIssueRefTitle(_ identifier: String) -> String? {
         IssueRefChipCache.chip(identifier, scope: .issue(id: issueId), db: db, accountId: accountId)?
             .title
+    }
+
+    /// identifier → the issue's resolved status, for the glyph the chip paints
+    /// over its `#` (EXP-423). Team scoping is inherent: the lookup resolves
+    /// statuses against the same team it resolved the issue in.
+    func resolveIssueRefStatus(_ identifier: String) -> IssueRefStatusInfo? {
+        IssueRefChipCache.statusInfo(identifier, scope: .issue(id: issueId), db: db, accountId: accountId)
     }
 
     /// Issues offered by the description editor's #-autocomplete

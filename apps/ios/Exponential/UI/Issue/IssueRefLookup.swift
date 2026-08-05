@@ -2,6 +2,7 @@ import ExpCore
 import ExpUI
 import Foundation
 import GRDB
+import SwiftUI
 
 /// Team-scoped `#IDENTIFIER` issue-ref lookups against the local GRDB
 /// store — pill resolution and the #-autocomplete (mirrors the web
@@ -153,19 +154,33 @@ enum IssueRefLookup {
             guard let row = try Row.fetchOne(
                 db,
                 sql: """
-                SELECT i.id, i.title FROM issues i
+                SELECT i.id, i.title, i.status, i.status_id FROM issues i
                 JOIN boards p ON p.id = i.board_id
                 WHERE upper(i.identifier) = ? AND p.team_id = ?
                 """,
                 arguments: [identifier, teamId]
             ) else { return nil }
-            return Chip(issueId: row["id"], title: row["title"])
+            // The chip paints the issue's status glyph over its `#` (EXP-423),
+            // so the team's statuses come out of the SAME read — one round trip
+            // per token, as before.
+            let statusRows = try IssueStatusEntity
+                .filter(Column("team_id") == teamId)
+                .fetchAll(db)
+            let statusId: String? = row["status_id"]
+            let anchor: String? = row["status"]
+            let status = IssueStatusResolver.resolve(
+                statusId: statusId,
+                anchor: anchor,
+                team: IssueStatusResolver.teamStatusesOrFallback(statusRows)
+            )
+            return Chip(issueId: row["id"], title: row["title"], status: status)
         }) ?? nil
     }
 
     struct Chip {
         let issueId: String
         let title: String
+        let status: ResolvedIssueStatus
     }
 
     private static func teamId(for scope: Scope, db: Database) throws -> String? {
@@ -220,4 +235,33 @@ enum IssueRefChipCache {
         entries[key] = (value, now)
         return value
     }
+
+    /// The chip's status as the render info `IssueRefs` decorates with, so every
+    /// editor site stays a one-liner and shares this memo with the id/title
+    /// resolvers. A status edit therefore shows within the 5s TTL (EXP-423).
+    ///
+    /// One info instance per distinct status, deliberately: the decoration
+    /// pass's `changed` flag compares attribute values, and while
+    /// `IssueRefStatusInfo` compares by field, its `PlatformColor` came out of a
+    /// SwiftUI `Color` bridge whose equality is not something to bet the "does
+    /// the editor rewrite its storage on every keystroke" question on.
+    static func statusInfo(
+        _ identifier: String,
+        scope: IssueRefLookup.Scope,
+        db: DatabaseManager,
+        accountId: String
+    ) -> IssueRefStatusInfo? {
+        guard let status = chip(identifier, scope: scope, db: db, accountId: accountId)?.status else {
+            return nil
+        }
+        if let hit = statusInfos[status] { return hit }
+        let info = IssueRefStatusInfo(iconName: status.iconName, color: PlatformColor(status.color))
+        // A team has 7 builtins plus its customs; the cap is a leak guard, not
+        // an eviction policy.
+        if statusInfos.count >= 128 { statusInfos.removeAll(keepingCapacity: true) }
+        statusInfos[status] = info
+        return info
+    }
+
+    private static var statusInfos: [ResolvedIssueStatus: IssueRefStatusInfo] = [:]
 }

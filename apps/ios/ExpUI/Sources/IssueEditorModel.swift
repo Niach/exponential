@@ -116,6 +116,12 @@ public final class IssueEditorModel {
     /// serialize.)
     public var issueRefTitleResolver: ((String) -> String?)?
 
+    /// Identifier → the issue's resolved STATUS (glyph + tint), which the chip
+    /// paints over its `#` cell (EXP-423, Linear parity). Purely a
+    /// `.foregroundColor` + attribute change, so — like the resolvers above —
+    /// the derived markdown is byte-identical either way.
+    public var issueRefStatusResolver: ((String) -> IssueRefStatusInfo?)?
+
     /// Read-only comment cards set this so the chip title is spliced in as
     /// text (`IssueRefs.decorateForDisplay`) instead of riding an attachment.
     /// Never set it on a model whose markdown gets saved.
@@ -295,7 +301,10 @@ public final class IssueEditorModel {
     ) -> MarkdownChipDecorator.Result {
         if isDisplayOnly, let issueRefResolver, let issueRefTitleResolver {
             let decorated = IssueRefs.decorateForDisplay(
-                content, resolver: issueRefResolver, titleResolver: issueRefTitleResolver)
+                content,
+                resolver: issueRefResolver,
+                titleResolver: issueRefTitleResolver,
+                statusResolver: issueRefStatusResolver)
             let mentioned = mentionMembers.isEmpty
                 ? decorated
                 : MentionRefs.decorate(decorated) { [weak self] in self?.mentionName(for: $0) }
@@ -310,6 +319,7 @@ public final class IssueEditorModel {
             selection: selection,
             issueRefResolver: issueRefResolver,
             issueRefTitleResolver: issueRefTitleResolver,
+            issueRefStatusResolver: issueRefStatusResolver,
             mentionResolver: mentionMembers.isEmpty
                 ? nil
                 : { [weak self] in self?.mentionName(for: $0) },

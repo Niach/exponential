@@ -678,6 +678,11 @@ struct CreateIssueSheet: View {
             IssueRefChipCache.chip(identifier, scope: .board(id: boardId), db: deps.db, accountId: accountId)?
                 .title
         }
+        // The chip's status glyph, painted over its `#` (EXP-423).
+        editor.issueRefStatusResolver = { identifier in
+            IssueRefChipCache.statusInfo(
+                identifier, scope: .board(id: boardId), db: deps.db, accountId: accountId)
+        }
         editor.issueRefSearch = { query in
             IssueRefLookup.search(query, scope: .board(id: boardId), db: deps.db, accountId: accountId)
         }

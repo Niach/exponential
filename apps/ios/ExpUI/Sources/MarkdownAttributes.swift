@@ -26,6 +26,15 @@ public enum MarkdownStyle {
     public nonisolated(unsafe) static let linkColor = PlatformColor(red: 0.42, green: 0.64, blue: 1.0, alpha: 1.0)
     public nonisolated(unsafe) static let codeBackground = PlatformColor.white.withAlphaComponent(0.08)
     public nonisolated(unsafe) static let codeBlockBackground = PlatformColor.white.withAlphaComponent(0.06)
+    /// Chip capsule fill + hairline border (EXP-423, Linear parity): a bordered
+    /// rounded rect, not the flat highlight the pill used to borrow from
+    /// `codeBackground`. Painted by `MarkdownLayoutManager`, never as a
+    /// `.backgroundColor` run.
+    public nonisolated(unsafe) static let chipBackground = PlatformColor.white.withAlphaComponent(0.08)
+    public nonisolated(unsafe) static let chipBorder = PlatformColor.white.withAlphaComponent(0.16)
+    /// Issue chips are rounded RECTS (web 6px / desktop 4 / Android 5dp);
+    /// mention pills stay fully round on every platform.
+    public static let chipCornerRadius: CGFloat = 5
     public nonisolated(unsafe) static let blockquoteTextColor = PlatformColor.white.withAlphaComponent(0.6)
     public nonisolated(unsafe) static let blockquoteBarColor = PlatformColor.white.withAlphaComponent(0.25)
     public nonisolated(unsafe) static let placeholderColor = PlatformColor.white.withAlphaComponent(0.3)

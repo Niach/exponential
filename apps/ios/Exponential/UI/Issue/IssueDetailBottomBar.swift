@@ -332,6 +332,7 @@ struct IssueDetailBottomBar: View {
         }
         composerEditor.issueRefResolver = { resolveIssueRef($0) }
         composerEditor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
+        composerEditor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
         composerEditor.issueRefSearch = { searchIssueRefs($0) }
     }
 
@@ -378,6 +379,12 @@ struct IssueDetailBottomBar: View {
     private func resolveIssueRefTitle(_ identifier: String) -> String? {
         IssueRefChipCache.chip(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)?
             .title
+    }
+
+    /// The status glyph a resolved chip paints over its `#` (EXP-423).
+    private func resolveIssueRefStatus(_ identifier: String) -> IssueRefStatusInfo? {
+        IssueRefChipCache.statusInfo(
+            identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
     }
 
     private func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {
