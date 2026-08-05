@@ -1,4 +1,4 @@
-import { type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { formatDateForMutation } from "@/lib/domain"
 import { trpc } from "@/lib/trpc-client"
@@ -24,6 +24,7 @@ import {
   Trash2,
   Undo2,
 } from "lucide-react"
+import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import { DueDateSubmenu } from "./due-date-presets"
 import {
   AssigneeSubmenu,
@@ -117,6 +118,11 @@ export function IssueRowContextMenu({
       labelId,
     })
   }
+
+  // The pick lands in the shared confirmation dialog first, because the
+  // server renumbers the issue in the target board (EXP-428 — same flow as
+  // the detail sidebar's BoardPicker).
+  const [pendingBoard, setPendingBoard] = useState<Board | null>(null)
 
   const moveToBoard = async (boardId: string) => {
     if (boardId === issue.boardId) return
@@ -246,7 +252,13 @@ export function IssueRowContextMenu({
               boardId={issue.boardId}
               boards={boards}
               topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onSelect={(boardId) => void moveToBoard(boardId)}
+              onSelect={(boardId) => {
+                const target = boards.find((board) => board.id === boardId)
+                if (!target) return
+                // Defer past the menu close + focus restore so the dialog's
+                // focus trap doesn't fight Radix.
+                setTimeout(() => setPendingBoard(target), 0)
+              }}
             />
           )}
 
@@ -273,6 +285,13 @@ export function IssueRowContextMenu({
       </ContextMenu>
 
       {duplicatePicker}
+
+      <MoveBoardConfirmDialog
+        board={pendingBoard}
+        issueIdentifier={issue.identifier}
+        onCancel={() => setPendingBoard(null)}
+        onConfirm={(board) => void moveToBoard(board.id)}
+      />
     </>
   )
 }

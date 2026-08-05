@@ -16,16 +16,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import type { Board } from "@/db/schema"
 
 interface BoardPickerProps {
@@ -42,8 +33,7 @@ interface BoardPickerProps {
 // reach the client). MobilePopover + Command
 // structure; picking the current board is a no-op. The server renumbers the
 // issue in the target board (EXP-42 → ABC-17) — which is why the pick lands in
-// a confirmation dialog first, worded byte-identically to the desktop, iOS and
-// Android clients (EXP-426).
+// the shared MoveBoardConfirmDialog first (EXP-426).
 export function BoardPicker({
   disabled,
   teamId,
@@ -147,31 +137,12 @@ export function BoardPicker({
         </MobilePopoverContent>
       </MobilePopover>
 
-      <AlertDialog
-        open={pendingBoard !== null}
-        onOpenChange={(o) => {
-          if (!o) setPendingBoard(null)
-        }}
-      >
-        <AlertDialogContent data-testid="issue-move-board-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Move issue</AlertDialogTitle>
-            <AlertDialogDescription>
-              {`Move ${issueIdentifier ?? `this issue`} to "${pendingBoard?.name ?? ``}"? The issue will get a new identifier in that board.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (pendingBoard) void onSelect(pendingBoard.id)
-              }}
-            >
-              Move
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MoveBoardConfirmDialog
+        board={pendingBoard}
+        issueIdentifier={issueIdentifier}
+        onCancel={() => setPendingBoard(null)}
+        onConfirm={(board) => void onSelect(board.id)}
+      />
     </>
   )
 }
