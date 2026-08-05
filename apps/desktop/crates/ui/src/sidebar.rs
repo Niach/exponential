@@ -60,7 +60,7 @@ use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
     Navigation, Screen,
 };
-use crate::properties_panel::parse_hex_color;
+use crate::issue_header::parse_hex_color;
 use crate::queries;
 
 /// Width of the icon-only rail column (outside the dock area) — the
