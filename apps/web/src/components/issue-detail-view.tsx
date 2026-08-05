@@ -245,6 +245,11 @@ export function IssueDetailView({
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
   const [linkCopied, setLinkCopied] = useState(false)
+  // EXP-422: the desktop scrollport's sticky band hosts the editor's toolbar
+  // (portaled out of MarkdownEditor), so title and toolbar stick as one unit
+  // — a wrapping title (EXP-189) would make two stacked sticky offsets
+  // measurement-dependent.
+  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null)
 
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const statusOption = resolveStatus(issue)
@@ -750,6 +755,9 @@ export function IssueDetailView({
         onChange={setDescriptionValue}
         onBlur={() => void handleDescriptionBlur()}
         placeholder="Add description..."
+        // Desktop parks the toolbar in the sticky title band below; on mobile
+        // it stays inline (no sticky band — phone vertical space is scarce).
+        toolbarHost={isMobile ? undefined : toolbarHost}
         imageUpload={{
           enabled: !readOnly,
           uploading: activeUploadCount > 0,
@@ -790,11 +798,7 @@ export function IssueDetailView({
   ) : null
 
   const timeline = currentUserId ? (
-    <IssueTimeline
-      issue={issue}
-      currentUserId={currentUserId}
-      users={users}
-    />
+    <IssueTimeline issue={issue} currentUserId={currentUserId} users={users} />
   ) : null
 
   // EXP-42b: reporter/page/env metadata of widget-filed issues, members-only
@@ -831,17 +835,24 @@ export function IssueDetailView({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {/* The timeline sits OUTSIDE the reading column so its top rule
-                spans the whole pane (EXP-327); it re-centers its own body. */}
+            <div className="sticky top-0 z-10 bg-background/60 backdrop-blur-xl">
+              <div className="mx-auto max-w-3xl">
+                {titleField}
+                {/* The editor portals its toolbar in here; the toolbar's own
+                    bottom border is the band's rule. `px-1` keeps the glyphs
+                    on the title's gutter, exactly where the inline toolbar
+                    sat inside the editor's own wrapper. */}
+                {!readOnly && <div className="px-1" ref={setToolbarHost} />}
+              </div>
+            </div>
             <div className="mx-auto max-w-3xl">
-              {titleField}
               {editor}
               {attachmentError}
               {filesSection}
               {prRow}
               {widgetCard}
+              {timeline}
             </div>
-            {timeline}
           </div>
         </div>
         {propsPanel}
