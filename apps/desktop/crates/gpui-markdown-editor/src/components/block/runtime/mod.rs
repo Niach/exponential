@@ -168,6 +168,9 @@ pub struct Block {
     /// any plain caret move and by the end of the pointer session.
     pub(crate) pointer_selection_extent: Option<Range<usize>>,
     pub cursor_blink_epoch: Instant,
+    /// Last visibility the blink loop painted — the 100ms timer notifies
+    /// only when `cursor_visible()` differs from this stored flag.
+    pub(super) cursor_blink_visible: bool,
     pub vertical_motion_x: Option<Pixels>,
     pub(super) cursor_blink_task: Option<Task<()>>,
     /// Cached projection used to show editable inline delimiters for the
@@ -298,6 +301,7 @@ impl Block {
             is_selecting: false,
             pointer_selection_extent: None,
             cursor_blink_epoch: Instant::now(),
+            cursor_blink_visible: true,
             vertical_motion_x: None,
             cursor_blink_task: None,
             projection: None,
@@ -2286,25 +2290,31 @@ impl Block {
         cx.notify();
     }
 
-    /// Starts the cursor blink loop: a repeating background timer every 33ms
-    /// that calls `cx.notify()` to repaint the cursor — but only while the
-    /// cursor opacity is actually animating. During the first 0.5 s after
-    /// each `cursor_blink_epoch` reset (which arrow keys / typing trigger),
-    /// opacity is pinned to 1.0, so a repaint would just re-do the full
-    /// projection rebuild for no visible change.
+    /// Starts the cursor blink loop: a repeating background timer every
+    /// 100ms that calls `cx.notify()` ONLY when the discrete visibility
+    /// actually flips (≤2 notifies/s). Every notify redraws the window and,
+    /// in embedded mode, re-renders every mounted block (decorator scan +
+    /// chip shaping + shape_text), so the old 33ms smooth-fade loop burned
+    /// CPU while idle. Epoch resets (arrow keys / typing) need no special
+    /// handling here: a reset makes `cursor_visible()` true and the
+    /// resetting path already notifies; the loop re-syncs
+    /// `cursor_blink_visible` on its next tick.
     ///
     /// The blink task is automatically cancelled when the block loses focus
     /// (the task handle is dropped in [`Block::render`]).
     pub(super) fn start_cursor_blink(&mut self, cx: &mut Context<Self>) {
         self.cursor_blink_epoch = Instant::now();
+        self.cursor_blink_visible = true;
         self.cursor_blink_task = Some(cx.spawn(
             async |this: WeakEntity<Block>, cx: &mut AsyncApp| loop {
                 cx.background_executor()
-                    .timer(Duration::from_millis(33))
+                    .timer(Duration::from_millis(100))
                     .await;
                 if this
                     .update(cx, |this: &mut Block, cx: &mut Context<Block>| {
-                        if this.cursor_blink_epoch.elapsed().as_secs_f32() >= 0.5 {
+                        let visible = this.cursor_visible();
+                        if visible != this.cursor_blink_visible {
+                            this.cursor_blink_visible = visible;
                             cx.notify();
                         }
                     })
@@ -2316,15 +2326,13 @@ impl Block {
         ));
     }
 
-    /// Cosine-based smooth blink: fully opaque for 0.5s, then oscillates
-    /// with a period of ~1s (33ms x 30 ticks ~= 1s).
-    pub fn cursor_opacity(&self) -> f32 {
+    /// Discrete blink gate: solid for 0.5s after each epoch reset, then a
+    /// 1s period (0.5s on / 0.5s off). Replaces the cosine `cursor_opacity`
+    /// fade — a discrete gate lets the blink loop skip repaints entirely
+    /// while visibility is unchanged.
+    pub fn cursor_visible(&self) -> bool {
         let elapsed = self.cursor_blink_epoch.elapsed().as_secs_f32();
-        if elapsed < 0.5 {
-            return 1.0;
-        }
-        let t = elapsed - 0.5;
-        (f32::cos(t * std::f32::consts::TAU) + 1.0) / 2.0
+        elapsed < 0.5 || ((elapsed - 0.5) % 1.0) < 0.5
     }
 
     pub fn cursor_offset(&self) -> usize {

@@ -912,16 +912,17 @@ impl Element for CodeLanguageInputElement {
         } else {
             None
         };
-        let cursor = if focused && input.code_language_selected_range.is_empty() {
+        let cursor = if focused
+            && input.code_language_selected_range.is_empty()
+            && input.cursor_visible()
+        {
             let cursor_x = line.x_for_index(input.code_language_cursor_offset());
-            let mut cursor_color = theme.colors.cursor;
-            cursor_color.a *= input.cursor_opacity();
             Some(fill(
                 Bounds::new(
                     point(bounds.left() + cursor_x, bounds.top()),
                     size(px(theme.dimensions.cursor_width), line_height),
                 ),
-                cursor_color,
+                theme.colors.cursor,
             ))
         } else {
             None
@@ -1275,12 +1276,10 @@ impl Element for BlockTextElement {
             Vec::new()
         };
 
-        let cursor_opacity = input.cursor_opacity();
-        let cursor_color = {
-            let mut c = theme.colors.cursor;
-            c.a *= cursor_opacity;
-            c
-        };
+        // Discrete blink: build the cursor quad only when visible, at full
+        // opacity — the blink loop notifies solely on visibility flips.
+        let cursor_visible = input.cursor_visible();
+        let cursor_color = theme.colors.cursor;
         let cursor_width = theme.dimensions.cursor_width;
         let selection_color = theme.colors.selection;
         let text_align = input.text_align();
@@ -1296,13 +1295,18 @@ impl Element for BlockTextElement {
                         .unwrap_or_default();
                     (
                         vec![],
-                        Some(fill(
-                            Bounds::new(
-                                point(origin_x + cursor_pos.x, text_bounds.top() + cursor_pos.y),
-                                size(px(cursor_width), line_height),
-                            ),
-                            cursor_color,
-                        )),
+                        cursor_visible.then(|| {
+                            fill(
+                                Bounds::new(
+                                    point(
+                                        origin_x + cursor_pos.x,
+                                        text_bounds.top() + cursor_pos.y,
+                                    ),
+                                    size(px(cursor_width), line_height),
+                                ),
+                                cursor_color,
+                            )
+                        }),
                     )
                 } else if selected_range.is_empty() {
                     // No selection: just draw the cursor
@@ -1318,6 +1322,7 @@ impl Element for BlockTextElement {
                             text_align,
                             px(cursor_width),
                         )
+                        .filter(|_| cursor_visible)
                         .map(|bounds| fill(bounds, cursor_color)),
                     )
                 } else {
