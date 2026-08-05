@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Check,
   ChevronDown,
@@ -254,21 +254,22 @@ export function IssueDetailView({
   // the caret never hides under it; a ResizeObserver tracks it live (the
   // title wraps, the toolbar row wraps — the height is dynamic).
   const [stickyBandHeight, setStickyBandHeight] = useState(0)
-  const bandObserverRef = useRef<ResizeObserver | null>(null)
-  const setStickyBand = (node: HTMLDivElement | null) => {
-    bandObserverRef.current?.disconnect()
-    bandObserverRef.current = null
-    if (!node) {
-      setStickyBandHeight(0)
-      return
-    }
+  // Memoized so React attaches it exactly once. An inline callback is a new
+  // identity every render, which makes React detach and re-attach the ref on
+  // every commit — i.e. tear down and rebuild the observer on every keystroke
+  // in the title or the description. The returned cleanup is React 19's ref
+  // cleanup, so there is no `null` detach call to handle either.
+  const setStickyBand = useCallback((node: HTMLDivElement) => {
+    setStickyBandHeight(node.offsetHeight)
     const observer = new ResizeObserver(() => {
       setStickyBandHeight(node.offsetHeight)
     })
     observer.observe(node)
-    bandObserverRef.current = observer
-    setStickyBandHeight(node.offsetHeight)
-  }
+    return () => {
+      observer.disconnect()
+      setStickyBandHeight(0)
+    }
+  }, [])
 
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const statusOption = resolveStatus(issue)

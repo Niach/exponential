@@ -78,9 +78,15 @@ export function IssueRefProvider({
   )
 
   // The team's status rows are already live-queried one level up (the layout
-  // nests this provider inside TeamStatusesProvider) — resolving here also
-  // means a status rename/recolor/reorder rotates the context value, which is
-  // what re-runs the editors' decoration pass.
+  // nests this provider inside TeamStatusesProvider), so a rename/recolor/
+  // reorder rotates this context value and every consumer that reads a ref
+  // during render repaints immediately.
+  //
+  // The tiptap editors are the exception: they read `getResolved` through a
+  // ref, and the pill decorations are only rebuilt when ProseMirror updates
+  // its view. An open editor therefore keeps the old glyph and tint until its
+  // next transaction (a keystroke, a selection move). Deliberate — forcing a
+  // dispatch from here to repaint a chip is not worth the churn.
   const { resolve: resolveStatus } = useTeamStatusesContext()
 
   const refs = useMemo(() => {
