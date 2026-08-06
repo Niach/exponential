@@ -66,6 +66,7 @@ use terminal::{display_offset, screen_lines, TermHandle};
 
 use crate::frames::{ActivityEvent, QuestionOption, SubagentStatus};
 use crate::hooks::{HookEvent, HookEventKind, HookQuestion};
+use crate::login_picker::{self, LoginPhase, LoginWatcher};
 use crate::plan_picker::{self, PlanPickerWatcher, Transition};
 use crate::publisher::{ActivitySender, InputHook};
 use crate::question_picker::{
@@ -180,6 +181,14 @@ pub const PLAN_RESOLVED_NARRATION: &str = "Plan approval answered.";
 /// thing for a remote steerer to trigger blind.
 const ULTRAPLAN_WEB_OPTION: &str = "Claude Code on the web";
 
+/// Substring identifying the login method picker's "3rd-party platform ·
+/// Amazon Bedrock, Microsoft Foundry, or Vertex AI" option (key "3" on
+/// v2.1.222). Stripped from the remotely-offered options (EXP-430) — it
+/// leads into provider-config sub-screens the login detector does not
+/// cover, stranding a remote steerer; same stance as
+/// [`ULTRAPLAN_WEB_OPTION`].
+const LOGIN_THIRD_PARTY_OPTION: &str = "3rd-party platform";
+
 /// Answered-question narration prefix (EXP-197). When the transcript flushes
 /// an answered `AskUserQuestion` (claude withholds the entry until the picker
 /// resolves), the emitter publishes one `Question answered: <answer>`
@@ -251,6 +260,21 @@ impl Redactor {
         }
         for re in &self.patterns {
             out = re.replace_all(&out, REDACTED).into_owned();
+        }
+        out
+    }
+
+    /// Exact-match masking ONLY — for text where the generic
+    /// [`SECRET_PATTERNS`] can shred content that is MEANT for the viewer.
+    /// The EXP-430 sign-in URL is a ~700-char base64url blob whose random
+    /// substrings can match e.g. `\bsk-…` (a `-` is a word boundary), and a
+    /// mid-URL `[redacted]` corrupts the link unrecoverably. The session's
+    /// own launcher secrets can never legitimately appear in it, so those
+    /// still mask.
+    pub fn redact_exact_only(&self, input: &str) -> String {
+        let mut out = input.to_string();
+        for secret in &self.exact {
+            out = out.replace(secret.as_str(), REDACTED);
         }
         out
     }
@@ -1439,6 +1463,8 @@ enum QuestionKind {
     Ask,
     /// The review/submit step that closes a multi-question ask.
     Submit,
+    /// The `/login` method picker (EXP-430) — grid-born, no hook identity.
+    Login,
 }
 
 /// A question that is published and still answerable.
@@ -1783,6 +1809,12 @@ struct SteerState {
     attention: Option<Attention>,
     live: HashMap<String, LiveQuestion>,
     answered: HashSet<String>,
+    /// The live login method-picker question id (EXP-430) — grid-born, so
+    /// its lifecycle is owned by the [`LoginWatcher`], not the hooks.
+    login: Option<String>,
+    /// Login question identity — each (re)appearance of the method picker
+    /// gets a fresh id so a retry loop never collides with `answered`.
+    login_seq: u32,
     /// Fallback plan identity when a hook payload carries no `tool_use_id`.
     plan_seq: u32,
     /// Fallback subagent-card identity when a `Task` hook payload carries no
@@ -2208,6 +2240,51 @@ impl SteerState {
         }
     }
 
+    /// The `/login` method picker settled on screen (EXP-430) — publish it
+    /// as an ordinary answerable question so every client's existing card UI
+    /// carries the choice. Re-appearances (the OAuth-error retry loop lands
+    /// back on the picker) retire the previous card and publish a fresh id.
+    fn publish_login_question(&mut self, options: Vec<QuestionOption>, sender: &ActivitySender) {
+        self.resolve_login(sender);
+        self.login_seq += 1;
+        let id = format!("login:{}", self.login_seq);
+        self.login = Some(id.clone());
+        self.publish_question(
+            Publishable {
+                id,
+                kind: QuestionKind::Login,
+                ask_id: None,
+                index: None,
+                total: None,
+                header: Some("Claude sign-in required".to_string()),
+                text: "Claude Code is signed out on this machine. Select a login method to sign \
+                       in again:"
+                    .to_string(),
+                options,
+                multi_select: false,
+            },
+            sender,
+        );
+    }
+
+    /// The login method picker moved on — answered (remotely or at the local
+    /// TUI), cancelled, or the flow advanced to the URL screen.
+    fn resolve_login(&mut self, sender: &ActivitySender) {
+        let Some(id) = self.login.take() else { return };
+        // EXP-347: clear the publisher's grid-picker flag promptly — a stale
+        // flag would Esc-inject in front of the very free text (the pasted
+        // OAuth code) the next login phase asks for.
+        self.resolution_seen = true;
+        self.live.remove(&id);
+        sender.send(ActivityEvent::QuestionResolved {
+            id: Some(id),
+            ask_id: None,
+            answers: None,
+            dismissed: None,
+            at: None,
+        });
+    }
+
     /// The question picker settled on screen. Returns `false` when no hook
     /// knows this ask, so the caller publishes the legacy id-less question.
     fn confirm_question_from_grid(
@@ -2387,6 +2464,39 @@ impl SteerState {
                 }) {
                     write_input(b"\r");
                     if !settle(|| plan_picker::detect(&screen_lines(term)).is_none()) {
+                        return AnswerAttempt::Settled; // injected — never twice
+                    }
+                }
+            }
+            QuestionKind::Login => {
+                // Only answerable while the method picker is the visible
+                // phase — a tap that lands after the flow advanced (or after
+                // a local answer) must not type into the URL/paste screen.
+                let visible = match login_picker::detect(&lines) {
+                    Some(LoginPhase::MethodPicker { options }) => options,
+                    _ => return AnswerAttempt::Retry,
+                };
+                let Some(key) = answer.keys.first() else {
+                    return AnswerAttempt::Settled;
+                };
+                if !live.options.iter().any(|option| &option.key == key)
+                    || !visible.iter().any(|option| &option.key == key)
+                {
+                    return AnswerAttempt::Settled;
+                }
+                write_input(key.as_bytes());
+                // Same digit-then-probe-then-Enter choreography as the plan
+                // picker (EXP-334): whether the digit submits or only moves
+                // the cursor, the row ends up activated exactly once.
+                let moved = || {
+                    !matches!(
+                        login_picker::detect(&screen_lines(term)),
+                        Some(LoginPhase::MethodPicker { .. })
+                    )
+                };
+                if !settle_for(PLAN_SUBMIT_PROBE, moved) {
+                    write_input(b"\r");
+                    if !settle(moved) {
                         return AnswerAttempt::Settled; // injected — never twice
                     }
                 }
@@ -2739,6 +2849,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut transcript_deadline = Some(Instant::now() + TRANSCRIPT_WAIT);
     let mut picker_watcher = PlanPickerWatcher::new();
     let mut question_watcher = QuestionPickerWatcher::new();
+    let mut login_watcher = LoginWatcher::new();
     let mut transcript_state = TranscriptState {
         suppress_task_headlines: config.hooks.is_some(),
         ..TranscriptState::default()
@@ -2843,8 +2954,17 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             // scrolled the bottom of the grid is not visible — keep the last
             // known state, like the watchers do.
             if grid_offset == 0 {
-                grid_picker_visible =
-                    question_detection.is_some() || plan_picker::detect(&lines).is_some();
+                // The login METHOD PICKER counts (free text typed at it would
+                // be eaten and its trailing Enter would activate the
+                // highlighted row) — the URL/paste and error phases must NOT:
+                // free text there IS the OAuth code (or a retry nudge), and
+                // the reroute's Esc would abort the login (EXP-430).
+                grid_picker_visible = question_detection.is_some()
+                    || plan_picker::detect(&lines).is_some()
+                    || matches!(
+                        login_picker::detect(&lines),
+                        Some(LoginPhase::MethodPicker { .. })
+                    );
             }
             if let Some(snapshot) = question_watcher.tick(question_detection, grid_offset) {
                 if !steer.confirm_question_from_grid(&snapshot, &sender, &redactor) {
@@ -2864,6 +2984,67 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     });
                 }
             }
+            // EXP-430: the `/login` flow. A steered `/login` reaches the PTY
+            // fine, but the TUI it opens renders only on the grid — without
+            // this watcher a headless-server session dead-ends on an expired
+            // OAuth token. The method picker becomes an answerable question;
+            // the sign-in URL travels as narration (clients linkify it) and
+            // the OAuth code comes back as an ordinary free-text message.
+            match login_watcher.tick(&lines, grid_offset) {
+                Some(login_picker::Transition::Show(LoginPhase::MethodPicker { options })) => {
+                    let options: Vec<QuestionOption> = options
+                        .into_iter()
+                        .filter(|o| !o.label.contains(LOGIN_THIRD_PARTY_OPTION))
+                        .take(QUESTION_OPTIONS_MAX)
+                        .map(|o| {
+                            QuestionOption::new(
+                                truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX),
+                                o.key,
+                            )
+                        })
+                        .collect();
+                    if !options.is_empty() {
+                        steer.publish_login_question(options, &sender);
+                    }
+                }
+                Some(login_picker::Transition::Show(LoginPhase::UrlPrompt { url })) => {
+                    // The method question is done — the flow moved on.
+                    steer.resolve_login(&sender);
+                    // Exact-match redaction only: the generic patterns can
+                    // shred the base64url blob mid-URL (see
+                    // [`Redactor::redact_exact_only`]).
+                    sender.send(ActivityEvent::narration(truncate(
+                        &redactor.redact_exact_only(&format!(
+                            "Claude sign-in: open this link in your browser to authorize, then \
+                             send the code you receive back here as a regular message:\n\n{url}"
+                        )),
+                        NARRATION_MAX,
+                    )));
+                }
+                Some(login_picker::Transition::Show(LoginPhase::Error { message })) => {
+                    steer.resolve_login(&sender);
+                    sender.send(ActivityEvent::narration(truncate(
+                        &format!(
+                            "Claude sign-in failed ({}). Send any message to retry — the login \
+                             options will come back.",
+                            redactor.redact(&message)
+                        ),
+                        NARRATION_MAX,
+                    )));
+                }
+                Some(login_picker::Transition::Show(LoginPhase::Success)) => {
+                    sender.send(ActivityEvent::narration("Claude sign-in succeeded."));
+                    // Dismiss the "Press Enter to continue" screen so the
+                    // session resumes without another remote round-trip. A
+                    // stray Enter on a variant without that screen is a
+                    // no-op submit of claude's empty composer.
+                    if let Some(steering) = &config.steering {
+                        (steering.write_input)(b"\r");
+                    }
+                }
+                Some(login_picker::Transition::Resolved) => steer.resolve_login(&sender),
+                None => {}
+            }
         }
 
         // 2) EXP-214: the combined attention flag — the agent is parked and
@@ -2872,6 +3053,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         //    only on flips; the watchers already debounce mid-render flicker.
         let picker_pending = picker_watcher.is_pending()
             || question_watcher.is_pending()
+            || login_watcher.is_pending()
             || steer.has_pending_question();
         let pending = picker_pending || steer.attention.is_some();
         needs_input.tick(pending, &config.on_needs_input);
@@ -6227,6 +6409,206 @@ mod tests {
             munge_claude_project_dir(Path::new("/a/b/worktrees/exp/EXP-1")),
             "-a-b-worktrees-exp-EXP-1"
         );
+    }
+
+    /// The mid-session `/login` method picker (captured, v2.1.222).
+    fn login_method_rows() -> Vec<String> {
+        [
+            "   Login",
+            "",
+            "   Select login method:",
+            "",
+            "   ❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise",
+            "     2. Anthropic Console account · API usage billing",
+            "",
+            "   Esc to cancel",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect()
+    }
+
+    fn login_question(steer: &mut SteerState, sender: &ActivitySender) -> String {
+        steer.publish_login_question(
+            vec![
+                QuestionOption::new("Claude account with subscription", "1"),
+                QuestionOption::new("Anthropic Console account", "2"),
+            ],
+            sender,
+        );
+        steer.login.clone().expect("login question live")
+    }
+
+    #[test]
+    fn a_login_answer_is_injected_once_and_acked() {
+        let emulator = terminal::Emulator::new(120, 30);
+        let term = emulator.term();
+        paint(&term, &login_method_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let id = login_question(&mut steer, &sender);
+        drained(&rx);
+
+        // The digit alone does not move the login picker (probe times out),
+        // so Enter follows and the grid repaints past the picker.
+        let (write_input, keys) =
+            recording_input(term.clone(), Some(vec!["❯ ".to_string()]), "\r");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: id.clone(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["1", "\r"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id: acked, ask_id, .. }] => {
+                assert_eq!(acked, &id);
+                assert_eq!(ask_id, &None);
+            }
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+
+        // A duplicate never injects again but re-acks (EXP-374 semantics).
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: id.clone(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(keys.lock().unwrap().len(), 2, "no second injection");
+        assert!(matches!(
+            &drained(&rx)[..],
+            [ActivityEvent::AnswerAck { .. }]
+        ));
+    }
+
+    #[test]
+    fn a_login_answer_waits_for_the_method_picker_phase() {
+        let emulator = terminal::Emulator::new(120, 30);
+        let term = emulator.term();
+        // The flow already advanced to the URL/paste screen.
+        paint(
+            &term,
+            &[
+                "   Browser didn't open? Use the url below to sign in (c to copy)".to_string(),
+                "https://claude.com/cai/oauth/authorize?code=true".to_string(),
+                "".to_string(),
+                "   Paste code here if prompted >".to_string(),
+            ],
+        );
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let id = login_question(&mut steer, &sender);
+        drained(&rx);
+
+        let (write_input, keys) = recording_input(term.clone(), None, "\r");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: id,
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Retry, "typing would hit the paste box");
+        assert!(keys.lock().unwrap().is_empty());
+        assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn a_login_answer_with_an_unoffered_key_settles_without_injecting() {
+        let emulator = terminal::Emulator::new(120, 30);
+        let term = emulator.term();
+        paint(&term, &login_method_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        // "3" (the filtered 3rd-party option) is not among the published
+        // options — even though a row with that key could be on the grid.
+        let id = login_question(&mut steer, &sender);
+        drained(&rx);
+
+        let (write_input, keys) = recording_input(term.clone(), None, "\r");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: id,
+                ask_id: None,
+                keys: vec!["3".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert!(keys.lock().unwrap().is_empty());
+        assert!(drained(&rx).is_empty(), "no ack for a refused key");
+    }
+
+    #[test]
+    fn a_republished_login_question_retires_the_previous_card() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let first = login_question(&mut steer, &sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { id, header, plan_mode, .. }] => {
+                assert_eq!(id.as_deref(), Some(first.as_str()));
+                assert_eq!(header.as_deref(), Some("Claude sign-in required"));
+                assert_eq!(plan_mode, &None);
+            }
+            other => panic!("expected the login question, got {other:?}"),
+        }
+
+        // The OAuth-error retry loop lands back on the picker: fresh id,
+        // previous card resolved first.
+        let second = login_question(&mut steer, &sender);
+        assert_ne!(first, second);
+        match &drained(&rx)[..] {
+            [
+                ActivityEvent::QuestionResolved { id, .. },
+                ActivityEvent::Question { id: new_id, .. },
+            ] => {
+                assert_eq!(id.as_deref(), Some(first.as_str()));
+                assert_eq!(new_id.as_deref(), Some(second.as_str()));
+            }
+            other => panic!("expected resolve-then-republish, got {other:?}"),
+        }
+        assert!(steer.resolution_seen, "grid-picker flag clear armed");
+
+        // Resolving without a live question is a no-op.
+        steer.resolve_login(&sender);
+        drained(&rx);
+        steer.resolve_login(&sender);
+        assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn redact_exact_only_preserves_the_sign_in_url() {
+        // A crafted-but-realistic sign-in URL whose base64url params contain
+        // pattern-shaped substrings (`&sk-…` has a word boundary before
+        // `sk`): the generic patterns WOULD shred it mid-URL — that is why
+        // the login narration goes through the exact-only path.
+        let url = "https://claude.com/cai/oauth/authorize?code=true&code_challenge=j7BY1qKMJ1Y2LC5xNqD5VUJayK_UZbPl_FCJLsmPZzk&sk-abcdefghijklmnopqrstuv=1&state=joiGbKCc8WwbICmveDWnCjihN6dnqxVjkxcYKIMI6SE";
+        let redactor = Redactor::new(vec!["hunter2secret1234".to_string()]);
+        assert_ne!(redactor.redact(url), url, "patterns mangle the URL");
+        assert_eq!(redactor.redact_exact_only(url), url, "exact-only must not");
+
+        // The session's own launcher secrets still mask on the exact path.
+        let leaky = format!("{url}&t=hunter2secret1234");
+        assert!(!redactor.redact_exact_only(&leaky).contains("hunter2secret1234"));
     }
 
     #[test]

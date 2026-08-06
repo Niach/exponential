@@ -681,7 +681,9 @@ private struct NarrationBubble: View {
             AppIcon(AppIcons.codingAssistant, size: 11)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .padding(.top, 4)
-            Text(text)
+            // EXP-430: URLs render as tappable links — the remote `/login`
+            // flow publishes the claude sign-in URL as narration.
+            Text(linkifiedNarration(text))
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .textSelection(.enabled)
