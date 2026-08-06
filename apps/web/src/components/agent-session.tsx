@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
+import { linkSegments } from "@/lib/linkify"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   ArrowDown,
@@ -1253,7 +1254,22 @@ function NarrationBubble({ text }: { text: string }) {
     <div className="flex items-start gap-2 py-1">
       <CodingAssistantIcon className="mt-2 size-3 shrink-0 text-muted-foreground/60" />
       <div className="min-w-0 flex-1 whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-sm text-foreground/90">
-        {text}
+        {linkSegments(text).map((segment, i) =>
+          segment.href ? (
+            // break-all: the EXP-430 sign-in URL has no break points.
+            <a
+              key={i}
+              href={segment.href}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              {segment.text}
+            </a>
+          ) : (
+            <Fragment key={i}>{segment.text}</Fragment>
+          ),
+        )}
       </div>
     </div>
   )

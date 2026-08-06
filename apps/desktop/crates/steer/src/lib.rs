@@ -48,6 +48,7 @@ pub mod control_channel;
 pub mod frames;
 pub mod hooks;
 pub mod journal;
+pub mod login_picker;
 pub mod pi_activity;
 pub mod pi_observer;
 pub mod plan_picker;
