@@ -18,7 +18,15 @@ COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
 COPY packages/widget/package.json packages/widget/package.json
 
-RUN bun install --frozen-lockfile
+# REV-2: scoped to @exp/push-relay on purpose, same reason as the root
+# Dockerfile's EXP-380 filter. Unfiltered, the runtime stage's wholesale
+# node_modules copy carried apps/marketing's Remotion — source-available,
+# licensed to US on our headcount, no sublicence clause (see
+# docs/third-party-licences.md). This image is Coolify-internal rather than
+# published, so that was latent rather than live; the filter keeps it that way.
+# The stub package.json COPYs above must stay even so — --frozen-lockfile
+# validates the full workspace set and fails if one is absent.
+RUN bun install --frozen-lockfile --filter '@exp/push-relay'
 
 COPY packages/tsconfig packages/tsconfig
 COPY apps/push-relay apps/push-relay
@@ -31,6 +39,11 @@ COPY --from=builder /app/apps/push-relay apps/push-relay
 COPY --from=builder /app/packages/tsconfig packages/tsconfig
 COPY --from=builder /app/package.json .
 COPY --from=builder /app/bunfig.toml .
+# EXP-376: Apache-2.0 4(a)/4(d). This image is not published today, but it is
+# built from the same Apache-2.0 work as the relay we do publish — carrying the
+# files costs nothing and means going public is a workflow change, not a licence
+# question.
+COPY LICENSE NOTICE ./
 
 EXPOSE 4001
 

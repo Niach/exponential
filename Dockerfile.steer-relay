@@ -18,7 +18,18 @@ COPY packages/icons/package.json packages/icons/package.json
 COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/widget/package.json packages/widget/package.json
 
-RUN bun install --frozen-lockfile
+# REV-2: scoped to @exp/steer-relay on purpose, same reason as the root
+# Dockerfile's EXP-380 filter. This image is published PUBLICLY as
+# ghcr.io/niach/exponential-steer-relay and pulled anonymously by the selfhost
+# compose, and the runtime stage below copies this node_modules wholesale — so
+# unfiltered, every recipient received apps/marketing's Remotion (178M), which is
+# source-available, licensed to US on the basis of our headcount, and carries no
+# sublicence clause (see docs/third-party-licences.md). The relay imports none of
+# it. The web image has to install twice because its builder runs a vite build;
+# this one has no build step, so the single scoped install is the whole fix.
+# The stub package.json COPYs above must stay even so — --frozen-lockfile
+# validates the full workspace set and fails if one is absent.
+RUN bun install --frozen-lockfile --filter '@exp/steer-relay'
 
 COPY packages/tsconfig packages/tsconfig
 COPY packages/steer-ticket packages/steer-ticket
@@ -33,6 +44,13 @@ COPY --from=builder /app/packages/steer-ticket packages/steer-ticket
 COPY --from=builder /app/packages/tsconfig packages/tsconfig
 COPY --from=builder /app/package.json .
 COPY --from=builder /app/bunfig.toml .
+# EXP-376: Apache-2.0 section 4(a) requires giving every recipient of the work a
+# copy of the License, 4(d) our own NOTICE. This image is published PUBLICLY as
+# ghcr.io/niach/exponential-steer-relay and ships in the selfhost compose, so
+# its recipients are the ones those clauses are about. The relay serves no HTTP
+# surface for a dependency inventory; its dependency set is the four packages in
+# apps/steer-relay/package.json, all permissive.
+COPY LICENSE NOTICE ./
 
 EXPOSE 4002
 
