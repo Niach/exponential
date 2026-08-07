@@ -43,10 +43,16 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
-        // Push-tap extras are only consumed on a FRESH delivery: a recreation
-        // (config change or process-death restore) redelivers the same launcher
-        // intent with the same extras; savedInstanceState != null identifies it.
-        handleIntent(intent, allowPushExtras = savedInstanceState == null)
+        // Intents are only consumed on a FRESH delivery: a recreation (config
+        // change or process-death restore) redelivers the same launcher intent,
+        // and EVERY branch of handleIntent publishes a one-shot navigation
+        // target — re-parsing on a rotation would drag the user back into the
+        // share composer (refilled with content they already discarded) or the
+        // deep-linked issue, and re-copy the shared images into the cache.
+        // savedInstanceState != null identifies the redelivery; a link that
+        // arrives while the process is dead is delivered to onNewIntent after
+        // the restore, never as this launch intent, so nothing is lost.
+        handleIntent(intent, freshDelivery = savedInstanceState == null)
         maybeRequestNotificationPermission()
         setContent {
             ExponentialTheme {
@@ -59,19 +65,20 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         // A singleTask re-delivery is always a fresh tap.
-        handleIntent(intent, allowPushExtras = true)
+        handleIntent(intent, freshDelivery = true)
     }
 
-    private fun handleIntent(intent: Intent?, allowPushExtras: Boolean) {
+    private fun handleIntent(intent: Intent?, freshDelivery: Boolean) {
+        if (intent == null || !freshDelivery) return
         // Shared content (ACTION_SEND/_MULTIPLE) arrives with a null data URI, so
         // this must run before the exponential:// deep-link guard below. Parse +
         // copy images while the read grant is still live (see ShareIntentParser).
-        if (intent != null && ShareIntentParser.isShareIntent(intent)) {
+        if (ShareIntentParser.isShareIntent(intent)) {
             val payload = ShareIntentParser.parse(this, intent) ?: return
             deepLinkBus.openShare(payload.text, payload.subject, payload.imageUris)
             return
         }
-        val data = intent?.data
+        val data = intent.data
         if (data == null) {
             // EXP-172: notification-type FCM messages are rendered by the FCM
             // SDK while the app is backgrounded (FcmService never runs — see the
@@ -79,7 +86,7 @@ class MainActivity : ComponentActivity() {
             // data payload ({type, issueId, identifier, userId}) as plain
             // launcher-intent EXTRAS, not a data URI. Route it through the same
             // bus as the foreground-built PendingIntent path.
-            if (intent != null && allowPushExtras) handlePushExtras(intent)
+            handlePushExtras(intent)
             return
         }
         // Verified App Links (EXP-92): https issue/invite URLs from the
