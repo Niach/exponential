@@ -88,7 +88,7 @@ export function TeamMobileTopbar({
   const userInitials = userLabel ? getInitials(userLabel) : `?`
 
   return (
-    <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border/60 bg-background/60 px-3 backdrop-blur-xl md:hidden">
+    <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border/60 px-3 glass-chrome-top md:hidden">
       {sectionTitle ? (
         <span className="truncate text-sm font-medium">{sectionTitle}</span>
       ) : (

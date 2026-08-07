@@ -196,7 +196,7 @@ export function AgentDock({
         // is a blurred glass strip over whatever scrolls beneath it.
         fullscreen && expandedRow
           ? `fixed inset-0 z-40 flex flex-col bg-app-gradient border-border`
-          : `sticky bottom-0 z-30 border-t border-border/60 bg-background/70 backdrop-blur-xl`
+          : `sticky bottom-0 z-30 border-t border-border/60 glass-chrome-bottom`
       )}
     >
       {expandedRow && (

@@ -256,6 +256,37 @@ html {
     inset 0 1px 0 oklch(1 0 0 / 6%);
 }
 
+/* Translucent chrome pinned to a viewport EDGE: sticky top bars, the docked
+   agent bar. The scrim must read as the page gradient continuing behind the
+   blur — so it is tinted with the gradient's own endpoint, never with
+   --background. EXP-442: --background is shadcn's hue-less neutral
+   (oklch(0.145 0 0)), so `bg-background/60` painted rgb(10,10,10) over a
+   rgb(9,9,11) backdrop — a pure-black rectangle against the zinc-tinted
+   gradient, and the bottom dock's /70 landed rgb(14,14,15) against
+   rgb(23,23,26), visibly a black bar. An edge-pinned bar only ever covers the
+   first/last few percent of the ramp, so the endpoint colour composites back
+   onto the backdrop pixel-exactly. Pick the utility by which edge the bar
+   hugs; the alphas are the scrim strengths those two surfaces already used. */
+@utility glass-chrome-top {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-top) 60%,
+    transparent
+  );
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+@utility glass-chrome-bottom {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-bottom) 70%,
+    transparent
+  );
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
 /* Full-viewport gradient repaint for full-screen covers that would otherwise
    occlude the body gradient with an opaque background. */
 @utility bg-app-gradient {
