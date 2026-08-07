@@ -6,6 +6,10 @@
 // not permitted to do with it; this file stops those determinations from going
 // quietly stale. Sibling of icons.test.ts, which locks the icon registry the
 // same way — read repo files, byte-compare, fail loudly.
+//
+// REV-2 widened it from the web Dockerfile to EVERY image the repo builds: the
+// steer relay image is published just as publicly and carried the same 178M
+// Remotion tree for as long as this gate only read one file.
 
 import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
@@ -14,7 +18,6 @@ import { join } from "node:path"
 const repoRoot = join(import.meta.dirname, `..`, `..`, `..`, `..`)
 const read = (path: string) => readFileSync(join(repoRoot, path), `utf8`)
 
-const dockerfile = read(`Dockerfile`)
 const policy = read(`docs/third-party-licences.md`)
 const remotionLicence = read(`docs/licences/remotion-LICENSE.txt`)
 const marketingPkg = JSON.parse(read(`apps/marketing/package.json`)) as {
@@ -22,31 +25,75 @@ const marketingPkg = JSON.parse(read(`apps/marketing/package.json`)) as {
   devDependencies: Record<string, string>
 }
 
-/* The runtime stage is everything after the LAST `FROM` — that is the layer set
-   that becomes ghcr.io/niach/exponential-web. The builder stage installs the
-   whole workspace on purpose and is discarded. */
-const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf(`\nFROM `))
+/* Every image this repo builds, and the ONE workspace each is allowed to install.
+   Remotion lives in apps/marketing, so an unfiltered `bun install` in any stage
+   whose node_modules survives into the final image redistributes it (REV-2).
 
-describe(`published image dependency scope`, () => {
-  it(`scopes the runtime install to @exp/web`, () => {
-    // Unfiltered, this installs apps/marketing's Remotion into the public image
-    // — redistribution we hold no rights to pass on. See docs/third-party-licences.md.
-    const install = runtimeStage
+   `copiesBuilderNodeModules` is what decides WHICH installs are published, and
+   it is asserted rather than trusted:
+     - false (the web image) — the builder installs the whole workspace on
+       purpose (the vite build reaches across it) and is discarded; only
+       apps/web/.output comes out. The gated install is the runtime stage's own.
+     - true (the relays) — they have no build step and no second install, so the
+       runtime stage copies the builder's node_modules wholesale. EVERY install
+       in the file is published, so every one must be filtered. */
+const IMAGES = [
+  { file: `Dockerfile`, workspace: `@exp/web`, copiesBuilderNodeModules: false },
+  {
+    file: `Dockerfile.steer-relay`,
+    workspace: `@exp/steer-relay`,
+    copiesBuilderNodeModules: true,
+  },
+  {
+    file: `Dockerfile.push-relay`,
+    workspace: `@exp/push-relay`,
+    copiesBuilderNodeModules: true,
+  },
+] as const
+
+describe.each(IMAGES)(
+  `$file dependency scope`,
+  ({ file, workspace, copiesBuilderNodeModules }) => {
+    const dockerfile = read(file)
+    /* The runtime stage is everything after the LAST `FROM` — that is the layer
+       set that becomes the published image. */
+    const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf(`\nFROM `))
+    const installs = (copiesBuilderNodeModules ? dockerfile : runtimeStage)
       .split(`\n`)
-      .find((line) => line.startsWith(`RUN bun install`))
-    expect(install).toBeDefined()
-    expect(install).toContain(`--filter '@exp/web'`)
-  })
+      .filter((line) => line.startsWith(`RUN bun install`))
 
-  it(`still copies every workspace package.json into the runtime stage`, () => {
-    // --frozen-lockfile validates the FULL workspace set regardless of --filter:
-    // drop one of these COPYs and the install dies with "lockfile had changes".
-    // Only the image build catches that, and it runs on master, not on the PR.
-    for (const workspace of [`marketing`, `push-relay`, `steer-relay`]) {
-      expect(runtimeStage).toContain(`apps/${workspace}/package.json`)
-    }
-  })
-})
+    it(`ships the node_modules provenance this gate assumes`, () => {
+      // Flip this and the wrong installs get gated above, silently. Changing the
+      // constant is the point: it forces re-reading which install is published.
+      expect(runtimeStage.includes(`COPY --from=builder /app/node_modules`)).toBe(
+        copiesBuilderNodeModules,
+      )
+    })
+
+    it(`scopes every published install to ${workspace}`, () => {
+      // Unfiltered, these install apps/marketing's Remotion into the image —
+      // redistribution we hold no rights to pass on. See docs/third-party-licences.md.
+      expect(installs.length).toBeGreaterThan(0)
+      for (const install of installs)
+        expect(install).toContain(`--filter '${workspace}'`)
+    })
+
+    it(`still copies every workspace package.json into the installing stage`, () => {
+      // --frozen-lockfile validates the FULL workspace set regardless of --filter:
+      // drop one of these COPYs and the install dies with "lockfile had changes".
+      // Only the image build catches that, and it runs on master, not on the PR.
+      for (const other of [`marketing`, `push-relay`, `steer-relay`]) {
+        expect(dockerfile).toContain(`apps/${other}/package.json`)
+      }
+    })
+
+    it(`carries the Apache-2.0 LICENSE and NOTICE`, () => {
+      // EXP-376: section 4(a)/4(d) are owed to every recipient of the image.
+      expect(runtimeStage).toContain(`LICENSE`)
+      expect(runtimeStage).toContain(`NOTICE`)
+    })
+  },
+)
 
 describe(`Remotion licence determinations`, () => {
   const pins = Object.entries({

@@ -93,6 +93,38 @@ The builder stage deliberately still installs everything: it is discarded, only
 `apps/web/.output` is copied out of it, and `@exp/widget`'s build reaches across
 the workspace.
 
+### Determination 4 — the same problem in the relay images (REV-2, 2026-08-07)
+
+**Not appropriate. Stopped — see both relay Dockerfiles.**
+
+Determination 3 fixed the image it was written about and the gate that enforces
+it read one file, so `Dockerfile.steer-relay` (which predates it — 2026-07-02)
+kept doing the exact thing Determination 3 forbids. Its builder ran an
+unfiltered `bun install` and its runtime stage copied that `node_modules`
+wholesale; measured in `oven/bun:1`, the published image carried **178M of
+Remotion** (`@remotion` 176M + `remotion` 2.5M) inside a 1.2G `node_modules`.
+
+That image is published as `ghcr.io/niach/exponential-steer-relay` on every
+master push and `v*` tag, the ghcr package is deliberately PUBLIC, and
+`selfhost/docker-compose.yaml` pulls it anonymously — so the recipients are
+exactly the ones Determination 3 is about, and there is even less on the other
+side of the ledger than there was for the web image: the relay is a WebSocket
+hub with four dependencies and no build step.
+
+Both relay installs are now scoped (`--filter '@exp/steer-relay'` /
+`--filter '@exp/push-relay'`). Unlike the web image there is no second install
+to scope: neither relay builds anything, so the builder's install IS the
+published one and filtering it is the whole fix — steer relay `node_modules`
+1.2G → 40M, push relay → 106M (`firebase-admin`). `Dockerfile.push-relay` had
+the identical pattern but is built by Coolify rather than published, so its
+exposure was latent; it is fixed on the same terms rather than left as the next
+copy-paste source.
+
+`apps/web/src/lib/third-party-licences.test.ts` now gates **every** image the
+repo builds, not just `Dockerfile`, and asserts the node_modules provenance each
+gate assumes — so an image that starts copying a builder's `node_modules` fails
+the test until someone re-reads which install is published.
+
 ### Remotion 5.0 — a re-audit, not a bump
 
 `LICENSE.md` opens by announcing that the licence changes in Remotion 5.0
@@ -201,7 +233,15 @@ both:
 | Linux `.AppImage` | `usr/share/doc/exponential/{LICENSE,NOTICE,NOTICES.txt}` |
 | GitHub Release (incl. the bare Windows `.exe`) | `LICENSE`, `NOTICE`, `NOTICES.txt` alongside `SHA256SUMS.txt` |
 | `ghcr.io/niach/exponential-web` | `/app/LICENSE`, `/app/NOTICE`; the inventory is served at `/NOTICES.txt` |
+| `ghcr.io/niach/exponential-steer-relay` | `/app/LICENSE`, `/app/NOTICE` (REV-2) |
 | Desktop binary | `include_str!` — `apps/desktop/crates/app/src/licenses.rs` |
+
+The steer relay image ships no per-dependency inventory: it is not a client, it
+serves no HTTP surface to host one, and `packages/licenses` has no collector for
+it. Its whole runtime graph is `hono` + `zod` + `@exp/steer-ticket`, all MIT or
+ours, so what is outstanding is reproducing two MIT copyright notices — a real
+obligation, but a far smaller one than the Remotion redistribution above, and
+deliberately left to whoever adds a sixth collector.
 
 The desktop binary embeds `NOTICES.txt` because `assets.rs` compiles in ~3.6 MB
 of OFL-licensed Font Software and Lucide's ISC geometry while the `LICENSE.txt`
