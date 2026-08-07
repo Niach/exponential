@@ -29,7 +29,7 @@ import {
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
-const NavNotificationsIcon = conceptIcon(`nav-notifications`)
+const NavAccountIcon = conceptIcon(`nav-account`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 const NavSupportIcon = conceptIcon(`nav-support`)
@@ -147,10 +147,15 @@ export function TeamMobileTopbar({
               Settings
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => navigate({ to: `/account/notifications` })}
+              onClick={() =>
+                navigate({
+                  to: `/t/$teamSlug/settings/account`,
+                  params: { teamSlug },
+                })
+              }
             >
-              <NavNotificationsIcon className="mr-2 size-4" />
-              Account & notifications
+              <NavAccountIcon className="mr-2 size-4" />
+              Account
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
               <NavChangelogIcon className="mr-2 size-4" />

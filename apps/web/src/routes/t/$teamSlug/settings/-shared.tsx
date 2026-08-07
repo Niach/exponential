@@ -29,6 +29,9 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/boards`
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/widget`
+  | `/t/$teamSlug/settings/account`
+  | `/t/$teamSlug/settings/notifications`
+  | `/t/$teamSlug/settings/api-keys`
 
 export interface SettingsNavItem {
   label: string
@@ -119,6 +122,32 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         to: `/t/$teamSlug/settings/widget`,
         icon: conceptIcon(`settings-widget`),
         visible: (permissions) => permissions.canManageWidgets,
+      },
+    ],
+  },
+  // EXP-238: account settings merged into the one settings surface (the
+  // desktop IDE's Personal group). Last on purpose — the index redirect
+  // lands on the first visible item, which must stay a team section.
+  {
+    group: `Personal`,
+    items: [
+      {
+        label: `Account`,
+        to: `/t/$teamSlug/settings/account`,
+        icon: conceptIcon(`settings-account`),
+        visible: () => true,
+      },
+      {
+        label: `Notifications`,
+        to: `/t/$teamSlug/settings/notifications`,
+        icon: conceptIcon(`settings-notifications`),
+        visible: () => true,
+      },
+      {
+        label: `API keys`,
+        to: `/t/$teamSlug/settings/api-keys`,
+        icon: conceptIcon(`settings-api`),
+        visible: () => true,
       },
     ],
   },

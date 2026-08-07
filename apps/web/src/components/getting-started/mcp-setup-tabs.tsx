@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Check, Copy, Plug } from "lucide-react"
+import { Link, useParams } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
 import {
   Tabs,
@@ -87,6 +88,9 @@ export function McpSetupTabs() {
       ? `https://app.exponential.at`
       : window.location.origin
   const endpoint = buildMcpEndpoint(origin)
+  // Only rendered inside the team layout today, but the slug is read
+  // loosely so the component keeps working if that ever changes.
+  const { teamSlug } = useParams({ strict: false }) as { teamSlug?: string }
 
   return (
     <div className="space-y-3">
@@ -274,7 +278,19 @@ export function McpSetupTabs() {
       </Tabs>
       <Note>
         Signing in via OAuth lets you scope access per team/board; personal API
-        keys (Bearer expu_…) work for headless use.
+        keys (Bearer expu_…) work for headless use —{` `}
+        {teamSlug ? (
+          <Link
+            to="/t/$teamSlug/settings/api-keys"
+            params={{ teamSlug }}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            create one in Settings → API keys
+          </Link>
+        ) : (
+          `create one in Settings → API keys`
+        )}
+        .
       </Note>
     </div>
   )

@@ -80,11 +80,14 @@ import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlu
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
 import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
 import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$teamSlug/settings/repositories'
+import { Route as TTeamSlugSettingsNotificationsRouteImport } from './routes/t/$teamSlug/settings/notifications'
 import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
 import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
 import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
 import { Route as TTeamSlugSettingsBoardsRouteImport } from './routes/t/$teamSlug/settings/boards'
 import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSlug/settings/billing'
+import { Route as TTeamSlugSettingsApiKeysRouteImport } from './routes/t/$teamSlug/settings/api-keys'
+import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugReviewsIssueIdentifierRouteImport } from './routes/t/$teamSlug/reviews/$issueIdentifier'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
@@ -462,6 +465,12 @@ const TTeamSlugSettingsRepositoriesRoute =
     path: '/repositories',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
+const TTeamSlugSettingsNotificationsRoute =
+  TTeamSlugSettingsNotificationsRouteImport.update({
+    id: '/notifications',
+    path: '/notifications',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
 const TTeamSlugSettingsMembersRoute =
   TTeamSlugSettingsMembersRouteImport.update({
     id: '/members',
@@ -488,6 +497,18 @@ const TTeamSlugSettingsBillingRoute =
   TTeamSlugSettingsBillingRouteImport.update({
     id: '/billing',
     path: '/billing',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsApiKeysRoute =
+  TTeamSlugSettingsApiKeysRouteImport.update({
+    id: '/api-keys',
+    path: '/api-keys',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsAccountRoute =
+  TTeamSlugSettingsAccountRouteImport.update({
+    id: '/account',
+    path: '/account',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugReviewsIssueIdentifierRoute =
@@ -626,11 +647,14 @@ export interface FileRoutesByFullPath {
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
+  '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
+  '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
+  '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
@@ -711,11 +735,14 @@ export interface FileRoutesByTo {
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
+  '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
+  '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
+  '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
@@ -801,11 +828,14 @@ export interface FileRoutesById {
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
+  '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
+  '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
+  '/t/$teamSlug/settings/notifications': typeof TTeamSlugSettingsNotificationsRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
@@ -891,11 +921,14 @@ export interface FileRouteTypes {
     | '/api/issues/$issueId/files'
     | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
+    | '/t/$teamSlug/settings/account'
+    | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
+    | '/t/$teamSlug/settings/notifications'
     | '/t/$teamSlug/settings/repositories'
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
@@ -976,11 +1009,14 @@ export interface FileRouteTypes {
     | '/api/issues/$issueId/files'
     | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
+    | '/t/$teamSlug/settings/account'
+    | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
+    | '/t/$teamSlug/settings/notifications'
     | '/t/$teamSlug/settings/repositories'
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
@@ -1065,11 +1101,14 @@ export interface FileRouteTypes {
     | '/api/issues/$issueId/files'
     | '/api/issues/$issueId/images'
     | '/t/$teamSlug/reviews/$issueIdentifier'
+    | '/t/$teamSlug/settings/account'
+    | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/members'
+    | '/t/$teamSlug/settings/notifications'
     | '/t/$teamSlug/settings/repositories'
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
@@ -1641,6 +1680,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsRepositoriesRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/notifications': {
+      id: '/t/$teamSlug/settings/notifications'
+      path: '/notifications'
+      fullPath: '/t/$teamSlug/settings/notifications'
+      preLoaderRoute: typeof TTeamSlugSettingsNotificationsRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/members': {
       id: '/t/$teamSlug/settings/members'
       path: '/members'
@@ -1674,6 +1720,20 @@ declare module '@tanstack/react-router' {
       path: '/billing'
       fullPath: '/t/$teamSlug/settings/billing'
       preLoaderRoute: typeof TTeamSlugSettingsBillingRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/api-keys': {
+      id: '/t/$teamSlug/settings/api-keys'
+      path: '/api-keys'
+      fullPath: '/t/$teamSlug/settings/api-keys'
+      preLoaderRoute: typeof TTeamSlugSettingsApiKeysRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/account': {
+      id: '/t/$teamSlug/settings/account'
+      path: '/account'
+      fullPath: '/t/$teamSlug/settings/account'
+      preLoaderRoute: typeof TTeamSlugSettingsAccountRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
     '/t/$teamSlug/reviews/$issueIdentifier': {
@@ -1806,11 +1866,14 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 )
 
 interface TTeamSlugSettingsRouteRouteChildren {
+  TTeamSlugSettingsAccountRoute: typeof TTeamSlugSettingsAccountRoute
+  TTeamSlugSettingsApiKeysRoute: typeof TTeamSlugSettingsApiKeysRoute
   TTeamSlugSettingsBillingRoute: typeof TTeamSlugSettingsBillingRoute
   TTeamSlugSettingsBoardsRoute: typeof TTeamSlugSettingsBoardsRoute
   TTeamSlugSettingsGeneralRoute: typeof TTeamSlugSettingsGeneralRoute
   TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
   TTeamSlugSettingsMembersRoute: typeof TTeamSlugSettingsMembersRoute
+  TTeamSlugSettingsNotificationsRoute: typeof TTeamSlugSettingsNotificationsRoute
   TTeamSlugSettingsRepositoriesRoute: typeof TTeamSlugSettingsRepositoriesRoute
   TTeamSlugSettingsStatusesRoute: typeof TTeamSlugSettingsStatusesRoute
   TTeamSlugSettingsStorageRoute: typeof TTeamSlugSettingsStorageRoute
@@ -1820,11 +1883,14 @@ interface TTeamSlugSettingsRouteRouteChildren {
 
 const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
   {
+    TTeamSlugSettingsAccountRoute: TTeamSlugSettingsAccountRoute,
+    TTeamSlugSettingsApiKeysRoute: TTeamSlugSettingsApiKeysRoute,
     TTeamSlugSettingsBillingRoute: TTeamSlugSettingsBillingRoute,
     TTeamSlugSettingsBoardsRoute: TTeamSlugSettingsBoardsRoute,
     TTeamSlugSettingsGeneralRoute: TTeamSlugSettingsGeneralRoute,
     TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
     TTeamSlugSettingsMembersRoute: TTeamSlugSettingsMembersRoute,
+    TTeamSlugSettingsNotificationsRoute: TTeamSlugSettingsNotificationsRoute,
     TTeamSlugSettingsRepositoriesRoute: TTeamSlugSettingsRepositoriesRoute,
     TTeamSlugSettingsStatusesRoute: TTeamSlugSettingsStatusesRoute,
     TTeamSlugSettingsStorageRoute: TTeamSlugSettingsStorageRoute,

@@ -21,6 +21,7 @@ import {
   comments,
   issueLabels,
   issues,
+  issueStatuses,
   labels,
   notifications,
   boards,
@@ -32,6 +33,7 @@ import {
 import {
   issuePriorityValues,
   issueStatusValues,
+  issueStatusCategoryDisplayOrder,
   boardIconValues,
 } from "@/lib/domain"
 import { teamColumns } from "@/lib/team-columns"
@@ -584,11 +586,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_update`,
     {
-      description: `Update an issue's fields. Pass only the fields you want to change.`,
+      description: `Update an issue's fields. Pass only the fields you want to change. For a custom status pass statusId (not status); see exponential_statuses_list.`,
       inputSchema: {
         id: uuidString,
         title: z.string().min(1).max(500).optional(),
         status: issueStatusEnumSchema.optional(),
+        statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
         descriptionText: z.string().nullable().optional(),
@@ -934,6 +937,65 @@ export function registerExponentialTools(
         }
         const result = await caller(user, request).issues.update({ id, status })
         return ok(result.issue)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_statuses_list`,
+    {
+      description: `List a team's issue statuses (id, name, category, position). Use id as statusId in exponential_issues_update.`,
+      inputSchema: { teamId: uuidString },
+    },
+    async ({ teamId }) => {
+      try {
+        // Team-level read like labels: a visible (board-granted) team
+        // suffices, membership is still checked.
+        assertTeamVisible(access, teamId)
+        await resolveTeamAccess(user.id, teamId)
+        const rows = await db
+          .select({
+            id: issueStatuses.id,
+            name: issueStatuses.name,
+            category: issueStatuses.category,
+            builtinKey: issueStatuses.builtinKey,
+            sortOrder: issueStatuses.sortOrder,
+            createdAt: issueStatuses.createdAt,
+          })
+          .from(issueStatuses)
+          .where(eq(issueStatuses.teamId, teamId))
+        // Rule 1 of the cross-platform resolution contract
+        // (lib/team-statuses.ts): category display order, then sortOrder,
+        // createdAt, id.
+        const rank = new Map<string, number>(
+          issueStatusCategoryDisplayOrder.map((category, index) => [
+            category,
+            index,
+          ])
+        )
+        rows.sort(
+          (a, b) =>
+            (rank.get(a.category) ?? 99) - (rank.get(b.category) ?? 99) ||
+            a.sortOrder - b.sortOrder ||
+            a.createdAt.getTime() - b.createdAt.getTime() ||
+            (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+        )
+        const positions = new Map<string, number>()
+        return ok(
+          rows.map((row) => {
+            const position = (positions.get(row.category) ?? 0) + 1
+            positions.set(row.category, position)
+            return {
+              id: row.id,
+              name: row.name,
+              category: row.category,
+              position,
+              builtinKey: row.builtinKey,
+            }
+          })
+        )
       } catch (e) {
         return err(e)
       }

@@ -59,6 +59,35 @@ describe(`SETTINGS_NAV Statuses entry`, () => {
   })
 })
 
+// EXP-238: the Personal group merges account settings into the one settings
+// surface. Always visible, and LAST — the index redirect must keep landing
+// on a team section, never a personal one.
+describe(`SETTINGS_NAV Personal group`, () => {
+  const team: SettingsNavContext = { isCloud: false }
+  const personal = SETTINGS_NAV.find((group) => group.group === `Personal`)!
+
+  it(`is the last group with Account, Notifications, and API keys`, () => {
+    expect(SETTINGS_NAV[SETTINGS_NAV.length - 1]).toBe(personal)
+    expect(personal.items.map((item) => item.label)).toEqual([
+      `Account`,
+      `Notifications`,
+      `API keys`,
+    ])
+    expect(personal.items.map((item) => item.to)).toEqual([
+      `/t/$teamSlug/settings/account`,
+      `/t/$teamSlug/settings/notifications`,
+      `/t/$teamSlug/settings/api-keys`,
+    ])
+  })
+
+  it(`is visible to owners and plain members alike`, () => {
+    for (const item of personal.items) {
+      expect(item.visible(permissionsFor(`owner`), team)).toBe(true)
+      expect(item.visible(permissionsFor(`member`), team)).toBe(true)
+    }
+  })
+})
+
 describe(`SETTINGS_NAV General visibility`, () => {
   const team: SettingsNavContext = { isCloud: false }
 

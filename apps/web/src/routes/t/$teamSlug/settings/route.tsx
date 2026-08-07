@@ -29,9 +29,9 @@ function SettingsLayout() {
       className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${TAB_BAR_CLEARANCE}`}
     >
       <div>
-        <h1 className="text-2xl font-bold">Team Settings</h1>
+        <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Manage members, invites, and labels for {team?.name ?? ``}
+          Manage {team?.name ?? `your team`} and your account
         </p>
       </div>
 
