@@ -47,7 +47,6 @@ export function TeamMembersSection({
   userMap,
   teamId,
   showInvite,
-  solo = false,
 }: {
   currentUserId: string | undefined
   // Owner OR instance admin (mirrors assertCanManageMembers). Gates the
@@ -57,9 +56,6 @@ export function TeamMembersSection({
   userMap: Map<string, User>
   teamId?: string
   showInvite?: boolean
-  // When the user is solo, frame this as the deliberate "invite a teammate"
-  // path (inviting a second human is what reveals the team concept).
-  solo?: boolean
 }) {
   const ownerCount = members.filter((member) => member.role === `owner`).length
 
@@ -84,13 +80,9 @@ export function TeamMembersSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">
-          {solo ? `Invite teammates` : `Members`}
-        </CardTitle>
+        <CardTitle className="text-base">Members</CardTitle>
         <CardDescription>
-          {solo
-            ? `Invite someone to collaborate. Shared boards unlock team features.`
-            : `${members.length} member${members.length !== 1 ? `s` : ``} in this team`}
+          {members.length} member{members.length !== 1 ? `s` : ``} in this team
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

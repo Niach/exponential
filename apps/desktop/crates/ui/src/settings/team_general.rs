@@ -27,7 +27,7 @@ use crate::navigation::Navigation;
 
 use super::{
     active_team, card_title, error_notice, is_owner, open_url, row_stroke, section,
-    show_team_chrome, team_delete_error_message,
+    team_delete_error_message,
 };
 use crate::icons::registry;
 
@@ -430,13 +430,8 @@ impl Render for GeneralPane {
                     .child("No team selected."),
             );
         };
-        let solo = !show_team_chrome(cx, &team.id);
-        // Web parity: `if (solo) return null` — solo users don't see the
-        // "team" concept, so the name card (a name nobody else sees) is
-        // hidden. Visibility is deliberately not configurable (v6).
-        if solo {
-            return v_flex();
-        }
+        // Team visibility is deliberately not configurable (v6) — the pane
+        // is just the name card, billing summary and Danger Zone.
         let owner = is_owner(cx, &team.id);
         let dirty = self.dirty(cx);
         let saving = self.saving;
@@ -485,8 +480,7 @@ impl Render for GeneralPane {
             pane = pane.child(billing);
         }
 
-        // Danger Zone (web settings/index.tsx): owner + team-only (the solo
-        // case already returned above).
+        // Danger Zone (web settings/general.tsx): owner-only.
         if owner {
             let team_id = team.id.clone();
             let team_name = team.name.clone();

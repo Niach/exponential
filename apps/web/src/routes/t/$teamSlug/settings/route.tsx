@@ -21,22 +21,17 @@ export const Route = createFileRoute(`/t/$teamSlug/settings`)({
 
 function SettingsLayout() {
   const { teamSlug } = Route.useParams()
-  const { team, permissions, solo, config } =
-    useSettingsPage(teamSlug)
-  const navContext = { isCloud: Boolean(config?.isCloud), solo }
+  const { team, permissions, config } = useSettingsPage(teamSlug)
+  const navContext = { isCloud: Boolean(config?.isCloud) }
 
   return (
     <div
       className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${TAB_BAR_CLEARANCE}`}
     >
       <div>
-        <h1 className="text-2xl font-bold">
-          {solo ? `Settings` : `Team Settings`}
-        </h1>
+        <h1 className="text-2xl font-bold">Team Settings</h1>
         <p className="text-sm text-muted-foreground">
-          {solo
-            ? `Manage your boards, labels, and billing.`
-            : `Manage members, invites, and labels for ${team?.name ?? ``}`}
+          Manage members, invites, and labels for {team?.name ?? ``}
         </p>
       </div>
 

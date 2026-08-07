@@ -5,7 +5,7 @@ import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { getBoardIcon } from "@/lib/board-icons"
 import { useSession } from "@/hooks/use-session"
-import { useShowTeamChrome, useTeamMemberships } from "@/hooks/use-team-data"
+import { useTeamMemberships } from "@/hooks/use-team-data"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import {
@@ -27,9 +27,8 @@ interface BoardSwitcherSheetProps {
 const rowClass = `flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-muted/50`
 
 // Mobile board/team switcher (EXP-189), mirroring the native apps'
-// BoardSwitcherSheet: a bottom sheet listing the team's boards and — for
-// multi-team users (same solo-mode gate as the sidebar switcher) — the
-// user's other teams.
+// BoardSwitcherSheet: a bottom sheet listing the team's boards and the
+// user's teams.
 export function BoardSwitcherSheet({
   open,
   onOpenChange,
@@ -41,7 +40,6 @@ export function BoardSwitcherSheet({
   const navigate = useNavigate()
   const { data: session } = useSession()
   const { myTeams } = useTeamMemberships(session?.user?.id)
-  const showTeams = useShowTeamChrome(team?.id, session?.user?.id)
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
 
@@ -103,46 +101,42 @@ export function BoardSwitcherSheet({
               </button>
             )}
           </div>
-          {showTeams && (
-            <>
-              <div className="px-4 pb-2 pt-4 text-sm font-semibold">Teams</div>
-              <div className="flex flex-col px-2">
-                {myTeams.map((ws) => (
-                  <button
-                    key={ws.id}
-                    type="button"
-                    className={cn(
-                      rowClass,
-                      ws.slug === teamSlug && `bg-muted/50`
-                    )}
-                    onClick={() => {
-                      onOpenChange(false)
-                      navigate({
-                        to: `/t/$teamSlug`,
-                        params: { teamSlug: ws.slug },
-                      })
-                    }}
-                  >
-                    <div className="flex size-5 shrink-0 items-center justify-center rounded bg-primary text-[0.625rem] font-bold text-primary-foreground">
-                      {ws.name[0]?.toUpperCase()}
-                    </div>
-                    <span className="min-w-0 flex-1 truncate">{ws.name}</span>
-                    {ws.slug === teamSlug && (
-                      <Check className="size-4 shrink-0 text-muted-foreground" />
-                    )}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className={cn(rowClass, `text-muted-foreground`)}
-                  onClick={() => setCreateTeamOpen(true)}
-                >
-                  <Plus className="size-4 shrink-0" />
-                  New team
-                </button>
-              </div>
-            </>
-          )}
+          <div className="px-4 pb-2 pt-4 text-sm font-semibold">Teams</div>
+          <div className="flex flex-col px-2">
+            {myTeams.map((ws) => (
+              <button
+                key={ws.id}
+                type="button"
+                className={cn(
+                  rowClass,
+                  ws.slug === teamSlug && `bg-muted/50`
+                )}
+                onClick={() => {
+                  onOpenChange(false)
+                  navigate({
+                    to: `/t/$teamSlug`,
+                    params: { teamSlug: ws.slug },
+                  })
+                }}
+              >
+                <div className="flex size-5 shrink-0 items-center justify-center rounded bg-primary text-[0.625rem] font-bold text-primary-foreground">
+                  {ws.name[0]?.toUpperCase()}
+                </div>
+                <span className="min-w-0 flex-1 truncate">{ws.name}</span>
+                {ws.slug === teamSlug && (
+                  <Check className="size-4 shrink-0 text-muted-foreground" />
+                )}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={cn(rowClass, `text-muted-foreground`)}
+              onClick={() => setCreateTeamOpen(true)}
+            >
+              <Plus className="size-4 shrink-0" />
+              New team
+            </button>
+          </div>
         </SheetContent>
       </Sheet>
       {team && (

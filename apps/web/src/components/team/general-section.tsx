@@ -14,15 +14,7 @@ import { trpc } from "@/lib/trpc-client"
 
 // Team visibility is deliberately NOT configurable: every team is
 // member-only (EXP-180), so this card is just the name.
-export function TeamGeneralSection({
-  team,
-  solo = false,
-}: {
-  team: Team
-  // Solo users don't see the "team" concept, so the name field (a name
-  // nobody else sees) is hidden — nothing to render.
-  solo?: boolean
-}) {
+export function TeamGeneralSection({ team }: { team: Team }) {
   const [name, setName] = useState(team.name)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,8 +40,6 @@ export function TeamGeneralSection({
       setSaving(false)
     }
   }
-
-  if (solo) return null
 
   return (
     <Card>

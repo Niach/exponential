@@ -16,8 +16,7 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/`)({
 function SettingsIndexRedirect() {
   const { teamSlug } = Route.useParams()
   const navigate = useNavigate()
-  const { permissions, solo, config, resolved } =
-    useSettingsPage(teamSlug)
+  const { permissions, config, resolved } = useSettingsPage(teamSlug)
 
   const isCloud = Boolean(config?.isCloud)
   const ready = resolved && config !== null
@@ -25,7 +24,7 @@ function SettingsIndexRedirect() {
   useEffect(() => {
     if (!ready) return
     const first = SETTINGS_NAV.flatMap((group) => group.items).find((item) =>
-      item.visible(permissions, { isCloud, solo })
+      item.visible(permissions, { isCloud })
     )
     // Members is never gated, so `first` always exists.
     if (first) {
@@ -35,7 +34,7 @@ function SettingsIndexRedirect() {
         replace: true,
       })
     }
-  }, [ready, permissions, isCloud, solo, navigate, teamSlug])
+  }, [ready, permissions, isCloud, navigate, teamSlug])
 
   return null
 }

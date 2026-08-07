@@ -783,8 +783,9 @@ impl RailView {
                 // person; email lives in settings → Account).
                 let mut menu = menu;
                 // "Switch team" section — flat checked rows (the menu builder
-                // has no submenus); shown only with somewhere to switch to.
-                if teams.len() > 1 {
+                // has no submenus); always shown, even with a single team
+                // (EXP-434: no teams=1 special case anywhere).
+                if !teams.is_empty() {
                     menu = menu.label("Switch team");
                     for (id, name, active) in &teams {
                         menu = menu.menu_with_check(

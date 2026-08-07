@@ -8,7 +8,7 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/members`)({
 
 function SettingsMembers() {
   const { teamSlug } = Route.useParams()
-  const { session, team, members, userMap, permissions, solo } =
+  const { session, team, members, userMap, permissions } =
     useSettingsPage(teamSlug)
 
   return (
@@ -19,7 +19,6 @@ function SettingsMembers() {
       canManageMembers={permissions.canManageMembers}
       teamId={team?.id}
       showInvite={permissions.canManageMembers}
-      solo={solo}
     />
   )
 }

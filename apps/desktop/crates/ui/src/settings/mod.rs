@@ -10,9 +10,8 @@
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
 //! old flat Boards list into per-board detail pages), and the desktop-only
 //! **This device** group (Tools, Agents, Local repositories); the detail
-//! column shows ONE selected pane with the web's `isOwner &&` gating
-//! (General additionally hides when solo — the pane renders nothing there,
-//! matching the web); each pane mirrors its web card field-for-field.
+//! column shows ONE selected pane with the web's `isOwner &&` gating;
+//! each pane mirrors its web card field-for-field.
 //!
 //! Navigation INTO these screens: the rail's gear dispatches `OpenSettings`
 //! (see `sidebar.rs` + `navigation::init`); this module only provides the
@@ -202,13 +201,11 @@ fn section_icon(section: &SettingsSection) -> Icon {
     }
 }
 
-/// Web nav `visible` gating: General/board pages/Repositories are owner-only,
-/// and General additionally hides when solo (GeneralPane renders nothing
-/// there, mirroring the web section's `if (solo) return null`).
-fn section_visible(section: &SettingsSection, owner: bool, solo: bool) -> bool {
+/// Web nav `visible` gating: General/board pages/Repositories are owner-only.
+fn section_visible(section: &SettingsSection, owner: bool) -> bool {
     match section {
-        SettingsSection::General => owner && !solo,
-        SettingsSection::Storage
+        SettingsSection::General
+        | SettingsSection::Storage
         | SettingsSection::Board(_)
         | SettingsSection::Repositories => owner,
         _ => true,
@@ -217,8 +214,8 @@ fn section_visible(section: &SettingsSection, owner: bool, solo: bool) -> bool {
 
 /// The synced board ids of the active team, used to clamp a stale
 /// `Board(id)` selection. `None` while the boards collection is still
-/// loading — treat any selection as valid then (bias kept, mirroring
-/// `is_solo_team`'s loading bias) so a restored selection doesn't bounce.
+/// loading — treat any selection as valid then so a restored selection
+/// doesn't bounce.
 fn valid_board_ids(
     cx: &App,
     nav: &Entity<Navigation>,
@@ -247,10 +244,9 @@ fn valid_board_ids(
 fn effective_selection(
     selected: SettingsSection,
     owner: bool,
-    solo: bool,
     board_ok: impl Fn(&str) -> bool,
 ) -> SettingsSection {
-    let visible = section_visible(&selected, owner, solo)
+    let visible = section_visible(&selected, owner)
         && match &selected {
             SettingsSection::Board(id) => board_ok(id),
             _ => true,
@@ -262,7 +258,7 @@ fn effective_selection(
         .iter()
         .flat_map(|group| group.items)
         .map(|item| item.section.clone())
-        .find(|section| section_visible(section, owner, solo))
+        .find(|section| section_visible(section, owner))
         .expect("Members is never gated")
 }
 
@@ -322,8 +318,8 @@ impl SettingsView {
         let local_repos = cx.new(LocalReposPane::new);
         let about = cx.new(|_| AboutPane::new());
 
-        // The section nav + header depend on role (owner gating) and the
-        // solo heuristic — re-render when membership/team data moves.
+        // The section nav + header depend on role (owner gating) —
+        // re-render when membership/team data moves.
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -331,7 +327,6 @@ impl SettingsView {
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
-            cx.observe(&collections.users, |_, _, cx| cx.notify()),
             // EXP-288: a trashed board clamps a selected `Board(id)` back.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
         ];
@@ -360,13 +355,6 @@ impl Render for SettingsView {
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
-        let solo = {
-            let team_id = active_team_id(&self.nav, cx);
-            team_id
-                .as_deref()
-                .map(|ws| !show_team_chrome(cx, ws))
-                .unwrap_or(true)
-        };
         // Web settings layout route (EXP-146): grouped left nav + one
         // selected section pane in the detail column. EXP-282: the nav is
         // the window's left column now ([`SettingsNavPanel`]) — this view is
@@ -375,7 +363,6 @@ impl Render for SettingsView {
         let effective = effective_selection(
             self.shared.read(cx).settings_section(),
             owner,
-            solo,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
 
@@ -442,10 +429,9 @@ impl SettingsNavPanel {
             // The Account row's highlight follows the active screen.
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&shared, |_, _, cx| cx.notify()),
-            // Owner/solo gating hides rows — same data the detail view reads.
+            // Owner gating hides rows — same data the detail view reads.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
-            cx.observe(&collections.users, |_, _, cx| cx.notify()),
             // EXP-288: the Boards group lists the live synced boards.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
         ];
@@ -519,10 +505,6 @@ impl Render for SettingsNavPanel {
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
-        let solo = active_team_id(&self.nav, cx)
-            .as_deref()
-            .map(|ws| !show_team_chrome(cx, ws))
-            .unwrap_or(true);
         // The Account screen IS a settings section as far as this column is
         // concerned — while it is up no team/device row is highlighted.
         let on_account = matches!(resolved_screen(&self.nav, cx), Some(Screen::Account));
@@ -530,7 +512,6 @@ impl Render for SettingsNavPanel {
         let effective = effective_selection(
             self.shared.read(cx).settings_section(),
             owner,
-            solo,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
         let team_id = active_team_id(&self.nav, cx);
@@ -545,7 +526,7 @@ impl Render for SettingsNavPanel {
             let visible: Vec<&NavItem> = group
                 .items
                 .iter()
-                .filter(|item| section_visible(&item.section, owner, solo))
+                .filter(|item| section_visible(&item.section, owner))
                 .collect();
             // EXP-288: the Boards group's per-board rows are injected ahead
             // of its static items (owner-only, like the pages themselves).
@@ -673,8 +654,7 @@ impl Render for SettingsNavPanel {
 
 
 // ---------------------------------------------------------------------------
-// Shared query helpers (settings-scoped; the general chrome helper moves to
-// `queries.rs` with the §4.8 sidebar solo rule)
+// Shared query helpers (settings-scoped)
 // ---------------------------------------------------------------------------
 
 /// The window's active synced team row.
@@ -714,52 +694,6 @@ pub(crate) fn is_owner(cx: &App, team_id: &str) -> bool {
     my_membership(cx, team_id)
         .map(|(_, role)| role == domain::contract::TEAM_ROLE_OWNER)
         .unwrap_or(false)
-}
-
-/// Web `useIsSolo`: true while data loads (bias hidden), else "≤1 human
-/// member" (agents excluded).
-pub(crate) fn is_solo_team(cx: &App, team_id: &str) -> bool {
-    let collections = Store::global(cx).collections();
-    if !collections.team_members.read(cx).is_ready()
-        || !collections.teams.read(cx).is_ready()
-    {
-        return true;
-    }
-    if collections.teams.read(cx).get(team_id).is_none() {
-        return true;
-    }
-    let member_count = collections
-        .team_members
-        .read(cx)
-        .iter()
-        .filter(|member| member.team_id == team_id)
-        .count();
-    member_count <= 1
-}
-
-/// Web `useShowTeamChrome`: revealed when the team stops being solo
-/// OR the user explicitly reasons about 2+ teams.
-pub(crate) fn show_team_chrome(cx: &App, team_id: &str) -> bool {
-    let is_solo = is_solo_team(cx, team_id);
-    let Some(me) = queries::active_account(cx) else {
-        return !is_solo;
-    };
-    let collections = Store::global(cx).collections();
-    let membership_ids: std::collections::HashSet<String> = collections
-        .team_members
-        .read(cx)
-        .iter()
-        .filter(|member| member.user_id == me.user_id)
-        .map(|member| member.team_id.clone())
-        .collect();
-    // Web parity: the count reduces to "teams I have a membership row
-    // in".
-    let teams = collections.teams.read(cx);
-    let explicit_count = teams
-        .iter()
-        .filter(|team| membership_ids.contains(&team.id))
-        .count();
-    !is_solo || explicit_count > 1
 }
 
 // ---------------------------------------------------------------------------
@@ -1053,7 +987,7 @@ mod tests {
     #[test]
     fn owner_defaults_to_general() {
         assert_eq!(
-            effective_selection(SettingsSection::General, true, false, any_board),
+            effective_selection(SettingsSection::General, true, any_board),
             SettingsSection::General
         );
     }
@@ -1067,27 +1001,10 @@ mod tests {
             SettingsSection::Repositories,
         ] {
             assert_eq!(
-                effective_selection(gated, false, false, any_board),
+                effective_selection(gated, false, any_board),
                 SettingsSection::Members
             );
         }
-    }
-
-    #[test]
-    fn solo_owner_hides_general() {
-        // GeneralPane renders nothing when solo (web parity), so the nav must
-        // hide it and the default selection must fall through to Members.
-        assert!(!section_visible(&SettingsSection::General, true, true));
-        assert_eq!(
-            effective_selection(SettingsSection::General, true, true, any_board),
-            SettingsSection::Members
-        );
-        // Solo does NOT gate the other owner sections.
-        assert!(section_visible(
-            &SettingsSection::Board("b-1".to_string()),
-            true,
-            true
-        ));
     }
 
     #[test]
@@ -1097,34 +1014,32 @@ mod tests {
             SettingsSection::Agents,
             SettingsSection::LocalRepos,
         ] {
-            assert!(section_visible(&section, false, true));
+            assert!(section_visible(&section, false));
             assert_eq!(
-                effective_selection(section.clone(), false, true, any_board),
+                effective_selection(section.clone(), false, any_board),
                 section
             );
         }
     }
 
-    /// EXP-262: About is never gated and never falls back — for any
-    /// owner/solo combination the selection sticks, even though the section
-    /// lives outside `NAV_GROUPS` (the fallback scan could never return it).
+    /// EXP-262: About is never gated and never falls back — for any owner
+    /// state the selection sticks, even though the section lives outside
+    /// `NAV_GROUPS` (the fallback scan could never return it).
     #[test]
     fn about_is_never_gated_and_never_falls_back() {
         for owner in [false, true] {
-            for solo in [false, true] {
-                assert!(section_visible(&SettingsSection::About, owner, solo));
-                assert_eq!(
-                    effective_selection(SettingsSection::About, owner, solo, any_board),
-                    SettingsSection::About
-                );
-            }
+            assert!(section_visible(&SettingsSection::About, owner));
+            assert_eq!(
+                effective_selection(SettingsSection::About, owner, any_board),
+                SettingsSection::About
+            );
         }
     }
 
     #[test]
     fn ungated_selection_is_kept() {
         assert_eq!(
-            effective_selection(SettingsSection::Labels, false, false, any_board),
+            effective_selection(SettingsSection::Labels, false, any_board),
             SettingsSection::Labels
         );
     }
@@ -1180,11 +1095,11 @@ mod tests {
     fn stale_board_selection_falls_back() {
         let selected = SettingsSection::Board("b-1".to_string());
         assert_eq!(
-            effective_selection(selected.clone(), true, false, |id| id == "b-1"),
+            effective_selection(selected.clone(), true, |id| id == "b-1"),
             selected
         );
         assert_eq!(
-            effective_selection(selected, true, false, |_| false),
+            effective_selection(selected, true, |_| false),
             SettingsSection::General
         );
     }
