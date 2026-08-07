@@ -1031,8 +1031,19 @@ impl BlockTextElement {
 /// EXP-322 vendoring: what `request_layout` hands `prepaint` — the shaped
 /// lines plus the document↔shaped offset map they were shaped with.
 pub struct BlockLayoutState {
-    lines: Rc<RefCell<Option<Vec<WrappedLine>>>>,
+    /// The measure closure's last shaping: the wrap width it used and the
+    /// lines it produced. EXP-436: the wrap width rides along because taffy
+    /// probes the closure under SEVERAL available widths per pass (an
+    /// unclamped ancestor available space among them) and the last probe
+    /// wins this cell — prepaint re-shapes at the FINAL bounds width when
+    /// they disagree, so painted lines always match the laid-out box.
+    lines: Rc<RefCell<Option<(Pixels, Vec<WrappedLine>)>>>,
     shaped: ChipShapedText,
+    /// Re-shape inputs for the prepaint width check (cheap clones).
+    runs: Rc<Vec<TextRun>>,
+    text: SharedString,
+    font_size: Pixels,
+    measure_gutter_width: Pixels,
 }
 
 /// Prepared text layout and paint geometry for one `BlockTextElement` frame.
@@ -1185,6 +1196,19 @@ impl Element for BlockTextElement {
         let shared_lines = Rc::new(RefCell::new(None));
         let shared_lines_clone = shared_lines.clone();
         let layout_width = input.environment.layout_width.clone();
+        let runs = Rc::new(runs);
+        let measure_runs = runs.clone();
+        let measure_text = display_text.clone();
+        // EXP-436: the honest wrap ceiling for this block (see
+        // `effective_text_wrap_budget`) — available space arriving through
+        // display-BLOCK ancestors is unclamped by the centered column under
+        // the pinned taffy.
+        let wrap_budget = super::render::effective_text_wrap_budget(
+            input,
+            f32::from(window.viewport_size().width.max(px(1.0))),
+            &theme.dimensions,
+        )
+        .map(px);
 
         let mut layout_style = Style::default();
         layout_style.size.width = relative(1.).into();
@@ -1194,8 +1218,15 @@ impl Element for BlockTextElement {
         let layout_id = window.request_measured_layout(
             layout_style,
             move |known_dimensions, available_space, window, _cx| {
+                // EXP-436: a width the parent KNOWS is trusted as-is (table
+                // cells get explicit column widths); free available space is
+                // clamped by the block's honest wrap budget.
+                let clamp = |width: Pixels| match wrap_budget {
+                    Some(budget) => width.min(budget),
+                    None => width,
+                };
                 let wrap_width = known_dimensions.width.or(match available_space.width {
-                    AvailableSpace::Definite(x) => Some(x),
+                    AvailableSpace::Definite(x) => Some(clamp(x)),
                     AvailableSpace::MinContent => Some(px(1.0)),
                     // EXP-421 soft wrap: MaxContent used to resolve to the
                     // VIEWPORT width, so an unbroken run reported a
@@ -1209,20 +1240,20 @@ impl Element for BlockTextElement {
                         let recorded = f32::from_bits(
                             layout_width.load(std::sync::atomic::Ordering::Relaxed),
                         );
-                        Some(if recorded > 1.0 {
+                        Some(clamp(if recorded > 1.0 {
                             px(recorded).min(viewport)
                         } else {
                             viewport
-                        })
+                        }))
                     }
                 });
                 let text_wrap_width =
                     wrap_width.map(|width| (width - source_line_number_gutter_width).max(px(1.0)));
 
                 match window.text_system().shape_text(
-                    display_text.clone(),
+                    measure_text.clone(),
                     font_size,
-                    &runs,
+                    &measure_runs,
                     text_wrap_width,
                     None,
                 ) {
@@ -1234,7 +1265,8 @@ impl Element for BlockTextElement {
                             total_size.width = total_size.width.max(ls.width);
                         }
                         total_size.width += source_line_number_gutter_width;
-                        *shared_lines_clone.borrow_mut() = Some(lines.into_vec());
+                        *shared_lines_clone.borrow_mut() =
+                            Some((text_wrap_width.unwrap_or(px(f32::MAX)), lines.into_vec()));
                         total_size
                     }
                     Err(_) => Size::default(),
@@ -1247,6 +1279,10 @@ impl Element for BlockTextElement {
             BlockLayoutState {
                 lines: shared_lines,
                 shaped,
+                runs,
+                text: display_text,
+                font_size,
+                measure_gutter_width: source_line_number_gutter_width,
             },
         )
     }
@@ -1281,7 +1317,42 @@ impl Element for BlockTextElement {
         // EXP-322 vendoring: everything below works in SHAPED coordinates —
         // the text that was actually laid out, chips' titles included.
         let shaped = request_layout.shaped.clone();
-        let lines = request_layout.lines.borrow_mut().take().unwrap_or_default();
+        let (measured_wrap_width, mut lines) = request_layout
+            .lines
+            .borrow_mut()
+            .take()
+            .map(|(width, lines)| (Some(width), lines))
+            .unwrap_or_default();
+        // EXP-436: taffy calls the measure closure under several available
+        // widths per layout pass (min-content, max-content, the final
+        // constraint), and the cell above keeps whichever ran LAST — which
+        // is not always the constraint the final bounds came from. When the
+        // kept lines would paint PAST the box taffy actually assigned,
+        // re-shape at the real bounds width so glyphs never overflow the
+        // layout (the EXP-233 paint-vs-bounds oracle, enforced locally).
+        // A box WIDER than the kept lines is left alone — re-wrapping at a
+        // content-sized box's width could split lines the box height never
+        // accounted for.
+        let final_wrap_width =
+            (bounds.size.width - request_layout.measure_gutter_width).max(px(1.0));
+        let max_line_width = lines
+            .iter()
+            .map(|line| f32::from(line.size(line_height).width))
+            .fold(0.0, f32::max);
+        let overflows = measured_wrap_width.is_none()
+            || max_line_width > f32::from(final_wrap_width) + 0.5;
+        if overflows {
+            if let Ok(reshaped) = window.text_system().shape_text(
+                request_layout.text.clone(),
+                request_layout.font_size,
+                &request_layout.runs,
+                Some(final_wrap_width),
+                None,
+            ) {
+                lines = reshaped.into_vec();
+            }
+        }
+        let lines = lines;
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let source_line_number_gutter_width = show_source_line_numbers
             .then(|| source_line_number_gutter_width(lines.len().max(1), font_size))

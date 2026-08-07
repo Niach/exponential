@@ -793,12 +793,12 @@ impl Render for Editor {
         // rows cap their width budget with it (see
         // `container_image_width_budget`). Change-gated: only a real width
         // change re-renders the image rows, so steady frames stay quiet.
-        // The listener lives on an OUTER bare wrapper whose single child is
-        // `content_area` (a `w_full().min_w(0)` div), so `bounds[0]` measures
-        // the editor's slot and never the fit-content width of the scroll
-        // column — measuring the content let a wide image row feed its own
-        // `measured - 2` budget back into next frame's measurement, shrinking
-        // the image by 2px per frame (the EXP-421 ratchet).
+        // EXP-436: the listener lives on `base` and reads `bounds[0]` — the
+        // slot-measuring wrapper below, a pure-stretch flex item with no
+        // content influence — so the recording measures the editor's slot and
+        // NEVER a content-derived width. Measuring a node the content can
+        // inflate feeds that width back into next frame's budgets: a wide
+        // image row shrank itself 2px per frame (the EXP-421 ratchet).
         // A prepaint listener, deliberately NOT an extra canvas element — an
         // absolutely-positioned recorder child measurably corrupted this
         // auto-height container's layout (the timeline below the editor
@@ -845,6 +845,19 @@ impl Render for Editor {
             .w_full()
             .when(!self.embedded, |this| this.h_full().flex_1())
             .min_w(px(0.0))
+            // EXP-436: a FLEX column, not gpui's default block. Under the
+            // pinned taffy, a percent-width child of a display-BLOCK parent
+            // resolves against the wrong basis (or falls back to
+            // fit-content): at a window wide enough for a whole paragraph on
+            // one line, `scroll_content` adopted the UNWRAPPED text width and
+            // settled there — the description painted one clipped line far
+            // past the centered column. Flex cross-axis stretch resolves the
+            // child width against this container definitively, so the
+            // fit-content equilibrium can never form. Same rationale on the
+            // slot-measuring wrapper below.
+            .flex()
+            .flex_col()
+            .items_stretch()
             .bg(theme.colors.editor_background)
             .relative()
             .child(scroll_content);
@@ -985,13 +998,17 @@ impl Render for Editor {
         };
 
         // The slot-measuring wrapper (see the `width_listener` comment).
-        // Registered on the bare `Div` — `.id()` wraps it Stateful, which no
-        // longer exposes the listener hook. Its single child is
-        // `content_area`, so `bounds[0]` is content_area's own bounds.
+        // EXP-436: the listener moved UP onto `base`, so `bounds[0]` is THIS
+        // wrapper — a pure-stretch flex item the content cannot inflate —
+        // and never `content_area`, whose width a wide content row could
+        // reach. A FLEX column like `content_area`, for the same reason (see
+        // the comment there).
         let content_area = div()
-            .on_children_prepainted(width_listener)
             .w_full()
             .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .items_stretch()
             .when(!self.embedded, |this| this.h_full().flex_1())
             .child(content_area);
 
@@ -1004,6 +1021,7 @@ impl Render for Editor {
         let follow_modifier_active = window.modifiers().secondary();
 
         let base = div()
+            .on_children_prepainted(width_listener)
             .w_full()
             .when(!self.embedded, |this| this.h_full())
             .flex()

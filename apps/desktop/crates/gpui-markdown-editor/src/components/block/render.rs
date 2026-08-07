@@ -239,6 +239,58 @@ fn container_image_width_budget(block: &Block, viewport_width: f32, d: &ThemeDim
     centered_width - quote_inset - callout_inset
 }
 
+/// EXP-436: the widest wrap width this block's TEXT can honestly take —
+/// the recorded slot width (capped by the standalone centered column) minus
+/// the block's own inset stack, mirroring [`effective_image_width`] /
+/// [`effective_list_item_image_width`]. Under the pinned taffy, available
+/// space reaching the text element through display-BLOCK hops is the
+/// UNCLAMPED ancestor available space (the scroll pane, not the centered
+/// column), so at a wide window a paragraph measured "one unwrapped line
+/// fits" and kept that layout — the measure closure clamps its wrap width
+/// with this budget instead. `None` before the first slot recording (the
+/// transient first frame keeps today's behavior and self-corrects when the
+/// recording lands — the width listener notifies every block).
+pub(super) fn effective_text_wrap_budget(
+    block: &Block,
+    viewport_width: f32,
+    d: &ThemeDimensions,
+) -> Option<f32> {
+    let measured = f32::from_bits(
+        block
+            .environment
+            .layout_width
+            .load(std::sync::atomic::Ordering::Relaxed),
+    );
+    if measured <= 1.0 {
+        return None;
+    }
+    let container = measured.min(Editor::centered_column_width(viewport_width, d));
+    let quote_inset = d.quote_padding_left * visible_quote_guides(block) as f32;
+    let callout_inset = if block.callout_depth > 0 {
+        d.callout_padding_x * 2.0 + d.callout_border_width
+    } else {
+        0.0
+    };
+    let marker_inset = match block.kind() {
+        BlockKind::BulletedListItem => d.list_marker_width + d.list_marker_gap,
+        BlockKind::TaskListItem { .. } => {
+            d.list_marker_width.max(d.task_checkbox_size) + d.list_marker_gap
+        }
+        BlockKind::NumberedListItem => d.ordered_list_marker_width + d.list_marker_gap,
+        _ => 0.0,
+    };
+    let list_inset = d.nested_block_indent * block.render_depth as f32;
+    Some(
+        (container
+            - quote_inset
+            - callout_inset
+            - d.block_padding_x * 2.0
+            - list_inset
+            - marker_inset)
+            .max(1.0),
+    )
+}
+
 fn effective_image_width(block: &Block, viewport_width: f32, d: &ThemeDimensions) -> f32 {
     let list_inset = d.nested_block_indent * block.render_depth as f32;
     (container_image_width_budget(block, viewport_width, d) - d.block_padding_x * 2.0 - list_inset)
