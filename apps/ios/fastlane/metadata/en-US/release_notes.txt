@@ -1,4 +1,4 @@
-- Staying signed in is fixed: the app no longer loses your session when it restarts
-- The multi-select bar now floats above the bottom menu instead of pushing the list down
-- The welcome screen signs you in with Apple or Google directly, no extra step
-- Sharing into the app while signed out no longer shows two Cancel buttons
+- Start coding sessions on a teammate's shared server machine
+- Feedback screenshots now sync reliably instead of stalling or vanishing
+- A cleaner create and run experience for team actions
+- Smaller fixes and polish

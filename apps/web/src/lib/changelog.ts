@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-device-sharing-remote-login`,
+    date: `2026-08-07`,
+    title: `Shared machines, remote sign-in, and widget themes`,
+    summary: `Share a server machine with your team for remote coding sessions, sign the agent CLI in from anywhere when a session asks for it, and give the feedback widget your own theme and labels.`,
+    body: `- **Share a machine with your team**: mark a server device as shared and teammates can start coding sessions on it, each run owned and steered by whoever started it.
+- **Remote sign-in**: when the agent CLI on a remote machine needs a login, the sign-in link surfaces in the live session feed so you can authorize without walking over.
+- **Widget themes and labels**: the feedback widget takes light, dark, or auto themes with custom colors, and reporters can tag their feedback with labels you pick.
+- **Create actions anywhere**: a New action button on the Agents page starts the creator run that writes the action for you.
+- **Consistent move confirms**: moving an issue to another board asks the same way from the list menu and the detail sidebar.`,
+  },
+  {
     id: `2026-08-unified-settings-api-keys`,
     date: `2026-08-07`,
     title: `One settings page, API keys, and a skill for your agents`,
