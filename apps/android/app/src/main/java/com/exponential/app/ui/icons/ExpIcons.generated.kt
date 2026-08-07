@@ -5983,6 +5983,8 @@ public object ExpIcons {
     public val settingsAccount: ImageVector get() = `circle-user`
     /** Concept `settings-agents`. */
     public val settingsAgents: ImageVector get() = `bot`
+    /** Concept `settings-api`. */
+    public val settingsApi: ImageVector get() = `key`
     /** Concept `settings-billing`. */
     public val settingsBilling: ImageVector get() = `credit-card`
     /** Concept `settings-boards`. */
@@ -5997,6 +5999,8 @@ public object ExpIcons {
     public val settingsLocalRepos: ImageVector get() = `hard-drive`
     /** Concept `settings-members`. */
     public val settingsMembers: ImageVector get() = `users`
+    /** Concept `settings-notifications`. */
+    public val settingsNotifications: ImageVector get() = `bell`
     /** Concept `settings-rate`. */
     public val settingsRate: ImageVector get() = `star`
     /** Concept `settings-repositories`. */

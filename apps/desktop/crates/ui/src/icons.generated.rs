@@ -435,6 +435,8 @@ pub const SETTINGS_ABOUT: ExpIcon = ExpIcon::Info;
 pub const SETTINGS_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
 /// Registry concept `settings-agents` -> Lucide `bot`.
 pub const SETTINGS_AGENTS: ExpIcon = ExpIcon::Bot;
+/// Registry concept `settings-api` -> Lucide `key`.
+pub const SETTINGS_API: ExpIcon = ExpIcon::Key;
 /// Registry concept `settings-billing` -> Lucide `credit-card`.
 pub const SETTINGS_BILLING: ExpIcon = ExpIcon::CreditCard;
 /// Registry concept `settings-boards` -> Lucide `square-kanban`.
@@ -449,6 +451,8 @@ pub const SETTINGS_LICENSES: ExpIcon = ExpIcon::Scale;
 pub const SETTINGS_LOCAL_REPOS: ExpIcon = ExpIcon::HardDrive;
 /// Registry concept `settings-members` -> Lucide `users`.
 pub const SETTINGS_MEMBERS: ExpIcon = ExpIcon::Users;
+/// Registry concept `settings-notifications` -> Lucide `bell`.
+pub const SETTINGS_NOTIFICATIONS: ExpIcon = ExpIcon::Bell;
 /// Registry concept `settings-rate` -> Lucide `star`.
 pub const SETTINGS_RATE: ExpIcon = ExpIcon::Star;
 /// Registry concept `settings-repositories` -> Lucide `github`.

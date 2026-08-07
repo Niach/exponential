@@ -101,6 +101,8 @@
     "settings-agents": "bot",
     "settings-local-repos": "hard-drive",
     "settings-account": "circle-user",
+    "settings-notifications": "bell",
+    "settings-api": "key",
     "settings-servers": "server",
     "settings-sync": "refresh-cw",
     "settings-rate": "star",
