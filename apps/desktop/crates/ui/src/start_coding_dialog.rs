@@ -49,6 +49,7 @@
 //! `Prepared::Disabled` reason renders inline and keeps the dialog open.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, size, AnyWindowHandle, App, AppContext as _, Entity,
@@ -125,6 +126,11 @@ fn pr_pick_options(cx: &App, team_id: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Fired once after a successful ISSUE-subject launch (EXP-439) — the bulk
+/// bar passes a callback that clears its multiselect, so starting a batch
+/// session leaves batch selection behind.
+pub type OnLaunched = Rc<dyn Fn(&mut App)>;
+
 /// Open the dialog from an issue's Play button: pre-seed that issue checked.
 /// A no-op when the issue row isn't synced (racing a delete).
 pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
@@ -148,23 +154,26 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog: board not synced for {issue_id}");
         return;
     };
-    open(window, cx, team_id, vec![issue.id], None, None, false);
+    open(window, cx, team_id, vec![issue.id], None, None, false, None);
 }
 
 /// Open the dialog from the bulk bar with the selection pre-checked.
+/// `on_launched` fires once on a successful launch (EXP-439 — the bulk bar
+/// clears its selection there).
 pub fn open_for_selection(
     window: &mut Window,
     cx: &mut App,
     team_id: String,
     issue_ids: Vec<String>,
+    on_launched: Option<OnLaunched>,
 ) {
-    open(window, cx, team_id, issue_ids, None, None, false);
+    open(window, cx, team_id, issue_ids, None, None, false, on_launched);
 }
 
 /// Open the dialog on the ACTIONS tab with `action_id` preselected (EXP-257
 /// — the actions panel rows land here).
 pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, action_id: String) {
-    open(window, cx, team_id, Vec::new(), Some(action_id), None, false);
+    open(window, cx, team_id, Vec::new(), Some(action_id), None, false, None);
 }
 
 /// Open the dialog in CREATE mode (EXP-431 — the Actions tool header's "New
@@ -180,6 +189,7 @@ pub fn open_for_create_action(window: &mut Window, cx: &mut App, team_id: String
         Some(api::actions::BUILTIN_CREATE_ACTION_ID.to_string()),
         None,
         true,
+        None,
     );
 }
 
@@ -201,9 +211,11 @@ pub fn open_for_fix_conflicts(
         Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
         Some(issue_id),
         false,
+        None,
     );
 }
 
+#[allow(clippy::too_many_arguments)] // the one shared entry every open_* rides
 fn open(
     window: &mut Window,
     cx: &mut App,
@@ -212,6 +224,7 @@ fn open(
     preselect_action: Option<String>,
     preselect_pr: Option<String>,
     create_mode: bool,
+    on_launched: Option<OnLaunched>,
 ) {
     // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
     // picker left, options right); the launched terminal tab lands back in
@@ -231,6 +244,7 @@ fn open(
                 preselect_action,
                 preselect_pr,
                 create_mode,
+                on_launched,
                 opener,
                 window,
                 cx,
@@ -385,16 +399,21 @@ pub struct StartCodingDialogView {
     skip_permissions: bool,
     launching: bool,
     error: Option<SharedString>,
+    /// EXP-439: fired ONCE after a successful issue-subject launch — the bulk
+    /// bar's opener passes a selection-clearing callback (`take()`n on fire).
+    on_launched: Option<OnLaunched>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl StartCodingDialogView {
+    #[allow(clippy::too_many_arguments)] // mirrors `open`'s parameter list
     fn new(
         team_id: String,
         preselected: Vec<String>,
         preselect_action: Option<String>,
         preselect_pr: Option<String>,
         create_mode: bool,
+        on_launched: Option<OnLaunched>,
         opener: AnyWindowHandle,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -575,6 +594,7 @@ impl StartCodingDialogView {
             skip_permissions,
             launching: false,
             error: None,
+            on_launched,
             _subscriptions: subscriptions,
         };
         this.probe_generation += 1;
@@ -1319,7 +1339,14 @@ impl StartCodingDialogView {
             let _ = this.update_in(window, |this, window, cx| {
                 this.launching = false;
                 match outcome {
-                    Ok(()) => native_dialog::close_dialog_window(window, cx),
+                    Ok(()) => {
+                        // EXP-439: the session took the selection over — the
+                        // bulk bar's callback drops the multiselect.
+                        if let Some(on_launched) = this.on_launched.take() {
+                            on_launched(cx);
+                        }
+                        native_dialog::close_dialog_window(window, cx)
+                    }
                     Err(message) => this.error = Some(message),
                 }
                 cx.notify();

@@ -21,11 +21,12 @@
 //! dropdown cells `stop_propagation` so opening them never triggers the
 //! row's click→detail navigation (§4.6's #1 bug source).
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::{
-    div, px, size, App, ClickEvent, ClipboardItem, ElementId, FocusHandle, FontWeight,
+    canvas, div, px, size, App, ClickEvent, ClipboardItem, ElementId, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Pixels, Render, SharedString,
     Size, StatefulInteractiveElement as _, Styled, WeakEntity, Window,
 };
@@ -70,6 +71,12 @@ const KEY_CONTEXT: &str = "IssueList";
 /// FIX F4: the bulk tRPC procedures cap inputs at 200 ids — clients chunk
 /// and call sequentially.
 const BULK_CHUNK: usize = 200;
+/// EXP-439: below this measured list width the label chips collapse to bare
+/// color dots. Full chips at panel width squeezed whatever the row could
+/// shrink, and because flex pressure is PER ROW, only labeled rows gave way —
+/// the status column walked out of line. The compact flag is global (one
+/// canvas measure per frame), so every row renders the same grid.
+const COMPACT_LIST_WIDTH: f32 = 440.;
 
 gpui::actions!(
     issue_list,
@@ -144,6 +151,14 @@ pub struct IssueListView {
     /// per frame in `render` and read by the rows to drop the assignee cell
     /// (a solo team can only self-assign, so the affordance is noise).
     solo_team: bool,
+    /// The list's content width as of the last prepaint (the mention-input
+    /// canvas-measure pattern) — `render` classifies [`Self::compact`] from
+    /// it, the canvas notifies only when the classification flips.
+    measured_width: Rc<Cell<Pixels>>,
+    /// EXP-439: measured width below [`COMPACT_LIST_WIDTH`] — rows collapse
+    /// their label chips to bare color dots. Global per frame, so every row
+    /// keeps the same grid.
+    compact: bool,
     /// Focus target of the [`KEY_CONTEXT`] bindings (terminal-dock pattern).
     focus_handle: FocusHandle,
     /// This window's navigation — the rows highlight the issue whose detail
@@ -189,6 +204,8 @@ impl IssueListView {
             select_anchor: None,
             bulk_busy: false,
             solo_team: false,
+            measured_width: Rc::new(Cell::new(px(0.))),
+            compact: false,
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             team_statuses: Rc::new(Vec::new()),
@@ -428,6 +445,7 @@ impl IssueListView {
         let is_active = self.active_issue_id.as_deref() == Some(issue.id.as_str());
         let any_selected = !self.selected.is_empty();
         let solo_team = self.solo_team;
+        let compact = self.compact;
 
         div()
             // Stable per-issue ElementId (§4.6): echo/refetch keeps row
@@ -497,13 +515,15 @@ impl IssueListView {
                     .w_6()
                     .child(priority_dropdown(issue, cx)),
             )
-            // 72px identifier — SHRINKABLE down to 44px (EXP-426): under
-            // narrow-panel pressure the column gives up its trailing air
-            // before the title cell (min_w 88 below) starts truncating.
+            // 72px identifier — FIXED again (EXP-439): EXP-426 let it shrink
+            // to 44px under narrow-panel pressure, but flex pressure is per
+            // ROW, so only rows with trailing chips gave way and the status
+            // column drifted out of line. Narrow panels reclaim the space by
+            // collapsing the chips instead (the `compact` flag).
             .child(
                 div()
                     .w(px(72.))
-                    .min_w(px(44.))
+                    .flex_shrink_0()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .font_family(theme::terminal::FONT_FAMILY)
@@ -536,13 +556,22 @@ impl IssueListView {
                             .child(SharedString::from(issue.title.clone())),
                     ),
             )
-            // auto labels (web rounded-full chips with the color dot).
+            // auto labels — the web rounded-full chips, collapsed to bare
+            // color dots when the panel is narrow (EXP-439: full chips ate
+            // the title and forced per-row shrinking).
             .child(
                 h_flex()
                     .ml_2()
                     .gap_1p5()
                     .flex_shrink_0()
-                    .children(labels.iter().map(|label| label_chip(label, cx))),
+                    .when(compact, |cell| cell.gap_1())
+                    .children(labels.iter().map(|label| {
+                        if compact {
+                            label_dot(label, cx).into_any_element()
+                        } else {
+                            label_chip(label, cx).into_any_element()
+                        }
+                    })),
             )
             // 28px assignee dropdown cell (web `AssigneeDropdown` — avatar or
             // dashed placeholder circle). Dropped entirely on a solo team.
@@ -879,6 +908,7 @@ impl IssueListView {
         // pre-checked (one repo per run is enforced there).
         let start_coding = {
             let ids = ids.clone();
+            let list = list.clone();
             let team_id = team_id.clone();
             // EXP-367: no agent CLI installed → disabled with the reason,
             // never hidden (same copy as every Start-coding affordance).
@@ -890,11 +920,18 @@ impl IssueListView {
                 .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
                 .disabled(busy || no_agent.is_some())
                 .on_click(move |_, window, cx| {
+                    // EXP-439: a successful launch ends the multiselect — the
+                    // session took the batch over, so the dialog's launch
+                    // callback unselects everything.
+                    let list = list.clone();
                     crate::start_coding_dialog::open_for_selection(
                         window,
                         cx,
                         team_id.clone(),
                         ids.clone(),
+                        Some(Rc::new(move |cx: &mut App| {
+                            let _ = list.update(cx, |this, cx| this.clear_selection(cx));
+                        })),
                     );
                 })
         };
@@ -936,13 +973,14 @@ impl IssueListView {
                 })
         };
 
-        // EXP-426: an INLINE row — the filter bar swaps its Filter/New-Issue
-        // cluster for this element while a selection exists (its row keeps a
-        // fixed min-height, so the list rows still never move — the EXP-289
+        // EXP-426: an INLINE row — the filter bar swaps its Filter cluster
+        // for this element while a selection exists (its row keeps a fixed
+        // min-height, so the list rows still never move — the EXP-289
         // no-jump invariant, without the old floating-overlay masking).
+        // EXP-439: content-sized (no `w_full`) so the filter bar can keep
+        // the New Issue button beside it on the same row.
         h_flex()
             .id("bulk-action-bar")
-            .w_full()
             .gap_2()
             .items_center()
             .child(
@@ -1050,13 +1088,47 @@ impl Render for IssueListView {
                 .unwrap_or_else(domain::statuses::default_resolved_statuses),
         );
 
+        // EXP-439: classify the chip treatment off the LAST frame's measured
+        // width (0 until the first prepaint — default to full chips, web
+        // parity); the canvas below notifies when the classification flips,
+        // so a resize across the threshold re-renders exactly once.
+        let measured = self.measured_width.get();
+        self.compact = measured > px(0.) && measured < px(COMPACT_LIST_WIDTH);
+
         // Base surface: NONE — the list sits directly on the window's page
         // gradient (EXP-282; `colors.list` has been transparent since the
         // EXP-269 glass pass, so the old `.bg()` was a dead no-op). Key
         // context + tracked focus scope the select-all/clear bindings here
         // (terminal-dock pattern).
+        let rendered_compact = self.compact;
+        let measured_width = self.measured_width.clone();
+        let entity = cx.entity().downgrade();
         let base = v_flex()
             .size_full()
+            .relative()
+            .child(
+                // Width probe (the mention-input canvas idiom): record the
+                // list's width at prepaint; re-render only on a compact flip.
+                // The notify is DEFERRED — this view is leased while its own
+                // element tree prepaints, so an inline update would panic.
+                canvas(
+                    move |bounds, _, cx| {
+                        measured_width.set(bounds.size.width);
+                        let compact = bounds.size.width < px(COMPACT_LIST_WIDTH);
+                        if compact != rendered_compact {
+                            let entity = entity.clone();
+                            cx.defer(move |cx| {
+                                if let Some(list) = entity.upgrade() {
+                                    list.update(cx, |_, cx| cx.notify());
+                                }
+                            });
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this, _: &SelectAll, _, cx| {
@@ -1889,6 +1961,17 @@ pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
         }
         .into(),
     )
+}
+
+/// EXP-439 compact chip: the label's color dot alone — what a narrow list
+/// keeps of [`label_chip`] (name and border dropped, hue preserved).
+fn label_dot(label: &Label, cx: &App) -> impl IntoElement {
+    let color = label
+        .color
+        .as_deref()
+        .and_then(parse_hex_color)
+        .unwrap_or(cx.theme().muted_foreground);
+    div().size_1p5().rounded_full().flex_shrink_0().bg(color)
 }
 
 /// Web label chip: rounded-full border, 1.5px color dot, label name.

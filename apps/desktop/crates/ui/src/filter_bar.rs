@@ -7,8 +7,9 @@
 //! Structure:
 //!
 //! 1. control row — either the list's INLINE bulk-action bar (while a
-//!    selection exists) or the right-aligned [`IssueFilterPopover`] trigger
-//!    and (when `can_create`) the indigo **New Issue** button. The row keeps
+//!    selection exists) or the right-aligned [`IssueFilterPopover`] trigger,
+//!    plus (when `can_create`) the indigo **New Issue** button in BOTH
+//!    states (EXP-439 — multiselect used to swap it away). The row keeps
 //!    a fixed min-height so the swap never moves the list rows (the EXP-289
 //!    no-jump invariant, in-flow since EXP-426), and the control cluster
 //!    wraps instead of overflowing when the panel gets narrow.
@@ -79,18 +80,40 @@ impl IssueFilterBar {
     }
 }
 
+/// The solid-indigo New Issue button. Web: xs bg-indigo-600
+/// hover:bg-indigo-700 text-white ml-1, Plus + "New Issue" (the shared
+/// hand-rolled button; the pinned ButtonCustomVariant cannot render a solid
+/// fill). Dispatches the typed action (§3.6) — the create-issue dialog's
+/// handler picks it up. EXP-289: one step bigger here only (h_6 → h_7 +
+/// roomier padding) — the shared helper keeps its dialog-footer geometry.
+fn new_issue_button(cx: &App) -> impl IntoElement {
+    indigo_button("filter-bar-new-issue", false, cx)
+        .ml_1()
+        .h_7()
+        .px_3()
+        .child(Icon::new(registry::UI_ADD).small())
+        .child("New Issue")
+        .on_click(|_, window, cx| window.dispatch_action(Box::new(NewIssue), cx))
+}
+
 impl RenderOnce for IssueFilterBar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // The control row: bulk bar (selection alive) XOR the Filter /
-        // New-Issue cluster. Fixed min-height keeps the swap jump-free; the
-        // cluster wraps (`flex_wrap`) so a narrow panel drops New Issue onto
-        // a second line instead of overlapping anything.
+        // The control row: bulk bar (selection alive) XOR the Filter popover
+        // trigger, with the New Issue button in BOTH states (EXP-439 —
+        // entering multiselect used to swap it away entirely). Fixed
+        // min-height keeps the swap jump-free; both clusters wrap
+        // (`flex_wrap`) so a narrow panel drops New Issue onto a second line
+        // instead of overlapping anything.
         let control_row = match self.bulk {
             Some(bulk) => h_flex()
                 .py_2()
                 .min_h(px(CONTROL_ROW_MIN_H))
                 .items_center()
-                .child(bulk),
+                .justify_between()
+                .flex_wrap()
+                .gap_1()
+                .child(bulk)
+                .when(self.can_create, |row| row.child(new_issue_button(cx))),
             None => h_flex()
                 .py_2()
                 .min_h(px(CONTROL_ROW_MIN_H))
@@ -107,28 +130,7 @@ impl RenderOnce for IssueFilterBar {
                     self.on_filters_change.clone(),
                     self.on_view_change.clone(),
                 ))
-                .when(self.can_create, |row| {
-                    row.child(
-                        // Web: xs bg-indigo-600 hover:bg-indigo-700
-                        // text-white ml-1, Plus + "New Issue" — SOLID
-                        // indigo (the shared hand-rolled button; the
-                        // pinned ButtonCustomVariant cannot render a
-                        // solid fill). Dispatches the typed action
-                        // (§3.6) — the create-issue dialog's handler
-                        // picks it up. EXP-289: one step bigger here only
-                        // (h_6 → h_7 + roomier padding) — the shared
-                        // helper keeps its dialog-footer geometry.
-                        indigo_button("filter-bar-new-issue", false, cx)
-                            .ml_1()
-                            .h_7()
-                            .px_3()
-                            .child(Icon::new(registry::UI_ADD).small())
-                            .child("New Issue")
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(NewIssue), cx)
-                            }),
-                    )
-                }),
+                .when(self.can_create, |row| row.child(new_issue_button(cx))),
         };
 
         v_flex()
