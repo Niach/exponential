@@ -160,6 +160,17 @@ export const steerRouter = router({
           message: `Only the session owner can open a live session`,
         })
       }
+      // A requester steering a run on someone ELSE's shared device must still
+      // be a member of the session's team — removal from the team would
+      // otherwise leave them typing into the host's machine via re-minted
+      // tickets for as long as the session lives.
+      if (
+        session.userId === userId &&
+        session.hostUserId !== null &&
+        session.hostUserId !== userId
+      ) {
+        await assertTeamMember(userId, session.teamId)
+      }
       return mintSteerTicket(config, {
         kind: `viewer`,
         userId,

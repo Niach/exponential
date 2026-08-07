@@ -1057,6 +1057,26 @@ describe(`steer.mintTicket — owner OR host (EXP-432)`, () => {
     queueSession({ userId: `actor`, hostUserId: null })
     await caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
     expect(h.mintSteerTicket).toHaveBeenCalledTimes(1)
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
+  })
+
+  it(`re-checks team membership for a requester on someone else's host`, async () => {
+    queueSession({ userId: `actor`, hostUserId: `host-1` })
+    await caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, `ws-1`)
+    expect(h.mintSteerTicket).toHaveBeenCalledTimes(1)
+  })
+
+  it(`refuses a requester who left the team on someone else's host`, async () => {
+    queueSession({ userId: `actor`, hostUserId: `host-1` })
+    h.assertTeamMember.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Not a member` })
+    )
+    const error = await rejectionOf(
+      caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(h.mintSteerTicket).not.toHaveBeenCalled()
   })
 })
 
