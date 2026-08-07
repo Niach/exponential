@@ -298,7 +298,13 @@ data class AttachmentEntity(
     // Denormalized issue→board id (v7 server trigger).
     @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
     @ColumnInfo(name = "comment_id") @SerialName("comment_id") @JsonNames("commentId") val commentId: String? = null,
-    @ColumnInfo(name = "uploader_id") @SerialName("uploader_id") @JsonNames("uploaderId") val uploaderId: String,
+    // NULLABLE (REV-7), mirroring the server column: a widget screenshot
+    // attachment has no human uploader, and the FK is ON DELETE SET NULL, so a
+    // deleted account nulls the uploader on attachments it left behind in a
+    // surviving team. Required here, a null insert failed to decode (dropped
+    // forever) and a SET NULL partial update threw NOT NULL inside the batch,
+    // stalling the attachments shape on every poll.
+    @ColumnInfo(name = "uploader_id") @SerialName("uploader_id") @JsonNames("uploaderId") val uploaderId: String? = null,
     val filename: String,
     @ColumnInfo(name = "content_type") @SerialName("content_type") @JsonNames("contentType") val contentType: String,
     @ColumnInfo(name = "size_bytes") @SerialName("size_bytes") @JsonNames("sizeBytes") val sizeBytes: Long,

@@ -25,7 +25,9 @@ import XCTest
 // stays) the eleventh, v13_issue_statuses (EXP-314: the synced
 // issue_statuses table, 16th shape, + issues.status_id) the twelfth, and
 // v14_drop_board_is_protected (EXP-364: protected boards deleted from the
-// product) the thirteenth.
+// product) the thirteenth, and v15_attachment_nullable_uploader (REV-7:
+// attachments.uploader_id is nullable server-side — a table rebuild, the v6
+// precedent, since SQLite can't relax a NOT NULL via ALTER) the fourteenth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -68,7 +70,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
-             "v13_issue_statuses", "v14_drop_board_is_protected"]
+             "v13_issue_statuses", "v14_drop_board_is_protected",
+             "v15_attachment_nullable_uploader"]
         )
     }
 
@@ -85,7 +88,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
-             "v13_issue_statuses", "v14_drop_board_is_protected"]
+             "v13_issue_statuses", "v14_drop_board_is_protected",
+             "v15_attachment_nullable_uploader"]
         )
     }
 
@@ -130,7 +134,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
-             "v13_issue_statuses", "v14_drop_board_is_protected"]
+             "v13_issue_statuses", "v14_drop_board_is_protected",
+             "v15_attachment_nullable_uploader"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -195,7 +200,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
-             "v13_issue_statuses", "v14_drop_board_is_protected"]
+             "v13_issue_statuses", "v14_drop_board_is_protected",
+             "v15_attachment_nullable_uploader"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -283,6 +289,94 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(boardCols.contains("is_protected"))
         XCTAssertTrue(boardCols.contains("icon"))
         XCTAssertTrue(boardCols.contains("repository_id"))
+    }
+
+    // v15 (REV-7): a `-v5` store created while `attachments.uploader_id` was
+    // still NOT NULL must be rebuilt nullable, keep its rows, and get the
+    // attachments shape offset reset (the widget-screenshot inserts it dropped
+    // only come back on a full re-snapshot). Today's v1 create already makes the
+    // column nullable — hand-build the constrained table to model the old state.
+    func testAttachmentUploaderRelaxedInExistingV5Store() throws {
+        let pool = try makePool("attachment-uploader")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v14_drop_board_is_protected")
+        try pool.write { db in
+            try db.drop(table: "attachments")
+            try db.create(table: "attachments") { t in
+                t.primaryKey("id", .text)
+                t.column("team_id", .text).notNull().indexed()
+                t.column("issue_id", .text).notNull().indexed()
+                t.column("comment_id", .text)
+                t.column("uploader_id", .text).notNull()
+                t.column("filename", .text).notNull()
+                t.column("content_type", .text).notNull()
+                t.column("size_bytes", .integer).notNull()
+                t.column("storage_key", .text).notNull()
+                t.column("url", .text).notNull()
+                t.column("width", .integer)
+                t.column("height", .integer)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.execute(sql: """
+                INSERT INTO "attachments" (
+                    "id", "team_id", "issue_id", "uploader_id", "filename",
+                    "content_type", "size_bytes", "storage_key", "url",
+                    "created_at", "updated_at"
+                )
+                VALUES ('a1', 'w1', 'i1', 'u1', 'shot.png', 'image/png', 12,
+                        'k1', '/api/attachments/a1',
+                        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('attachments', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let uploader = try pool.read { db in
+            try db.columns(in: "attachments").first { $0.name == "uploader_id" }
+        }
+        XCTAssertNotNil(uploader)
+        XCTAssertFalse(uploader?.isNotNull ?? true)
+        // The rebuild copies rows, it doesn't drop them.
+        let existing = try pool.read { db in
+            try String.fetchOne(db, sql: "SELECT \"filename\" FROM \"attachments\" WHERE \"id\" = 'a1'")
+        }
+        XCTAssertEqual(existing, "shot.png")
+        // A null uploader now persists instead of throwing.
+        XCTAssertNoThrow(try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "attachments" (
+                    "id", "team_id", "issue_id", "uploader_id", "filename",
+                    "content_type", "size_bytes", "storage_key", "url",
+                    "created_at", "updated_at"
+                )
+                VALUES ('a2', 'w1', 'i1', NULL, 'widget.png', 'image/png', 34,
+                        'k2', '/api/attachments/a2',
+                        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+                """)
+        })
+        // The rebuild must force a re-snapshot of the attachments shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'attachments'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
     }
 
     // v8 (EXP-253 actions): a `-v5` store created before the action columns
@@ -484,6 +578,16 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(inviteEmail)
         XCTAssertFalse(inviteEmail?.isNotNull ?? true)
+
+        // attachments.uploader_id (nullable, REV-7): the server column is
+        // nullable — widget screenshots have no human uploader and the FK is ON
+        // DELETE SET NULL — and the shape allowlist carries it, so a NOT NULL
+        // here drops inserts and stalls the shape on a SET NULL update.
+        let attachmentUploader = try pool.read { db in
+            try db.columns(in: "attachments").first { $0.name == "uploader_id" }
+        }
+        XCTAssertNotNil(attachmentUploader)
+        XCTAssertFalse(attachmentUploader?.isNotNull ?? true)
     }
 
     // The `-v5` canonical file name + the legacy-file purge list are the wipe

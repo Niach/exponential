@@ -911,7 +911,11 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
     public let teamId: String
     public let issueId: String
     public let commentId: String?
-    public let uploaderId: String
+    // NULLABLE (REV-7), mirroring the server column: a widget screenshot
+    // attachment has no human uploader, and the FK is ON DELETE SET NULL, so a
+    // deleted account nulls the uploader on attachments it left behind in a
+    // surviving team.
+    public let uploaderId: String?
     public let filename: String
     public let contentType: String
     public let sizeBytes: Int
@@ -927,7 +931,7 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
         teamId: String,
         issueId: String,
         commentId: String?,
-        uploaderId: String,
+        uploaderId: String?,
         filename: String,
         contentType: String,
         sizeBytes: Int,
@@ -973,6 +977,8 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
 // them through the type-aware wire helpers. A same-file extension keeps
 // encode(to:) synthesis. size_bytes is NOT NULL; a hypothetical absent value
 // falls back to 0 (the SQLite column default) rather than killing the row.
+// uploader_id is decodeIfPresent (REV-7): the server column is nullable, and a
+// strict decode would drop widget-screenshot inserts on the floor.
 extension AttachmentEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -980,7 +986,7 @@ extension AttachmentEntity: Codable {
         teamId = try c.decode(String.self, forKey: .teamId)
         issueId = try c.decode(String.self, forKey: .issueId)
         commentId = try c.decodeIfPresent(String.self, forKey: .commentId)
-        uploaderId = try c.decode(String.self, forKey: .uploaderId)
+        uploaderId = try c.decodeIfPresent(String.self, forKey: .uploaderId)
         filename = try c.decode(String.self, forKey: .filename)
         contentType = try c.decode(String.self, forKey: .contentType)
         sizeBytes = try c.decodeWireInt(forKey: .sizeBytes) ?? 0

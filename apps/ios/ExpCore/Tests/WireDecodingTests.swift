@@ -112,6 +112,25 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertEqual(attachment.width, 800)
         XCTAssertEqual(attachment.height, 600)
         XCTAssertEqual(attachment.filename, "3.5")
+        XCTAssertEqual(attachment.uploaderId, "u1")
+    }
+
+    // REV-7: uploader_id is NULLABLE server-side — a widget screenshot has no
+    // human uploader, and the FK is ON DELETE SET NULL, so a deleted account
+    // nulls the uploader on attachments left behind in a surviving team. A
+    // strict decode here dropped those inserts on the floor forever.
+    func testAttachmentDecodesNullUploader() throws {
+        let attachment = try decode(AttachmentEntity.self, #"""
+        {
+          "id": "a1", "team_id": "w1", "issue_id": "i1", "uploader_id": null,
+          "filename": "screenshot.png", "content_type": "image/png",
+          "size_bytes": "12345", "storage_key": "k", "url": "/x",
+          "width": null, "height": null,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(attachment.uploaderId)
+        XCTAssertEqual(attachment.filename, "screenshot.png")
     }
 
     // MARK: - Notification (issue-less support_reply rows carry team_id)

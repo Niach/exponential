@@ -141,9 +141,17 @@ import androidx.room.RoomDatabase
     //      delete affordance is now plain owner-only. Removing a column is
     //      decode-safe (ignoreUnknownKeys) and the destructive fallback wipes +
     //      resyncs.
+    // v34 (REV-7): attachments.uploader_id went nullable — the server column
+    //      always was (widget screenshots have no human uploader; the FK is ON
+    //      DELETE SET NULL) and the shape allowlist carries it, so the required
+    //      field dropped widget-screenshot inserts on decode and a SET NULL
+    //      partial update bound NULL into the NOT NULL column, failing the
+    //      batch before the offset advanced and stalling the shape forever.
+    //      Relaxing a constraint needs the destructive fallback's wipe + resync
+    //      (Room can't ALTER it away), which also re-delivers the dropped rows.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 33,
+    version = 34,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

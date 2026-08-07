@@ -1,3 +1,4 @@
+import Foundation
 import GRDB
 import XCTest
 @testable import ExpCore
@@ -188,6 +189,60 @@ final class ShapeClientTests: XCTestCase {
         ]
         """#)
         XCTAssertTrue(messages.isEmpty)
+    }
+
+    // MARK: - Apply-error classification (the 3-strike auto-refetch trigger)
+
+    // REV-7: a shape column that went nullable server-side arrives as a partial
+    // update binding NULL into a still-constrained local column. That throws
+    // inside applyBatch BEFORE the offset save, so the identical batch refetches
+    // and refails on every poll — a permanent stall the 3-strike auto-refetch
+    // never saw, because only "no such column/table" counted. Constraint
+    // violations must count too: the refetch replays the rows as full-row
+    // inserts, so at worst a single row is dropped instead of the whole shape.
+    // The messages are SQLite's own, so the matching is pinned to real text.
+    func testConstraintViolationCountsAsSchemaDrift() throws {
+        try pool.write { db in
+            try db.create(table: "t") { t in
+                t.primaryKey("id", .text)
+                t.column("uploader_id", .text).notNull()
+            }
+        }
+        do {
+            try pool.write { db in
+                try db.execute(sql: #"INSERT INTO "t" ("id", "uploader_id") VALUES ('a', NULL)"#)
+            }
+            XCTFail("expected a NOT NULL constraint failure")
+        } catch {
+            XCTAssertTrue(ShapeClient<Row>.isSchemaError(error), "\(error)")
+        }
+    }
+
+    // The classic drift (an older local schema against a newer shape) still
+    // triggers the refetch.
+    func testMissingTableCountsAsSchemaDrift() throws {
+        do {
+            try pool.write { db in
+                try db.execute(sql: #"INSERT INTO "nope" ("id") VALUES ('a')"#)
+            }
+            XCTFail("expected a no-such-table failure")
+        } catch {
+            XCTAssertTrue(ShapeClient<Row>.isSchemaError(error), "\(error)")
+        }
+    }
+
+    // An unrelated SQLite failure does not — a refetch is the wrong answer to
+    // "the statement itself is nonsense" — and neither does a transport error.
+    func testUnrelatedFailuresAreNotSchemaDrift() throws {
+        do {
+            try pool.write { db in
+                try db.execute(sql: "SELECT no_such_function()")
+            }
+            XCTFail("expected a no-such-function failure")
+        } catch {
+            XCTAssertFalse(ShapeClient<Row>.isSchemaError(error), "\(error)")
+        }
+        XCTAssertFalse(ShapeClient<Row>.isSchemaError(URLError(.notConnectedToInternet)))
     }
 }
 

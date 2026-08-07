@@ -31,8 +31,9 @@ public struct ShapeStatus: Sendable {
     // The most recent apply/transport error message (verbatim SQLite text for a
     // GRDB failure), how many errors have arrived in a row without an
     // intervening clean poll, whether the last one was a schema-class failure
-    // (no such column/table — the drift the tolerant-apply guards against), and
-    // the auto-recovery state for this shape.
+    // (no such column/table, or a constraint the local schema still enforces
+    // and the server no longer does — the drift the tolerant-apply guards
+    // against), and the auto-recovery state for this shape.
     public var lastErrorMessage: String?
     public var consecutiveErrors: Int = 0
     public var isSchemaError: Bool = false
