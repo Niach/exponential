@@ -16,7 +16,10 @@ import type {
 import {
   buttonCss,
   defaultZIndex,
+  lightPalette,
   megaphoneIconSvg,
+  resolveThemeMode,
+  resolveThemePreference,
   theme,
 } from "./theme"
 import { submitFeedback, submitSupportRequest } from "./api-client"
@@ -109,7 +112,7 @@ function start(): void {
 
     const root = host.attachShadow({ mode: `open` })
     const style = document.createElement(`style`)
-    style.textContent = buttonCss(resolvedAccent())
+    style.textContent = buttonCss(resolvedAccent(), resolvedThemeMode())
     const button = document.createElement(`button`)
     button.className = `exp-fab`
     button.setAttribute(`aria-label`, `Send feedback`)
@@ -125,11 +128,23 @@ function start(): void {
     state.loaderButtonHost = host
   }
 
+  function resolvedThemeMode() {
+    return resolveThemeMode(
+      resolveThemePreference(
+        state?.themeOverride,
+        state?.options.theme,
+        state?.config?.form?.theme
+      )
+    )
+  }
+
   function resolvedAccent(): string {
     return (
       state?.options.color ??
       state?.config?.form?.accentColor ??
-      theme.defaultAccent
+      (resolvedThemeMode() === `light`
+        ? lightPalette.defaultAccent
+        : theme.defaultAccent)
     )
   }
 
@@ -190,6 +205,7 @@ function start(): void {
         bundleInjected: false,
         loaderButtonHost: null,
         bundle: null,
+        themeOverride: null,
         configPromise: fetch(
           `${apiOrigin}/api/widget/config?key=${encodeURIComponent(options.key)}`,
           { credentials: `omit` }
@@ -258,6 +274,24 @@ function start(): void {
         return
       }
       state.customData = JSON.parse(json) as ExponentialWidgetCustomData
+      state.bundle?.stateChanged()
+    },
+
+    // Runtime theme override (EXP-435): restyle the standalone launcher and
+    // nudge the mounted bundle (its render derives the palette from
+    // state.themeOverride). Queued pre-load calls replay like any other.
+    setTheme(themePref) {
+      if (!state) return
+      if (
+        themePref !== `dark` &&
+        themePref !== `light` &&
+        themePref !== `auto`
+      ) {
+        warn(`setTheme: expected "dark", "light" or "auto"`)
+        return
+      }
+      state.themeOverride = themePref
+      restyleButton()
       state.bundle?.stateChanged()
     },
 
@@ -363,6 +397,13 @@ function start(): void {
                     filename:
                       blob instanceof File && blob.name ? blob.name : `image`,
                   })),
+                // Host-picked label ids (EXP-435) — the server drops anything
+                // outside the widget's configured set.
+                labelIds: Array.isArray(request.labels)
+                  ? request.labels.filter(
+                      (id): id is string => typeof id === `string`
+                    )
+                  : undefined,
                 meta: collectEnvMeta(),
               })
         if (result.ok) {

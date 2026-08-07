@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks"
-import type { WidgetCustomField } from "../types"
+import type { WidgetCustomField, WidgetRemoteLabel } from "../types"
 import { acceptedUploadImageTypes, maxUploadedImages } from "../uploads"
 import { ownCustomValue } from "./custom-values"
 import type { Screenshot, UploadedImage } from "./App"
@@ -76,9 +76,15 @@ export function Panel(props: {
   collectName: boolean
   nameRequired: boolean
   customFields: WidgetCustomField[]
+  // Owner-exposed labels the reporter can toggle (EXP-435); empty = no field.
+  labels: WidgetRemoteLabel[]
   onClose(): void
   // Capture from scratch (empty state) — lands in the annotator on success.
   onCapture(): void
+  // Native display capture (EXP-435): true only where getDisplayMedia
+  // exists (desktop browsers); renders the "Capture screen" chip.
+  displayCaptureSupported: boolean
+  onCaptureDisplay(): void
   onRetake(): void
   onAnnotate(): void
   onRemoveScreenshot(): void
@@ -90,6 +96,7 @@ export function Panel(props: {
     email: string
     name: string
     customValues: Record<string, string>
+    labelIds: string[]
     // The honeypot's value — empty for every real reporter.
     website: string
   }): Promise<string | null>
@@ -107,6 +114,7 @@ export function Panel(props: {
   const [message, setMessage] = useState(``)
   const [supportEmail, setSupportEmail] = useState(``)
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   // Honeypot (REV2-69): the server drops any submission that carries a
   // non-empty `website`, but the field was never rendered — so DOM-walking
   // bots had nothing to fall for. Shared by both forms; a real reporter can
@@ -235,9 +243,18 @@ export function Panel(props: {
       email: email.trim(),
       name: name.trim(),
       customValues,
+      labelIds: selectedLabelIds,
       website,
     })
     if (failure) setError(failure)
+  }
+
+  const toggleLabel = (id: string) => {
+    setSelectedLabelIds((previous) =>
+      previous.includes(id)
+        ? previous.filter((selected) => selected !== id)
+        : [...previous, id]
+    )
   }
 
   const submitSupport = async (event: Event) => {
@@ -529,13 +546,25 @@ export function Panel(props: {
                     ? `Screenshot couldn't be captured.`
                     : `Attach a screenshot of this page.`}
                 </span>
-                <button
-                  type="button"
-                  className="exp-chip"
-                  onClick={props.onCapture}
-                >
-                  {props.captureFailed ? `Try again` : `Take screenshot`}
-                </button>
+                <div className="exp-shot-empty-actions">
+                  <button
+                    type="button"
+                    className="exp-chip"
+                    onClick={props.onCapture}
+                  >
+                    {props.captureFailed ? `Try again` : `Take screenshot`}
+                  </button>
+                  {props.displayCaptureSupported && (
+                    <button
+                      type="button"
+                      className="exp-chip"
+                      title="Uses your browser's screen sharing to capture content a page snapshot can miss"
+                      onClick={props.onCaptureDisplay}
+                    >
+                      Capture screen
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -610,6 +639,33 @@ export function Panel(props: {
               }
             />
           </div>
+
+          {props.labels.length > 0 && (
+            <div className="exp-field">
+              <label id="exp-labels-label">What is this about?</label>
+              <div
+                className="exp-labels"
+                role="group"
+                aria-labelledby="exp-labels-label"
+              >
+                {props.labels.map((label) => (
+                  <button
+                    type="button"
+                    key={label.id}
+                    className="exp-label-chip"
+                    aria-pressed={selectedLabelIds.includes(label.id)}
+                    onClick={() => toggleLabel(label.id)}
+                  >
+                    <span
+                      className="exp-label-dot"
+                      style={{ background: label.color }}
+                    />
+                    {label.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {props.customFields.map((field) => (
             <div className="exp-field" key={field.key}>

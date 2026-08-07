@@ -118,6 +118,9 @@ export async function submitFeedback(args: {
   screenshot: Blob | null
   // Reporter-attached pictures (FEED-5), sent after the screenshot.
   images?: { blob: Blob; filename: string }[]
+  // Reporter-picked label ids (EXP-435); the server drops anything outside
+  // the widget's configured set.
+  labelIds?: string[]
   // See submitSupportRequest — the honeypot rides both forms.
   website?: string
   meta: EnvMeta
@@ -135,6 +138,9 @@ export async function submitFeedback(args: {
   const customData = args.customData ?? state.customData
   if (Object.keys(customData).length > 0) {
     formData.set(`customData`, JSON.stringify(customData))
+  }
+  if (args.labelIds && args.labelIds.length > 0) {
+    formData.set(`labels`, JSON.stringify(args.labelIds))
   }
   formData.set(`meta`, JSON.stringify(args.meta))
   if (args.screenshot) {

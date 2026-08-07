@@ -19,10 +19,13 @@ const SECTIONS: DocsSectionType[] = [
 
 const WIDGET_SNIPPET =
   `<script>
+  // Exponential feedback widget. Full docs — init options, identify,
+  // setCustomData, setTheme (dark/light/auto), labels, headless submit:
+  // https://exponential.at/docs/widget/
   (function (w, d, u) {
     if (w.ExponentialWidget) return;
     var q = [], api = { q: q };
-    ["init","identify","setCustomData","open","close","submit"].forEach(function (m) {
+    ["init","identify","setCustomData","setTheme","open","close","submit"].forEach(function (m) {
       api[m] = function () { q.push([m, [].slice.call(arguments)]); };
     });
     w.ExponentialWidget = api;
@@ -86,10 +89,12 @@ export function WidgetDocsPage() {
             <h2>JS API</h2>
             <p>
               The snippet exposes <code>window.ExponentialWidget</code> with
-              six calls:
+              seven calls:
             </p>
             <DocsCode language="js">{`
 // Call this once to boot the widget with your public key.
+// Optional init overrides: theme ("dark" | "light" | "auto"),
+// position, color, label, showButton, zIndex.
 ExponentialWidget.init({ key: "expw_YOUR_KEY" });
 
 // Attach your signed-in user, so reports arrive with a
@@ -106,6 +111,10 @@ ExponentialWidget.setCustomData({
   plan: "business",
   version: "1.42.0",
 });
+
+// Hook the widget to your site's dark/light toggle — launcher
+// and panel restyle live. "auto" follows the visitor's system.
+ExponentialWidget.setTheme("light");
 
 // Open / close the panel programmatically. Wire your own
 // "Report a bug" menu item to open().
@@ -149,6 +158,18 @@ ExponentialWidget.submit({ title: "Broken button" });
                 Responses land in the submission&apos;s custom-data block,
                 alongside your <code>setCustomData</code> payload. A typed
                 response wins over a host-set key of the same name.
+              </li>
+              <li>
+                <strong>Labels</strong>: expose up to 10 of your team&apos;s
+                labels (&ldquo;Bug&rdquo;, &ldquo;Idea&rdquo;, …) as toggle
+                chips, and the reporter&apos;s picks arrive on the created
+                issue — triage done at the source.
+              </li>
+              <li>
+                <strong>Appearance</strong>: dark (default), light, or
+                match-the-visitor&apos;s-system theme, plus accent, background
+                and text color overrides — all with a live preview in
+                settings.
               </li>
             </ul>
             <p>
@@ -216,6 +237,14 @@ await ExponentialWidget.submit({
               locally and nothing is fetched by a server-side browser, so
               what&apos;s on their screen (including logged-in state) is what
               you see.
+            </p>
+            <p>
+              On desktop browsers a second <strong>Capture screen</strong>{` `}
+              option uses the browser&apos;s native screen sharing to grab a
+              single frame — the escape hatch for content the page snapshot
+              can&apos;t render (canvas/WebGL, video, cross-origin iframes).
+              The visitor picks the surface in the browser&apos;s own dialog,
+              one frame is taken, and sharing stops immediately.
             </p>
             <p>
               Before submitting, the visitor can <strong>annotate</strong> the

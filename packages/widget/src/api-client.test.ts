@@ -155,6 +155,50 @@ describe(`submitFeedback response parsing`, () => {
     expect(images[1].type).toBe(`image/jpeg`)
   })
 
+  // EXP-435: reporter-picked labels ride as one JSON `labels` field.
+  it(`sends selected label ids and omits the field when empty`, async () => {
+    const meta = {
+      url: `https://host.example/page`,
+      viewportWidth: 800,
+      viewportHeight: 600,
+      screenWidth: 1600,
+      screenHeight: 900,
+      devicePixelRatio: 1,
+    }
+    const fetchMock = mockFetchJson({ ok: true, identifier: `EXP-7` })
+    await submitFeedback({
+      state: makeState(),
+      title: `Broken button`,
+      description: ``,
+      email: null,
+      screenshot: null,
+      labelIds: [`l-1`, `l-2`],
+      meta,
+    })
+    const withLabels = fetchMock.mock.calls[0] as unknown as [
+      string,
+      { body: FormData },
+    ]
+    expect(withLabels[1].body.get(`labels`)).toBe(
+      JSON.stringify([`l-1`, `l-2`])
+    )
+
+    await submitFeedback({
+      state: makeState(),
+      title: `Broken button`,
+      description: ``,
+      email: null,
+      screenshot: null,
+      labelIds: [],
+      meta,
+    })
+    const withoutLabels = fetchMock.mock.calls[1] as unknown as [
+      string,
+      { body: FormData },
+    ]
+    expect(withoutLabels[1].body.get(`labels`)).toBeNull()
+  })
+
   it(`keeps identifier and url null on an unparseable body`, async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

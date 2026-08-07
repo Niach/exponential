@@ -1,13 +1,21 @@
 import {
   cropToViewport,
   encodeScreenshot,
+  scaleToMaxEdge,
 } from "./image"
 import { isReadableIframe } from "./pii-mask"
 
-// Engine abstraction: snapDOM today, a marker.io-style server-side renderer
-// or native tab capture can slot in later without touching the UI.
+// Engine abstraction: snapDOM and native display capture today, a marker.io
+// style server-side renderer can slot in later without touching the UI.
 export interface CaptureEngine {
   readonly name: string
+  // True when the engine's output is already the visible surface (a
+  // display-media frame): captureScreenshot skips the document→viewport crop
+  // and only applies the maxEdge downscale.
+  readonly precropped?: boolean
+  // Interactive engines (surface picker) need far longer than the 6s
+  // default a DOM raster gets.
+  readonly captureTimeoutMs?: number
   capture(opts: {
     excludeSelectors: string[]
     keepNode(el: Element): boolean
@@ -15,7 +23,7 @@ export interface CaptureEngine {
   }): Promise<HTMLCanvasElement>
 }
 
-const captureTimeoutMs = 6_000
+const defaultCaptureTimeoutMs = 6_000
 const maxOutputEdge = 1920
 
 function findTaintedCanvases(): Set<Element> {
@@ -70,21 +78,25 @@ export async function captureScreenshot(
         keepNode: (el) => !tainted.has(el) && !isReadableIframe(el),
         dpr: Math.min(window.devicePixelRatio || 1, 2),
       }),
-      captureTimeoutMs
+      engine.captureTimeoutMs ?? defaultCaptureTimeoutMs
     )
 
-    const cropped = cropToViewport(canvas, {
-      sourceCssWidth: bodyRect.width,
-      // getBoundingClientRect is viewport-relative; adding scroll lifts it to
-      // the document-space origin snapDOM rasterizes from.
-      originX: bodyRect.left + window.scrollX,
-      originY: bodyRect.top + window.scrollY,
-      scrollX: window.scrollX,
-      scrollY: window.scrollY,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-      maxEdge: maxOutputEdge,
-    })
+    // A precropped engine's frame IS the visible surface — cropping it with
+    // document geometry would cut real content; only the size cap applies.
+    const cropped = engine.precropped
+      ? scaleToMaxEdge(canvas, maxOutputEdge)
+      : cropToViewport(canvas, {
+          sourceCssWidth: bodyRect.width,
+          // getBoundingClientRect is viewport-relative; adding scroll lifts
+          // it to the document-space origin snapDOM rasterizes from.
+          originX: bodyRect.left + window.scrollX,
+          originY: bodyRect.top + window.scrollY,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          maxEdge: maxOutputEdge,
+        })
 
     return await encodeScreenshot(cropped)
   } catch {

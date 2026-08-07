@@ -27,6 +27,8 @@ const h = vi.hoisted(() => ({
   inserts: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
   // Post-commit inserts (the email-delivery ledger) go through db.insert.
   dbInserts: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
+  // Rows the in-tx / db label selects resolve (EXP-435 reporter labels).
+  labelSelectRows: [] as Array<Record<string, unknown>>,
   txShouldFail: false,
 }))
 
@@ -41,8 +43,18 @@ const tx = {
         // Awaited without .returning() (subscribers/submissions inserts).
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         then: (res: any, rej: any) => Promise.resolve().then(res, rej),
+        onConflictDoNothing: () => ({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          then: (res: any, rej: any) => Promise.resolve().then(res, rej),
+        }),
       }
     },
+  }),
+  // The EXP-435 label re-select inside the submit transaction.
+  select: () => ({
+    from: () => ({
+      where: () => Promise.resolve(h.labelSelectRows),
+    }),
   }),
 }
 
@@ -60,6 +72,14 @@ vi.mock(`@/db/connection`, () => ({
           then: (res: any, rej: any) => Promise.resolve().then(res, rej),
         }
       },
+    }),
+    // resolveWidgetConfigLabels' ordered lookup (EXP-435).
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => Promise.resolve(h.labelSelectRows),
+        }),
+      }),
     }),
   },
 }))
@@ -124,6 +144,7 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 import {
   attachments,
   emailDeliveries,
+  issueLabels,
   issues,
   issueSubscribers,
   widgetSubmissions,
@@ -135,7 +156,11 @@ import {
   effectiveWidgetModes,
   normalizedWidgetFormToggles,
   requestedWidgetModes,
+  resolveWidgetConfigLabels,
   sanitizeWidgetCustomFields,
+  sanitizeWidgetHexColor,
+  sanitizeWidgetLabelIds,
+  sanitizeWidgetTheme,
   WidgetRequestError,
   type WidgetConfigWithBoard,
 } from "@/lib/widget/service"
@@ -1048,5 +1073,148 @@ describe(`sanitizeWidgetCustomFields`, () => {
     const out = sanitizeWidgetCustomFields({ customFields: fields })
     expect(out.length).toBe(8)
     expect(out[0].label.length).toBe(40)
+  })
+})
+
+// EXP-435: reporter-picked labels — defensive form_config reads, config-time
+// resolution against live rows, and the in-tx issue_labels insert.
+describe(`sanitizeWidgetLabelIds / theme / hex color`, () => {
+  it(`returns [] for absent/junk configs`, () => {
+    expect(sanitizeWidgetLabelIds(null)).toEqual([])
+    expect(sanitizeWidgetLabelIds({})).toEqual([])
+    expect(sanitizeWidgetLabelIds({ labelIds: `nope` })).toEqual([])
+  })
+
+  it(`drops non-strings, dedupes, caps at 10`, () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `l-${i}`)
+    expect(
+      sanitizeWidgetLabelIds({ labelIds: [`a`, 7, ``, `a`, `b`] })
+    ).toEqual([`a`, `b`])
+    expect(sanitizeWidgetLabelIds({ labelIds: ids })).toHaveLength(10)
+  })
+
+  it(`sanitizeWidgetTheme accepts only the three values`, () => {
+    expect(sanitizeWidgetTheme({ theme: `light` })).toBe(`light`)
+    expect(sanitizeWidgetTheme({ theme: `auto` })).toBe(`auto`)
+    expect(sanitizeWidgetTheme({ theme: `dark` })).toBe(`dark`)
+    expect(sanitizeWidgetTheme({ theme: `LIGHT` })).toBeNull()
+    expect(sanitizeWidgetTheme(null)).toBeNull()
+  })
+
+  it(`sanitizeWidgetHexColor accepts only #hex6`, () => {
+    expect(sanitizeWidgetHexColor(`#0a0A0a`)).toBe(`#0a0A0a`)
+    expect(sanitizeWidgetHexColor(`#fff`)).toBeNull()
+    expect(sanitizeWidgetHexColor(`red`)).toBeNull()
+    expect(sanitizeWidgetHexColor(7)).toBeNull()
+  })
+})
+
+describe(`resolveWidgetConfigLabels`, () => {
+  beforeEach(() => {
+    h.labelSelectRows.length = 0
+  })
+
+  it(`resolves configured ids to live rows`, async () => {
+    h.labelSelectRows.push({ id: `l-1`, name: `Bug`, color: `#ef4444` })
+    const out = await resolveWidgetConfigLabels({
+      ...config,
+      formConfig: { labelIds: [`l-1`, `l-gone`] },
+    } as unknown as WidgetConfigWithBoard)
+    expect(out).toEqual([{ id: `l-1`, name: `Bug`, color: `#ef4444` }])
+  })
+
+  it(`skips the query entirely when no labels are configured`, async () => {
+    const out = await resolveWidgetConfigLabels(config)
+    expect(out).toEqual([])
+  })
+})
+
+describe(`widget label selection on submit`, () => {
+  const labelConfig = {
+    ...config,
+    formConfig: { labelIds: [`l-1`, `l-2`] },
+  } as unknown as WidgetConfigWithBoard
+
+  beforeEach(() => {
+    h.inserts.length = 0
+    h.txShouldFail = false
+    h.labelSelectRows.length = 0
+    h.getSoleHumanMemberId.mockResolvedValue(null)
+  })
+
+  const withLabels = (labels: unknown) => {
+    const form = submitForm()
+    form.set(`labels`, JSON.stringify(labels))
+    return form
+  }
+
+  it(`inserts issue_labels rows carrying all four columns`, async () => {
+    h.labelSelectRows.push({ id: `l-1` }, { id: `l-2` })
+    await createWidgetSubmission({
+      config: labelConfig,
+      formData: withLabels([`l-1`, `l-2`]),
+      userAgent: null,
+    })
+    const insert = h.inserts.find((i) => i.table === issueLabels)
+    expect(insert).toBeDefined()
+    const rows = insert!.values as unknown as Array<Record<string, unknown>>
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({
+      labelId: `l-1`,
+      teamId: `ws-1`,
+      boardId: `proj-1`,
+    })
+    expect(typeof rows[0].issueId).toBe(`string`)
+  })
+
+  it(`silently drops ids outside the configured set (stale cached config)`, async () => {
+    h.labelSelectRows.push({ id: `l-1` })
+    await createWidgetSubmission({
+      config: labelConfig,
+      formData: withLabels([`l-1`, `l-rogue`]),
+      userAgent: null,
+    })
+    const insert = h.inserts.find((i) => i.table === issueLabels)
+    const rows = insert!.values as unknown as Array<Record<string, unknown>>
+    expect(rows.map((row) => row.labelId)).toEqual([`l-1`])
+  })
+
+  it(`drops labels deleted since the config write (empty re-select)`, async () => {
+    // Configured and submitted, but the in-tx select finds nothing.
+    await createWidgetSubmission({
+      config: labelConfig,
+      formData: withLabels([`l-1`]),
+      userAgent: null,
+    })
+    expect(h.inserts.find((i) => i.table === issueLabels)).toBeUndefined()
+  })
+
+  it(`no labels field → no issue_labels insert`, async () => {
+    await createWidgetSubmission({
+      config: labelConfig,
+      formData: submitForm(),
+      userAgent: null,
+    })
+    expect(h.inserts.find((i) => i.table === issueLabels)).toBeUndefined()
+  })
+
+  it(`rejects malformed labels payloads`, async () => {
+    const form = submitForm()
+    form.set(`labels`, `not-json`)
+    await expect(
+      createWidgetSubmission({
+        config: labelConfig,
+        formData: form,
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 400, message: `Invalid labels` })
+
+    await expect(
+      createWidgetSubmission({
+        config: labelConfig,
+        formData: withLabels([`l-1`, 7]),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 400, message: `Invalid labels` })
   })
 })

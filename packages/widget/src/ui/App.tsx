@@ -7,10 +7,21 @@ import type {
 import type { AnnotationShape, NormalizedRect } from "../annotate/shapes"
 import { flattenAnnotations } from "../annotate/flatten"
 import { captureScreenshot } from "../capture/engine"
+import type { CaptureEngine } from "../capture/engine"
 import { snapdomEngine } from "../capture/snapdom-engine"
+import {
+  displayMediaEngine,
+  isDisplayCaptureSupported,
+} from "../capture/display-media-engine"
 import { collectEnvMeta } from "../env-meta"
 import { submitFeedback, submitSupportRequest } from "../api-client"
-import { megaphoneIconSvg, pickForeground, theme } from "../theme"
+import {
+  megaphoneIconSvg,
+  paletteFor,
+  pickForeground,
+  resolveThemeMode,
+  resolveThemePreference,
+} from "../theme"
 import { Annotator } from "./Annotator"
 import { ownCustomValue } from "./custom-values"
 import { Panel } from "./Panel"
@@ -134,14 +145,42 @@ export function App({ state }: { state: WidgetRuntimeState }) {
 
   const screenshot = annotated ?? base
 
+  // Theme resolution (EXP-435): runtime setTheme > init option > widget
+  // config > dark. `auto` re-resolves per render; the matchMedia effect
+  // below forces one when the OS scheme flips.
+  const themePref = resolveThemePreference(
+    state.themeOverride,
+    state.options.theme,
+    state.config?.form?.theme
+  )
+  const palette = paletteFor(resolveThemeMode(themePref), {
+    backgroundColor: state.config?.form?.backgroundColor,
+    textColor: state.config?.form?.textColor,
+  })
   const accent =
     state.options.color ??
     state.config?.form?.accentColor ??
-    theme.defaultAccent
+    palette.defaultAccent
   const position =
     state.options.position ?? state.config?.form?.position ?? `bottom-left`
   const label =
     state.options.label ?? state.config?.form?.buttonLabel ?? `Feedback`
+
+  // Live auto-switching: while the preference is `auto`, follow the OS
+  // scheme. Guarded for environments without matchMedia (happy-dom tests).
+  useEffect(() => {
+    if (themePref !== `auto`) return
+    if (typeof window.matchMedia !== `function`) return
+    const query = window.matchMedia(`(prefers-color-scheme: light)`)
+    const onChange = () => bumpVersion((version) => version + 1)
+    if (typeof query.addEventListener === `function`) {
+      query.addEventListener(`change`, onChange)
+      return () => query.removeEventListener(`change`, onChange)
+    }
+    // Legacy Safari (pre-14) MediaQueryList.
+    query.addListener(onChange)
+    return () => query.removeListener(onChange)
+  }, [themePref])
 
   const replaceBase = useCallback((next: Screenshot | null) => {
     setBase((previous) => {
@@ -160,17 +199,25 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     setFlattening(false)
   }, [])
 
-  const capture = useCallback(async (): Promise<boolean> => {
-    const blob = await captureScreenshot(snapdomEngine)
-    if (blob) {
-      replaceBase({ blob, objectUrl: URL.createObjectURL(blob) })
-      setCaptureFailed(false)
-      return true
-    }
-    replaceBase(null)
-    setCaptureFailed(true)
-    return false
-  }, [replaceBase])
+  // The engine behind the current shot, so Retake reproduces it the same way
+  // (a display capture retakes via the picker, not a DOM raster).
+  const lastEngineRef = useRef<CaptureEngine>(snapdomEngine)
+
+  const capture = useCallback(
+    async (engine: CaptureEngine): Promise<boolean> => {
+      lastEngineRef.current = engine
+      const blob = await captureScreenshot(engine)
+      if (blob) {
+        replaceBase({ blob, objectUrl: URL.createObjectURL(blob) })
+        setCaptureFailed(false)
+        return true
+      }
+      replaceBase(null)
+      setCaptureFailed(true)
+      return false
+    },
+    [replaceBase]
+  )
 
   // Attach picked/dropped/pasted files, skipping anything that isn't an
   // accepted image or is over the per-file cap. The last rejection reason (or
@@ -284,24 +331,43 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   }, [state, close])
 
   const retake = useCallback(() => {
-    // Close the panel, recapture without it, reopen.
+    // Close the panel, recapture (with whatever engine took the current
+    // shot) without it, reopen.
     setPhase({ kind: `capturing` })
     requestAnimationFrame(() => {
-      void capture().then(() => setPhase({ kind: `open` }))
+      void capture(lastEngineRef.current).then(() =>
+        setPhase({ kind: `open` })
+      )
     })
   }, [capture])
 
-  const takeScreenshot = useCallback(() => {
-    // Hide the panel, capture the page as the reporter sees it, then land in
-    // the annotation editor — capturing is an explicit intent to mark up.
-    setPhase({ kind: `capturing` })
-    requestAnimationFrame(() => {
-      void capture().then((captured) => {
-        freshCaptureRef.current = captured
-        setPhase(captured ? { kind: `annotating` } : { kind: `open` })
+  const takeScreenshotWith = useCallback(
+    (engine: CaptureEngine) => {
+      // Hide the panel, capture the page as the reporter sees it, then land
+      // in the annotation editor — capturing is an explicit intent to mark
+      // up. One rAF only: getDisplayMedia must stay within the click's
+      // transient user activation.
+      setPhase({ kind: `capturing` })
+      requestAnimationFrame(() => {
+        void capture(engine).then((captured) => {
+          freshCaptureRef.current = captured
+          setPhase(captured ? { kind: `annotating` } : { kind: `open` })
+        })
       })
-    })
-  }, [capture])
+    },
+    [capture]
+  )
+
+  const takeScreenshot = useCallback(
+    () => takeScreenshotWith(snapdomEngine),
+    [takeScreenshotWith]
+  )
+
+  // Native display capture (EXP-435) — offered only where supported.
+  const takeDisplayCapture = useCallback(
+    () => takeScreenshotWith(displayMediaEngine),
+    [takeScreenshotWith]
+  )
 
   const openAnnotator = useCallback(() => {
     if (!baseRef.current) return
@@ -387,6 +453,25 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       typeof field.label === `string` &&
       field.label.length > 0
   )
+  // Reporter-toggleable labels (EXP-435), same defensive shape filter; a
+  // junk color falls back to the label default the web app uses.
+  const labels = (Array.isArray(remoteForm?.labels) ? remoteForm.labels : [])
+    .filter(
+      (label) =>
+        label !== null &&
+        typeof label === `object` &&
+        typeof label.id === `string` &&
+        label.id.length > 0 &&
+        typeof label.name === `string` &&
+        label.name.length > 0
+    )
+    .slice(0, 10)
+    .map((label) => ({
+      ...label,
+      color: /^#[0-9a-fA-F]{6}$/.test(label.color ?? ``)
+        ? label.color
+        : `#6366f1`,
+    }))
 
   // The submission's customData: typed field values merged over the host's
   // setCustomData blob (a visible input the reporter filled wins over a
@@ -411,6 +496,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       email: string
       name: string
       customValues: Record<string, string>
+      labelIds: string[]
       website: string
     }) => {
       // Mirrors the loader's setCustomData cap: the server rejects an
@@ -446,6 +532,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           blob: upload.blob,
           filename: upload.filename,
         })),
+        labelIds: form.labelIds,
         website: form.website,
         meta: collectEnvMeta(),
       })
@@ -556,9 +643,12 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     [state, identityEmail, identityName]
   )
 
+  // Hidden while capturing too (EXP-435): a display-media frame can't
+  // exclude the FAB by selector the way the snapDOM clone does.
   const showButton =
     state.options.showButton !== false &&
     phase.kind !== `annotating` &&
+    phase.kind !== `capturing` &&
     !state.disabled
   const panelVisible =
     phase.kind === `open` ||
@@ -612,17 +702,17 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       ref={rootRef}
       className="exp-root"
       style={{
-        "--exp-font": theme.font,
-        "--exp-background": theme.background,
-        "--exp-card": theme.card,
-        "--exp-secondary": theme.secondary,
-        "--exp-foreground": theme.foreground,
-        "--exp-muted-foreground": theme.mutedForeground,
-        "--exp-border": theme.border,
-        "--exp-input": theme.input,
-        "--exp-destructive": theme.destructive,
-        "--exp-success": theme.success,
-        "--exp-radius": theme.radius,
+        "--exp-font": palette.font,
+        "--exp-background": palette.background,
+        "--exp-card": palette.card,
+        "--exp-secondary": palette.secondary,
+        "--exp-foreground": palette.foreground,
+        "--exp-muted-foreground": palette.mutedForeground,
+        "--exp-border": palette.border,
+        "--exp-input": palette.input,
+        "--exp-destructive": palette.destructive,
+        "--exp-success": palette.success,
+        "--exp-radius": palette.radius,
         "--exp-accent": accent,
         "--exp-accent-foreground": pickForeground(accent),
       }}
@@ -679,8 +769,11 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           collectName={collectName}
           nameRequired={nameRequired}
           customFields={customFields}
+          labels={labels}
           onClose={close}
           onCapture={takeScreenshot}
+          displayCaptureSupported={isDisplayCaptureSupported()}
+          onCaptureDisplay={takeDisplayCapture}
           onRetake={retake}
           onAnnotate={openAnnotator}
           onRemoveScreenshot={() => replaceBase(null)}

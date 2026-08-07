@@ -8,6 +8,8 @@ type CropArgs = ViewportCropArgs & { maxEdge: number }
 // rect (not hardcoded to zero).
 const h = vi.hoisted(() => ({
   cropArgs: null as { originX: number; originY: number } | null,
+  cropCalls: 0,
+  scaleCalls: 0,
 }))
 vi.mock(`./image`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown> & {
@@ -15,12 +17,21 @@ vi.mock(`./image`, async (importOriginal) => {
       source: HTMLCanvasElement,
       args: CropArgs
     ) => HTMLCanvasElement
+    scaleToMaxEdge: (
+      source: HTMLCanvasElement,
+      maxEdge: number
+    ) => HTMLCanvasElement
   }
   return {
     ...actual,
     cropToViewport: (source: HTMLCanvasElement, args: CropArgs) => {
       h.cropArgs = { originX: args.originX, originY: args.originY }
+      h.cropCalls += 1
       return actual.cropToViewport(source, args)
+    },
+    scaleToMaxEdge: (source: HTMLCanvasElement, maxEdge: number) => {
+      h.scaleCalls += 1
+      return actual.scaleToMaxEdge(source, maxEdge)
     },
   }
 })
@@ -56,6 +67,48 @@ describe(`captureScreenshot`, () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // EXP-435: interactive engines (display-media picker) declare their own
+  // budget — the 6s default would kill every real surface-picker flow.
+  it(`honors a per-engine capture timeout`, async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveCapture: (canvas: HTMLCanvasElement) => void = () => {}
+      const engine: CaptureEngine = {
+        name: `slow`,
+        captureTimeoutMs: 30_000,
+        capture: () =>
+          new Promise((resolve) => {
+            resolveCapture = resolve
+          }),
+      }
+      const result = captureScreenshot(engine)
+      // Past the 6s default but inside the engine's own budget.
+      await vi.advanceTimersByTimeAsync(10_000)
+      resolveCapture(fakeCanvas())
+      // Encoding may fail in happy-dom (null), but the run must not have
+      // been killed by the DEFAULT timeout — assert it settles now instead
+      // of at 30s.
+      await expect(result).resolves.toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // EXP-435: a precropped engine's frame is already the visible surface —
+  // the document-space viewport crop must not touch it.
+  it(`skips the viewport crop for precropped engines`, async () => {
+    h.cropCalls = 0
+    h.scaleCalls = 0
+    const engine: CaptureEngine = {
+      name: `display`,
+      precropped: true,
+      capture: () => Promise.resolve(fakeCanvas(640, 480)),
+    }
+    await captureScreenshot(engine)
+    expect(h.cropCalls).toBe(0)
+    expect(h.scaleCalls).toBe(1)
   })
 
   it(`passes the widget exclusion selector and a keep predicate`, async () => {
