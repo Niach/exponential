@@ -59,7 +59,7 @@ exponential — Exponential from your terminal
 Usage: exponential <command> [options]
 
 Commands:
-  login [--instance <url>] [--password]   Sign in (device code; --password for scripted setups)
+  login [--instance <url>]                Sign in (device code, approved in any browser)
   logout                                  Sign out and drop local credentials
   whoami                                  Show the signed-in account
   status                                  Account + daemon + tooling summary
@@ -76,7 +76,8 @@ Options for code/run:
   --agent claude|codex|pi   --model <m>   --effort <e>
   --plan                    --skip-permissions
 Environment:
-  EXP_INSTANCE, EXP_EMAIL, EXP_PASSWORD, EXP_TOKEN (non-interactive login), EXP_LOG=debug
+  EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → API keys, or a session
+  token — non-interactive login), EXP_LOG=debug
 ";
 
 fn maybe_prompt_auto_update() {

@@ -649,7 +649,9 @@ fn status_chip(label: &'static str, cx: &App) -> impl IntoElement {
 
 /// Web `formatDate` ("Jul 1, 2026"): month + day + year off the ISO
 /// timestamp's leading date. Unparseable input echoes back verbatim.
-fn format_created_date(timestamp: &str) -> String {
+/// `pub(super)`: the API-keys pane renders its created/last-used cells with
+/// the same shape (EXP-238).
+pub(super) fn format_created_date(timestamp: &str) -> String {
     const MONTHS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];

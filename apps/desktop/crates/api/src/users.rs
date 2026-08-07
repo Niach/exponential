@@ -16,11 +16,13 @@
 //! (Account deletion is deliberately web/mobile-only — EXP-69 removed the
 //! desktop flow, so there is no `users.deleteAccount` helper here.)
 //!
-//! **The rule is explicit: there is never a manual API-key text field in the
-//! desktop UI.** The key is minted silently on first need (the coding
-//! launcher's `.exp-mcp.json`, §7.1 step 4), stored in the file store, and only
-//! ever flows token-store → `.exp-mcp.json`. Settings shows a status row (`start`
-//! prefix from the list call) with Regenerate as the ONLY control.
+//! **The rule is explicit: the desktop never asks the user to TYPE or PASTE
+//! an API key.** The device's own key is minted silently on first need (the
+//! coding launcher's `.exp-mcp.json`, §7.1 step 4), stored in the file store,
+//! and only ever flows token-store → `.exp-mcp.json`. EXP-238 added a
+//! Settings → API keys pane that lists/mints/revokes the account's keys —
+//! a mint shows the raw key exactly once for the user to copy OUT (scripts,
+//! other MCP clients); it is still never an input.
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -34,7 +36,8 @@ use crate::trpc::TrpcClient;
 pub const PERSONAL_KEY_READ_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// `users.mintPersonalApiKey` output. `key` is the raw credential — handle
-/// it like a password: token-store/`.exp-mcp.json` only, NEVER logged or displayed.
+/// it like a password: never logged; shown to the user exactly once, and
+/// only by the Settings → API keys pane's explicit mint (EXP-238).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MintedPersonalKey {

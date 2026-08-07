@@ -9,11 +9,18 @@ pub fn logout(args: &[String]) -> CommandResult {
     reject_unknown_flags(args)?;
     let ctx = context::load()?;
     // Best-effort server-side revocation; local sign-out proceeds either way
-    // (desktop parity).
+    // (desktop parity). An `expu_` credential (EXP_TOKEN provisioning) is an
+    // API key, not a session — sign-out would revoke a synthetic session and
+    // leave the key untouched, so skip the call: keys are revoked under
+    // Settings → API keys.
     if let Some(token) = ctx.auth.token(&ctx.account.id) {
-        let client = api::login::AuthClient::new();
-        if let Err(err) = client.sign_out(&ctx.account.instance_url, &token) {
-            log::warn!("server-side sign-out failed (continuing locally): {err}");
+        if token.starts_with("expu_") {
+            log::debug!("credential is an API key — skipping server-side sign-out");
+        } else {
+            let client = api::login::AuthClient::new();
+            if let Err(err) = client.sign_out(&ctx.account.instance_url, &token) {
+                log::warn!("server-side sign-out failed (continuing locally): {err}");
+            }
         }
     }
     ctx.auth.sign_out(&ctx.account.id);

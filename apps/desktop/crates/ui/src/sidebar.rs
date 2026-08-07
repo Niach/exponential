@@ -1209,7 +1209,7 @@ impl Render for RailView {
             .icon(registry::NAV_SETTINGS)
             .selected(matches!(
                 resolved_screen(&self.nav, cx),
-                Some(Screen::Settings) | Some(Screen::Account)
+                Some(Screen::Settings)
             ))
             .tooltip("Settings")
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
