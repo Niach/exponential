@@ -5,11 +5,7 @@
 import { useEffect, useState } from "react"
 import { type LucideIcon } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
-import {
-  useShowTeamChrome,
-  useTeamBySlug,
-  useTeamUsers,
-} from "@/hooks/use-team-data"
+import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import {
   useTeamPermissions,
   type TeamPermissions,
@@ -19,7 +15,6 @@ import { conceptIcon } from "@/lib/icons.generated"
 
 export interface SettingsNavContext {
   isCloud: boolean
-  solo: boolean
 }
 
 // Kept to the settings sub-route literals (not the all-routes union) so
@@ -46,10 +41,8 @@ export interface SettingsNavItem {
 }
 
 // Grouped Linear-style — General first (team name on top). Gating mirrors the
-// pre-split page exactly. General stays visible in solo mode (REV2-61): only
-// its team-name card hides itself there (general-section.tsx) — the Danger
-// Zone renders unconditionally and is the sole UI path to deleting a team,
-// which owners may do even for their last one (EXP-188).
+// pre-split page exactly. General's Danger Zone is the sole UI path to
+// deleting a team, which owners may do even for their last one (EXP-188).
 //
 // EXP-317: every icon comes from the shared registry (`settings-*` concepts),
 // so this nav and the desktop IDE's (`settings/mod.rs::section_icon`) draw the
@@ -140,8 +133,6 @@ export function useSettingsPage(teamSlug: string) {
   const team = useTeamBySlug(teamSlug)
   const { members, userMap } = useTeamUsers(team?.id)
   const permissions = useTeamPermissions(team)
-  const showChrome = useShowTeamChrome(team?.id, session?.user?.id)
-  const solo = !showChrome
   const [config, setConfig] = useState<RuntimeConfig | null>(null)
 
   useEffect(() => {
@@ -161,7 +152,6 @@ export function useSettingsPage(teamSlug: string) {
     members,
     userMap,
     permissions,
-    solo,
     config,
     resolved,
   }

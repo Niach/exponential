@@ -40,7 +40,7 @@ const firstVisible = (
 // EXP-314: Statuses sits in the Team group right after Labels and, like
 // Labels, is visible to every member (the router gates writes).
 describe(`SETTINGS_NAV Statuses entry`, () => {
-  const team: SettingsNavContext = { isCloud: false, solo: false }
+  const team: SettingsNavContext = { isCloud: false }
 
   it(`follows Labels in the Team group`, () => {
     const teamGroup = SETTINGS_NAV.find((group) => group.group === `Team`)!
@@ -60,27 +60,21 @@ describe(`SETTINGS_NAV Statuses entry`, () => {
 })
 
 describe(`SETTINGS_NAV General visibility`, () => {
-  const solo: SettingsNavContext = { isCloud: false, solo: true }
-  const team: SettingsNavContext = { isCloud: false, solo: false }
+  const team: SettingsNavContext = { isCloud: false }
 
-  it(`stays visible for a solo owner so the Danger Zone is reachable`, () => {
-    expect(general.visible(permissionsFor(`owner`), solo)).toBe(true)
-  })
-
-  it(`is visible for an owner with teammates`, () => {
+  it(`is visible for owners so the Danger Zone is reachable`, () => {
     expect(general.visible(permissionsFor(`owner`), team)).toBe(true)
   })
 
   it(`stays hidden for plain members`, () => {
-    expect(general.visible(permissionsFor(`member`), solo)).toBe(false)
     expect(general.visible(permissionsFor(`member`), team)).toBe(false)
   })
 
-  it(`makes General the /settings landing section for a solo owner`, () => {
-    expect(firstVisible(permissionsFor(`owner`), solo)?.to).toBe(
+  it(`makes General the /settings landing section for owners`, () => {
+    expect(firstVisible(permissionsFor(`owner`), team)?.to).toBe(
       `/t/$teamSlug/settings/general`
     )
-    expect(firstVisible(permissionsFor(`member`), solo)?.to).toBe(
+    expect(firstVisible(permissionsFor(`member`), team)?.to).toBe(
       `/t/$teamSlug/settings/members`
     )
   })

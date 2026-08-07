@@ -32,7 +32,7 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/general`)({
 
 function SettingsGeneral() {
   const { teamSlug } = Route.useParams()
-  const { team, permissions, solo, resolved } = useSettingsPage(teamSlug)
+  const { team, permissions, resolved } = useSettingsPage(teamSlug)
 
   const [showDeleteTeam, setShowDeleteTeam] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState(``)
@@ -68,7 +68,7 @@ function SettingsGeneral() {
       allowed={permissions.canManageTeam}
     >
       <div className="space-y-6">
-        {team && <TeamGeneralSection team={team} solo={solo} />}
+        {team && <TeamGeneralSection team={team} />}
 
         {team && (
           <>

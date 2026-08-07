@@ -32,58 +32,6 @@ export function useTeamBySlug(teamSlug: string) {
   return (data?.[0] ?? null) as Team | null
 }
 
-// A team is "solo" when it has at most one member. Defaults to `true` while
-// data loads to avoid a flash of team chrome in the common solo case.
-export function useIsSolo(teamId?: string): boolean {
-  const { data: members } = useLiveQuery(
-    (query) =>
-      teamId
-        ? query
-            .from({ members: teamMemberCollection })
-            .where(({ members }) => eq(members.teamId, teamId))
-        : undefined,
-    [teamId]
-  )
-
-  return useMemo(() => {
-    if (!members) return true
-    return members.length <= 1
-  }, [members])
-}
-
-// Count of teams the user OWNS (role 'owner'). Drives the per-plan
-// team cap UI and the "reveal switcher when you have 2+" rule. (v7:
-// teams are always private; only members sync team rows at all.)
-export function useOwnedTeamCount(userId?: string): number {
-  const { data: memberships } = useLiveQuery(
-    (query) =>
-      userId
-        ? query
-            .from({ members: teamMemberCollection })
-            .where(({ members }) => eq(members.userId, userId))
-        : undefined,
-    [userId]
-  )
-
-  return useMemo(() => {
-    if (!memberships) return 0
-    return memberships.filter((member) => member.role === `owner`).length
-  }, [memberships])
-}
-
-// Whether to show team-level chrome (the switcher, "New team", the
-// team name). Revealed when the current team is no longer solo, OR
-// the user has memberships in more than one team (they clearly already
-// reason about multiple teams). Biased to hidden while data loads.
-export function useShowTeamChrome(
-  teamId?: string,
-  userId?: string
-): boolean {
-  const isSolo = useIsSolo(teamId)
-  const { myTeams } = useTeamMemberships(userId)
-  return !isSolo || myTeams.length > 1
-}
-
 export function useTeamBoards(teamId?: string) {
   const { data } = useLiveQuery(
     (query) =>

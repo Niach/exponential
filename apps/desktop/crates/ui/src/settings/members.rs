@@ -35,8 +35,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
 use super::{
-    section, card_header, error_notice, is_owner, is_plan_limit, show_team_chrome, spawn_trpc,
-    upgrade_notice,
+    section, card_header, error_notice, is_owner, is_plan_limit, spawn_trpc, upgrade_notice,
 };
 use crate::icons::registry;
 
@@ -379,7 +378,6 @@ impl Render for MembersPane {
             .map(|account| account.user_id)
             .unwrap_or_default();
         let i_am_owner = is_owner(cx, &team_id);
-        let solo = !show_team_chrome(cx, &team_id);
 
         let rows = self.member_rows(&team_id, cx);
         let owner_count = rows
@@ -388,16 +386,12 @@ impl Render for MembersPane {
             .count();
 
         let mut body = section(cx).child(card_header(
-            if solo { "Invite teammates" } else { "Members" },
-            if solo {
-                "Invite someone to collaborate. Shared boards unlock team features.".to_string()
-            } else {
-                format!(
-                    "{} member{} in this team",
-                    rows.len(),
-                    if rows.len() == 1 { "" } else { "s" }
-                )
-            },
+            "Members",
+            format!(
+                "{} member{} in this team",
+                rows.len(),
+                if rows.len() == 1 { "" } else { "s" }
+            ),
             cx,
         ));
 

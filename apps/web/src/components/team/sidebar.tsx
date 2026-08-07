@@ -1,7 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { conceptIcon } from "@/lib/icons.generated"
-import { ExponentialLogo } from "@/components/exponential-logo"
 import { getBoardIcon } from "@/lib/board-icons"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -17,7 +16,7 @@ import {
   useReviewsOpenPrCount,
   useAgentsRunningCount,
 } from "@/hooks/use-nav-counts"
-import { useShowTeamChrome, useTeamMemberships } from "@/hooks/use-team-data"
+import { useTeamMemberships } from "@/hooks/use-team-data"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
@@ -127,13 +126,10 @@ export function TeamSidebar({
   const { isOwner } = useTeamPermissions(team)
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const { myTeams } = useTeamMemberships(session?.user?.id)
-  // Solo users never see the "team" concept: no switcher, no name. The
-  // chrome is revealed once they collaborate (2+ humans) or own 2+ teams.
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
   // logged-out state.
-  const showChrome = useShowTeamChrome(team?.id, session?.user?.id)
 
   const handleSignOut = useSignOut()
 
@@ -146,72 +142,63 @@ export function TeamSidebar({
     <>
       <Sidebar>
         <SidebarHeader className="p-2">
-          {showChrome ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  className="w-full h-10"
-                  aria-label="Team switcher"
-                >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
-                    {team?.name?.[0]?.toUpperCase() ??
-                      teamSlug[0]?.toUpperCase() ??
-                      `E`}
-                  </div>
-                  <span className="text-sm font-semibold truncate">
-                    {team?.name ?? teamSlug}
-                  </span>
-                  <NavTeamSwitcherIcon className="ml-auto h-4 w-4 shrink-0" />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                {myTeams.map((ws) => (
-                  <DropdownMenuItem
-                    key={ws.id}
-                    onClick={() =>
-                      navigate({
-                        to: `/t/$teamSlug`,
-                        params: { teamSlug: ws.slug },
-                      })
-                    }
-                  >
-                    <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[0.625rem] font-bold shrink-0">
-                      {ws.name[0]?.toUpperCase()}
-                    </div>
-                    <span className="truncate">{ws.name}</span>
-                    {ws.slug === teamSlug && (
-                      <UiCheckIcon className="ml-auto h-4 w-4" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                {/* Any signed-in user can create teams (EXP-188) — the
-                    server's only gate is the free-tier owned-team cap. */}
-                <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
-                  <UiAddIcon className="h-4 w-4" />
-                  New team
-                </DropdownMenuItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton
+                className="w-full h-10"
+                aria-label="Team switcher"
+              >
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
+                  {team?.name?.[0]?.toUpperCase() ??
+                    teamSlug[0]?.toUpperCase() ??
+                    `E`}
+                </div>
+                <span className="text-sm font-semibold truncate">
+                  {team?.name ?? teamSlug}
+                </span>
+                <NavTeamSwitcherIcon className="ml-auto h-4 w-4 shrink-0" />
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              {myTeams.map((ws) => (
                 <DropdownMenuItem
+                  key={ws.id}
                   onClick={() =>
                     navigate({
-                      to: `/t/$teamSlug/settings`,
-                      params: { teamSlug },
+                      to: `/t/$teamSlug`,
+                      params: { teamSlug: ws.slug },
                     })
                   }
                 >
-                  <NavSettingsIcon className="h-4 w-4" />
-                  Team settings
+                  <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[0.625rem] font-bold shrink-0">
+                    {ws.name[0]?.toUpperCase()}
+                  </div>
+                  <span className="truncate">{ws.name}</span>
+                  {ws.slug === teamSlug && (
+                    <UiCheckIcon className="ml-auto h-4 w-4" />
+                  )}
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <div className="flex h-10 items-center gap-2 px-2">
-              <ExponentialLogo variant="light" size={28} className="shrink-0" />
-              <span className="text-sm font-semibold truncate">
-                Exponential
-              </span>
-            </div>
-          )}
+              ))}
+              <DropdownMenuSeparator />
+              {/* Any signed-in user can create teams (EXP-188) — the
+                  server's only gate is the free-tier owned-team cap. */}
+              <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
+                <UiAddIcon className="h-4 w-4" />
+                New team
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  navigate({
+                    to: `/t/$teamSlug/settings`,
+                    params: { teamSlug },
+                  })
+                }
+              >
+                <NavSettingsIcon className="h-4 w-4" />
+                Team settings
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </SidebarHeader>
 
         <Separator />
@@ -365,21 +352,6 @@ export function TeamSidebar({
                   Admin
                 </DropdownMenuItem>
               )}
-              {/* In solo mode the switcher is hidden, so Settings + New
-                    team live here instead (framed as account-level). */}
-              {!showChrome && (
-                <DropdownMenuItem
-                  onClick={() =>
-                    navigate({
-                      to: `/t/$teamSlug/settings`,
-                      params: { teamSlug },
-                    })
-                  }
-                >
-                  <NavSettingsIcon className="mr-2 h-4 w-4" />
-                  Settings
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem
                 onClick={() => navigate({ to: `/account/notifications` })}
               >
@@ -397,12 +369,6 @@ export function TeamSidebar({
                 <NavAboutIcon className="mr-2 h-4 w-4" />
                 About
               </DropdownMenuItem>
-              {!showChrome && (
-                <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
-                  <UiAddIcon className="mr-2 h-4 w-4" />
-                  New team
-                </DropdownMenuItem>
-              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>
                 <NavSignOutIcon className="mr-2 h-4 w-4" />
