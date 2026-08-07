@@ -359,7 +359,14 @@ export function SupportConversationView({ token }: { token: string }) {
         <div ref={bottomRef} />
       </main>
 
-      <div className="sticky bottom-0 border-t bg-background px-4 py-3">
+      {/* EXP-442: `bg-background` is the hue-less neutral, so this painted a
+          rgb(10,10,10) bar across the bottom of a page whose gradient has
+          already ramped to rgb(24,24,27) there — and whose own header is
+          transparent. Stays OPAQUE rather than taking glass-chrome-bottom:
+          the near-white inbound bubbles smear straight through a 70% scrim,
+          and the Textarea is itself translucent, so the smear lands inside
+          the input. Opaque at the bottom endpoint is the seamless one. */}
+      <div className="sticky bottom-0 border-t bg-[var(--glass-background-bottom)] px-4 py-3">
         <div className="mx-auto w-full max-w-lg">
           {thread.closed ? (
             <p className="py-1 text-center text-sm text-muted-foreground">

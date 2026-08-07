@@ -871,7 +871,7 @@ export function IssueDetailView({
           <div className="flex-1 min-h-0 overflow-y-auto">
             <div
               ref={setStickyBand}
-              className="sticky top-0 z-10 bg-background/60 backdrop-blur-xl"
+              className="sticky top-0 z-10 glass-chrome-top"
             >
               <div className="mx-auto max-w-3xl">
                 {titleField}
