@@ -58,7 +58,10 @@ describe.each(IMAGES)(
     /* The runtime stage is everything after the LAST `FROM` — that is the layer
        set that becomes the published image. */
     const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf(`\nFROM `))
-    const installs = (copiesBuilderNodeModules ? dockerfile : runtimeStage)
+    /* The scope whose install is published: the relays copy the builder's
+       node_modules, the web image installs in the runtime stage itself. */
+    const installScope = copiesBuilderNodeModules ? dockerfile : runtimeStage
+    const installs = installScope
       .split(`\n`)
       .filter((line) => line.startsWith(`RUN bun install`))
 
@@ -82,15 +85,17 @@ describe.each(IMAGES)(
       // --frozen-lockfile validates the FULL workspace set regardless of --filter:
       // drop one of these COPYs and the install dies with "lockfile had changes".
       // Only the image build catches that, and it runs on master, not on the PR.
+      // Checked against the SAME scope the published install runs in — for the
+      // web image that is the runtime stage, whose stubs arrive via builder COPY.
       for (const other of [`marketing`, `push-relay`, `steer-relay`]) {
-        expect(dockerfile).toContain(`apps/${other}/package.json`)
+        expect(installScope).toContain(`apps/${other}/package.json`)
       }
     })
 
     it(`carries the Apache-2.0 LICENSE and NOTICE`, () => {
       // EXP-376: section 4(a)/4(d) are owed to every recipient of the image.
-      expect(runtimeStage).toContain(`LICENSE`)
-      expect(runtimeStage).toContain(`NOTICE`)
+      // Must be an actual COPY into the runtime layer set, not a mention in prose.
+      expect(runtimeStage).toMatch(/^COPY [^\n]*LICENSE[^\n]*NOTICE[^\n]*$/m)
     })
   },
 )
