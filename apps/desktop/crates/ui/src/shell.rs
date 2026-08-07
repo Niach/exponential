@@ -1284,10 +1284,7 @@ impl Render for CenterPanel {
         // fixed nav column replaces the tool column (no resizable split: the
         // nav is a fixed-width list, and the detail column caps itself), and
         // the settings detail fills the rest.
-        let in_settings = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::Settings) | Some(Screen::Account)
-        );
+        let in_settings = matches!(resolved_screen(&self.nav, cx), Some(Screen::Settings));
         if in_settings {
             return div()
                 .size_full()

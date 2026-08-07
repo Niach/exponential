@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-unified-settings-api-keys`,
+    date: `2026-08-07`,
+    title: `One settings page, API keys, and a skill for your agents`,
+    summary: `Team and account settings merge into one page with a settings button next to your name, personal API keys get a self-service section, and agents can read SKILL.md and set custom statuses over MCP.`,
+    body: `- **One settings page**: account, notifications, and API keys now live in a Personal group inside the settings page, on web and desktop, and the web settings button moved to the sidebar bottom next to your name.
+- **Personal API keys**: create and revoke expu_ keys under Settings, for MCP clients, scripts, and non-interactive CLI logins via EXP_TOKEN.
+- **Custom statuses over MCP**: agents can list a team's statuses and set them precisely with statusId when updating issues.
+- **SKILL.md for agents**: exponential.at/SKILL.md gives any coding agent the full picture of the product, the MCP server, the CLI, and the feedback widget.
+- **CLI sign-in**: password login is gone; use the device code flow, or an API key via EXP_TOKEN for scripts.`,
+  },
+  {
     id: `2026-08-board-rename-widget-pictures`,
     date: `2026-08-05`,
     title: `Rename boards, attach pictures to feedback`,

@@ -173,8 +173,9 @@ export function McpDocsPage() {
             </p>
             <h3>API keys for headless use</h3>
             <p>
-              Scripts and CI use a personal API key instead. Create one in
-              your account settings and send it as a bearer token:
+              Scripts and CI use a personal API key instead. Generate one
+              under <strong>Settings → API keys</strong> in the web app and
+              send it as a bearer token:
             </p>
             <DocsCode language="text">{`Authorization: Bearer expu_...`}</DocsCode>
             <p>

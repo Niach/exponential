@@ -13,7 +13,7 @@
       ]
     },
     {
-      "source": "*.{txt,xml}",
+      "source": "*.{txt,xml,md}",
       "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600" }]
     },
     {

@@ -1,16 +1,16 @@
-//! Team settings + account screens (masterplan-v3 §4.2 "Settings" /
-//! "Account", §7.9 integrations surface).
+//! The ONE settings screen (masterplan-v3 §4.2 "Settings", §7.9 integrations
+//! surface; EXP-238 folded the old Account screen in).
 //!
 //! Web parity targets: the `routes/t/$teamSlug/settings/` pages and
-//! their `components/team/*-section.tsx` cards, plus
-//! `routes/_authenticated/account/notifications.tsx`. The team-settings
+//! their `components/team/*-section.tsx` + `components/account/*` cards. The
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
 //! left nav with the groups — **Team** (General, Members, Labels, Storage —
 //! the EXP-297 owner-only attachment manager), **Boards**
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
-//! old flat Boards list into per-board detail pages), and the desktop-only
-//! **This device** group (Tools, Agents, Local repositories); the detail
-//! column shows ONE selected pane with the web's `isOwner &&` gating;
+//! old flat Boards list into per-board detail pages), the desktop-only
+//! **This device** group (Tools, Agents, Local repositories), and
+//! **Personal** (Account, Notifications, API keys, About — EXP-238); the
+//! detail column shows ONE selected pane with the web's `isOwner &&` gating;
 //! each pane mirrors its web card field-for-field.
 //!
 //! Navigation INTO these screens: the rail's gear dispatches `OpenSettings`
@@ -27,6 +27,7 @@ mod about;
 mod account;
 mod add_repository_dialog;
 mod agents;
+mod api_keys;
 pub(crate) mod doctor_section;
 mod labels;
 mod statuses;
@@ -38,8 +39,6 @@ mod repositories;
 mod storage;
 mod team_general;
 mod tools;
-
-pub use account::AccountView;
 
 /// EXP-282: width of the settings nav column — it REPLACES the tool column
 /// while a settings screen is up (rendered by `shell::CenterPanel`), so it
@@ -56,19 +55,22 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
 use crate::navigation::{
-    active_team_id, nav_for_window, navigate, resolved_screen, Navigation, Screen,
+    active_team_id, nav_for_window, navigate, Navigation, Screen,
 };
 use crate::icons::registry;
 use crate::queries;
 use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared};
 
 use about::AboutPane;
+use account::AccountPane;
+use api_keys::ApiKeysPane;
 use labels::LabelsPane;
 use statuses::StatusesPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
 use agents::AgentsPane;
 use board_detail::BoardDetailPane;
+use notifications_prefs::NotificationsPrefsPane;
 use repositories::RepositoriesPane;
 use storage::StoragePane;
 use team_general::GeneralPane;
@@ -101,9 +103,19 @@ pub(crate) enum SettingsSection {
     /// old Coding pane).
     Agents,
     LocalRepos,
-    /// EXP-262: version + third-party licence notices. Lives in the Personal
-    /// group's static tail (with Account), NOT in [`NAV_GROUPS`] — so the
-    /// fallback scan and its gating tests stay untouched. Never gated.
+    /// EXP-238: identity + timezone (the old Account screen's head — the
+    /// notification prefs split into [`SettingsSection::Notifications`]).
+    /// Never gated.
+    Account,
+    /// EXP-238: email/push notification prefs as their own section (web
+    /// parity: `settings/notifications`). Never gated.
+    Notifications,
+    /// EXP-238: personal `expu_` API keys — list/mint/revoke. Never gated.
+    ApiKeys,
+    /// EXP-262: version + third-party licence notices. Since EXP-238 an
+    /// ordinary Personal-group item in [`NAV_GROUPS`] — it sits LAST, so the
+    /// fallback scan (first visible item) still never lands on it. Never
+    /// gated.
     About,
 }
 
@@ -119,9 +131,11 @@ struct NavGroup {
 
 /// The STATIC nav skeleton — the web's `SETTINGS_NAV` groups minus the
 /// web-only Billing/Widget items, plus the desktop-only "This device" group.
-/// The Boards group's per-board rows + "New board" are injected dynamically
-/// at render (EXP-288); order defines both the nav and the fallback scan
-/// (first visible item).
+/// EXP-238 appended the Personal group (Account, Notifications, API keys,
+/// About) as ordinary items — web parity again, and last so the fallback
+/// scan below never lands on a personal pane. The Boards group's per-board
+/// rows + "New board" are injected dynamically at render (EXP-288); order
+/// defines both the nav and the fallback scan (first visible item).
 const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
         label: "Team",
@@ -176,6 +190,31 @@ const NAV_GROUPS: &[NavGroup] = &[
             },
         ],
     },
+    // EXP-238: the Personal group is ordinary nav now — the web merged the
+    // account pages into its settings nav the same way, so the two screens
+    // stay row-for-row parallel. Last on purpose: the fallback scan must
+    // keep landing on General/Members.
+    NavGroup {
+        label: "Personal",
+        items: &[
+            NavItem {
+                label: "Account",
+                section: SettingsSection::Account,
+            },
+            NavItem {
+                label: "Notifications",
+                section: SettingsSection::Notifications,
+            },
+            NavItem {
+                label: "API keys",
+                section: SettingsSection::ApiKeys,
+            },
+            NavItem {
+                label: "About",
+                section: SettingsSection::About,
+            },
+        ],
+    },
 ];
 
 /// EXP-288: every nav entry carries an icon. Board rows use the tinted board
@@ -197,6 +236,9 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
         SettingsSection::Agents => Icon::from(registry::SETTINGS_AGENTS),
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
+        SettingsSection::Account => Icon::from(registry::SETTINGS_ACCOUNT),
+        SettingsSection::Notifications => Icon::from(registry::SETTINGS_NOTIFICATIONS),
+        SettingsSection::ApiKeys => Icon::from(registry::SETTINGS_API),
         SettingsSection::About => Icon::from(registry::SETTINGS_ABOUT),
     }
 }
@@ -290,8 +332,18 @@ pub struct SettingsView {
     /// §4.7 desktop-only Local repositories section (clone disk usage +
     /// prune/remove) — local per-install state, un-gated.
     local_repos: Entity<LocalReposPane>,
+    /// EXP-238: identity + timezone (the old Account screen, folded in).
+    account: Entity<AccountPane>,
+    /// EXP-238: email/push notification prefs — their own section now.
+    notifications: Entity<NotificationsPrefsPane>,
+    /// EXP-238: personal `expu_` API keys (fetch-on-open server read).
+    api_keys: Entity<ApiKeysPane>,
     /// EXP-262: version + third-party licence notices (stateless, un-gated).
     about: Entity<AboutPane>,
+    /// The section shown at the previous render — a transition INTO one of
+    /// the Personal server-read panes drops its cache so it refetches
+    /// (EXP-369 semantics, re-homed from the old Account screen).
+    last_section: Option<SettingsSection>,
     /// EXP-282: the nav selection lives on the window's [`RailShared`] now —
     /// the nav column renders OUTSIDE this view (it replaces the tool column
     /// while settings are up), so both must read one value. Clamped through
@@ -316,6 +368,9 @@ impl SettingsView {
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
+        let account = cx.new(|cx| AccountPane::new(window, cx));
+        let notifications = cx.new(NotificationsPrefsPane::new);
+        let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
         let about = cx.new(|_| AboutPane::new());
 
         // The section nav + header depend on role (owner gating) —
@@ -343,10 +398,24 @@ impl SettingsView {
             tools,
             agents,
             local_repos,
+            account,
+            notifications,
+            api_keys,
             about,
+            last_section: None,
             shared,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-369 (re-homed by EXP-238): the Personal panes hold server-only
+    /// reads (timezone, email prefs, API keys) that would otherwise show the
+    /// first visit's snapshot forever — every transition INTO the settings
+    /// screen drops their caches; each pane refetches on its next render.
+    pub fn mark_personal_stale(&mut self, cx: &mut gpui::Context<Self>) {
+        self.account.update(cx, |pane, cx| pane.mark_stale(cx));
+        self.notifications.update(cx, |pane, cx| pane.mark_stale(cx));
+        self.api_keys.update(cx, |pane, cx| pane.mark_stale(cx));
     }
 }
 
@@ -366,6 +435,25 @@ impl Render for SettingsView {
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
 
+        // A switch INTO a Personal server-read pane refetches it (the
+        // screen-level staleness only fires on Settings entry, not on
+        // section clicks within it).
+        if self.last_section.as_ref() != Some(&effective) {
+            match &effective {
+                SettingsSection::Account => {
+                    self.account.update(cx, |pane, cx| pane.mark_stale(cx))
+                }
+                SettingsSection::Notifications => self
+                    .notifications
+                    .update(cx, |pane, cx| pane.mark_stale(cx)),
+                SettingsSection::ApiKeys => {
+                    self.api_keys.update(cx, |pane, cx| pane.mark_stale(cx))
+                }
+                _ => {}
+            }
+            self.last_section = Some(effective.clone());
+        }
+
         let pane: gpui::AnyElement = match &effective {
             SettingsSection::General => self.general.clone().into_any_element(),
             SettingsSection::Members => self.members.clone().into_any_element(),
@@ -379,6 +467,9 @@ impl Render for SettingsView {
             SettingsSection::Tools => self.tools.clone().into_any_element(),
             SettingsSection::Agents => self.agents.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
+            SettingsSection::Account => self.account.clone().into_any_element(),
+            SettingsSection::Notifications => self.notifications.clone().into_any_element(),
+            SettingsSection::ApiKeys => self.api_keys.clone().into_any_element(),
             SettingsSection::About => self.about.clone().into_any_element(),
         };
 
@@ -411,7 +502,7 @@ pub(crate) fn detail_column() -> gpui::Div {
 // ---------------------------------------------------------------------------
 
 /// The settings navigation, rendered by `shell::CenterPanel` IN PLACE of the
-/// tool column while `Screen::Settings`/`Screen::Account` is up. It reads and
+/// tool column while `Screen::Settings` is up. It reads and
 /// writes the window's shared [`RailShared::settings_section`], so the detail
 /// view ([`SettingsView`]) always shows what this column highlights.
 pub struct SettingsNavPanel {
@@ -505,9 +596,6 @@ impl Render for SettingsNavPanel {
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
-        // The Account screen IS a settings section as far as this column is
-        // concerned — while it is up no team/device row is highlighted.
-        let on_account = matches!(resolved_screen(&self.nav, cx), Some(Screen::Account));
         let board_ids = valid_board_ids(cx, &self.nav);
         let effective = effective_selection(
             self.shared.read(cx).settings_section(),
@@ -542,7 +630,7 @@ impl Render for SettingsNavPanel {
             if board_group {
                 for board in &boards {
                     let section = SettingsSection::Board(board.id.clone());
-                    let selected = !on_account && section == effective;
+                    let selected = section == effective;
                     let color = board
                         .color
                         .as_deref()
@@ -580,7 +668,7 @@ impl Render for SettingsNavPanel {
             }
             for item in visible {
                 let section = item.section.clone();
-                let selected = !on_account && section == effective;
+                let selected = section == effective;
                 list = list.child(
                     Self::row(
                         item.label,
@@ -591,46 +679,11 @@ impl Render for SettingsNavPanel {
                     )
                     .on_click(cx.listener(move |_, _, window, cx| {
                         select_settings_section(window, cx, section.clone());
-                        // A section click from the Account screen returns
-                        // to the settings detail.
                         navigate(window, cx, Screen::Settings);
                     })),
                 );
             }
         }
-        // EXP-282: Account moved INTO the settings chrome (it used to be a
-        // second account-dropdown entry with its own bare screen).
-        list = list
-            .child(Self::group_divider())
-            .child(Self::group_label("Personal", cx))
-            .child(
-                Self::row(
-                    "settings-nav-account",
-                    "Account",
-                    Some(Icon::new(registry::SETTINGS_ACCOUNT)),
-                    on_account,
-                    cx,
-                )
-                .on_click(cx.listener(|_, _, window, cx| {
-                    navigate(window, cx, Screen::Account);
-                })),
-            )
-            // EXP-262: version + third-party licences — an ordinary settings
-            // section (unlike Account's own screen), kept out of NAV_GROUPS so
-            // the fallback scan stays untouched.
-            .child(
-                Self::row(
-                    "settings-nav-about",
-                    "About",
-                    Some(section_icon(&SettingsSection::About)),
-                    !on_account && effective == SettingsSection::About,
-                    cx,
-                )
-                .on_click(cx.listener(|_, _, window, cx| {
-                    select_settings_section(window, cx, SettingsSection::About);
-                    navigate(window, cx, Screen::Settings);
-                })),
-            );
 
         v_flex()
             .size_full()
@@ -1022,17 +1075,25 @@ mod tests {
         }
     }
 
-    /// EXP-262: About is never gated and never falls back — for any owner
-    /// state the selection sticks, even though the section lives outside
-    /// `NAV_GROUPS` (the fallback scan could never return it).
+    /// EXP-262/EXP-238: the Personal sections are never gated and never fall
+    /// back — for any owner state the selection sticks. They sit LAST in
+    /// `NAV_GROUPS`, so the fallback scan still lands on General/Members,
+    /// never on a personal pane.
     #[test]
-    fn about_is_never_gated_and_never_falls_back() {
-        for owner in [false, true] {
-            assert!(section_visible(&SettingsSection::About, owner));
-            assert_eq!(
-                effective_selection(SettingsSection::About, owner, any_board),
-                SettingsSection::About
-            );
+    fn personal_sections_never_gated_and_never_fall_back() {
+        for section in [
+            SettingsSection::Account,
+            SettingsSection::Notifications,
+            SettingsSection::ApiKeys,
+            SettingsSection::About,
+        ] {
+            for owner in [false, true] {
+                assert!(section_visible(&section, owner));
+                assert_eq!(
+                    effective_selection(section.clone(), owner, any_board),
+                    section
+                );
+            }
         }
     }
 

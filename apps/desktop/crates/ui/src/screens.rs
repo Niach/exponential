@@ -3,7 +3,7 @@
 //! PR diff, support thread, action detail). High-level surfaces get no
 //! tabs: Source Control's diff and the file viewer are the center content
 //! their rail tool shows (driven by the sidebar's commit/file selection),
-//! and Settings/Account are tab-less full-screen modes. Every tab REMEMBERS
+//! and Settings is a tab-less full-screen mode. Every tab REMEMBERS
 //! the sidebar entry it was opened from ([`TabEntry::origin`]) — clicking a
 //! tab re-selects that entry (and board) so the sidebar always shows the
 //! list the tab came from.
@@ -126,7 +126,6 @@ pub(crate) fn build_screen_content(
         // Never undockable — unreachable via the undock path, kept total for
         // the compiler.
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
-        Screen::Account => cx.new(|cx| crate::settings::AccountView::new(window, cx)).into(),
     }
 }
 
@@ -334,7 +333,6 @@ pub struct ScreensPanel {
     nav: Entity<Navigation>,
     issue_detail: Entity<IssueDetailView>,
     settings: Entity<crate::settings::SettingsView>,
-    account: Entity<crate::settings::AccountView>,
     source_control: Entity<crate::source_control::SourceControlView>,
     file_viewer: Entity<crate::file_viewer::FileViewerView>,
     /// One shared support-thread view, re-pointed on tab switch (EXP-180 —
@@ -368,7 +366,6 @@ impl ScreensPanel {
         // navigation (its local edit state resets per issue, web parity).
         let issue_detail = cx.new(|cx| IssueDetailView::new(window, cx));
         let settings = cx.new(|cx| crate::settings::SettingsView::new(window, cx));
-        let account = cx.new(|cx| crate::settings::AccountView::new(window, cx));
         let source_control = cx.new(|cx| crate::source_control::SourceControlView::new(window, cx));
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
         let support_thread =
@@ -426,7 +423,6 @@ impl ScreensPanel {
             nav,
             issue_detail,
             settings,
-            account,
             source_control,
             file_viewer,
             support_thread,
@@ -444,19 +440,21 @@ impl ScreensPanel {
         this
     }
 
-    /// EXP-369: the Account pane is created once per window and outlives every
-    /// visit, so its server-only reads (email prefs, timezone) would show the
-    /// first visit's snapshot forever. Every transition INTO the screen marks
-    /// them stale; the pane refetches on its next render.
+    /// EXP-369 (re-homed by EXP-238): the settings Personal panes hold
+    /// server-only reads (email prefs, timezone, API keys) that would show
+    /// the first visit's snapshot forever. Every transition INTO the
+    /// settings screen marks them stale; each pane refetches on its next
+    /// render.
     fn sync_active_screen(&mut self, cx: &mut gpui::Context<Self>) {
         let screen = resolved_screen(&self.nav, cx);
         if screen == self.active_screen {
             return;
         }
-        let entered_account = matches!(screen, Some(Screen::Account));
+        let entered_settings = matches!(screen, Some(Screen::Settings));
         self.active_screen = screen;
-        if entered_account {
-            self.account.update(cx, |account, cx| account.mark_stale(cx));
+        if entered_settings {
+            self.settings
+                .update(cx, |settings, cx| settings.mark_personal_stale(cx));
         }
     }
 
@@ -506,7 +504,7 @@ impl ScreensPanel {
         let Some(screen) = resolved_screen(&self.nav, cx) else {
             return;
         };
-        // EXP-288: only detail views are tabs — Settings/Account render
+        // EXP-288: only detail views are tabs — Settings renders
         // tab-less (no chip, nothing highlighted).
         if !screen.is_detail() {
             return;
@@ -579,7 +577,7 @@ impl ScreensPanel {
                 self.action_detail
                     .update(cx, |detail, cx| detail.set_action(action_id, cx));
             }
-            Screen::Settings | Screen::Account => unreachable!("filtered by is_detail"),
+            Screen::Settings => unreachable!("filtered by is_detail"),
         }
     }
 
@@ -1206,7 +1204,6 @@ impl Render for ScreensPanel {
         let content = match &screen {
             Some(Screen::IssueDetail { .. }) => self.issue_detail.clone().into_any_element(),
             Some(Screen::Settings) => self.settings.clone().into_any_element(),
-            Some(Screen::Account) => self.account.clone().into_any_element(),
             Some(Screen::SupportThread { .. }) => {
                 self.support_thread.clone().into_any_element()
             }

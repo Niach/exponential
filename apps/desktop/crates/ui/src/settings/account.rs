@@ -1,7 +1,8 @@
-//! Account screen: profile identity + Notifications (masterplan v5 §8.9, L25).
+//! Settings → Account: profile identity + timezone (masterplan v5 §8.9, L25).
 //!
-//! Web parity: `routes/_authenticated/account/notifications.tsx` (identity
-//! header + email prefs — see [`super::notifications_prefs`]). The old
+//! Web parity: the settings `account` section (EXP-238 folded the old
+//! Account screen into the settings nav; the email prefs are their own
+//! Notifications section now — see [`super::notifications_prefs`]). The old
 //! Integrations pane is gone (L25): GitHub App install/manage lives solely in
 //! **team settings → Repositories**, and there is no calendar UI anywhere on
 //! the desktop. EXP-311: the rail's account button shows only the avatar +
@@ -9,12 +10,11 @@
 //! timezone row — the clock the daily digest's send hour is read in.
 
 use gpui::{
-    div, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
+    Window,
 };
 use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme as _, Sizable as _};
 
-use super::notifications_prefs::NotificationsPrefsPane;
 use super::spawn_trpc;
 use crate::queries;
 
@@ -28,9 +28,8 @@ enum Timezone {
     Error,
 }
 
-/// The account screen (`Screen::Account`) — identity + notifications.
-pub struct AccountView {
-    notifications: Entity<NotificationsPrefsPane>,
+/// The Account section pane — identity + timezone.
+pub struct AccountPane {
     timezone: Timezone,
     timezone_generation: u64,
     /// The account the timezone belongs to — a re-login must not show the
@@ -39,9 +38,8 @@ pub struct AccountView {
     _subscriptions: Vec<Subscription>,
 }
 
-impl AccountView {
+impl AccountPane {
     pub fn new(_window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let notifications = cx.new(NotificationsPrefsPane::new);
         let users = sync::Store::global(cx).collections().users.clone();
         let avatar_cache = crate::user_avatar::AvatarCache::global(cx);
         let subscriptions = vec![
@@ -51,7 +49,6 @@ impl AccountView {
             cx.observe(&avatar_cache, |_, _, cx| cx.notify()),
         ];
         Self {
-            notifications,
             timezone: Timezone::Idle,
             timezone_generation: 0,
             account_id: None,
@@ -59,15 +56,13 @@ impl AccountView {
         }
     }
 
-    /// EXP-369: this view is built once per window and outlives every visit,
-    /// so both server-only reads it owns are dropped whenever the screen is
-    /// (re-)opened — see [`crate::screens::ScreensPanel`].
+    /// EXP-369: this pane is built once per window and outlives every visit,
+    /// so its server-only read is dropped whenever the pane is (re-)entered —
+    /// see [`super::SettingsView::mark_personal_stale`].
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
         if matches!(self.timezone, Timezone::Ready(_) | Timezone::Error) {
             self.timezone = Timezone::Idle;
         }
-        self.notifications
-            .update(cx, |prefs, cx| prefs.mark_stale(cx));
         cx.notify();
     }
 
@@ -217,27 +212,15 @@ impl AccountView {
     }
 }
 
-impl Render for AccountView {
+impl Render for AccountPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_timezone_loaded(cx);
 
-        // EXP-277: no screen header — the center tab carries the title.
-        // EXP-282: the content column was `max_w` WITHOUT `w_full` (the
-        // EXP-179 bug — see `issue_detail.rs:66`): taffy then sized it
-        // fit-content, so wrapped text overflowed its own box and painted
-        // over the sections below. `detail_column()` is the shared settings
-        // grid (w_full + cap + padding), so this screen lines up with every
-        // settings pane beside it in the nav.
-        div()
-            .id("account-scroll")
-            .size_full()
-            .min_w_0()
-            .overflow_y_scroll()
-            .child(
-                super::detail_column()
-                    .child(self.render_identity(cx))
-                    .child(super::section(cx).child(self.render_timezone(cx)))
-                    .child(self.notifications.clone()),
-            )
+        // An ordinary section pane since EXP-238 — `SettingsView` owns the
+        // scroll container and the shared `detail_column` grid.
+        v_flex()
+            .gap_6()
+            .child(self.render_identity(cx))
+            .child(super::section(cx).child(self.render_timezone(cx)))
     }
 }

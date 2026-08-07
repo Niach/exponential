@@ -29,13 +29,13 @@ use gpui::{
 use sync::Store;
 
 use crate::actions::{
-    GoBack, OpenAccount, OpenAction, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
+    GoBack, OpenAction, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
     OpenSourceControl, SwitchTeam, SyncNow,
 };
 
 /// One center TAB (§4.2, reworked): the center pane is tab-based — every
 /// `Screen` value identifies one openable tab (issues and files can be open
-/// several at a time; Source Control / Settings / Account are singletons).
+/// several at a time; Source Control / Settings are singletons).
 /// `None` on [`Navigation::screen`] means "no tab active" — the center shows
 /// its empty state. Issue LISTS are not screens: they live in the sidebar
 /// tool windows (the rail's Inbox / My Issues / All Issues).
@@ -43,10 +43,9 @@ use crate::actions::{
 pub enum Screen {
     /// Full-page issue detail (`routes/.../issues/$issueIdentifier`).
     IssueDetail { issue_id: String },
-    /// `routes/t/$ws/settings/`.
+    /// `routes/t/$ws/settings/` — team, device AND personal sections
+    /// (EXP-238 folded the old Account screen into the settings nav).
     Settings,
-    /// `routes/_authenticated/account/*` (integrations + notifications).
-    Account,
     /// One support ticket's conversation (EXP-180 — server-only tRPC data,
     /// opened from the Support tool window's thread list).
     SupportThread { thread_id: String },
@@ -64,7 +63,7 @@ pub enum Screen {
 
 impl Screen {
     /// Whether the screen can be undocked into its own native window
-    /// (EXP-65). Content screens only — Settings/Account are app-config
+    /// (EXP-65). Content screens only — Settings is app-config
     /// singletons with near-zero value as standalone windows.
     pub(crate) fn undockable(&self) -> bool {
         matches!(
@@ -74,7 +73,7 @@ impl Screen {
     }
 
     /// EXP-288: whether the screen is a DETAIL view — the only kind that
-    /// gets a tab chip. Settings/Account are tab-less full-screen modes
+    /// gets a tab chip. Settings is a tab-less full-screen mode
     /// (leave by clicking any rail entry or open tab); Source Control's
     /// diff and the file viewer are TOOL-DEFAULT center content driven by
     /// the sidebar selection, never tabs.
@@ -130,7 +129,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .map(issue_tab_title)
             .unwrap_or_else(|| "Issue".into()),
         Screen::Settings => "Settings".into(),
-        Screen::Account => "Account".into(),
         // Thread titles are tRPC-only (never synced) — the support surfaces
         // remember them in a process global; unknown ids degrade generically.
         Screen::SupportThread { thread_id } => crate::support_thread::title_of(cx, thread_id)
@@ -236,7 +234,8 @@ impl Navigation {
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     match spec {
         "settings" => Some(Screen::Settings),
-        "account" => Some(Screen::Account),
+        // EXP-238: Account merged into Settings — the dev value keeps working.
+        "account" => Some(Screen::Settings),
         _ => spec
             .strip_prefix("issue:")
             .map(|id| Screen::IssueDetail {
@@ -646,7 +645,6 @@ pub fn init(cx: &mut App) {
         });
     });
     cx.on_action(|_: &OpenSettings, cx| navigate_active(cx, Screen::Settings));
-    cx.on_action(|_: &OpenAccount, cx| navigate_active(cx, Screen::Account));
     cx.on_action(|_: &OpenSourceControl, cx| {
         on_active_window(cx, |window, cx| {
             crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::SourceControl);

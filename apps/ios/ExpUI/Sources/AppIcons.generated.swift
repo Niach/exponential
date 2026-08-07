@@ -433,6 +433,8 @@ public enum AppIcons {
     public static let settingsAccount: String = "circle-user"
     /// Concept `settings-agents`.
     public static let settingsAgents: String = "bot"
+    /// Concept `settings-api`.
+    public static let settingsApi: String = "key"
     /// Concept `settings-billing`.
     public static let settingsBilling: String = "credit-card"
     /// Concept `settings-boards`.
@@ -447,6 +449,8 @@ public enum AppIcons {
     public static let settingsLocalRepos: String = "hard-drive"
     /// Concept `settings-members`.
     public static let settingsMembers: String = "users"
+    /// Concept `settings-notifications`.
+    public static let settingsNotifications: String = "bell"
     /// Concept `settings-rate`.
     public static let settingsRate: String = "star"
     /// Concept `settings-repositories`.

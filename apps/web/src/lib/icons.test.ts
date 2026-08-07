@@ -311,9 +311,10 @@ describe(`icon call sites`, () => {
 
     // Every icon on both screens comes from the registry — no stragglers.
     expect(web).not.toMatch(/icon: [A-Z]\w+,/)
-    expect(webNav.size).toBe(9)
+    // EXP-238: + the Personal group (Account, Notifications, API keys).
+    expect(webNav.size).toBe(12)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
-    expect(desktopNav.size).toBe(11)
+    expect(desktopNav.size).toBe(14)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [
@@ -324,6 +325,9 @@ describe(`icon call sites`, () => {
       [`Storage`, `Storage`],
       [`Boards`, `Board`],
       [`Repositories`, `Repositories`],
+      [`Account`, `Account`],
+      [`Notifications`, `Notifications`],
+      [`API keys`, `ApiKeys`],
     ]
     for (const [webLabel, desktopSection] of shared) {
       const concept = webNav.get(webLabel)

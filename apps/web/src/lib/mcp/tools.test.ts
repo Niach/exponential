@@ -22,7 +22,7 @@ const h = vi.hoisted(() => {
       update: vi.fn(),
       delete: vi.fn(),
     },
-    issues: { prFiles: vi.fn(), retargetPr: vi.fn() },
+    issues: { prFiles: vi.fn(), retargetPr: vi.fn(), update: vi.fn() },
     boards: { delete: vi.fn(), setRepository: vi.fn() },
     teams: { create: vi.fn(), update: vi.fn() },
     teamInvites: { create: vi.fn(), list: vi.fn(), revoke: vi.fn() },
@@ -611,5 +611,84 @@ describe(`exponential_attachments_delete`, () => {
     const result = await tool(`exponential_attachments_delete`)({ id: UUID })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not allowed here`)
+  })
+})
+
+// ── statuses (EXP-238: custom statuses over MCP) ─────────────────────────────
+
+describe(`exponential_statuses_list`, () => {
+  it(`returns contract-ordered rows with per-category positions`, async () => {
+    const at = (iso: string) => new Date(iso)
+    // Deliberately shuffled: the tool must order by category display order
+    // (started, unstarted, backlog, …), then sortOrder, createdAt, id.
+    dbRows.current = [
+      {
+        id: `b`,
+        name: `Todo`,
+        category: `unstarted`,
+        builtinKey: `todo`,
+        sortOrder: 1,
+        createdAt: at(`2026-01-01T00:00:00Z`),
+      },
+      {
+        id: `a`,
+        name: `QA`,
+        category: `started`,
+        builtinKey: null,
+        sortOrder: 2,
+        createdAt: at(`2026-01-02T00:00:00Z`),
+      },
+      {
+        id: `c`,
+        name: `In Progress`,
+        category: `started`,
+        builtinKey: `in_progress`,
+        sortOrder: 1,
+        createdAt: at(`2026-01-01T00:00:00Z`),
+      },
+    ]
+    const result = await tool(`exponential_statuses_list`)({ teamId: WS })
+    expect(parseOk(result)).toEqual([
+      {
+        id: `c`,
+        name: `In Progress`,
+        category: `started`,
+        position: 1,
+        builtinKey: `in_progress`,
+      },
+      { id: `a`, name: `QA`, category: `started`, position: 2, builtinKey: null },
+      {
+        id: `b`,
+        name: `Todo`,
+        category: `unstarted`,
+        position: 1,
+        builtinKey: `todo`,
+      },
+    ])
+  })
+
+  it(`denies when the user is not in the team`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(forbidden())
+    const result = await tool(`exponential_statuses_list`)({ teamId: WS })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not allowed here`)
+  })
+})
+
+describe(`exponential_issues_update statusId passthrough`, () => {
+  it(`forwards statusId to the issues router untouched`, async () => {
+    caller.issues.update.mockResolvedValue({
+      issue: { id: UUID, statusId: PROJ },
+    })
+    const result = await tool(`exponential_issues_update`)({
+      id: UUID,
+      statusId: PROJ,
+    })
+    expect(parseOk(result)).toEqual({ id: UUID, statusId: PROJ })
+    expect(caller.issues.update).toHaveBeenCalledWith({
+      id: UUID,
+      statusId: PROJ,
+      description: undefined,
+    })
   })
 })

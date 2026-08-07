@@ -32,9 +32,6 @@ actions!(
         CreateTeam,
         /// Footer account dropdown: open settings.
         OpenSettings,
-        /// Footer account dropdown: open the Account screen (§4.2
-        /// integrations + notification prefs).
-        OpenAccount,
         /// Footer account dropdown: join a team by invite link/token
         /// (§4.2 accept-invite fallback — desktop can't catch the browser's
         /// `/invite/<token>` click).

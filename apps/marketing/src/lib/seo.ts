@@ -148,7 +148,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/index.html`,
     sources: [`src/DocsPage.tsx`],
     title: `Docs · Exponential`,
-    description: `Everything about Exponential: quickstart plus guides for issues and boards, coding agents, feedback and the helpdesk, the embeddable widget, MCP, and the apps.`,
+    description: `Everything about Exponential: quickstart plus guides for issues and boards, coding agents, actions, the CLI and daemon, feedback and the helpdesk, the embeddable widget, MCP, the apps, and self-hosting.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
@@ -186,7 +186,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/coding/index.html`,
     sources: [`src/CodingDocsPage.tsx`],
     title: `Coding agents · Exponential docs`,
-    description: `Hand issues to Claude Code, Codex or pi from the desktop IDE: setup, the start-coding dialog, single and batch runs, steering live sessions, reviewing and merging.`,
+    description: `Hand issues to Claude Code, Codex or pi from the desktop IDE or the CLI: setup, the start-coding dialog, single and batch runs, steering live sessions, reviewing and merging.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
@@ -238,7 +238,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/widget/index.html`,
     sources: [`src/WidgetDocsPage.tsx`],
     title: `Feedback widget · Exponential docs`,
-    description: `Embed the feedback widget on any site: the snippet, feedback and support modes, the JS API (identify, custom data), annotated screenshots, and what lands in your tracker.`,
+    description: `Embed the feedback widget on any site: the snippet, feedback and support modes, the JS API (identify, custom data, theming), label chips, annotated screenshots, and what lands in your tracker.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
@@ -251,7 +251,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/mcp/index.html`,
     sources: [`src/McpDocsPage.tsx`],
     title: `MCP & API · Exponential docs`,
-    description: `Connect Claude, ChatGPT, Codex, Claude Code, or Cursor to your tracker over MCP: OAuth with per-team scoping or API keys, plus the full tool reference.`,
+    description: `Connect Claude, ChatGPT, Codex, Claude Code, or Cursor to your tracker over MCP: OAuth with per-team scoping or personal API keys from Settings, plus the full tool reference.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

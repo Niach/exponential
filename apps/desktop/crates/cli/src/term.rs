@@ -65,22 +65,3 @@ pub fn prompt_line(prompt: &str) -> anyhow::Result<String> {
     Ok(line.trim().to_string())
 }
 
-/// Read a line with echo off (password entry). Falls back to a plain read
-/// when stdin is not a tty (scripted input).
-pub fn prompt_password(prompt: &str) -> anyhow::Result<String> {
-    if !stdin_is_tty() {
-        return prompt_line(prompt);
-    }
-    let mut saved = MaybeUninit::<libc::termios>::uninit();
-    if unsafe { libc::tcgetattr(libc::STDIN_FILENO, saved.as_mut_ptr()) } != 0 {
-        return prompt_line(prompt);
-    }
-    let saved = unsafe { saved.assume_init() };
-    let mut no_echo = saved;
-    no_echo.c_lflag &= !libc::ECHO;
-    unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &no_echo) };
-    let result = prompt_line(prompt);
-    unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &saved) };
-    println!();
-    result
-}

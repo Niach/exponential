@@ -52,12 +52,12 @@ import {
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const NavAboutIcon = conceptIcon(`settings-about`)
+const NavAccountIcon = conceptIcon(`nav-account`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavAgentsIcon = conceptIcon(`nav-agents`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
-const NavNotificationsIcon = conceptIcon(`nav-notifications`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSearchIcon = conceptIcon(`nav-search`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
@@ -185,17 +185,6 @@ export function TeamSidebar({
               <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
                 <UiAddIcon className="h-4 w-4" />
                 New team
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() =>
-                  navigate({
-                    to: `/t/$teamSlug/settings`,
-                    params: { teamSlug },
-                  })
-                }
-              >
-                <NavSettingsIcon className="h-4 w-4" />
-                Team settings
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -326,56 +315,79 @@ export function TeamSidebar({
             <GettingStartedButton teamSlug={teamSlug} team={team} />
             <FeedbackButton />
           </SidebarMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <SidebarMenuButton className="w-full" aria-label="User menu">
-                <Avatar className="h-6 w-6">
-                  {session?.user?.image && (
-                    <AvatarImage src={session.user.image} />
-                  )}
-                  <AvatarFallback className="text-xs">
-                    {userInitials}
-                  </AvatarFallback>
-                </Avatar>
-                {/* First name only (EXP-311) — the full name + email live in
-                    account settings; nameless accounts fall back to email. */}
-                <span className="truncate text-sm">
-                  {userLabel ? firstName(userLabel) : `Loading...`}
-                </span>
-                <NavTeamSwitcherIcon className="ml-auto h-4 w-4" />
-              </SidebarMenuButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="w-56">
-              {isAdminUser(session?.user) && (
-                <DropdownMenuItem onClick={() => navigate({ to: `/admin` })}>
-                  <NavAdminIcon className="mr-2 h-4 w-4" />
-                  Admin
+          {/* EXP-238: settings entry lives down here next to the user block,
+              like the IDE's rail gear — it opens the unified settings page
+              (team sections + the Personal group). */}
+          <div className="flex items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  className="min-w-0 flex-1"
+                  aria-label="User menu"
+                >
+                  <Avatar className="h-6 w-6">
+                    {session?.user?.image && (
+                      <AvatarImage src={session.user.image} />
+                    )}
+                    <AvatarFallback className="text-xs">
+                      {userInitials}
+                    </AvatarFallback>
+                  </Avatar>
+                  {/* First name only (EXP-311) — the full name + email live in
+                      account settings; nameless accounts fall back to email. */}
+                  <span className="truncate text-sm">
+                    {userLabel ? firstName(userLabel) : `Loading...`}
+                  </span>
+                  <NavTeamSwitcherIcon className="ml-auto h-4 w-4" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="w-56">
+                {isAdminUser(session?.user) && (
+                  <DropdownMenuItem onClick={() => navigate({ to: `/admin` })}>
+                    <NavAdminIcon className="mr-2 h-4 w-4" />
+                    Admin
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  onClick={() =>
+                    navigate({
+                      to: `/t/$teamSlug/settings/account`,
+                      params: { teamSlug },
+                    })
+                  }
+                >
+                  <NavAccountIcon className="mr-2 h-4 w-4" />
+                  Account
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={() => navigate({ to: `/account/notifications` })}
-              >
-                <NavNotificationsIcon className="mr-2 h-4 w-4" />
-                Account & notifications
-              </DropdownMenuItem>
-              {/* Re-entry point once the footer card is dismissed. */}
-              <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
-                <NavChangelogIcon className="mr-2 h-4 w-4" />
-                What&apos;s new
-              </DropdownMenuItem>
-              {/* EXP-262: version-less About page with the third-party
-                  licence notices. */}
-              <DropdownMenuItem onClick={() => navigate({ to: `/about` })}>
-                <NavAboutIcon className="mr-2 h-4 w-4" />
-                About
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut}>
-                <NavSignOutIcon className="mr-2 h-4 w-4" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {/* Re-entry point once the footer card is dismissed. */}
+                <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
+                  <NavChangelogIcon className="mr-2 h-4 w-4" />
+                  What&apos;s new
+                </DropdownMenuItem>
+                {/* EXP-262: version-less About page with the third-party
+                    licence notices. */}
+                <DropdownMenuItem onClick={() => navigate({ to: `/about` })}>
+                  <NavAboutIcon className="mr-2 h-4 w-4" />
+                  About
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSignOut}>
+                  <NavSignOutIcon className="mr-2 h-4 w-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <SidebarMenuButton
+              asChild
+              className="w-auto shrink-0"
+              aria-label="Settings"
+              tooltip="Settings"
+            >
+              <Link to="/t/$teamSlug/settings" params={{ teamSlug }}>
+                <NavSettingsIcon className="h-4 w-4" />
+              </Link>
+            </SidebarMenuButton>
+          </div>
         </SidebarFooter>
       </Sidebar>
 

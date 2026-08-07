@@ -1,8 +1,9 @@
-//! `exponential login` — device-code first (RFC 8628 via the instance's
-//! Better Auth `deviceAuthorization` plugin), password/token fallbacks for
-//! scripted provisioning. One mechanism covers local terminals, SSH,
-//! password users and OIDC users: approval happens in ANY browser where the
-//! user is signed in.
+//! `exponential login` — device-code (RFC 8628 via the instance's Better
+//! Auth `deviceAuthorization` plugin), with `EXP_TOKEN` for scripted
+//! provisioning. One mechanism covers local terminals, SSH, password users
+//! and OIDC users: approval happens in ANY browser where the user is signed
+//! in. EXP-238 removed the `--password`/EXP_EMAIL/EXP_PASSWORD path — the
+//! non-interactive credential is an API key now.
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -16,10 +17,45 @@ use crate::term;
 
 const DEFAULT_INSTANCE: &str = "https://app.exponential.at";
 
+/// How to sign in, given the environment and the server's capabilities.
+#[derive(Debug, PartialEq, Eq)]
+enum LoginMode {
+    /// `EXP_TOKEN` is set — skip authentication entirely.
+    Token(String),
+    /// The default: RFC 8628 device code.
+    Device,
+    /// No token, and the server offers no device flow — nothing we can do.
+    Unsupported,
+}
+
+/// Pure precedence decision, unit-tested below: a non-blank `EXP_TOKEN`
+/// always wins; otherwise the device flow, when the server offers it.
+fn login_mode(env_token: Option<&str>, device_flow_enabled: bool) -> LoginMode {
+    if let Some(token) = env_token {
+        let token = token.trim();
+        if !token.is_empty() {
+            return LoginMode::Token(token.to_string());
+        }
+    }
+    if device_flow_enabled {
+        LoginMode::Device
+    } else {
+        LoginMode::Unsupported
+    }
+}
+
 pub fn run(args: &[String]) -> CommandResult {
     let mut args = args.to_vec();
     let instance_flag = take_value(&mut args, "--instance");
-    let force_password = take_flag(&mut args, "--password");
+    // Removed by EXP-238 — a bespoke message beats "unknown flag" for the
+    // provisioning scripts that still pass it.
+    if take_flag(&mut args, "--password") {
+        bail!(
+            "--password was removed. Use the device-code login, or set EXP_TOKEN to a \
+             personal API key (Settings → API keys in the web app) and rerun \
+             `exponential login`."
+        );
+    }
     reject_unknown_flags(&args)?;
 
     let instance = match instance_flag
@@ -41,29 +77,29 @@ pub fn run(args: &[String]) -> CommandResult {
     let instance = normalize_instance_url(&instance);
     let auth_client = AuthClient::new();
 
-    // Pre-provisioned installs: a raw session token skips authentication
-    // entirely (EXP_TOKEN from a secrets manager).
-    if let Ok(token) = std::env::var("EXP_TOKEN") {
-        if !token.trim().is_empty() {
-            return finish(&auth_client, &instance, token.trim().to_string());
-        }
+    // Pre-provisioned installs: EXP_TOKEN skips authentication entirely.
+    // The value is an API key (`expu_…`, minted under Settings → API keys)
+    // or a raw session token — the server resolves both to a session, and
+    // everything downstream rides the same Bearer path.
+    if let LoginMode::Token(token) = login_mode(std::env::var("EXP_TOKEN").ok().as_deref(), true) {
+        return finish(&auth_client, &instance, token);
     }
 
+    // Also the reachability check — a wrong instance URL fails here, not
+    // three steps deep into the device flow.
     let config = auth_client
         .fetch_auth_config(&instance)
         .with_context(|| format!("reach {instance} — is the instance URL right?"))?;
 
-    let scripted_password = std::env::var("EXP_EMAIL").is_ok() && std::env::var("EXP_PASSWORD").is_ok();
-    if force_password || scripted_password || !config.device_flow_enabled {
-        if !config.password_enabled {
-            bail!(
-                "Password login is disabled on {instance} and this server offers no device-code flow. Update the server or sign in another way."
-            );
-        }
-        return password_login(&auth_client, &instance);
+    match login_mode(None, config.device_flow_enabled) {
+        LoginMode::Token(_) => unreachable!("no token in this branch"),
+        LoginMode::Device => device_login(&auth_client, &instance),
+        LoginMode::Unsupported => bail!(
+            "This server offers no device-code login. Update the server, or set EXP_TOKEN \
+             to a personal API key (Settings → API keys in the web app) and rerun \
+             `exponential login`."
+        ),
     }
-
-    device_login(&auth_client, &instance)
 }
 
 fn device_login(auth_client: &AuthClient, instance: &str) -> CommandResult {
@@ -119,31 +155,15 @@ fn local_display_available() -> bool {
         || std::env::var("WAYLAND_DISPLAY").is_ok()
 }
 
-fn password_login(auth_client: &AuthClient, instance: &str) -> CommandResult {
-    let email = match std::env::var("EXP_EMAIL") {
-        Ok(email) if !email.trim().is_empty() => email.trim().to_string(),
-        _ => term::prompt_line("Email: ")?,
-    };
-    let password = match std::env::var("EXP_PASSWORD") {
-        Ok(password) if !password.is_empty() => password,
-        _ => term::prompt_password("Password: ")?,
-    };
-    if email.is_empty() || password.is_empty() {
-        bail!("Email and password are required.");
-    }
-    let success = auth_client
-        .sign_in_with_password(instance, &email, &password)
-        .context("sign in")?;
-    finish(auth_client, instance, success.token)
-}
-
-/// Common tail: validate the session, persist the account, mint the hidden
-/// `expu_` personal key the agent MCP wiring rides.
+/// Common tail: validate the credential, persist the account, mint the
+/// hidden `expu_` personal key the agent MCP wiring rides. (When EXP_TOKEN
+/// was itself an API key this mints a second, device-named key — fine: the
+/// provisioned key stays the user's, the device key is the launcher's.)
 fn finish(auth_client: &AuthClient, instance: &str, token: String) -> CommandResult {
     let user = auth_client
         .fetch_session(instance, &token)
-        .context("validate the session")?
-        .context("the token did not resolve to a session — sign in again")?;
+        .context("validate the credential")?
+        .context("the token did not resolve to a session — check EXP_TOKEN or sign in again")?;
 
     let data_dir = crate::context::data_dir();
     let auth = AuthStore::load(data_dir);
@@ -161,4 +181,37 @@ fn finish(auth_client: &AuthClient, instance: &str, token: String) -> CommandRes
     println!("Signed in as {} on {}", account.email, account.instance_url);
     println!("Next: `exponential doctor`, then `exponential daemon install` to register this machine.");
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_wins_over_everything() {
+        assert_eq!(
+            login_mode(Some("expu_abc"), false),
+            LoginMode::Token("expu_abc".to_string())
+        );
+        assert_eq!(
+            login_mode(Some("  session-token  "), true),
+            LoginMode::Token("session-token".to_string())
+        );
+    }
+
+    #[test]
+    fn blank_token_is_ignored() {
+        assert_eq!(login_mode(Some("   "), true), LoginMode::Device);
+        assert_eq!(login_mode(Some(""), false), LoginMode::Unsupported);
+    }
+
+    #[test]
+    fn device_is_the_default() {
+        assert_eq!(login_mode(None, true), LoginMode::Device);
+    }
+
+    #[test]
+    fn no_device_flow_and_no_token_is_unsupported() {
+        assert_eq!(login_mode(None, false), LoginMode::Unsupported);
+    }
 }
