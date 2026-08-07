@@ -1,6 +1,10 @@
 // Public TypeScript surface of the embeddable widget. The web app imports
 // these types for its dogfood mount; embedders can copy them from the docs.
 
+// Panel + launcher theme (EXP-435). `auto` follows the visitor's
+// prefers-color-scheme; absent = the widget config's theme, else dark.
+export type ExponentialWidgetTheme = `dark` | `light` | `auto`
+
 export interface ExponentialWidgetInitOptions {
   key: string
   // Override the API/bundle origin. Defaults to the origin the loader script
@@ -14,6 +18,8 @@ export interface ExponentialWidgetInitOptions {
   // false = no floating button; the host app calls open() itself.
   showButton?: boolean
   zIndex?: number
+  // Overrides the widget config's theme; setTheme() overrides both.
+  theme?: ExponentialWidgetTheme
 }
 
 export interface ExponentialWidgetIdentity {
@@ -48,6 +54,9 @@ export interface ExponentialWidgetSubmitPayload {
   name?: string
   // Merged over identify-time custom data for this submission only.
   customData?: ExponentialWidgetCustomData
+  // Feedback mode: ids of the widget's configured labels (EXP-435). Unknown
+  // ids are dropped server-side.
+  labels?: string[]
 }
 
 export interface ExponentialWidgetSubmitResult {
@@ -63,6 +72,10 @@ export interface ExponentialWidgetApi {
   init(options: ExponentialWidgetInitOptions): void
   identify(identity: ExponentialWidgetIdentity): void
   setCustomData(data: ExponentialWidgetCustomData): void
+  // Runtime theme override (EXP-435) — hook this to the host's own
+  // dark/light toggle; launcher and panel update live. Wins over both the
+  // init option and the widget config.
+  setTheme(theme: ExponentialWidgetTheme): void
   open(): void
   close(): void
   // Resolves with an error result instead of throwing. NOTE: calls queued
@@ -89,6 +102,14 @@ export interface WidgetCustomField {
   required?: boolean
 }
 
+// A team label the reporter may tag their submission with (EXP-435),
+// resolved server-side from the widget config.
+export interface WidgetRemoteLabel {
+  id: string
+  name: string
+  color: string
+}
+
 export interface WidgetRemoteForm {
   buttonLabel: string | null
   accentColor: string | null
@@ -100,6 +121,12 @@ export interface WidgetRemoteForm {
   collectName?: boolean
   nameRequired?: boolean
   customFields?: WidgetCustomField[]
+  // EXP-435 additions — absent on older servers: theme null/absent = dark,
+  // no custom colors, no labels.
+  theme?: ExponentialWidgetTheme | null
+  backgroundColor?: string | null
+  textColor?: string | null
+  labels?: WidgetRemoteLabel[]
 }
 
 // Which entry points the panel offers (EXP-130).
@@ -145,6 +172,9 @@ export interface WidgetRuntimeState {
   bundleInjected: boolean
   loaderButtonHost: HTMLElement | null
   bundle: WidgetBundleHooks | null
+  // setTheme() runtime override (EXP-435). Optional so pre-theme state
+  // literals (tests, cached loaders) stay valid.
+  themeOverride?: ExponentialWidgetTheme | null
 }
 
 declare global {

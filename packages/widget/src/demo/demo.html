@@ -61,6 +61,9 @@
       <button id="open-above" style="position:relative;z-index:5;padding:8px 12px">
         Simulate a modal (pointer-events:none on body). Launcher must stay clickable.
       </button>
+      <button id="toggle-theme" style="position:relative;z-index:5;padding:8px 12px">
+        Toggle widget theme via setTheme() (add ?theme=light|auto to init with one)
+      </button>
       <div class="card">
         <canvas id="chart" width="320" height="120"></canvas>
       </div>
@@ -81,7 +84,7 @@
         if (w.ExponentialWidget) return
         var q = [],
           api = { q: q }
-        ;["init", "identify", "setCustomData", "open", "close", "submit"].forEach(
+        ;["init", "identify", "setCustomData", "setTheme", "open", "close", "submit"].forEach(
           function (m) {
             api[m] = function () {
               q.push([m, [].slice.call(arguments)])
@@ -98,6 +101,7 @@
       // ?key=expw_… lets you point the demo at a real widget config.
       // ?position=bottom-right|bottom-left exercises the launcher side.
       // ?margin=N gives the body an N-px margin to exercise the crop origin.
+      // ?theme=dark|light|auto exercises the EXP-435 theme init option.
       var params = new URLSearchParams(location.search)
       if (params.get("margin")) {
         document.body.style.margin = params.get("margin") + "px"
@@ -105,8 +109,19 @@
       ExponentialWidget.init({
         key: params.get("key") || "expw_demo0000000000000000000000000000",
         position: params.get("position") || "bottom-left",
+        theme: params.get("theme") || undefined,
       })
       ExponentialWidget.setCustomData({ demo: true, page: "demo.html" })
+
+      // Live theme switching (EXP-435): cycles dark → light → auto, like a
+      // host page hooking setTheme() to its own appearance toggle.
+      var themeCycle = ["dark", "light", "auto"]
+      var themeIndex = Math.max(0, themeCycle.indexOf(params.get("theme")))
+      document.getElementById("toggle-theme").addEventListener("click", function () {
+        themeIndex = (themeIndex + 1) % themeCycle.length
+        ExponentialWidget.setTheme(themeCycle[themeIndex])
+        this.textContent = 'setTheme("' + themeCycle[themeIndex] + '") applied'
+      })
 
       // Prove the launcher works while the host page disables body pointer
       // events (what Radix does under an open dialog): the widget mounts on

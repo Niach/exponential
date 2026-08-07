@@ -180,6 +180,13 @@
   align-items: center;
 }
 
+.exp-shot-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
 .exp-shot-actions {
   position: absolute;
   top: 6px;
@@ -205,7 +212,8 @@
   padding: 4px 8px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.65);
-  color: var(--exp-foreground);
+  /* Fixed light text: the chip overlay is always dark, whatever the theme. */
+  color: #fafafa;
   border: 1px solid var(--exp-border);
   cursor: pointer;
 }
@@ -245,7 +253,8 @@
   height: 16px;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.65);
-  color: var(--exp-foreground);
+  /* Fixed light text on the always-dark overlay (see .exp-chip). */
+  color: #fafafa;
   font-family: inherit;
   font-size: 12px;
   line-height: 16px;
@@ -300,6 +309,43 @@
   font-size: 12px;
   font-weight: 500;
   color: var(--exp-muted-foreground);
+}
+
+/* Reporter-toggleable label chips (EXP-435). */
+.exp-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.exp-label-chip {
+  all: initial;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--exp-border);
+  background: var(--exp-background);
+  color: var(--exp-foreground);
+  cursor: pointer;
+}
+.exp-label-chip:hover { background: var(--exp-secondary); }
+.exp-label-chip[aria-pressed="true"] {
+  border-color: var(--exp-accent);
+  background: var(--exp-secondary);
+}
+.exp-label-chip:focus-visible { outline: 2px solid var(--exp-foreground); }
+
+.exp-label-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
 }
 
 .exp-input,

@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto"
 import { TRPCError } from "@trpc/server"
-import { eq } from "drizzle-orm"
+import { and, asc, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 import { db } from "@/db/connection"
 import {
   attachments,
   emailDeliveries,
   issues,
+  issueLabels,
   issueSubscribers,
   boards,
+  labels,
   widgetConfigs,
   widgetSubmissions,
   teams,
@@ -184,6 +186,57 @@ export function sanitizeWidgetCustomFields(
   return out
 }
 
+// Widget-exposed labels (EXP-435): form_config.labelIds names the team
+// labels a visitor may tag their report with. Same defensive-read rule as
+// custom fields — the column is untyped jsonb, so junk entries are dropped,
+// and ids are resolved against live label rows at serve/submit time (labels
+// can be deleted after the config write; stale ids must degrade, not 500).
+export const maxWidgetLabels = 10
+
+export function sanitizeWidgetLabelIds(
+  formConfig: Record<string, unknown> | null | undefined
+): string[] {
+  const raw = formConfig?.labelIds
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  for (const entry of raw) {
+    if (out.length >= maxWidgetLabels) break
+    if (typeof entry !== `string` || entry.length === 0) continue
+    if (out.includes(entry)) continue
+    out.push(entry)
+  }
+  return out
+}
+
+export type WidgetThemePreference = `dark` | `light` | `auto`
+
+export function sanitizeWidgetTheme(
+  formConfig: Record<string, unknown> | null | undefined
+): WidgetThemePreference | null {
+  const raw = formConfig?.theme
+  return raw === `dark` || raw === `light` || raw === `auto` ? raw : null
+}
+
+export function sanitizeWidgetHexColor(value: unknown): string | null {
+  return typeof value === `string` && /^#[0-9a-fA-F]{6}$/.test(value)
+    ? value
+    : null
+}
+
+// The configured labels resolved to live team rows, in the team's label
+// order — what the config route serves so the panel can render name+color.
+export async function resolveWidgetConfigLabels(
+  config: WidgetConfigWithBoard
+): Promise<{ id: string; name: string; color: string }[]> {
+  const labelIds = sanitizeWidgetLabelIds(config.formConfig)
+  if (labelIds.length === 0) return []
+  return await db
+    .select({ id: labels.id, name: labels.name, color: labels.color })
+    .from(labels)
+    .where(and(inArray(labels.id, labelIds), eq(labels.teamId, config.teamId)))
+    .orderBy(asc(labels.sortOrder))
+}
+
 // The ONE normalized view of the EXP-244 email/name toggle bag — served by
 // the config route AND enforced by the submit paths, so the form a visitor
 // sees can never disagree with the policy the server enforces (a raw
@@ -294,6 +347,36 @@ function parseJsonField(
   }
 }
 
+// The reporter's label picks (EXP-435): a JSON array of label ids. Malformed
+// payloads are a client bug and 400; ids OUTSIDE the configured set are
+// silently dropped — the widget caches its config for 5 minutes, so a label
+// the owner just removed must not fail the whole report.
+function parseWidgetLabelSelection(
+  raw: FormDataEntryValue | null,
+  formConfig: Record<string, unknown> | null | undefined
+): string[] {
+  if (raw === null || raw === ``) return []
+  if (typeof raw !== `string` || raw.length > 2 * 1024) {
+    throw new WidgetRequestError(400, `Invalid labels`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new WidgetRequestError(400, `Invalid labels`)
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((entry) => typeof entry !== `string`)
+  ) {
+    throw new WidgetRequestError(400, `Invalid labels`)
+  }
+  const configured = sanitizeWidgetLabelIds(formConfig)
+  return [...new Set(parsed as string[])]
+    .filter((id) => configured.includes(id))
+    .slice(0, maxWidgetLabels)
+}
+
 export interface WidgetSubmitResult {
   // Feedback submissions carry the created issue; support submissions carry
   // neither (the ticket is a standalone thread and its conversation URL is
@@ -397,6 +480,11 @@ export async function createWidgetSubmission(args: {
       throw new WidgetRequestError(400, `Please fill in "${field.label}"`)
     }
   }
+
+  const labelIds = parseWidgetLabelSelection(
+    formData.get(`labels`),
+    config.formConfig
+  )
 
   const metaRaw = parseJsonField(formData.get(`meta`), 4 * 1024, `meta`) ?? {}
   const meta = envMetaSchema.safeParse(metaRaw)
@@ -545,6 +633,32 @@ export async function createWidgetSubmission(args: {
           source: `widget`,
         })
         .returning({ id: issues.id, identifier: issues.identifier })
+
+      // Reporter-picked labels (EXP-435). Re-selected against live team rows
+      // inside the tx — the configured set can hold ids deleted since the
+      // config write, and those must silently drop. No actor: like the issue
+      // itself, the labels come from the anonymous reporter.
+      if (labelIds.length > 0) {
+        const labelRows = await tx
+          .select({ id: labels.id })
+          .from(labels)
+          .where(
+            and(inArray(labels.id, labelIds), eq(labels.teamId, config.teamId))
+          )
+        if (labelRows.length > 0) {
+          await tx
+            .insert(issueLabels)
+            .values(
+              labelRows.map(({ id }) => ({
+                issueId,
+                labelId: id,
+                teamId: config.teamId,
+                boardId,
+              }))
+            )
+            .onConflictDoNothing()
+        }
+      }
 
       for (const row of attachmentRows) {
         await tx.insert(attachments).values({
@@ -842,6 +956,12 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
         collectName: toggles.collectName,
         nameRequired: toggles.nameRequired,
         customFields: sanitizeWidgetCustomFields(config.formConfig),
+        // EXP-435 additions — cached pre-theme/pre-labels bundles ignore
+        // them. Absent theme = dark (every pre-theme config).
+        theme: sanitizeWidgetTheme(config.formConfig),
+        backgroundColor: sanitizeWidgetHexColor(form.backgroundColor),
+        textColor: sanitizeWidgetHexColor(form.textColor),
+        labels: await resolveWidgetConfigLabels(config),
       },
       // maxImages/maxImageBytes are ADDITIVE (FEED-5) — cached pre-images
       // widget bundles ignore them.

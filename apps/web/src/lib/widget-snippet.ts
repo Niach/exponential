@@ -6,10 +6,13 @@
 export function buildWidgetSnippet(publicKey: string, origin: string): string {
   const scriptUrl = `${origin}/widget/v1/loader.js`
   return `<script>
+  // Exponential feedback widget. Full docs — init options, identify,
+  // setCustomData, setTheme (dark/light/auto), labels, headless submit:
+  // https://exponential.at/docs/widget/
   (function (w, d, u) {
     if (w.ExponentialWidget) return;
     var q = [], api = { q: q };
-    ["init","identify","setCustomData","open","close","submit"].forEach(function (m) {
+    ["init","identify","setCustomData","setTheme","open","close","submit"].forEach(function (m) {
       api[m] = function () { q.push([m, [].slice.call(arguments)]); };
     });
     w.ExponentialWidget = api;
@@ -21,6 +24,8 @@ export function buildWidgetSnippet(publicKey: string, origin: string): string {
   // Optional: attach your signed-in user for the helpdesk flow.
   // ExponentialWidget.identify({ email: "user@example.com", name: "Jane" });
   // ExponentialWidget.setCustomData({ plan: "pro" });
+  // Optional: follow your site's own dark/light toggle.
+  // ExponentialWidget.setTheme("light");
 </script>`
 }
 

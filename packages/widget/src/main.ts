@@ -3,7 +3,13 @@
 // the loader-owned `window.ExponentialWidget` delegates here from now on.
 import { h, render } from "preact"
 import { App } from "./ui/App"
-import { buttonCss, defaultZIndex, theme } from "./theme"
+import {
+  buttonCss,
+  defaultZIndex,
+  paletteFor,
+  resolveThemeMode,
+  resolveThemePreference,
+} from "./theme"
 import widgetCss from "./ui/widget.css?inline"
 
 function mount(): void {
@@ -31,9 +37,21 @@ function mount(): void {
   const root = host.attachShadow({ mode: `open` })
 
   const style = document.createElement(`style`)
+  // Mount-time snapshot only: the App's `.exp-root` custom properties win
+  // over buttonCss's var() fallbacks, so later setTheme calls live-update
+  // without touching this stylesheet.
+  const mode = resolveThemeMode(
+    resolveThemePreference(
+      state.themeOverride,
+      state.options.theme,
+      state.config?.form?.theme
+    )
+  )
   const accent =
-    state.options.color ?? state.config?.form?.accentColor ?? theme.defaultAccent
-  style.textContent = `${widgetCss}\n${buttonCss(accent)}`
+    state.options.color ??
+    state.config?.form?.accentColor ??
+    paletteFor(mode).defaultAccent
+  style.textContent = `${widgetCss}\n${buttonCss(accent, mode)}`
   root.appendChild(style)
 
   const container = document.createElement(`div`)

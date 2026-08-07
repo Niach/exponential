@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./theme": "./src/theme.ts",
+    "./widget.css": "./src/ui/widget.css"
   },
   "scripts": {
     "build": "tsc --noEmit && vite build && vite build --mode loader",

@@ -132,6 +132,55 @@ describe(`loader`, () => {
     expect(document.querySelector(`[data-exponential-widget]`)).toBeNull()
   })
 
+  // EXP-435 runtime theming: the standalone FAB restyles from its literal
+  // var() fallbacks and the bundle is nudged via stateChanged.
+  it(`setTheme restyles the launcher and notifies the bundle`, async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+
+    const styleText = () =>
+      document
+        .querySelector<HTMLElement>(`[data-exponential-widget]`)!
+        .shadowRoot!.querySelector(`style`)!.textContent!
+    // Dark default: fallback border comes from the dark palette.
+    expect(styleText()).toContain(`rgba(255, 255, 255, 0.1)`)
+
+    const stateChanged = vi.fn()
+    window.__expWidget!.bundle = {
+      open: vi.fn(),
+      close: vi.fn(),
+      stateChanged,
+    }
+    window.ExponentialWidget!.setTheme(`light`)
+    expect(window.__expWidget!.themeOverride).toBe(`light`)
+    expect(styleText()).toContain(`rgba(0, 0, 0, 0.12)`)
+    expect(stateChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it(`setTheme rejects junk values with a warning`, async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => undefined)
+    window.ExponentialWidget!.setTheme(`neon` as never)
+    expect(window.__expWidget!.themeOverride).toBeNull()
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it(`replays a setTheme queued before the loader ran`, async () => {
+    installSnippetStub()
+    const stub = window.ExponentialWidget as unknown as {
+      q: unknown[]
+    }
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    // The published snippet stub queues any listed method; simulate a
+    // pre-load setTheme call the same way.
+    stub.q.push([`setTheme`, [`light`]])
+    await importLoader()
+    expect(window.__expWidget!.themeOverride).toBe(`light`)
+  })
+
   it(`injects the bundle script once on open`, async () => {
     installSnippetStub()
     window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })

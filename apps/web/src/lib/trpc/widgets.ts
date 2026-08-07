@@ -1,10 +1,11 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { count, eq } from "drizzle-orm"
+import { and, count, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import {
   boards,
+  labels,
   supportThreads,
   widgetConfigs,
   widgetSubmissions,
@@ -19,6 +20,7 @@ import {
 import { generateWidgetKey } from "@/lib/widget/key"
 import {
   maxWidgetCustomFields,
+  maxWidgetLabels,
   widgetCustomFieldKeyPattern,
 } from "@/lib/widget/service"
 import { assertCanCreateWidget, assertCanUseHelpdesk } from "@/lib/billing"
@@ -77,6 +79,26 @@ const formConfigSchema = z
       .min(1)
       .max(2)
       .optional(),
+    // Team labels visitors can tag their report with (EXP-435). Stored as
+    // ids; the config route resolves them to {id,name,color} and silently
+    // drops labels deleted since this write.
+    labelIds: z
+      .array(z.string().uuid())
+      .max(maxWidgetLabels)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: `Label ids must be unique`,
+      })
+      .optional(),
+    // Panel theme (EXP-435); absent = dark (every pre-theme config).
+    theme: z.enum([`dark`, `light`, `auto`]).optional(),
+    backgroundColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional(),
+    textColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional(),
   })
   .optional()
 
@@ -101,6 +123,27 @@ async function assertSupportModeUsable(teamId: string) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
       message: `Enable the helpdesk in the widget settings first`,
+    })
+  }
+}
+
+// Write-time gate for form_config.labelIds: every id must be a live label of
+// this team (mirrors issues.create). Read paths stay tolerant of ids that go
+// stale later.
+async function assertLabelsBelongToTeam(
+  teamId: string,
+  formConfig: { labelIds?: string[] } | null | undefined
+) {
+  const labelIds = formConfig?.labelIds
+  if (!labelIds || labelIds.length === 0) return
+  const rows = await db
+    .select({ id: labels.id })
+    .from(labels)
+    .where(and(inArray(labels.id, labelIds), eq(labels.teamId, teamId)))
+  if (rows.length !== labelIds.length) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Labels must belong to the team`,
     })
   }
 }
@@ -235,6 +278,7 @@ export const widgetsRouter = router({
       if (modes.includes(`support`)) {
         await assertSupportModeUsable(input.teamId)
       }
+      await assertLabelsBelongToTeam(input.teamId, input.formConfig)
 
       const [config] = await ctx.db
         .insert(widgetConfigs)
@@ -302,6 +346,9 @@ export const widgetsRouter = router({
         if (finalModes.includes(`support`)) {
           await assertSupportModeUsable(config.teamId)
         }
+      }
+      if (input.formConfig !== undefined) {
+        await assertLabelsBelongToTeam(config.teamId, input.formConfig)
       }
 
       await ctx.db

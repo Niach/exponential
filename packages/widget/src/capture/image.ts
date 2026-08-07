@@ -99,6 +99,27 @@ export function viewportCropRect(
   return { x, y, width, height }
 }
 
+// Downscale-only pass for captures that are ALREADY the visible surface
+// (display-media frames, EXP-435): no crop geometry, just the maxEdge cap.
+// Falls back to the source on a null 2d context (happy-dom) like
+// cropToViewport does.
+export function scaleToMaxEdge(
+  source: HTMLCanvasElement,
+  maxEdge: number
+): HTMLCanvasElement {
+  const scaled = fitWithin(source.width, source.height, maxEdge)
+  if (scaled.width === source.width && scaled.height === source.height) {
+    return source
+  }
+  const output = document.createElement(`canvas`)
+  output.width = scaled.width
+  output.height = scaled.height
+  const context = output.getContext(`2d`)
+  if (!context) return source
+  context.drawImage(source, 0, 0, scaled.width, scaled.height)
+  return output
+}
+
 // Crop the full-page capture down to the visible viewport, then downscale to
 // the target edge. `sourceCssWidth` is the CSS-pixel width of the captured
 // element so we can derive the raster scale factor; `originX`/`originY` are its

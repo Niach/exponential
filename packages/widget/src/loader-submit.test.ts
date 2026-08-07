@@ -158,6 +158,29 @@ describe(`headless submit`, () => {
     expect(images[1].name).toBe(`shot.png`)
   })
 
+  // EXP-435: host-picked label ids forward as the JSON `labels` field;
+  // non-string junk is dropped (the server re-validates against the
+  // configured set anyway).
+  it(`forwards payload labels, dropping non-string junk`, async () => {
+    await boot(enabledConfig)
+    const result = await window.ExponentialWidget!.submit({
+      title: `T`,
+      labels: [`l-1`, 7 as never, `l-2`],
+    })
+    expect(result.ok).toBe(true)
+    expect(JSON.parse(submitCalls[0].body.get(`labels`) as string)).toEqual([
+      `l-1`,
+      `l-2`,
+    ])
+  })
+
+  it(`omits the labels field when the payload has none`, async () => {
+    await boot(enabledConfig)
+    const result = await window.ExponentialWidget!.submit({ title: `T` })
+    expect(result.ok).toBe(true)
+    expect(submitCalls[0].body.get(`labels`)).toBeNull()
+  })
+
   it(`routes mode: support to the support pipeline`, async () => {
     await boot({ enabled: true, modes: [`feedback`, `support`] })
     const result = await window.ExponentialWidget!.submit({

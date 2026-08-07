@@ -18,8 +18,15 @@ describe(`buildWidgetSnippet`, () => {
   it(`stubs the full public API surface including headless submit`, () => {
     const snippet = buildWidgetSnippet(`expw_abc123`, `https://example.com`)
     expect(snippet).toContain(
-      `["init","identify","setCustomData","open","close","submit"]`
+      `["init","identify","setCustomData","setTheme","open","close","submit"]`
     )
+  })
+
+  it(`carries the agent-facing docs pointer (EXP-435)`, () => {
+    // Coding agents pasting the snippet should be pointed at the full API
+    // docs instead of guessing from the stub.
+    const snippet = buildWidgetSnippet(`expw_abc123`, `https://example.com`)
+    expect(snippet).toContain(`https://exponential.at/docs/widget/`)
   })
 })
 

@@ -1,5 +1,29 @@
 import { describe, expect, it } from "vitest"
-import { fitWithin, screenshotFilename, viewportCropRect } from "./image"
+import {
+  fitWithin,
+  scaleToMaxEdge,
+  screenshotFilename,
+  viewportCropRect,
+} from "./image"
+
+// EXP-435: the downscale-only pass for precropped (display-media) frames.
+describe(`scaleToMaxEdge`, () => {
+  it(`returns the source untouched when already within the cap`, () => {
+    const canvas = document.createElement(`canvas`)
+    canvas.width = 640
+    canvas.height = 480
+    expect(scaleToMaxEdge(canvas, 1920)).toBe(canvas)
+  })
+
+  it(`falls back to the source when no 2d context exists (happy-dom)`, () => {
+    const canvas = document.createElement(`canvas`)
+    canvas.width = 4000
+    canvas.height = 2000
+    // happy-dom's getContext('2d') is null, so the oversized frame must
+    // survive rather than come back blank.
+    expect(scaleToMaxEdge(canvas, 1920)).toBe(canvas)
+  })
+})
 
 describe(`fitWithin`, () => {
   it(`keeps dimensions under the max edge`, () => {
