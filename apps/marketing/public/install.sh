@@ -100,9 +100,10 @@ esac
 # --- Sign in (interactive only) ----------------------------------------------
 # EXP_INSTANCE flows through to `exponential login`. Under `curl | sh` stdin
 # is the script pipe, so the login attaches to the controlling terminal;
-# EXP_TOKEN (pre-provisioned session) or no controlling terminal = scripted
-# setup. The probe actually OPENS /dev/tty — a permission test alone passes
-# in CI/cron where the open would fail with "no such device or address".
+# EXP_TOKEN (an API key from Settings -> API keys) or no controlling
+# terminal = scripted setup. The probe actually OPENS /dev/tty — a
+# permission test alone passes in CI/cron where the open would fail with
+# "no such device or address".
 if [ -n "${EXP_TOKEN:-}" ] || ! ( : < /dev/tty ) 2>/dev/null; then
   say "Done. Sign in with: $INSTALL_DIR/$BIN_NAME login"
   [ -n "${EXP_INSTANCE:-}" ] && say "  (EXP_INSTANCE=$EXP_INSTANCE)"

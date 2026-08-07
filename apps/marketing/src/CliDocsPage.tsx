@@ -19,7 +19,7 @@ const SECTIONS: DocsSectionType[] = [
 /* Command reference — mirroring the binary's own usage text
    (apps/desktop/crates/cli/src/main.rs). */
 const COMMANDS: { name: string; desc: string }[] = [
-  { name: `exponential login [--instance <url>] [--password]`, desc: `Sign in to an instance and store the session locally.` },
+  { name: `exponential login [--instance <url>]`, desc: `Sign in to an instance and store the session locally.` },
   { name: `exponential logout`, desc: `Sign out and drop the local credentials.` },
   { name: `exponential whoami`, desc: `Show the signed-in account and its instance.` },
   { name: `exponential status`, desc: `Account, device id, daemon state, installed agents, and git in one summary.` },
@@ -65,12 +65,6 @@ curl -fsSL https://exponential.at/install.sh | sh
 curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=https://issues.example.com sh
 `}</DocsCode>
             <p>
-              There is one installer for both, and it always comes from{` `}
-              <code>exponential.at</code>: a self-hosted deployment serves
-              only the app, not these marketing pages. The instance rides{` `}
-              <code>EXP_INSTANCE</code> instead.
-            </p>
-            <p>
               Builds are published for <strong>Linux</strong> (x86_64 and
               arm64) and <strong>macOS</strong> (Apple Silicon). The script
               verifies the binary&apos;s checksum and installs it to{` `}
@@ -115,14 +109,12 @@ exponential login
             </p>
             <h3>Non-interactive setups</h3>
             <p>
-              For provisioning scripts, skip the browser: pass{` `}
-              <code>--password</code> (or set <code>EXP_EMAIL</code> and{` `}
-              <code>EXP_PASSWORD</code>) to sign in with credentials, or hand
-              the CLI a pre-provisioned session token from your secrets
-              manager:
+              For provisioning scripts, skip the browser: generate an API key
+              under <strong>Settings → API keys</strong> in the web app and
+              hand it to the CLI as <code>EXP_TOKEN</code>:
             </p>
             <DocsCode language="shell">{`
-EXP_INSTANCE=https://issues.example.com EXP_TOKEN=... exponential login
+EXP_INSTANCE=https://issues.example.com EXP_TOKEN=expu_... exponential login
 `}</DocsCode>
           </DocsSection>
 

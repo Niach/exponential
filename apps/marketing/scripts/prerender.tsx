@@ -245,6 +245,15 @@ function writeLlmsTxt(): void {
       )
     }
   }
+  /* Non-page agent artifacts: shipped verbatim from public/, so they have
+     no PAGES entry and are listed literally. */
+  lines.push(
+    ``,
+    `## Agent resources`,
+    ``,
+    `- [SKILL.md](${SITE_ORIGIN}/SKILL.md): Agent-readable product brief: the MCP endpoint and auth, tool families, core concepts, the exponential CLI, and feedback-widget integration.`,
+    `- [install.sh](${SITE_ORIGIN}/install.sh): CLI installer for Linux and macOS. One script for cloud and self-host; the instance rides EXP_INSTANCE.`
+  )
   const covered = new Set(SECTIONS.flatMap((s) => s.paths))
   const missing = PAGES.filter((p) => !covered.has(p.path))
   if (missing.length) {
