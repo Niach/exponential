@@ -450,7 +450,7 @@ function AgentsPage() {
               label="Actions"
               count={sortedActions?.length ?? 0}
               trailing={
-                steerEnabled ? (
+                steerEnabled && isOwner ? (
                   <Button
                     variant="outline"
                     size="sm"
@@ -473,23 +473,27 @@ function AgentsPage() {
                 {sortedActions.map((action) => (
                   <ActionRow key={action.id} {...actionItemProps(action)} />
                 ))}
-                {steerEnabled && sortedActions.every((a) => a.builtin) && (
-                  <NoCustomActionsNudge
-                    mobile
-                    onClick={() => setCreateActionOpen(true)}
-                  />
-                )}
+                {steerEnabled &&
+                  isOwner &&
+                  sortedActions.every((a) => a.builtin) && (
+                    <NoCustomActionsNudge
+                      mobile
+                      onClick={() => setCreateActionOpen(true)}
+                    />
+                  )}
               </>
             ) : (
               <div className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
                 {sortedActions.map((action) => (
                   <ActionCard key={action.id} {...actionItemProps(action)} />
                 ))}
-                {steerEnabled && sortedActions.every((a) => a.builtin) && (
-                  <NoCustomActionsNudge
-                    onClick={() => setCreateActionOpen(true)}
-                  />
-                )}
+                {steerEnabled &&
+                  isOwner &&
+                  sortedActions.every((a) => a.builtin) && (
+                    <NoCustomActionsNudge
+                      onClick={() => setCreateActionOpen(true)}
+                    />
+                  )}
               </div>
             )}
           </div>
