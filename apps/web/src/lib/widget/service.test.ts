@@ -1078,6 +1078,9 @@ describe(`sanitizeWidgetCustomFields`, () => {
 
 // EXP-435: reporter-picked labels — defensive form_config reads, config-time
 // resolution against live rows, and the in-tx issue_labels insert.
+const lid = (n: number) =>
+  `00000000-0000-4000-8000-${String(n).padStart(12, `0`)}`
+
 describe(`sanitizeWidgetLabelIds / theme / hex color`, () => {
   it(`returns [] for absent/junk configs`, () => {
     expect(sanitizeWidgetLabelIds(null)).toEqual([])
@@ -1085,11 +1088,13 @@ describe(`sanitizeWidgetLabelIds / theme / hex color`, () => {
     expect(sanitizeWidgetLabelIds({ labelIds: `nope` })).toEqual([])
   })
 
-  it(`drops non-strings, dedupes, caps at 10`, () => {
-    const ids = Array.from({ length: 12 }, (_, i) => `l-${i}`)
+  it(`drops non-strings and non-UUIDs, dedupes, caps at 10`, () => {
+    const ids = Array.from({ length: 12 }, (_, i) => lid(i))
     expect(
-      sanitizeWidgetLabelIds({ labelIds: [`a`, 7, ``, `a`, `b`] })
-    ).toEqual([`a`, `b`])
+      sanitizeWidgetLabelIds({
+        labelIds: [lid(1), 7, ``, `not-a-uuid`, lid(1), lid(2)],
+      })
+    ).toEqual([lid(1), lid(2)])
     expect(sanitizeWidgetLabelIds({ labelIds: ids })).toHaveLength(10)
   })
 
@@ -1115,12 +1120,12 @@ describe(`resolveWidgetConfigLabels`, () => {
   })
 
   it(`resolves configured ids to live rows`, async () => {
-    h.labelSelectRows.push({ id: `l-1`, name: `Bug`, color: `#ef4444` })
+    h.labelSelectRows.push({ id: lid(1), name: `Bug`, color: `#ef4444` })
     const out = await resolveWidgetConfigLabels({
       ...config,
-      formConfig: { labelIds: [`l-1`, `l-gone`] },
+      formConfig: { labelIds: [lid(1), lid(9)] },
     } as unknown as WidgetConfigWithBoard)
-    expect(out).toEqual([{ id: `l-1`, name: `Bug`, color: `#ef4444` }])
+    expect(out).toEqual([{ id: lid(1), name: `Bug`, color: `#ef4444` }])
   })
 
   it(`skips the query entirely when no labels are configured`, async () => {
@@ -1132,7 +1137,7 @@ describe(`resolveWidgetConfigLabels`, () => {
 describe(`widget label selection on submit`, () => {
   const labelConfig = {
     ...config,
-    formConfig: { labelIds: [`l-1`, `l-2`] },
+    formConfig: { labelIds: [lid(1), lid(2)] },
   } as unknown as WidgetConfigWithBoard
 
   beforeEach(() => {
@@ -1149,10 +1154,10 @@ describe(`widget label selection on submit`, () => {
   }
 
   it(`inserts issue_labels rows carrying all four columns`, async () => {
-    h.labelSelectRows.push({ id: `l-1` }, { id: `l-2` })
+    h.labelSelectRows.push({ id: lid(1) }, { id: lid(2) })
     await createWidgetSubmission({
       config: labelConfig,
-      formData: withLabels([`l-1`, `l-2`]),
+      formData: withLabels([lid(1), lid(2)]),
       userAgent: null,
     })
     const insert = h.inserts.find((i) => i.table === issueLabels)
@@ -1160,7 +1165,7 @@ describe(`widget label selection on submit`, () => {
     const rows = insert!.values as unknown as Array<Record<string, unknown>>
     expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({
-      labelId: `l-1`,
+      labelId: lid(1),
       teamId: `ws-1`,
       boardId: `proj-1`,
     })
@@ -1168,22 +1173,22 @@ describe(`widget label selection on submit`, () => {
   })
 
   it(`silently drops ids outside the configured set (stale cached config)`, async () => {
-    h.labelSelectRows.push({ id: `l-1` })
+    h.labelSelectRows.push({ id: lid(1) })
     await createWidgetSubmission({
       config: labelConfig,
-      formData: withLabels([`l-1`, `l-rogue`]),
+      formData: withLabels([lid(1), lid(7)]),
       userAgent: null,
     })
     const insert = h.inserts.find((i) => i.table === issueLabels)
     const rows = insert!.values as unknown as Array<Record<string, unknown>>
-    expect(rows.map((row) => row.labelId)).toEqual([`l-1`])
+    expect(rows.map((row) => row.labelId)).toEqual([lid(1)])
   })
 
   it(`drops labels deleted since the config write (empty re-select)`, async () => {
     // Configured and submitted, but the in-tx select finds nothing.
     await createWidgetSubmission({
       config: labelConfig,
-      formData: withLabels([`l-1`]),
+      formData: withLabels([lid(1)]),
       userAgent: null,
     })
     expect(h.inserts.find((i) => i.table === issueLabels)).toBeUndefined()

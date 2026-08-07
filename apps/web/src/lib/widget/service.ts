@@ -193,6 +193,12 @@ export function sanitizeWidgetCustomFields(
 // can be deleted after the config write; stale ids must degrade, not 500).
 export const maxWidgetLabels = 10
 
+// Non-UUID strings would make inArray(labels.id, ...) raise 22P02 instead of
+// degrading — the tRPC write schema enforces .uuid(), but this column is
+// reachable by other writers.
+const uuidShape =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export function sanitizeWidgetLabelIds(
   formConfig: Record<string, unknown> | null | undefined
 ): string[] {
@@ -201,7 +207,7 @@ export function sanitizeWidgetLabelIds(
   const out: string[] = []
   for (const entry of raw) {
     if (out.length >= maxWidgetLabels) break
-    if (typeof entry !== `string` || entry.length === 0) continue
+    if (typeof entry !== `string` || !uuidShape.test(entry)) continue
     if (out.includes(entry)) continue
     out.push(entry)
   }
