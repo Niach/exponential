@@ -40,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.builtinCreateAction
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartCodingSheet
 import com.exponential.app.ui.steer.ActionRunState
@@ -48,12 +49,14 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
-// The Actions screen (EXP-253, view + run only — no create/edit on mobile):
+// The Actions screen (EXP-253, view + run only — no manual edit on mobile):
 // the selected team's action prompts, each with a Run affordance that opens
 // the unified Start-coding sheet (EXP-257) preselected on that action — one
 // launcher for issue runs AND action runs, with typed input fields and the
-// full agent/model/effort/toggle options. The server-appended virtual builtin
-// "Create action" pins first by its flag. After a successful send the screen
+// full agent/model/effort/toggle options. The "Fix merge conflicts" builtin
+// pins first by its flag; "Create action" left the list (EXP-431) — the top
+// bar's "New action" button opens the sheet in its dedicated create mode
+// instead. After a successful send the screen
 // waits for the desktop's synced coding_sessions row and jumps into the
 // existing agent session viewer once.
 
@@ -69,9 +72,13 @@ fun ActionsScreen(
     val runState by viewModel.runState.collectAsStateWithLifecycle()
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
+    val selectedTeamId by viewModel.selectedTeamId.collectAsStateWithLifecycle()
 
     // The action the unified sheet was opened for (non-null = sheet open).
     var sheetAction by remember { mutableStateOf<ActionDto?>(null) }
+    // EXP-431: the top bar's "New action" entry opens the SAME sheet locked
+    // to the create builtin, presented as a creation flow.
+    var createMode by remember { mutableStateOf(false) }
 
     // Re-poll device presence each time the screen comes to the foreground.
     LifecycleResumeEffect(Unit) {
@@ -94,6 +101,19 @@ fun ActionsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(ExpIcons.uiBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            selectedTeamId?.let {
+                                createMode = true
+                                sheetAction = builtinCreateAction(it)
+                            }
+                        },
+                        enabled = selectedTeamId != null,
+                    ) {
+                        Icon(ExpIcons.actionCreate, contentDescription = "New action")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -136,9 +156,13 @@ fun ActionsScreen(
             issues = startCandidates,
             preselectedIds = emptySet(),
             preselectedActionId = action.id,
+            createActionMode = createMode,
             onStart = viewModel::startCoding,
             onRunAction = viewModel::runAction,
-            onDismiss = { sheetAction = null },
+            onDismiss = {
+                sheetAction = null
+                createMode = false
+            },
         )
     }
 }

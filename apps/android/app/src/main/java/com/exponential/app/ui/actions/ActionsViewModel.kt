@@ -42,8 +42,9 @@ import kotlinx.serialization.json.Json
 
 // The Actions surface (EXP-253, mobile = view + run only): the selected
 // team's action prompts LIVE from the synced actions shape (EXP-268 — the
-// local Room flow, body-less by design; the virtual builtins "Create action"
-// and "Fix merge conflicts" are prepended client-side) plus the remote-run
+// local Room flow, body-less by design; the virtual "Fix merge conflicts"
+// builtin is prepended client-side, while "Create action" hides behind the
+// screen's "New action" button since EXP-431) plus the remote-run
 // flow. After the server
 // accepts a start,
 // the model watches the synced coding_sessions DAO flow for the row the
@@ -90,9 +91,14 @@ class ActionsViewModel @Inject constructor(
 
     private var watchJob: Job? = null
 
+    // The selected team, for the screen's "New action" entry point (EXP-431).
+    val selectedTeamId: StateFlow<String?> = selection.selectedId
+
     // Live from the synced actions shape (EXP-268): the DAO orders by
-    // sort_order then name; both virtual builtin rows are prepended (the
-    // screens pin them first by the flag, never by sort order).
+    // sort_order then name; the fix-conflicts builtin is prepended (the
+    // screens pin it first by the flag, never by sort order). "Create action"
+    // is deliberately NOT listed (EXP-431) — creation lives behind the top
+    // bar's "New action" button instead of posing as a runnable action.
     val state: StateFlow<ActionsState> =
         combine(dbFlow, selection.selectedId) { db, teamId ->
             db to teamId
@@ -102,7 +108,8 @@ class ActionsViewModel @Inject constructor(
             } else {
                 db.actionDao().observeByTeam(teamId).map { rows ->
                     ActionsState(
-                        actions = builtinActions(teamId) +
+                        actions = builtinActions(teamId)
+                            .filter { it.id != DomainContract.builtinCreateActionId } +
                             rows.map { it.toActionDto(json) },
                         loading = false,
                     )

@@ -1,0 +1,285 @@
+import { useEffect, useMemo, useState } from "react"
+import { LoaderCircle, Sparkles } from "lucide-react"
+import { MAX_ACTION_INPUT_TEXT, type BoardIcon } from "@exp/db-schema/domain"
+import { builtinCreateAction } from "@/lib/builtin-actions"
+import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
+import {
+  agentSupportsPlanMode,
+  agentSupportsSkipPermissions,
+  agentSupportsUltracode,
+  defaultModelFor,
+  readCodingLaunchPrefs,
+  rememberCodingLaunchPrefs,
+} from "@/lib/coding-launch-prefs"
+import {
+  deviceAgentIds,
+  deviceCanRunActionInputs,
+  deviceCanRunActions,
+  deviceHasRunnableAgent,
+  deviceIsOnline,
+  type SteerDevice,
+} from "@/lib/steer-devices"
+import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
+import type { ActionRepoOption } from "@/components/action-editor-dialog"
+import type { StartCodingOptions } from "@/components/launch-dialog/launch-dialog"
+import {
+  CLI_DEFAULT_EFFORT,
+  LaunchOptionsPane,
+} from "@/components/launch-dialog/launch-options-pane"
+import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+
+// The dedicated "New action" dialog (EXP-431): the builtin "Create action"
+// run got its own creation-flavored surface instead of riding the generic
+// launch dialog as just another list row. The description leads as a
+// Textarea (the generic input renderer would give the locked `text` def a
+// one-line field), repo + icon follow, and the right column reuses the
+// launch dialog's options pane verbatim. Submitting is still an ordinary
+// remote builtin run — the shell calls `remote.runAction` with the locked
+// builtin id and the {description, repo?, icon?} inputs payload.
+
+// Radix Select forbids an empty-string item value; the unset optional repo
+// rides this sentinel inside the dialog only.
+const NO_REPO = `none`
+
+export function CreateActionDialog({
+  open,
+  onOpenChange,
+  devices,
+  starting,
+  teamId,
+  repos,
+  onCreate,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  devices: SteerDevice[]
+  starting: boolean
+  teamId: string
+  /** The team's connected repos, for the optional repo input. */
+  repos: ActionRepoOption[]
+  onCreate: (
+    device: SteerDevice,
+    options: StartCodingOptions,
+    inputs?: Record<string, string>
+  ) => void
+}) {
+  // Input defs come from the builtin factory so the payload keys, the
+  // required flag, and the description placeholder can never drift from the
+  // cross-client contract.
+  const inputDefs = useMemo(() => builtinCreateAction(teamId).inputs, [teamId])
+  const descriptionDef = inputDefs.find((def) => def.key === `description`)
+
+  const [description, setDescription] = useState(``)
+  const [repoId, setRepoId] = useState(``)
+  const [icon, setIcon] = useState(``)
+
+  // Launch options — the same remembered-prefs cluster as the launch dialog
+  // shell (a deliberate small duplication; the 677-line shell isn't worth a
+  // hook extraction for one sibling).
+  const [agent, setAgent] = useState(readCodingLaunchPrefs().agent)
+  const [model, setModel] = useState(``)
+  const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
+  const [ultracode, setUltracode] = useState(false)
+  const [planMode, setPlanMode] = useState(false)
+  const [skipPermissions, setSkipPermissions] = useState(false)
+  const [deviceId, setDeviceId] = useState<string | null>(null)
+
+  // Seed fields + options on OPEN only — a desktop connecting mid-dialog
+  // (the settle effect below) must never wipe a typed description.
+  useEffect(() => {
+    if (!open) return
+    setDescription(``)
+    setRepoId(``)
+    setIcon(``)
+    setDeviceId(null)
+    const prefs = readCodingLaunchPrefs()
+    setAgent(prefs.agent)
+    setModel(prefs.model)
+    setEffortValue(prefs.effort === `` ? CLI_DEFAULT_EFFORT : prefs.effort)
+    setUltracode(prefs.ultracode && agentSupportsUltracode(prefs.agent))
+    setPlanMode(prefs.planMode && agentSupportsPlanMode(prefs.agent))
+    setSkipPermissions(prefs.skipPermissions)
+  }, [open])
+
+  // The builtin always needs the action-inputs cap (same gate the launch
+  // dialog applies to it), so an outdated desktop can't be picked here.
+  const candidateDevices = useMemo(
+    () =>
+      devices
+        .filter(deviceIsOnline)
+        .filter(deviceHasRunnableAgent)
+        .filter(deviceCanRunActions)
+        .filter(deviceCanRunActionInputs),
+    [devices]
+  )
+
+  // Settle the device on open + whenever the candidate list changes; a
+  // still-valid current choice is kept, else the first candidate wins.
+  useEffect(() => {
+    if (!open) return
+    setDeviceId((current) =>
+      current && candidateDevices.some((d) => d.deviceId === current)
+        ? current
+        : (candidateDevices[0]?.deviceId ?? null)
+    )
+  }, [open, candidateDevices])
+
+  const device =
+    candidateDevices.find((candidate) => candidate.deviceId === deviceId) ??
+    candidateDevices[0]
+
+  // Switching the agent tab re-seeds model/effort to the agent's own
+  // defaults and clamps the capability toggles (EXP-201).
+  const switchAgent = (next: string) => {
+    if (next === agent) return
+    setAgent(next)
+    setModel(defaultModelFor(next))
+    setEffortValue(CLI_DEFAULT_EFFORT)
+    if (!agentSupportsUltracode(next)) setUltracode(false)
+    if (!agentSupportsPlanMode(next)) setPlanMode(false)
+    if (!agentSupportsSkipPermissions(next)) setSkipPermissions(false)
+  }
+
+  // EXP-201: only agents the chosen device advertised are offerable; a
+  // device change re-clamps a now-unavailable selection.
+  const availableAgents = deviceAgentIds(device)
+  const availableAgentsKey = availableAgents.join(`,`)
+  useEffect(() => {
+    if (!open) return
+    if (!availableAgents.includes(agent)) {
+      switchAgent(availableAgents[0] ?? `claude`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, availableAgentsKey, agent])
+
+  const inputValues = { description, repo: repoId, icon }
+  const submitBlocked = missingRequiredInputs(inputDefs, inputValues).length > 0
+
+  const submit = () => {
+    if (!device || submitBlocked) return
+    const options: StartCodingOptions = {
+      agent,
+      model,
+      effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
+      ultracode: ultracode && agentSupportsUltracode(agent),
+      planMode: planMode && agentSupportsPlanMode(agent),
+      skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
+    }
+    rememberCodingLaunchPrefs(options)
+    onCreate(device, options, buildInputsPayload(inputDefs, inputValues))
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-3 sm:max-h-[85dvh] sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>New action</DialogTitle>
+          <DialogDescription>
+            {`Describe it and your agent will author it for the team${
+              device ? ` on ${device.deviceLabel}` : ``
+            }.`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
+          <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+            <div className="space-y-2">
+              <Label htmlFor="create-action-description">Description</Label>
+              <Textarea
+                id="create-action-description"
+                autoFocus
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={descriptionDef?.placeholder}
+                className="min-h-28"
+                // Client parity with the server's per-value cap, so a long
+                // paste is refused at the field instead of at submit.
+                maxLength={MAX_ACTION_INPUT_TEXT}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-action-repo">Repository (optional)</Label>
+              <Select
+                value={repoId || NO_REPO}
+                onValueChange={(value) =>
+                  setRepoId(value === NO_REPO ? `` : value)
+                }
+              >
+                <SelectTrigger id="create-action-repo" className="w-full">
+                  <SelectValue placeholder="Select a repository" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_REPO}>None</SelectItem>
+                  {repos.map((repo) => (
+                    <SelectItem key={repo.id} value={repo.id}>
+                      {repo.fullName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Icon (optional)</Label>
+              {/* Optional input starts unset; the grid always shows a
+                  selection, so seed it with the first pickable name only once
+                  the user actually picks (same rule as the generic renderer). */}
+              <IconSwatchGrid
+                value={(icon as BoardIcon) || BOARD_ICON_OPTIONS[0].name}
+                onChange={setIcon}
+              />
+            </div>
+          </div>
+          <LaunchOptionsPane
+            devices={candidateDevices}
+            device={device}
+            onDeviceChange={setDeviceId}
+            noDeviceNote={`No capable desktop online. This action needs a desktop app new enough to run action inputs.`}
+            agent={agent}
+            availableAgents={availableAgents}
+            onAgentChange={switchAgent}
+            model={model}
+            onModelChange={setModel}
+            effortValue={effortValue}
+            onEffortChange={setEffortValue}
+            ultracode={ultracode}
+            onUltracodeChange={setUltracode}
+            planMode={planMode}
+            onPlanModeChange={setPlanMode}
+            skipPermissions={skipPermissions}
+            onSkipPermissionsChange={setSkipPermissions}
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={starting}
+          >
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={starting || !device || submitBlocked}>
+            {starting ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

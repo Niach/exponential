@@ -2997,9 +2997,27 @@ impl SidebarPanel {
     // -- Actions tool window ----------------------------------------------------
 
     /// *Actions* tool window (EXP-253): the team's reusable prompts —
-    /// [`crate::actions_panel::ActionsPanel`] owns the list + creators.
+    /// [`crate::actions_panel::ActionsPanel`] owns the list. EXP-431: the
+    /// header's "New action" button IS the creation entry point (the create
+    /// builtin left the list), opening the Start-coding dialog in create mode.
     fn render_actions_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let header = self.tool_header(Icon::from(ExpIcon::Zap), "Actions", cx);
+        // EXP-367 parity with the rows' ▶: no agent CLI → disabled with the
+        // reason, never hidden.
+        let no_agent = crate::coding_flow::no_agent_reason(cx);
+        let header = self.tool_header(Icon::from(ExpIcon::Zap), "Actions", cx).child(
+            Button::new("actions-new")
+                .ghost()
+                .xsmall()
+                .icon(Icon::from(registry::ACTION_CREATE))
+                .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))
+                .disabled(no_agent.is_some())
+                .on_click(move |_, window, cx| {
+                    let nav = crate::navigation::nav_for_window(window, cx);
+                    if let Some(team_id) = crate::navigation::active_team_id(&nav, cx) {
+                        crate::start_coding_dialog::open_for_create_action(window, cx, team_id);
+                    }
+                }),
+        );
         v_flex()
             .flex_1()
             .min_h_0()

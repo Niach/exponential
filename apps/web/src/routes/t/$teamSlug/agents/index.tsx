@@ -3,7 +3,8 @@ import { createFileRoute, redirect } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { actionCollection } from "@/lib/collections"
 import {
-  builtinCreateAction,
+  BUILTIN_CREATE_ACTION_ID,
+  BUILTIN_CREATE_ACTION_NAME,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
 import {
@@ -15,6 +16,7 @@ import {
   Play,
   Trash2,
 } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
 import { MyMachines } from "@/components/my-machines"
 import { SectionLabel, SessionRow } from "@/components/agent-session-row"
@@ -29,6 +31,7 @@ import {
   LaunchDialog,
   type LaunchTab,
 } from "@/components/launch-dialog/launch-dialog"
+import { CreateActionDialog } from "@/components/launch-dialog/create-action-dialog"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -74,6 +77,10 @@ export const Route = createFileRoute(`/t/$teamSlug/agents/`)({
   },
   component: AgentsPage,
 })
+
+// EXP-431: the create entry points share the cross-client `action-create`
+// concept (desktop's `registry::ACTION_CREATE`), never a raw glyph.
+const ActionCreateIcon = conceptIcon(`action-create`)
 
 // Owner-only ⋯ menu — hidden entirely on the builtin (server-shipped, not
 // editable or deletable).
@@ -231,6 +238,37 @@ function ActionRow({
   )
 }
 
+// Rendered after the builtin row(s) while the team has no custom actions yet
+// (EXP-431) — the create flow no longer poses as a list entry, so the empty-ish
+// list nudges toward the "New action" button's dialog instead.
+function NoCustomActionsNudge({
+  mobile = false,
+  onClick,
+}: {
+  mobile?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        mobile
+          ? `flex w-full items-center gap-2 border-b border-border/30 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted/50`
+          : `flex flex-col items-start gap-1 rounded-lg border border-dashed border-border p-3 text-left text-sm text-muted-foreground hover:bg-muted/50`
+      }
+    >
+      <span className="flex items-center gap-2">
+        <ActionCreateIcon className="size-4 shrink-0" />
+        No custom actions yet
+      </span>
+      <span className="text-xs">
+        Describe one and your agent will build it.
+      </span>
+    </button>
+  )
+}
+
 function AgentsPage() {
   const { teamSlug } = Route.useParams()
   const { data: session } = useSession()
@@ -270,19 +308,17 @@ function AgentsPage() {
     [teamId]
   )
 
-  // Builtins pinned FIRST by their flag (neither is a DB row, so the shape
-  // can't carry them); the synced rows re-apply the server's ordering
-  // (sortOrder asc, then name — collections hydrate unordered).
+  // The fix-conflicts builtin pinned FIRST by its flag (not a DB row, so the
+  // shape can't carry it); the synced rows re-apply the server's ordering
+  // (sortOrder asc, then name — collections hydrate unordered). "Create
+  // action" is deliberately NOT listed (EXP-431) — creation lives behind the
+  // section's own "New action" button instead of posing as a runnable action.
   const sortedActions = useMemo<TeamAction[] | null>(() => {
     if (!teamId || !isMember || actionRows === undefined) return null
     const rows = [...actionRows]
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
       .map((row) => ({ ...row, builtin: false as const }))
-    return [
-      builtinCreateAction(teamId),
-      builtinFixConflictsAction(teamId),
-      ...rows,
-    ]
+    return [builtinFixConflictsAction(teamId), ...rows]
   }, [teamId, isMember, actionRows])
 
   // Repo names for the badges + the editor's repository select.
@@ -314,6 +350,9 @@ function AgentsPage() {
     deviceId?: string
     actionId?: string
   } | null>(null)
+
+  // The dedicated "New action" creation dialog (EXP-431).
+  const [createActionOpen, setCreateActionOpen] = useState(false)
 
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<TeamAction | null>(null)
@@ -410,20 +449,47 @@ function AgentsPage() {
             <SectionLabel
               label="Actions"
               count={sortedActions?.length ?? 0}
+              trailing={
+                steerEnabled ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 gap-1 px-2 text-xs"
+                    disabled={runBusy}
+                    onClick={() => setCreateActionOpen(true)}
+                  >
+                    <ActionCreateIcon className="size-3.5" />
+                    New action
+                  </Button>
+                ) : undefined
+              }
             />
             {sortedActions === null ? (
               <div className="px-3 py-3 text-sm text-muted-foreground">
                 Loading…
               </div>
             ) : isMobile ? (
-              sortedActions.map((action) => (
-                <ActionRow key={action.id} {...actionItemProps(action)} />
-              ))
+              <>
+                {sortedActions.map((action) => (
+                  <ActionRow key={action.id} {...actionItemProps(action)} />
+                ))}
+                {steerEnabled && sortedActions.every((a) => a.builtin) && (
+                  <NoCustomActionsNudge
+                    mobile
+                    onClick={() => setCreateActionOpen(true)}
+                  />
+                )}
+              </>
             ) : (
               <div className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
                 {sortedActions.map((action) => (
                   <ActionCard key={action.id} {...actionItemProps(action)} />
                 ))}
+                {steerEnabled && sortedActions.every((a) => a.builtin) && (
+                  <NoCustomActionsNudge
+                    onClick={() => setCreateActionOpen(true)}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -451,6 +517,32 @@ function AgentsPage() {
           remote
             .runAction(device, action, options, inputs)
             .then(() => setLaunch(null))
+            .catch(() => {})
+        }}
+      />
+
+      <CreateActionDialog
+        open={createActionOpen}
+        onOpenChange={(next) => {
+          if (!next) setCreateActionOpen(false)
+        }}
+        devices={remote.devices ?? []}
+        starting={remote.starting}
+        teamId={team.id}
+        repos={repos}
+        onCreate={(device, options, inputs) => {
+          remote
+            .runAction(
+              device,
+              {
+                id: BUILTIN_CREATE_ACTION_ID,
+                name: BUILTIN_CREATE_ACTION_NAME,
+                teamId: team.id,
+              },
+              options,
+              inputs
+            )
+            .then(() => setCreateActionOpen(false))
             .catch(() => {})
         }}
       />

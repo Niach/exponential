@@ -90,8 +90,11 @@ import com.exponential.app.ui.theme.glassButton
 // plain single session; 2+ launch a BATCH session (one agent on one
 // `exp/batch-<id8>` branch spanning every issue, all from one repository).
 // EXP-257 adds a top-level Issues | Actions subject switch: the Actions tab is
-// a searchable single-select action list (the server-appended virtual builtin
-// "Create action" pinned first by its flag) plus typed input fields for the
+// a searchable single-select action list (the "Fix merge conflicts" builtin
+// pinned first by its flag; "Create action" is not offered — EXP-431 gave it
+// `createActionMode`, a dedicated presentation of this sheet: "New action"
+// title, no subject switch, no picker, just the create builtin's input
+// fields) plus typed input fields for the
 // selected action (text / repo / board / pr / icon), sharing the SAME desktop / agent /
 // model / effort / toggle sections; devices there are filtered to the
 // `actions` cap (+ `action-inputs` for builtin/inputs-carrying runs).
@@ -142,6 +145,10 @@ fun StartCodingSheet(
     preferredDeviceId: String? = null,
     // Non-null opens the sheet on the Actions tab with this action selected.
     preselectedActionId: String? = null,
+    // EXP-431: present the sheet as the "New action" creation flow — no
+    // subject switch, no action picker, just the (preselected) create
+    // builtin's input fields. Callers pair it with the create builtin's id.
+    createActionMode: Boolean = false,
     // Non-null pre-picks the selected action's `pr` input (EXP-323 — the
     // conflict-recovery entry points hand over the issue their surface acts
     // on; ANY issue linked to the PR resolves, see [optionForIssue]).
@@ -251,17 +258,21 @@ fun StartCodingSheet(
     var inputValues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     // Builtin rows pin FIRST by the flag (never by sort order; stable sort
-    // keeps the server order otherwise), then the search filter applies.
+    // keeps the server order otherwise), then the search filter applies. The
+    // create builtin stays in the POOL (createActionMode preselects it) but
+    // never renders as a picker row (EXP-431).
     val orderedActions = remember(actionsState.actions) {
         actionsState.actions?.sortedByDescending { it.isBuiltin }
     }
     val filteredActions = remember(orderedActions, actionQuery) {
         val q = actionQuery.trim()
-        orderedActions?.filter {
-            q.isEmpty() ||
-                it.name.contains(q, ignoreCase = true) ||
-                it.description?.contains(q, ignoreCase = true) == true
-        }
+        orderedActions
+            ?.filter { it.id != DomainContract.builtinCreateActionId }
+            ?.filter {
+                q.isEmpty() ||
+                    it.name.contains(q, ignoreCase = true) ||
+                    it.description?.contains(q, ignoreCase = true) == true
+            }
     }
     val selectedAction = orderedActions?.firstOrNull { it.id == selectedActionId }
     val selectedActionInputs = selectedAction?.inputs.orEmpty()
@@ -441,6 +452,13 @@ fun StartCodingSheet(
             ) {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Spacer(Modifier.weight(1f))
+                if (createActionMode) {
+                    // The sheet is deliberately title-less everywhere else
+                    // (EXP-211 chrome) — create mode is the one host that
+                    // needs to say what it is.
+                    Text("New action", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.weight(1f))
+                }
                 Button(
                     onClick = {
                         val target = device ?: return@Button
@@ -494,6 +512,10 @@ fun StartCodingSheet(
                 ) {
                     Text(
                         when {
+                            // The create builtin's run IS creation (desktop
+                            // footer parity, EXP-431).
+                            subjectTab == SubjectTab.Actions &&
+                                selectedAction?.id == DomainContract.builtinCreateActionId -> "Create"
                             subjectTab == SubjectTab.Actions -> "Run action"
                             checkedCount >= 2 -> "Start coding ($checkedCount issues)"
                             else -> "Start coding"
@@ -503,22 +525,26 @@ fun StartCodingSheet(
             }
 
             // ── Subject tabs (EXP-257): Issues | Actions ─────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            ) {
-                SubjectTabPill(
-                    label = "Issues",
-                    selected = subjectTab == SubjectTab.Issues,
-                    onClick = { subjectTab = SubjectTab.Issues },
-                )
-                SubjectTabPill(
-                    label = "Actions",
-                    selected = subjectTab == SubjectTab.Actions,
-                    onClick = { subjectTab = SubjectTab.Actions },
-                )
+            // Create mode is single-purpose (EXP-431) — the subject switch
+            // would only lead out of the creation flow.
+            if (!createActionMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                ) {
+                    SubjectTabPill(
+                        label = "Issues",
+                        selected = subjectTab == SubjectTab.Issues,
+                        onClick = { subjectTab = SubjectTab.Issues },
+                    )
+                    SubjectTabPill(
+                        label = "Actions",
+                        selected = subjectTab == SubjectTab.Actions,
+                        onClick = { subjectTab = SubjectTab.Actions },
+                    )
+                }
             }
 
             Column(
@@ -638,6 +664,34 @@ fun StartCodingSheet(
                         )
                     }
                     Spacer(Modifier.height(4.dp))
+                } else if (createActionMode) {
+                    // ── EXP-431 create mode: no picker — the create builtin's
+                    // input fields below ARE the form (Description leads with
+                    // the locked placeholder).
+                    Text(
+                        "Describe it and your agent will author it for the team.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                    )
+                    if (orderedActions == null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                "Loading actions…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
+                    }
                 } else {
                     // ── Actions ──────────────────────────────────────────────
                     SectionLabel("Actions")
@@ -746,8 +800,11 @@ fun StartCodingSheet(
                             }
                         }
                     }
+                }
 
-                    // Typed input fields for the selected action (EXP-257).
+                // Typed input fields for the selected action (EXP-257) — in
+                // create mode (EXP-431) they are the whole form.
+                if (subjectTab == SubjectTab.Actions) {
                     if (selectedAction != null && selectedActionInputs.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         SectionLabel("Inputs")

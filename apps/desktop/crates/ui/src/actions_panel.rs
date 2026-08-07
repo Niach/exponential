@@ -1,9 +1,13 @@
 //! The Actions tool window (EXP-253): the team's reusable markdown prompts —
 //! list + ▶ Run and owner-only Delete. EXP-257: creation moved into the
-//! virtual **"Create action"** builtin (pinned first in this list; its run IS
-//! the creator — an MCP-wired agent session authoring the action), so the old
-//! "Describe with your agent"/"Write manually" headers and the local templates
-//! are gone. EXP-268: the list is LIVE — it reads the synced `actions` shape
+//! virtual **"Create action"** builtin (its run IS the creator — an MCP-wired
+//! agent session authoring the action), so the old "Describe with your
+//! agent"/"Write manually" headers and the local templates are gone. EXP-431:
+//! that builtin no longer poses as a list row — creation lives behind the
+//! tool header's "New action" button
+//! ([`crate::start_coding_dialog::open_for_create_action`]), and only the
+//! fix-conflicts builtin stays pinned first here.
+//! EXP-268: the list is LIVE — it reads the synced `actions` shape
 //! (body-less rows; the editor fetches the body via `actions.get` on open),
 //! so an MCP-created action appears without any refetch machinery. Run opens
 //! the unified Start-coding dialog's Actions tab
@@ -201,10 +205,15 @@ impl Render for ActionsPanel {
         // row-render closures' mutable cx borrow.
         let muted = cx.theme().muted_foreground;
         let team_id = self.team_id(cx);
-        let (actions, ready) = match team_id.as_deref() {
+        let (mut actions, ready) = match team_id.as_deref() {
             Some(team_id) => queries::team_actions(cx, team_id),
             None => (Vec::new(), true),
         };
+        // EXP-431: the create builtin left the list — it lives behind the tool
+        // header's "New action" button. Filtered HERE, not in `team_actions`:
+        // the Start-coding dialog's pool must keep it or its preselect
+        // dead-ends in `select_action`.
+        actions.retain(|action| action.id != api::actions::BUILTIN_CREATE_ACTION_ID);
         let loading = !ready;
 
         let rows: Vec<gpui::AnyElement> = actions
