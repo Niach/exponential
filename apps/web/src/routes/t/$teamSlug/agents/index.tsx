@@ -250,7 +250,11 @@ function AgentsPage() {
   // interactive affordances render.
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
 
-  const remote = useRemoteStart({ enabled: steerEnabled, currentUserId })
+  const remote = useRemoteStart({
+    enabled: steerEnabled,
+    currentUserId,
+    teamId,
+  })
   const runBusy = remote.starting || remote.sentTo !== null
 
   // Actions ride the Electric `actions` shape since EXP-268 (body excluded —
@@ -374,6 +378,7 @@ function AgentsPage() {
             onStartCoding={(deviceId) => setLaunch({ tab: `issues`, deviceId })}
             onChanged={remote.refresh}
             latestVersions={remote.latestVersions}
+            teamId={teamId}
           />
         )}
 

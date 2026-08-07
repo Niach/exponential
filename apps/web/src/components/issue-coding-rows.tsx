@@ -500,7 +500,7 @@ function RemoteStartRow({
   currentUserId: string
   variant: CodingControlVariant
 }) {
-  const remote = useRemoteStart({ currentUserId })
+  const remote = useRemoteStart({ currentUserId, teamId })
   const [dialogOpen, setDialogOpen] = useState(false)
 
   // Presence lookup still in flight — keep the section quiet.

@@ -424,7 +424,7 @@ fun IssueDetailScreen(
 
         // Start-circle gating + content (EXP-240): hidden without steer /
         // membership / a repo-backed board, and until the device list has
-        // loaded (null = myDevices in flight — no premature dimmed circle); a
+        // loaded (null = the device lookup is in flight — no premature dimmed circle); a
         // live session shows its state dot; an in-flight send spins; otherwise
         // the play glyph (dimmed while no desktop is online — tapping then
         // explains via snackbar).

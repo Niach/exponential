@@ -4,10 +4,16 @@
 // machine state, not team product data). `list` merges the registry with live
 // steer-relay presence so a row carries both durable identity (label, kind,
 // last seen) and the live advertisement (online, agents, caps).
+// EXP-432 bends the per-user rule exactly once: a server device may be SHARED
+// with one team (`shared_team_id`, owner-toggled via `setShared`), and a
+// team-scoped `list({teamId})` additionally returns teammates' shared rows so
+// members can remote-start on them.
 import { z } from "zod"
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { TRPCError } from "@trpc/server"
+import { and, desc, eq, ne, inArray } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { devices } from "@/db/schema"
+import { devices, teamMembers, users } from "@/db/schema"
+import { assertTeamMember } from "@/lib/team-membership"
 import { versionPayload } from "@/lib/client-version"
 import {
   getSteerRelayConfig,
@@ -26,6 +32,12 @@ export type DeviceListEntry = {
   deviceLabel: string
   kind: `desktop` | `server`
   platform: string | null
+  // EXP-432: the team this device is shared with (null = private). Set on
+  // own rows too so the UI can badge them "Shared".
+  sharedTeamId: string | null
+  // EXP-432: set ONLY on teammates' shared rows — the device owner, for
+  // attribution in lists/pickers. Absent on the caller's own rows.
+  owner?: { id: string; name: string }
   // Runnable agents (installed AND signed in since EXP-409).
   agents: string[]
   // EXP-409: agents installed but signed out on the machine — live relay
@@ -165,28 +177,84 @@ export const devicesRouter = router({
       return { ok: updated.length > 0 }
     }),
 
-  list: authedProcedure.query(async ({ ctx }): Promise<{
+  // Optional `teamId` (EXP-432): additionally return teammates' server
+  // devices shared with that team. Old clients call with no input and get
+  // exactly the pre-EXP-432 own-devices behavior.
+  list: authedProcedure
+    .input(z.object({ teamId: z.string().uuid().optional() }).optional())
+    .query(async ({ ctx, input }): Promise<{
     devices: DeviceListEntry[]
     // Informational CLIENT_LATEST_VERSION_* values (null when unset) — the
     // UI hints "update available" when a row's version compares below.
     latestVersions: { desktop: string | null; cli: string | null }
   }> => {
+    const teamId = input?.teamId
+    if (teamId) await assertTeamMember(ctx.session.user.id, teamId)
+
     const rows = await ctx.db
       .select()
       .from(devices)
       .where(eq(devices.userId, ctx.session.user.id))
       .orderBy(desc(devices.lastSeenAt))
 
+    // Teammates' shared server devices (EXP-432). The team_members join
+    // drops ghost shares whose owner has since left the team — the share
+    // column survives membership changes, but an ex-member's box must
+    // neither list nor start.
+    const sharedRows = teamId
+      ? await ctx.db
+          .select({
+            device: devices,
+            ownerName: users.name,
+          })
+          .from(devices)
+          .innerJoin(users, eq(users.id, devices.userId))
+          .innerJoin(
+            teamMembers,
+            and(
+              eq(teamMembers.userId, devices.userId),
+              eq(teamMembers.teamId, teamId)
+            )
+          )
+          .where(
+            and(
+              eq(devices.sharedTeamId, teamId),
+              eq(devices.kind, `server`),
+              ne(devices.userId, ctx.session.user.id)
+            )
+          )
+          .orderBy(desc(devices.lastSeenAt))
+      : []
+
     // Live relay presence is best-effort: a down relay must not blank the
-    // registry — everything just reads offline.
+    // registry — everything just reads offline. Shared rows need their
+    // OWNER's presence bucket; fetch once per distinct owner.
     const config = getSteerRelayConfig()
     let live: SteerDevice[] = []
+    const liveByOwner = new Map<string, Map<string, SteerDevice>>()
     if (config) {
       try {
         live = (await relayGetDevices(config, ctx.session.user.id)).devices
       } catch {
         live = []
       }
+      const ownerIds = [...new Set(sharedRows.map((r) => r.device.userId))]
+      await Promise.all(
+        ownerIds.map(async (ownerId) => {
+          try {
+            const { devices: ownerLive } = await relayGetDevices(
+              config,
+              ownerId
+            )
+            liveByOwner.set(
+              ownerId,
+              new Map(ownerLive.map((d) => [d.deviceId, d]))
+            )
+          } catch {
+            // That owner's rows read offline.
+          }
+        })
+      )
     }
     const liveById = new Map(live.map((d) => [d.deviceId, d]))
 
@@ -231,8 +299,34 @@ export const devicesRouter = router({
         version: row.version,
         updateRequested: Boolean(row.updateRequestedAt),
         updateBlocked: Boolean(row.updateRequestedAt) && row.activeSessions > 0,
+        sharedTeamId: row.sharedTeamId,
       }
     })
+
+    // Teammates' shared rows, appended AFTER own rows (stable UI grouping).
+    // Same live-over-snapshot merge as own rows; no write-on-observe — a
+    // server device heartbeats its own last_seen_at every 60s, and list()
+    // must not write other users' rows.
+    for (const { device: row, ownerName } of sharedRows) {
+      const online = liveByOwner.get(row.userId)?.get(row.deviceId)
+      entries.push({
+        deviceId: row.deviceId,
+        deviceLabel: row.label,
+        kind: `server`,
+        platform: row.platform,
+        agents: online?.agents ?? row.agents,
+        unauthedAgents: online?.unauthedAgents ?? [],
+        caps: online?.caps ?? row.caps,
+        online: Boolean(online),
+        lastSeenAt: row.lastSeenAt.toISOString(),
+        registered: true,
+        version: row.version,
+        updateRequested: Boolean(row.updateRequestedAt),
+        updateBlocked: Boolean(row.updateRequestedAt) && row.activeSessions > 0,
+        sharedTeamId: row.sharedTeamId,
+        owner: { id: row.userId, name: ownerName },
+      })
+    }
 
     // A connected device that never registered (desktop build predating the
     // registry): still show it, or remote start would regress on update lag.
@@ -251,6 +345,7 @@ export const devicesRouter = router({
         version: null,
         updateRequested: false,
         updateBlocked: false,
+        sharedTeamId: null,
       })
     }
 
@@ -266,6 +361,48 @@ export const devicesRouter = router({
       },
     }
   }),
+
+  // EXP-432: share/unshare one of the caller's SERVER devices with a team
+  // they belong to (teamId: null clears the share). Sharing is the consent
+  // that lets teammates remote-start on the box — the resulting sessions run
+  // under the owner's daemon but belong to the requesting teammate
+  // (coding-sessions `resolveStartAttribution`).
+  setShared: authedProcedure
+    .input(
+      z.object({
+        deviceId: deviceIdInput,
+        teamId: z.string().uuid().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ id: devices.id, kind: devices.kind })
+        .from(devices)
+        .where(
+          and(
+            eq(devices.userId, ctx.session.user.id),
+            eq(devices.deviceId, input.deviceId)
+          )
+        )
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+      }
+      if (row.kind !== `server`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `Only server machines can be shared`,
+        })
+      }
+      if (input.teamId) {
+        await assertTeamMember(ctx.session.user.id, input.teamId)
+      }
+      await ctx.db
+        .update(devices)
+        .set({ sharedTeamId: input.teamId, updatedAt: new Date() })
+        .where(eq(devices.id, row.id))
+      return { ok: true }
+    }),
 
   rename: authedProcedure
     .input(

@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  deviceIsMine,
   deviceUpdateAvailable,
   showDeviceUpdateButton,
   type SteerDevice,
@@ -80,5 +81,21 @@ describe(`showDeviceUpdateButton`, () => {
     expect(
       showDeviceUpdateButton(server({ updateRequested: true }), null)
     ).toBe(true)
+  })
+})
+
+// EXP-432: teammates' shared rows carry `owner`; own rows never do.
+describe(`deviceIsMine`, () => {
+  it(`is true for own rows (owner absent) and false for shared rows`, () => {
+    expect(deviceIsMine(server())).toBe(true)
+    expect(deviceIsMine(server({ sharedTeamId: `team-1` }))).toBe(true)
+    expect(
+      deviceIsMine(
+        server({
+          sharedTeamId: `team-1`,
+          owner: { id: `owner-1`, name: `Tessa` },
+        })
+      )
+    ).toBe(false)
   })
 })

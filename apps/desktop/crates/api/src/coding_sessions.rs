@@ -58,12 +58,28 @@ struct SessionEnvelope {
     session: CodingSession,
 }
 
+/// EXP-432: requester attribution for a start that arrived over the relay
+/// targeting a SHARED server device. `started_by_id` is the frame's
+/// `startedBy` (the requesting teammate); `device_id` is THIS machine's
+/// steer deviceId so the server can verify the share before attributing the
+/// row. Both `None` (the [`Default`]) on local and own-device starts — the
+/// wire stays byte-identical there.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Attribution<'a> {
+    pub started_by_id: Option<&'a str>,
+    pub device_id: Option<&'a str>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartInput<'a> {
     issue_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_by_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -72,6 +88,10 @@ struct StartBatchInput<'a> {
     team_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_by_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -85,6 +105,10 @@ struct StartActionInput<'a> {
     team_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_by_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -107,6 +131,11 @@ pub struct HeartbeatScope {
     pub action_id: Option<String>,
     pub action_name: Option<String>,
     pub device_label: Option<String>,
+    /// EXP-432: shared-device attribution echoed on every ping so a swept
+    /// row resurrects requester-owned instead of flipping to the host. Both
+    /// `None` for local/own-device sessions.
+    pub started_by_id: Option<String>,
+    pub device_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -123,6 +152,10 @@ struct HeartbeatInput<'a> {
     action_name: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_by_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -190,12 +223,15 @@ pub fn start(
     trpc: &TrpcClient,
     issue_id: &str,
     device_label: Option<&str>,
+    attribution: Attribution,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
         &StartInput {
             issue_id,
             device_label,
+            started_by_id: attribution.started_by_id,
+            device_id: attribution.device_id,
         },
     )?;
     Ok(envelope.session)
@@ -209,12 +245,15 @@ pub fn start_batch(
     trpc: &TrpcClient,
     team_id: &str,
     device_label: Option<&str>,
+    attribution: Attribution,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
         &StartBatchInput {
             team_id,
             device_label,
+            started_by_id: attribution.started_by_id,
+            device_id: attribution.device_id,
         },
     )?;
     Ok(envelope.session)
@@ -231,6 +270,7 @@ pub fn start_action(
     action_id: &str,
     team_id: Option<&str>,
     device_label: Option<&str>,
+    attribution: Attribution,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -238,6 +278,8 @@ pub fn start_action(
             action_id,
             team_id,
             device_label,
+            started_by_id: attribution.started_by_id,
+            device_id: attribution.device_id,
         },
     )?;
     Ok(envelope.session)
@@ -297,6 +339,8 @@ pub fn heartbeat(
             action_id: scope.and_then(|scope| scope.action_id.as_deref()),
             action_name: scope.and_then(|scope| scope.action_name.as_deref()),
             device_label: scope.and_then(|scope| scope.device_label.as_deref()),
+            started_by_id: scope.and_then(|scope| scope.started_by_id.as_deref()),
+            device_id: scope.and_then(|scope| scope.device_id.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -323,7 +367,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox")).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default()).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -336,7 +380,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default()).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -349,7 +393,7 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox")).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default()).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
@@ -359,12 +403,49 @@ mod tests {
     }
 
     #[test]
+    fn start_posts_shared_device_attribution() {
+        // EXP-432: a shared-device relay start echoes startedById + this
+        // machine's deviceId so the server can verify the share.
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let attribution = Attribution {
+            started_by_id: Some("user-2"),
+            device_id: Some("dev-1"),
+        };
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
+        ));
+    }
+
+    #[test]
+    fn heartbeat_posts_shared_device_attribution() {
+        // EXP-432: the scope echoes attribution so a swept row resurrects
+        // requester-owned.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: Some("issue-1".to_string()),
+            team_id: None,
+            action_id: None,
+            action_name: None,
+            device_label: None,
+            started_by_id: Some("user-2".to_string()),
+            device_id: Some("dev-1".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"id":"sess-1","issueId":"issue-1","startedById":"user-2","deviceId":"dev-1"}"#
+        ));
+    }
+
+    #[test]
     fn session_limit_surfaces_as_412() {
         let (base, _captured) = one_shot_server(
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None) {
+        match start(&client(&base), "issue-1", None, Attribution::default()) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));
@@ -392,6 +473,8 @@ mod tests {
             action_id: None,
             action_name: None,
             device_label: Some("testbox".to_string()),
+            started_by_id: None,
+            device_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -408,6 +491,8 @@ mod tests {
             action_id: None,
             action_name: None,
             device_label: None,
+            started_by_id: None,
+            device_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -423,7 +508,7 @@ mod tests {
                 "actionId":"act-1","actionName":"Code review",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_action(&client(&base), "act-1", None, Some("testbox")).unwrap();
+        let session = start_action(&client(&base), "act-1", None, Some("testbox"), Attribution::default()).unwrap();
         assert_eq!(session.id, "sess-a");
         assert_eq!(session.action_id.as_deref(), Some("act-1"));
         assert_eq!(session.action_name.as_deref(), Some("Code review"));
@@ -450,6 +535,7 @@ mod tests {
             "builtin:create-action",
             Some("ws-1"),
             Some("testbox"),
+            Attribution::default(),
         )
         .unwrap();
         assert_eq!(session.id, "sess-c");
@@ -472,6 +558,8 @@ mod tests {
             action_id: Some("act-1".to_string()),
             action_name: Some("Code review".to_string()),
             device_label: None,
+            started_by_id: None,
+            device_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

@@ -90,6 +90,7 @@ function ReviewsPage() {
   const remote = useRemoteStart({
     enabled: steerEnabled && Object.keys(mergeErrors).length > 0,
     currentUserId,
+    teamId: team?.id,
   })
 
   // The row opens the review-detail page (PR/branch diff + Merge/Close), not the

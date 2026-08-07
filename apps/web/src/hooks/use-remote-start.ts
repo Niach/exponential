@@ -64,11 +64,14 @@ export interface RemoteStart {
 export function useRemoteStart({
   enabled = true,
   currentUserId,
+  teamId,
 }: {
   /** Member + relay configured — gates the myDevices presence fetch. */
   enabled?: boolean
   /** Keys the action dock watch to the caller's own runs. */
   currentUserId?: string
+  /** EXP-432: also list teammates' server devices shared with this team. */
+  teamId?: string
 } = {}): RemoteStart {
   const [devices, setDevices] = useState<SteerDevice[] | null>(null)
   const [latestVersions, setLatestVersions] = useState<{
@@ -94,7 +97,7 @@ export function useRemoteStart({
     let active = true
     const fetchDevices = () => {
       trpc.devices.list
-        .query()
+        .query(teamId ? { teamId } : undefined)
         .then((res) => {
           if (!active) return
           setDevices(res.devices)
@@ -108,7 +111,7 @@ export function useRemoteStart({
       active = false
       clearInterval(interval)
     }
-  }, [enabled, refreshTick])
+  }, [enabled, refreshTick, teamId])
 
   useEffect(
     () => () => {

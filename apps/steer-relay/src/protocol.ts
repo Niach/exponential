@@ -225,8 +225,12 @@ export type ClientFrame = z.infer<typeof clientFrame>
 
 /** Launch options a remote start may carry (EXP-149; agent/skipPermissions
  * are EXP-201). All optional — an absent field means "desktop settings
- * default" (plan mode OFF; absent agent = claude). */
+ * default" (plan mode OFF; absent agent = claude).
+ * `startedBy` (EXP-432): the requesting teammate's userId on a start
+ * targeting a SHARED server device — pure pass-through attribution the
+ * daemon echoes into codingSessions.start; absent on own-device starts. */
 export interface StartSessionOptions {
+  startedBy?: string
   agent?: string
   model?: string
   effort?: string

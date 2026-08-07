@@ -34,7 +34,8 @@ struct ReviewsListContent: View {
     @State private var merging: Set<String> = []
 
     // "Fix conflicts" (EXP-323, desktop parity): a failed merge is usually a
-    // conflict, so the row offers the builtin run on the user's own desktop.
+    // conflict, so the row offers the builtin run on any machine the caller can
+    // reach — own or shared with the team (EXP-432).
     @State private var fixTarget: ReviewEntry?
     @State private var steerEnabled = false
     @State private var devices: [SteerDevice]?
@@ -387,7 +388,10 @@ struct ReviewsListContent: View {
             devices = nil
             return
         }
-        devices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
+        // EXP-432: team-scoped, so a teammate's shared server can host the run.
+        devices = (try? await deps.devicesApi.onlineStartTargets(
+            accountId: accountId, teamId: teamState.activeTeam?.id
+        )) ?? []
         startCandidates = await StartCodingSheet.IssueOption.loadCandidates(
             db: deps.db,
             accountId: accountId,

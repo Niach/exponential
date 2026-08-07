@@ -577,7 +577,7 @@ fn remote_action_start(
             team_id,
             repo: crate::action_run::ActionRepo::Provided(repo_group),
             options,
-            origin: relay_origin(cx),
+            origin: relay_origin(cx, start.started_by.clone()),
             inputs,
             target: None,
             activate_app: true,
@@ -588,8 +588,9 @@ fn remote_action_start(
 
 /// The §08 relay [`LaunchOrigin`] for the signed-in account: the persistent
 /// device id + the active account id (the session's audit surface, §7.1 — not
-/// a branch key).
-fn relay_origin(cx: &App) -> LaunchOrigin {
+/// a branch key). `started_by` is the frame's EXP-432 requester attribution —
+/// desktops can't be shared, so it's parity plumbing that stays `None` today.
+fn relay_origin(cx: &App, started_by: Option<String>) -> LaunchOrigin {
     let device_id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
     let claimant = queries::active_account(cx)
         .map(|account| account.id)
@@ -597,6 +598,7 @@ fn relay_origin(cx: &App) -> LaunchOrigin {
     LaunchOrigin::Relay {
         device_id,
         claimant,
+        started_by,
     }
 }
 
@@ -647,7 +649,7 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         return;
     }
 
-    let origin = relay_origin(cx);
+    let origin = relay_origin(cx, start.started_by.clone());
     // The remote client's Start-coding dialog choices (EXP-149), settings
     // defaults for anything it didn't send. Plan mode stays OFF unless the
     // client explicitly opted in (F7: an option-less start must never park
@@ -815,7 +817,7 @@ fn remote_batch_start(
         },
         issues,
         device_label: coding::default_device_label(),
-        origin: relay_origin(cx),
+        origin: relay_origin(cx, start.started_by.clone()),
         options,
     };
 

@@ -1,7 +1,9 @@
 // "My machines" (EXP-403): the caller's registered devices — desktops and
 // headless `exponential` daemon servers — with live online state, last-seen
 // fallback, rename/remove, and the "Add server" install one-liner. Fed by
-// `devices.list` via useRemoteStart's poll; per-user, never team state.
+// `devices.list` via useRemoteStart's poll. EXP-432 adds the one team-shaped
+// exception: own SERVER rows can be shared with the current team (⋯ menu),
+// and teammates' shared servers render read-only under "Team machines".
 import { useMemo, useState } from "react"
 import { LoaderCircle, MonitorUp } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -9,6 +11,7 @@ import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import {
   deviceHasRunnableAgent,
+  deviceIsMine,
   deviceIsOnline,
   deviceUnauthedAgentIds,
   deviceUpdateAvailable,
@@ -45,6 +48,7 @@ const UpdateIcon = conceptIcon(`ui-update`)
 const RenameIcon = conceptIcon(`ui-edit`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const MoreIcon = conceptIcon(`ui-more`)
+const ShareIcon = conceptIcon(`ui-share`)
 
 // The install script is served by the CLOUD marketing site for every
 // instance — self-hosted deployments ship only the web app (no marketing
@@ -61,6 +65,7 @@ export function MyMachines({
   onStartCoding,
   onChanged,
   latestVersions,
+  teamId,
 }: {
   devices: SteerDevice[] | null
   runBusy: boolean
@@ -68,6 +73,8 @@ export function MyMachines({
   onStartCoding: (deviceId: string) => void
   onChanged: () => void
   latestVersions: { desktop: string | null; cli: string | null } | null
+  /** EXP-432: the current team — the share toggle's target. */
+  teamId?: string
 }) {
   const [addServerOpen, setAddServerOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<SteerDevice | null>(null)
@@ -75,6 +82,23 @@ export function MyMachines({
   const [removeTarget, setRemoveTarget] = useState<SteerDevice | null>(null)
   const [busy, setBusy] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+
+  const mine = devices?.filter(deviceIsMine) ?? null
+  const teamShared = devices?.filter((device) => !deviceIsMine(device)) ?? []
+
+  const setShared = async (device: SteerDevice, shareTeamId: string | null) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await trpc.devices.setShared.mutate({
+        deviceId: device.deviceId,
+        teamId: shareTeamId,
+      })
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const requestUpdate = async (device: SteerDevice) => {
     if (updatingId) return
@@ -127,7 +151,7 @@ export function MyMachines({
   return (
     <div className="mb-4">
       <div className="flex items-center justify-between">
-        <SectionLabel label="My machines" count={devices?.length ?? 0} />
+        <SectionLabel label="My machines" count={mine?.length ?? 0} />
         <Button
           variant="ghost"
           size="sm"
@@ -139,15 +163,15 @@ export function MyMachines({
         </Button>
       </div>
 
-      {devices === null ? (
+      {mine === null ? (
         <div className="px-3 py-3 text-sm text-muted-foreground">Loading…</div>
-      ) : devices.length === 0 ? (
+      ) : mine.length === 0 ? (
         <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
           <OfflineIcon className="size-3.5 shrink-0" />
           No machines yet. Open the Exponential desktop app, or add a server.
         </div>
       ) : (
-        devices.map((device) => {
+        mine.map((device) => {
           const online = deviceIsOnline(device)
           // EXP-409: installed-but-signed-out agents grey the machine out
           // (online but nothing runnable) or annotate it (a runnable
@@ -185,6 +209,18 @@ export function MyMachines({
                     }
                   >
                     v{device.version}
+                  </span>
+                )}
+                {device.sharedTeamId && (
+                  <span
+                    className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
+                    title={
+                      device.sharedTeamId === teamId
+                        ? `Shared with this team — teammates can start coding sessions on this machine.`
+                        : `Shared with another team.`
+                    }
+                  >
+                    Shared
                   </span>
                 )}
               </span>
@@ -285,6 +321,29 @@ export function MyMachines({
                         <RenameIcon />
                         Rename
                       </DropdownMenuItem>
+                      {/* EXP-432: server devices only — teammates of the
+                          current team may then start sessions on this box
+                          (they run under this account's daemon). */}
+                      {device.kind === `server` &&
+                        teamId &&
+                        device.sharedTeamId !== teamId && (
+                          <DropdownMenuItem
+                            onSelect={() => void setShared(device, teamId)}
+                          >
+                            <ShareIcon />
+                            {device.sharedTeamId
+                              ? `Share with this team instead`
+                              : `Share with team`}
+                          </DropdownMenuItem>
+                        )}
+                      {device.kind === `server` && device.sharedTeamId && (
+                        <DropdownMenuItem
+                          onSelect={() => void setShared(device, null)}
+                        >
+                          <ShareIcon />
+                          Stop sharing
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem
                         variant="destructive"
                         onSelect={() => setRemoveTarget(device)}
@@ -300,6 +359,70 @@ export function MyMachines({
           )
         })
       )}
+      {/* EXP-432: teammates' server devices shared with this team —
+          read-only rows (owner name shown, no rename/remove/update), but
+          fully startable. */}
+      {teamShared.length > 0 && (
+        <div className="mt-4">
+          <SectionLabel label="Team machines" count={teamShared.length} />
+          {teamShared.map((device) => {
+            const online = deviceIsOnline(device)
+            const unauthed = deviceUnauthedAgentIds(device)
+            const runnable = deviceHasRunnableAgent(device)
+            const signInNeeded = online && !runnable && unauthed.length > 0
+            return (
+              <div
+                key={device.deviceId}
+                className={`flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/30 px-3 py-2 ${
+                  signInNeeded ? `opacity-60` : ``
+                }`}
+              >
+                <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                  <span className="min-w-0 truncate text-sm">
+                    {device.deviceLabel || device.deviceId}
+                  </span>
+                  {device.owner && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                      shared by {device.owner.name}
+                    </span>
+                  )}
+                </span>
+                {online ? (
+                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                    <span
+                      className={`size-1.5 rounded-full ${
+                        signInNeeded ? `bg-amber-500` : `bg-emerald-500`
+                      }`}
+                    />
+                    {signInNeeded
+                      ? `${unauthed.join(`, `)} not signed in`
+                      : `Online`}
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {device.lastSeenAt
+                      ? `Last seen ${relativeTime(device.lastSeenAt)}`
+                      : `Offline`}
+                  </span>
+                )}
+                <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={runBusy || !online || signInNeeded}
+                    onClick={() => onStartCoding(device.deviceId)}
+                  >
+                    <MonitorUp />
+                    Start coding
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {sentTo && (
         <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
           <LoaderCircle className="size-3 animate-spin" />

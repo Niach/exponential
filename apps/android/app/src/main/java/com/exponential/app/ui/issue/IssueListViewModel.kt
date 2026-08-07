@@ -7,6 +7,7 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CreateIssueInput
 import com.exponential.app.data.api.CreateLabelInput
+import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
@@ -111,6 +112,7 @@ class IssueListViewModel @Inject constructor(
     private val issueImagesApi: IssueImagesApi,
     private val attachmentsApi: AttachmentsApi,
     private val steerApi: SteerApi,
+    private val devicesApi: DevicesApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
     @dagger.hilt.android.qualifiers.ApplicationContext
@@ -383,7 +385,8 @@ class IssueListViewModel @Inject constructor(
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)
     val steerEnabled: StateFlow<Boolean?> = _steerEnabled
 
-    // The caller's online desktops (relay presence). null = not loaded yet.
+    // The online machines a start can go to: the caller's own plus (EXP-432)
+    // the board team's shared servers. null = not loaded yet.
     private val _devices = MutableStateFlow<List<SteerDevice>?>(null)
     val devices: StateFlow<List<SteerDevice>?> = _devices
 
@@ -408,7 +411,12 @@ class IssueListViewModel @Inject constructor(
                 .getOrDefault(false)
             _steerEnabled.value = enabled
             _devices.value = if (enabled) {
-                runCatching { steerApi.myDevices(accountId).devices }.getOrDefault(emptyList())
+                // EXP-432: team-scoped, so the board team's shared servers are
+                // candidates too — filtered to ONLINE machines, because the
+                // selection bar reads an empty list as "no desktop online".
+                runCatching {
+                    devicesApi.list(accountId, _board.value?.teamId).devices.filter { it.online }
+                }.getOrDefault(emptyList())
             } else {
                 emptyList()
             }

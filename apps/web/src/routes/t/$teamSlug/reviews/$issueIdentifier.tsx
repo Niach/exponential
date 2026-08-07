@@ -229,6 +229,7 @@ function ReviewDetailPage() {
   const remote = useRemoteStart({
     enabled: steerEnabled && actionError !== null,
     currentUserId,
+    teamId: team?.id,
   })
 
   const confirmMerge = () => {

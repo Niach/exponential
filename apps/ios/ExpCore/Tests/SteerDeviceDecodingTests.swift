@@ -7,7 +7,8 @@ import XCTest
 // mirroring apps/web/src/lib/steer-devices.ts. The registry fields are all
 // optional, so a presence row — which carries none of them — must still read
 // as ONLINE: treating an absent `online` as offline would hide every start
-// affordance the moment an older server answers.
+// affordance the moment an older server answers. EXP-432 adds the two sharing
+// fields on the same terms — both optional, both absent from an older server.
 final class SteerDeviceDecodingTests: XCTestCase {
     private func decode(_ json: String) throws -> SteerDevicesResult {
         try JSONDecoder().decode(SteerDevicesResult.self, from: Data(json.utf8))
@@ -122,7 +123,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
         let result = try decode("""
         {"devices":[{"deviceId":"d3","deviceLabel":"old-desktop","kind":"desktop",
         "platform":null,"agents":["claude"],"caps":[],"online":true,"lastSeenAt":null,
-        "registered":false,"version":null,"updateRequested":false}]}
+        "registered":false,"version":null,"updateRequested":false,"sharedTeamId":null}]}
         """)
         let device = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(device.isOnline)
@@ -130,5 +131,51 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.lastSeenAt)
         XCTAssertNil(device.version)
         XCTAssertFalse(device.isRegistered)
+        XCTAssertNil(device.sharedTeamId)
+        XCTAssertTrue(device.isMine)
+    }
+
+    /// EXP-432: a team-scoped `devices.list` APPENDS teammates' shared servers
+    /// after the caller's own rows. `owner` is the whole tell — own rows never
+    /// carry it — while `sharedTeamId` rides own rows too, so it must never be
+    /// read as "somebody else's machine".
+    func testDecodesTeamSharedDevice() throws {
+        let teamId = "11111111-1111-1111-1111-111111111111"
+        let result = try decode("""
+        {"devices":[{"deviceId":"own","deviceLabel":"my-box","kind":"server",
+        "agents":["claude"],"caps":["actions"],"online":true,"registered":true,
+        "sharedTeamId":"\(teamId)"},
+        {"deviceId":"mate","deviceLabel":"buildbox","kind":"server",
+        "agents":["claude"],"caps":["actions"],"online":true,"registered":true,
+        "sharedTeamId":"\(teamId)","owner":{"id":"u2","name":"Danny"}}]}
+        """)
+        let own = try XCTUnwrap(result.devices.first)
+        XCTAssertTrue(own.isMine)  // shared out, but still the caller's machine
+        XCTAssertNil(own.owner)
+        XCTAssertEqual(own.sharedTeamId, teamId)
+
+        let shared = result.devices[1]
+        XCTAssertFalse(shared.isMine)
+        XCTAssertEqual(shared.owner?.id, "u2")
+        XCTAssertEqual(shared.owner?.name, "Danny")
+        XCTAssertEqual(shared.sharedTeamId, teamId)
+        // A teammate's shared server is a start target like any other.
+        XCTAssertTrue(shared.isOnline)
+        XCTAssertTrue(shared.hasRunnableAgent)
+        XCTAssertTrue(shared.canRunActions)
+    }
+
+    /// A pre-EXP-432 server omits BOTH sharing fields. Every row must still
+    /// decode, and read as the caller's own — never as somebody else's, which
+    /// would hide the rename/remove actions on a perfectly ordinary machine.
+    func testLegacyRowsDecodeWithoutSharingFields() throws {
+        let result = try decode("""
+        {"devices":[{"deviceId":"d8","deviceLabel":"box","kind":"server",
+        "agents":["claude"],"caps":[],"online":true,"registered":true}]}
+        """)
+        let device = try XCTUnwrap(result.devices.first)
+        XCTAssertNil(device.sharedTeamId)
+        XCTAssertNil(device.owner)
+        XCTAssertTrue(device.isMine)
     }
 }

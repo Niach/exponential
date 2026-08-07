@@ -371,6 +371,42 @@ describe(`steer relay end-to-end`, () => {
       planMode: true,
     })
 
+    // EXP-432: a shared-device start rides startedBy end-to-end. A present
+    // but mistyped startedBy is 400 (it would drop the frame desktop-side).
+    const sharedStart = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        issueId: `issue-44`,
+        startedBy: `requester-1`,
+      }),
+    })
+    expect(sharedStart.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-44`,
+      startedBy: `requester-1`,
+    })
+    const badStartedBy = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        issueId: `issue-45`,
+        startedBy: 42,
+      }),
+    })
+    expect(badStartedBy.status).toBe(400)
+
     const offline = await fetch(`${base}/start`, {
       method: `POST`,
       headers: {

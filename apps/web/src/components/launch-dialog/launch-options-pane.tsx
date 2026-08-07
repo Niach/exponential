@@ -129,6 +129,8 @@ export function LaunchOptionsPane({
               {devices.map((candidate) => (
                 <SelectItem key={candidate.deviceId} value={candidate.deviceId}>
                   {candidate.deviceLabel || candidate.deviceId}
+                  {/* EXP-432: teammates' shared servers carry their owner. */}
+                  {candidate.owner ? ` — ${candidate.owner.name}` : ``}
                 </SelectItem>
               ))}
             </SelectContent>

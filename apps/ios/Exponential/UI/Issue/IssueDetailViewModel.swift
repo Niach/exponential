@@ -106,6 +106,9 @@ final class IssueDetailViewModel {
     private let labelsApi: LabelsApi
     private let subscriptionsApi: SubscriptionsApi
     private let steerApi: SteerApi
+    /// EXP-432: the start circle's device source — `devices.list` team-scoped,
+    /// not `steer.myDevices`, so a teammate's shared server counts too.
+    private let devicesApi: DevicesApi
     private let auth: AuthRepository
     private let baseURL: URL?
     /// Raw instance base string for building shareable web links.
@@ -128,6 +131,7 @@ final class IssueDetailViewModel {
         labelsApi: LabelsApi,
         subscriptionsApi: SubscriptionsApi,
         steerApi: SteerApi,
+        devicesApi: DevicesApi,
         auth: AuthRepository
     ) {
         self.accountId = accountId
@@ -139,6 +143,7 @@ final class IssueDetailViewModel {
         self.labelsApi = labelsApi
         self.subscriptionsApi = subscriptionsApi
         self.steerApi = steerApi
+        self.devicesApi = devicesApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
         self.instanceUrl = instanceUrl
@@ -474,7 +479,12 @@ final class IssueDetailViewModel {
     func refreshSteer() async {
         steerConfig = await SteerConfigCache.load(accountId: accountId, api: steerApi)
         guard steerConfig?.enabled == true, permissions.isMember, runningSessions.isEmpty else { return }
-        steerDevices = (try? await steerApi.myDevices(accountId: accountId)) ?? []
+        // Scoped to the issue's team (EXP-432): teammates' shared servers are
+        // start targets too. `devices.list` also returns OFFLINE machines,
+        // which the circle must never offer — `onlineStartTargets` drops them.
+        steerDevices = (try? await devicesApi.onlineStartTargets(
+            accountId: accountId, teamId: board?.teamId
+        )) ?? []
     }
 
     /// Remote-start on the chosen desktop (ported from AgentPrCard.start):
