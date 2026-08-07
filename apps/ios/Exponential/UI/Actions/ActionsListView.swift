@@ -2,9 +2,11 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// The Actions surface (EXP-253, view + run only — no create/edit on mobile):
+/// The Actions surface (EXP-253, view + run only — no manual edit on mobile):
 /// the active team's action prompts, each with a Run affordance that
 /// remote-starts the action on one of the caller's actions-capable desktops.
+/// The toolbar's "New action" button (EXP-431) opens the same sheet in its
+/// dedicated create mode — the "Create action" builtin left the list.
 /// After a successful send the screen waits for the desktop's synced
 /// coding_sessions row and jumps into the existing live steer screen once.
 struct ActionsListView: View {
@@ -16,6 +18,9 @@ struct ActionsListView: View {
     @State private var steerEnabled = false
     /// The action the run sheet was opened for (non-nil = sheet up).
     @State private var runTarget: ActionDto?
+    /// EXP-431: the toolbar's "New action" entry opens the SAME sheet locked
+    /// to the create builtin, presented as a creation flow.
+    @State private var createMode = false
     /// Consumed-once navigation target (the SettingsView pendingTeam idiom).
     @State private var sessionTarget: ActionsViewModel.StartedSession?
 
@@ -29,6 +34,22 @@ struct ActionsListView: View {
         }
         .navigationTitle("Actions")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // EXP-431: creation left the list ("Create action" no longer poses as
+        // a row) — the toolbar button opens the sheet in its create mode.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    guard let teamId = teamState.activeTeam?.id else { return }
+                    createMode = true
+                    runTarget = ActionDto.builtinCreateAction(teamId: teamId)
+                    Task { await viewModel?.refreshStartCandidates() }
+                } label: {
+                    AppIcon(AppIcons.actionCreate, size: AppIcon.Size.medium)
+                }
+                .disabled(teamState.activeTeam == nil)
+                .accessibilityLabel("New action")
+            }
+        }
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
@@ -54,7 +75,7 @@ struct ActionsListView: View {
         // preselected on the tapped row (it filters device candidates by
         // capability itself). The Issues tab carries the team's real
         // candidate pool (Android parity) so flipping over never dead-ends.
-        .sheet(item: $runTarget) { action in
+        .sheet(item: $runTarget, onDismiss: { createMode = false }) { action in
             StartCodingSheet(
                 devices: devices ?? [],
                 issues: viewModel?.startCandidates ?? [],
@@ -62,6 +83,7 @@ struct ActionsListView: View {
                 teamId: teamState.activeTeam?.id,
                 initialTab: .actions,
                 preselectedActionId: action.id,
+                createActionMode: createMode,
                 onStart: { device, issueIds, options in
                     viewModel?.startCoding(device: device, issueIds: issueIds, options: options)
                 },

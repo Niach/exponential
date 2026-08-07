@@ -29,12 +29,14 @@
 //! EXP-257: the dialog is the ONE unified launch surface — a segmented
 //! **Issues | Actions** subject strip sits at the top. The Actions tab
 //! replaces the issue checklist with an action search + single-select list
-//! (the server-defined "Create action" builtin pinned first) and the
-//! selected action's typed input fields (text / repo / board); the SHARED
-//! bottom half (agent tabs, model/effort, toggles, footer) applies to both.
-//! An action launch goes through the trust-gated
-//! [`crate::action_run::start_action_run`] instead of `coding::prepare`
-//! directly.
+//! (the fix-conflicts builtin pinned first; "Create action" is not offered —
+//! EXP-431 gave it its own CREATE-mode presentation of this dialog, see
+//! [`open_for_create_action`]: titled "New action", no subject strip, no
+//! picker, just the builtin's input fields) and the selected action's typed
+//! input fields (text / repo / board); the SHARED bottom half (agent tabs,
+//! model/effort, toggles, footer) applies to both. An action launch goes
+//! through the trust-gated [`crate::action_run::start_action_run`] instead
+//! of `coding::prepare` directly.
 //!
 //! EXP-291: the dialog renders as a full-height column — only the BODY
 //! (subject strip + the two columns) scrolls; the Cancel / Start action bar
@@ -79,7 +81,7 @@ use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
-use crate::icons::{registry, ExpIcon};
+use crate::icons::registry;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
@@ -146,7 +148,7 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog: board not synced for {issue_id}");
         return;
     };
-    open(window, cx, team_id, vec![issue.id], None, None);
+    open(window, cx, team_id, vec![issue.id], None, None, false);
 }
 
 /// Open the dialog from the bulk bar with the selection pre-checked.
@@ -156,13 +158,29 @@ pub fn open_for_selection(
     team_id: String,
     issue_ids: Vec<String>,
 ) {
-    open(window, cx, team_id, issue_ids, None, None);
+    open(window, cx, team_id, issue_ids, None, None, false);
 }
 
 /// Open the dialog on the ACTIONS tab with `action_id` preselected (EXP-257
 /// — the actions panel rows land here).
 pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, action_id: String) {
-    open(window, cx, team_id, Vec::new(), Some(action_id), None);
+    open(window, cx, team_id, Vec::new(), Some(action_id), None, false);
+}
+
+/// Open the dialog in CREATE mode (EXP-431 — the Actions tool header's "New
+/// action" button): the "Create action" builtin preselected, presented as a
+/// creation dialog — no subject tabs, no action picker, just the builtin's
+/// input fields (Description leading) over the shared options cluster.
+pub fn open_for_create_action(window: &mut Window, cx: &mut App, team_id: String) {
+    open(
+        window,
+        cx,
+        team_id,
+        Vec::new(),
+        Some(api::actions::BUILTIN_CREATE_ACTION_ID.to_string()),
+        None,
+        true,
+    );
 }
 
 /// Open the dialog on the ACTIONS tab with the builtin "Fix merge conflicts"
@@ -182,6 +200,7 @@ pub fn open_for_fix_conflicts(
         Vec::new(),
         Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
         Some(issue_id),
+        false,
     );
 }
 
@@ -192,6 +211,7 @@ fn open(
     preselected: Vec<String>,
     preselect_action: Option<String>,
     preselect_pr: Option<String>,
+    create_mode: bool,
 ) {
     // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
     // picker left, options right); the launched terminal tab lands back in
@@ -200,8 +220,9 @@ fn open(
     // EXP-285: trimmed 640 → 560 and user-resizable — the two-column layout
     // tolerates it (both lists are max_h-capped).
     let height = (window.viewport_size().height * 0.85).min(px(560.));
-    let spec = DialogSpec::new("Start coding", size(px(760.), height))
-        .resizable(size(px(640.), px(480.)));
+    let title = if create_mode { "New action" } else { "Start coding" };
+    let spec =
+        DialogSpec::new(title, size(px(760.), height)).resizable(size(px(640.), px(480.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
             StartCodingDialogView::new(
@@ -209,6 +230,7 @@ fn open(
                 preselected,
                 preselect_action,
                 preselect_pr,
+                create_mode,
                 opener,
                 window,
                 cx,
@@ -286,6 +308,10 @@ pub struct StartCodingDialogView {
     /// EXP-257: which subject half is showing — Issues (the checklist) or
     /// Actions (the single-select action list + input fields).
     subject_tab: SubjectTab,
+    /// EXP-431: opened via [`open_for_create_action`] — presented as a "New
+    /// action" creation dialog: no subject tabs, no action picker/search,
+    /// just the create builtin's input fields over the options cluster.
+    create_mode: bool,
     /// The team's actions (builtin pinned first by flag) — refreshed live
     /// from the synced `actions` collection (EXP-268).
     actions: Vec<api::actions::Action>,
@@ -368,6 +394,7 @@ impl StartCodingDialogView {
         preselected: Vec<String>,
         preselect_action: Option<String>,
         preselect_pr: Option<String>,
+        create_mode: bool,
         opener: AnyWindowHandle,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -504,6 +531,7 @@ impl StartCodingDialogView {
             } else {
                 SubjectTab::Issues
             },
+            create_mode,
             actions: Vec::new(),
             actions_load: ActionsLoad::Loading,
             selected_action_id: None,
@@ -1544,7 +1572,7 @@ impl StartCodingDialogView {
         )
     }
 
-    /// One Actions-tab list row: icon + name + repo badge + selection check.
+    /// One Actions-tab list row: icon + name + selection check.
     fn action_row(
         &self,
         action: &api::actions::Action,
@@ -1579,9 +1607,6 @@ impl StartCodingDialogView {
                     .text_color(theme.foreground)
                     .child(SharedString::from(action.name.clone())),
             )
-            .when(action.repository_id.is_some(), |this| {
-                this.child(Icon::from(ExpIcon::GitMerge).xsmall().text_color(muted))
-            })
             .when(is_selected, |this| {
                 this.child(
                     Icon::new(registry::UI_CHECK)
@@ -1951,13 +1976,15 @@ impl StartCodingDialogView {
                     .label(if self.launching {
                         "Starting…"
                     } else if self.subject_tab == SubjectTab::Actions {
-                        // EXP-257: the create builtin's run IS creation. The
-                        // other builtin (fix-conflicts) runs like any action.
+                        // EXP-257: the create builtin's run IS creation (the
+                        // EXP-431 create-mode dialog title already says "New
+                        // action"). The other builtin (fix-conflicts) runs
+                        // like any action.
                         if self
                             .selected_action()
                             .is_some_and(|action| action.id == api::actions::BUILTIN_CREATE_ACTION_ID)
                         {
-                            "Create action"
+                            "Create"
                         } else {
                             "Run action"
                         }
@@ -2129,14 +2156,37 @@ impl Render for StartCodingDialogView {
                         cx,
                     ));
             }
+            SubjectTab::Actions if self.create_mode => {
+                // EXP-431 create mode: no search, no picker — the intro plus
+                // the create builtin's input fields below (Description leads
+                // with the locked placeholder).
+                left = left.child(
+                    div()
+                        .text_xs()
+                        .text_color(theme_muted)
+                        .child("Describe it and your agent will author it for the team."),
+                );
+                if matches!(self.actions_load, ActionsLoad::Loading) {
+                    left = left.child(
+                        div()
+                            .text_xs()
+                            .text_color(theme_muted)
+                            .child("Loading actions…"),
+                    );
+                }
+            }
             SubjectTab::Actions => {
-                // The single-select action list (builtin pinned first) + the
-                // selected action's typed input fields (EXP-257).
+                // The single-select action list (the fix-conflicts builtin
+                // pinned first) + the selected action's typed input fields
+                // (EXP-257). "Create action" is deliberately not offered here
+                // (EXP-431 — the Actions tool header's "New action" button
+                // opens its own create-mode dialog).
                 let query = self.action_search.read(cx).value().trim().to_lowercase();
                 let visible: Vec<usize> = self
                     .actions
                     .iter()
                     .enumerate()
+                    .filter(|(_, action)| action.id != api::actions::BUILTIN_CREATE_ACTION_ID)
                     .filter(|(_, action)| {
                         query.is_empty()
                             || action.name.to_lowercase().contains(&query)
@@ -2180,7 +2230,7 @@ impl Render for StartCodingDialogView {
                             .text_xs()
                             .text_color(theme_muted)
                             .child("Run a reusable team action on this device. Pick one and \
-fill in its inputs. \"Create action\" authors a new one from your description."),
+fill in its inputs."),
                     )
                     .child(Input::new(&self.action_search).small())
                     .child(self.bounded_pane(
@@ -2190,20 +2240,25 @@ fill in its inputs. \"Create action\" authors a new one from your description.")
                         list.into_any_element(),
                         cx,
                     ));
-                if let Some(action) = self.selected_action().cloned() {
-                    if !action.inputs.is_empty() {
-                        let mut fields = v_flex().gap_2().p_2();
-                        for (ix, input) in action.inputs.iter().enumerate() {
-                            fields = fields.child(self.action_input_field(ix, input, cx));
-                        }
-                        left = left.child(self.bounded_pane(
-                            "sc-action-inputs-scroll",
-                            &self.action_inputs_scroll.clone(),
-                            220.,
-                            fields.into_any_element(),
-                            cx,
-                        ));
+            }
+        }
+        // The selected action's typed input fields — shared by both Actions
+        // presentations (the picker and EXP-431 create mode, where they ARE
+        // the form).
+        if self.subject_tab == SubjectTab::Actions {
+            if let Some(action) = self.selected_action().cloned() {
+                if !action.inputs.is_empty() {
+                    let mut fields = v_flex().gap_2().p_2();
+                    for (ix, input) in action.inputs.iter().enumerate() {
+                        fields = fields.child(self.action_input_field(ix, input, cx));
                     }
+                    left = left.child(self.bounded_pane(
+                        "sc-action-inputs-scroll",
+                        &self.action_inputs_scroll.clone(),
+                        220.,
+                        fields.into_any_element(),
+                        cx,
+                    ));
                 }
             }
         }
@@ -2242,18 +2297,20 @@ fill in its inputs. \"Create action\" authors a new one from your description.")
             right = right.child(toggles);
         }
 
-        let mut body = v_flex()
-            .w_full()
-            .gap_3()
-            .child(self.subject_tabs(cx))
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap_5()
-                    .items_start()
-                    .child(left)
-                    .child(right),
-            );
+        let mut body = v_flex().w_full().gap_3();
+        // EXP-431 create mode is single-purpose — the Issues/Actions subject
+        // switch would only lead out of the creation flow.
+        if !self.create_mode {
+            body = body.child(self.subject_tabs(cx));
+        }
+        body = body.child(
+            h_flex()
+                .w_full()
+                .gap_5()
+                .items_start()
+                .child(left)
+                .child(right),
+        );
         if let Some(error) = &self.error {
             body = body.child(div().text_sm().text_color(danger).child(error.clone()));
         }

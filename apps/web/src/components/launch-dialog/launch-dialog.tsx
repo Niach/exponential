@@ -12,7 +12,6 @@ import {
 } from "@/lib/collections"
 import {
   BUILTIN_FIX_CONFLICTS_ID,
-  builtinCreateAction,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
 import { useTeamBoards } from "@/hooks/use-team-data"
@@ -69,8 +68,9 @@ import {
 // branch. Per-mode defaults track the desktop: while the user hasn't touched a
 // Checkbox / Select, crossing to a batch flips ultracode ON / plan OFF, and
 // dropping back re-seeds the remembered single-issue prefs. Actions tab
-// (EXP-253/EXP-257): a single-select action list (the builtin "Create action"
-// pinned first) plus the action's typed input fields; action runs take the
+// (EXP-253/EXP-257): a single-select action list (the builtin "Fix merge
+// conflicts" pinned first; "Create action" lives in its own dedicated dialog
+// since EXP-431) plus the action's typed input fields; action runs take the
 // FULL option set on any agent the device advertised. Single-issue and action
 // submits persist the prefs; batch submits don't (batch defaults must not
 // overwrite them).
@@ -194,8 +194,9 @@ export function LaunchDialog({
   }, [open, teamId])
 
   // Live synced actions (EXP-268 — the body-less list projection); the
-  // builtins (not DB rows) pinned FIRST, the rest re-apply the server's
-  // ordering (sortOrder, name).
+  // fix-conflicts builtin (not a DB row) pinned FIRST, the rest re-apply the
+  // server's ordering (sortOrder, name). "Create action" is deliberately not
+  // offered here (EXP-431 — it has its own dialog on the Agents page).
   const { data: syncedActionRows } = useLiveQuery(
     (query) =>
       open
@@ -210,11 +211,7 @@ export function LaunchDialog({
     const rows = [...syncedActionRows]
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
       .map((row) => ({ ...row, builtin: false as const }))
-    return [
-      builtinCreateAction(teamId),
-      builtinFixConflictsAction(teamId),
-      ...rows,
-    ]
+    return [builtinFixConflictsAction(teamId), ...rows]
   }, [open, teamId, syncedActionRows])
   const selectedAction =
     (actions ?? []).find((action) => action.id === selectedActionId) ?? null

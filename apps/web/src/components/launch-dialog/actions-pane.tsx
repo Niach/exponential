@@ -10,9 +10,10 @@ import { getActionIcon } from "@/lib/board-icons"
 import { cn } from "@/lib/utils"
 
 // The Actions tab of the unified launch dialog (EXP-257): search + a
-// single-select list (the builtin "Create action" pinned first by its
-// `builtin` flag, with a Plus icon), followed by the selected action's typed
-// input fields. Selection state and the fetched lists live in the shell.
+// single-select list (the builtin "Fix merge conflicts" pinned first by its
+// `builtin` flag; "Create action" moved to its own dedicated dialog in
+// EXP-431), followed by the selected action's typed input fields. Selection
+// state and the fetched lists live in the shell.
 
 export function ActionsPane({
   actions,

@@ -16,8 +16,11 @@ import SwiftUI
 //
 // EXP-257: hosts that pass `teamId` + `onRunAction` get a top segmented
 // Issues | Actions control. Actions mode is a searchable single-select action
-// list (the server-appended "Create action" builtin pinned FIRST by its
-// `builtin` flag) over the selected action's typed input fields (text / repo /
+// list (the "Fix merge conflicts" builtin pinned FIRST by its `builtin` flag;
+// "Create action" is not offered — EXP-431 gave it `createActionMode`, a
+// dedicated presentation of this sheet: "New action" title, no subject
+// switch, no picker, just the create builtin's input fields) over the
+// selected action's typed input fields (text / repo /
 // board / pr / icon) — the SAME agent/model/effort/toggle options apply, action
 // runs are no longer Claude-only. Device candidates in Actions mode need the
 // `actions` capability, plus `action-inputs` when the selected action is
@@ -118,6 +121,10 @@ struct StartCodingSheet: View {
     /// whose actions/repositories/boards the sheet fetches.
     let teamId: String?
     let preselectedActionId: String?
+    /// EXP-431: present the sheet as the "New action" creation flow — no
+    /// subject switch, no action picker, just the (preselected) create
+    /// builtin's input fields. Callers pair it with the create builtin's id.
+    let createActionMode: Bool
     /// Non-nil pre-picks the selected action's `pr` input (EXP-323 — the
     /// conflict-recovery entry points hand over the issue their surface acts
     /// on; ANY issue linked to the PR resolves).
@@ -193,6 +200,7 @@ struct StartCodingSheet: View {
         teamId: String? = nil,
         initialTab: SubjectTab = .issues,
         preselectedActionId: String? = nil,
+        createActionMode: Bool = false,
         preselectedPrIssueId: String? = nil,
         onStart: @escaping (SteerDevice, [String], SteerStartOptions) -> Void,
         onRunAction: ((SteerDevice, ActionDto, SteerStartOptions, [String: String]) -> Void)? = nil
@@ -203,6 +211,7 @@ struct StartCodingSheet: View {
         self.preferredDeviceId = preferredDeviceId
         self.teamId = teamId
         self.preselectedActionId = preselectedActionId
+        self.createActionMode = createActionMode
         self.preselectedPrIssueId = preselectedPrIssueId
         self.onStart = onStart
         self.onRunAction = onRunAction
@@ -252,7 +261,9 @@ struct StartCodingSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                if actionsEnabled {
+                // Create mode is single-purpose (EXP-431) — the subject
+                // switch would only lead out of the creation flow.
+                if actionsEnabled, !createActionMode {
                     Section {
                         Picker("Subject", selection: $subjectTab) {
                             Text("Issues").tag(SubjectTab.issues)
@@ -268,7 +279,11 @@ struct StartCodingSheet: View {
                 if subjectTab == .issues {
                     issuesSection
                 } else {
-                    actionsSection
+                    if createActionMode {
+                        createActionIntroSection
+                    } else {
+                        actionsSection
+                    }
                     if let action = selectedAction, !(action.inputs ?? []).isEmpty {
                         inputsSection(action)
                     }
@@ -331,14 +346,17 @@ struct StartCodingSheet: View {
                 }
             }
             // No navigation title (EXP-211) — the confirm button already says
-            // "Start coding"; the bar carries only Cancel + Start.
+            // "Start coding"; the bar carries only Cancel + Start. Create mode
+            // (EXP-431) is the one host that needs to say what it is.
+            .navigationTitle(createActionMode ? "New action" : "")
+            .navigationBarTitleDisplayMode(.inline)
             .listSectionSpacing(12)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(subjectTab == .actions ? "Run action" : startTitle) {
+                    Button(confirmTitle) {
                         if subjectTab == .actions {
                             submitAction()
                         } else {
@@ -571,6 +589,35 @@ struct StartCodingSheet: View {
 
     // MARK: - Actions mode (EXP-257)
 
+    /// The confirm button's label: the create builtin's run IS creation
+    /// (desktop footer parity, EXP-431); other actions just run.
+    private var confirmTitle: String {
+        guard subjectTab == .actions else { return startTitle }
+        return selectedAction?.id == DomainContract.builtinCreateActionId ? "Create" : "Run action"
+    }
+
+    /// EXP-431 create mode: no picker — the create builtin's input fields
+    /// below ARE the form (Description leads with the locked placeholder).
+    private var createActionIntroSection: some View {
+        Section {
+            Text("Describe it and your agent will author it for the team.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if loadedActions == nil, actionsError == nil {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading actions…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let actionsError {
+                Text(actionsError)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            }
+        }
+    }
+
     private var actionsSection: some View {
         Section {
             actionSearchField
@@ -790,9 +837,13 @@ struct StartCodingSheet: View {
     }
 
     /// Search-filtered rows, builtins pinned FIRST by the `builtin` flag (the
-    /// contract — never by sort order).
+    /// contract — never by sort order). The create builtin stays in the POOL
+    /// (`createActionMode` preselects it) but never renders as a picker row
+    /// (EXP-431).
     private var actionRows: [ActionDto] {
-        let filtered = (loadedActions ?? []).filter { matchesActionSearch($0) }
+        let filtered = (loadedActions ?? [])
+            .filter { $0.id != DomainContract.builtinCreateActionId }
+            .filter { matchesActionSearch($0) }
         return filtered.filter(\.isBuiltin) + filtered.filter { !$0.isBuiltin }
     }
 

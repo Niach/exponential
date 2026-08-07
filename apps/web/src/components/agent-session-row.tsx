@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import { GitMerge, LoaderCircle, MonitorPlay } from "lucide-react"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
@@ -26,11 +26,21 @@ import {
 // "Action" + the action name, an issueless batch run shows "Batch",
 // everything else is the linked issue.
 
-export function SectionLabel({ label, count }: { label: string; count: number }) {
+export function SectionLabel({
+  label,
+  count,
+  trailing,
+}: {
+  label: string
+  count: number
+  /** Optional right-aligned control (e.g. the Actions "New action" button). */
+  trailing?: ReactNode
+}) {
   return (
     <div className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5">
       <span className="text-sm font-medium">{label}</span>
       <span className="text-xs text-muted-foreground">{count}</span>
+      {trailing && <div className="ml-auto">{trailing}</div>}
     </div>
   )
 }
